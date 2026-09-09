@@ -151,28 +151,6 @@ impl WebCanvasRenderer<'_> {
         phys.intersect(&target)
     }
 
-    // Text extent for the offscreen buffer. Must mirror the sw label
-    // path's advance accumulation at scale=1 (the buffer renders with
-    // Viewport scale 1), or the buffer clips the text. +1px row so the
-    // AA bottom edge survives. Placeholder until a layout engine lands.
-    fn measure_text_extent(&self, font: &crate::render::font::Font, text: &str) -> (i32, i32) {
-        let requested = font.size.max(1);
-        let mut w: i32 = 0;
-        for ch in text.chars() {
-            let Some(g) = font.glyph(ch, requested) else {
-                continue;
-            };
-            w += g.advance.to_int();
-        }
-        let h = font
-            .metrics(requested)
-            .line_height
-            .to_int()
-            .max(requested as i32)
-            + 1;
-        (w, h)
-    }
-
     /// Push a clip rect onto the context state stack. The clip lives
     /// in logical pixels, so it stays anchored to the screen even when
     /// the caller already pushed a widget transform onto `ctx`.
@@ -834,16 +812,6 @@ impl Renderer for WebCanvasRenderer<'_> {
                     dash,
                 );
             }
-            DrawCommand::Label {
-                pos,
-                text,
-                font,
-                color,
-                opa,
-                ..
-            } => {
-                self.draw_label(pos, text, font, clip, color, *opa);
-            }
             DrawCommand::GlyphRun {
                 pos,
                 glyphs,
@@ -1070,91 +1038,6 @@ impl Canvas for WebCanvasRenderer<'_> {
             area.h.to_f32() as f64,
         );
         ctx.restore();
-    }
-
-    fn draw_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &crate::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        // fillText can't render mirui's SDF / coverage atlases, so
-        // software-render glyphs into a text-extent-sized RGBA buffer
-        // (transparent bg → coverage in alpha) and composite onto the
-        // canvas. Sized to the text and keyed on content (not clip), so
-        // resize reflows the blit position without rebuilding the glyph.
-        let (tw, th) = self.measure_text_extent(font, text);
-        if tw == 0 || th == 0 {
-            return;
-        }
-        let mut text_hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in text.bytes() {
-            text_hash ^= b as u64;
-            text_hash = text_hash.wrapping_mul(0x100_0000_01b3);
-        }
-        let key = GlyphKey {
-            text_hash,
-            family_ptr: font.family.as_ptr() as usize,
-            size: font.size,
-            color: (color.r as u32) << 24
-                | (color.g as u32) << 16
-                | (color.b as u32) << 8
-                | color.a as u32,
-            opa,
-            scale: self.viewport.scale().to_int().clamp(1, u16::MAX as i32) as u16,
-        };
-        let handle = match self
-            .factory
-            .glyph_pool
-            .entry(key)
-            .or_try_insert_with::<_, ()>(|| {
-                let mut buf = alloc::vec![0u8; tw as usize * th as usize * 4];
-                {
-                    let mut tex =
-                        Texture::new(&mut buf, tw as u16, th as u16, ColorFormat::RGBA8888);
-                    tex.alpha_mode = AlphaMode::Blend;
-                    let mut sw = SwRenderer::new(tex);
-                    sw.viewport = Viewport::new(tw as u16, th as u16, Fixed::ONE);
-                    let origin = Point {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                    };
-                    let full = Rect {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                        w: Fixed::from_int(tw),
-                        h: Fixed::from_int(th),
-                    };
-                    sw.draw_label(&origin, text, font, &full, color, opa);
-                }
-                // sw blends onto a transparent buffer, leaving premultiplied
-                // alpha (edge rgb already scaled by coverage). put_image_data
-                // wants straight alpha, so un-premultiply the AA edges or
-                // draw_image scales them a second time, darkening the fringe.
-                unpremultiply_rgba(&mut buf);
-                let tmp = Texture::new(&mut buf, tw as u16, th as u16, ColorFormat::RGBA8888);
-                texture_pool::upload(&tmp).ok_or(())
-            }) {
-            Ok(h) => h,
-            Err(_) => return,
-        };
-        self.push_rect_clip(clip);
-        let ctx = self.ctx();
-        let _ = ctx.draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-            &handle.get().canvas,
-            0.0,
-            0.0,
-            tw as f64,
-            th as f64,
-            pos.x.to_f32() as f64,
-            pos.y.to_f32() as f64,
-            tw as f64,
-            th as f64,
-        );
-        self.pop_rect_clip();
     }
 
     fn draw_glyph_run(

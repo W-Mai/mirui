@@ -92,6 +92,10 @@ impl Typeface for MirxTypeface<'_, '_> {
         Ok(self.source.glyph_for(character)?.is_some())
     }
 
+    fn supports_complex_shaping(&self) -> bool {
+        self.source.shaping_data().is_some()
+    }
+
     fn shape_into(
         &self,
         request: &ShapeRequest<'_>,

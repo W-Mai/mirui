@@ -264,7 +264,22 @@ impl<'a> SwRenderer<'a> {
                     &[],
                 );
             }
-            DrawCommand::Label { .. } | DrawCommand::GlyphRun { .. } => {}
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => self.draw_glyph_run_transformed_inner(label::TransformedRun {
+                pos,
+                glyphs,
+                font,
+                transform: &phys_tf,
+                clip: phys_clip,
+                color,
+                opacity: *opa,
+            }),
         }
     }
 }
@@ -352,18 +367,6 @@ impl<'a> Canvas for SwRenderer<'a> {
                 self.target.set_pixel(px, py, color);
             }
         }
-    }
-
-    fn draw_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &crate::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.draw_label_inner(pos, text, font, clip, color, opa);
     }
 
     fn draw_glyph_run(
@@ -546,30 +549,6 @@ impl SwRenderer<'_> {
         if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
             p.blit += (p.clock)() - t0;
             p.count_blit += 1;
-        }
-    }
-
-    #[inline(never)]
-    #[allow(clippy::too_many_arguments)]
-    fn dispatch_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &crate::render::font::Font,
-        color: &Color,
-        opa: u8,
-        tx: Fixed,
-        ty: Fixed,
-        clip: &Rect,
-    ) {
-        #[cfg(feature = "perf")]
-        let t0 = self.perf.as_ref().map(|p| (p.clock)());
-        let pos = offset_point(pos, tx, ty);
-        self.draw_label(&pos, text, font, clip, color, opa);
-        #[cfg(feature = "perf")]
-        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-            p.label += (p.clock)() - t0;
-            p.count_label += 1;
         }
     }
 
@@ -769,17 +748,6 @@ impl Renderer for SwRenderer<'_> {
             } => {
                 crate::trace_span!("sw.blit");
                 self.dispatch_blit(pos, *size, texture, tx, ty, clip, *opa, *radius, *composite);
-            }
-            DrawCommand::Label {
-                pos,
-                text,
-                font,
-                color,
-                opa,
-                ..
-            } => {
-                crate::trace_span!("sw.label");
-                self.dispatch_label(pos, text, font, color, *opa, tx, ty, clip);
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -1327,9 +1295,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_label_is_reachable_via_trait() {
-        // Exercises the trait dispatch path rather than the glyph pixels —
-        // just verifies the method exists on Canvas and writes something.
+    fn draw_glyph_run_is_reachable_via_trait() {
         let mut buf = vec![0u8; 32 * 16 * 4];
         let tex = Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
@@ -1340,10 +1306,14 @@ mod tests {
         };
         let clip = Rect::new(0, 0, 32, 16);
         let font = crate::render::font::Font::bitmap_8x8();
-        Canvas::draw_label(
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            crate::render::font::GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        Canvas::draw_glyph_run(
             &mut backend,
             &pos,
-            "A",
+            &glyphs,
             &font,
             &clip,
             &Color::rgb(255, 0, 0),
@@ -1360,6 +1330,34 @@ mod tests {
             }
         }
         assert!(found, "expected at least one red pixel from glyph");
+    }
+
+    #[test]
+    fn renderer_routes_affine_glyph_runs() {
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let font = crate::render::font::Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            crate::render::font::GlyphId::new(u16::from(b'A')),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let transform = Transform::translate(Fixed::from_int(12), Fixed::from_int(1))
+            .compose(&Transform::rotate_deg(Fixed::from_int(90)));
+
+        renderer.draw(
+            &DrawCommand::GlyphRun {
+                pos: Point::ZERO,
+                transform,
+                glyphs: &glyphs,
+                font: &font,
+                color: Color::rgb(255, 0, 0),
+                opa: 255,
+            },
+            &Rect::new(0, 0, 16, 16),
+        );
+
+        assert!(buf.chunks_exact(4).any(|pixel| pixel[0] != 0));
     }
 
     #[test]
@@ -1633,7 +1631,7 @@ mod tests {
     }
 
     #[test]
-    fn painter_draw_text_forwards_to_backend() {
+    fn painter_draw_glyph_run_forwards_to_backend() {
         use crate::render::painter::Painter;
 
         let mut buf = vec![0u8; 32 * 16 * 4];
@@ -1644,12 +1642,16 @@ mod tests {
         {
             let font = crate::render::font::Font::bitmap_8x8();
             let mut painter = Painter::new(&mut backend);
-            painter.draw_text(
+            let glyphs = [textflow::shaping::PositionedGlyph::new(
+                crate::render::font::GlyphId::new(66),
+                textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+            )];
+            painter.draw_glyph_run(
                 &Point {
                     x: Fixed::from_int(1),
                     y: Fixed::from_int(1),
                 },
-                "B",
+                &glyphs,
                 &font,
                 &clip,
                 &Color::rgb(200, 100, 50),

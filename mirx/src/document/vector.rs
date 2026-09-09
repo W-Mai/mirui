@@ -155,8 +155,8 @@ mod tests {
     use crate::extension::SourcePolicy;
     use crate::path::{Path, PathCmd};
     use crate::scene::{
-        FillRule, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint,
-        ResourceRef, SpreadMode,
+        FillRule, GlyphPlacement, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient,
+        Paint, ResourceRef, SpreadMode,
     };
     use crate::types::{Color, Fixed, Point, Transform};
     use crate::{
@@ -210,13 +210,17 @@ mod tests {
                 miter_limit: Fixed::from_int(4),
                 dash: Cow::Owned(vec![Fixed::ONE, Fixed::from_int(2)]),
             },
-            SceneOp::Label {
+            SceneOp::GlyphRun {
                 font: ResourceRef::Token(String::from("font")),
+                ppem: 16,
                 pos: point(2, 3),
                 transform: Transform::IDENTITY,
                 color: Color::rgb(7, 8, 9),
                 opa: 230,
-                text: String::from("hi"),
+                glyphs: vec![
+                    GlyphPlacement::new(1, point(0, 12)),
+                    GlyphPlacement::new(2, point(8, 12)),
+                ],
             },
             SceneOp::GroupEnd,
         ])
@@ -332,13 +336,15 @@ mod tests {
             + 4 * size_of::<PathCmd>()
             + size_of::<GradientStop>()
             + 2 * size_of::<Fixed>()
-            + 10;
+            + 2 * size_of::<GlyphPlacement>()
+            + 8;
         let exact = PayloadLimits::HOST
             .with_max_scene_ops(5)
             .with_max_path_commands(4)
             .with_max_gradient_stops(1)
             .with_max_dash_elements(2)
-            .with_max_string_bytes(10)
+            .with_max_positioned_glyphs(2)
+            .with_max_string_bytes(8)
             .with_max_decoded_bytes(decoded_bytes);
         let cases = [
             (
@@ -358,10 +364,14 @@ mod tests {
                 VectorReadError::TooManyDashElements { count: 2, limit: 1 },
             ),
             (
-                exact.with_max_string_bytes(9),
+                exact.with_max_positioned_glyphs(1),
+                VectorReadError::TooManyPositionedGlyphs { count: 2, limit: 1 },
+            ),
+            (
+                exact.with_max_string_bytes(7),
                 VectorReadError::StringBytesLimitExceeded {
-                    needed: 10,
-                    limit: 9,
+                    needed: 8,
+                    limit: 7,
                 },
             ),
             (

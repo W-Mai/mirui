@@ -38,6 +38,7 @@ const STYLE_ATTRS: &[&str] = &[
     "border_width",
     "clip_children",
     "font",
+    "font_size",
 ];
 
 const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column"];
@@ -396,6 +397,7 @@ fn reactive_setter(attr: &str) -> Option<&'static str> {
         "text" => Some("reactive_set_text"),
         "bg_color" => Some("reactive_set_bg_color"),
         "text_color" => Some("reactive_set_text_color"),
+        "font_size" => Some("reactive_set_font_size"),
         "width" => Some("reactive_set_width"),
         "height" => Some("reactive_set_height"),
         _ => None,
@@ -615,9 +617,16 @@ impl MiruiRune {
                 "border_color" => builder_calls.push(quote! { .border(#value, 1) }),
                 "border_width" => builder_calls.push(quote! { .border_width(#value) }),
                 "font" => builder_calls.push(quote! { .font(#value) }),
-                "width" => layout_fields.push(quote! { width: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),
-                "height" => layout_fields.push(quote! { height: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),
-                "grow" => layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) }),
+                "font_size" => builder_calls.push(quote! { .font_size(#value) }),
+                "width" => {
+                    layout_fields.push(quote! { width: mirui::types::Dimension::from(#value) })
+                }
+                "height" => {
+                    layout_fields.push(quote! { height: mirui::types::Dimension::from(#value) })
+                }
+                "grow" => {
+                    layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) })
+                }
                 "direction" => {
                     user_set_direction = true;
                     layout_fields.push(quote! { direction: #value });
@@ -626,8 +635,10 @@ impl MiruiRune {
                 "align" => layout_fields.push(quote! { align: #value }),
                 "padding" => layout_fields.push(quote! { padding: #value }),
                 "position" => layout_fields.push(quote! { position: #value }),
-                "left" => layout_fields.push(quote! { left: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value)) }),
-                "top" => layout_fields.push(quote! { top: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value)) }),
+                "left" => {
+                    layout_fields.push(quote! { left: mirui::types::Dimension::from(#value) })
+                }
+                "top" => layout_fields.push(quote! { top: mirui::types::Dimension::from(#value) }),
                 "image" => builder_calls.push(quote! { .image(#value) }),
                 "id" => match Self::extract_id_str(value) {
                     Some(s) => id_registrations.push(quote! { #s }),

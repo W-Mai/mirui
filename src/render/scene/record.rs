@@ -55,30 +55,21 @@ pub fn record_command(
             radius: *radius,
             opa: *opa,
         },
-        DrawCommand::Label {
+        DrawCommand::GlyphRun {
             pos,
             transform,
-            text,
+            glyphs,
             font,
             color,
             opa,
-            ..
-        }
-        | DrawCommand::GlyphRun {
-            pos,
-            transform,
-            text,
-            font,
-            color,
-            opa,
-            ..
-        } => SceneOp::Label {
+        } => SceneOp::GlyphRun {
             font: resolver.resolve_font(font),
+            ppem: font.size,
             pos: *pos,
             transform: *transform,
             color: *color,
             opa: *opa,
-            text: alloc::string::String::from(*text).into(),
+            glyphs: glyphs.to_vec().into(),
         },
         DrawCommand::Line {
             p1,
@@ -184,6 +175,7 @@ pub fn record_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::font::GlyphId;
     use crate::render::path::{Path, PathCmd};
     use crate::render::scene::codec::{decode_scene, encode_scene};
     use crate::types::{Color, Fixed, Point, Rect, Transform};
@@ -192,7 +184,7 @@ mod tests {
     struct PanicResolver;
     impl ResourceResolver for PanicResolver {
         fn resolve_font(&mut self, _: &Font) -> ResourceRef {
-            unreachable!("no Label in this fixture")
+            unreachable!("fixture has no font commands")
         }
         fn resolve_texture(&mut self, _: &Texture<'_>) -> ResourceRef {
             unreachable!("no Blit in this fixture")
@@ -263,5 +255,44 @@ mod tests {
         let bytes = encode_scene(&recorded).unwrap();
         let back = decode_scene(&bytes).unwrap();
         assert_eq!(back, recorded);
+    }
+
+    #[test]
+    fn positioned_glyphs_retain_their_placements() {
+        let font = Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let command = DrawCommand::GlyphRun {
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            glyphs: &glyphs,
+            font: &font,
+            color: red(),
+            opa: 255,
+        };
+
+        struct FontResolver;
+        impl ResourceResolver for FontResolver {
+            fn resolve_font(&mut self, _: &Font) -> ResourceRef {
+                ResourceRef::Index(3)
+            }
+
+            fn resolve_texture(&mut self, _: &Texture<'_>) -> ResourceRef {
+                unreachable!()
+            }
+        }
+        let recorded = record_command(&command, &mut FontResolver).unwrap();
+        let SceneOp::GlyphRun {
+            font: ResourceRef::Index(3),
+            ppem: 8,
+            glyphs: recorded,
+            ..
+        } = recorded
+        else {
+            panic!("expected positioned glyph run")
+        };
+        assert_eq!(recorded.as_ref(), glyphs.as_slice());
     }
 }

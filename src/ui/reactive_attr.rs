@@ -50,6 +50,15 @@ pub fn reactive_set_text_color(entity: Entity, value: impl Into<ThemedColor>) {
     });
 }
 
+pub fn reactive_set_font_size(entity: Entity, value: u16) {
+    crate::core::reactive::with_world(|w| {
+        if let Some(style) = w.get_mut::<Style>(entity) {
+            style.set_font_size(value);
+        }
+        w.insert(entity, Dirty);
+    });
+}
+
 pub fn reactive_set_width(entity: Entity, value: impl Into<Dimension>) {
     let dim = value.into();
     crate::core::reactive::with_world(|w| {
@@ -94,6 +103,16 @@ mod tests {
         with_world_scope(&mut world, || reactive_set_width(e, 150));
         let style = world.get::<Style>(e).unwrap();
         assert_eq!(style.layout.width, Dimension::from(150));
+    }
+
+    #[test]
+    fn set_font_size_updates_typography() {
+        let mut world = World::new();
+        let e = WidgetBuilder::new(&mut world).id();
+        with_world_scope(&mut world, || reactive_set_font_size(e, 18));
+        let style = world.get::<Style>(e).unwrap();
+        assert_eq!(style.font_size, Some(18));
+        assert!(world.get::<Dirty>(e).is_some());
     }
 
     #[test]

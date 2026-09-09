@@ -834,17 +834,6 @@ enum SceneStmt {
         fill_rule: FillRuleNode,
     },
     PopClip,
-    Label {
-        token: syn::LitStr,
-        x: i32,
-        y: i32,
-        r: u8,
-        g: u8,
-        b: u8,
-        a: u8,
-        opa: u8,
-        text: syn::LitStr,
-    },
     Blit {
         token: syn::LitStr,
         px: i32,
@@ -999,17 +988,6 @@ impl Parse for SceneStmt {
                 SceneStmt::PushClip { steps, fill_rule }
             }
             "pop_clip" => SceneStmt::PopClip,
-            "label" => SceneStmt::Label {
-                token: input.parse::<syn::LitStr>()?,
-                x: input.parse::<Num>()?.0,
-                y: input.parse::<Num>()?.0,
-                r: raw_byte(input)?,
-                g: raw_byte(input)?,
-                b: raw_byte(input)?,
-                a: raw_byte(input)?,
-                opa: raw_byte(input)?,
-                text: input.parse::<syn::LitStr>()?,
-            },
             "blit" => {
                 let token = input.parse::<syn::LitStr>()?;
                 let px = input.parse::<Num>()?.0;
@@ -1629,32 +1607,6 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
             }
         }
         SceneStmt::PopClip => quote! { ::mirui::render::scene::SceneOp::PopClip },
-        SceneStmt::Label {
-            token,
-            x,
-            y,
-            r,
-            g,
-            b,
-            a,
-            opa,
-            text,
-        } => {
-            let pos = point(*x, *y);
-            let col = color_tokens(*r, *g, *b, *a);
-            quote! {
-                ::mirui::render::scene::SceneOp::Label {
-                    font: ::mirui::render::scene::ResourceRef::Token(
-                        ::mirui::__Cow::Borrowed(#token)
-                    ),
-                    pos: #pos,
-                    transform: ::mirui::types::Transform::IDENTITY,
-                    color: #col,
-                    opa: #opa,
-                    text: ::mirui::__Cow::Borrowed(#text),
-                }
-            }
-        }
         SceneStmt::Blit {
             token,
             px,

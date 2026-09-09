@@ -5,13 +5,15 @@ use super::{
     FIELD_COMPOSITE, FIELD_QUAD, FIELD_RADIUS, FIELD_TRANSFORM, PAINT_KIND_COLOR,
     PAINT_KIND_LINEAR, PAINT_KIND_RADIAL, RES_KIND_INDEX, RES_KIND_INLINE, RES_KIND_TOKEN,
     SLOT_CLIP, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY, SLOT_TRANSFORM, TAG_ARC, TAG_BLIT, TAG_BORDER,
-    TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT, TAG_GROUP_BEGIN, TAG_GROUP_END, TAG_LABEL, TAG_LINE,
+    TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT, TAG_GLYPH_RUN, TAG_GROUP_BEGIN, TAG_GROUP_END, TAG_LINE,
     TAG_POP_CLIP, TAG_PUSH_CLIP, TAG_STROKE_PATH, VERSION, composite_from_u8, decode_body_with,
     fill_rule_from_u8, line_cap_from_u8, line_join_from_u8, spread_from_u8, units_from_u8,
 };
 use crate::path::{Path, PathCmd};
 use crate::reader::PayloadLimits;
-use crate::scene::{GradientStop, Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader};
+use crate::scene::{
+    GlyphPlacement, GradientStop, Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader,
+};
 use crate::types::Fixed;
 
 /// Failure while validating or reading a MIRX VECTOR payload.
@@ -30,6 +32,8 @@ pub enum VectorReadError {
     TooManyGradientStops { count: u32, limit: u32 },
     /// Stroke dash elements exceeded the aggregate per-payload budget.
     TooManyDashElements { count: u32, limit: u32 },
+    /// Positioned glyphs exceeded the aggregate per-payload budget.
+    TooManyPositionedGlyphs { count: u32, limit: u32 },
     /// Owned token and label bytes exceeded the aggregate per-payload budget.
     StringBytesLimitExceeded { needed: usize, limit: usize },
     /// Owned scene components exceeded the aggregate decoded-byte budget.
@@ -143,6 +147,7 @@ enum ItemKind {
     PathCommand,
     GradientStop,
     DashElement,
+    PositionedGlyph,
 }
 
 struct Budget {
@@ -152,6 +157,7 @@ struct Budget {
     path_commands: u32,
     gradient_stops: u32,
     dash_elements: u32,
+    positioned_glyphs: u32,
     string_bytes: usize,
     decoded_bytes: usize,
 }
@@ -165,6 +171,7 @@ impl Budget {
             path_commands: 0,
             gradient_stops: 0,
             dash_elements: 0,
+            positioned_glyphs: 0,
             string_bytes: 0,
             decoded_bytes: 0,
         }
@@ -203,6 +210,9 @@ impl Budget {
             ItemKind::PathCommand => (self.path_commands, self.limits.max_path_commands()),
             ItemKind::GradientStop => (self.gradient_stops, self.limits.max_gradient_stops()),
             ItemKind::DashElement => (self.dash_elements, self.limits.max_dash_elements()),
+            ItemKind::PositionedGlyph => {
+                (self.positioned_glyphs, self.limits.max_positioned_glyphs())
+            }
         };
         let aggregate = current
             .checked_add(count)
@@ -221,12 +231,17 @@ impl Budget {
                     count: aggregate,
                     limit,
                 },
+                ItemKind::PositionedGlyph => VectorReadError::TooManyPositionedGlyphs {
+                    count: aggregate,
+                    limit,
+                },
             });
         }
         match kind {
             ItemKind::PathCommand => self.path_commands = aggregate,
             ItemKind::GradientStop => self.gradient_stops = aggregate,
             ItemKind::DashElement => self.dash_elements = aggregate,
+            ItemKind::PositionedGlyph => self.positioned_glyphs = aggregate,
         }
 
         let count = usize::try_from(count).map_err(|_| VectorReadError::SizeOverflow)?;
@@ -299,9 +314,19 @@ fn validate_scene_limits(scene: &Scene, limits: &PayloadLimits) -> Result<(), Ve
                 )?;
             }
             SceneOp::PushClip { path, .. } => add_path(&mut budget, path)?,
-            SceneOp::Label { font, text, .. } => {
+            SceneOp::GlyphRun {
+                font, ppem, glyphs, ..
+            } => {
+                if *ppem == 0 {
+                    return Err(CodecError::InvalidPpem.into());
+                }
                 add_resource_ref(&mut budget, font)?;
-                budget.add_string_bytes(text.len())?;
+                add_items(
+                    &mut budget,
+                    ItemKind::PositionedGlyph,
+                    glyphs.len(),
+                    size_of::<GlyphPlacement>(),
+                )?;
             }
             SceneOp::Blit { texture, .. } => add_resource_ref(&mut budget, texture)?,
             SceneOp::GroupEnd
@@ -398,6 +423,11 @@ impl<'a> Cursor<'a> {
         Ok(self.take(1)?[0])
     }
 
+    fn u16(&mut self) -> Result<u16, VectorReadError> {
+        let bytes = self.take(2)?;
+        Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
+    }
+
     fn u32(&mut self) -> Result<u32, VectorReadError> {
         let bytes = self.take(4)?;
         Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
@@ -474,7 +504,7 @@ impl<'a> Scanner<'a> {
                     self.depth -= 1;
                 }
                 TAG_FILL_PATH | TAG_STROKE_PATH | TAG_PUSH_CLIP | TAG_POP_CLIP | TAG_FILL_RECT
-                | TAG_BORDER | TAG_LABEL | TAG_LINE | TAG_ARC | TAG_BLIT => {
+                | TAG_BORDER | TAG_GLYPH_RUN | TAG_LINE | TAG_ARC | TAG_BLIT => {
                     self.begin_decoded_op()?;
                     self.scan_op(tag)?;
                 }
@@ -565,11 +595,26 @@ impl<'a> Scanner<'a> {
                 let _ = self.cursor.take(16 + 4 + 4 + 1)?;
                 self.skip_optional(bits)
             }
-            TAG_LABEL => {
+            TAG_GLYPH_RUN => {
                 let bits = self.cursor.u8()?;
                 self.scan_resource_ref()?;
+                let ppem = self.cursor.u16()?;
+                if ppem == 0 {
+                    return Err(CodecError::InvalidPpem.into());
+                }
                 let _ = self.cursor.take(8 + 4 + 1)?;
-                self.scan_string()?;
+                let count = self.cursor.varuint()?;
+                let count_usize =
+                    usize::try_from(count).map_err(|_| VectorReadError::SizeOverflow)?;
+                let bytes = count_usize
+                    .checked_mul(18)
+                    .ok_or(VectorReadError::SizeOverflow)?;
+                let _ = self.cursor.take(bytes)?;
+                self.budget.add_items(
+                    ItemKind::PositionedGlyph,
+                    count,
+                    size_of::<GlyphPlacement>(),
+                )?;
                 self.skip_transform_if(bits)
             }
             TAG_LINE => {
@@ -731,7 +776,8 @@ mod tests {
     const PATH_COUNT: u32 = 6;
     const STOP_COUNT: u32 = 3;
     const DASH_COUNT: u32 = 2;
-    const STRING_BYTES: usize = 10;
+    const GLYPH_COUNT: u32 = 2;
+    const STRING_BYTES: usize = 1;
 
     fn fixed(value: i32) -> Fixed {
         Fixed::from_int(value)
@@ -851,13 +897,17 @@ mod tests {
                 radius: fixed(1),
                 opa: 210,
             },
-            SceneOp::Label {
-                font: ResourceRef::Token(String::from("font")),
+            SceneOp::GlyphRun {
+                font: ResourceRef::Index(3),
+                ppem: 18,
                 pos: point(1, 2),
                 transform,
-                color: color(6),
-                opa: 200,
-                text: String::from("hello"),
+                color: color(7),
+                opa: 195,
+                glyphs: vec![
+                    GlyphPlacement::new(42, point(0, 14)),
+                    GlyphPlacement::new(43, point(9, 14)).with_offset(point(0, -1)),
+                ],
             },
             SceneOp::Line {
                 p1: point(0, 0),
@@ -896,6 +946,7 @@ mod tests {
             + PATH_COUNT as usize * size_of::<PathCmd>()
             + STOP_COUNT as usize * size_of::<GradientStop>()
             + DASH_COUNT as usize * size_of::<Fixed>()
+            + GLYPH_COUNT as usize * size_of::<GlyphPlacement>()
             + STRING_BYTES
     }
 
@@ -905,6 +956,7 @@ mod tests {
             .with_max_path_commands(PATH_COUNT)
             .with_max_gradient_stops(STOP_COUNT)
             .with_max_dash_elements(DASH_COUNT)
+            .with_max_positioned_glyphs(GLYPH_COUNT)
             .with_max_string_bytes(STRING_BYTES)
             .with_max_decoded_bytes(decoded_bytes())
     }
@@ -1110,6 +1162,13 @@ mod tests {
             })
         );
         assert_eq!(
+            Scene::preflight(&payload, &exact.with_max_positioned_glyphs(GLYPH_COUNT - 1),),
+            Err(VectorReadError::TooManyPositionedGlyphs {
+                count: GLYPH_COUNT,
+                limit: GLYPH_COUNT - 1,
+            })
+        );
+        assert_eq!(
             Scene::preflight(&payload, &exact.with_max_string_bytes(STRING_BYTES - 1),),
             Err(VectorReadError::StringBytesLimitExceeded {
                 needed: STRING_BYTES,
@@ -1235,7 +1294,7 @@ mod tests {
             Err(VectorReadError::Codec(CodecError::UnexpectedEof))
         );
 
-        let mut token = vec![TAG_LABEL, 0, RES_KIND_TOKEN];
+        let mut token = vec![TAG_GLYPH_RUN, 0, RES_KIND_TOKEN];
         super::super::write_varuint(&mut token, u32::MAX);
         let token = payload_from_body(&token);
         assert_eq!(
@@ -1252,16 +1311,10 @@ mod tests {
 
     #[test]
     fn validates_utf8_tags_groups_and_skip_offsets() {
-        let mut label = vec![TAG_LABEL, 0, RES_KIND_INDEX];
-        label.extend_from_slice(&0u32.to_le_bytes());
-        label.extend_from_slice(&[0; 8 + 4]);
-        label.push(255);
-        label.push(1);
-        label.push(0xff);
-        label.push(TAG_EOF);
-        let label = payload_from_body(&label);
+        let invalid_token =
+            payload_from_body(&[TAG_GLYPH_RUN, 0, RES_KIND_TOKEN, 1, 0xff, TAG_EOF]);
         assert_eq!(
-            Scene::preflight(&label, &PayloadLimits::HOST),
+            Scene::preflight(&invalid_token, &PayloadLimits::HOST),
             Err(VectorReadError::Codec(CodecError::BadUtf8))
         );
 

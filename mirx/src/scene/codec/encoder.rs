@@ -339,15 +339,20 @@ fn op_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
             len.add(25)?;
             len.add(optional_len(field_bits(transform, quad, Some(*radius))))?;
         }
-        SceneOp::Label {
+        SceneOp::GlyphRun {
             font,
+            ppem,
             transform,
-            text,
+            glyphs,
             ..
         } => {
+            if *ppem == 0 {
+                return Err(invalid_scene(CodecError::InvalidPpem));
+            }
             len.add(resource_ref_len(font)?)?;
-            len.add(13)?;
-            len.add(string_len(text.len())?)?;
+            len.add(15)?;
+            let count = checked_wire_len(glyphs.len())?;
+            len.add(wire_collection_len(glyphs.len(), varuint_len(count), 18)?)?;
             if !transform.is_identity() {
                 len.add(24)?;
             }
@@ -714,13 +719,17 @@ mod tests {
                 radius: Fixed::ZERO,
                 opa: 210,
             },
-            SceneOp::Label {
-                font: ResourceRef::Token(String::from("font")),
-                pos: point(1, 2),
+            SceneOp::GlyphRun {
+                font: ResourceRef::Index(3),
+                ppem: 18,
+                pos: point(2, 3),
                 transform,
-                color: color(7),
-                opa: 200,
-                text: String::from("hello"),
+                color: color(8),
+                opa: 195,
+                glyphs: vec![
+                    crate::scene::GlyphPlacement::new(42, point(0, 14)),
+                    crate::scene::GlyphPlacement::new(43, point(9, 14)).with_offset(point(0, -1)),
+                ],
             },
             SceneOp::Line {
                 p1: point(0, 0),

@@ -74,6 +74,8 @@ pub struct LayoutNode {
     pub style: LayoutStyle,
     pub children: Vec<LayoutNode>,
     pub rect: Rect,
+    pub(crate) intrinsic_width: Option<Fixed>,
+    pub(crate) intrinsic_height: Option<Fixed>,
 }
 
 impl LayoutNode {
@@ -82,10 +84,17 @@ impl LayoutNode {
             style,
             children: Vec::new(),
             rect: Rect::ZERO,
+            intrinsic_width: None,
+            intrinsic_height: None,
         }
     }
 
     pub fn add_child(&mut self, child: LayoutNode) {
         self.children.push(child);
+    }
+
+    pub(crate) fn set_intrinsic_size(&mut self, width: Fixed, height: Fixed) {
+        self.intrinsic_width = Some(width);
+        self.intrinsic_height = Some(height);
     }
 }

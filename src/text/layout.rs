@@ -4,8 +4,8 @@ use core::mem::size_of;
 
 use textflow::bidi::{BaseDirection, BidiError, BidiRun, BidiText};
 use textflow::layout::{
-    BrokenLine, GlyphRun, LayoutBuffers, LayoutError, LayoutLine, LayoutOptions, LogicalRun,
-    LogicalRuns, VisualRun,
+    Alignment, BrokenLine, GlyphRun, LayoutBuffers, LayoutError, LayoutLine, LayoutOptions,
+    LogicalRun, LogicalRuns, Overflow, TextSpacing, VisualRun, WrapMode,
 };
 use textflow::shaping::{
     CaretStop, FlowPoint, FontFeature, PositionedGlyph, ShapedGlyph, Typeface,
@@ -124,17 +124,25 @@ impl TextLayout<'_> {
 pub(crate) struct TextLayoutRequest<'a> {
     pub text: &'a str,
     pub max_width: i32,
+    pub width: Option<i32>,
     pub max_lines: usize,
     pub line_height: i32,
     pub baseline: i32,
     pub direction: BaseDirection,
+    pub wrap: WrapMode,
+    pub alignment: Alignment,
+    pub overflow: Overflow,
+    pub spacing: TextSpacing,
     pub features: &'a [FontFeature],
 }
 
 pub struct TextLayoutCache {
     limits: TextLayoutLimits,
-    generation: u32,
-    entries: Vec<LayoutEntry>,
+    frame: u32,
+    next_order: u64,
+    entries: Vec<Option<LayoutEntry>>,
+    slot_generations: Vec<u32>,
+    measurements: Vec<MeasureEntry>,
     workspace: LayoutWorkspace,
     lines: Vec<LayoutLine>,
     runs: Vec<VisualRun>,
@@ -162,8 +170,11 @@ impl TextLayoutCache {
     pub const fn new(limits: TextLayoutLimits) -> Self {
         Self {
             limits,
-            generation: 0,
+            frame: 0,
+            next_order: 0,
             entries: Vec::new(),
+            slot_generations: Vec::new(),
+            measurements: Vec::new(),
             workspace: LayoutWorkspace::new(),
             lines: Vec::new(),
             runs: Vec::new(),
@@ -178,6 +189,8 @@ impl TextLayoutCache {
 
     pub fn resident_bytes(&self) -> usize {
         vec_bytes(&self.entries)
+            .saturating_add(vec_bytes(&self.slot_generations))
+            .saturating_add(vec_bytes(&self.measurements))
             .saturating_add(self.workspace.resident_bytes())
             .saturating_add(vec_bytes(&self.lines))
             .saturating_add(vec_bytes(&self.runs))
@@ -186,19 +199,18 @@ impl TextLayoutCache {
     }
 
     pub fn begin_frame(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-        self.entries.clear();
-        self.lines.clear();
-        self.runs.clear();
-        self.glyphs.clear();
-        self.carets.clear();
+        if self.frame != 0 {
+            self.retain_previous_frame();
+        }
+        self.frame = self.frame.wrapping_add(1).max(1);
     }
 
     pub fn get(&self, handle: TextLayoutHandle) -> Option<TextLayout<'_>> {
-        if handle.generation != self.generation {
+        let slot = handle.slot as usize;
+        if self.slot_generations.get(slot).copied()? != handle.generation {
             return None;
         }
-        let entry = self.entries.get(handle.slot as usize)?;
+        let entry = self.entries.get(slot)?.as_ref()?;
         Some(TextLayout {
             lines: self.lines.get(entry.lines.clone())?,
             runs: self.runs.get(entry.runs.clone())?,
@@ -219,13 +231,77 @@ impl TextLayoutCache {
         result.map(|output| output.measure)
     }
 
+    pub(crate) fn measure_cached(
+        &mut self,
+        owner: u64,
+        font_fingerprint: u64,
+        request: TextLayoutRequest<'_>,
+        typefaces: &[&dyn Typeface],
+    ) -> Result<TextMeasure, TextLayoutError> {
+        let key = LayoutKey::new(owner, font_fingerprint, request);
+        if let Some(entry) = self.measurements.iter_mut().find(|entry| entry.key == key) {
+            entry.last_used = self.frame;
+            return Ok(entry.measure);
+        }
+        let measure = self.measure(request, typefaces)?;
+        self.reserve_measurements(self.measurements.len().saturating_add(1))?;
+        self.measurements.push(MeasureEntry {
+            key,
+            measure,
+            last_used: self.frame,
+        });
+        Ok(measure)
+    }
+
+    #[cfg(test)]
     pub(crate) fn layout(
         &mut self,
         request: TextLayoutRequest<'_>,
         typefaces: &[&dyn Typeface],
     ) -> Result<TextLayoutHandle, TextLayoutError> {
+        self.layout_new(None, request, typefaces)
+    }
+
+    pub(crate) fn layout_cached(
+        &mut self,
+        owner: u64,
+        font_fingerprint: u64,
+        request: TextLayoutRequest<'_>,
+        typefaces: &[&dyn Typeface],
+    ) -> Result<TextLayoutHandle, TextLayoutError> {
+        let key = LayoutKey::new(owner, font_fingerprint, request);
+        if let Some((slot, entry)) =
+            self.entries
+                .iter_mut()
+                .enumerate()
+                .find_map(|(slot, entry)| {
+                    entry
+                        .as_mut()
+                        .filter(|entry| entry.key == Some(key))
+                        .map(|entry| (slot, entry))
+                })
+        {
+            entry.last_used = self.frame;
+            return Ok(TextLayoutHandle {
+                slot: slot as u32,
+                generation: self.slot_generations[slot],
+            });
+        }
+        self.layout_new(Some(key), request, typefaces)
+    }
+
+    fn layout_new(
+        &mut self,
+        key: Option<LayoutKey>,
+        request: TextLayoutRequest<'_>,
+        typefaces: &[&dyn Typeface],
+    ) -> Result<TextLayoutHandle, TextLayoutError> {
         self.validate_request(request, typefaces.len())?;
-        self.reserve_entries(self.entries.len().saturating_add(1))?;
+        let vacant = self.entries.iter().position(Option::is_none);
+        if vacant.is_none() {
+            self.reserve_entries(self.entries.len().saturating_add(1))?;
+            self.reserve_slot_generations(self.slot_generations.len().saturating_add(1))?;
+        }
         let starts = self.output_starts();
         let output = match self.run(request, typefaces) {
             Ok(output) => output,
@@ -234,17 +310,27 @@ impl TextLayoutCache {
                 return Err(error);
             }
         };
-        let slot = self.entries.len();
-        self.entries.push(LayoutEntry {
+        let slot = vacant.unwrap_or(self.entries.len());
+        let entry = LayoutEntry {
+            key,
+            last_used: self.frame,
+            order: self.next_order,
             lines: starts.lines..self.lines.len(),
             runs: starts.runs..self.runs.len(),
             glyphs: starts.glyphs..self.glyphs.len(),
             carets: starts.carets..self.carets.len(),
             measure: output.measure,
-        });
+        };
+        self.next_order = self.next_order.wrapping_add(1);
+        if slot == self.entries.len() {
+            self.entries.push(Some(entry));
+            self.slot_generations.push(0);
+        } else {
+            self.entries[slot] = Some(entry);
+        }
         Ok(TextLayoutHandle {
             slot: slot as u32,
-            generation: self.generation,
+            generation: self.slot_generations[slot],
         })
     }
 
@@ -299,19 +385,35 @@ impl TextLayoutCache {
             )
             .map_err(map_shape)?;
         let broken = shaped
-            .break_into(request.text, request.max_width, &mut self.workspace.broken)
+            .break_into(
+                request.text,
+                request.max_width,
+                request.wrap,
+                request.spacing,
+                &mut self.workspace.broken,
+            )
             .map_err(|error| map_layout(BufferKind::BrokenLines, error))?;
 
+        let mut options = LayoutOptions::new(request.line_height)
+            .with_origin(FlowPoint {
+                x: 0,
+                y: request.baseline,
+            })
+            .with_spacing(request.spacing)
+            .with_alignment(request.alignment)
+            .with_direction(bidi.direction())
+            .with_max_lines(request.max_lines)
+            .with_overflow(request.overflow);
+        if let Some(width) = request.width {
+            options = options.with_width(width);
+        }
         let paragraph = logical
             .layout_into(
                 request.text,
                 typefaces,
                 request.features,
                 &broken,
-                LayoutOptions::new(request.line_height).with_origin(FlowPoint {
-                    x: 0,
-                    y: request.baseline,
-                }),
+                options,
                 LayoutBuffers::new(
                     &mut self.workspace.scratch,
                     &mut self.glyphs[starts.glyphs..],
@@ -321,8 +423,7 @@ impl TextLayoutCache {
                 ),
             )
             .map_err(map_final)?;
-        let visible_lines = paragraph.lines().len().min(request.max_lines);
-        let visible = &paragraph.lines()[..visible_lines];
+        let visible = paragraph.lines();
         let counts = visible_counts(visible);
         let measure = measure(visible, request.line_height)?;
         self.truncate_outputs(starts.add(counts));
@@ -516,6 +617,93 @@ impl TextLayoutCache {
         )
     }
 
+    fn reserve_slot_generations(&mut self, required: usize) -> Result<(), TextLayoutError> {
+        let resident = self.resident_bytes();
+        reserve_capacity(
+            &mut self.slot_generations,
+            required,
+            resident,
+            self.limits.cache_bytes,
+        )
+    }
+
+    fn reserve_measurements(&mut self, required: usize) -> Result<(), TextLayoutError> {
+        let resident = self.resident_bytes();
+        reserve_capacity(
+            &mut self.measurements,
+            required,
+            resident,
+            self.limits.cache_bytes,
+        )
+    }
+
+    fn retain_previous_frame(&mut self) {
+        let frame = self.frame;
+        for (slot, entry) in self.entries.iter_mut().enumerate() {
+            let keep = entry
+                .as_ref()
+                .is_some_and(|entry| entry.key.is_some() && entry.last_used == frame);
+            if !keep && entry.take().is_some() {
+                self.slot_generations[slot] = self.slot_generations[slot].wrapping_add(1);
+            }
+        }
+        self.measurements.retain(|entry| entry.last_used == frame);
+
+        let mut lines = 0;
+        let mut runs = 0;
+        let mut glyphs = 0;
+        let mut carets = 0;
+        let mut compacted_order = 0;
+        let mut last_source_order = None;
+        loop {
+            let next = self
+                .entries
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, entry)| {
+                    let entry = entry.as_ref()?;
+                    if last_source_order.is_some_and(|last| entry.order <= last) {
+                        return None;
+                    }
+                    Some((slot, entry.order))
+                })
+                .min_by_key(|(_, order)| *order);
+            let Some((slot, source_order)) = next else {
+                break;
+            };
+            let entry = self.entries[slot].as_ref().unwrap();
+            let old_lines = entry.lines.clone();
+            let old_runs = entry.runs.clone();
+            let old_glyphs = entry.glyphs.clone();
+            let old_carets = entry.carets.clone();
+            let line_count = old_lines.len();
+            let run_count = old_runs.len();
+            let glyph_count = old_glyphs.len();
+            let caret_count = old_carets.len();
+            self.lines.copy_within(old_lines, lines);
+            self.runs.copy_within(old_runs, runs);
+            self.glyphs.copy_within(old_glyphs, glyphs);
+            self.carets.copy_within(old_carets, carets);
+            let entry = self.entries[slot].as_mut().unwrap();
+            entry.lines = lines..lines + line_count;
+            entry.runs = runs..runs + run_count;
+            entry.glyphs = glyphs..glyphs + glyph_count;
+            entry.carets = carets..carets + caret_count;
+            entry.order = compacted_order;
+            lines += line_count;
+            runs += run_count;
+            glyphs += glyph_count;
+            carets += caret_count;
+            compacted_order += 1;
+            last_source_order = Some(source_order);
+        }
+        self.lines.truncate(lines);
+        self.runs.truncate(runs);
+        self.glyphs.truncate(glyphs);
+        self.carets.truncate(carets);
+        self.next_order = compacted_order;
+    }
+
     fn output_starts(&self) -> OutputStarts {
         OutputStarts {
             lines: self.lines.len(),
@@ -619,11 +807,117 @@ impl OutputStarts {
 }
 
 struct LayoutEntry {
+    key: Option<LayoutKey>,
+    last_used: u32,
+    order: u64,
     lines: core::ops::Range<usize>,
     runs: core::ops::Range<usize>,
     glyphs: core::ops::Range<usize>,
     carets: core::ops::Range<usize>,
     measure: TextMeasure,
+}
+
+struct MeasureEntry {
+    key: LayoutKey,
+    measure: TextMeasure,
+    last_used: u32,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct LayoutKey {
+    owner: u64,
+    first: u64,
+    second: u64,
+}
+
+impl LayoutKey {
+    fn new(owner: u64, font_fingerprint: u64, request: TextLayoutRequest<'_>) -> Self {
+        let mut hash = Fingerprint::new();
+        hash.write(request.text.as_bytes());
+        hash.write_i32(request.max_width);
+        hash.write_i32(request.width.unwrap_or(i32::MIN));
+        hash.write_usize(request.max_lines);
+        hash.write_i32(request.line_height);
+        hash.write_i32(request.baseline);
+        hash.write_u8(match request.direction {
+            BaseDirection::Auto => 0,
+            BaseDirection::LeftToRight => 1,
+            BaseDirection::RightToLeft => 2,
+        });
+        hash.write_u8(match request.wrap {
+            WrapMode::NoWrap => 0,
+            WrapMode::Word => 1,
+            WrapMode::Grapheme => 2,
+        });
+        hash.write_u8(match request.alignment {
+            Alignment::Start => 0,
+            Alignment::Center => 1,
+            Alignment::End => 2,
+            Alignment::Justify => 3,
+        });
+        hash.write_u8(match request.overflow {
+            Overflow::Clip => 0,
+            Overflow::Ellipsis => 1,
+        });
+        hash.write_i32(request.spacing.letter);
+        hash.write_i32(request.spacing.word);
+        hash.write_usize(request.features.len());
+        for feature in request.features {
+            hash.write(&feature.tag);
+            hash.write_u32(feature.value);
+            hash.write_u32(feature.range.start);
+            hash.write_u32(feature.range.end);
+        }
+        hash.write_u64(font_fingerprint);
+        Self {
+            owner,
+            first: hash.first,
+            second: hash.second,
+        }
+    }
+}
+
+struct Fingerprint {
+    first: u64,
+    second: u64,
+}
+
+impl Fingerprint {
+    const fn new() -> Self {
+        Self {
+            first: 0xcbf2_9ce4_8422_2325,
+            second: 0x8422_2325_cbf2_9ce4,
+        }
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.first ^= u64::from(*byte);
+            self.first = self.first.wrapping_mul(0x100_0000_01b3);
+            self.second ^= u64::from(*byte);
+            self.second = self.second.wrapping_mul(0x9e37_79b1_85eb_ca87);
+        }
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.write(&[value]);
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.write(&value.to_le_bytes());
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.write(&value.to_le_bytes());
+    }
+
+    fn write_i32(&mut self, value: i32) {
+        self.write(&value.to_le_bytes());
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
 }
 
 struct LayoutOutput {
@@ -800,6 +1094,7 @@ fn vec_bytes<T>(values: &Vec<T>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::cell::Cell;
     use textflow::shaping::{FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource};
 
     struct Source;
@@ -822,14 +1117,42 @@ mod tests {
         }
     }
 
+    struct CountingSource {
+        glyph_queries: Cell<usize>,
+    }
+
+    impl GlyphSource for CountingSource {
+        fn id(&self) -> FontId {
+            FontId::new(2)
+        }
+
+        fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
+            Ok(FontMetrics::default())
+        }
+
+        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, FontAccessError> {
+            self.glyph_queries.set(self.glyph_queries.get() + 1);
+            Ok(Some(GlyphId::new(character as u16)))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
+            Ok(FlowPoint { x: 256, y: 0 })
+        }
+    }
+
     fn request<'a>(text: &'a str, width: i32) -> TextLayoutRequest<'a> {
         TextLayoutRequest {
             text,
             max_width: width,
+            width: (width != i32::MAX).then_some(width),
             max_lines: usize::MAX,
             line_height: 256,
             baseline: 192,
             direction: BaseDirection::Auto,
+            wrap: WrapMode::Word,
+            alignment: Alignment::Start,
+            overflow: Overflow::Clip,
+            spacing: TextSpacing::default(),
             features: &[],
         }
     }
@@ -849,6 +1172,117 @@ mod tests {
         cache.begin_frame();
         assert!(cache.get(handle).is_none());
         assert_eq!(cache.resident_bytes(), resident);
+    }
+
+    #[test]
+    fn cached_layout_keeps_its_stable_handle_across_frames() {
+        let source = CountingSource {
+            glyph_queries: Cell::new(0),
+        };
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let first = cache
+            .layout_cached(7, 11, request("persistent", i32::MAX), &typefaces)
+            .unwrap();
+        let resident = cache.resident_bytes();
+        let glyph_queries = source.glyph_queries.get();
+
+        cache.begin_frame();
+        let second = cache
+            .layout_cached(7, 11, request("persistent", i32::MAX), &typefaces)
+            .unwrap();
+
+        assert_eq!(second, first);
+        assert_eq!(cache.get(second).unwrap().glyphs().len(), 10);
+        assert_eq!(cache.resident_bytes(), resident);
+        assert_eq!(source.glyph_queries.get(), glyph_queries);
+    }
+
+    #[test]
+    fn cached_layout_invalidates_on_font_revision_changes() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let first = cache
+            .layout_cached(7, 11, request("revision", i32::MAX), &typefaces)
+            .unwrap();
+        let changed = cache
+            .layout_cached(7, 12, request("revision", i32::MAX), &typefaces)
+            .unwrap();
+
+        assert_ne!(changed, first);
+        assert_eq!(cache.entries.iter().flatten().count(), 2);
+    }
+
+    #[test]
+    fn stale_layouts_compact_without_invalidating_live_slots() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let first = cache
+            .layout_cached(1, 1, request("a", i32::MAX), &typefaces)
+            .unwrap();
+        let stale = cache
+            .layout_cached(2, 1, request("bb", i32::MAX), &typefaces)
+            .unwrap();
+        let third = cache
+            .layout_cached(3, 1, request("ccc", i32::MAX), &typefaces)
+            .unwrap();
+
+        cache.begin_frame();
+        assert_eq!(
+            cache
+                .layout_cached(1, 1, request("a", i32::MAX), &typefaces)
+                .unwrap(),
+            first
+        );
+        assert_eq!(
+            cache
+                .layout_cached(3, 1, request("ccc", i32::MAX), &typefaces)
+                .unwrap(),
+            third
+        );
+        cache.begin_frame();
+
+        assert!(cache.get(stale).is_none());
+        assert_eq!(cache.get(first).unwrap().glyphs().len(), 1);
+        assert_eq!(cache.get(third).unwrap().glyphs().len(), 3);
+        let reused = cache
+            .layout_cached(4, 1, request("dddd", i32::MAX), &typefaces)
+            .unwrap();
+        assert_eq!(reused.slot, stale.slot);
+        assert_ne!(reused.generation, stale.generation);
+        assert_eq!(cache.get(reused).unwrap().glyphs().len(), 4);
+    }
+
+    #[test]
+    fn measurement_cache_invalidates_on_constraint_changes() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let first = cache
+            .measure_cached(5, 9, request("ab cd", 3 * 256), &typefaces)
+            .unwrap();
+        assert_eq!(cache.measurements.len(), 1);
+
+        let repeated = cache
+            .measure_cached(5, 9, request("ab cd", 3 * 256), &typefaces)
+            .unwrap();
+        let changed = cache
+            .measure_cached(5, 9, request("ab cd", 5 * 256), &typefaces)
+            .unwrap();
+
+        assert_eq!(repeated, first);
+        assert_ne!(changed, first);
+        assert_eq!(cache.measurements.len(), 2);
     }
 
     #[test]
@@ -892,5 +1326,96 @@ mod tests {
         assert_eq!(layout.measure().height, 2 * 256);
         assert_eq!(layout.runs().len(), 2);
         assert_eq!(layout.glyphs().len(), 3);
+    }
+
+    #[test]
+    fn ellipsis_is_part_of_the_retained_glyph_layout() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let mut limited = request("ab cd", 3 * 256);
+        limited.max_lines = 1;
+        limited.overflow = Overflow::Ellipsis;
+        let handle = cache.layout(limited, &typefaces).unwrap();
+        let layout = cache.get(handle).unwrap();
+
+        assert_eq!(layout.lines().len(), 1);
+        assert_eq!(layout.lines()[0].text().end, 2);
+        assert_eq!(layout.glyphs().len(), 3);
+        assert_eq!(
+            layout.glyphs()[2].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
+        assert_eq!(layout.carets().len(), 3);
+        assert_eq!(layout.measure().width, 3 * 256);
+    }
+
+    #[test]
+    fn wrap_mode_changes_the_selected_line_boundary() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+
+        let first_line_end = |wrap| {
+            let mut cache = TextLayoutCache::default();
+            cache.begin_frame();
+            let mut request = request("ab cd", 4 * 256);
+            request.wrap = wrap;
+            let handle = cache.layout(request, &typefaces).unwrap();
+            cache.get(handle).unwrap().lines()[0].text().end
+        };
+
+        assert_eq!(first_line_end(WrapMode::Word), 3);
+        assert_eq!(first_line_end(WrapMode::Grapheme), 4);
+
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let mut request = request("ab cd", 4 * 256);
+        request.wrap = WrapMode::NoWrap;
+        let handle = cache.layout(request, &typefaces).unwrap();
+        assert_eq!(cache.get(handle).unwrap().lines().len(), 1);
+    }
+
+    #[test]
+    fn spacing_participates_in_measurement_and_glyph_positions() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let mut request = request("ab c", i32::MAX);
+        request.wrap = WrapMode::NoWrap;
+        request.spacing = TextSpacing {
+            letter: 256,
+            word: 2 * 256,
+        };
+        let handle = cache.layout(request, &typefaces).unwrap();
+        let layout = cache.get(handle).unwrap();
+
+        assert_eq!(layout.measure().width, 9 * 256);
+        assert_eq!(layout.glyphs()[1].origin.x, 2 * 256);
+        assert_eq!(layout.glyphs()[2].origin.x, 4 * 256);
+        assert_eq!(layout.glyphs()[3].origin.x, 8 * 256);
+    }
+
+    #[test]
+    fn alignment_is_retained_in_authoritative_positions() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let mut request = request("ab", 10 * 256);
+        request.wrap = WrapMode::NoWrap;
+        request.alignment = Alignment::Center;
+        let handle = cache.layout(request, &typefaces).unwrap();
+        let layout = cache.get(handle).unwrap();
+
+        assert_eq!(layout.lines()[0].origin().x, 4 * 256);
+        assert_eq!(layout.glyphs()[0].origin.x, 4 * 256);
+        assert_eq!(layout.carets()[0].position.x, 4 * 256);
+        assert_eq!(layout.measure().width, 2 * 256);
     }
 }

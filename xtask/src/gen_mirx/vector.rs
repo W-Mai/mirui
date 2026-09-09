@@ -7,15 +7,13 @@
 //!   border <x> <y> <w> <h> <width> <radius> <r> <g> <b> <a> <opa>
 //!   line   <x1> <y1> <x2> <y2> <width> <r> <g> <b> <a> <opa>
 //!   arc    <cx> <cy> <radius> <start_deg> <end_deg> <width> <r> <g> <b> <a> <opa>
-//!   label  <token> <x> <y> <r> <g> <b> <a> <opa> <text>
 //!   blit   <token> <px> <py> <sx> <sy> [opa <0-255>] [radius <r>] [composite <mode>]
 //!          mode is one of: source-over (default) / add / screen / multiply / darken / lighten / difference
 //!   group  <tx> <ty> [<opacity>] [disjoint]
 //!   endgroup
 //!
 //! Coordinates are decimal (parsed into 24.8 fixed-point); colours and
-//! opacity are 0-255. `<token>` and `<text>` are single tokens — no
-//! whitespace inside them. `fill_path` stays macro-only because the path
+//! opacity are 0-255. `<token>` values are single tokens. `fill_path` stays macro-only because the path
 //! sub-grammar is awkward in a flat line-oriented file.
 
 use std::fs;
@@ -136,17 +134,6 @@ fn parse_op(kind: &str, a: &[&str]) -> Result<SceneOp> {
                 radius: fixed(a[5])?,
                 color: color(a, 6)?,
                 opa: byte(a[10])?,
-            })
-        }
-        "label" => {
-            expect(a, 9, "label")?;
-            Ok(SceneOp::Label {
-                font: ResourceRef::Token(a[0].to_owned().into()),
-                pos: point(a, 1)?,
-                transform: Transform::IDENTITY,
-                color: color(a, 3)?,
-                opa: byte(a[7])?,
-                text: a[8].to_owned().into(),
             })
         }
         "blit" => {
@@ -305,17 +292,15 @@ arc 50 50 20 0 90 2 10 20 30 255 128
     }
 
     #[test]
-    fn border_label_blit_roundtrip() {
+    fn border_and_blit_roundtrip() {
         let text = "\
 border 0 0 64 32 2 4 200 200 200 255 255
-label noto-sans 10 20 0 0 0 255 255 hi
 blit thumb-1 0 0 16 16
 ";
         let ops = parse_scene(text).unwrap();
-        assert_eq!(ops.len(), 3);
+        assert_eq!(ops.len(), 2);
         assert!(matches!(ops[0], SceneOp::Border { .. }));
-        assert!(matches!(ops[1], SceneOp::Label { .. }));
-        assert!(matches!(ops[2], SceneOp::Blit { .. }));
+        assert!(matches!(ops[1], SceneOp::Blit { .. }));
 
         let payload = encode_scene(&ops).unwrap();
         let back = decode_scene(&payload).unwrap();

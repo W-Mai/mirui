@@ -43,6 +43,40 @@ pub enum LineJoin {
     Bevel,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GlyphPlacement {
+    glyph_id: u16,
+    origin: Point,
+    offset: Point,
+}
+
+impl GlyphPlacement {
+    pub const fn new(glyph_id: u16, origin: Point) -> Self {
+        Self {
+            glyph_id,
+            origin,
+            offset: Point::ZERO,
+        }
+    }
+
+    pub const fn glyph_id(self) -> u16 {
+        self.glyph_id
+    }
+
+    pub const fn origin(self) -> Point {
+        self.origin
+    }
+
+    pub const fn offset(self) -> Point {
+        self.offset
+    }
+
+    pub const fn with_offset(mut self, offset: Point) -> Self {
+        self.offset = offset;
+        self
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SceneOp {
     GroupBegin {
@@ -95,13 +129,14 @@ pub enum SceneOp {
         radius: Fixed,
         opa: u8,
     },
-    Label {
+    GlyphRun {
         font: ResourceRef,
+        ppem: u16,
         pos: Point,
         transform: Transform,
         color: Color,
         opa: u8,
-        text: String,
+        glyphs: Vec<GlyphPlacement>,
     },
     Line {
         p1: Point,

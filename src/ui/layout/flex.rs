@@ -1,10 +1,29 @@
-use crate::types::{Fixed, Rect};
+use crate::types::{Dimension, Fixed, Rect};
 
 use super::node::{AlignItems, FlexDirection, JustifyContent, LayoutNode, Position};
 
 pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed, avail_h: Fixed) {
-    let w = node.style.width.resolve(avail_w).unwrap_or(avail_w);
-    let h = node.style.height.resolve(avail_h).unwrap_or(avail_h);
+    compute_node(node, x, y, avail_w, avail_h, true);
+}
+
+fn compute_node(
+    node: &mut LayoutNode,
+    x: Fixed,
+    y: Fixed,
+    avail_w: Fixed,
+    avail_h: Fixed,
+    resolve_self: bool,
+) {
+    let w = if resolve_self {
+        resolve_dimension(node.style.width, avail_w, node.intrinsic_width).unwrap_or(avail_w)
+    } else {
+        avail_w
+    };
+    let h = if resolve_self {
+        resolve_dimension(node.style.height, avail_h, node.intrinsic_height).unwrap_or(avail_h)
+    } else {
+        avail_h
+    };
 
     node.rect = Rect { x, y, w, h };
 
@@ -33,10 +52,15 @@ pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed,
         if child.style.position == Position::Absolute {
             continue;
         }
-        let child_main = if is_row {
-            child.style.width.resolve(main_size)
+        let (dimension, intrinsic) = if is_row {
+            (child.style.width, child.intrinsic_width)
         } else {
-            child.style.height.resolve(main_size)
+            (child.style.height, child.intrinsic_height)
+        };
+        let child_main = if dimension == Dimension::Auto && child.style.grow > Fixed::ZERO {
+            None
+        } else {
+            resolve_dimension(dimension, main_size, intrinsic)
         };
         if let Some(s) = child_main {
             fixed_total += s;
@@ -61,10 +85,15 @@ pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed,
             sizes.push((Fixed::ZERO, Fixed::ZERO));
             continue;
         }
-        let child_main = if is_row {
-            child.style.width.resolve(main_size)
+        let (main_dimension, main_intrinsic) = if is_row {
+            (child.style.width, child.intrinsic_width)
         } else {
-            child.style.height.resolve(main_size)
+            (child.style.height, child.intrinsic_height)
+        };
+        let child_main = if main_dimension == Dimension::Auto && child.style.grow > Fixed::ZERO {
+            None
+        } else {
+            resolve_dimension(main_dimension, main_size, main_intrinsic)
         };
         let m = if let Some(s) = child_main {
             s
@@ -74,11 +103,12 @@ pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed,
             Fixed::ZERO
         };
 
-        let child_cross = if is_row {
-            child.style.height.resolve(cross_size)
+        let (cross_dimension, cross_intrinsic) = if is_row {
+            (child.style.height, child.intrinsic_height)
         } else {
-            child.style.width.resolve(cross_size)
+            (child.style.width, child.intrinsic_width)
         };
+        let child_cross = resolve_dimension(cross_dimension, cross_size, cross_intrinsic);
         let c = child_cross.unwrap_or(cross_size);
 
         sizes.push((m, c));
@@ -119,9 +149,11 @@ pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed,
         if child.style.position == Position::Absolute {
             let abs_x = x + child.style.left.resolve(w).unwrap_or(Fixed::ZERO);
             let abs_y = y + child.style.top.resolve(h).unwrap_or(Fixed::ZERO);
-            let abs_w = child.style.width.resolve(w).unwrap_or(Fixed::ZERO);
-            let abs_h = child.style.height.resolve(h).unwrap_or(Fixed::ZERO);
-            compute_layout(child, abs_x, abs_y, abs_w, abs_h);
+            let abs_w = resolve_dimension(child.style.width, w, child.intrinsic_width)
+                .unwrap_or(Fixed::ZERO);
+            let abs_h = resolve_dimension(child.style.height, h, child.intrinsic_height)
+                .unwrap_or(Fixed::ZERO);
+            compute_node(child, abs_x, abs_y, abs_w, abs_h, false);
             continue;
         }
 
@@ -140,7 +172,19 @@ pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed,
             (inner_x + cross_offset, inner_y + offset, c, m)
         };
 
-        compute_layout(child, cx, cy, cw, ch);
+        compute_node(child, cx, cy, cw, ch, false);
         offset += m + gap;
+    }
+}
+
+fn resolve_dimension(
+    dimension: Dimension,
+    parent: Fixed,
+    intrinsic: Option<Fixed>,
+) -> Option<Fixed> {
+    match dimension {
+        Dimension::Content => Some(intrinsic.unwrap_or(Fixed::ZERO)),
+        Dimension::Auto => intrinsic,
+        Dimension::Px(_) | Dimension::Percent(_) => dimension.resolve(parent),
     }
 }

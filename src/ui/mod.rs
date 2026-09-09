@@ -68,6 +68,7 @@ pub struct Style {
     /// Always present; for transparent text set alpha on the resolved colour.
     pub text_color: ThemedColor,
     pub font_stack: crate::render::font::FontStack,
+    pub font_size: Option<u16>,
     pub layout: LayoutStyle,
     pub clip_children: bool,
 }
@@ -81,6 +82,7 @@ impl Default for Style {
             border_radius: Fixed::ZERO,
             text_color: ThemedColor::Token(ColorToken::OnSurface),
             font_stack: crate::render::font::FontStack::default(),
+            font_size: None,
             layout: LayoutStyle::default(),
             clip_children: false,
         }
@@ -126,6 +128,16 @@ impl Style {
         stack: impl Into<crate::render::font::FontStack>,
     ) -> &mut Self {
         self.font_stack = stack.into();
+        self
+    }
+
+    pub fn set_font_size(&mut self, size: u16) -> &mut Self {
+        self.font_size = Some(size.max(1));
+        self
+    }
+
+    pub fn clear_font_size(&mut self) -> &mut Self {
+        self.font_size = None;
         self
     }
 
@@ -177,6 +189,15 @@ mod style_tests {
         s.set_bg_color(Color::rgb(1, 2, 3));
         s.clear_bg_color();
         assert!(s.bg_color.is_none());
+    }
+
+    #[test]
+    fn font_size_is_optional_and_never_zero() {
+        let mut style = Style::default();
+        assert_eq!(style.font_size, None);
+        assert_eq!(style.set_font_size(24).font_size, Some(24));
+        assert_eq!(style.set_font_size(0).font_size, Some(1));
+        assert_eq!(style.clear_font_size().font_size, None);
     }
 }
 

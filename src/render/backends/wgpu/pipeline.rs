@@ -14,7 +14,6 @@ pub enum ShaderKind {
     BlitQuad,
     QuadSdf,
     Path,
-    Label,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -63,13 +62,6 @@ pub struct BlitUniform {
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 pub struct PathTintUniform {
     pub color: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
-pub struct LabelVertex {
-    pub pos: [f32; 2],
-    pub uv: [f32; 2],
 }
 
 /// `uvw = (u/w, v/w, 1/w)`; fragment recovers `uv = uvw.xy / uvw.z`.
@@ -123,7 +115,6 @@ pub struct PipelineCache {
     pub blit_bgl: wgpu::BindGroupLayout,
     pub blit_quad_bgl: wgpu::BindGroupLayout,
     pub path_bgl: wgpu::BindGroupLayout,
-    pub label_bgl: wgpu::BindGroupLayout,
     pipelines: Cache<PipelineKey, CachedPipeline, Lru, HashLookup<PipelineKey>>,
 }
 
@@ -166,11 +157,6 @@ impl PipelineCache {
             label: Some("mirui-blit-bgl"),
             entries: &texture_entries,
         });
-        let label_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("mirui-label-bgl"),
-            entries: &texture_entries,
-        });
-
         let blit_quad_entries = [
             uniform_entry(0),
             wgpu::BindGroupLayoutEntry {
@@ -200,7 +186,6 @@ impl PipelineCache {
             blit_bgl,
             blit_quad_bgl,
             path_bgl,
-            label_bgl,
             pipelines: Cache::builder()
                 .max_size(MaxSize::Count(PIPELINE_CACHE_LIMIT))
                 .build(),
@@ -218,7 +203,6 @@ impl PipelineCache {
             blit_bgl,
             blit_quad_bgl,
             path_bgl,
-            label_bgl,
             pipelines,
         } = self;
         let bgl = match key.shader {
@@ -226,7 +210,6 @@ impl PipelineCache {
             ShaderKind::Blit => blit_bgl,
             ShaderKind::BlitQuad => blit_quad_bgl,
             ShaderKind::Path => path_bgl,
-            ShaderKind::Label => label_bgl,
         };
         let handle = pipelines
             .entry(key)
@@ -272,7 +255,6 @@ fn build_pipeline(
         ShaderKind::BlitQuad => ("mirui-blit-quad", include_str!("shader/blit_quad.wgsl")),
         ShaderKind::QuadSdf => ("mirui-quad-sdf", include_str!("shader/quad_sdf.wgsl")),
         ShaderKind::Path => ("mirui-path", include_str!("shader/path.wgsl")),
-        ShaderKind::Label => ("mirui-label", include_str!("shader/label.wgsl")),
     };
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -294,22 +276,6 @@ fn build_pipeline(
             offset: 0,
             shader_location: 0,
         }],
-    };
-    let label_vertex_layout = wgpu::VertexBufferLayout {
-        array_stride: 16,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &[
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 0,
-                shader_location: 0,
-            },
-            wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 8,
-                shader_location: 1,
-            },
-        ],
     };
     let blit_quad_vertex_layout = wgpu::VertexBufferLayout {
         array_stride: 24,
@@ -341,10 +307,6 @@ fn build_pipeline(
         ),
         ShaderKind::Path => (
             core::slice::from_ref(&path_vertex_layout),
-            wgpu::PrimitiveTopology::TriangleList,
-        ),
-        ShaderKind::Label => (
-            core::slice::from_ref(&label_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
         ),
     };
@@ -468,9 +430,6 @@ const _: () = {
     assert!(core::mem::size_of::<BlitUniform>() == 48);
     // Must match `PathTint` in shader/path.wgsl.
     assert!(core::mem::size_of::<PathTintUniform>() == 16);
-    // Must match the `LabelVertex` layout in pipeline.rs and the
-    // `VertexIn` struct in shader/label.wgsl.
-    assert!(core::mem::size_of::<LabelVertex>() == 16);
     // Must match `VertexIn` in shader/blit_quad.wgsl
     // (vec2 + vec3 + f32 = 24).
     assert!(core::mem::size_of::<BlitQuadVertex>() == 24);

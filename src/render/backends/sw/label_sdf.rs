@@ -1,5 +1,5 @@
 use super::SwRenderer;
-use crate::render::font::sdf::sample_signed_distance;
+use crate::render::font::sdf::SignedDistanceField;
 use crate::types::{Color, Fixed};
 
 impl SwRenderer<'_> {
@@ -81,7 +81,10 @@ impl SwRenderer<'_> {
         let scale_x = Fixed::from_int(region.width() as i32) / Fixed::from_int(target_width);
         let scale_y = Fixed::from_int(region.height() as i32) / Fixed::from_int(target_height);
         let half_texel = Fixed::ONE / 2;
-        let edge_half = scale_x.max(scale_y) / 2;
+        let Some(field) = SignedDistanceField::new(samples, stride, region, bit_depth, spread)
+        else {
+            return;
+        };
         let target_w = self.target.width as usize;
         let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
 
@@ -100,8 +103,11 @@ impl SwRenderer<'_> {
                 }
                 let sx = (Fixed::from_int(dx) + half_texel) * scale_x - half_texel;
 
-                let dist =
-                    sample_signed_distance(samples, stride, region, bit_depth, spread, sx, sy);
+                let (dist, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
+                let screen_dx = gradient_x * scale_x;
+                let screen_dy = gradient_y * scale_y;
+                let edge_half = ((screen_dx * screen_dx + screen_dy * screen_dy).sqrt() / 2)
+                    .max(Fixed::from_ratio(1, 256));
                 let cov = if dist <= -edge_half {
                     continue;
                 } else if dist >= edge_half {

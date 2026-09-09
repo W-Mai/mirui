@@ -6,7 +6,7 @@ use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::types::{Fixed, Point, Rect};
+use crate::types::{Fixed, Point, Rect, Transform};
 use crate::ui::view::{View, ViewCtx};
 
 pub use textflow::shaping::FontFeature;
@@ -182,6 +182,7 @@ impl ParagraphStyle {
         width: Option<Fixed>,
     ) -> crate::text::layout::TextLayoutRequest<'a> {
         use textflow::bidi::BaseDirection;
+        use textflow::layout::{Alignment, Overflow, TextSpacing, WrapMode};
 
         use crate::types::fixed::to_textflow;
 
@@ -196,13 +197,36 @@ impl ParagraphStyle {
                 to_textflow(width.max(Fixed::ZERO))
             }
         };
+        let wrap = match self.wrap {
+            TextWrap::NoWrap => WrapMode::NoWrap,
+            TextWrap::Word => WrapMode::Word,
+            TextWrap::Grapheme => WrapMode::Grapheme,
+        };
+        let alignment = match self.align {
+            TextAlign::Start => Alignment::Start,
+            TextAlign::Center => Alignment::Center,
+            TextAlign::End => Alignment::End,
+            TextAlign::Justify => Alignment::Justify,
+        };
+        let overflow = match self.overflow {
+            TextOverflow::Clip => Overflow::Clip,
+            TextOverflow::Ellipsis => Overflow::Ellipsis,
+        };
         crate::text::layout::TextLayoutRequest {
             text,
             max_width,
+            width: width.map(|width| to_textflow(width.max(Fixed::ZERO))),
             max_lines: self.max_lines.map(usize::from).unwrap_or(usize::MAX),
             line_height: to_textflow(self.line_height.unwrap_or(metrics.line_height)),
             baseline: to_textflow(metrics.ascender),
             direction,
+            wrap,
+            alignment,
+            overflow,
+            spacing: TextSpacing {
+                letter: to_textflow(self.letter_spacing),
+                word: to_textflow(self.word_spacing),
+            },
             features: self.features.as_slice(),
         }
     }
@@ -350,6 +374,21 @@ impl TextBuilder {
         self
     }
 
+    pub fn font(mut self, token: impl Into<crate::render::font::FontToken>) -> Self {
+        self.style.get_or_insert_default().set_font_token(token);
+        self
+    }
+
+    pub fn font_stack(mut self, stack: impl Into<crate::render::font::FontStack>) -> Self {
+        self.style.get_or_insert_default().set_font_stack(stack);
+        self
+    }
+
+    pub fn font_size(mut self, size: u16) -> Self {
+        self.style.get_or_insert_default().set_font_size(size);
+        self
+    }
+
     pub fn spawn(self, world: &mut World) -> Entity {
         world.spawn(self)
     }
@@ -371,20 +410,22 @@ fn text_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(text) = world.get::<Text>(entity) else {
+    if world.get::<Text>(entity).is_none() {
         return;
-    };
+    }
     let color = ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state);
     let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
         return;
     };
     let face_limit = resource.borrow().limits().fallback_faces;
-    let Ok(Some(fonts)) =
-        crate::render::font::ResolvedFontStack::resolve(world, &ctx.style.font_stack, face_limit)
-    else {
+    let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
+        world,
+        &ctx.style.font_stack,
+        ctx.style.font_size,
+        face_limit,
+    ) else {
         return;
     };
-    let content = text.resolve(world);
     let Some(handle) = world.get::<crate::text::TextLayoutHandle>(entity).copied() else {
         return;
     };
@@ -392,29 +433,60 @@ fn text_render(
     let Some(layout) = cache.get(handle) else {
         return;
     };
+    draw_text_layout(
+        renderer,
+        &layout,
+        |font_id| fonts.font(font_id),
+        TextPaint::new(
+            Point {
+                x: rect.x,
+                y: rect.y,
+            },
+            ctx.transform,
+            ctx.clip,
+            color,
+        ),
+    );
+}
+
+pub(crate) struct TextPaint<'a> {
+    origin: Point,
+    transform: Transform,
+    clip: &'a Rect,
+    color: crate::types::Color,
+}
+
+impl<'a> TextPaint<'a> {
+    pub(crate) const fn new(
+        origin: Point,
+        transform: Transform,
+        clip: &'a Rect,
+        color: crate::types::Color,
+    ) -> Self {
+        Self {
+            origin,
+            transform,
+            clip,
+            color,
+        }
+    }
+}
+
+pub(crate) fn draw_text_layout<'font>(
+    renderer: &mut dyn Renderer,
+    layout: &crate::text::TextLayout<'_>,
+    font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
+    paint: TextPaint<'_>,
+) {
     for line in layout.lines() {
-        let offset = match text.paragraph.align {
-            TextAlign::Start | TextAlign::Justify => Fixed::ZERO,
-            TextAlign::Center => {
-                (rect.w - crate::types::fixed::from_textflow(line.advance())).max(Fixed::ZERO)
-                    / Fixed::from_int(2)
-            }
-            TextAlign::End => {
-                (rect.w - crate::types::fixed::from_textflow(line.advance())).max(Fixed::ZERO)
-            }
-        };
         let Some(runs) = layout.runs_for(*line) else {
             continue;
         };
         for run in runs {
-            let range = run.text();
-            let Some(run_text) = content.get(range.start as usize..range.end as usize) else {
+            let Some(font) = font_for(run.font_id()) else {
                 continue;
             };
-            let Some(font) = fonts.font(run.font_id()) else {
-                continue;
-            };
-            let Some(origin) = layout
+            let Some(glyph_origin) = layout
                 .glyphs_for(*run)
                 .and_then(|glyphs| glyphs.first())
                 .map(|glyph| glyph.origin)
@@ -425,29 +497,177 @@ fn text_render(
             renderer.draw(
                 &DrawCommand::GlyphRun {
                     pos: Point {
-                        x: rect.x + offset + crate::types::fixed::from_textflow(origin.x),
-                        y: rect.y + crate::types::fixed::from_textflow(origin.y) - metrics.ascender,
+                        x: paint.origin.x + crate::types::fixed::from_textflow(glyph_origin.x),
+                        y: paint.origin.y + crate::types::fixed::from_textflow(glyph_origin.y)
+                            - metrics.ascender,
                     },
-                    transform: ctx.transform,
-                    text: run_text,
+                    transform: paint.transform,
                     glyphs: layout.glyphs_for(*run).unwrap_or_default(),
                     font,
-                    color,
+                    color: paint.color,
                     opa: 255,
                 },
-                ctx.clip,
+                paint.clip,
             );
         }
     }
+}
+
+/// Borrowed positioned glyphs for rendering without runtime shaping or allocation.
+#[derive(Clone, Copy, Debug, crate::Component)]
+pub struct StaticGlyphRun {
+    glyphs: &'static [textflow::shaping::PositionedGlyph],
+}
+
+impl StaticGlyphRun {
+    pub const fn new(glyphs: &'static [textflow::shaping::PositionedGlyph]) -> Self {
+        Self { glyphs }
+    }
+
+    pub const fn glyphs(&self) -> &'static [textflow::shaping::PositionedGlyph] {
+        self.glyphs
+    }
+
+    pub(crate) fn measure(&self, line_height: Fixed) -> (Fixed, Fixed) {
+        let Some(first) = self.glyphs.first() else {
+            return (Fixed::ZERO, Fixed::ZERO);
+        };
+        let mut right = 0;
+        let mut min_baseline = first.origin.y;
+        let mut max_baseline = first.origin.y;
+        for glyph in self.glyphs {
+            right = right.max(
+                glyph
+                    .origin
+                    .x
+                    .saturating_add(glyph.offset.x)
+                    .saturating_add(glyph.advance.x),
+            );
+            min_baseline = min_baseline.min(glyph.origin.y.saturating_add(glyph.offset.y));
+            max_baseline = max_baseline.max(glyph.origin.y.saturating_add(glyph.offset.y));
+        }
+        (
+            crate::types::fixed::from_textflow(right.max(0)),
+            line_height
+                + crate::types::fixed::from_textflow(max_baseline.saturating_sub(min_baseline)),
+        )
+    }
+}
+
+fn static_glyph_run_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let Some(run) = world.get::<StaticGlyphRun>(entity) else {
+        return;
+    };
+    let Some(first) = run.glyphs.first() else {
+        return;
+    };
+    let Some(font) = crate::render::font::resolve_or_default(world, ctx.style.font_stack.primary())
+    else {
+        return;
+    };
+    let mut font = font.as_ref().clone();
+    font.size = ctx.style.font_size.unwrap_or(font.size).max(1);
+    let metrics = font.metrics(font.size);
+    renderer.draw(
+        &DrawCommand::GlyphRun {
+            pos: Point {
+                x: rect.x + crate::types::fixed::from_textflow(first.origin.x),
+                y: rect.y + crate::types::fixed::from_textflow(first.origin.y) - metrics.ascender,
+            },
+            transform: ctx.transform,
+            glyphs: run.glyphs,
+            font: &font,
+            color: ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state),
+            opa: 255,
+        },
+        ctx.clip,
+    );
 }
 
 pub fn view() -> View {
     View::new("Text", 80, text_render).with_filter::<Text>()
 }
 
+pub fn static_glyph_run_view() -> View {
+    View::new("StaticGlyphRun", 80, static_glyph_run_render).with_filter::<StaticGlyphRun>()
+}
+
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
+    use crate::render::font::{GlyphId, default_font_manager};
+    use crate::types::Transform;
+    use crate::ui::Style;
+    use crate::ui::theme::{Theme, WidgetState};
+    use textflow::shaping::{FlowPoint, PositionedGlyph};
+
+    #[derive(Default)]
+    struct RecordingRenderer {
+        glyph_runs: Vec<(Point, usize)>,
+    }
+
+    impl Renderer for RecordingRenderer {
+        fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
+            if let DrawCommand::GlyphRun { pos, glyphs, .. } = command {
+                self.glyph_runs.push((*pos, glyphs.len()));
+            }
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn static_run_renders_without_a_layout_workspace() {
+        static GLYPHS: [PositionedGlyph; 2] = [
+            PositionedGlyph::new(GlyphId::new(65), FlowPoint { x: 0, y: 7 << 8 })
+                .with_advance(FlowPoint { x: 8 << 8, y: 0 }),
+            PositionedGlyph::new(
+                GlyphId::new(66),
+                FlowPoint {
+                    x: 8 << 8,
+                    y: 7 << 8,
+                },
+            )
+            .with_advance(FlowPoint { x: 8 << 8, y: 0 }),
+        ];
+        let mut world = World::new();
+        world.insert_resource(Theme::default());
+        world.insert_resource(default_font_manager());
+        let entity = world.spawn_empty();
+        world.insert(entity, StaticGlyphRun::new(&GLYPHS));
+        let style = Style::default();
+        let rect = Rect {
+            x: Fixed::from_int(3),
+            y: Fixed::from_int(5),
+            w: Fixed::from_int(20),
+            h: Fixed::from_int(10),
+        };
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::IDENTITY,
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+        };
+        let mut renderer = RecordingRenderer::default();
+
+        static_glyph_run_render(&mut renderer, &world, entity, &rect, &mut ctx);
+
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(3, 5), 2)]);
+        assert_eq!(
+            StaticGlyphRun::new(&GLYPHS).measure(Fixed::from_int(8)),
+            (Fixed::from_int(16), Fixed::from_int(8))
+        );
+    }
 
     #[test]
     fn build_spawns_text_with_style() {
@@ -498,6 +718,27 @@ mod tests {
         assert_eq!(paragraph.align, TextAlign::Start);
         assert_eq!(paragraph.shaping, ShapingPolicy::Auto);
         assert!(paragraph.features.as_slice().is_empty());
+    }
+
+    #[test]
+    fn paragraph_request_preserves_overflow_policy() {
+        let paragraph = ParagraphStyle {
+            overflow: TextOverflow::Ellipsis,
+            max_lines: Some(2),
+            ..ParagraphStyle::default()
+        };
+        let request = paragraph.layout_request(
+            "overflow",
+            crate::render::font::FontMetrics {
+                ascender: Fixed::from_int(7),
+                descender: Fixed::from_int(-1),
+                line_height: Fixed::from_int(8),
+            },
+            Some(Fixed::from_int(24)),
+        );
+
+        assert_eq!(request.overflow, textflow::layout::Overflow::Ellipsis);
+        assert_eq!(request.max_lines, 2);
     }
 
     #[test]

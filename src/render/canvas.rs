@@ -40,16 +40,6 @@ pub trait Canvas {
         composite: CompositeMode,
     );
     fn clear(&mut self, area: &Rect, color: &Color);
-    fn draw_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    );
-
     #[allow(clippy::too_many_arguments)]
     fn draw_glyph_run(
         &mut self,

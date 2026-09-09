@@ -17,6 +17,7 @@ pub enum CodecError {
     UnsupportedScale(u8),
     UnknownFlags(u8),
     BadComposite(u8),
+    InvalidPpem,
 }
 
 impl From<mirx::scene::CodecError> for CodecError {
@@ -37,6 +38,7 @@ impl From<mirx::scene::CodecError> for CodecError {
             mirx::scene::CodecError::UnsupportedScale(s) => Self::UnsupportedScale(s),
             mirx::scene::CodecError::UnknownFlags(f) => Self::UnknownFlags(f),
             mirx::scene::CodecError::BadComposite(b) => Self::BadComposite(b),
+            mirx::scene::CodecError::InvalidPpem => Self::InvalidPpem,
         }
     }
 }
@@ -89,6 +91,26 @@ mod tests {
             radius: Fixed::ZERO,
             opa: 200,
         }]);
+    }
+
+    #[test]
+    fn positioned_glyph_run_roundtrips() {
+        static GLYPHS: [textflow::shaping::PositionedGlyph; 1] =
+            [textflow::shaping::PositionedGlyph::new(
+                crate::render::font::GlyphId::new(65),
+                textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+            )];
+        let ops = [SceneOp::GlyphRun {
+            font: ResourceRef::Index(0),
+            ppem: 18,
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            color: red(),
+            opa: 255,
+            glyphs: (&GLYPHS[..]).into(),
+        }];
+
+        roundtrip(ops.into());
     }
 
     #[test]

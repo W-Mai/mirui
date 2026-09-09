@@ -108,6 +108,13 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn font_size(self, size: u16) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.set_font_size(size);
+        }
+        self
+    }
+
     pub fn child(self, child: Entity) -> Self {
         self.world.insert(child, Parent(self.entity));
         if let Some(children) = self.world.get_mut::<Children>(self.entity) {

@@ -328,20 +328,38 @@ impl From<mirx::scene::SceneOp> for SceneOp {
                 radius: radius.into(),
                 opa,
             },
-            mirx::scene::SceneOp::Label {
+            mirx::scene::SceneOp::GlyphRun {
                 font,
+                ppem,
                 pos,
                 transform,
                 color,
                 opa,
-                text,
-            } => Self::Label {
+                glyphs,
+            } => Self::GlyphRun {
                 font: font.into(),
+                ppem,
                 pos: pos.into(),
                 transform: transform.into(),
                 color: color.into(),
                 opa,
-                text: Cow::Owned(text),
+                glyphs: glyphs
+                    .into_iter()
+                    .map(|glyph| {
+                        textflow::shaping::PositionedGlyph::new(
+                            crate::render::font::GlyphId::new(glyph.glyph_id()),
+                            textflow::shaping::FlowPoint {
+                                x: crate::types::fixed::to_textflow(glyph.origin().x.into()),
+                                y: crate::types::fixed::to_textflow(glyph.origin().y.into()),
+                            },
+                        )
+                        .with_offset(textflow::shaping::FlowPoint {
+                            x: crate::types::fixed::to_textflow(glyph.offset().x.into()),
+                            y: crate::types::fixed::to_textflow(glyph.offset().y.into()),
+                        })
+                    })
+                    .collect::<alloc::vec::Vec<_>>()
+                    .into(),
             },
             mirx::scene::SceneOp::Line {
                 p1,
@@ -500,20 +518,37 @@ impl From<SceneOp> for mirx::scene::SceneOp {
                 radius: radius.into(),
                 opa,
             },
-            SceneOp::Label {
+            SceneOp::GlyphRun {
                 font,
+                ppem,
                 pos,
                 transform,
                 color,
                 opa,
-                text,
-            } => Self::Label {
+                glyphs,
+            } => Self::GlyphRun {
                 font: font.into(),
+                ppem,
                 pos: pos.into(),
                 transform: transform.into(),
                 color: color.into(),
                 opa,
-                text: text.into_owned(),
+                glyphs: glyphs
+                    .iter()
+                    .map(|glyph| {
+                        mirx::scene::GlyphPlacement::new(
+                            glyph.glyph_id().value(),
+                            mirx::types::Point::new(
+                                crate::types::fixed::from_textflow(glyph.origin.x).into(),
+                                crate::types::fixed::from_textflow(glyph.origin.y).into(),
+                            ),
+                        )
+                        .with_offset(mirx::types::Point::new(
+                            crate::types::fixed::from_textflow(glyph.offset.x).into(),
+                            crate::types::fixed::from_textflow(glyph.offset.y).into(),
+                        ))
+                    })
+                    .collect(),
             },
             SceneOp::Line {
                 p1,
@@ -581,8 +616,7 @@ impl From<mirx::scene::Scene> for Scene {
 
 impl From<Scene> for mirx::scene::Scene {
     fn from(s: Scene) -> Self {
-        let ops: Vec<mirx::scene::SceneOp> = s.ops.into_iter().map(Into::into).collect();
-        Self::from_ops(ops)
+        Self::from_ops(s.ops.into_iter().map(Into::into).collect())
     }
 }
 

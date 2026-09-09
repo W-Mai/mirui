@@ -59,7 +59,7 @@ mod tests {
     struct PanicResolver;
     impl ResourceResolver for PanicResolver {
         fn resolve_font(&mut self, _: &Font) -> ResourceRef {
-            unreachable!("driver does not draw Label")
+            unreachable!("driver has no font commands")
         }
         fn resolve_texture(&mut self, _: &Texture<'_>) -> ResourceRef {
             unreachable!("driver does not draw Blit")

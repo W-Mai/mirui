@@ -1,6 +1,8 @@
 use super::SwRenderer;
+use crate::render::font::scalar::ScalarField;
+use crate::render::font::sdf::SignedDistanceField;
 use crate::render::font::{Font, Glyph, GlyphKind};
-use crate::types::{Color, Fixed, Point, Rect, fixed::storage};
+use crate::types::{Color, Fixed, Point, Rect, Transform, fixed::storage};
 
 #[derive(Clone, Copy)]
 struct GlyphRasterContext {
@@ -11,41 +13,33 @@ struct GlyphRasterContext {
     bounds: (i32, i32, i32, i32),
 }
 
-impl SwRenderer<'_> {
-    pub(super) fn draw_label_inner(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        let phys_pos = self.viewport.point_to_physical(*pos);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let viewport_scale = self.viewport.scale();
-        let mono_scale = viewport_scale.to_int().max(1);
-        let phys_bounds = phys_clip.pixel_bounds();
-        let (mut cx, cy) = phys_pos.floor();
-        let requested_size = font.size.max(1);
-        let metrics = font.metrics(requested_size);
-        let context = GlyphRasterContext {
-            requested_size,
-            viewport_scale,
-            mono_scale,
-            mono_height: metrics.line_height.to_int().max(1),
-            bounds: phys_bounds,
-        };
-        let baseline = cy + (metrics.ascender * viewport_scale).to_int();
-        for ch in text.chars() {
-            let Some(g) = font.glyph(ch, requested_size) else {
-                continue;
-            };
-            self.draw_glyph_at(&g, cx, cy, baseline, context, color, opa);
-            cx += (g.advance * viewport_scale).to_int();
+enum TransformedGlyph<'a> {
+    Mono(&'a [u8]),
+    Coverage(ScalarField<'a>),
+    SignedDistance(SignedDistanceField<'a>),
+}
+
+pub(super) struct TransformedRun<'a> {
+    pub pos: &'a Point,
+    pub glyphs: &'a [textflow::shaping::PositionedGlyph],
+    pub font: &'a Font,
+    pub transform: &'a Transform,
+    pub clip: Rect,
+    pub color: &'a Color,
+    pub opacity: u8,
+}
+
+impl TransformedGlyph<'_> {
+    fn dimensions(&self) -> (u32, u32) {
+        match self {
+            Self::Mono(bitmap) => (8, bitmap.len() as u32),
+            Self::Coverage(field) => (field.width(), field.height()),
+            Self::SignedDistance(field) => (field.width(), field.height()),
         }
     }
+}
 
+impl SwRenderer<'_> {
     pub(super) fn draw_glyph_run_inner(
         &mut self,
         pos: &Point,
@@ -97,6 +91,187 @@ impl SwRenderer<'_> {
             let baseline = base_baseline + (dy * viewport_scale).to_int();
             let mono_y = baseline - (metrics.ascender * viewport_scale).to_int();
             self.draw_glyph_at(&glyph, x, mono_y, baseline, context, color, opa);
+        }
+    }
+
+    pub(super) fn draw_glyph_run_transformed_inner(&mut self, run: TransformedRun<'_>) {
+        let (Some(first), Some(inverse)) = (run.glyphs.first(), run.transform.inverse()) else {
+            return;
+        };
+        let requested_size = run.font.size.max(1);
+        let metrics = run.font.metrics(requested_size);
+        for positioned in run.glyphs {
+            let Some(glyph) = run.font.glyph_by_id(positioned.glyph_id(), requested_size) else {
+                continue;
+            };
+            let Some(dx) = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)
+                .and_then(|value| value.checked_add(positioned.offset.x))
+            else {
+                continue;
+            };
+            let Some(dy) = positioned
+                .origin
+                .y
+                .checked_sub(first.origin.y)
+                .and_then(|value| value.checked_add(positioned.offset.y))
+            else {
+                continue;
+            };
+            let x = run.pos.x + crate::types::fixed::from_textflow(dx);
+            let baseline = run.pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy);
+            match glyph.kind {
+                GlyphKind::Mono(bitmap) => {
+                    let rect = Rect {
+                        x,
+                        y: baseline - metrics.ascender,
+                        w: Fixed::from_int(8),
+                        h: metrics.line_height,
+                    };
+                    self.blit_transformed_glyph(
+                        TransformedGlyph::Mono(bitmap),
+                        rect,
+                        run.transform,
+                        &inverse,
+                        run.clip,
+                        run.color,
+                        run.opacity,
+                    );
+                }
+                GlyphKind::Raster {
+                    samples,
+                    stride,
+                    region,
+                    representation,
+                    bearing_x,
+                    bearing_y,
+                } => {
+                    if region.width() == 0 || region.height() == 0 {
+                        continue;
+                    }
+                    let scale = Fixed::from_int(i32::from(requested_size))
+                        / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
+                    let rect = Rect {
+                        x: x + bearing_x,
+                        y: baseline - bearing_y,
+                        w: Fixed::from_int(region.width() as i32) * scale,
+                        h: Fixed::from_int(region.height() as i32) * scale,
+                    };
+                    let field = match representation.kind() {
+                        mirx::font::FontRepresentationKind::Coverage { bits } => {
+                            ScalarField::new(samples, stride, region, bits)
+                                .map(TransformedGlyph::Coverage)
+                        }
+                        mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => {
+                            SignedDistanceField::new(samples, stride, region, bits, spread)
+                                .map(TransformedGlyph::SignedDistance)
+                        }
+                        _ => None,
+                    };
+                    if let Some(field) = field {
+                        self.blit_transformed_glyph(
+                            field,
+                            rect,
+                            run.transform,
+                            &inverse,
+                            run.clip,
+                            run.color,
+                            run.opacity,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blit_transformed_glyph(
+        &mut self,
+        glyph: TransformedGlyph<'_>,
+        logical_rect: Rect,
+        physical_transform: &Transform,
+        inverse: &Transform,
+        physical_clip: Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        if logical_rect.w <= Fixed::ZERO || logical_rect.h <= Fixed::ZERO {
+            return;
+        }
+        let Some(draw_area) = physical_transform
+            .apply_rect_bbox(logical_rect)
+            .intersect(&physical_clip)
+            .and_then(|area| {
+                area.intersect(&Rect::new(0, 0, self.target.width, self.target.height))
+            })
+        else {
+            return;
+        };
+        let (source_width, source_height) = glyph.dimensions();
+        let source_scale_x = Fixed::from_int(source_width as i32) / logical_rect.w;
+        let source_scale_y = Fixed::from_int(source_height as i32) / logical_rect.h;
+        let source_dx_x = inverse.m00 * source_scale_x;
+        let source_dx_y = inverse.m10 * source_scale_y;
+        let source_dy_x = inverse.m01 * source_scale_x;
+        let source_dy_y = inverse.m11 * source_scale_y;
+        let (x0, y0, x1, y1) = draw_area.pixel_bounds();
+        let target_width = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|mask| mask.alpha.as_slice());
+        for py in y0..y1 {
+            let mask_row = py as usize * target_width;
+            for px in x0..x1 {
+                let logical = inverse.apply_point(Point {
+                    x: Fixed::from_int(px) + Fixed::HALF,
+                    y: Fixed::from_int(py) + Fixed::HALF,
+                });
+                let u = logical.x - logical_rect.x;
+                let v = logical.y - logical_rect.y;
+                if u < Fixed::ZERO || v < Fixed::ZERO || u >= logical_rect.w || v >= logical_rect.h
+                {
+                    continue;
+                }
+                let sx = u * source_scale_x - Fixed::HALF;
+                let sy = v * source_scale_y - Fixed::HALF;
+                let coverage = match &glyph {
+                    TransformedGlyph::Mono(bitmap) => {
+                        let x = (u * source_scale_x).to_int().clamp(0, 7);
+                        let y = (v * source_scale_y)
+                            .to_int()
+                            .clamp(0, bitmap.len() as i32 - 1);
+                        if bitmap[y as usize] & (0x80 >> x) == 0 {
+                            Fixed::ZERO
+                        } else {
+                            Fixed::ONE
+                        }
+                    }
+                    TransformedGlyph::Coverage(field) => field.sample_bilinear(sx, sy),
+                    TransformedGlyph::SignedDistance(field) => {
+                        let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
+                        let screen_x = gradient_x * source_dx_x + gradient_y * source_dx_y;
+                        let screen_y = gradient_x * source_dy_x + gradient_y * source_dy_y;
+                        let edge_half = ((screen_x * screen_x + screen_y * screen_y).sqrt() / 2)
+                            .max(Fixed::from_ratio(1, 256));
+                        ((distance + edge_half) / (edge_half * 2))
+                            .max(Fixed::ZERO)
+                            .min(Fixed::ONE)
+                    }
+                };
+                if coverage <= Fixed::ZERO {
+                    continue;
+                }
+                let mut alpha = (coverage * Fixed::from_int(i32::from(opa)))
+                    .to_int()
+                    .clamp(0, 255) as u8;
+                if let Some(mask) = clip_mask {
+                    alpha = ((u16::from(alpha) * u16::from(mask[mask_row + px as usize]) + 127)
+                        / 255) as u8;
+                }
+                if alpha != 0 {
+                    self.target.blend_pixel_int(px, py, color, alpha);
+                }
+            }
         }
     }
 
@@ -295,24 +470,25 @@ impl SwRenderer<'_> {
         }
         let target_width = u32::from(target_width.max(1));
         let target_height = u32::from(target_height.max(1));
-        let max_q = (1u16 << bpp) - 1;
+        let Some(field) = ScalarField::new(coverage, stride, region, bpp) else {
+            return;
+        };
+        let scale_x = Fixed::from_int(source_width as i32) / Fixed::from_int(target_width as i32);
+        let scale_y = Fixed::from_int(source_height as i32) / Fixed::from_int(target_height as i32);
+        let half_texel = Fixed::HALF;
         let target_w = self.target.width as usize;
         let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
         for row in 0..target_height {
-            let source_row = u64::from(row) * u64::from(source_height) / u64::from(target_height);
+            let source_y = (Fixed::from_int(row as i32) + half_texel) * scale_y - half_texel;
             for col in 0..target_width {
-                let source_col = u64::from(col) * u64::from(source_width) / u64::from(target_width);
-                let bit_cursor = (u64::from(region.y()) + source_row) * u64::from(stride) * 8
-                    + (u64::from(region.x()) + source_col) * u64::from(bpp);
-                let Ok(bit_cursor) = usize::try_from(bit_cursor) else {
-                    continue;
-                };
-                let q = read_packed(coverage, bit_cursor, bpp);
-                if q == 0 {
+                let source_x = (Fixed::from_int(col as i32) + half_texel) * scale_x - half_texel;
+                let coverage = field.sample_bilinear(source_x, source_y);
+                if coverage <= Fixed::ZERO {
                     continue;
                 }
-                let cov = (q as u32 * 255 / max_q as u32) as u8;
-                let mut alpha = (cov as u32 * base_opa as u32 / 255) as u8;
+                let mut alpha = (coverage * Fixed::from_int(i32::from(base_opa)))
+                    .to_int()
+                    .clamp(0, 255) as u8;
                 if alpha == 0 {
                     continue;
                 }
@@ -344,17 +520,6 @@ fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     pixels.clamp(1, u64::from(u16::MAX)) as u16
 }
 
-fn read_packed(data: &[u8], bit_pos: usize, bpp: u8) -> u16 {
-    let byte_idx = bit_pos / 8;
-    let bit_off = bit_pos % 8;
-    let hi = *data.get(byte_idx).unwrap_or(&0) as u16;
-    let lo = *data.get(byte_idx + 1).unwrap_or(&0) as u16;
-    let window = (hi << 8) | lo;
-    let shift = 16 - bit_off - bpp as usize;
-    let mask = (1u16 << bpp) - 1;
-    (window >> shift) & mask
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,30 +536,6 @@ mod tests {
 
     fn pixel_alpha(buf: &[u8], stride: usize, x: usize, y: usize) -> u8 {
         buf[(y * stride + x) * 4 + 3]
-    }
-
-    #[test]
-    fn read_packed_4bit_msb_first() {
-        let data = [0xAB_u8, 0xCD];
-        assert_eq!(read_packed(&data, 0, 4), 0xA);
-        assert_eq!(read_packed(&data, 4, 4), 0xB);
-        assert_eq!(read_packed(&data, 8, 4), 0xC);
-        assert_eq!(read_packed(&data, 12, 4), 0xD);
-    }
-
-    #[test]
-    fn read_packed_handles_unaligned_and_cross_byte() {
-        let data = [0b11_01_00_10_u8, 0b01_11_00_10];
-        assert_eq!(read_packed(&data, 0, 2), 0b11);
-        assert_eq!(read_packed(&data, 6, 2), 0b10);
-        assert_eq!(read_packed(&data, 8, 2), 0b01);
-        assert_eq!(read_packed(&data, 4, 8), 0b0010_0111);
-    }
-
-    #[test]
-    fn read_packed_past_end_reads_zero() {
-        let data = [0xFF_u8];
-        assert_eq!(read_packed(&data, 8, 4), 0);
     }
 
     #[test]
@@ -415,10 +556,15 @@ mod tests {
                 TextLayoutRequest {
                     text: "AB",
                     max_width: i32::MAX,
+                    width: None,
                     max_lines: usize::MAX,
                     line_height: 8 * 256,
                     baseline: 7 * 256,
                     direction: BaseDirection::LeftToRight,
+                    wrap: textflow::layout::WrapMode::NoWrap,
+                    alignment: textflow::layout::Alignment::Start,
+                    overflow: textflow::layout::Overflow::Clip,
+                    spacing: textflow::layout::TextSpacing::default(),
                     features: &[],
                 },
                 &faces,
@@ -443,13 +589,21 @@ mod tests {
         let mut expected = vec![0u8; 24 * 8 * 4];
         let texture = Texture::new(&mut expected, 24, 8, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
-        renderer.draw_label_inner(&Point::ZERO, "A", &font, &clip, &color, 255);
-        renderer.draw_label_inner(
+        let a = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        renderer.draw_glyph_run_inner(&Point::ZERO, &a, &font, &clip, &color, 255);
+        let b = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(66),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        renderer.draw_glyph_run_inner(
             &Point {
                 x: Fixed::from_int(13),
                 y: Fixed::ZERO,
             },
-            "B",
+            &b,
             &font,
             &clip,
             &color,
@@ -457,6 +611,42 @@ mod tests {
         );
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn affine_glyph_run_renders_inside_its_transformed_quad() {
+        let font = Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(u16::from(b'A')),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let transform = Transform::translate(Fixed::from_int(12), Fixed::from_int(1))
+            .compose(&Transform::rotate_deg(Fixed::from_int(90)));
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let texture = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(texture);
+
+        renderer.draw_glyph_run_transformed_inner(TransformedRun {
+            pos: &Point::ZERO,
+            glyphs: &glyphs,
+            font: &font,
+            transform: &transform,
+            clip: Rect::new(0, 0, 16, 16),
+            color: &Color::rgba(255, 255, 255, 255),
+            opacity: 255,
+        });
+
+        let painted: alloc::vec::Vec<_> = buf
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(index, pixel)| (pixel[0] != 0).then_some((index % 16, index / 16)))
+            .collect();
+        assert!(!painted.is_empty());
+        assert!(
+            painted
+                .iter()
+                .all(|&(x, y)| (4..12).contains(&x) && (1..9).contains(&y))
+        );
     }
 
     #[test]
@@ -552,6 +742,34 @@ mod tests {
         assert_eq!(pixel_alpha(&buf, 4, 0, 3), 0);
     }
 
+    #[test]
+    fn coverage_scaling_interpolates_between_texels() {
+        let coverage = [0_u8, 255];
+        let region = mirx::image::Region::new(0, 0, 2, 1).unwrap();
+        let mut buf = vec![0u8; 4 * 4];
+        let tex = Texture::new(&mut buf, 4, 1, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+
+        backend.blit_coverage_region(
+            &coverage,
+            2,
+            region,
+            8,
+            0,
+            0,
+            4,
+            1,
+            (0, 0, 4, 1),
+            &Color::rgba(255, 255, 255, 255),
+            255,
+        );
+
+        assert_eq!(buf[0], 0);
+        assert!((60..=65).contains(&buf[4]));
+        assert!((190..=192).contains(&buf[8]));
+        assert_eq!(buf[12], 255);
+    }
+
     struct RecordingProvider {
         glyph_size: Rc<Cell<u16>>,
         metric_size: Rc<Cell<u16>>,
@@ -618,9 +836,13 @@ mod tests {
         let mut backend = SwRenderer::new(tex);
         backend.viewport = Viewport::new(64, 64, Fixed::from_int(2));
 
-        backend.draw_label_inner(
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(1),
+            textflow::shaping::FlowPoint { x: 0, y: 9 << 8 },
+        )];
+        backend.draw_glyph_run_inner(
             &Point::ZERO,
-            " ",
+            &glyphs,
             &font,
             &Rect::new(0, 0, 32, 32),
             &Color::rgba(255, 255, 255, 255),
@@ -688,9 +910,19 @@ mod tests {
         let tex = Texture::new(&mut buf, 12, 2, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
-        backend.draw_label_inner(
+        let glyphs = [
+            textflow::shaping::PositionedGlyph::new(
+                GlyphId::new(1),
+                textflow::shaping::FlowPoint { x: 0, y: 0 },
+            ),
+            textflow::shaping::PositionedGlyph::new(
+                GlyphId::new(1),
+                textflow::shaping::FlowPoint { x: 4 << 8, y: 0 },
+            ),
+        ];
+        backend.draw_glyph_run_inner(
             &Point::ZERO,
-            "AA",
+            &glyphs,
             &font,
             &Rect::new(0, 0, 12, 2),
             &Color::rgba(255, 255, 255, 255),

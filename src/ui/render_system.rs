@@ -154,6 +154,22 @@ fn seed_prev_rect_walk(
 /// them in its union (erasing any residue when widgets move/shrink).
 pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
+    if let Some(snapshot) = world.remove_resource::<LayoutSnapshot>() {
+        if snapshot.matches(root, logical_w, logical_h) {
+            let mut idx = 0;
+            seed_prev_rect_walk(
+                &snapshot.layout_tree,
+                world,
+                &snapshot.entities,
+                &mut idx,
+                &Transform::IDENTITY,
+                &Transform3D::IDENTITY,
+            );
+            world.insert_resource(snapshot);
+            return;
+        }
+        world.insert_resource(snapshot);
+    }
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
     };
@@ -203,6 +219,7 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     let style = world.get::<Style>(entity)?;
     let mut node = LayoutNode::new(style.layout);
     apply_text_intrinsic(world, entity, &mut node);
+    apply_static_glyph_intrinsic(world, entity, style, &mut node);
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
@@ -228,7 +245,8 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let style = world.get::<Style>(entity)?;
     let resource = world.resource::<TextLayoutResource>()?;
     let face_limit = resource.borrow().limits().fallback_faces;
-    let fonts = ResolvedFontStack::resolve(world, &style.font_stack, face_limit).ok()??;
+    let fonts = ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit)
+        .ok()??;
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
@@ -240,9 +258,15 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
         .language
         .as_ref()
         .map(crate::ui::widgets::LanguageTag::as_str);
+    let font_fingerprint = fonts.layout_fingerprint(language, text.paragraph().shaping);
     let handle = fonts
-        .with_typefaces(language, |typefaces| {
-            resource.borrow_mut().layout(request, typefaces)
+        .with_typefaces(language, text.paragraph().shaping, |typefaces| {
+            resource.borrow_mut().layout_cached(
+                text_layout_owner(entity),
+                font_fingerprint,
+                request,
+                typefaces,
+            )
         })
         .ok()?;
     let measure = resource.borrow().get(handle)?.measure();
@@ -254,9 +278,7 @@ fn layout_text_tree(
     world: &mut World,
     entities: &[Entity],
     index: &mut usize,
-    retain: bool,
 ) {
-    use crate::types::Dimension;
     use crate::types::fixed::from_textflow;
 
     if *index >= entities.len() {
@@ -265,21 +287,14 @@ fn layout_text_tree(
     let entity = entities[*index];
     *index += 1;
     if let Some(layout) = layout_text(world, entity, node.rect.w) {
-        let source = world.get::<Style>(entity).map(|style| style.layout);
-        if let Some(source) = source {
-            if matches!(source.width, Dimension::Auto | Dimension::Content) {
-                node.style.width = Dimension::Px(from_textflow(layout.measure.width));
-            }
-            if matches!(source.height, Dimension::Auto | Dimension::Content) {
-                node.style.height = Dimension::Px(from_textflow(layout.measure.height));
-            }
-        }
-        if retain {
-            world.insert(entity, layout.handle);
-        }
+        node.set_intrinsic_size(
+            from_textflow(layout.measure.width),
+            from_textflow(layout.measure.height),
+        );
+        world.insert(entity, layout.handle);
     }
     for child in &mut node.children {
-        layout_text_tree(child, world, entities, index, retain);
+        layout_text_tree(child, world, entities, index);
     }
 }
 
@@ -288,7 +303,7 @@ fn compute_layout_snapshot(
     root: Entity,
     logical_w: u16,
     logical_h: u16,
-) -> Option<(LayoutNode, Vec<Entity>)> {
+) -> Option<LayoutSnapshot> {
     let mut layout_tree = build_layout_tree(world, root)?;
     compute_layout(
         &mut layout_tree,
@@ -303,7 +318,7 @@ fn compute_layout_snapshot(
         cache.borrow_mut().begin_frame();
     }
     let mut text_index = 0;
-    layout_text_tree(&mut layout_tree, world, &entities, &mut text_index, false);
+    layout_text_tree(&mut layout_tree, world, &entities, &mut text_index);
     compute_layout(
         &mut layout_tree,
         Fixed::ZERO,
@@ -311,33 +326,32 @@ fn compute_layout_snapshot(
         logical_w.into(),
         logical_h.into(),
     );
-    if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
-        cache.borrow_mut().begin_frame();
-    }
-    let mut text_index = 0;
-    layout_text_tree(&mut layout_tree, world, &entities, &mut text_index, true);
-    Some((layout_tree, entities))
+    Some(LayoutSnapshot {
+        root,
+        logical_w,
+        logical_h,
+        layout_tree,
+        entities,
+    })
 }
 
 pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
     use crate::render::font::ResolvedFontStack;
     use crate::text::layout::TextLayoutResource;
-    use crate::types::Dimension;
     use crate::types::fixed::from_textflow;
     use crate::ui::widgets::text::Text;
 
     let Some(text) = world.get::<Text>(entity) else {
         return;
     };
-    if node.style.grow > Fixed::ZERO {
-        return;
-    }
     let style = world.get::<Style>(entity).expect("text widget style");
     let Some(cache) = world.resource::<TextLayoutResource>() else {
         return;
     };
     let face_limit = cache.borrow().limits().fallback_faces;
-    let Ok(Some(fonts)) = ResolvedFontStack::resolve(world, &style.font_stack, face_limit) else {
+    let Ok(Some(fonts)) =
+        ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit)
+    else {
         return;
     };
     let font = fonts.primary();
@@ -349,19 +363,41 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
         .language
         .as_ref()
         .map(crate::ui::widgets::LanguageTag::as_str);
-    let Ok(measure) =
-        fonts.with_typefaces(language, |faces| cache.borrow_mut().measure(request, faces))
+    let font_fingerprint = fonts.layout_fingerprint(language, text.paragraph().shaping);
+    let Ok(measure) = fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
+        cache.borrow_mut().measure_cached(
+            text_layout_owner(entity),
+            font_fingerprint,
+            request,
+            faces,
+        )
+    }) else {
+        return;
+    };
+    node.set_intrinsic_size(from_textflow(measure.width), from_textflow(measure.height));
+}
+
+fn text_layout_owner(entity: Entity) -> u64 {
+    u64::from(entity.id) | (u64::from(entity.generation) << 32)
+}
+
+fn apply_static_glyph_intrinsic(
+    world: &World,
+    entity: Entity,
+    style: &Style,
+    node: &mut LayoutNode,
+) {
+    let Some(run) = world.get::<crate::ui::widgets::StaticGlyphRun>(entity) else {
+        return;
+    };
+    let Some(font) = crate::render::font::resolve_or_default(world, style.font_stack.primary())
     else {
         return;
     };
-    let intrinsic_w = from_textflow(measure.width);
-    let intrinsic_h = from_textflow(measure.height);
-    if matches!(node.style.width, Dimension::Auto | Dimension::Content) {
-        node.style.width = Dimension::Px(intrinsic_w);
-    }
-    if matches!(node.style.height, Dimension::Auto | Dimension::Content) {
-        node.style.height = Dimension::Px(intrinsic_h);
-    }
+    let ppem = style.font_size.unwrap_or(font.size).max(1);
+    let metrics = font.metrics(ppem);
+    let (width, height) = run.measure(metrics.line_height);
+    node.set_intrinsic_size(width, height);
 }
 
 fn rects_intersect(a: &Rect, b: &Rect) -> bool {
@@ -766,11 +802,23 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
 /// DrawCommands. Backends convert to physical at draw time.
 pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut dyn Renderer) {
     let (logical_w, logical_h) = transform.logical_size();
-
+    if let Some(snapshot) = world
+        .resource::<LayoutSnapshot>()
+        .filter(|snapshot| snapshot.matches(root, logical_w, logical_h))
+    {
+        render_full_with(
+            world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            logical_w,
+            logical_h,
+            renderer,
+        );
+        return;
+    }
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
     };
-
     compute_layout(
         &mut layout_tree,
         Fixed::ZERO,
@@ -778,16 +826,32 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
         logical_w.into(),
         logical_h.into(),
     );
+    let mut entities = Vec::new();
+    collect_entities_preorder(world, root, &mut entities);
+    render_full_with(
+        world,
+        &layout_tree,
+        &entities,
+        logical_w,
+        logical_h,
+        renderer,
+    );
+}
 
+fn render_full_with(
+    world: &World,
+    layout_tree: &LayoutNode,
+    entities: &[Entity],
+    logical_w: u16,
+    logical_h: u16,
+    renderer: &mut dyn Renderer,
+) {
     let clip = Rect {
         x: Fixed::ZERO,
         y: Fixed::ZERO,
         w: logical_w.into(),
         h: logical_h.into(),
     };
-    let mut entities = Vec::new();
-    collect_entities_preorder(world, root, &mut entities);
-
     // Storage-existence gate so a tree with no effect widgets pays
     // nothing for the prerender pass: `query` walks even when empty.
     if world
@@ -802,9 +866,9 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
         if !ref_sources.is_empty() {
             let mut idx = 0;
             prerender_sources(
-                &layout_tree,
+                layout_tree,
                 world,
-                &entities,
+                entities,
                 &mut idx,
                 renderer,
                 &clip,
@@ -817,9 +881,9 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
 
     let mut idx = 0;
     draw_tree_offset(
-        &layout_tree,
+        layout_tree,
         world,
-        &entities,
+        entities,
         &mut idx,
         renderer,
         &clip,
@@ -835,13 +899,13 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
 pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
 
-    let Some((layout_tree, entities)) = compute_layout_snapshot(world, root, logical_w, logical_h)
-    else {
+    let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h) else {
         return;
     };
 
     let mut idx = 0;
-    write_computed_rects(&layout_tree, world, &entities, &mut idx);
+    write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
+    world.insert_resource(snapshot);
 }
 
 fn write_computed_rects(
@@ -868,28 +932,32 @@ pub fn render_region(
     renderer: &mut dyn Renderer,
 ) {
     let (logical_w, logical_h) = transform.logical_size();
-    let mut tree = crate::trace_span!("render.build_tree", {
-        match build_layout_tree(world, root) {
-            Some(t) => t,
-            None => return,
-        }
-    });
+    if let Some(snapshot) = world
+        .resource::<LayoutSnapshot>()
+        .filter(|snapshot| snapshot.matches(root, logical_w, logical_h))
     {
-        crate::trace_span!("render.compute_layout");
-        compute_layout(
-            &mut tree,
-            Fixed::ZERO,
-            Fixed::ZERO,
-            logical_w.into(),
-            logical_h.into(),
+        render_region_with(
+            world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            dirty_rect,
+            renderer,
         );
+        return;
     }
+    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+        return;
+    };
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        logical_w.into(),
+        logical_h.into(),
+    );
     let mut entities = Vec::new();
-    {
-        crate::trace_span!("render.collect_entities");
-        collect_entities_preorder(world, root, &mut entities);
-    }
-    render_region_with(world, &tree, &entities, dirty_rect, renderer);
+    collect_entities_preorder(world, root, &mut entities);
+    render_region_with(world, &layout_tree, &entities, dirty_rect, renderer);
 }
 
 /// Internal cached variant: caller supplies a layout tree + entity
@@ -1034,8 +1102,17 @@ struct DirtyBounds {
 pub struct LastDirtyRegions(pub DirtyRegions);
 
 pub(crate) struct LayoutSnapshot {
+    root: Entity,
+    logical_w: u16,
+    logical_h: u16,
     pub(crate) layout_tree: LayoutNode,
     pub(crate) entities: Vec<Entity>,
+}
+
+impl LayoutSnapshot {
+    fn matches(&self, root: Entity, logical_w: u16, logical_h: u16) -> bool {
+        self.root == root && self.logical_w == logical_w && self.logical_h == logical_h
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1395,7 +1472,7 @@ pub fn collect_dirty_regions(
         return plan;
     }
 
-    let Some((layout_tree, entities)) = crate::trace_span!("dirty.layout", {
+    let Some(snapshot) = crate::trace_span!("dirty.layout", {
         compute_layout_snapshot(world, root, logical_w, logical_h)
     }) else {
         return plan;
@@ -1404,7 +1481,7 @@ pub fn collect_dirty_regions(
     let mut idx = 0;
     {
         crate::trace_span!("dirty.write_computed");
-        write_computed_rects(&layout_tree, world, &entities, &mut idx);
+        write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
     }
 
     let mut bounds = DirtyBounds {
@@ -1419,9 +1496,9 @@ pub fn collect_dirty_regions(
         crate::trace_span!("dirty.walk");
         idx = 0;
         collect_dirty_walk(
-            &layout_tree,
+            &snapshot.layout_tree,
             world,
-            &entities,
+            &snapshot.entities,
             &mut idx,
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
@@ -1505,10 +1582,7 @@ pub fn collect_dirty_regions(
         }
     }
 
-    world.insert_resource(LayoutSnapshot {
-        layout_tree,
-        entities,
-    });
+    world.insert_resource(snapshot);
 
     plan
 }
@@ -1651,6 +1725,134 @@ mod text_layout_check {
     }
 
     #[test]
+    fn rendering_reuses_the_constrained_text_layout_snapshot() {
+        #[derive(Default)]
+        struct Recorder {
+            fills: Vec<Rect>,
+        }
+
+        impl Renderer for Recorder {
+            fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
+                if let DrawCommand::Fill { area, .. } = command {
+                    self.fills.push(*area);
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(24),
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("ab cd"));
+        spawn(
+            &mut world,
+            Some(root),
+            Style {
+                bg_color: Some(crate::types::Color::rgb(1, 2, 3).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(8),
+                    height: Dimension::px(8),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let mut recorder = Recorder::default();
+        render(&world, root, &viewport, &mut recorder);
+
+        assert!(recorder.fills.iter().any(|area| {
+            area.x == Fixed::ZERO
+                && area.y == Fixed::from_int(16)
+                && area.w == Fixed::from_int(8)
+                && area.h == Fixed::from_int(8)
+        }));
+    }
+
+    #[test]
+    fn intrinsic_text_size_does_not_replace_flex_growth() {
+        let mut world = world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(64),
+                    height: Dimension::px(16),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Auto,
+                    height: Dimension::Content,
+                    grow: Fixed::ONE,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("abc"));
+        let trailing = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(8),
+                    height: Dimension::px(8),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+
+        update_layout(&mut world, root, &Viewport::new(64, 16, Fixed::ONE));
+
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(label).unwrap().0,
+            Rect::new(0, 0, 56, 8)
+        );
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(trailing).unwrap().0,
+            Rect::new(56, 0, 8, 8)
+        );
+    }
+
+    #[test]
     fn max_lines_constrains_content_height() {
         let mut world = world();
         let root = spawn(
@@ -1780,6 +1982,142 @@ mod text_layout_check {
         assert_eq!(layout.runs().len(), 2);
         assert_eq!(layout.runs()[0].font_id(), FontFaceId::new(1));
         assert_eq!(layout.runs()[1].font_id(), FontFaceId::new(9));
+    }
+
+    struct PpemFace {
+        id: u64,
+        character: char,
+    }
+
+    impl FontProvider for PpemFace {
+        fn face_id(&self) -> FontFaceId {
+            FontFaceId::new(self.id)
+        }
+
+        fn map_char(&self, ch: char) -> Option<GlyphId> {
+            (ch == self.character).then_some(GlyphId::new(1))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId, ppem: u16) -> Option<Fixed> {
+            Some(Fixed::from_int(i32::from(ppem) / 2))
+        }
+
+        fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+            None
+        }
+
+        fn metrics(&self, ppem: u16) -> FontMetrics {
+            FontMetrics {
+                ascender: Fixed::from_int(i32::from(ppem) * 3 / 4),
+                descender: Fixed::from_int(-(i32::from(ppem) / 4)),
+                line_height: Fixed::from_int(i32::from(ppem)),
+            }
+        }
+    }
+
+    #[test]
+    fn style_font_size_drives_intrinsic_measurement() {
+        let mut world = world();
+        world.resource::<FontManager>().unwrap().add_static(
+            "scalable",
+            Font {
+                family: "scalable",
+                size: 8,
+                backend: FontBackend::Custom(Rc::new(PpemFace {
+                    id: 10,
+                    character: 'A',
+                })),
+            },
+        );
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                font_stack: FontStack::new(FontToken::Custom("scalable")),
+                font_size: Some(20),
+                layout: LayoutStyle {
+                    width: Dimension::Content,
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("AAA"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(30));
+        assert_eq!(rect.h, Fixed::from_int(20));
+    }
+
+    #[test]
+    fn fallback_faces_share_the_paragraph_ppem() {
+        static FALLBACKS: [FontToken; 1] = [FontToken::Custom("fallback-scalable")];
+
+        let mut world = world();
+        for (token, family, size, id, character) in [
+            ("primary-scalable", "primary-scalable", 8, 11, 'A'),
+            ("fallback-scalable", "fallback-scalable", 30, 12, '日'),
+        ] {
+            world.resource::<FontManager>().unwrap().add_static(
+                token,
+                Font {
+                    family,
+                    size,
+                    backend: FontBackend::Custom(Rc::new(PpemFace { id, character })),
+                },
+            );
+        }
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                font_stack: FontStack::new(FontToken::Custom("primary-scalable"))
+                    .with_fallbacks(&FALLBACKS[..]),
+                font_size: Some(20),
+                layout: LayoutStyle {
+                    width: Dimension::Content,
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("A日"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(20));
+        assert_eq!(rect.h, Fixed::from_int(20));
     }
 }
 

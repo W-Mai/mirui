@@ -13,6 +13,7 @@ pub struct PayloadLimits {
     max_font_representations: u32,
     max_font_shaping_bytes: usize,
     max_scene_ops: u32,
+    max_positioned_glyphs: u32,
     max_path_commands: u32,
     max_gradient_stops: u32,
     max_dash_elements: u32,
@@ -35,6 +36,7 @@ impl PayloadLimits {
         max_font_representations: 64,
         max_font_shaping_bytes: 512 * 1024,
         max_scene_ops: 4_096,
+        max_positioned_glyphs: 65_535,
         max_path_commands: 16_384,
         max_gradient_stops: 4_096,
         max_dash_elements: 4_096,
@@ -56,6 +58,7 @@ impl PayloadLimits {
         max_font_representations: 1_024,
         max_font_shaping_bytes: 64 * 1024 * 1024,
         max_scene_ops: 1_000_000,
+        max_positioned_glyphs: 16 * 1024 * 1024,
         max_path_commands: 4_000_000,
         max_gradient_stops: 1_000_000,
         max_dash_elements: 1_000_000,
@@ -149,6 +152,15 @@ impl PayloadLimits {
 
     pub const fn with_max_scene_ops(mut self, value: u32) -> Self {
         self.max_scene_ops = value;
+        self
+    }
+
+    pub const fn max_positioned_glyphs(self) -> u32 {
+        self.max_positioned_glyphs
+    }
+
+    pub const fn with_max_positioned_glyphs(mut self, value: u32) -> Self {
+        self.max_positioned_glyphs = value;
         self
     }
 
@@ -247,6 +259,7 @@ mod tests {
         assert_eq!(embedded.max_font_representations(), 64);
         assert_eq!(embedded.max_font_shaping_bytes(), 524_288);
         assert_eq!(embedded.max_scene_ops(), 4_096);
+        assert_eq!(embedded.max_positioned_glyphs(), 65_535);
         assert_eq!(embedded.max_path_commands(), 16_384);
         assert_eq!(embedded.max_gradient_stops(), 4_096);
         assert_eq!(embedded.max_dash_elements(), 4_096);
@@ -266,6 +279,7 @@ mod tests {
         assert_eq!(host.max_font_representations(), 1_024);
         assert_eq!(host.max_font_shaping_bytes(), 67_108_864);
         assert_eq!(host.max_scene_ops(), 1_000_000);
+        assert_eq!(host.max_positioned_glyphs(), 16_777_216);
         assert_eq!(host.max_path_commands(), 4_000_000);
         assert_eq!(host.max_gradient_stops(), 1_000_000);
         assert_eq!(host.max_dash_elements(), 1_000_000);

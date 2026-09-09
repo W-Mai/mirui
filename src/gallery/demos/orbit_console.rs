@@ -907,8 +907,6 @@ pub fn build_widgets() {
             position: Position::Absolute,
             left: 78,
             top: 16,
-            width: 360,
-            height: 30,
             font: FontToken::Heading,
             text_color: TEXT
         )
@@ -919,8 +917,6 @@ pub fn build_widgets() {
             position: Position::Absolute,
             left: 80,
             top: 45,
-            width: 310,
-            height: 18,
             font: FontToken::Mono,
             text_color: TEXT_MUTED
         )
@@ -975,8 +971,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 22,
                 top: 18,
-                width: 300,
-                height: 22,
                 font: FontToken::Mono,
                 text_color: TEXT_MUTED
             )
@@ -1008,8 +1002,6 @@ pub fn build_widgets() {
                     position: Position::Absolute,
                     left: 18,
                     top: 10,
-                    width: 90,
-                    height: 16,
                     font: FontToken::Mono,
                     text_color: TEXT_MUTED
                 )
@@ -1018,8 +1010,6 @@ pub fn build_widgets() {
                     position: Position::Absolute,
                     left: 18,
                     top: 30,
-                    width: 105,
-                    height: 22,
                     text_color: TEXT
                 )
                 Text (
@@ -1027,8 +1017,6 @@ pub fn build_widgets() {
                     position: Position::Absolute,
                     left: 214,
                     top: 10,
-                    width: 110,
-                    height: 16,
                     font: FontToken::Mono,
                     text_color: TEXT_MUTED
                 )
@@ -1037,8 +1025,6 @@ pub fn build_widgets() {
                     position: Position::Absolute,
                     left: 214,
                     top: 30,
-                    width: 180,
-                    height: 22,
                     text_color: TEXT
                 )
                 Text (
@@ -1046,8 +1032,6 @@ pub fn build_widgets() {
                     position: Position::Absolute,
                     left: 456,
                     top: 10,
-                    width: 90,
-                    height: 16,
                     font: FontToken::Mono,
                     text_color: TEXT_MUTED
                 )
@@ -1056,8 +1040,6 @@ pub fn build_widgets() {
                     position: Position::Absolute,
                     left: 456,
                     top: 30,
-                    width: 145,
-                    height: 22,
                     text_color: TEXT
                 )
             }
@@ -1077,8 +1059,6 @@ pub fn build_widgets() {
             position: Position::Absolute,
             left: 48,
             top: 400,
-            width: 210,
-            height: 20,
             font: FontToken::Mono,
             text_color: MINT
         )
@@ -1104,8 +1084,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 20,
                 top: 18,
-                width: 100,
-                height: 18,
                 font: FontToken::Mono,
                 text_color: TEXT_MUTED
             )
@@ -1114,8 +1092,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 20,
                 top: 44,
-                width: 100,
-                height: 38,
                 font: FontToken::Heading,
                 text_color: TEXT
             )
@@ -1154,8 +1130,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 20,
                 top: 16,
-                width: 180,
-                height: 18,
                 font: FontToken::Mono,
                 text_color: TEXT_MUTED
             )
@@ -1164,8 +1138,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 204,
                 top: 16,
-                width: 78,
-                height: 18,
                 font: FontToken::Mono,
                 text_color: BLUE
             )
@@ -1189,8 +1161,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 20,
                 top: 16,
-                width: 120,
-                height: 18,
                 font: FontToken::Mono,
                 text_color: TEXT_MUTED
             )
@@ -1199,8 +1169,6 @@ pub fn build_widgets() {
                 position: Position::Absolute,
                 left: 20,
                 top: 91,
-                width: 120,
-                height: 18,
                 font: FontToken::Mono,
                 text_color: TEXT_MUTED
             )
@@ -1214,8 +1182,6 @@ pub fn build_widgets() {
             position: Position::Absolute,
             left: 954,
             top: 539,
-            width: 30,
-            height: 18,
             font: FontToken::Mono,
             text_color: MINT
         )

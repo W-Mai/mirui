@@ -55,10 +55,10 @@ impl Default for EncodeOptions {
 /// limits are copied into the document for later typed access and edits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OpenOptions<'p> {
-    max_chunks: u16,
     payload_limits: PayloadLimits,
-    trailing_bytes: TrailingBytesPolicy,
     source_policies: &'p [SourcePolicy],
+    max_chunks: u16,
+    trailing_bytes: TrailingBytesPolicy,
 }
 
 impl<'p> OpenOptions<'p> {
@@ -203,10 +203,10 @@ mod tests {
         assert_eq!(OPTIONS.source_policies(), &POLICIES);
         assert_eq!(OPTIONS.source_policies().as_ptr(), POLICIES.as_ptr());
         assert!(size_of::<SourcePolicy>() <= 8);
-        // Includes inline media limits and a 64-bit raster work budget.
+        // Includes inline media limits, positioned glyphs and a 64-bit raster work budget.
         #[cfg(target_pointer_width = "32")]
         assert!(size_of::<OpenOptions<'_>>() <= 88);
         #[cfg(target_pointer_width = "64")]
-        assert!(size_of::<OpenOptions<'_>>() <= 112);
+        assert!(size_of::<OpenOptions<'_>>() <= 120);
     }
 }

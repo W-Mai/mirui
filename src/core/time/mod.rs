@@ -115,6 +115,11 @@ pub mod mock {
         MockHandle { _serial: serial }
     }
 
+    #[cfg(test)]
+    pub(super) fn serial_guard() -> MutexGuard<'static, ()> {
+        SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     pub struct MockHandle {
         _serial: MutexGuard<'static, ()>,
     }
@@ -133,6 +138,7 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn std_monotonic_across_calls() {
+        let _guard = mock::serial_guard();
         let a = clock_now_ns();
         let b = clock_now_ns();
         let c = clock_now_ns();

@@ -4,7 +4,9 @@ use alloc::vec::Vec;
 use crate::crc32;
 use crate::path::{Path, PathCmd};
 use crate::scene::header::VectorChunkHeader;
-use crate::scene::op::{CompositeMode, FillRule, LineCap, LineJoin, ResourceRef, Scene, SceneOp};
+use crate::scene::op::{
+    CompositeMode, FillRule, GlyphPlacement, LineCap, LineJoin, ResourceRef, Scene, SceneOp,
+};
 use crate::scene::paint::{
     GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode,
 };
@@ -22,13 +24,13 @@ const TAG_GROUP_END: u8 = 0x02;
 const TAG_FILL_PATH: u8 = 0x03;
 const TAG_FILL_RECT: u8 = 0x04;
 const TAG_BORDER: u8 = 0x05;
-const TAG_LABEL: u8 = 0x06;
 const TAG_LINE: u8 = 0x07;
 const TAG_ARC: u8 = 0x08;
 const TAG_BLIT: u8 = 0x09;
 const TAG_STROKE_PATH: u8 = 0x0A;
 const TAG_PUSH_CLIP: u8 = 0x0B;
 const TAG_POP_CLIP: u8 = 0x0C;
+const TAG_GLYPH_RUN: u8 = 0x0D;
 
 const FIELD_TRANSFORM: u8 = 1 << 0;
 const FIELD_QUAD: u8 = 1 << 1;
@@ -118,6 +120,7 @@ pub enum CodecError {
     UnsupportedScale(u8),
     UnknownFlags(u8),
     BadComposite(u8),
+    InvalidPpem,
 }
 
 struct Reader<'a> {
@@ -147,6 +150,11 @@ impl<'a> Reader<'a> {
     fn u32(&mut self) -> Result<u32, CodecError> {
         let b = self.take(4)?;
         Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn u16(&mut self) -> Result<u16, CodecError> {
+        let b = self.take(2)?;
+        Ok(u16::from_le_bytes([b[0], b[1]]))
     }
 
     fn varuint(&mut self) -> Result<u32, CodecError> {
@@ -723,15 +731,19 @@ pub(super) fn write_op<W: ByteSink>(out: &mut W, op: &SceneOp) -> Result<(), Cod
             write_optional(out, bits, transform, quad, Some(*radius));
             Ok(())
         }
-        SceneOp::Label {
+        SceneOp::GlyphRun {
             font,
+            ppem,
             pos,
             transform,
             color,
             opa,
-            text,
+            glyphs,
         } => {
-            out.push(TAG_LABEL);
+            if *ppem == 0 {
+                return Err(CodecError::InvalidPpem);
+            }
+            out.push(TAG_GLYPH_RUN);
             let bits = if transform.is_identity() {
                 0
             } else {
@@ -739,11 +751,16 @@ pub(super) fn write_op<W: ByteSink>(out: &mut W, op: &SceneOp) -> Result<(), Cod
             };
             out.push(bits);
             write_resource_ref(out, font);
+            out.extend_from_slice(&ppem.to_le_bytes());
             write_point(out, *pos);
             write_color(out, *color);
             out.push(*opa);
-            write_varuint(out, text.len() as u32);
-            out.extend_from_slice(text.as_bytes());
+            write_varuint(out, glyphs.len() as u32);
+            for glyph in glyphs {
+                out.extend_from_slice(&glyph.glyph_id().to_le_bytes());
+                write_point(out, glyph.origin());
+                write_point(out, glyph.offset());
+            }
             if bits & FIELD_TRANSFORM != 0 {
                 write_transform(out, *transform);
             }
@@ -963,24 +980,31 @@ fn read_op_with<A: DecodeAllocator>(
                 opa,
             })
         }
-        TAG_LABEL => {
+        TAG_GLYPH_RUN => {
             let bits = r.u8()?;
             let font = read_resource_ref_with(r, allocator)?;
+            let ppem = r.u16()?;
+            if ppem == 0 {
+                return Err(CodecError::InvalidPpem.into());
+            }
             let pos = r.point()?;
             let color = r.color()?;
             let opa = r.u8()?;
-            let len = r.varuint()? as usize;
-            let bytes = r.take(len)?;
-            let text = core::str::from_utf8(bytes).map_err(|_| CodecError::BadUtf8)?;
-            let text = allocator.copy_string(text)?;
+            let count = r.varuint()? as usize;
+            let mut glyphs = Vec::new();
+            allocator.reserve(&mut glyphs, count)?;
+            for _ in 0..count {
+                glyphs.push(GlyphPlacement::new(r.u16()?, r.point()?).with_offset(r.point()?));
+            }
             let transform = read_transform_opt(r, bits)?;
-            Ok(SceneOp::Label {
+            Ok(SceneOp::GlyphRun {
                 font,
+                ppem,
                 pos,
                 transform,
                 color,
                 opa,
-                text,
+                glyphs,
             })
         }
         TAG_LINE => {
@@ -1303,6 +1327,47 @@ mod tests {
             radius: Fixed::ZERO,
             opa: 200,
         }]);
+    }
+
+    #[test]
+    fn positioned_glyph_run_roundtrips() {
+        roundtrip(vec![SceneOp::GlyphRun {
+            font: ResourceRef::Index(7),
+            ppem: 24,
+            pos: Point::new(Fixed::from_int(2), Fixed::from_int(3)),
+            transform: Transform::translate(Fixed::ONE, Fixed::from_int(2)),
+            color: red(),
+            opa: 211,
+            glyphs: vec![
+                GlyphPlacement::new(53, Point::new(Fixed::from_int(1), Fixed::from_int(18))),
+                GlyphPlacement::new(54, Point::new(Fixed::from_int(12), Fixed::from_int(18)))
+                    .with_offset(Point::new(
+                        Fixed::from_ratio(1, 2),
+                        Fixed::from_ratio(-1, 2),
+                    )),
+            ],
+        }]);
+    }
+
+    #[test]
+    fn positioned_glyph_run_rejects_zero_ppem() {
+        let scene = Scene::from_ops(vec![SceneOp::GlyphRun {
+            font: ResourceRef::Index(0),
+            ppem: 0,
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            color: red(),
+            opa: 255,
+            glyphs: Vec::new(),
+        }]);
+
+        assert_eq!(scene.encode(), Err(CodecError::InvalidPpem));
+        assert!(matches!(
+            scene.encode_payload(),
+            Err(VectorEncodeError::InvalidPayload(VectorReadError::Codec(
+                CodecError::InvalidPpem
+            )))
+        ));
     }
 
     #[test]

@@ -173,6 +173,7 @@ impl ViewRegistry {
         reg.insert(crate::ui::widgets::text_input::view());
         reg.insert(crate::ui::widgets::image::view());
         reg.insert(crate::ui::widgets::text::view());
+        reg.insert(crate::ui::widgets::text::static_glyph_run_view());
         reg.insert(crate::ui::widgets::slider::view());
         reg.insert(crate::ui::widgets::switch::view());
         reg.insert(crate::ui::widgets::tab_pages::view());

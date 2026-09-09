@@ -77,7 +77,7 @@ pub fn op_bbox(op: &SceneOp) -> Option<Rect> {
                 h: extent + extent,
             }))
         }
-        SceneOp::Label { pos, transform, .. } => Some(transform.apply_rect_bbox(Rect {
+        SceneOp::GlyphRun { pos, transform, .. } => Some(transform.apply_rect_bbox(Rect {
             x: pos.x,
             y: pos.y,
             w: Fixed::ZERO,

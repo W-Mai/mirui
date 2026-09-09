@@ -33,7 +33,8 @@ pub use tabbar::TabBar;
 pub use temporal_mix::TemporalMix;
 pub use text::{
     FontFeatureCapacityError, FontFeatures, LanguageTag, LanguageTagError, ParagraphStyle,
-    ShapingPolicy, Text, TextAlign, TextContent, TextDirection, TextOverflow, TextWrap,
+    ShapingPolicy, StaticGlyphRun, Text, TextAlign, TextContent, TextDirection, TextOverflow,
+    TextWrap,
 };
 pub use text_input::{Placeholder, TextInput};
 pub use transform::WidgetTransform;

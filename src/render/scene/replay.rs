@@ -266,21 +266,26 @@ pub fn replay_scene(
                 },
                 clip,
             ),
-            SceneOp::Label {
+            SceneOp::GlyphRun {
                 font,
+                ppem,
                 pos,
                 transform,
                 color,
                 opa,
-                text,
+                glyphs,
             } => {
-                let font = resolver.font(font).ok_or(ReplayError::UnresolvedFont)?;
+                let mut font = resolver
+                    .font(font)
+                    .ok_or(ReplayError::UnresolvedFont)?
+                    .clone();
+                font.size = *ppem;
                 renderer.draw(
-                    &DrawCommand::Label {
+                    &DrawCommand::GlyphRun {
                         pos: *pos,
                         transform: top.transform.compose(transform),
-                        text,
-                        font,
+                        glyphs,
+                        font: &font,
                         color: *color,
                         opa: mul_alpha(*opa, top.alpha),
                     },
@@ -554,6 +559,62 @@ mod tests {
             fill_opas: Vec::new(),
         };
         assert!(replay_scene(&ops, &mut r, &rect(), &NoResolver).is_ok());
+    }
+
+    #[test]
+    fn replay_preserves_positioned_glyphs() {
+        struct GlyphRenderer {
+            glyphs: usize,
+            ppem: u16,
+        }
+        impl Renderer for GlyphRenderer {
+            fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
+                if let DrawCommand::GlyphRun { glyphs, font, .. } = command {
+                    self.glyphs = glyphs.len();
+                    self.ppem = font.size;
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        struct FontResolver(Font);
+        impl SceneResolver for FontResolver {
+            fn font(&self, _: &ResourceRef) -> Option<&Font> {
+                Some(&self.0)
+            }
+
+            fn texture(&self, _: &ResourceRef) -> Option<&Texture<'_>> {
+                None
+            }
+        }
+
+        static GLYPHS: [textflow::shaping::PositionedGlyph; 1] =
+            [textflow::shaping::PositionedGlyph::new(
+                crate::render::font::GlyphId::new(65),
+                textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+            )];
+        let ops = [SceneOp::GlyphRun {
+            font: ResourceRef::Index(0),
+            ppem: 19,
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            color: Color::rgb(1, 2, 3),
+            opa: 255,
+            glyphs: (&GLYPHS[..]).into(),
+        }];
+        let mut renderer = GlyphRenderer { glyphs: 0, ppem: 0 };
+
+        replay_scene(
+            &ops,
+            &mut renderer,
+            &rect(),
+            &FontResolver(Font::bitmap_8x8()),
+        )
+        .unwrap();
+
+        assert_eq!(renderer.glyphs, 1);
+        assert_eq!(renderer.ppem, 19);
     }
 
     fn group(opa: Option<u8>, hint: bool) -> SceneOp {

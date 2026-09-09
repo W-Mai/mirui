@@ -1,6 +1,5 @@
 //! wgpu-backed Renderer + Canvas.
 
-mod label_atlas;
 mod path;
 mod pipeline;
 mod texture_pool;
@@ -16,11 +15,10 @@ use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
-use self::label_atlas::GlyphAtlas;
 use self::path::PathTessellator;
 use self::pipeline::{
-    BlitQuadVertex, BlitUniform, LabelVertex, PathTintUniform, PipelineCache, PipelineKey,
-    QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
+    BlitQuadVertex, BlitUniform, PathTintUniform, PipelineCache, PipelineKey, QuadSdfUniform,
+    QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
 use self::texture_pool::{GlyphRunKey, GlyphRunPool, new_glyph_run_pool};
@@ -45,7 +43,6 @@ fn paint_color(paint: &Paint) -> Color {
 
 pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
-    glyph_atlas: Option<GlyphAtlas>,
     tessellator: PathTessellator,
     texture_pool: TexturePool,
     glyph_run_pool: GlyphRunPool,
@@ -59,7 +56,6 @@ impl WgpuRendererFactory {
     pub fn new() -> Self {
         Self {
             cache: None,
-            glyph_atlas: None,
             tessellator: PathTessellator::new(),
             texture_pool: new_pool(),
             glyph_run_pool: new_glyph_run_pool(),
@@ -87,19 +83,12 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
         backend: &'a mut WgpuSurface,
         transform: &Viewport,
     ) -> WgpuRenderer<'a> {
-        if self.cache.is_none()
-            || self.glyph_atlas.is_none()
-            || self.linear_sampler.is_none()
-            || self.nearest_sampler.is_none()
-        {
+        if self.cache.is_none() || self.linear_sampler.is_none() || self.nearest_sampler.is_none() {
             let state = backend
                 .state()
                 .expect("WgpuSurface must be initialised before make()");
             if self.cache.is_none() {
                 self.cache = Some(PipelineCache::new(&state.device));
-            }
-            if self.glyph_atlas.is_none() {
-                self.glyph_atlas = Some(GlyphAtlas::new(&state.device, &state.queue));
             }
             if self.linear_sampler.is_none() {
                 self.linear_sampler = Some(state.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -175,7 +164,7 @@ const UNIFORM_ALIGN: u32 = 256;
 struct DrawOp {
     pipeline: wgpu::RenderPipeline,
     /// `None` when the op uses the frame-cached fill/path bind group;
-    /// `Some` for blit / blit_quad / draw_label which carry textures.
+    /// `Some` for textured blits and cached glyph runs.
     bind_group: BindGroupRef,
     vertex_buf: Option<wgpu::Buffer>,
     index_buf: Option<wgpu::Buffer>,
@@ -1462,166 +1451,6 @@ impl WgpuRenderer<'_> {
             scissor,
         );
     }
-
-    fn draw_label_inner(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        _font: &crate::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        if text.is_empty() {
-            return;
-        }
-        if !self.begin_frame() {
-            return;
-        }
-        let scissor = self.scissor_from_clip(clip);
-        if scissor[2] == 0 || scissor[3] == 0 {
-            return;
-        }
-        let frame = self.frame.as_mut().expect("frame just initialised");
-        let state = self
-            .surface
-            .state()
-            .expect("WgpuSurface state missing in draw_label");
-        let cache = self
-            .factory
-            .cache
-            .as_mut()
-            .expect("PipelineCache must be initialised before draw_label");
-        let atlas = self
-            .factory
-            .glyph_atlas
-            .as_ref()
-            .expect("GlyphAtlas must be initialised before draw_label");
-
-        let cell_w = crate::render::font::CHAR_W as f32;
-        let cell_h = crate::render::font::CHAR_H as f32;
-        let bytes = text.as_bytes();
-        let mut verts = alloc::vec::Vec::with_capacity(bytes.len() * 4);
-        let mut indices = alloc::vec::Vec::with_capacity(bytes.len() * 6);
-        let base_x = pos.x.to_f32();
-        let base_y = pos.y.to_f32();
-        for (i, &ch) in bytes.iter().enumerate() {
-            let x0 = base_x + i as f32 * cell_w;
-            let y0 = base_y;
-            let x1 = x0 + cell_w;
-            let y1 = y0 + cell_h;
-            let [u0, v0, u1, v1] = GlyphAtlas::uv_for(ch);
-            let v_base = verts.len() as u32;
-            verts.push(LabelVertex {
-                pos: [x0, y0],
-                uv: [u0, v0],
-            });
-            verts.push(LabelVertex {
-                pos: [x1, y0],
-                uv: [u1, v0],
-            });
-            verts.push(LabelVertex {
-                pos: [x0, y1],
-                uv: [u0, v1],
-            });
-            verts.push(LabelVertex {
-                pos: [x1, y1],
-                uv: [u1, v1],
-            });
-            indices.extend_from_slice(&[
-                v_base,
-                v_base + 1,
-                v_base + 2,
-                v_base + 1,
-                v_base + 3,
-                v_base + 2,
-            ]);
-        }
-
-        let tint_uniform = PathTintUniform {
-            color: [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0 * opa as f32 / 255.0,
-            ],
-        };
-
-        let tint_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-label-tint"),
-                contents: bytemuck::bytes_of(&tint_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-        let vertex_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-label-vertices"),
-                contents: bytemuck::cast_slice(&verts),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let index_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-label-indices"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-
-        let atlas_view = atlas
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = self
-            .factory
-            .nearest_sampler
-            .as_ref()
-            .expect("nearest sampler must be initialised before draw_label");
-
-        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mirui-label-bind-group"),
-            layout: &cache.label_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: frame.viewport_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tint_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&atlas_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        });
-
-        let pipeline = cache.get_or_build(
-            &state.device,
-            PipelineKey {
-                shader: ShaderKind::Label,
-                format: state.config.format,
-                composite: CompositeMode::SourceOver,
-            },
-        );
-
-        let count = indices.len() as u32;
-        frame.ops.push(DrawOp {
-            pipeline,
-            bind_group: BindGroupRef::Owned(bind_group),
-            vertex_buf: Some(vertex_buf),
-            index_buf: Some(index_buf),
-            index_format: wgpu::IndexFormat::Uint32,
-            count,
-            scissor,
-            dynamic_offset: None,
-        });
-    }
 }
 
 impl Renderer for WgpuRenderer<'_> {
@@ -1805,17 +1634,6 @@ impl Renderer for WgpuRenderer<'_> {
                 } else {
                     unimplemented!("wgpu backend: StrokePath under translate not yet implemented");
                 }
-            }
-            DrawCommand::Label {
-                pos,
-                text,
-                font,
-                color,
-                opa,
-                ..
-            } => {
-                let pos = offset_point(pos, tx, ty);
-                self.draw_label_inner(&pos, text, font, clip, color, *opa);
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -2025,18 +1843,6 @@ impl Canvas for WgpuRenderer<'_> {
 
     fn clear(&mut self, area: &Rect, color: &Color) {
         self.fill_rect_inner(area, area, color, Fixed::ZERO, 255);
-    }
-
-    fn draw_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &crate::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.draw_label_inner(pos, text, font, clip, color, opa);
     }
 
     fn draw_glyph_run(

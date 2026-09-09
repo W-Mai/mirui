@@ -95,19 +95,6 @@ impl<B: Canvas> Canvas for Logging<B> {
         self.log("clear");
         self.inner.clear(area, color);
     }
-    fn draw_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &mirui::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.log("draw_label");
-        self.inner.draw_label(pos, text, font, clip, color, opa);
-    }
-
     fn draw_glyph_run(
         &mut self,
         pos: &Point,

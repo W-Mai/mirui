@@ -149,18 +149,9 @@ pub enum DrawCommand<'a> {
         radius: Fixed,
         opa: Opa,
     },
-    Label {
-        pos: Point,
-        transform: Transform,
-        text: &'a str,
-        font: &'a Font,
-        color: Color,
-        opa: Opa,
-    },
     GlyphRun {
         pos: Point,
         transform: Transform,
-        text: &'a str,
         glyphs: &'a [textflow::shaping::PositionedGlyph],
         font: &'a Font,
         color: Color,
@@ -241,7 +232,6 @@ impl DrawCommand<'_> {
         match *self {
             Self::Fill { transform, .. }
             | Self::Border { transform, .. }
-            | Self::Label { transform, .. }
             | Self::GlyphRun { transform, .. }
             | Self::Line { transform, .. }
             | Self::Arc { transform, .. }

@@ -1,9 +1,9 @@
-//! Per-label texture cache for the SDL GPU backend.
+//! Positioned-glyph texture cache for the SDL GPU backend.
 //!
-//! SDL2 has no GPU text renderer on the accelerated path, so each label
+//! SDL2 has no GPU text renderer on the accelerated path, so each glyph run
 //! still has to be rasterised by the CPU on first draw. The cache keeps
 //! the resulting `SDL_Texture` around so the next frame only needs a
-//! single `canvas.copy`. Keyed by `(text_hash, color)`, LRU-bounded.
+//! single `canvas.copy`. Entries are keyed by placement, font and color.
 //!
 //! Lifetime dance: `TextureCreator` and `Texture<'creator>` are tied
 //! together by a borrowed lifetime. We keep them in the same struct and
@@ -15,7 +15,6 @@
 
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use core::hash::{Hash, Hasher};
 
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
@@ -30,7 +29,7 @@ use crate::types::{Color, Fixed, Point, Rect};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct LabelKey {
-    text_hash: u64,
+    glyph_hash: u64,
     family_ptr: usize,
     size: u16,
     color_rgba: u32,
@@ -69,7 +68,6 @@ struct RasterCtx<'a> {
 
 #[derive(Clone, Copy)]
 enum RasterContent<'a> {
-    Text(&'a str),
     Positioned {
         glyphs: &'a [textflow::shaping::PositionedGlyph],
         origin: Point,
@@ -105,50 +103,6 @@ impl LabelCache {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn draw(
-        &mut self,
-        canvas: &mut SdlCanvas<Window>,
-        pos: &Point,
-        text: &str,
-        font: &Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-        scale: Fixed,
-    ) {
-        if text.is_empty() {
-            return;
-        }
-        let Some((logical_w, logical_h)) = text_extent(font, text) else {
-            return;
-        };
-        let key = LabelKey {
-            text_hash: hash_bytes(text.as_bytes()),
-            family_ptr: font.family.as_ptr() as usize,
-            size: font.size,
-            color_rgba: pack_rgba(color),
-        };
-        let dst = sdl2::rect::Rect::new(
-            pos.x.to_int(),
-            pos.y.to_int(),
-            scaled_extent(logical_w, scale),
-            scaled_extent(logical_h, scale),
-        );
-        self.draw_cached(
-            canvas,
-            dst,
-            RasterContent::Text(text),
-            logical_w,
-            logical_h,
-            key,
-            font,
-            clip,
-            color,
-            opa,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
     pub fn draw_glyph_run(
         &mut self,
         canvas: &mut SdlCanvas<Window>,
@@ -177,7 +131,7 @@ impl LabelCache {
             return;
         };
         let key = LabelKey {
-            text_hash: crate::render::font::positioned_glyph_hash(glyphs),
+            glyph_hash: crate::render::font::positioned_glyph_hash(glyphs),
             family_ptr: font.family.as_ptr() as usize,
             size: font.size,
             color_rgba: pack_rgba(color),
@@ -300,14 +254,8 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
         );
         let mut sw = SwRenderer::new(tex);
         let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);
-        match ctx.content {
-            RasterContent::Text(text) => {
-                sw.draw_label(&Point::ZERO, text, ctx.font, &area, ctx.color, 255)
-            }
-            RasterContent::Positioned { glyphs, origin } => {
-                sw.draw_glyph_run(&origin, glyphs, ctx.font, &area, ctx.color, 255)
-            }
-        }
+        let RasterContent::Positioned { glyphs, origin } = ctx.content;
+        sw.draw_glyph_run(&origin, glyphs, ctx.font, &area, ctx.color, 255);
     }
 
     let mut new_tex = ctx
@@ -330,47 +278,10 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
     }))
 }
 
-fn text_extent(font: &Font, text: &str) -> Option<(u16, u16)> {
-    let requested_size = font.size.max(1);
-    let width = text.chars().try_fold(Fixed::ZERO, |width, ch| {
-        font.glyph(ch, requested_size)
-            .map(|glyph| width + glyph.advance)
-    })?;
-    let bounds = Rect {
-        x: Fixed::ZERO,
-        y: Fixed::ZERO,
-        w: width,
-        h: font.metrics(requested_size).line_height,
-    };
-    let (_, _, x1, y1) = bounds.pixel_bounds();
-    Some((u16::try_from(x1).ok()?, u16::try_from(y1).ok()?))
-}
-
 fn scaled_extent(value: u16, scale: Fixed) -> u32 {
     (Fixed::from_int(i32::from(value)) * scale).to_int().max(1) as u32
 }
 
-fn hash_bytes(bytes: &[u8]) -> u64 {
-    let mut h = FxHasher::default();
-    bytes.hash(&mut h);
-    h.finish()
-}
-
 fn pack_rgba(c: &Color) -> u32 {
     ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32)
-}
-
-/// Lightweight non-cryptographic hasher to avoid pulling in ahash/hashbrown
-/// feature footprint just for a per-label key. Inlined FxHash variant.
-#[derive(Default)]
-struct FxHasher(u64);
-impl Hasher for FxHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        for &b in bytes {
-            self.0 = self.0.rotate_left(5) ^ b as u64 ^ 0x27220a95;
-        }
-    }
-    fn finish(&self) -> u64 {
-        self.0
-    }
 }

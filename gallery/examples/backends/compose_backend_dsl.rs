@@ -88,17 +88,6 @@ impl<B: Canvas> Canvas for Logging<B> {
         *self.calls.borrow_mut() += 1;
         self.inner.clear(area, color);
     }
-    fn draw_label(
-        &mut self,
-        pos: &Point,
-        text: &str,
-        font: &mirui::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.inner.draw_label(pos, text, font, clip, color, opa);
-    }
     fn draw_glyph_run(
         &mut self,
         pos: &Point,

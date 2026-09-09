@@ -19,7 +19,6 @@ struct Counts {
     stroke_path: Cell<u32>,
     blit: Cell<u32>,
     clear: Cell<u32>,
-    draw_label: Cell<u32>,
     draw_glyph_run: Cell<u32>,
     flush: Cell<u32>,
     fill_rect: Cell<u32>,
@@ -82,17 +81,6 @@ impl Canvas for Dummy {
     }
     fn clear(&mut self, _: &Rect, _: &Color) {
         self.counts.clear.set(self.counts.clear.get() + 1);
-    }
-    fn draw_label(
-        &mut self,
-        _: &Point,
-        _: &str,
-        _: &mirui::render::font::Font,
-        _: &Rect,
-        _: &Color,
-        _: u8,
-    ) {
-        self.counts.draw_label.set(self.counts.draw_label.get() + 1);
     }
     fn draw_glyph_run(
         &mut self,
@@ -193,7 +181,6 @@ fn default_methods_route_to_sw() {
         &[],
     );
     let font = mirui::render::font::Font::bitmap_8x8();
-    h.draw_label(&Point::ZERO, "x", &font, &rect, &color, 255);
     h.draw_glyph_run(
         &Point::ZERO,
         &[mirui::text::PositionedGlyph::default()],
@@ -206,7 +193,6 @@ fn default_methods_route_to_sw() {
 
     assert_eq!(h.sw.counts.fill_path.get(), 1);
     assert_eq!(h.sw.counts.stroke_path.get(), 1);
-    assert_eq!(h.sw.counts.draw_label.get(), 1);
     assert_eq!(h.sw.counts.draw_glyph_run.get(), 1);
     assert_eq!(h.sw.counts.flush.get(), 1);
     assert_eq!(h.gpu.counts.fill_path.get(), 0);
@@ -333,16 +319,6 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
     ) {
     }
     fn clear(&mut self, _: &Rect, _: &Color) {}
-    fn draw_label(
-        &mut self,
-        _: &Point,
-        _: &str,
-        _: &mirui::render::font::Font,
-        _: &Rect,
-        _: &Color,
-        _: u8,
-    ) {
-    }
     fn draw_glyph_run(
         &mut self,
         _: &Point,
@@ -393,16 +369,6 @@ impl Canvas for PlainDummy {
     ) {
     }
     fn clear(&mut self, _: &Rect, _: &Color) {}
-    fn draw_label(
-        &mut self,
-        _: &Point,
-        _: &str,
-        _: &mirui::render::font::Font,
-        _: &Rect,
-        _: &Color,
-        _: u8,
-    ) {
-    }
     fn draw_glyph_run(
         &mut self,
         _: &Point,

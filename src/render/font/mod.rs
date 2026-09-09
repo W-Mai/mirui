@@ -8,6 +8,7 @@
 
 pub mod bitmap_8x8;
 pub mod mirx;
+pub(crate) mod scalar;
 pub mod sdf;
 
 pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
@@ -278,6 +279,9 @@ pub struct FontMetrics {
 /// Format adapter used by both paragraph layout and render backends.
 pub trait FontProvider: 'static {
     fn face_id(&self) -> FontFaceId;
+    fn revision(&self) -> u64 {
+        0
+    }
     fn map_char(&self, ch: char) -> Option<GlyphId>;
     fn glyph_advance(&self, glyph: GlyphId, ppem: u16) -> Option<Fixed>;
     fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>>;
@@ -293,6 +297,10 @@ pub trait FontProvider: 'static {
 
     fn shaping_data(&self) -> Option<&[u8]> {
         None
+    }
+
+    fn supports_complex_shaping(&self) -> bool {
+        self.shaping_data().is_some()
     }
 
     fn covers(&self, cluster: &str) -> bool {
@@ -420,6 +428,13 @@ impl Font {
         }
     }
 
+    pub fn revision(&self) -> u64 {
+        match &self.backend {
+            FontBackend::Bitmap8x8 => 0,
+            FontBackend::Custom(provider) => provider.revision(),
+        }
+    }
+
     pub fn map_char(&self, ch: char) -> Option<GlyphId> {
         match &self.backend {
             FontBackend::Bitmap8x8 => ('\u{20}'..'\u{7f}')
@@ -518,6 +533,13 @@ impl Font {
             FontBackend::Custom(provider) => provider.shape_into(ppem, request, output),
         }
     }
+
+    pub fn supports_complex_shaping(&self) -> bool {
+        match &self.backend {
+            FontBackend::Bitmap8x8 => false,
+            FontBackend::Custom(provider) => provider.supports_complex_shaping(),
+        }
+    }
 }
 
 struct FontGlyphSource<'a> {
@@ -568,13 +590,15 @@ pub struct FontTypeface<'a> {
     font: &'a Font,
     ppem: u16,
     language: Option<&'a str>,
+    shaping: crate::ui::widgets::ShapingPolicy,
 }
 
 pub(crate) const MAX_RESOLVED_FONT_STACK: usize = if cfg!(feature = "std") { 64 } else { 8 };
 
 pub(crate) struct ResolvedFontStack {
-    fonts: [Option<Rc<Font>>; MAX_RESOLVED_FONT_STACK],
+    fonts: [Option<Font>; MAX_RESOLVED_FONT_STACK],
     len: usize,
+    ppem: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -587,6 +611,7 @@ impl ResolvedFontStack {
     pub(crate) fn resolve(
         world: &World,
         stack: &FontStack,
+        font_size: Option<u16>,
         limit: usize,
     ) -> Result<Option<Self>, FontStackCapacityError> {
         let len = stack.iter().count();
@@ -600,33 +625,73 @@ impl ResolvedFontStack {
         let Some(manager) = world.resource::<FontManager>() else {
             return Ok(None);
         };
+        let primary = manager.resolve(stack.primary().cache_key());
+        let ppem = font_size.unwrap_or(primary.size).max(1);
         let mut fonts = core::array::from_fn(|_| None);
         for (slot, token) in fonts.iter_mut().zip(stack.iter()) {
-            *slot = Some(manager.resolve(token.cache_key()));
+            let mut font = manager.resolve(token.cache_key()).as_ref().clone();
+            font.size = ppem;
+            *slot = Some(font);
         }
-        Ok(Some(Self { fonts, len }))
+        Ok(Some(Self { fonts, len, ppem }))
     }
 
     pub(crate) fn primary(&self) -> &Font {
-        self.fonts[0].as_deref().expect("font stack has a primary")
+        self.fonts[0].as_ref().expect("font stack has a primary")
     }
 
     pub(crate) fn font(&self, id: FontFaceId) -> Option<&Font> {
         self.fonts[..self.len]
             .iter()
-            .filter_map(Option::as_deref)
+            .filter_map(Option::as_ref)
             .find(|font| font.face_id() == id)
+    }
+
+    pub(crate) fn layout_fingerprint(
+        &self,
+        language: Option<&str>,
+        shaping: crate::ui::widgets::ShapingPolicy,
+    ) -> u64 {
+        let mut fingerprint = 0xcbf2_9ce4_8422_2325_u64;
+        let mut write = |bytes: &[u8]| {
+            for byte in bytes {
+                fingerprint ^= u64::from(*byte);
+                fingerprint = fingerprint.wrapping_mul(0x100_0000_01b3);
+            }
+        };
+        write(&self.ppem.to_le_bytes());
+        write(&[match shaping {
+            crate::ui::widgets::ShapingPolicy::Auto => 0,
+            crate::ui::widgets::ShapingPolicy::Simple => 1,
+            crate::ui::widgets::ShapingPolicy::Required => 2,
+        }]);
+        if let Some(language) = language {
+            write(language.as_bytes());
+        }
+        for font in self.fonts[..self.len].iter().filter_map(Option::as_ref) {
+            write(&font.face_id().value().to_le_bytes());
+            write(&font.revision().to_le_bytes());
+            let storage = match &font.backend {
+                FontBackend::Bitmap8x8 => 0,
+                FontBackend::Custom(provider) => Rc::as_ptr(provider) as *const () as usize as u64,
+            };
+            write(&storage.to_le_bytes());
+        }
+        fingerprint
     }
 
     pub(crate) fn with_typefaces<'a, R>(
         &'a self,
         language: Option<&'a str>,
+        shaping: crate::ui::widgets::ShapingPolicy,
         f: impl FnOnce(&[&dyn textflow::shaping::Typeface]) -> R,
     ) -> R {
         let primary = self.primary();
         let faces: [FontTypeface<'_>; MAX_RESOLVED_FONT_STACK] = core::array::from_fn(|index| {
-            let font = self.fonts[index].as_deref().unwrap_or(primary);
-            FontTypeface::new(font, font.size).with_language(language)
+            let font = self.fonts[index].as_ref().unwrap_or(primary);
+            FontTypeface::new(font, self.ppem)
+                .with_language(language)
+                .with_shaping(shaping)
         });
         let typefaces: [&dyn textflow::shaping::Typeface; MAX_RESOLVED_FONT_STACK] =
             core::array::from_fn(|index| &faces[index] as &dyn textflow::shaping::Typeface);
@@ -640,11 +705,17 @@ impl<'a> FontTypeface<'a> {
             font,
             ppem,
             language: None,
+            shaping: crate::ui::widgets::ShapingPolicy::Auto,
         }
     }
 
     pub const fn with_language(mut self, language: Option<&'a str>) -> Self {
         self.language = language;
+        self
+    }
+
+    pub const fn with_shaping(mut self, shaping: crate::ui::widgets::ShapingPolicy) -> Self {
+        self.shaping = shaping;
         self
     }
 }
@@ -664,7 +735,17 @@ impl textflow::shaping::Typeface for FontTypeface<'_> {
     }
 
     fn covers(&self, cluster: &str) -> Result<bool, textflow::shaping::FontAccessError> {
+        if self.shaping == crate::ui::widgets::ShapingPolicy::Required
+            && !self.font.supports_complex_shaping()
+        {
+            return Ok(false);
+        }
         Ok(self.font.covers(cluster))
+    }
+
+    fn supports_complex_shaping(&self) -> bool {
+        self.shaping != crate::ui::widgets::ShapingPolicy::Simple
+            && self.font.supports_complex_shaping()
     }
 
     fn shape_into(
@@ -683,7 +764,25 @@ impl textflow::shaping::Typeface for FontTypeface<'_> {
         if let Some(language) = self.language.or(request.language) {
             adjusted = adjusted.with_language(language);
         }
-        self.font.shape_into(self.ppem, &adjusted, output)
+        match self.shaping {
+            crate::ui::widgets::ShapingPolicy::Auto => {
+                self.font.shape_into(self.ppem, &adjusted, output)
+            }
+            crate::ui::widgets::ShapingPolicy::Required => {
+                if !self.font.supports_complex_shaping() {
+                    return Err(textflow::shaping::ShapeError::ShapingUnavailable);
+                }
+                self.font.shape_into(self.ppem, &adjusted, output)
+            }
+            crate::ui::widgets::ShapingPolicy::Simple => textflow::shaping::Typeface::shape_into(
+                &textflow::shaping::SimpleTypeface::new(&FontGlyphSource {
+                    font: self.font,
+                    ppem: self.ppem,
+                }),
+                &adjusted,
+                output,
+            ),
+        }
     }
 }
 
@@ -1141,5 +1240,98 @@ mod tests {
             textflow::shaping::Typeface::shape_into(&face, &request, &mut output),
             Ok(1)
         );
+    }
+
+    #[test]
+    fn required_shaping_rejects_simple_faces() {
+        let font = Font::bitmap_8x8();
+        let face =
+            FontTypeface::new(&font, 8).with_shaping(crate::ui::widgets::ShapingPolicy::Required);
+        let request = textflow::shaping::ShapeRequest::new(
+            "A",
+            0..1,
+            textflow::bidi::Direction::LeftToRight,
+            textflow::unicode::Script::Latin,
+        );
+        let mut output = [textflow::shaping::ShapedGlyph::default(); 1];
+
+        assert_eq!(
+            textflow::shaping::Typeface::shape_into(&face, &request, &mut output),
+            Err(textflow::shaping::ShapeError::ShapingUnavailable)
+        );
+    }
+
+    #[test]
+    fn simple_policy_bypasses_complex_shaping() {
+        struct ComplexProbe;
+
+        impl FontProvider for ComplexProbe {
+            fn face_id(&self) -> FontFaceId {
+                FontFaceId::new(4)
+            }
+
+            fn map_char(&self, _ch: char) -> Option<GlyphId> {
+                Some(GlyphId::new(1))
+            }
+
+            fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+                Some(Fixed::from_int(6))
+            }
+
+            fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+                None
+            }
+
+            fn metrics(&self, _ppem: u16) -> FontMetrics {
+                BITMAP_8X8_METRICS
+            }
+
+            fn supports_complex_shaping(&self) -> bool {
+                true
+            }
+
+            fn shape_into(
+                &self,
+                _ppem: u16,
+                request: &textflow::shaping::ShapeRequest<'_>,
+                output: &mut [textflow::shaping::ShapedGlyph],
+            ) -> Result<usize, textflow::shaping::ShapeError> {
+                output[0] = textflow::shaping::ShapedGlyph::new(
+                    GlyphId::new(77),
+                    textflow::shaping::TextRange::new(
+                        request.range.start as u32,
+                        request.range.end as u32,
+                    ),
+                );
+                Ok(1)
+            }
+        }
+
+        let font = Font {
+            family: "complex-probe",
+            size: 8,
+            backend: FontBackend::Custom(Rc::new(ComplexProbe)),
+        };
+        let request = textflow::shaping::ShapeRequest::new(
+            "A",
+            0..1,
+            textflow::bidi::Direction::LeftToRight,
+            textflow::unicode::Script::Latin,
+        );
+        let mut output = [textflow::shaping::ShapedGlyph::default(); 1];
+        let automatic = FontTypeface::new(&font, 8);
+        assert_eq!(
+            textflow::shaping::Typeface::shape_into(&automatic, &request, &mut output),
+            Ok(1)
+        );
+        assert_eq!(output[0].glyph_id(), GlyphId::new(77));
+
+        let simple =
+            FontTypeface::new(&font, 8).with_shaping(crate::ui::widgets::ShapingPolicy::Simple);
+        assert_eq!(
+            textflow::shaping::Typeface::shape_into(&simple, &request, &mut output),
+            Ok(1)
+        );
+        assert_eq!(output[0].glyph_id(), GlyphId::new(1));
     }
 }

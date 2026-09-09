@@ -52,16 +52,18 @@ impl<'a, B: Canvas> Painter<'a, B> {
         );
     }
 
-    pub fn draw_text(
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_glyph_run(
         &mut self,
         pos: &Point,
-        text: &str,
+        glyphs: &[textflow::shaping::PositionedGlyph],
         font: &super::font::Font,
         clip: &Rect,
         color: &Color,
         opa: u8,
     ) {
-        self.backend.draw_label(pos, text, font, clip, color, opa);
+        self.backend
+            .draw_glyph_run(pos, glyphs, font, clip, color, opa);
     }
 
     pub fn fill_path(

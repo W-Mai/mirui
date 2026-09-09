@@ -32,11 +32,6 @@ const METHODS: &[(&str, &str, bool)] = &[
         false,
     ),
     (
-        "draw_label",
-        "pos: &::mirui::types::Point, text: &str, font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
-        false,
-    ),
-    (
         "draw_glyph_run",
         "pos: &::mirui::types::Point, glyphs: &[::mirui::text::PositionedGlyph], font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
         false,
@@ -277,9 +272,6 @@ impl ComposeInput {
                         ::mirui::render::DrawCommand::Blit { pos, size, texture, opa, radius, composite, .. } => {
                             let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
                             self.blit(texture, &src_rect, *pos, *size, clip, *opa, *radius, *composite);
-                        }
-                        ::mirui::render::DrawCommand::Label { pos, text, font, color, opa, .. } => {
-                            self.draw_label(pos, text, font, clip, color, *opa);
                         }
                         ::mirui::render::DrawCommand::GlyphRun { pos, glyphs, font, color, opa, .. } => {
                             self.draw_glyph_run(pos, glyphs, font, clip, color, *opa);

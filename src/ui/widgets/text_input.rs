@@ -19,12 +19,8 @@ pub const TEXT_INPUT_CAP: usize = 32;
 
 /// Single-line ASCII text input with a fixed-capacity buffer.
 ///
-/// `buffer[..len]` are the live characters; `cursor` is the insertion
-/// point in `0..=len`. Non-ASCII / non-printable input is rejected by
-/// the key handler (the 8×8 bitmap font only covers ASCII 32-126).
-///
-/// `focused` mirrors `FocusState` for fast read in the renderer; it's
-/// updated by the gesture handler on Tap.
+/// `buffer[..len]` are the live characters and `cursor` is the insertion
+/// point in `0..=len`.
 #[derive(crate::Component)]
 pub struct TextInput {
     pub buffer: [u8; TEXT_INPUT_CAP],
@@ -185,6 +181,21 @@ impl TextInputBuilder {
         self
     }
 
+    pub fn font(mut self, token: impl Into<crate::render::font::FontToken>) -> Self {
+        self.style.get_or_insert_default().set_font_token(token);
+        self
+    }
+
+    pub fn font_stack(mut self, stack: impl Into<crate::render::font::FontStack>) -> Self {
+        self.style.get_or_insert_default().set_font_stack(stack);
+        self
+    }
+
+    pub fn font_size(mut self, size: u16) -> Self {
+        self.style.get_or_insert_default().set_font_size(size);
+        self
+    }
+
     pub fn text_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.text_input.text_color = color.into();
         self
@@ -237,10 +248,19 @@ fn text_input_render(
     let Some(ti) = world.get::<TextInput>(entity) else {
         return;
     };
-    let Some(font) = crate::render::font::resolve_or_default(world, ctx.style.font_stack.primary())
-    else {
+    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
         return;
     };
+    let face_limit = resource.borrow().limits().fallback_faces;
+    let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
+        world,
+        &ctx.style.font_stack,
+        ctx.style.font_size,
+        face_limit,
+    ) else {
+        return;
+    };
+    let metrics = fonts.primary().metrics(fonts.primary().size);
     let theme = ctx.theme(world);
     let text_color = ti.text_color.resolve_in(theme, ctx.state);
     let placeholder_color = ti.placeholder_color.resolve_in(theme, ctx.state);
@@ -262,41 +282,74 @@ fn text_input_render(
         );
     }
 
-    let text_x = rect.x + Fixed::from_int(2);
-    let text_y = rect.y + Fixed::from_int(2);
-    if ti.len == 0 {
-        if let Some(ph) = world.get::<Placeholder>(entity) {
-            renderer.draw(
-                &DrawCommand::Label {
-                    pos: Point {
-                        x: text_x,
-                        y: text_y,
-                    },
-                    transform: ctx.transform,
-                    text: ph.0,
-                    font: &font,
-                    color: placeholder_color,
-                    opa: 255,
-                },
-                ctx.clip,
-            );
-        }
+    let inset = Fixed::from_int(2);
+    let content_rect = Rect {
+        x: rect.x + inset,
+        y: rect.y + inset,
+        w: (rect.w - inset * Fixed::from_int(2)).max(Fixed::ZERO),
+        h: (rect.h - inset * Fixed::from_int(2)).max(Fixed::ZERO),
+    };
+    let Some(content_clip) = ctx.clip.intersect(&content_rect) else {
+        return;
+    };
+    let (content, color) = if ti.len == 0 {
+        (
+            world
+                .get::<Placeholder>(entity)
+                .map(|placeholder| placeholder.0)
+                .unwrap_or(""),
+            placeholder_color,
+        )
     } else {
-        renderer.draw(
-            &DrawCommand::Label {
-                pos: Point {
-                    x: text_x,
-                    y: text_y,
-                },
-                transform: ctx.transform,
-                text: ti.as_str(),
-                font: &font,
-                color: text_color,
-                opa: 255,
+        (ti.as_str(), text_color)
+    };
+    let paragraph = super::ParagraphStyle {
+        wrap: super::TextWrap::NoWrap,
+        max_lines: Some(1),
+        ..super::ParagraphStyle::default()
+    };
+    let request = paragraph.layout_request(content, metrics, Some(content_rect.w));
+    let font_fingerprint = fonts.layout_fingerprint(None, paragraph.shaping);
+    let Ok(handle) = fonts.with_typefaces(None, paragraph.shaping, |typefaces| {
+        resource.borrow_mut().layout_cached(
+            u64::from(entity.id) | (u64::from(entity.generation) << 32),
+            font_fingerprint,
+            request,
+            typefaces,
+        )
+    }) else {
+        return;
+    };
+    let cache = resource.borrow();
+    let Some(layout) = cache.get(handle) else {
+        return;
+    };
+    let caret = if ti.len == 0 {
+        Fixed::ZERO
+    } else {
+        layout
+            .carets()
+            .iter()
+            .find(|caret| caret.text_offset == u32::from(ti.cursor))
+            .map(|caret| crate::types::fixed::from_textflow(caret.position.x))
+            .unwrap_or(Fixed::ZERO)
+    };
+    let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
+    let scroll = (caret - visible_width).max(Fixed::ZERO);
+    super::text::draw_text_layout(
+        renderer,
+        &layout,
+        |font_id| fonts.font(font_id),
+        super::text::TextPaint::new(
+            Point {
+                x: content_rect.x - scroll,
+                y: content_rect.y,
             },
-            ctx.clip,
-        );
-    }
+            ctx.transform,
+            &content_clip,
+            color,
+        ),
+    );
 
     if ti.focused {
         let blink_on = world
@@ -304,15 +357,13 @@ fn text_input_render(
             .map(|p| p.0)
             .unwrap_or(true);
         if blink_on {
-            // 8×8 fixed bitmap font: each glyph advances 8 px.
-            let cursor_x = text_x + Fixed::from_int(ti.cursor as i32 * 8);
             renderer.draw(
                 &DrawCommand::Fill {
                     area: Rect {
-                        x: cursor_x,
-                        y: text_y,
+                        x: content_rect.x + caret - scroll,
+                        y: content_rect.y,
                         w: Fixed::ONE,
-                        h: Fixed::from_int(8),
+                        h: metrics.line_height.min(content_rect.h),
                     },
                     transform: ctx.transform,
                     quad: ctx.quad,
@@ -320,7 +371,7 @@ fn text_input_render(
                     radius: Fixed::ZERO,
                     opa: 255,
                 },
-                ctx.clip,
+                &content_clip,
             );
         }
     }
@@ -452,7 +503,151 @@ pub fn view() -> View {
 
 #[cfg(test)]
 mod tests {
+    use alloc::{rc::Rc, vec::Vec};
+
     use super::*;
+    use crate::render::font::{
+        Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId, RasterGlyph,
+    };
+    use crate::types::Transform;
+    use crate::ui::Style;
+    use crate::ui::theme::{Theme, WidgetState};
+
+    struct ProportionalFace;
+
+    impl FontProvider for ProportionalFace {
+        fn face_id(&self) -> FontFaceId {
+            FontFaceId::new(41)
+        }
+
+        fn map_char(&self, ch: char) -> Option<GlyphId> {
+            ch.is_ascii().then_some(GlyphId::new(ch as u16))
+        }
+
+        fn glyph_advance(&self, glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+            Some(Fixed::from_int(if glyph.value() == u16::from(b'W') {
+                10
+            } else {
+                3
+            }))
+        }
+
+        fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+            None
+        }
+
+        fn metrics(&self, _ppem: u16) -> FontMetrics {
+            FontMetrics {
+                ascender: Fixed::from_int(9),
+                descender: Fixed::from_int(-3),
+                line_height: Fixed::from_int(12),
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingRenderer {
+        glyph_runs: Vec<(Point, usize)>,
+        fills: Vec<Rect>,
+    }
+
+    impl Renderer for RecordingRenderer {
+        fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
+            match command {
+                DrawCommand::GlyphRun { pos, glyphs, .. } => {
+                    self.glyph_runs.push((*pos, glyphs.len()));
+                }
+                DrawCommand::Fill { area, .. } => self.fills.push(*area),
+                _ => {}
+            }
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    fn render_input(
+        text: &[u8],
+        placeholder: Option<&'static str>,
+        width: i32,
+    ) -> RecordingRenderer {
+        let mut world = World::new();
+        world.insert_resource(Theme::default());
+        world.insert_resource(crate::text::layout::TextLayoutResource::new(
+            crate::text::TextLayoutLimits::EMBEDDED,
+        ));
+        world.insert_resource(CursorBlinkPhase(true));
+        let fonts = crate::render::font::default_font_manager();
+        fonts.add_static(
+            FontToken::Default.cache_key(),
+            Font {
+                family: "proportional",
+                size: 12,
+                backend: FontBackend::Custom(Rc::new(ProportionalFace)),
+            },
+        );
+        world.insert_resource(fonts);
+        let entity = world.spawn_empty();
+        let mut input = TextInput::new();
+        input.focused = true;
+        for byte in text {
+            assert!(input.insert(*byte));
+        }
+        world.insert(entity, input);
+        if let Some(placeholder) = placeholder {
+            world.insert(entity, Placeholder(placeholder));
+        }
+        let style = Style::default();
+        let clip = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(100),
+            h: Fixed::from_int(30),
+        };
+        let rect = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(width),
+            h: Fixed::from_int(20),
+        };
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::IDENTITY,
+            quad: None,
+            clip: &clip,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+        };
+        let mut renderer = RecordingRenderer::default();
+
+        text_input_render(&mut renderer, &world, entity, &rect, &mut ctx);
+        renderer
+    }
+
+    #[test]
+    fn render_uses_shaped_advances_for_glyphs_and_caret() {
+        let renderer = render_input(b"Wi", None, 100);
+
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(2, 2), 2)]);
+        assert_eq!(renderer.fills.len(), 1);
+        assert_eq!(renderer.fills[0].x, Fixed::from_int(15));
+        assert_eq!(renderer.fills[0].h, Fixed::from_int(12));
+    }
+
+    #[test]
+    fn render_keeps_the_shaped_caret_inside_a_narrow_input() {
+        let renderer = render_input(b"WWW", None, 20);
+
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(-13, 2), 3)]);
+        assert_eq!(renderer.fills[0].x, Fixed::from_int(17));
+    }
+
+    #[test]
+    fn placeholder_uses_the_glyph_layout_without_moving_the_empty_caret() {
+        let renderer = render_input(b"", Some("Wi"), 100);
+
+        assert_eq!(renderer.glyph_runs, vec![(Point::new(2, 2), 2)]);
+        assert_eq!(renderer.fills[0].x, Fixed::from_int(2));
+    }
 
     #[test]
     fn insert_then_backspace() {

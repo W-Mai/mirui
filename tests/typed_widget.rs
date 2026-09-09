@@ -77,6 +77,36 @@ mod tests {
     }
 
     #[test]
+    fn text_widget_routes_font_size_to_style() {
+        use mirui::ui::Style;
+        use mirui::ui::widgets::Text;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Text (
+                "Hello",
+                width: mirui::types::Dimension::Content,
+                height: mirui::types::Dimension::Auto,
+                font_size: 18
+            ) {}
+        };
+
+        let entity = world.query::<Text>().collect()[0];
+        let style = world.get::<Style>(entity).unwrap();
+        assert_eq!(style.font_size, Some(18));
+        assert_eq!(style.layout.width, mirui::types::Dimension::Content);
+        assert_eq!(style.layout.height, mirui::types::Dimension::Auto);
+    }
+
+    #[test]
     fn text_input_text_color_routes_to_field() {
         use mirui::ui::widgets::TextInput;
 
