@@ -711,6 +711,11 @@ pub(crate) const fn to_textflow(value: Fixed) -> i32 {
     value.0
 }
 
+#[inline]
+pub(crate) const fn from_textflow(value: i32) -> Fixed {
+    Fixed(value)
+}
+
 impl fmt::Display for Fixed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Show as decimal: integer.fraction

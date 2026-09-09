@@ -102,7 +102,7 @@ fn mono_hello_byte_hash_is_stable() {
     let hash = fnv1a64(&pixels);
     assert_eq!(pixels.len(), 240 * 48 * 4);
     assert_eq!(
-        hash, 0xd517_388e_9ce9_545c,
+        hash, 0x2c8a_ab42_6930_ead4,
         "Mono Bitmap8x8 render drifted; eye-check the snapshot before pinning a new value",
     );
 }
@@ -113,7 +113,7 @@ fn sdf_hello_byte_hash_is_stable() {
     let hash = fnv1a64(&pixels);
     assert_eq!(pixels.len(), 240 * 48 * 4);
     assert_eq!(
-        hash, 0xf9c6_b198_2b2a_281c,
+        hash, 0x2043_2136_623d_18f4,
         "SDF MiSans render drifted; eye-check the snapshot before pinning a new value",
     );
 }

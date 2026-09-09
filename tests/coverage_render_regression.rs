@@ -96,7 +96,7 @@ fn coverage_hello_byte_hash_is_stable() {
     let hash = fnv1a64(&pixels);
     assert_eq!(pixels.len(), 240 * 48 * 4);
     assert_eq!(
-        hash, 0x7a1a_4c9e_e1e9_6623,
+        hash, 0x9ea0_c514_a675_e523,
         "MiSans coverage render drifted; eye-check the snapshot before pinning a new value (hash={hash:#018x})",
     );
 }

@@ -131,6 +131,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(Theme::default());
         world.insert_resource(crate::render::font::default_font_manager());
+        world.insert_resource(crate::text::layout::TextLayoutResource::new(
+            crate::text::TextLayoutLimits::default(),
+        ));
         world.insert_resource(crate::core::i18n::I18n::default());
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());
@@ -164,6 +167,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// unregistered token; passing a custom manager replaces it.
     pub fn with_fonts(&mut self, fonts: crate::render::font::FontManager) -> &mut Self {
         self.world.insert_resource(fonts);
+        self
+    }
+
+    pub fn with_text_layout_limits(&mut self, limits: crate::text::TextLayoutLimits) -> &mut Self {
+        self.world
+            .insert_resource(crate::text::layout::TextLayoutResource::new(limits));
         self
     }
 

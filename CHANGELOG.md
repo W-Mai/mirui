@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Shaped text layout.** Text content size, constrained wrapping, line height and rendered line positions share a bounded frame cache driven by font metrics and glyph advances; `App::with_text_layout_limits` selects explicit text, glyph, line, fallback and resident-memory ceilings.
 - **Paragraph-owned text policy.** `Text` combines plain or localized content with `ParagraphStyle`, including wrapping, alignment, overflow, line metrics, spacing, direction, language, shaping policy, and a bounded borrowed-or-owned feature set.
 - **Glyph-ID runtime fonts.** `FontProvider` exposes stable face and glyph identities, requested-size advances, pair kerning, validated borrowed raster surfaces, and caller-buffer shaping. `Style` resolves an ordered `FontStack`, and custom font-token lookup no longer formats a heap string during layout or rendering.
 - **No redundant MIRX container metadata.** Successful open proves MIRX 1.0 with zero file flags; Reader version/flag queries, Document metadata storage, and the legacy parser error have been removed.

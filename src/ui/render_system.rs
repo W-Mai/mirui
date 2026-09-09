@@ -214,11 +214,128 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     Some(node)
 }
 
-// FIXME: not the full solution.
-pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
-    use crate::render::font::{CHAR_H, CHAR_W};
+struct LaidOutText {
+    handle: crate::text::TextLayoutHandle,
+    measure: crate::text::TextMeasure,
+}
+
+fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutText> {
+    use textflow::bidi::BaseDirection;
+
+    use crate::render::font::{FontTypeface, resolve_or_default};
+    use crate::text::layout::{TextLayoutRequest, TextLayoutResource};
+    use crate::types::fixed::to_textflow;
+    use crate::ui::widgets::text::{Text, TextDirection, TextWrap};
+
+    let text = world.get::<Text>(entity)?;
+    let style = world.get::<Style>(entity)?;
+    let font = resolve_or_default(world, style.font_stack.primary())?;
+    let content = text.resolve(world);
+    let metrics = font.metrics(font.size);
+    let paragraph = text.paragraph();
+    let direction = match paragraph.direction {
+        TextDirection::Auto => BaseDirection::Auto,
+        TextDirection::LeftToRight => BaseDirection::LeftToRight,
+        TextDirection::RightToLeft => BaseDirection::RightToLeft,
+    };
+    let max_width = match paragraph.wrap {
+        TextWrap::NoWrap => i32::MAX,
+        TextWrap::Word | TextWrap::Grapheme => to_textflow(width.max(Fixed::ZERO)),
+    };
+    let typeface = FontTypeface::new(&font, font.size);
+    let typefaces: [&dyn textflow::shaping::Typeface; 1] = [&typeface];
+    let request = TextLayoutRequest {
+        text: &content,
+        max_width,
+        line_height: to_textflow(paragraph.line_height.unwrap_or(metrics.line_height)),
+        baseline: to_textflow(metrics.ascender),
+        direction,
+        features: paragraph.features.as_slice(),
+    };
+    let resource = world.resource::<TextLayoutResource>()?;
+    let handle = resource.borrow_mut().layout(request, &typefaces).ok()?;
+    let measure = resource.borrow().get(handle)?.measure();
+    Some(LaidOutText { handle, measure })
+}
+
+fn layout_text_tree(
+    node: &mut LayoutNode,
+    world: &mut World,
+    entities: &[Entity],
+    index: &mut usize,
+    retain: bool,
+) {
     use crate::types::Dimension;
-    use crate::ui::widgets::text::Text;
+    use crate::types::fixed::from_textflow;
+
+    if *index >= entities.len() {
+        return;
+    }
+    let entity = entities[*index];
+    *index += 1;
+    if let Some(layout) = layout_text(world, entity, node.rect.w) {
+        let source = world.get::<Style>(entity).map(|style| style.layout);
+        if let Some(source) = source {
+            if matches!(source.width, Dimension::Auto | Dimension::Content) {
+                node.style.width = Dimension::Px(from_textflow(layout.measure.width));
+            }
+            if matches!(source.height, Dimension::Auto | Dimension::Content) {
+                node.style.height = Dimension::Px(from_textflow(layout.measure.height));
+            }
+        }
+        if retain {
+            world.insert(entity, layout.handle);
+        }
+    }
+    for child in &mut node.children {
+        layout_text_tree(child, world, entities, index, retain);
+    }
+}
+
+fn compute_layout_snapshot(
+    world: &mut World,
+    root: Entity,
+    logical_w: u16,
+    logical_h: u16,
+) -> Option<(LayoutNode, Vec<Entity>)> {
+    let mut layout_tree = build_layout_tree(world, root)?;
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        logical_w.into(),
+        logical_h.into(),
+    );
+    let mut entities = Vec::new();
+    collect_entities_preorder(world, root, &mut entities);
+    if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
+        cache.borrow_mut().begin_frame();
+    }
+    let mut text_index = 0;
+    layout_text_tree(&mut layout_tree, world, &entities, &mut text_index, false);
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        logical_w.into(),
+        logical_h.into(),
+    );
+    if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
+        cache.borrow_mut().begin_frame();
+    }
+    let mut text_index = 0;
+    layout_text_tree(&mut layout_tree, world, &entities, &mut text_index, true);
+    Some((layout_tree, entities))
+}
+
+pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
+    use textflow::bidi::BaseDirection;
+
+    use crate::render::font::{FontTypeface, resolve_or_default};
+    use crate::text::layout::{TextLayoutRequest, TextLayoutResource};
+    use crate::types::Dimension;
+    use crate::types::fixed::{from_textflow, to_textflow};
+    use crate::ui::widgets::text::{Text, TextDirection};
 
     let Some(text) = world.get::<Text>(entity) else {
         return;
@@ -226,10 +343,36 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
     if node.style.grow > Fixed::ZERO {
         return;
     }
-    let pad: i32 = 4;
-    let bytes = text.resolve(world);
-    let intrinsic_w = Fixed::from_int(bytes.len() as i32 * CHAR_W as i32 + pad);
-    let intrinsic_h = Fixed::from_int(CHAR_H as i32 + pad);
+    let style = world.get::<Style>(entity).expect("text widget style");
+    let Some(font) = resolve_or_default(world, style.font_stack.primary()) else {
+        return;
+    };
+    let content = text.resolve(world);
+    let metrics = font.metrics(font.size);
+    let line_height = text.paragraph().line_height.unwrap_or(metrics.line_height);
+    let direction = match text.paragraph().direction {
+        TextDirection::Auto => BaseDirection::Auto,
+        TextDirection::LeftToRight => BaseDirection::LeftToRight,
+        TextDirection::RightToLeft => BaseDirection::RightToLeft,
+    };
+    let typeface = FontTypeface::new(&font, font.size);
+    let faces: [&dyn textflow::shaping::Typeface; 1] = [&typeface];
+    let request = TextLayoutRequest {
+        text: &content,
+        max_width: i32::MAX,
+        line_height: to_textflow(line_height),
+        baseline: to_textflow(metrics.ascender),
+        direction,
+        features: text.paragraph().features.as_slice(),
+    };
+    let Some(cache) = world.resource::<TextLayoutResource>() else {
+        return;
+    };
+    let Ok(measure) = cache.borrow_mut().measure(request, &faces) else {
+        return;
+    };
+    let intrinsic_w = from_textflow(measure.width);
+    let intrinsic_h = from_textflow(measure.height);
     if matches!(node.style.width, Dimension::Auto | Dimension::Content) {
         node.style.width = Dimension::Px(intrinsic_w);
     }
@@ -709,19 +852,10 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
 pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
 
-    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+    let Some((layout_tree, entities)) = compute_layout_snapshot(world, root, logical_w, logical_h)
+    else {
         return;
     };
-    compute_layout(
-        &mut layout_tree,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        logical_w.into(),
-        logical_h.into(),
-    );
-
-    let mut entities = Vec::new();
-    collect_entities_preorder(world, root, &mut entities);
 
     let mut idx = 0;
     write_computed_rects(&layout_tree, world, &entities, &mut idx);
@@ -1278,29 +1412,11 @@ pub fn collect_dirty_regions(
         return plan;
     }
 
-    let mut layout_tree = crate::trace_span!("dirty.build_tree", {
-        match build_layout_tree(world, root) {
-            Some(t) => t,
-            None => return plan,
-        }
-    });
-
-    {
-        crate::trace_span!("dirty.compute_layout");
-        compute_layout(
-            &mut layout_tree,
-            Fixed::ZERO,
-            Fixed::ZERO,
-            logical_w.into(),
-            logical_h.into(),
-        );
-    }
-
-    let mut entities = Vec::new();
-    {
-        crate::trace_span!("dirty.collect_entities");
-        collect_entities_preorder(world, root, &mut entities);
-    }
+    let Some((layout_tree, entities)) = crate::trace_span!("dirty.layout", {
+        compute_layout_snapshot(world, root, logical_w, logical_h)
+    }) else {
+        return plan;
+    };
 
     let mut idx = 0;
     {
@@ -1437,6 +1553,113 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
         }
     }
     rects
+}
+
+#[cfg(all(test, feature = "std"))]
+mod text_layout_check {
+    use super::*;
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::{FlexDirection, LayoutStyle};
+    use crate::ui::widgets::Text;
+
+    fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(entity, style);
+        if let Some(parent) = parent {
+            world.insert(entity, Parent(parent));
+            if let Some(children) = world.get_mut::<Children>(parent) {
+                children.0.push(entity);
+            } else {
+                world.insert(parent, Children(vec![entity]));
+            }
+        }
+        entity
+    }
+
+    fn world() -> World {
+        crate::app::App::headless(64, 64).world
+    }
+
+    #[test]
+    fn content_size_uses_shaped_font_metrics() {
+        let mut world = world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Content,
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("abc"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(24));
+        assert_eq!(rect.h, Fixed::from_int(8));
+    }
+
+    #[test]
+    fn constrained_text_height_tracks_wrapped_lines() {
+        let mut world = world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(24),
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("ab cd"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(24));
+        assert_eq!(rect.h, Fixed::from_int(16));
+        let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
+        let cache = world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .unwrap()
+            .borrow();
+        assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
+    }
 }
 
 #[cfg(all(test, feature = "std"))]

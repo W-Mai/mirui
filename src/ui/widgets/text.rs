@@ -345,21 +345,54 @@ fn text_render(
     else {
         return;
     };
-    let s = text.resolve(world);
-    renderer.draw(
-        &DrawCommand::Label {
-            pos: Point {
-                x: rect.x + Fixed::from_int(2),
-                y: rect.y + Fixed::from_int(2),
+    let content = text.resolve(world);
+    let metrics = font.metrics(font.size);
+    let Some(handle) = world.get::<crate::text::TextLayoutHandle>(entity).copied() else {
+        return;
+    };
+    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
+        return;
+    };
+    let cache = resource.borrow();
+    let Some(layout) = cache.get(handle) else {
+        return;
+    };
+    let max_lines = text
+        .paragraph
+        .max_lines
+        .map(usize::from)
+        .unwrap_or(usize::MAX);
+    for line in layout.lines().iter().take(max_lines) {
+        let range = line.text();
+        let Some(line_text) = content.get(range.start as usize..range.end as usize) else {
+            continue;
+        };
+        let offset = match text.paragraph.align {
+            TextAlign::Start | TextAlign::Justify => Fixed::ZERO,
+            TextAlign::Center => {
+                (rect.w - crate::types::fixed::from_textflow(line.advance())).max(Fixed::ZERO)
+                    / Fixed::from_int(2)
+            }
+            TextAlign::End => {
+                (rect.w - crate::types::fixed::from_textflow(line.advance())).max(Fixed::ZERO)
+            }
+        };
+        let origin = line.origin();
+        renderer.draw(
+            &DrawCommand::Label {
+                pos: Point {
+                    x: rect.x + offset + crate::types::fixed::from_textflow(origin.x),
+                    y: rect.y + crate::types::fixed::from_textflow(origin.y) - metrics.ascender,
+                },
+                transform: ctx.transform,
+                text: line_text,
+                font: &font,
+                color,
+                opa: 255,
             },
-            transform: ctx.transform,
-            text: &s,
-            font: &font,
-            color,
-            opa: 255,
-        },
-        ctx.clip,
-    );
+            ctx.clip,
+        );
+    }
 }
 
 pub fn view() -> View {
