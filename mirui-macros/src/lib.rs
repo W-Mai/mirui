@@ -925,7 +925,7 @@ impl MiruiRune {
                     Some(text_value) => {
                         quote! { ::core::convert::Into::<#comp_name>::into(#text_value) }
                     }
-                    None => quote! { #comp_name::Owned(::mirui::__Cow::Borrowed("")) },
+                    None => quote! { #comp_name::from("") },
                 };
                 tokens.extend(quote! {
                     (#world).insert(#var, #init);

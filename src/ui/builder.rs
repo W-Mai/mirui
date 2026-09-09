@@ -72,6 +72,16 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn paragraph(self, paragraph: crate::ui::widgets::text::ParagraphStyle) -> Self {
+        if let Some(text) = self
+            .world
+            .get_mut::<crate::ui::widgets::text::Text>(self.entity)
+        {
+            text.set_paragraph(paragraph);
+        }
+        self
+    }
+
     pub fn image(self, img: crate::ui::widgets::image::Image) -> Self {
         self.world.insert(self.entity, img);
         self
