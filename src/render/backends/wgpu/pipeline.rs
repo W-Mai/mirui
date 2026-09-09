@@ -12,6 +12,8 @@ pub enum ShaderKind {
     Fill,
     Blit,
     BlitQuad,
+    GlyphCoverage,
+    GlyphSdf,
     QuadSdf,
     Path,
 }
@@ -64,6 +66,21 @@ pub struct PathTintUniform {
     pub color: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct GlyphUniform {
+    pub color: [f32; 4],
+    pub spread_pad: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct GlyphVertex {
+    pub pos: [f32; 2],
+    pub uv: [f32; 2],
+    pub uv_bounds: [f32; 4],
+}
+
 /// `uvw = (u/w, v/w, 1/w)`; fragment recovers `uv = uvw.xy / uvw.z`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
@@ -114,6 +131,7 @@ pub struct PipelineCache {
     pub fill_bgl: wgpu::BindGroupLayout,
     pub blit_bgl: wgpu::BindGroupLayout,
     pub blit_quad_bgl: wgpu::BindGroupLayout,
+    pub glyph_bgl: wgpu::BindGroupLayout,
     pub path_bgl: wgpu::BindGroupLayout,
     pipelines: Cache<PipelineKey, CachedPipeline, Lru, HashLookup<PipelineKey>>,
 }
@@ -180,11 +198,22 @@ impl PipelineCache {
             label: Some("mirui-blit-quad-bgl"),
             entries: &blit_quad_entries,
         });
+        let glyph_entries = [
+            uniform_entry(0),
+            dynamic_uniform_entry(1),
+            texture_entries[2],
+            texture_entries[3],
+        ];
+        let glyph_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mirui-glyph-bgl"),
+            entries: &glyph_entries,
+        });
 
         Self {
             fill_bgl,
             blit_bgl,
             blit_quad_bgl,
+            glyph_bgl,
             path_bgl,
             pipelines: Cache::builder()
                 .max_size(MaxSize::Count(PIPELINE_CACHE_LIMIT))
@@ -202,6 +231,7 @@ impl PipelineCache {
             fill_bgl,
             blit_bgl,
             blit_quad_bgl,
+            glyph_bgl,
             path_bgl,
             pipelines,
         } = self;
@@ -209,6 +239,7 @@ impl PipelineCache {
             ShaderKind::Fill | ShaderKind::QuadSdf => fill_bgl,
             ShaderKind::Blit => blit_bgl,
             ShaderKind::BlitQuad => blit_quad_bgl,
+            ShaderKind::GlyphCoverage | ShaderKind::GlyphSdf => glyph_bgl,
             ShaderKind::Path => path_bgl,
         };
         let handle = pipelines
@@ -253,6 +284,11 @@ fn build_pipeline(
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
         ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
         ShaderKind::BlitQuad => ("mirui-blit-quad", include_str!("shader/blit_quad.wgsl")),
+        ShaderKind::GlyphCoverage => (
+            "mirui-glyph-coverage",
+            include_str!("shader/glyph_coverage.wgsl"),
+        ),
+        ShaderKind::GlyphSdf => ("mirui-glyph-sdf", include_str!("shader/glyph_sdf.wgsl")),
         ShaderKind::QuadSdf => ("mirui-quad-sdf", include_str!("shader/quad_sdf.wgsl")),
         ShaderKind::Path => ("mirui-path", include_str!("shader/path.wgsl")),
     };
@@ -298,11 +334,36 @@ fn build_pipeline(
             },
         ],
     };
+    let glyph_vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: core::mem::size_of::<GlyphVertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 0,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 8,
+                shader_location: 1,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 16,
+                shader_location: 2,
+            },
+        ],
+    };
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
         ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
         ShaderKind::BlitQuad | ShaderKind::QuadSdf => (
             core::slice::from_ref(&blit_quad_vertex_layout),
+            wgpu::PrimitiveTopology::TriangleList,
+        ),
+        ShaderKind::GlyphCoverage | ShaderKind::GlyphSdf => (
+            core::slice::from_ref(&glyph_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
         ),
         ShaderKind::Path => (
@@ -430,6 +491,8 @@ const _: () = {
     assert!(core::mem::size_of::<BlitUniform>() == 48);
     // Must match `PathTint` in shader/path.wgsl.
     assert!(core::mem::size_of::<PathTintUniform>() == 16);
+    assert!(core::mem::size_of::<GlyphUniform>() == 32);
+    assert!(core::mem::size_of::<GlyphVertex>() == 32);
     // Must match `VertexIn` in shader/blit_quad.wgsl
     // (vec2 + vec3 + f32 = 24).
     assert!(core::mem::size_of::<BlitQuadVertex>() == 24);

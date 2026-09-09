@@ -154,7 +154,6 @@ pub struct Glyph<'a> {
 
 #[cfg(any(
     feature = "sdl-gpu",
-    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32")
 ))]
 pub(crate) fn positioned_glyph_bounds(
@@ -231,7 +230,6 @@ pub(crate) fn output_ppem(ppem: u16, scale: Fixed) -> u16 {
 
 #[cfg(any(
     feature = "sdl-gpu",
-    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32")
 ))]
 pub(crate) fn positioned_glyph_hash(glyphs: &[textflow::shaping::PositionedGlyph]) -> u64 {
@@ -248,7 +246,6 @@ pub(crate) fn positioned_glyph_hash(glyphs: &[textflow::shaping::PositionedGlyph
 
 #[cfg(any(
     feature = "sdl-gpu",
-    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32")
 ))]
 fn extend_glyph_hash(hash: &mut u64, bytes: &[u8]) {
@@ -471,6 +468,52 @@ impl Font {
         match &self.backend {
             FontBackend::Bitmap8x8 => None,
             FontBackend::Custom(provider) => provider.raster(glyph, ppem, ppem),
+        }
+    }
+
+    #[cfg(feature = "wgpu")]
+    pub(crate) fn raster_for_output(
+        &self,
+        glyph: GlyphId,
+        layout_ppem: u16,
+        output_ppem: u16,
+    ) -> Option<RasterGlyph<'_>> {
+        match &self.backend {
+            FontBackend::Bitmap8x8 => {
+                let value = u8::try_from(glyph.value()).ok()?;
+                let ordinal = value.checked_sub(b' ')?;
+                if ordinal >= 95 {
+                    return None;
+                }
+                Some(RasterGlyph {
+                    surface: GlyphSurface::new(
+                        bitmap_8x8::FONT_8X8,
+                        bitmap_8x8::CHAR_W,
+                        bitmap_8x8::CHAR_H * 95,
+                        1,
+                        ::mirx::image::SampleLayout::A1,
+                        ::mirx::types::ByteAlignment::ONE,
+                        FontSurfaceId::new(u64::MAX),
+                    )
+                    .ok()?,
+                    region: ::mirx::image::Region::new(
+                        0,
+                        u32::from(ordinal) * bitmap_8x8::CHAR_H,
+                        bitmap_8x8::CHAR_W,
+                        bitmap_8x8::CHAR_H,
+                    )
+                    .ok(),
+                    offset_x: Fixed::ZERO,
+                    offset_y: BITMAP_8X8_METRICS.ascender,
+                    representation: ::mirx::font::FontRepresentation::coverage(
+                        1,
+                        layout_ppem.max(1),
+                        bitmap_8x8::FONT_8X8.len() as u32,
+                    )
+                    .ok()?,
+                })
+            }
+            FontBackend::Custom(provider) => provider.raster(glyph, layout_ppem, output_ppem),
         }
     }
 
@@ -1153,6 +1196,24 @@ mod tests {
         let font = Font::bitmap_8x8();
         let g = font.glyph('A', 16).expect("ASCII glyph");
         assert!(matches!(g.kind, GlyphKind::Mono(_)));
+    }
+
+    #[cfg(feature = "wgpu")]
+    #[test]
+    fn bitmap_font_exposes_the_shared_coverage_surface_to_gpu_backends() {
+        let font = Font::bitmap_8x8();
+        let raster = font
+            .raster_for_output(GlyphId::new(u16::from(b'A')), 8, 16)
+            .unwrap();
+
+        assert_eq!(
+            raster.surface.sample_layout(),
+            ::mirx::image::SampleLayout::A1
+        );
+        assert_eq!(raster.surface.width(), 8);
+        assert_eq!(raster.surface.height(), 8 * 95);
+        assert_eq!(raster.region.unwrap().y(), u32::from(b'A' - b' ') * 8);
+        assert_eq!(raster.representation.design_ppem(), 8);
     }
 
     #[test]

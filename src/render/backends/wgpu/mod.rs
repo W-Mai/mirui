@@ -17,11 +17,13 @@ use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
 use self::path::PathTessellator;
 use self::pipeline::{
-    BlitQuadVertex, BlitUniform, PathTintUniform, PipelineCache, PipelineKey, QuadSdfUniform,
-    QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
+    BlitQuadVertex, BlitUniform, GlyphUniform, GlyphVertex, PathTintUniform, PipelineCache,
+    PipelineKey, QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
 };
-use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
-use self::texture_pool::{GlyphRunKey, GlyphRunPool, new_glyph_run_pool};
+use self::texture_pool::{
+    CachedScalarSurface, CachedTexture, ScalarSurfaceKey, ScalarSurfacePool, TextureKey,
+    TexturePool, new_pool, new_scalar_surface_pool,
+};
 
 pub use self::pipeline::MSAA_SAMPLES;
 
@@ -45,8 +47,10 @@ pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
     tessellator: PathTessellator,
     texture_pool: TexturePool,
-    glyph_run_pool: GlyphRunPool,
-    glyph_raster: alloc::vec::Vec<u8>,
+    scalar_surface_pool: ScalarSurfacePool,
+    scalar_samples: alloc::vec::Vec<u8>,
+    glyph_vertices: alloc::vec::Vec<GlyphVertex>,
+    glyph_indices: alloc::vec::Vec<u16>,
     /// Samplers are immutable; one instance covers every frame.
     linear_sampler: Option<wgpu::Sampler>,
     nearest_sampler: Option<wgpu::Sampler>,
@@ -58,8 +62,10 @@ impl WgpuRendererFactory {
             cache: None,
             tessellator: PathTessellator::new(),
             texture_pool: new_pool(),
-            glyph_run_pool: new_glyph_run_pool(),
-            glyph_raster: alloc::vec::Vec::new(),
+            scalar_surface_pool: new_scalar_surface_pool(),
+            scalar_samples: alloc::vec::Vec::new(),
+            glyph_vertices: alloc::vec::Vec::new(),
+            glyph_indices: alloc::vec::Vec::new(),
             linear_sampler: None,
             nearest_sampler: None,
         }
@@ -157,6 +163,7 @@ const UNIFORM_ARENA_SIZE: u64 = 1024 * 1024;
 /// uniform offsets. `RectUniform` is 48 B, `PathTintUniform` is 16 B —
 /// align up to the limit so any device accepts the offset.
 const UNIFORM_ALIGN: u32 = 256;
+const GLYPHS_PER_BATCH: usize = 2_048;
 
 /// wgpu pipelines / buffers / bind groups are `Arc`-backed clones, so
 /// owning them in the `Vec<DrawOp>` keeps them alive until
@@ -182,6 +189,29 @@ enum BindGroupRef {
     Owned(wgpu::BindGroup),
     /// Index into a frame-shared bind group. 0 = fill, 1 = path.
     Shared(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GlyphBatchKey {
+    surface: ScalarSurfaceKey,
+    shader: ShaderKind,
+    spread: u16,
+}
+
+#[derive(Clone, Copy)]
+struct GlyphBatch<'a> {
+    key: GlyphBatchKey,
+    surface: crate::render::font::GlyphSurface<'a>,
+}
+
+struct GlyphRunDraw<'a> {
+    pos: &'a Point,
+    glyphs: &'a [textflow::shaping::PositionedGlyph],
+    font: &'a crate::render::font::Font,
+    transform: &'a crate::types::Transform,
+    clip: &'a Rect,
+    color: &'a Color,
+    opacity: u8,
 }
 
 impl WgpuRenderer<'_> {
@@ -689,17 +719,6 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
     }
 }
 
-fn unpremultiply_rgba(bytes: &mut [u8]) {
-    for pixel in bytes.chunks_exact_mut(4) {
-        let alpha = u32::from(pixel[3]);
-        if alpha != 0 && alpha != 255 {
-            for channel in &mut pixel[..3] {
-                *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
-            }
-        }
-    }
-}
-
 fn offset_rect(r: &Rect, tx: Fixed, ty: Fixed) -> Rect {
     Rect {
         x: r.x + tx,
@@ -1076,6 +1095,8 @@ impl WgpuRenderer<'_> {
             radius_stroke: [radius.to_f32(), stroke_width.to_f32(), 0.0, 0.0],
         };
         let Some(offset) = self.push_uniform(&uniform) else {
+            self.factory.glyph_vertices.clear();
+            self.factory.glyph_indices.clear();
             return;
         };
 
@@ -1335,40 +1356,17 @@ impl WgpuRenderer<'_> {
         });
     }
 
-    fn draw_glyph_run_inner(
-        &mut self,
-        pos: &Point,
-        glyphs: &[textflow::shaping::PositionedGlyph],
-        font: &crate::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        let scale = self.viewport.scale();
-        let output_ppem = crate::render::font::output_ppem(font.size, scale);
-        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs, output_ppem)
-        else {
-            return;
-        };
-        let (x0, y0, x1, y1) = bounds.pixel_bounds();
-        let Some(width) = u16::try_from(x1.saturating_sub(x0))
-            .ok()
-            .filter(|value| *value > 0)
-        else {
-            return;
-        };
-        let Some(height) = u16::try_from(y1.saturating_sub(y0))
-            .ok()
-            .filter(|value| *value > 0)
-        else {
-            return;
-        };
-        let Some(raster_width) = crate::render::font::scaled_glyph_raster_extent(width, scale)
-        else {
-            return;
-        };
-        let Some(raster_height) = crate::render::font::scaled_glyph_raster_extent(height, scale)
-        else {
+    fn draw_glyph_run_inner(&mut self, draw: GlyphRunDraw<'_>) {
+        let GlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform,
+            clip,
+            color,
+            opacity,
+        } = draw;
+        let Some(first) = glyphs.first() else {
             return;
         };
         if !self.begin_frame() {
@@ -1378,94 +1376,377 @@ impl WgpuRenderer<'_> {
         if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
-        let key = GlyphRunKey {
-            glyph_hash: crate::render::font::positioned_glyph_hash(glyphs),
-            face_id: font.face_id().value(),
-            size: font.size,
-            color: (u32::from(color.r) << 24)
-                | (u32::from(color.g) << 16)
-                | (u32::from(color.b) << 8)
-                | u32::from(color.a),
-            scale,
+        let requested_size = font.size.max(1);
+        let raster_scale = glyph_raster_scale(transform, self.viewport.scale());
+        let output_ppem = crate::render::font::output_ppem(requested_size, raster_scale);
+        let metrics = font.metrics(requested_size);
+        let mut active: Option<GlyphBatch<'_>> = None;
+        self.factory.glyph_vertices.clear();
+        self.factory.glyph_indices.clear();
+
+        for positioned in glyphs {
+            let Some(raster) =
+                font.raster_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
+                continue;
+            };
+            let Some(region) = raster
+                .region
+                .filter(|region| region.width() > 0 && region.height() > 0)
+            else {
+                continue;
+            };
+            let (shader, spread, bits) = match raster.representation.kind() {
+                mirx::font::FontRepresentationKind::Coverage { bits } => {
+                    (ShaderKind::GlyphCoverage, 0, bits)
+                }
+                mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => {
+                    (ShaderKind::GlyphSdf, spread, bits)
+                }
+                _ => continue,
+            };
+            if alpha_bits(raster.surface.sample_layout()) != Some(bits) {
+                continue;
+            }
+            let key = GlyphBatchKey {
+                surface: ScalarSurfaceKey::new(font.face_id(), font.revision(), raster.surface),
+                shader,
+                spread,
+            };
+            if active.map(|batch| batch.key) != Some(key)
+                || self.factory.glyph_vertices.len() >= GLYPHS_PER_BATCH * 4
+            {
+                if let Some(batch) = active.take() {
+                    self.submit_glyph_batch(batch, scissor, color, opacity);
+                }
+                active = Some(GlyphBatch {
+                    key,
+                    surface: raster.surface,
+                });
+            }
+
+            let Some(dx) = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)
+                .and_then(|value| value.checked_add(positioned.offset.x))
+            else {
+                continue;
+            };
+            let Some(dy) = positioned
+                .origin
+                .y
+                .checked_sub(first.origin.y)
+                .and_then(|value| value.checked_add(positioned.offset.y))
+            else {
+                continue;
+            };
+            let scale = Fixed::from_int(i32::from(requested_size))
+                / Fixed::from_int(i32::from(raster.representation.design_ppem().max(1)));
+            let rect = Rect {
+                x: pos.x + crate::types::fixed::from_textflow(dx) + raster.offset_x,
+                y: pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy)
+                    - raster.offset_y,
+                w: Fixed::from_int(region.width() as i32) * scale,
+                h: Fixed::from_int(region.height() as i32) * scale,
+            };
+            append_glyph_quad(
+                &mut self.factory.glyph_vertices,
+                &mut self.factory.glyph_indices,
+                rect,
+                region,
+                raster.surface,
+                transform,
+            );
+        }
+        if let Some(batch) = active {
+            self.submit_glyph_batch(batch, scissor, color, opacity);
+        }
+    }
+
+    fn submit_glyph_batch(
+        &mut self,
+        batch: GlyphBatch<'_>,
+        scissor: [u32; 4],
+        color: &Color,
+        opa: u8,
+    ) {
+        if self.factory.glyph_indices.is_empty() {
+            return;
+        }
+        let uniform = GlyphUniform {
+            color: [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0 * opa as f32 / 255.0,
+            ],
+            spread_pad: [f32::from(batch.key.spread), 0.0, 0.0, 0.0],
         };
-        let tex_view = {
+        let Some(offset) = self.push_uniform(&uniform) else {
+            self.factory.glyph_vertices.clear();
+            self.factory.glyph_indices.clear();
+            return;
+        };
+        let texture_view = {
             let state = self
                 .surface
                 .state()
-                .expect("WgpuSurface state missing in positioned label");
-            let raster = &mut self.factory.glyph_raster;
+                .expect("WgpuSurface state missing in glyph batch");
+            let samples = &mut self.factory.scalar_samples;
             let handle = match self
                 .factory
-                .glyph_run_pool
-                .entry(key)
+                .scalar_surface_pool
+                .entry(batch.key.surface)
                 .or_try_insert_with::<_, ()>(|| {
-                    raster.clear();
-                    raster.resize(
-                        usize::from(raster_width) * usize::from(raster_height) * 4,
-                        0,
-                    );
-                    {
-                        let mut texture = Texture::new(
-                            raster,
-                            raster_width,
-                            raster_height,
-                            crate::render::texture::ColorFormat::RGBA8888,
-                        );
-                        texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
-                        let mut sw = crate::render::SwRenderer::new(texture);
-                        sw.viewport = Viewport::new(raster_width, raster_height, scale);
-                        let area = Rect::new(0, 0, width, height);
-                        crate::render::canvas::Canvas::draw_glyph_run(
-                            &mut sw,
-                            &Point {
-                                x: Fixed::from_int(-x0),
-                                y: Fixed::from_int(-y0),
-                            },
-                            glyphs,
-                            font,
-                            &area,
-                            color,
-                            255,
-                        );
-                    }
-                    unpremultiply_rgba(raster);
-                    let texture = Texture::new(
-                        raster,
-                        raster_width,
-                        raster_height,
-                        crate::render::texture::ColorFormat::RGBA8888,
-                    );
-                    Ok(CachedTexture(upload_blit_source(
-                        &state.device,
+                    unpack_scalar_surface(batch.surface, samples).ok_or(())?;
+                    let texture = state.device.create_texture_with_data(
                         &state.queue,
-                        &texture,
-                        texture.buf.as_slice(),
-                    )))
+                        &wgpu::TextureDescriptor {
+                            label: Some("mirui-glyph-surface"),
+                            size: wgpu::Extent3d {
+                                width: batch.surface.width(),
+                                height: batch.surface.height(),
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: wgpu::TextureFormat::R8Unorm,
+                            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                | wgpu::TextureUsages::COPY_DST,
+                            view_formats: &[],
+                        },
+                        wgpu::util::TextureDataOrder::LayerMajor,
+                        samples,
+                    );
+                    Ok(CachedScalarSurface(texture))
                 }) {
                 Ok(handle) => handle,
-                Err(_) => return,
+                Err(_) => {
+                    self.factory.glyph_vertices.clear();
+                    self.factory.glyph_indices.clear();
+                    return;
+                }
             };
             handle
                 .0
                 .create_view(&wgpu::TextureViewDescriptor::default())
         };
-        self.blit_view_inner(
-            tex_view,
-            raster_width,
-            raster_height,
-            &Rect::new(0, 0, raster_width, raster_height),
-            Point {
-                x: pos.x + Fixed::from_int(x0),
-                y: pos.y + Fixed::from_int(y0),
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in glyph batch");
+        let vertex_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-glyph-vertices"),
+                contents: bytemuck::cast_slice(&self.factory.glyph_vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-glyph-indices"),
+                contents: bytemuck::cast_slice(&self.factory.glyph_indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        let frame = self
+            .frame
+            .as_mut()
+            .expect("frame initialised for glyph batch");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before glyph batch");
+        let sampler = self
+            .factory
+            .linear_sampler
+            .as_ref()
+            .expect("linear sampler must be initialised before glyph batch");
+        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-glyph-bind-group"),
+            layout: &cache.glyph_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: frame.viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &frame.uniform_arena,
+                        offset: 0,
+                        size: core::num::NonZeroU64::new(
+                            core::mem::size_of::<GlyphUniform>() as u64
+                        ),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: batch.key.shader,
+                format: state.config.format,
+                composite: CompositeMode::SourceOver,
             },
-            Point {
-                x: Fixed::from_int(i32::from(width)),
-                y: Fixed::from_int(i32::from(height)),
-            },
-            opa,
-            CompositeMode::SourceOver,
-            scissor,
         );
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group: BindGroupRef::Owned(bind_group),
+            vertex_buf: Some(vertex_buf),
+            index_buf: Some(index_buf),
+            index_format: wgpu::IndexFormat::Uint16,
+            count: self.factory.glyph_indices.len() as u32,
+            scissor,
+            dynamic_offset: Some(offset),
+        });
+        self.factory.glyph_vertices.clear();
+        self.factory.glyph_indices.clear();
+    }
+}
+
+fn alpha_bits(layout: mirx::image::SampleLayout) -> Option<u8> {
+    match layout {
+        mirx::image::SampleLayout::A1 => Some(1),
+        mirx::image::SampleLayout::A2 => Some(2),
+        mirx::image::SampleLayout::A4 => Some(4),
+        mirx::image::SampleLayout::A8 => Some(8),
+        _ => None,
+    }
+}
+
+fn unpack_scalar_surface(
+    surface: crate::render::font::GlyphSurface<'_>,
+    output: &mut alloc::vec::Vec<u8>,
+) -> Option<()> {
+    let bits = alpha_bits(surface.sample_layout())?;
+    let width = usize::try_from(surface.width()).ok()?;
+    let height = usize::try_from(surface.height()).ok()?;
+    let stride = usize::try_from(surface.stride()).ok()?;
+    let len = width.checked_mul(height)?;
+    output.clear();
+    output.resize(len, 0);
+    let max = (1u16 << bits) - 1;
+    for y in 0..height {
+        let row = surface
+            .samples()
+            .get(y.checked_mul(stride)?..)?
+            .get(..stride)?;
+        for x in 0..width {
+            let bit = x.checked_mul(usize::from(bits))?;
+            let byte = *row.get(bit / 8)?;
+            let shift = 8 - bits - (bit % 8) as u8;
+            let value = u16::from((byte >> shift) & max as u8);
+            output[y * width + x] = ((value * 255 + max / 2) / max) as u8;
+        }
+    }
+    Some(())
+}
+
+fn glyph_raster_scale(transform: &crate::types::Transform, viewport_scale: Fixed) -> Fixed {
+    let x = (transform.m00 * transform.m00 + transform.m10 * transform.m10).sqrt();
+    let y = (transform.m01 * transform.m01 + transform.m11 * transform.m11).sqrt();
+    viewport_scale * x.max(y).max(Fixed::ONE)
+}
+
+fn append_glyph_quad(
+    vertices: &mut alloc::vec::Vec<GlyphVertex>,
+    indices: &mut alloc::vec::Vec<u16>,
+    rect: Rect,
+    region: mirx::image::Region,
+    surface: crate::render::font::GlyphSurface<'_>,
+    transform: &crate::types::Transform,
+) {
+    let Ok(base) = u16::try_from(vertices.len()) else {
+        return;
+    };
+    let points = transform.apply_rect(rect);
+    let width = surface.width() as f32;
+    let height = surface.height() as f32;
+    let x0 = region.x() as f32 / width;
+    let y0 = region.y() as f32 / height;
+    let x1 = region.x().saturating_add(region.width()) as f32 / width;
+    let y1 = region.y().saturating_add(region.height()) as f32 / height;
+    let bounds = [x0, y0, x1, y1];
+    for (point, uv) in points
+        .into_iter()
+        .zip([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
+    {
+        vertices.push(GlyphVertex {
+            pos: [point.x.to_f32(), point.y.to_f32()],
+            uv,
+            uv_bounds: bounds,
+        });
+    }
+    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+#[cfg(test)]
+mod glyph_tests {
+    use super::*;
+    use crate::render::font::{FontSurfaceId, GlyphSurface};
+
+    #[test]
+    fn packed_surface_upload_removes_stride_and_expands_alpha() {
+        let bytes = [0b1010_0000, 0, 0b0100_0000, 0];
+        let surface = GlyphSurface::new(
+            &bytes,
+            3,
+            2,
+            2,
+            mirx::image::SampleLayout::A1,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(7),
+        )
+        .unwrap();
+        let mut output = alloc::vec::Vec::new();
+
+        unpack_scalar_surface(surface, &mut output).unwrap();
+
+        assert_eq!(output, [255, 0, 255, 0, 255, 0]);
+    }
+
+    #[test]
+    fn glyph_quad_keeps_region_bounds_under_transform() {
+        let surface = GlyphSurface::new(
+            &[0; 64],
+            8,
+            8,
+            8,
+            mirx::image::SampleLayout::A8,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(8),
+        )
+        .unwrap();
+        let region = mirx::image::Region::new(2, 1, 4, 3).unwrap();
+        let mut vertices = alloc::vec::Vec::new();
+        let mut indices = alloc::vec::Vec::new();
+
+        append_glyph_quad(
+            &mut vertices,
+            &mut indices,
+            Rect::new(1, 2, 4, 3),
+            region,
+            surface,
+            &crate::types::Transform::translate(Fixed::from_int(5), Fixed::from_int(7)),
+        );
+
+        assert_eq!(vertices.len(), 4);
+        assert_eq!(indices, [0, 1, 2, 0, 2, 3]);
+        assert_eq!(vertices[0].pos, [6.0, 9.0]);
+        assert_eq!(vertices[2].pos, [10.0, 12.0]);
+        assert_eq!(vertices[0].uv_bounds, [0.25, 0.125, 0.75, 0.5]);
     }
 }
 
@@ -1534,6 +1815,25 @@ impl Renderer for WgpuRenderer<'_> {
             }
             DrawCommand::StrokePath { .. } => {
                 unimplemented!("wgpu backend: StrokePath not yet implemented");
+            }
+            DrawCommand::GlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => {
+                self.draw_glyph_run_inner(GlyphRunDraw {
+                    pos,
+                    glyphs,
+                    font,
+                    transform,
+                    clip,
+                    color,
+                    opacity: *opa,
+                });
+                return;
             }
             _ => {}
         }
@@ -1651,16 +1951,8 @@ impl Renderer for WgpuRenderer<'_> {
                     unimplemented!("wgpu backend: StrokePath under translate not yet implemented");
                 }
             }
-            DrawCommand::GlyphRun {
-                pos,
-                glyphs,
-                font,
-                color,
-                opa,
-                ..
-            } => {
-                let pos = offset_point(pos, tx, ty);
-                self.draw_glyph_run(&pos, glyphs, font, clip, color, *opa);
+            DrawCommand::GlyphRun { .. } => {
+                unreachable!("glyph runs return before transform dispatch")
             }
         }
     }
@@ -1870,7 +2162,15 @@ impl Canvas for WgpuRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        self.draw_glyph_run_inner(pos, glyphs, font, clip, color, opa);
+        self.draw_glyph_run_inner(GlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform: &crate::types::Transform::IDENTITY,
+            clip,
+            color,
+            opacity: opa,
+        });
     }
 
     fn flush(&mut self) {

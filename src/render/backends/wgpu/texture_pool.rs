@@ -5,8 +5,8 @@
 //! back to re-upload, same cost as the uncached path.
 
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
+use crate::render::font::{FontFaceId, FontSurfaceId, GlyphSurface};
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::Fixed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureKey {
@@ -55,17 +55,43 @@ pub fn new_pool() -> TexturePool {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct GlyphRunKey {
-    pub glyph_hash: u64,
-    pub face_id: u64,
-    pub size: u16,
-    pub color: u32,
-    pub scale: Fixed,
+pub struct ScalarSurfaceKey {
+    face_id: FontFaceId,
+    revision: u64,
+    surface_id: FontSurfaceId,
+    width: u32,
+    height: u32,
+    stride: u32,
+    layout: mirx::image::SampleLayout,
 }
 
-pub type GlyphRunPool = Cache<GlyphRunKey, CachedTexture, Lru, HashLookup<GlyphRunKey>>;
+impl ScalarSurfaceKey {
+    pub fn new(face_id: FontFaceId, revision: u64, surface: GlyphSurface<'_>) -> Self {
+        Self {
+            face_id,
+            revision,
+            surface_id: surface.id(),
+            width: surface.width(),
+            height: surface.height(),
+            stride: surface.stride(),
+            layout: surface.sample_layout(),
+        }
+    }
+}
 
-pub fn new_glyph_run_pool() -> GlyphRunPool {
+pub struct CachedScalarSurface(pub wgpu::Texture);
+
+impl HasSize for CachedScalarSurface {
+    fn cache_size(&self) -> usize {
+        let size = self.0.size();
+        (size.width as usize) * (size.height as usize)
+    }
+}
+
+pub type ScalarSurfacePool =
+    Cache<ScalarSurfaceKey, CachedScalarSurface, Lru, HashLookup<ScalarSurfaceKey>>;
+
+pub fn new_scalar_surface_pool() -> ScalarSurfacePool {
     Cache::builder()
         .max_size(MaxSize::Bytes(TEXTURE_BUDGET))
         .build()
@@ -90,5 +116,26 @@ mod tests {
         assert!(t.transient);
         let default = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
         assert!(!default.transient);
+    }
+
+    #[test]
+    fn scalar_surface_revision_invalidates_the_gpu_entry() {
+        let samples = [0u8; 16];
+        let surface = GlyphSurface::new(
+            &samples,
+            4,
+            4,
+            4,
+            mirx::image::SampleLayout::A8,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(7),
+        )
+        .unwrap();
+        let face = FontFaceId::new(11);
+
+        assert_ne!(
+            ScalarSurfaceKey::new(face, 2, surface),
+            ScalarSurfaceKey::new(face, 3, surface)
+        );
     }
 }
