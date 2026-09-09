@@ -67,7 +67,7 @@ pub struct Style {
     pub border_radius: Fixed,
     /// Always present; for transparent text set alpha on the resolved colour.
     pub text_color: ThemedColor,
-    pub font_token: crate::render::font::FontToken,
+    pub font_stack: crate::render::font::FontStack,
     pub layout: LayoutStyle,
     pub clip_children: bool,
 }
@@ -80,7 +80,7 @@ impl Default for Style {
             border_width: Fixed::ZERO,
             border_radius: Fixed::ZERO,
             text_color: ThemedColor::Token(ColorToken::OnSurface),
-            font_token: crate::render::font::FontToken::Default,
+            font_stack: crate::render::font::FontStack::default(),
             layout: LayoutStyle::default(),
             clip_children: false,
         }
@@ -117,7 +117,15 @@ impl Style {
         &mut self,
         token: impl Into<crate::render::font::FontToken>,
     ) -> &mut Self {
-        self.font_token = token.into();
+        self.font_stack = crate::render::font::FontStack::new(token.into());
+        self
+    }
+
+    pub fn set_font_stack(
+        &mut self,
+        stack: impl Into<crate::render::font::FontStack>,
+    ) -> &mut Self {
+        self.font_stack = stack.into();
         self
     }
 

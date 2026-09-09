@@ -1,7 +1,7 @@
 //! End-to-end tests for generated MIRX signed-distance faces.
 
+use mirui::render::font::FontProvider;
 use mirui::render::font::mirx::MirxFontProvider;
-use mirui::render::font::{FontProvider, GlyphKind};
 use mirx::font::FontRepresentationKind;
 use mirx::reader::PayloadLimits;
 
@@ -33,32 +33,26 @@ fn resolves_ascii_with_explicit_stride_and_region() {
         'A', 'Z', 'a', 'z', '0', '9', ' ', '.', '!', '?', '@', '#', '&',
     ] {
         let glyph = provider
-            .glyph(ch, 32)
+            .map_char(ch)
+            .and_then(|glyph| provider.raster(glyph, 32))
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
-        let GlyphKind::Raster {
-            stride,
-            region,
-            representation,
-            ..
-        } = glyph.kind
-        else {
-            panic!("raster");
-        };
         assert!(matches!(
-            representation.kind(),
+            glyph.representation.kind(),
             FontRepresentationKind::SignedDistance { bits: 4, .. }
         ));
-        assert_eq!(stride, 16);
+        assert_eq!(glyph.surface.stride(), 16);
+        let region = glyph.region.unwrap();
         assert_eq!((region.width(), region.height()), (32, 32));
     }
 }
 
 #[test]
 fn atlas_contains_a_distance_gradient() {
-    let glyph = open(ASCII_FONT).glyph('A', 32).unwrap();
-    let GlyphKind::Raster { samples, .. } = glyph.kind else {
-        panic!("raster");
-    };
+    let provider = open(ASCII_FONT);
+    let glyph = provider
+        .raster(provider.map_char('A').unwrap(), 32)
+        .unwrap();
+    let samples = glyph.surface.samples();
     let mut buckets = [0u32; 16];
     for &byte in samples {
         buckets[(byte & 15) as usize] += 1;
@@ -72,9 +66,13 @@ fn cjk_face_resolves_common_glyphs_with_nonzero_advance() {
     let provider = open(CJK_FONT);
     for ch in ['我', '你', '是', '不', '中', '人', 'A', '0'] {
         let glyph = provider
-            .glyph(ch, 32)
+            .map_char(ch)
+            .and_then(|glyph| provider.raster(glyph, 32))
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
-        assert!(glyph.advance > mirui::types::Fixed::ZERO);
-        assert!(matches!(glyph.kind, GlyphKind::Raster { .. }));
+        assert!(
+            provider.glyph_advance(provider.map_char(ch).unwrap(), 32)
+                > Some(mirui::types::Fixed::ZERO)
+        );
+        assert!(glyph.region.is_some());
     }
 }

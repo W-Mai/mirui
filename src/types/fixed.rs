@@ -706,6 +706,11 @@ pub(crate) fn checked_scale_mirx(
     Some(Fixed(raw))
 }
 
+#[inline]
+pub(crate) const fn to_textflow(value: Fixed) -> i32 {
+    value.0
+}
+
 impl fmt::Display for Fixed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Show as decimal: integer.fraction

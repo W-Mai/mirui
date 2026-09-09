@@ -2,7 +2,10 @@
 
 use alloc::rc::Rc;
 
-use super::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
+use super::{
+    Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface,
+    RasterGlyph,
+};
 use mirx::{
     font::{
         FontError, FontGlyphs, FontRepresentationFallback, FontRepresentationRequest, FontView,
@@ -88,6 +91,7 @@ impl<'scratch> MirxFontStorage<'scratch> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MirxFontProvider {
+    id: FontFaceId,
     face: FontView<'static>,
     default_size: u16,
     decoded: &'static [Option<SurfaceView<'static>>],
@@ -109,7 +113,7 @@ impl MirxFontProvider {
             .map_err(MirxFontError::InvalidFace)?
             .expect("FONT filter");
         face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
-        Self::from_raw_view(face)
+        Self::from_raw_view(face, face_id(bytes))
     }
 
     /// Opens one standalone FONT payload whose backing storage is static.
@@ -119,7 +123,7 @@ impl MirxFontProvider {
     ) -> Result<Self, MirxFontError> {
         let face = FontView::open(payload, limits).map_err(MirxFontError::InvalidFace)?;
         face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
-        Self::from_raw_view(face)
+        Self::from_raw_view(face, face_id(payload))
     }
 
     /// Opens exactly one FONT face and reconstructs encoded surfaces into
@@ -142,7 +146,7 @@ impl MirxFontProvider {
             .map_err(MirxFontError::InvalidFace)?
             .expect("FONT filter");
         face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
-        Self::from_view_with_storage(face, limits, storage)
+        Self::from_view_with_storage(face, face_id(bytes), limits, storage)
     }
 
     /// Opens one standalone FONT payload and reconstructs encoded surfaces into
@@ -154,20 +158,21 @@ impl MirxFontProvider {
     ) -> Result<Self, MirxFontError> {
         let face = FontView::open(payload, limits).map_err(MirxFontError::InvalidFace)?;
         face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
-        Self::from_view_with_storage(face, limits, storage)
+        Self::from_view_with_storage(face, face_id(payload), limits, storage)
     }
 
-    fn from_raw_view(face: FontView<'static>) -> Result<Self, MirxFontError> {
+    fn from_raw_view(face: FontView<'static>, id: FontFaceId) -> Result<Self, MirxFontError> {
         for index in 0..face.representations().len() {
             if matches!(face.glyphs(index), Some(FontGlyphs::Encoded(_))) {
                 return Err(MirxFontError::EncodedStorage);
             }
         }
-        Ok(Self::from_view(face, &[]))
+        Ok(Self::from_view(face, id, &[]))
     }
 
     fn from_view_with_storage(
         face: FontView<'static>,
+        id: FontFaceId,
         limits: &PayloadLimits,
         storage: MirxFontStorage<'_>,
     ) -> Result<Self, MirxFontError> {
@@ -255,7 +260,7 @@ impl MirxFontProvider {
                 .expect("immutable font surface admitted in the first pass");
             *slot = Some(decoded);
         }
-        Ok(Self::from_view(face, &surfaces[..face.surface_count()]))
+        Ok(Self::from_view(face, id, &surfaces[..face.surface_count()]))
     }
 
     fn surface_storage(face: FontView<'static>, surface: usize) -> Option<FontGlyphs<'static>> {
@@ -268,6 +273,7 @@ impl MirxFontProvider {
 
     fn from_view(
         face: FontView<'static>,
+        id: FontFaceId,
         decoded: &'static [Option<SurfaceView<'static>>],
     ) -> Self {
         let representations = face.representations();
@@ -290,6 +296,7 @@ impl MirxFontProvider {
                     .design_ppem()
             });
         Self {
+            id,
             face,
             default_size,
             decoded,
@@ -314,11 +321,49 @@ impl MirxFontProvider {
 }
 
 impl FontProvider for MirxFontProvider {
-    fn glyph(&self, ch: char, requested_size: u16) -> Option<Glyph> {
-        let selected = self.selected(requested_size)?;
-        let glyph_id = self.face.map_char(ch)?;
-        let ordinal = self.face.raster_ordinal(glyph_id)?;
-        let metric = selected.raster_metrics(glyph_id)?;
+    fn face_id(&self) -> FontFaceId {
+        self.id
+    }
+
+    fn map_char(&self, ch: char) -> Option<GlyphId> {
+        self.face
+            .map_char(ch)
+            .map(|glyph| GlyphId::new(glyph.get()))
+    }
+
+    fn glyph_advance(&self, glyph: GlyphId, ppem: u16) -> Option<crate::types::Fixed> {
+        use textflow::shaping::GlyphSource;
+
+        let source = crate::text::mirx::MirxGlyphSource::new(self.id, self.face);
+        let advance = source.glyph_advance(glyph).ok()?.x;
+        crate::types::fixed::checked_scale_mirx(
+            mirx::types::Fixed::from_le_bytes(advance.to_le_bytes()),
+            ppem,
+            self.face.face().units_per_em(),
+        )
+    }
+
+    fn pair_kerning(&self, left: GlyphId, right: GlyphId, ppem: u16) -> crate::types::Fixed {
+        use textflow::shaping::GlyphSource;
+
+        let source = crate::text::mirx::MirxGlyphSource::new(self.id, self.face);
+        let Some(value) = source.kerning(left, right).ok().and_then(|value| {
+            crate::types::fixed::checked_scale_mirx(
+                mirx::types::Fixed::from_le_bytes(value.to_le_bytes()),
+                ppem,
+                self.face.face().units_per_em(),
+            )
+        }) else {
+            return crate::types::Fixed::ZERO;
+        };
+        value
+    }
+
+    fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>> {
+        let selected = self.selected(ppem)?;
+        let mirx_glyph = mirx::font::GlyphId::new(glyph.value());
+        let ordinal = self.face.raster_ordinal(mirx_glyph)?;
+        let metric = selected.raster_metrics(mirx_glyph)?;
         let (plane, region) = match self.face.glyphs(selected.index())? {
             FontGlyphs::Raw(storage) => {
                 let raster = storage.get(ordinal)?;
@@ -330,28 +375,32 @@ impl FontProvider for MirxFontProvider {
                 (decoded.plane(0)?, selected.map().get(ordinal)?)
             }
         };
-        Some(Glyph {
-            advance: scale(
-                selected.advance(glyph_id)?,
-                requested_size,
-                self.face.face().units_per_em(),
+        let geometry = plane.geometry();
+        let surface_index = selected.record().surface_index();
+        let surface = GlyphSurface::new(
+            plane.bytes(),
+            geometry.width(),
+            geometry.height(),
+            plane.memory().stride(),
+            selected.surface().sample_layout(),
+            plane.memory().required_alignment(),
+            surface_id(self.id, surface_index),
+        )
+        .ok()?;
+        Some(RasterGlyph {
+            surface,
+            region: (region.width() != 0 && region.height() != 0).then_some(region),
+            representation: selected.record().representation(),
+            offset_x: scale(
+                metric.offset_x(),
+                ppem,
+                selected.record().representation().design_ppem(),
             ),
-            kind: GlyphKind::Raster {
-                samples: plane.bytes(),
-                stride: plane.memory().stride(),
-                region,
-                representation: selected.record().representation(),
-                bearing_x: scale(
-                    metric.offset_x(),
-                    requested_size,
-                    selected.record().representation().design_ppem(),
-                ),
-                bearing_y: scale(
-                    metric.offset_y(),
-                    requested_size,
-                    selected.record().representation().design_ppem(),
-                ),
-            },
+            offset_y: scale(
+                metric.offset_y(),
+                ppem,
+                selected.record().representation().design_ppem(),
+            ),
         })
     }
 
@@ -373,6 +422,40 @@ impl FontProvider for MirxFontProvider {
                 line_height: crate::types::Fixed::ONE,
             })
     }
+
+    fn notdef_glyph(&self) -> Option<GlyphId> {
+        Some(GlyphId::new(self.face.face().default_glyph().get()))
+    }
+
+    fn shaping_data(&self) -> Option<&[u8]> {
+        self.face.shaping_data().map(|data| data.as_bytes())
+    }
+
+    fn shape_into(
+        &self,
+        ppem: u16,
+        request: &textflow::shaping::ShapeRequest<'_>,
+        output: &mut [textflow::shaping::ShapedGlyph],
+    ) -> Result<usize, textflow::shaping::ShapeError> {
+        use textflow::shaping::Typeface;
+
+        crate::text::mirx::MirxGlyphSource::new(self.id, self.face)
+            .typeface(ppem)
+            .shape_into(request, output)
+    }
+}
+
+fn face_id(bytes: &[u8]) -> FontFaceId {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    FontFaceId::new(hash | 1 << 63)
+}
+
+fn surface_id(face: FontFaceId, surface: u16) -> FontSurfaceId {
+    FontSurfaceId::new(face.value().rotate_left(17) ^ u64::from(surface))
 }
 
 pub fn font_from_mirx(
@@ -477,30 +560,23 @@ mod tests {
     #[test]
     fn atlas_regions_and_fractional_metrics_reach_the_renderer_unchanged() {
         let provider = atlas_face();
-        let glyph = provider.glyph('A', 16).unwrap();
-        assert_eq!(glyph.advance, crate::types::Fixed::from_ratio(11, 2));
-        let GlyphKind::Raster {
-            stride,
-            region,
-            bearing_x,
-            bearing_y,
-            ..
-        } = glyph.kind
-        else {
-            panic!("raster glyph");
-        };
-        assert_eq!(stride, 64);
+        let glyph_id = provider.map_char('A').unwrap();
+        let glyph = provider.raster(glyph_id, 16).unwrap();
+        assert_eq!(
+            provider.glyph_advance(glyph_id, 16),
+            Some(crate::types::Fixed::from_ratio(11, 2))
+        );
+        assert_eq!(glyph.surface.stride(), 64);
+        let region = glyph.region.unwrap();
         assert_eq!(
             (region.x(), region.y(), region.width(), region.height()),
             (3, 1, 3, 2)
         );
-        assert_eq!(bearing_x, crate::types::Fixed::from_ratio(-1, 2));
-        assert_eq!(bearing_y, crate::types::Fixed::from_ratio(45, 4));
-        assert!(matches!(
-            provider.glyph(' ', 16).unwrap().kind,
-            GlyphKind::Raster { region, .. } if region.is_empty()
-        ));
-        assert!(provider.glyph('Z', 16).is_none());
+        assert_eq!(glyph.offset_x, crate::types::Fixed::from_ratio(-1, 2));
+        assert_eq!(glyph.offset_y, crate::types::Fixed::from_ratio(45, 4));
+        let space = provider.map_char(' ').unwrap();
+        assert!(provider.raster(space, 16).unwrap().region.is_none());
+        assert!(provider.map_char('Z').is_none());
     }
 
     #[test]
@@ -511,8 +587,8 @@ mod tests {
         assert_eq!(metrics.descender, crate::types::Fixed::from_int(-2));
         assert_eq!(metrics.line_height, crate::types::Fixed::from_int(8));
         assert_eq!(
-            provider.glyph('A', 8).unwrap().advance,
-            crate::types::Fixed::from_ratio(11, 4)
+            provider.glyph_advance(provider.map_char('A').unwrap(), 8),
+            Some(crate::types::Fixed::from_ratio(11, 4))
         );
     }
 
@@ -599,16 +675,10 @@ mod tests {
                 .unwrap();
 
         for (ch, y) in [('A', 0), ('B', 2)] {
-            let glyph = provider.glyph(ch, 8).unwrap();
-            let GlyphKind::Raster {
-                samples,
-                stride,
-                region,
-                ..
-            } = glyph.kind
-            else {
-                panic!("raster glyph");
-            };
+            let glyph = provider.raster(provider.map_char(ch).unwrap(), 8).unwrap();
+            let samples = glyph.surface.samples();
+            let stride = glyph.surface.stride();
+            let region = glyph.region.unwrap();
             assert_eq!(samples.as_ptr() as usize % 64, 0);
             assert_eq!(samples.len(), 256);
             assert_eq!(stride, 64);

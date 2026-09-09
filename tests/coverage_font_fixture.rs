@@ -1,7 +1,7 @@
 //! End-to-end checks for a generated MIRX coverage face.
 
+use mirui::render::font::FontProvider;
 use mirui::render::font::mirx::MirxFontProvider;
-use mirui::render::font::{FontProvider, GlyphKind};
 use mirx::font::FontRepresentationKind;
 use mirx::reader::PayloadLimits;
 
@@ -28,37 +28,31 @@ fn resolves_ascii_through_strided_regions() {
     let provider = open();
     for ch in ['A', 'Z', 'a', 'z', '0', '9', '!', '?'] {
         let glyph = provider
-            .glyph(ch, 16)
+            .map_char(ch)
+            .and_then(|glyph| provider.raster(glyph, 16))
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
-        let GlyphKind::Raster {
-            stride,
-            region,
-            representation,
-            ..
-        } = glyph.kind
-        else {
-            panic!("coverage glyph");
-        };
         assert!(matches!(
-            representation.kind(),
+            glyph.representation.kind(),
             FontRepresentationKind::Coverage { bits: 4 }
         ));
-        assert_eq!(stride, 8);
+        assert_eq!(glyph.surface.stride(), 8);
+        let region = glyph.region.unwrap();
         assert_eq!((region.width(), region.height()), (16, 16));
     }
 }
 
 #[test]
 fn misses_codepoint_outside_charset() {
-    assert!(open().glyph('中', 16).is_none());
+    assert!(open().map_char('中').is_none());
 }
 
 #[test]
 fn capital_a_contains_both_coverage_values() {
-    let glyph = open().glyph('A', 16).unwrap();
-    let GlyphKind::Raster { samples, .. } = glyph.kind else {
-        panic!("coverage glyph");
-    };
+    let provider = open();
+    let glyph = provider
+        .raster(provider.map_char('A').unwrap(), 16)
+        .unwrap();
+    let samples = glyph.surface.samples();
     assert!(samples.iter().any(|byte| *byte != 0));
     assert!(samples.iter().any(|byte| *byte != u8::MAX));
 }

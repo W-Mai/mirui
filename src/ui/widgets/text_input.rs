@@ -237,7 +237,8 @@ fn text_input_render(
     let Some(ti) = world.get::<TextInput>(entity) else {
         return;
     };
-    let Some(font) = crate::render::font::resolve_or_default(world, &ctx.style.font_token) else {
+    let Some(font) = crate::render::font::resolve_or_default(world, ctx.style.font_stack.primary())
+    else {
         return;
     };
     let theme = ctx.theme(world);

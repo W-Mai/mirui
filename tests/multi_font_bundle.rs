@@ -2,8 +2,8 @@
 
 #![cfg(feature = "std")]
 
+use mirui::render::font::FontProvider;
 use mirui::render::font::mirx::MirxFontProvider;
-use mirui::render::font::{FontProvider, GlyphKind};
 use mirx::{
     font::{FontRepresentationFallback, FontRepresentationKind, FontRepresentationRequest},
     reader::PayloadLimits,
@@ -22,24 +22,24 @@ fn face_holds_all_representations() {
 
 #[test]
 fn fixed_size_routes_to_coverage() {
-    let glyph = open().glyph('2', 12).expect("glyph");
-    let GlyphKind::Raster { representation, .. } = glyph.kind else {
-        panic!("raster");
-    };
+    let provider = open();
+    let glyph = provider
+        .raster(provider.map_char('2').unwrap(), 12)
+        .unwrap();
     assert!(matches!(
-        representation.kind(),
+        glyph.representation.kind(),
         FontRepresentationKind::Coverage { .. }
     ));
 }
 
 #[test]
 fn oversized_request_routes_to_sdf() {
-    let glyph = open().glyph('2', 96).expect("glyph");
-    let GlyphKind::Raster { representation, .. } = glyph.kind else {
-        panic!("raster");
-    };
+    let provider = open();
+    let glyph = provider
+        .raster(provider.map_char('2').unwrap(), 96)
+        .unwrap();
     assert!(matches!(
-        representation.kind(),
+        glyph.representation.kind(),
         FontRepresentationKind::SignedDistance { .. }
     ));
 }
@@ -55,11 +55,10 @@ fn glyphs_follow_representation_selection_while_face_metrics_scale() {
                     .with_fallback(FontRepresentationFallback::Nearest),
             )
             .unwrap();
-        let glyph = provider.glyph('2', requested).unwrap();
-        let GlyphKind::Raster { representation, .. } = glyph.kind else {
-            panic!("raster");
-        };
-        assert_eq!(representation, selected.record().representation());
+        let glyph = provider
+            .raster(provider.map_char('2').unwrap(), requested)
+            .unwrap();
+        assert_eq!(glyph.representation, selected.record().representation());
 
         let source = provider.view().face();
         let scale = f32::from(requested) / f32::from(source.units_per_em());

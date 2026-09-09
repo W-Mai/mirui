@@ -63,7 +63,7 @@ fn zoom_render(
     // Rebuild the resolved SDF font at the animated size — Font is the
     // size descriptor, so a clone with a new `size` renders the same
     // atlas at that target. Clone is an Rc bump on the provider.
-    let mut font: Font = (*mgr.resolve(&ZOOM_TOKEN.cache_key())).clone();
+    let mut font: Font = (*mgr.resolve(ZOOM_TOKEN.cache_key())).clone();
     font.size = z.size.max(1);
     renderer.draw(
         &DrawCommand::Label {

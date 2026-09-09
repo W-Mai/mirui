@@ -86,7 +86,14 @@ impl<'a> WidgetBuilder<'a> {
 
     pub fn font(self, token: impl Into<crate::render::font::FontToken>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.font_token = token.into();
+            style.font_stack = crate::render::font::FontStack::new(token.into());
+        }
+        self
+    }
+
+    pub fn font_stack(self, stack: impl Into<crate::render::font::FontStack>) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.font_stack = stack.into();
         }
         self
     }

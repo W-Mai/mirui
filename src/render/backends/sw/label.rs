@@ -282,7 +282,10 @@ fn read_packed(data: &[u8], bit_pos: usize, bpp: u8) -> u16 {
 mod tests {
     use super::*;
     use crate::render::backends::sw::SwRenderer;
-    use crate::render::font::{FontBackend, FontMetrics, FontProvider, Glyph};
+    use crate::render::font::{
+        FontBackend, FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface,
+        RasterGlyph,
+    };
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::Viewport;
     use alloc::rc::Rc;
@@ -416,18 +419,35 @@ mod tests {
     }
 
     impl FontProvider for RecordingProvider {
-        fn glyph(&self, _ch: char, requested_size: u16) -> Option<Glyph> {
+        fn face_id(&self) -> FontFaceId {
+            FontFaceId::new(2)
+        }
+
+        fn map_char(&self, _ch: char) -> Option<GlyphId> {
+            Some(GlyphId::new(1))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+            Some(Fixed::from_int(4))
+        }
+
+        fn raster(&self, _glyph: GlyphId, requested_size: u16) -> Option<RasterGlyph<'_>> {
             self.glyph_size.set(requested_size);
-            Some(Glyph {
-                advance: Fixed::from_int(4),
-                kind: GlyphKind::Raster {
-                    samples: &[],
-                    stride: 1,
-                    region: mirx::image::Region::new(7, 9, 0, 0).unwrap(),
-                    representation: mirx::font::FontRepresentation::coverage(1, 16, 0).unwrap(),
-                    bearing_x: Fixed::from_ratio(-1, 2),
-                    bearing_y: Fixed::from_ratio(1, 4),
-                },
+            Some(RasterGlyph {
+                surface: GlyphSurface::new(
+                    &[],
+                    0,
+                    0,
+                    0,
+                    mirx::image::SampleLayout::A1,
+                    mirx::types::ByteAlignment::ONE,
+                    FontSurfaceId::new(2),
+                )
+                .unwrap(),
+                region: None,
+                representation: mirx::font::FontRepresentation::coverage(1, 16, 0).unwrap(),
+                offset_x: Fixed::from_ratio(-1, 2),
+                offset_y: Fixed::from_ratio(1, 4),
             })
         }
 
@@ -476,18 +496,35 @@ mod tests {
     struct SizedRasterProvider;
 
     impl FontProvider for SizedRasterProvider {
-        fn glyph(&self, _ch: char, requested_size: u16) -> Option<Glyph> {
+        fn face_id(&self) -> FontFaceId {
+            FontFaceId::new(3)
+        }
+
+        fn map_char(&self, _ch: char) -> Option<GlyphId> {
+            Some(GlyphId::new(1))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+            Some(Fixed::from_int(4))
+        }
+
+        fn raster(&self, _glyph: GlyphId, requested_size: u16) -> Option<RasterGlyph<'_>> {
             assert_eq!(requested_size, 8);
-            Some(Glyph {
-                advance: Fixed::from_int(4),
-                kind: GlyphKind::Raster {
-                    samples: &[0x80],
-                    stride: 1,
-                    region: mirx::image::Region::new(0, 0, 1, 1).unwrap(),
-                    representation: mirx::font::FontRepresentation::coverage(1, 16, 0).unwrap(),
-                    bearing_x: Fixed::ZERO,
-                    bearing_y: Fixed::ZERO,
-                },
+            Some(RasterGlyph {
+                surface: GlyphSurface::new(
+                    &[0x80],
+                    1,
+                    1,
+                    1,
+                    mirx::image::SampleLayout::A1,
+                    mirx::types::ByteAlignment::ONE,
+                    FontSurfaceId::new(3),
+                )
+                .unwrap(),
+                region: Some(mirx::image::Region::new(0, 0, 1, 1).unwrap()),
+                representation: mirx::font::FontRepresentation::coverage(1, 16, 0).unwrap(),
+                offset_x: Fixed::ZERO,
+                offset_y: Fixed::ZERO,
             })
         }
 

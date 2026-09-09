@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Glyph-ID runtime fonts.** `FontProvider` exposes stable face and glyph identities, requested-size advances, pair kerning, validated borrowed raster surfaces, and caller-buffer shaping. `Style` resolves an ordered `FontStack`, and custom font-token lookup no longer formats a heap string during layout or rendering.
 - **No redundant MIRX container metadata.** Successful open proves MIRX 1.0 with zero file flags; Reader version/flag queries, Document metadata storage, and the legacy parser error have been removed.
 - **Current MIRX container semantics.** Reader and document opening now reject unsupported minor versions and nonzero file flags; compatibility normalization and future-read-only states have been removed.
 - **Canonical MIRX coding identity.** Open profile identifiers live under `mirx::coding::CodingId`; duplicate crate-root and `media` paths have been removed.
