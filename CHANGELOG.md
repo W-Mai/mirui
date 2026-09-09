@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gallery HiDPI font quality.** The MiSans bundle includes exact A8 coverage at 11, 14, 22 and 28 ppem, and selects its 64 ppem distance field from 40 ppem upward.
 - **HiDPI font representation selection.** Raster backends select coverage or SDF storage at physical output ppem while preserving logical shaping metrics, advances, bearings, and placement.
 - **SDF edge quality across display scales.** A8 distance fields use one analytic bilinear sample and derivative per output pixel; Gallery fonts select exact small-size coverage or bounded 24/64 ppem SDF representations, while SDL GPU, WGPU, and Web Canvas cache glyph runs at physical display resolution.
 - **MIRX font spacing below design size.** Glyph advances and bearings remain in requested-size logical pixels while coverage and SDF rasters scale from their representation size, preventing small text from receiving the size ratio twice.
 
 ### Changed
 
+- **Explicit MIRX font construction.** `Font::from_mirx` and `Font::from_mirx_with_storage` require a nonzero logical ppem; raster representation sizes no longer determine the font resource size, and the free MIRX font constructors have been removed.
 - **Mark-aware OpenType kerning.** Pair positioning honors `IgnoreMarks` through GDEF glyph classes and reports unsupported lookup semantics instead of silently approximating them.
 - **Authoritative glyph-run rendering.** `Text` sends shaped glyph IDs, origins, offsets, fallback faces, and raster bounds through a dedicated `GlyphRun` command; software, SDL GPU, WGPU, and Web Canvas consume those positions without measuring the source string again.
 - **Bounded paragraph layout.** Ordered font stacks participate in cluster-level fallback, and `max_lines` constrains retained lines, runs, glyphs, carets, rendered content, and measured height through one layout result.

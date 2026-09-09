@@ -11,7 +11,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
-use crate::render::font::{Font, FontManager, mirx as mirx_font};
+use crate::render::font::{Font, FontManager};
 use crate::ui::widgets::Text;
 
 const PIXEL_10: &[u8] = include_bytes!("assets/fusion_pixel_10_1bit.mirx");
@@ -23,11 +23,13 @@ const TOKEN_12: FontToken = FontToken::Custom("pixel12");
 const TOKEN_24: FontToken = FontToken::Custom("sdf24");
 
 fn ui_font(size: u16) -> Font {
-    let mut font =
-        mirx_font::font_from_mirx("MiSans UI", UI_FONT, &mirx::reader::PayloadLimits::HOST)
-            .expect("UI font");
-    font.size = size;
-    font
+    Font::from_mirx(
+        "MiSans UI",
+        size,
+        UI_FONT,
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("UI font")
 }
 
 /// Register the three demo fonts in the world's [`FontManager`], each
@@ -36,14 +38,16 @@ pub fn register_font(world: &mut World) {
     let Some(mgr) = world.resource::<FontManager>() else {
         return;
     };
-    let pixel10: Font = mirx_font::font_from_mirx(
+    let pixel10 = Font::from_mirx(
         "FusionPixel-10",
+        10,
         PIXEL_10,
         &mirx::reader::PayloadLimits::HOST,
     )
     .expect("10px atlas");
-    let pixel12: Font = mirx_font::font_from_mirx(
+    let pixel12 = Font::from_mirx(
         "FusionPixel-12",
+        12,
         PIXEL_12,
         &mirx::reader::PayloadLimits::HOST,
     )
@@ -102,10 +106,8 @@ mod tests {
 
     #[test]
     fn loads_three_atlases_at_their_sizes() {
-        let p10 =
-            mirx_font::font_from_mirx("p10", PIXEL_10, &mirx::reader::PayloadLimits::HOST).unwrap();
-        let p12 =
-            mirx_font::font_from_mirx("p12", PIXEL_12, &mirx::reader::PayloadLimits::HOST).unwrap();
+        let p10 = Font::from_mirx("p10", 10, PIXEL_10, &mirx::reader::PayloadLimits::HOST).unwrap();
+        let p12 = Font::from_mirx("p12", 12, PIXEL_12, &mirx::reader::PayloadLimits::HOST).unwrap();
         let s24 = ui_font(24);
         assert_eq!(p10.size, 10);
         assert_eq!(p12.size, 12);

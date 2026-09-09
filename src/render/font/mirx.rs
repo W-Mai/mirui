@@ -30,6 +30,7 @@ pub enum MirxFontError {
     Container,
     MissingFace,
     MultipleFaces,
+    InvalidSize,
     InvalidFace(FontError),
     EncodedStorage,
     SurfaceSlotsTooSmall {
@@ -93,7 +94,6 @@ impl<'scratch> MirxFontStorage<'scratch> {
 pub struct MirxFontProvider {
     id: FontFaceId,
     face: FontView<'static>,
-    default_size: u16,
     decoded: &'static [Option<SurfaceView<'static>>],
 }
 
@@ -276,36 +276,9 @@ impl MirxFontProvider {
         id: FontFaceId,
         decoded: &'static [Option<SurfaceView<'static>>],
     ) -> Self {
-        let representations = face.representations();
-        let default_size = representations
-            .iter()
-            .map(|record| record.representation())
-            .filter(|representation| {
-                matches!(
-                    representation.kind(),
-                    mirx::font::FontRepresentationKind::Coverage { .. }
-                )
-            })
-            .map(|representation| representation.design_ppem())
-            .max()
-            .unwrap_or_else(|| {
-                representations
-                    .get(0)
-                    .expect("nonempty admitted face")
-                    .representation()
-                    .design_ppem()
-            });
-        Self {
-            id,
-            face,
-            default_size,
-            decoded,
-        }
+        Self { id, face, decoded }
     }
 
-    pub const fn default_size(self) -> u16 {
-        self.default_size
-    }
     pub const fn view(self) -> FontView<'static> {
         self.face
     }
@@ -463,32 +436,43 @@ fn surface_id(face: FontFaceId, surface: u16) -> FontSurfaceId {
     FontSurfaceId::new(face.value().rotate_left(17) ^ u64::from(surface))
 }
 
-pub fn font_from_mirx(
-    family: &'static str,
-    bytes: &'static [u8],
-    limits: &PayloadLimits,
-) -> Result<Font, MirxFontError> {
-    let provider = MirxFontProvider::from_mirx(bytes, limits)?;
-    Ok(Font {
-        family,
-        size: provider.default_size(),
-        backend: FontBackend::Custom(Rc::new(provider)),
-    })
-}
+impl Font {
+    /// Opens a MIRX font at an explicit logical layout size.
+    pub fn from_mirx(
+        family: &'static str,
+        size: u16,
+        bytes: &'static [u8],
+        limits: &PayloadLimits,
+    ) -> Result<Self, MirxFontError> {
+        if size == 0 {
+            return Err(MirxFontError::InvalidSize);
+        }
+        let provider = MirxFontProvider::from_mirx(bytes, limits)?;
+        Ok(Self {
+            family,
+            size,
+            backend: FontBackend::Custom(Rc::new(provider)),
+        })
+    }
 
-/// Builds a [`Font`] whose encoded surfaces reside in caller-owned storage.
-pub fn font_from_mirx_with_storage(
-    family: &'static str,
-    bytes: &'static [u8],
-    limits: &PayloadLimits,
-    storage: MirxFontStorage<'_>,
-) -> Result<Font, MirxFontError> {
-    let provider = MirxFontProvider::from_mirx_with_storage(bytes, limits, storage)?;
-    Ok(Font {
-        family,
-        size: provider.default_size(),
-        backend: FontBackend::Custom(Rc::new(provider)),
-    })
+    /// Reconstructs encoded MIRX surfaces into caller-owned storage.
+    pub fn from_mirx_with_storage(
+        family: &'static str,
+        size: u16,
+        bytes: &'static [u8],
+        limits: &PayloadLimits,
+        storage: MirxFontStorage<'_>,
+    ) -> Result<Self, MirxFontError> {
+        if size == 0 {
+            return Err(MirxFontError::InvalidSize);
+        }
+        let provider = MirxFontProvider::from_mirx_with_storage(bytes, limits, storage)?;
+        Ok(Self {
+            family,
+            size,
+            backend: FontBackend::Custom(Rc::new(provider)),
+        })
+    }
 }
 
 #[cfg(test)]

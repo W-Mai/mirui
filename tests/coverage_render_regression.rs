@@ -6,8 +6,7 @@
 //! committed to the repo, so the path is reproducible on any machine.
 
 use mirui::prelude::*;
-use mirui::render::font::FontManager;
-use mirui::render::font::mirx::font_from_mirx;
+use mirui::render::font::{Font, FontManager};
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
@@ -36,8 +35,9 @@ fn render_coverage_text(text: &str) -> Vec<u8> {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let font = font_from_mirx(
+    let font = Font::from_mirx(
         "MiSans-Regular",
+        16,
         COVERAGE_FONT_BYTES,
         &mirx::reader::PayloadLimits::HOST,
     )

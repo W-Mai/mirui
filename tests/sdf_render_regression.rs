@@ -1,8 +1,7 @@
 //! Pixel-buffer regression gates for bitmap and SDF text rendering.
 
 use mirui::prelude::*;
-use mirui::render::font::mirx::font_from_mirx;
-use mirui::render::font::{FontManager, FontToken};
+use mirui::render::font::{Font, FontManager, FontToken};
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
@@ -31,13 +30,13 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
     app.with_default_widgets().with_default_systems();
 
     if let Some(size) = size {
-        let mut font = font_from_mirx(
+        let font = Font::from_mirx(
             "MiSans-Regular",
+            size,
             ATLAS_BYTES,
             &mirx::reader::PayloadLimits::HOST,
         )
         .expect("parse font");
-        font.size = size;
         app.world
             .resource::<FontManager>()
             .expect("FontManager")

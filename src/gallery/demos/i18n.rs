@@ -2,7 +2,7 @@ extern crate alloc;
 
 use crate::core::i18n::{I18n, Locale, Translation};
 use crate::prelude::*;
-use crate::render::font::{Font, FontManager, mirx as mirx_font};
+use crate::render::font::{Font, FontManager};
 use crate::t;
 use crate::ui::dirty::Dirty;
 
@@ -24,9 +24,8 @@ fn register_font(world: &mut World) {
     let Some(mgr) = world.resource::<FontManager>() else {
         return;
     };
-    let font: Font =
-        mirx_font::font_from_mirx("MiSans UI", UI_FONT, &mirx::reader::PayloadLimits::HOST)
-            .expect("UI font");
+    let font = Font::from_mirx("MiSans UI", 14, UI_FONT, &mirx::reader::PayloadLimits::HOST)
+        .expect("UI font");
     mgr.add_static(TOKEN_CJK.cache_key(), font);
 }
 

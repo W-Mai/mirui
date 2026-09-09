@@ -8,7 +8,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
-use crate::render::font::{FontManager, mirx as mirx_font};
+use crate::render::font::{Font, FontManager};
 use crate::ui::widgets::Text;
 
 const BUNDLE: &[u8] = include_bytes!("assets/multi_font_bundle.mirx");
@@ -40,10 +40,8 @@ pub fn register_font(world: &mut World) {
         return;
     };
     for (_, size) in STEPS {
-        let mut font =
-            mirx_font::font_from_mirx("Bundle", BUNDLE, &mirx::reader::PayloadLimits::HOST)
-                .expect("bundle parses");
-        font.size = size;
+        let font = Font::from_mirx("Bundle", size, BUNDLE, &mirx::reader::PayloadLimits::HOST)
+            .expect("bundle parses");
         mgr.add_static(token(size).cache_key(), font);
     }
 }
@@ -88,10 +86,10 @@ mod tests {
     use crate::ui::UiScope;
 
     #[test]
-    fn bundle_font_reports_a_pixel_default_size() {
-        let font = mirx_font::font_from_mirx("Bundle", BUNDLE, &mirx::reader::PayloadLimits::HOST)
-            .unwrap();
-        assert_eq!(font.size, 12);
+    fn bundle_font_uses_the_requested_logical_size() {
+        let font =
+            Font::from_mirx("Bundle", 22, BUNDLE, &mirx::reader::PayloadLimits::HOST).unwrap();
+        assert_eq!(font.size, 22);
     }
 
     #[test]

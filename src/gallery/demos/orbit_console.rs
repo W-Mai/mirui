@@ -13,7 +13,7 @@ use crate::core::reactive::Signal;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
-use crate::render::font::{FontManager, mirx as mirx_font};
+use crate::render::font::{Font, FontManager};
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
@@ -801,8 +801,9 @@ fn register_fonts(world: &mut World) {
     let Some(manager) = world.resource::<FontManager>() else {
         return;
     };
-    let base = mirx_font::font_from_mirx(
+    let base = Font::from_mirx(
         "Orbit Console",
+        14,
         FONT_BYTES,
         &mirx::reader::PayloadLimits::HOST,
     )

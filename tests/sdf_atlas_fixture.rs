@@ -1,7 +1,7 @@
 //! End-to-end tests for generated MIRX signed-distance faces.
 
-use mirui::render::font::FontProvider;
 use mirui::render::font::mirx::MirxFontProvider;
+use mirui::render::font::{Font, FontProvider};
 use mirx::font::FontRepresentationKind;
 use mirx::reader::PayloadLimits;
 
@@ -90,10 +90,17 @@ fn ui_face_routes_small_text_and_scalable_ranges_to_distinct_representations() {
     let cases = [
         (11, FontRepresentationKind::Coverage { bits: 8 }, 11),
         (14, FontRepresentationKind::Coverage { bits: 8 }, 14),
+        (22, FontRepresentationKind::Coverage { bits: 8 }, 22),
+        (28, FontRepresentationKind::Coverage { bits: 8 }, 28),
         (
-            24,
+            39,
             FontRepresentationKind::SignedDistance { bits: 8, spread: 4 },
             24,
+        ),
+        (
+            40,
+            FontRepresentationKind::SignedDistance { bits: 8, spread: 8 },
+            64,
         ),
         (
             96,
@@ -110,14 +117,24 @@ fn ui_face_routes_small_text_and_scalable_ranges_to_distinct_representations() {
 }
 
 #[test]
-fn hidpi_output_selects_sdf_for_logical_small_text() {
+fn hidpi_output_selects_exact_coverage_for_logical_small_text() {
     let provider = open(UI_FONT);
     let glyph = provider.map_char('A').unwrap();
     let raster = provider.raster(glyph, 14, 28).unwrap();
 
     assert_eq!(
         raster.representation.kind(),
-        FontRepresentationKind::SignedDistance { bits: 8, spread: 4 }
+        FontRepresentationKind::Coverage { bits: 8 }
     );
-    assert_eq!(raster.representation.design_ppem(), 24);
+    assert_eq!(raster.representation.design_ppem(), 28);
+}
+
+#[test]
+fn font_construction_keeps_logical_size_out_of_the_raster_ladder() {
+    let font = Font::from_mirx("MiSans UI", 14, UI_FONT, &PayloadLimits::HOST).unwrap();
+    assert_eq!(font.size, 14);
+    assert!(matches!(
+        Font::from_mirx("MiSans UI", 0, UI_FONT, &PayloadLimits::HOST),
+        Err(mirui::render::font::mirx::MirxFontError::InvalidSize)
+    ));
 }

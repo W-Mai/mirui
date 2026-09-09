@@ -12,7 +12,7 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(test)]
 use crate::render::command::DrawCommand;
-use crate::render::font::{FontManager, FontStack, ResolvedFontStack, mirx as mirx_font};
+use crate::render::font::{Font, FontManager, FontStack, ResolvedFontStack};
 use crate::render::renderer::Renderer;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
@@ -35,8 +35,9 @@ mirui_macros::animate!(ZoomSize, |world, entity, value| {
 
 pub fn register_font(world: &mut World) {
     if let Some(mgr) = world.resource::<FontManager>() {
-        let font = mirx_font::font_from_mirx(
+        let font = Font::from_mirx(
             "MiSans UI Zoom",
+            16,
             UI_FONT,
             &mirx::reader::PayloadLimits::HOST,
         )

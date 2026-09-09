@@ -16,7 +16,6 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use mirui::prelude::*;
-use mirui::render::font::mirx::font_from_mirx;
 use mirui::render::font::{Font, FontManager, FontToken};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
@@ -25,8 +24,9 @@ use mirui::ui::widgets::Text;
 const ATLAS_BYTES: &[u8] = include_bytes!("../../../tests/fixtures/misans_sdf_cjk_32.mirx");
 
 fn load_misans_font() -> Font {
-    font_from_mirx(
+    Font::from_mirx(
         "MiSans-Regular",
+        32,
         ATLAS_BYTES,
         &mirx::reader::PayloadLimits::HOST,
     )
