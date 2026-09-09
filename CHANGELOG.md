@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gallery SDF contours.** The bundled MiSans distance fields are generated from outline distance and non-zero winding, reducing curve stepping at large sizes.
 - **Gallery HiDPI font quality.** The MiSans bundle includes exact A8 coverage at 11, 14, 22 and 28 ppem, and selects its 64 ppem distance field from 40 ppem upward.
 - **HiDPI font representation selection.** Raster backends select coverage or SDF storage at physical output ppem while preserving logical shaping metrics, advances, bearings, and placement.
 - **SDF edge quality across display scales.** A8 distance fields use one analytic bilinear sample and derivative per output pixel; Gallery fonts select exact small-size coverage or bounded 24/64 ppem SDF representations, while SDL GPU, WGPU, and Web Canvas cache glyph runs at physical display resolution.
