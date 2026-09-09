@@ -1,34 +1,85 @@
 //! Borrowed MIRX FONT access for the renderer-neutral textflow pipeline.
 
 use textflow::shaping::{
-    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource, SimpleTypeface,
+    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource, ShapeError,
+    ShapeRequest, ShapedGlyph, SimpleTypeface, Typeface,
 };
 
 #[derive(Clone, Copy, Debug)]
+/// Borrowed MIRX face data exposed through textflow's scalar font contract.
 pub struct MirxGlyphSource<'a> {
     id: FontId,
     face: ::mirx::font::FontView<'a>,
 }
 
 impl<'a> MirxGlyphSource<'a> {
+    /// Binds a stable application font identity to a validated MIRX FONT view.
     pub const fn new(id: FontId, face: ::mirx::font::FontView<'a>) -> Self {
         Self { id, face }
     }
 
+    /// Returns the stable font identity used by shaped runs and caches.
     pub const fn id(self) -> FontId {
         self.id
     }
 
+    /// Returns the underlying validated MIRX FONT view.
     pub const fn view(self) -> ::mirx::font::FontView<'a> {
         self.face
     }
 
-    pub fn typeface(&self) -> SimpleTypeface<'_, Self> {
-        SimpleTypeface::new(self)
+    /// Creates the borrowed typeface used by textflow layout.
+    pub const fn typeface(&self) -> MirxTypeface<'_, 'a> {
+        MirxTypeface { source: self }
     }
 
-    pub const fn shaping_data(self) -> Option<::mirx::font::ShapingData<'a>> {
+    const fn shaping_data(self) -> Option<::mirx::font::ShapingData<'a>> {
         self.face.shaping_data()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+/// A borrowed textflow typeface backed by one MIRX glyph source.
+pub struct MirxTypeface<'source, 'font> {
+    source: &'source MirxGlyphSource<'font>,
+}
+
+impl MirxTypeface<'_, '_> {
+    /// Returns the glyph source backing this typeface.
+    pub const fn source(&self) -> &MirxGlyphSource<'_> {
+        self.source
+    }
+}
+
+impl Typeface for MirxTypeface<'_, '_> {
+    fn id(&self) -> FontId {
+        self.source.id
+    }
+
+    fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
+        self.source.metrics()
+    }
+
+    fn covers(&self, grapheme: &str) -> Result<bool, FontAccessError> {
+        let mut characters = grapheme.chars();
+        let Some(character) = characters.next() else {
+            return Ok(false);
+        };
+        if characters.next().is_some() {
+            return Ok(false);
+        }
+        Ok(self.source.glyph_for(character)?.is_some())
+    }
+
+    fn shape_into(
+        &self,
+        request: &ShapeRequest<'_>,
+        output: &mut [ShapedGlyph],
+    ) -> Result<usize, ShapeError> {
+        match self.source.shaping_data() {
+            Some(shaping) => crate::text::opentype::shape(self.source, shaping, request, output),
+            None => SimpleTypeface::new(self.source).shape_into(request, output),
+        }
     }
 }
 

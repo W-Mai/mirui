@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Borrowed MIRX OpenType layout.** MIRX typefaces apply ordered `clig`, `liga`, and `dlig` ligature substitutions plus `kern` pair positioning directly from bounded shaping tables into caller-owned glyph storage; unsupported scripts, clusters, features, lookup flags, and lookup kinds return explicit capability errors.
 - **MIRX text shaping source.** `text::mirx::MirxGlyphSource` exposes stable font and glyph identities, face metrics, cmap lookup, compact advances, shaping-table advances, and legacy pair kerning to the bounded textflow pipeline without copying FONT payload bytes.
 - **Canonical empty FONT glyphs.** Atlas glyph maps use one all-zero record for a glyph with no raster samples and reject every other zero-width or zero-height rectangle.
 
