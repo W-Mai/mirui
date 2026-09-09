@@ -151,6 +151,99 @@ pub struct Glyph<'a> {
     pub kind: GlyphKind<'a>,
 }
 
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+pub(crate) fn positioned_glyph_bounds(
+    font: &Font,
+    glyphs: &[textflow::shaping::PositionedGlyph],
+) -> Option<crate::types::Rect> {
+    let first = glyphs.first()?;
+    let requested_size = font.size.max(1);
+    let metrics = font.metrics(requested_size);
+    let mut bounds: Option<crate::types::Rect> = None;
+    for positioned in glyphs {
+        let Some(glyph) = font.glyph_by_id(positioned.glyph_id(), requested_size) else {
+            continue;
+        };
+        let dx = positioned
+            .origin
+            .x
+            .checked_sub(first.origin.x)?
+            .checked_add(positioned.offset.x)?;
+        let dy = positioned
+            .origin
+            .y
+            .checked_sub(first.origin.y)?
+            .checked_add(positioned.offset.y)?;
+        let dx = crate::types::fixed::from_textflow(dx);
+        let dy = crate::types::fixed::from_textflow(dy);
+        let rect = match glyph.kind {
+            GlyphKind::Mono(_) => crate::types::Rect {
+                x: dx,
+                y: dy,
+                w: Fixed::from_int(bitmap_8x8::CHAR_W as i32),
+                h: metrics.line_height,
+            },
+            GlyphKind::Raster {
+                region,
+                representation,
+                bearing_x,
+                bearing_y,
+                ..
+            } => {
+                if region.width() == 0 || region.height() == 0 {
+                    continue;
+                }
+                let scale = Fixed::from_int(i32::from(requested_size))
+                    / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
+                crate::types::Rect {
+                    x: dx + bearing_x,
+                    y: metrics.ascender + dy - bearing_y,
+                    w: Fixed::from_int(i32::try_from(region.width()).ok()?) * scale,
+                    h: Fixed::from_int(i32::try_from(region.height()).ok()?) * scale,
+                }
+            }
+        };
+        bounds = Some(match bounds {
+            Some(current) => current.union(&rect),
+            None => rect,
+        });
+    }
+    bounds
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+pub(crate) fn positioned_glyph_hash(glyphs: &[textflow::shaping::PositionedGlyph]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325;
+    for glyph in glyphs {
+        extend_glyph_hash(&mut hash, &glyph.glyph_id().value().to_le_bytes());
+        extend_glyph_hash(&mut hash, &glyph.origin.x.to_le_bytes());
+        extend_glyph_hash(&mut hash, &glyph.origin.y.to_le_bytes());
+        extend_glyph_hash(&mut hash, &glyph.offset.x.to_le_bytes());
+        extend_glyph_hash(&mut hash, &glyph.offset.y.to_le_bytes());
+    }
+    hash
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+fn extend_glyph_hash(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+}
+
 /// Rasterization scheme tag — renderers match on this to pick how to
 /// draw the glyph. `non_exhaustive` so new variants stay non-breaking.
 #[non_exhaustive]
@@ -355,6 +448,21 @@ impl Font {
             FontBackend::Bitmap8x8 => bitmap_8x8_glyph(ch),
             FontBackend::Custom(provider) => {
                 let glyph = provider.map_char(ch).or_else(|| provider.notdef_glyph())?;
+                self.glyph_by_id(glyph, requested_size)
+            }
+        }
+    }
+
+    pub fn glyph_by_id(&self, glyph: GlyphId, requested_size: u16) -> Option<Glyph<'_>> {
+        match &self.backend {
+            FontBackend::Bitmap8x8 => {
+                let value = u8::try_from(glyph.value()).ok()?;
+                if !(b' '..0x7f).contains(&value) {
+                    return None;
+                }
+                bitmap_8x8_glyph(value as char)
+            }
+            FontBackend::Custom(provider) => {
                 let advance = provider.glyph_advance(glyph, requested_size)?;
                 let raster = provider.raster(glyph, requested_size)?;
                 let region = raster.region.unwrap_or_else(|| {

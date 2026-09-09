@@ -24,13 +24,15 @@ use sdl2::video::{Window, WindowContext};
 use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::render::SwRenderer;
 use crate::render::canvas::Canvas as _;
-use crate::render::font::{CHAR_H, CHAR_W, Font};
+use crate::render::font::Font;
 use crate::render::texture::{ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct LabelKey {
     text_hash: u64,
+    family_ptr: usize,
+    size: u16,
     color_rgba: u32,
 }
 
@@ -56,11 +58,22 @@ type CachedTexture = RefCell<SizedSdlTexture>;
 
 /// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`.
 struct RasterCtx<'a> {
-    text: &'a str,
+    content: RasterContent<'a>,
     font: &'a Font,
     color: &'a Color,
+    width: u16,
+    height: u16,
     creator: &'a TextureCreator<WindowContext>,
     raster_buf: &'a mut Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+enum RasterContent<'a> {
+    Text(&'a str),
+    Positioned {
+        glyphs: &'a [textflow::shaping::PositionedGlyph],
+        origin: Point,
+    },
 }
 
 const DEFAULT_CAPACITY: usize = 128;
@@ -106,17 +119,109 @@ impl LabelCache {
         if text.is_empty() {
             return;
         }
+        let Some((logical_w, logical_h)) = text_extent(font, text) else {
+            return;
+        };
         let key = LabelKey {
             text_hash: hash_bytes(text.as_bytes()),
+            family_ptr: font.family.as_ptr() as usize,
+            size: font.size,
             color_rgba: pack_rgba(color),
         };
+        let dst = sdl2::rect::Rect::new(
+            pos.x.to_int(),
+            pos.y.to_int(),
+            scaled_extent(logical_w, scale),
+            scaled_extent(logical_h, scale),
+        );
+        self.draw_cached(
+            canvas,
+            dst,
+            RasterContent::Text(text),
+            logical_w,
+            logical_h,
+            key,
+            font,
+            clip,
+            color,
+            opa,
+        );
+    }
 
-        let phys_char_w = (Fixed::from_int(CHAR_W as i32) * scale).to_int().max(1) as u32;
-        let phys_char_h = (Fixed::from_int(CHAR_H as i32) * scale).to_int().max(1) as u32;
-        let phys_w = phys_char_w * text.chars().count() as u32;
-        let phys_h = phys_char_h;
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_glyph_run(
+        &mut self,
+        canvas: &mut SdlCanvas<Window>,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        scale: Fixed,
+    ) {
+        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs) else {
+            return;
+        };
+        let (x0, y0, x1, y1) = bounds.pixel_bounds();
+        let Some(logical_w) = u16::try_from(x1.saturating_sub(x0))
+            .ok()
+            .filter(|value| *value > 0)
+        else {
+            return;
+        };
+        let Some(logical_h) = u16::try_from(y1.saturating_sub(y0))
+            .ok()
+            .filter(|value| *value > 0)
+        else {
+            return;
+        };
+        let key = LabelKey {
+            text_hash: crate::render::font::positioned_glyph_hash(glyphs),
+            family_ptr: font.family.as_ptr() as usize,
+            size: font.size,
+            color_rgba: pack_rgba(color),
+        };
+        let dst = sdl2::rect::Rect::new(
+            (pos.x + Fixed::from_int(x0) * scale).to_int(),
+            (pos.y + Fixed::from_int(y0) * scale).to_int(),
+            scaled_extent(logical_w, scale),
+            scaled_extent(logical_h, scale),
+        );
+        self.draw_cached(
+            canvas,
+            dst,
+            RasterContent::Positioned {
+                glyphs,
+                origin: Point {
+                    x: Fixed::from_int(-x0),
+                    y: Fixed::from_int(-y0),
+                },
+            },
+            logical_w,
+            logical_h,
+            key,
+            font,
+            clip,
+            color,
+            opa,
+        );
+    }
 
-        let dst = sdl2::rect::Rect::new(pos.x.to_int(), pos.y.to_int(), phys_w, phys_h);
+    #[allow(clippy::too_many_arguments)]
+    fn draw_cached(
+        &mut self,
+        canvas: &mut SdlCanvas<Window>,
+        dst: sdl2::rect::Rect,
+        content: RasterContent<'_>,
+        width: u16,
+        height: u16,
+        key: LabelKey,
+        font: &Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
         let (cx0, cy0, cx1, cy1) = clip.pixel_bounds();
         let clip_rect = if cx1 > cx0 && cy1 > cy0 {
             Some(sdl2::rect::Rect::new(
@@ -134,9 +239,11 @@ impl LabelCache {
         let raster_buf = &mut self.raster_buf;
         let Ok(handle) = self.cache.entry(key).or_insert_with(|ctor, k| {
             let ctx = RasterCtx {
-                text,
+                content,
                 font,
                 color,
+                width,
+                height,
                 creator,
                 raster_buf,
             };
@@ -178,8 +285,8 @@ impl LabelCache {
 }
 
 fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture, ()> {
-    let logical_w = CHAR_W as usize * ctx.text.len();
-    let logical_h = CHAR_H as usize;
+    let logical_w = usize::from(ctx.width);
+    let logical_h = usize::from(ctx.height);
     let byte_stride = logical_w * 4;
     let byte_len = byte_stride * logical_h;
     ctx.raster_buf.clear();
@@ -193,17 +300,14 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
         );
         let mut sw = SwRenderer::new(tex);
         let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);
-        sw.draw_label(
-            &Point {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-            ctx.text,
-            ctx.font,
-            &area,
-            ctx.color,
-            255,
-        );
+        match ctx.content {
+            RasterContent::Text(text) => {
+                sw.draw_label(&Point::ZERO, text, ctx.font, &area, ctx.color, 255)
+            }
+            RasterContent::Positioned { glyphs, origin } => {
+                sw.draw_glyph_run(&origin, glyphs, ctx.font, &area, ctx.color, 255)
+            }
+        }
     }
 
     let mut new_tex = ctx
@@ -224,6 +328,26 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
         tex: new_tex_static,
         byte_len,
     }))
+}
+
+fn text_extent(font: &Font, text: &str) -> Option<(u16, u16)> {
+    let requested_size = font.size.max(1);
+    let width = text.chars().try_fold(Fixed::ZERO, |width, ch| {
+        font.glyph(ch, requested_size)
+            .map(|glyph| width + glyph.advance)
+    })?;
+    let bounds = Rect {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        w: width,
+        h: font.metrics(requested_size).line_height,
+    };
+    let (_, _, x1, y1) = bounds.pixel_bounds();
+    Some((u16::try_from(x1).ok()?, u16::try_from(y1).ok()?))
+}
+
+fn scaled_extent(value: u16, scale: Fixed) -> u32 {
+    (Fixed::from_int(i32::from(value)) * scale).to_int().max(1) as u32
 }
 
 fn hash_bytes(bytes: &[u8]) -> u64 {

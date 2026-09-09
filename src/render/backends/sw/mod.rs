@@ -264,7 +264,7 @@ impl<'a> SwRenderer<'a> {
                     &[],
                 );
             }
-            DrawCommand::Label { .. } => {}
+            DrawCommand::Label { .. } | DrawCommand::GlyphRun { .. } => {}
         }
     }
 }
@@ -364,6 +364,18 @@ impl<'a> Canvas for SwRenderer<'a> {
         opa: u8,
     ) {
         self.draw_label_inner(pos, text, font, clip, color, opa);
+    }
+
+    fn draw_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_glyph_run_inner(pos, glyphs, font, clip, color, opa);
     }
 
     fn flush(&mut self) {}
@@ -563,6 +575,30 @@ impl SwRenderer<'_> {
 
     #[inline(never)]
     #[allow(clippy::too_many_arguments)]
+    fn dispatch_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &crate::render::font::Font,
+        color: &Color,
+        opa: u8,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let pos = offset_point(pos, tx, ty);
+        self.draw_glyph_run(&pos, glyphs, font, clip, color, opa);
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.label += (p.clock)() - t0;
+            p.count_label += 1;
+        }
+    }
+
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_line(
         &mut self,
         p1: &Point,
@@ -744,6 +780,17 @@ impl Renderer for SwRenderer<'_> {
             } => {
                 crate::trace_span!("sw.label");
                 self.dispatch_label(pos, text, font, color, *opa, tx, ty, clip);
+            }
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => {
+                crate::trace_span!("sw.glyph_run");
+                self.dispatch_glyph_run(pos, glyphs, font, color, *opa, tx, ty, clip);
             }
             DrawCommand::Line {
                 p1,

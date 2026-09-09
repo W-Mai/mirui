@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Authoritative glyph-run rendering.** `Text` sends shaped glyph IDs, origins, offsets, fallback faces, and raster bounds through a dedicated `GlyphRun` command; software, SDL GPU, WGPU, and Web Canvas consume those positions without measuring the source string again.
 - **Bounded paragraph layout.** Ordered font stacks participate in cluster-level fallback, and `max_lines` constrains retained lines, runs, glyphs, carets, rendered content, and measured height through one layout result.
 - **Shaped text layout.** Text content size, constrained wrapping, line height and rendered line positions share a bounded frame cache driven by font metrics and glyph advances; `App::with_text_layout_limits` selects explicit text, glyph, line, fallback and resident-memory ceilings.
 - **Paragraph-owned text policy.** `Text` combines plain or localized content with `ParagraphStyle`, including wrapping, alignment, overflow, line metrics, spacing, direction, language, shaping policy, and a bounded borrowed-or-owned feature set.

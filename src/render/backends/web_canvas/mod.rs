@@ -844,6 +844,16 @@ impl Renderer for WebCanvasRenderer<'_> {
             } => {
                 self.draw_label(pos, text, font, clip, color, *opa);
             }
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => {
+                self.draw_glyph_run(pos, glyphs, font, clip, color, *opa);
+            }
             DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
             }
         }
@@ -1124,14 +1134,7 @@ impl Canvas for WebCanvasRenderer<'_> {
                 // alpha (edge rgb already scaled by coverage). put_image_data
                 // wants straight alpha, so un-premultiply the AA edges or
                 // draw_image scales them a second time, darkening the fringe.
-                for px in buf.chunks_exact_mut(4) {
-                    let a = px[3] as u32;
-                    if a != 0 && a != 255 {
-                        for c in &mut px[..3] {
-                            *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
-                        }
-                    }
-                }
+                unpremultiply_rgba(&mut buf);
                 let tmp = Texture::new(&mut buf, tw as u16, th as u16, ColorFormat::RGBA8888);
                 texture_pool::upload(&tmp).ok_or(())
             }) {
@@ -1151,6 +1154,84 @@ impl Canvas for WebCanvasRenderer<'_> {
             tw as f64,
             th as f64,
         );
+        self.pop_rect_clip();
+    }
+
+    fn draw_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs) else {
+            return;
+        };
+        let (x0, y0, x1, y1) = bounds.pixel_bounds();
+        let Some(tw) = u16::try_from(x1.saturating_sub(x0))
+            .ok()
+            .filter(|value| *value > 0)
+        else {
+            return;
+        };
+        let Some(th) = u16::try_from(y1.saturating_sub(y0))
+            .ok()
+            .filter(|value| *value > 0)
+        else {
+            return;
+        };
+        let key = GlyphKey {
+            text_hash: crate::render::font::positioned_glyph_hash(glyphs),
+            family_ptr: font.family.as_ptr() as usize,
+            size: font.size,
+            color: (color.r as u32) << 24
+                | (color.g as u32) << 16
+                | (color.b as u32) << 8
+                | color.a as u32,
+            opa,
+            scale: self.viewport.scale().to_int().clamp(1, u16::MAX as i32) as u16,
+        };
+        let handle = match self
+            .factory
+            .glyph_pool
+            .entry(key)
+            .or_try_insert_with::<_, ()>(|| {
+                let mut buf = alloc::vec![0u8; usize::from(tw) * usize::from(th) * 4];
+                {
+                    let mut texture = Texture::new(&mut buf, tw, th, ColorFormat::RGBA8888);
+                    texture.alpha_mode = AlphaMode::Blend;
+                    let mut sw = SwRenderer::new(texture);
+                    sw.viewport = Viewport::new(tw, th, Fixed::ONE);
+                    let origin = Point {
+                        x: Fixed::from_int(-x0),
+                        y: Fixed::from_int(-y0),
+                    };
+                    let full = Rect::new(0, 0, tw, th);
+                    sw.draw_glyph_run(&origin, glyphs, font, &full, color, opa);
+                }
+                unpremultiply_rgba(&mut buf);
+                let texture = Texture::new(&mut buf, tw, th, ColorFormat::RGBA8888);
+                texture_pool::upload(&texture).ok_or(())
+            }) {
+            Ok(handle) => handle,
+            Err(_) => return,
+        };
+        self.push_rect_clip(clip);
+        let _ = self
+            .ctx()
+            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                &handle.get().canvas,
+                0.0,
+                0.0,
+                f64::from(tw),
+                f64::from(th),
+                (pos.x + Fixed::from_int(x0)).to_f32() as f64,
+                (pos.y + Fixed::from_int(y0)).to_f32() as f64,
+                f64::from(tw),
+                f64::from(th),
+            );
         self.pop_rect_clip();
     }
 
@@ -1179,6 +1260,17 @@ impl Canvas for WebCanvasRenderer<'_> {
 
 fn css_color(c: &Color) -> String {
     format!("rgb({}, {}, {})", c.r, c.g, c.b)
+}
+
+fn unpremultiply_rgba(bytes: &mut [u8]) {
+    for pixel in bytes.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        if alpha != 0 && alpha != 255 {
+            for channel in &mut pixel[..3] {
+                *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+            }
+        }
+    }
 }
 
 fn css_color_with_opa(c: impl Into<Color>, opa: u8) -> String {

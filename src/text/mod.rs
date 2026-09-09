@@ -9,6 +9,6 @@ pub use layout::{
 };
 pub use textflow::TextFlow;
 pub use textflow::shaping::{
-    FlowPoint, FontAccessError, FontFeature, FontId, FontMetrics, GlyphId, GlyphSource, ShapeError,
-    ShapeRequest, ShapedGlyph, SimpleTypeface, Typeface,
+    FlowPoint, FontAccessError, FontFeature, FontId, FontMetrics, GlyphId, GlyphSource,
+    PositionedGlyph, ShapeError, ShapeRequest, ShapedGlyph, SimpleTypeface, Typeface,
 };

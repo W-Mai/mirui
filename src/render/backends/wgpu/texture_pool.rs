@@ -53,6 +53,22 @@ pub fn new_pool() -> TexturePool {
         .build()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GlyphRunKey {
+    pub glyph_hash: u64,
+    pub face_id: u64,
+    pub size: u16,
+    pub color: u32,
+}
+
+pub type GlyphRunPool = Cache<GlyphRunKey, CachedTexture, Lru, HashLookup<GlyphRunKey>>;
+
+pub fn new_glyph_run_pool() -> GlyphRunPool {
+    Cache::builder()
+        .max_size(MaxSize::Bytes(TEXTURE_BUDGET))
+        .build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

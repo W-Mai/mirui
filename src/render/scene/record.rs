@@ -62,6 +62,16 @@ pub fn record_command(
             font,
             color,
             opa,
+            ..
+        }
+        | DrawCommand::GlyphRun {
+            pos,
+            transform,
+            text,
+            font,
+            color,
+            opa,
+            ..
         } => SceneOp::Label {
             font: resolver.resolve_font(font),
             pos: *pos,

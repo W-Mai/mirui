@@ -652,6 +652,17 @@ impl Renderer for SdlGpuRenderer<'_> {
                 let pos = offset_point(pos, tx, ty);
                 self.draw_label(&pos, text, font, clip, color, *opa)
             }
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => {
+                let pos = offset_point(pos, tx, ty);
+                self.draw_glyph_run(&pos, glyphs, font, clip, color, *opa)
+            }
             DrawCommand::FillPath {
                 path, paint, opa, ..
             } => {
@@ -910,6 +921,18 @@ impl Canvas for SdlGpuRenderer<'_> {
         opa: u8,
     ) {
         self.draw_label_inner(pos, text, font, clip, color, opa);
+    }
+
+    fn draw_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_glyph_run_inner(pos, glyphs, font, clip, color, opa);
     }
 
     fn flush(&mut self) {}

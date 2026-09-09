@@ -49,6 +49,17 @@ pub trait Canvas {
         color: &Color,
         opa: u8,
     );
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    );
     fn flush(&mut self);
 
     fn push_clip(&mut self, _path: &Path, _transform: &Transform, _fill_rule: FillRule) {}

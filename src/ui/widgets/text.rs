@@ -389,13 +389,14 @@ fn text_render(
             };
             let metrics = font.metrics(font.size);
             renderer.draw(
-                &DrawCommand::Label {
+                &DrawCommand::GlyphRun {
                     pos: Point {
                         x: rect.x + offset + crate::types::fixed::from_textflow(origin.x),
                         y: rect.y + crate::types::fixed::from_textflow(origin.y) - metrics.ascender,
                     },
                     transform: ctx.transform,
                     text: run_text,
+                    glyphs: layout.glyphs_for(*run).unwrap_or_default(),
                     font,
                     color,
                     opa: 255,

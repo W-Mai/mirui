@@ -23,6 +23,7 @@ use self::pipeline::{
     QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
+use self::texture_pool::{GlyphRunKey, GlyphRunPool, new_glyph_run_pool};
 
 pub use self::pipeline::MSAA_SAMPLES;
 
@@ -47,6 +48,8 @@ pub struct WgpuRendererFactory {
     glyph_atlas: Option<GlyphAtlas>,
     tessellator: PathTessellator,
     texture_pool: TexturePool,
+    glyph_run_pool: GlyphRunPool,
+    glyph_raster: alloc::vec::Vec<u8>,
     /// Samplers are immutable; one instance covers every frame.
     linear_sampler: Option<wgpu::Sampler>,
     nearest_sampler: Option<wgpu::Sampler>,
@@ -59,6 +62,8 @@ impl WgpuRendererFactory {
             glyph_atlas: None,
             tessellator: PathTessellator::new(),
             texture_pool: new_pool(),
+            glyph_run_pool: new_glyph_run_pool(),
+            glyph_raster: alloc::vec::Vec::new(),
             linear_sampler: None,
             nearest_sampler: None,
         }
@@ -500,6 +505,24 @@ impl WgpuRenderer<'_> {
             }
         };
 
+        self.blit_view_inner(
+            tex_view, src.width, src.height, src_rect, dst_pos, dst_size, opa, composite, scissor,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blit_view_inner(
+        &mut self,
+        tex_view: wgpu::TextureView,
+        texture_width: u16,
+        texture_height: u16,
+        src_rect: &Rect,
+        dst_pos: Point,
+        dst_size: Point,
+        opa: u8,
+        composite: CompositeMode,
+        scissor: [u32; 4],
+    ) {
         let frame = self.frame.as_mut().expect("frame just initialised");
         let state = self
             .surface
@@ -516,8 +539,8 @@ impl WgpuRenderer<'_> {
             .as_ref()
             .expect("linear sampler must be initialised before blit");
 
-        let tw = src.width as f32;
-        let th = src.height as f32;
+        let tw = texture_width as f32;
+        let th = texture_height as f32;
         let blit_uniform = BlitUniform {
             dst_pos: [dst_pos.x.to_f32(), dst_pos.y.to_f32()],
             dst_size: [dst_size.x.to_f32(), dst_size.y.to_f32()],
@@ -674,6 +697,17 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
             Some(out)
         }
         ColorFormat::RGB565 | ColorFormat::RGB565Swapped => None,
+    }
+}
+
+fn unpremultiply_rgba(bytes: &mut [u8]) {
+    for pixel in bytes.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        if alpha != 0 && alpha != 255 {
+            for channel in &mut pixel[..3] {
+                *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
+            }
+        }
     }
 }
 
@@ -1312,6 +1346,123 @@ impl WgpuRenderer<'_> {
         });
     }
 
+    fn draw_glyph_run_inner(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs) else {
+            return;
+        };
+        let (x0, y0, x1, y1) = bounds.pixel_bounds();
+        let Some(width) = u16::try_from(x1.saturating_sub(x0))
+            .ok()
+            .filter(|value| *value > 0)
+        else {
+            return;
+        };
+        let Some(height) = u16::try_from(y1.saturating_sub(y0))
+            .ok()
+            .filter(|value| *value > 0)
+        else {
+            return;
+        };
+        if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
+            return;
+        }
+        let key = GlyphRunKey {
+            glyph_hash: crate::render::font::positioned_glyph_hash(glyphs),
+            face_id: font.face_id().value(),
+            size: font.size,
+            color: (u32::from(color.r) << 24)
+                | (u32::from(color.g) << 16)
+                | (u32::from(color.b) << 8)
+                | u32::from(color.a),
+        };
+        let tex_view = {
+            let state = self
+                .surface
+                .state()
+                .expect("WgpuSurface state missing in positioned label");
+            let raster = &mut self.factory.glyph_raster;
+            let handle = match self
+                .factory
+                .glyph_run_pool
+                .entry(key)
+                .or_try_insert_with::<_, ()>(|| {
+                    raster.clear();
+                    raster.resize(usize::from(width) * usize::from(height) * 4, 0);
+                    {
+                        let mut texture = Texture::new(
+                            raster,
+                            width,
+                            height,
+                            crate::render::texture::ColorFormat::RGBA8888,
+                        );
+                        texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
+                        let mut sw = crate::render::SwRenderer::new(texture);
+                        let area = Rect::new(0, 0, width, height);
+                        crate::render::canvas::Canvas::draw_glyph_run(
+                            &mut sw,
+                            &Point {
+                                x: Fixed::from_int(-x0),
+                                y: Fixed::from_int(-y0),
+                            },
+                            glyphs,
+                            font,
+                            &area,
+                            color,
+                            255,
+                        );
+                    }
+                    unpremultiply_rgba(raster);
+                    let texture = Texture::new(
+                        raster,
+                        width,
+                        height,
+                        crate::render::texture::ColorFormat::RGBA8888,
+                    );
+                    Ok(CachedTexture(upload_blit_source(
+                        &state.device,
+                        &state.queue,
+                        &texture,
+                        texture.buf.as_slice(),
+                    )))
+                }) {
+                Ok(handle) => handle,
+                Err(_) => return,
+            };
+            handle
+                .0
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        self.blit_view_inner(
+            tex_view,
+            width,
+            height,
+            &Rect::new(0, 0, width, height),
+            Point {
+                x: pos.x + Fixed::from_int(x0),
+                y: pos.y + Fixed::from_int(y0),
+            },
+            Point {
+                x: Fixed::from_int(i32::from(width)),
+                y: Fixed::from_int(i32::from(height)),
+            },
+            opa,
+            CompositeMode::SourceOver,
+            scissor,
+        );
+    }
+
     fn draw_label_inner(
         &mut self,
         pos: &Point,
@@ -1666,6 +1817,17 @@ impl Renderer for WgpuRenderer<'_> {
                 let pos = offset_point(pos, tx, ty);
                 self.draw_label_inner(&pos, text, font, clip, color, *opa);
             }
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => {
+                let pos = offset_point(pos, tx, ty);
+                self.draw_glyph_run(&pos, glyphs, font, clip, color, *opa);
+            }
         }
     }
 
@@ -1875,6 +2037,18 @@ impl Canvas for WgpuRenderer<'_> {
         opa: u8,
     ) {
         self.draw_label_inner(pos, text, font, clip, color, opa);
+    }
+
+    fn draw_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_glyph_run_inner(pos, glyphs, font, clip, color, opa);
     }
 
     fn flush(&mut self) {

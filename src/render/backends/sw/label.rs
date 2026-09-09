@@ -1,6 +1,15 @@
 use super::SwRenderer;
-use crate::render::font::{Font, GlyphKind};
+use crate::render::font::{Font, Glyph, GlyphKind};
 use crate::types::{Color, Fixed, Point, Rect, fixed::storage};
+
+#[derive(Clone, Copy)]
+struct GlyphRasterContext {
+    requested_size: u16,
+    viewport_scale: Fixed,
+    mono_scale: i32,
+    mono_height: i32,
+    bounds: (i32, i32, i32, i32),
+}
 
 impl SwRenderer<'_> {
     pub(super) fn draw_label_inner(
@@ -20,84 +29,152 @@ impl SwRenderer<'_> {
         let (mut cx, cy) = phys_pos.floor();
         let requested_size = font.size.max(1);
         let metrics = font.metrics(requested_size);
-        let char_h = metrics.line_height.to_int().max(1);
+        let context = GlyphRasterContext {
+            requested_size,
+            viewport_scale,
+            mono_scale,
+            mono_height: metrics.line_height.to_int().max(1),
+            bounds: phys_bounds,
+        };
         let baseline = cy + (metrics.ascender * viewport_scale).to_int();
         for ch in text.chars() {
             let Some(g) = font.glyph(ch, requested_size) else {
                 continue;
             };
-            let advance;
-            match &g.kind {
-                GlyphKind::Mono(bitmap) => {
-                    advance = g.advance.to_int() * mono_scale;
-                    self.blit_mono_glyph(
-                        bitmap,
-                        cx,
-                        cy,
-                        mono_scale,
-                        char_h,
-                        phys_bounds,
-                        color,
-                        opa,
-                    );
+            self.draw_glyph_at(&g, cx, cy, baseline, context, color, opa);
+            cx += (g.advance * viewport_scale).to_int();
+        }
+    }
+
+    pub(super) fn draw_glyph_run_inner(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        let Some(first) = glyphs.first() else {
+            return;
+        };
+        let phys_pos = self.viewport.point_to_physical(*pos);
+        let viewport_scale = self.viewport.scale();
+        let requested_size = font.size.max(1);
+        let metrics = font.metrics(requested_size);
+        let (base_x, base_y) = phys_pos.floor();
+        let base_baseline = base_y + (metrics.ascender * viewport_scale).to_int();
+        let context = GlyphRasterContext {
+            requested_size,
+            viewport_scale,
+            mono_scale: viewport_scale.to_int().max(1),
+            mono_height: metrics.line_height.to_int().max(1),
+            bounds: self.viewport.rect_to_physical(*clip).pixel_bounds(),
+        };
+        for positioned in glyphs {
+            let Some(glyph) = font.glyph_by_id(positioned.glyph_id(), requested_size) else {
+                continue;
+            };
+            let Some(dx) = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)
+                .and_then(|value| value.checked_add(positioned.offset.x))
+            else {
+                continue;
+            };
+            let Some(dy) = positioned
+                .origin
+                .y
+                .checked_sub(first.origin.y)
+                .and_then(|value| value.checked_add(positioned.offset.y))
+            else {
+                continue;
+            };
+            let dx = crate::types::fixed::from_textflow(dx);
+            let dy = crate::types::fixed::from_textflow(dy);
+            let x = base_x + (dx * viewport_scale).to_int();
+            let baseline = base_baseline + (dy * viewport_scale).to_int();
+            let mono_y = baseline - (metrics.ascender * viewport_scale).to_int();
+            self.draw_glyph_at(&glyph, x, mono_y, baseline, context, color, opa);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyph_at(
+        &mut self,
+        glyph: &Glyph<'_>,
+        x: i32,
+        mono_y: i32,
+        baseline: i32,
+        context: GlyphRasterContext,
+        color: &Color,
+        opa: u8,
+    ) {
+        match &glyph.kind {
+            GlyphKind::Mono(bitmap) => self.blit_mono_glyph(
+                bitmap,
+                x,
+                mono_y,
+                context.mono_scale,
+                context.mono_height,
+                context.bounds,
+                color,
+                opa,
+            ),
+            GlyphKind::Raster {
+                samples,
+                stride,
+                region,
+                representation,
+                bearing_x,
+                bearing_y,
+            } => {
+                if region.width() == 0 || region.height() == 0 {
+                    return;
                 }
-                GlyphKind::Raster {
-                    samples,
-                    stride,
-                    region,
-                    representation,
-                    bearing_x,
-                    bearing_y,
-                } => {
-                    if region.width() == 0 || region.height() == 0 {
-                        cx += (g.advance * viewport_scale).to_int();
-                        continue;
-                    }
-                    let design = representation.design_ppem().max(1);
-                    let glyph_scale = Fixed::from_int(i32::from(requested_size))
-                        / Fixed::from_int(i32::from(design))
-                        * viewport_scale;
-                    advance = (g.advance * viewport_scale).to_int();
-                    let x = cx + (*bearing_x * viewport_scale).to_int();
-                    let y = baseline - (*bearing_y * viewport_scale).to_int();
-                    let width = scaled_extent(region.width(), glyph_scale);
-                    let height = scaled_extent(region.height(), glyph_scale);
-                    match representation.kind() {
-                        mirx::font::FontRepresentationKind::Coverage { bits } => self
-                            .blit_coverage_region(
-                                samples,
-                                *stride,
-                                *region,
-                                bits,
-                                x,
-                                y,
-                                width,
-                                height,
-                                phys_bounds,
-                                color,
-                                opa,
-                            ),
-                        mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => self
-                            .blit_sdf_region(
-                                samples,
-                                *stride,
-                                *region,
-                                bits,
-                                spread,
-                                x,
-                                y,
-                                width,
-                                height,
-                                phys_bounds,
-                                color,
-                                opa,
-                            ),
-                        mirx::font::FontRepresentationKind::Application(_) => {}
-                        _ => {}
-                    }
+                let design = representation.design_ppem().max(1);
+                let glyph_scale = Fixed::from_int(i32::from(context.requested_size))
+                    / Fixed::from_int(i32::from(design))
+                    * context.viewport_scale;
+                let raster_x = x + (*bearing_x * context.viewport_scale).to_int();
+                let raster_y = baseline - (*bearing_y * context.viewport_scale).to_int();
+                let width = scaled_extent(region.width(), glyph_scale);
+                let height = scaled_extent(region.height(), glyph_scale);
+                match representation.kind() {
+                    mirx::font::FontRepresentationKind::Coverage { bits } => self
+                        .blit_coverage_region(
+                            samples,
+                            *stride,
+                            *region,
+                            bits,
+                            raster_x,
+                            raster_y,
+                            width,
+                            height,
+                            context.bounds,
+                            color,
+                            opa,
+                        ),
+                    mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => self
+                        .blit_sdf_region(
+                            samples,
+                            *stride,
+                            *region,
+                            bits,
+                            spread,
+                            raster_x,
+                            raster_y,
+                            width,
+                            height,
+                            context.bounds,
+                            color,
+                            opa,
+                        ),
+                    mirx::font::FontRepresentationKind::Application(_) => {}
+                    _ => {}
                 }
             }
-            cx += advance;
         }
     }
 
@@ -318,6 +395,68 @@ mod tests {
     fn read_packed_past_end_reads_zero() {
         let data = [0xFF_u8];
         assert_eq!(read_packed(&data, 8, 4), 0);
+    }
+
+    #[test]
+    fn glyph_run_uses_layout_origins_instead_of_remeasuring_text() {
+        use textflow::bidi::BaseDirection;
+        use textflow::shaping::Typeface;
+
+        use crate::render::font::FontTypeface;
+        use crate::text::layout::{TextLayoutCache, TextLayoutRequest};
+
+        let font = Font::bitmap_8x8();
+        let face = FontTypeface::new(&font, font.size);
+        let faces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let handle = cache
+            .layout(
+                TextLayoutRequest {
+                    text: "AB",
+                    max_width: i32::MAX,
+                    max_lines: usize::MAX,
+                    line_height: 8 * 256,
+                    baseline: 7 * 256,
+                    direction: BaseDirection::LeftToRight,
+                    features: &[],
+                },
+                &faces,
+            )
+            .unwrap();
+        let mut glyphs = cache.get(handle).unwrap().glyphs().to_vec();
+        glyphs[1].origin.x += 5 * 256;
+        let clip = Rect::new(0, 0, 24, 8);
+        let color = Color::rgba(255, 255, 255, 255);
+
+        let mut actual = vec![0u8; 24 * 8 * 4];
+        let texture = Texture::new(&mut actual, 24, 8, ColorFormat::RGBA8888);
+        SwRenderer::new(texture).draw_glyph_run_inner(
+            &Point::ZERO,
+            &glyphs,
+            &font,
+            &clip,
+            &color,
+            255,
+        );
+
+        let mut expected = vec![0u8; 24 * 8 * 4];
+        let texture = Texture::new(&mut expected, 24, 8, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(texture);
+        renderer.draw_label_inner(&Point::ZERO, "A", &font, &clip, &color, 255);
+        renderer.draw_label_inner(
+            &Point {
+                x: Fixed::from_int(13),
+                y: Fixed::ZERO,
+            },
+            "B",
+            &font,
+            &clip,
+            &color,
+            255,
+        );
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
