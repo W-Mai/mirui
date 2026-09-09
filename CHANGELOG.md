@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MIRX text shaping source.** `text::mirx::MirxGlyphSource` exposes stable font and glyph identities, face metrics, cmap lookup, compact advances, shaping-table advances, and legacy pair kerning to the bounded textflow pipeline without copying FONT payload bytes.
 - **Canonical empty FONT glyphs.** Atlas glyph maps use one all-zero record for a glyph with no raster samples and reject every other zero-width or zero-height rectangle.
 
 ## [0.43.0] - 2026-09-07

@@ -77,6 +77,7 @@
 //!   and visual [`input::feedback`] overlays.
 //! - [`surface`]: backend trait + bundled SDL2 / framebuffer / SDL_GPU /
 //!   wgpu / web_canvas / Linux / NuttX implementations.
+//! - [`text`]: bounded Unicode layout, shaping contracts, and font-format adapters.
 //! - [`anim`]: easing, springs, motion components.
 //! - [`types`]: Color / Dimension / Fixed / Point / Rect / Transform / Viewport.
 
@@ -95,6 +96,7 @@ pub mod ecs;
 pub mod input;
 pub mod render;
 pub mod surface;
+pub mod text;
 pub mod types;
 pub mod ui;
 
