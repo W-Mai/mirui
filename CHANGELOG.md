@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **HiDPI font representation selection.** Raster backends select coverage or SDF storage at physical output ppem while preserving logical shaping metrics, advances, bearings, and placement.
 - **SDF edge quality across display scales.** A8 distance fields use one analytic bilinear sample and derivative per output pixel; Gallery fonts select exact small-size coverage or bounded 24/64 ppem SDF representations, while SDL GPU, WGPU, and Web Canvas cache glyph runs at physical display resolution.
 - **MIRX font spacing below design size.** Glyph advances and bearings remain in requested-size logical pixels while coverage and SDF rasters scale from their representation size, preventing small text from receiving the size ratio twice.
 

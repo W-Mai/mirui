@@ -532,7 +532,12 @@ mod tests {
             }))
         }
 
-        fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+        fn raster(
+            &self,
+            _glyph: GlyphId,
+            _layout_ppem: u16,
+            _output_ppem: u16,
+        ) -> Option<RasterGlyph<'_>> {
             None
         }
 

@@ -24,7 +24,7 @@ fn face_holds_all_representations() {
 fn fixed_size_routes_to_coverage() {
     let provider = open();
     let glyph = provider
-        .raster(provider.map_char('2').unwrap(), 12)
+        .raster(provider.map_char('2').unwrap(), 12, 12)
         .unwrap();
     assert!(matches!(
         glyph.representation.kind(),
@@ -36,7 +36,7 @@ fn fixed_size_routes_to_coverage() {
 fn oversized_request_routes_to_sdf() {
     let provider = open();
     let glyph = provider
-        .raster(provider.map_char('2').unwrap(), 96)
+        .raster(provider.map_char('2').unwrap(), 96, 96)
         .unwrap();
     assert!(matches!(
         glyph.representation.kind(),
@@ -56,7 +56,7 @@ fn glyphs_follow_representation_selection_while_face_metrics_scale() {
             )
             .unwrap();
         let glyph = provider
-            .raster(provider.map_char('2').unwrap(), requested)
+            .raster(provider.map_char('2').unwrap(), requested, requested)
             .unwrap();
         assert_eq!(glyph.representation, selected.record().representation());
 

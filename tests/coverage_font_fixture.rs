@@ -29,7 +29,7 @@ fn resolves_ascii_through_strided_regions() {
     for ch in ['A', 'Z', 'a', 'z', '0', '9', '!', '?'] {
         let glyph = provider
             .map_char(ch)
-            .and_then(|glyph| provider.raster(glyph, 16))
+            .and_then(|glyph| provider.raster(glyph, 16, 16))
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         assert!(matches!(
             glyph.representation.kind(),
@@ -50,7 +50,7 @@ fn misses_codepoint_outside_charset() {
 fn capital_a_contains_both_coverage_values() {
     let provider = open();
     let glyph = provider
-        .raster(provider.map_char('A').unwrap(), 16)
+        .raster(provider.map_char('A').unwrap(), 16, 16)
         .unwrap();
     let samples = glyph.surface.samples();
     assert!(samples.iter().any(|byte| *byte != 0));

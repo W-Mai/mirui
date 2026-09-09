@@ -55,6 +55,7 @@ impl SwRenderer<'_> {
         let phys_pos = self.viewport.point_to_physical(*pos);
         let viewport_scale = self.viewport.scale();
         let requested_size = font.size.max(1);
+        let output_ppem = crate::render::font::output_ppem(requested_size, viewport_scale);
         let metrics = font.metrics(requested_size);
         let (base_x, base_y) = phys_pos.floor();
         let base_baseline = base_y + (metrics.ascender * viewport_scale).to_int();
@@ -66,7 +67,9 @@ impl SwRenderer<'_> {
             bounds: self.viewport.rect_to_physical(*clip).pixel_bounds(),
         };
         for positioned in glyphs {
-            let Some(glyph) = font.glyph_by_id(positioned.glyph_id(), requested_size) else {
+            let Some(glyph) =
+                font.glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
                 continue;
             };
             let Some(dx) = positioned
@@ -99,9 +102,14 @@ impl SwRenderer<'_> {
             return;
         };
         let requested_size = run.font.size.max(1);
+        let output_ppem =
+            crate::render::font::output_ppem(requested_size, transform_raster_scale(run.transform));
         let metrics = run.font.metrics(requested_size);
         for positioned in run.glyphs {
-            let Some(glyph) = run.font.glyph_by_id(positioned.glyph_id(), requested_size) else {
+            let Some(glyph) =
+                run.font
+                    .glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
                 continue;
             };
             let Some(dx) = positioned
@@ -520,6 +528,12 @@ fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     pixels.clamp(1, u64::from(u16::MAX)) as u16
 }
 
+fn transform_raster_scale(transform: &Transform) -> Fixed {
+    let x = (transform.m00 * transform.m00 + transform.m10 * transform.m10).sqrt();
+    let y = (transform.m01 * transform.m01 + transform.m11 * transform.m11).sqrt();
+    x.max(y).max(Fixed::ONE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -788,8 +802,14 @@ mod tests {
             Some(Fixed::from_int(4))
         }
 
-        fn raster(&self, _glyph: GlyphId, requested_size: u16) -> Option<RasterGlyph<'_>> {
-            self.glyph_size.set(requested_size);
+        fn raster(
+            &self,
+            _glyph: GlyphId,
+            layout_ppem: u16,
+            output_ppem: u16,
+        ) -> Option<RasterGlyph<'_>> {
+            self.glyph_size.set(output_ppem);
+            assert_eq!(layout_ppem, 16);
             Some(RasterGlyph {
                 surface: GlyphSurface::new(
                     &[],
@@ -819,7 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn viewport_scale_does_not_change_representation_selection_or_draw_empty_cells() {
+    fn viewport_scale_changes_only_output_representation_selection() {
         let glyph_size = Rc::new(Cell::new(0));
         let metric_size = Rc::new(Cell::new(0));
         let provider = RecordingProvider {
@@ -850,7 +870,7 @@ mod tests {
         );
 
         assert_eq!(metric_size.get(), 16);
-        assert_eq!(glyph_size.get(), 16);
+        assert_eq!(glyph_size.get(), 32);
         assert!(buf.iter().all(|byte| *byte == 0));
     }
 
@@ -869,8 +889,14 @@ mod tests {
             Some(Fixed::from_int(4))
         }
 
-        fn raster(&self, _glyph: GlyphId, requested_size: u16) -> Option<RasterGlyph<'_>> {
-            assert_eq!(requested_size, 8);
+        fn raster(
+            &self,
+            _glyph: GlyphId,
+            layout_ppem: u16,
+            output_ppem: u16,
+        ) -> Option<RasterGlyph<'_>> {
+            assert_eq!(layout_ppem, 8);
+            assert_eq!(output_ppem, 8);
             Some(RasterGlyph {
                 surface: GlyphSurface::new(
                     &[0x80],

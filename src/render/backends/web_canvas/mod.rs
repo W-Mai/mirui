@@ -1049,7 +1049,10 @@ impl Canvas for WebCanvasRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs) else {
+        let scale = self.viewport.scale();
+        let output_ppem = crate::render::font::output_ppem(font.size, scale);
+        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs, output_ppem)
+        else {
             return;
         };
         let (x0, y0, x1, y1) = bounds.pixel_bounds();
@@ -1065,7 +1068,6 @@ impl Canvas for WebCanvasRenderer<'_> {
         else {
             return;
         };
-        let scale = self.viewport.scale();
         let Some(pw) = crate::render::font::scaled_glyph_raster_extent(tw, scale) else {
             return;
         };

@@ -1915,7 +1915,12 @@ mod text_layout_check {
             Some(Fixed::from_int(10))
         }
 
-        fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+        fn raster(
+            &self,
+            _glyph: GlyphId,
+            _layout_ppem: u16,
+            _output_ppem: u16,
+        ) -> Option<RasterGlyph<'_>> {
             None
         }
 
@@ -2002,7 +2007,12 @@ mod text_layout_check {
             Some(Fixed::from_int(i32::from(ppem) / 2))
         }
 
-        fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+        fn raster(
+            &self,
+            _glyph: GlyphId,
+            _layout_ppem: u16,
+            _output_ppem: u16,
+        ) -> Option<RasterGlyph<'_>> {
             None
         }
 

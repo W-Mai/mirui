@@ -115,7 +115,9 @@ impl LabelCache {
         opa: u8,
         scale: Fixed,
     ) {
-        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs) else {
+        let output_ppem = crate::render::font::output_ppem(font.size, scale);
+        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs, output_ppem)
+        else {
             return;
         };
         let (x0, y0, x1, y1) = bounds.pixel_bounds();

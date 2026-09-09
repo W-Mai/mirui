@@ -35,7 +35,7 @@ fn resolves_ascii_with_explicit_stride_and_region() {
     ] {
         let glyph = provider
             .map_char(ch)
-            .and_then(|glyph| provider.raster(glyph, 32))
+            .and_then(|glyph| provider.raster(glyph, 32, 32))
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         assert!(matches!(
             glyph.representation.kind(),
@@ -57,7 +57,7 @@ fn resolves_ascii_with_explicit_stride_and_region() {
 fn atlas_contains_a_distance_gradient() {
     let provider = open(ASCII_FONT);
     let glyph = provider
-        .raster(provider.map_char('A').unwrap(), 32)
+        .raster(provider.map_char('A').unwrap(), 32, 32)
         .unwrap();
     let samples = glyph.surface.samples();
     let mut buckets = [false; 256];
@@ -73,7 +73,7 @@ fn cjk_face_resolves_common_glyphs_with_nonzero_advance() {
     for ch in ['我', '你', '是', '不', '中', '人', 'A', '0'] {
         let glyph = provider
             .map_char(ch)
-            .and_then(|glyph| provider.raster(glyph, 32))
+            .and_then(|glyph| provider.raster(glyph, 32, 32))
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         assert!(
             provider.glyph_advance(provider.map_char(ch).unwrap(), 32)
@@ -103,8 +103,21 @@ fn ui_face_routes_small_text_and_scalable_ranges_to_distinct_representations() {
     ];
 
     for (ppem, kind, design_ppem) in cases {
-        let raster = provider.raster(glyph, ppem).unwrap();
+        let raster = provider.raster(glyph, ppem, ppem).unwrap();
         assert_eq!(raster.representation.kind(), kind);
         assert_eq!(raster.representation.design_ppem(), design_ppem);
     }
+}
+
+#[test]
+fn hidpi_output_selects_sdf_for_logical_small_text() {
+    let provider = open(UI_FONT);
+    let glyph = provider.map_char('A').unwrap();
+    let raster = provider.raster(glyph, 14, 28).unwrap();
+
+    assert_eq!(
+        raster.representation.kind(),
+        FontRepresentationKind::SignedDistance { bits: 8, spread: 4 }
+    );
+    assert_eq!(raster.representation.design_ppem(), 24);
 }

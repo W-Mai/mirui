@@ -160,13 +160,16 @@ pub struct Glyph<'a> {
 pub(crate) fn positioned_glyph_bounds(
     font: &Font,
     glyphs: &[textflow::shaping::PositionedGlyph],
+    output_ppem: u16,
 ) -> Option<crate::types::Rect> {
     let first = glyphs.first()?;
     let requested_size = font.size.max(1);
     let metrics = font.metrics(requested_size);
     let mut bounds: Option<crate::types::Rect> = None;
     for positioned in glyphs {
-        let Some(glyph) = font.glyph_by_id(positioned.glyph_id(), requested_size) else {
+        let Some(glyph) =
+            font.glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
+        else {
             continue;
         };
         let dx = positioned
@@ -216,14 +219,14 @@ pub(crate) fn positioned_glyph_bounds(
     bounds
 }
 
-#[cfg(any(
-    feature = "sdl-gpu",
-    feature = "wgpu",
-    all(feature = "web-canvas", target_arch = "wasm32")
-))]
 pub(crate) fn scaled_glyph_raster_extent(extent: u16, scale: Fixed) -> Option<u16> {
     let pixels = (Fixed::from(extent) * scale).ceil().to_int();
     u16::try_from(pixels).ok().filter(|value| *value > 0)
+}
+
+#[inline]
+pub(crate) fn output_ppem(ppem: u16, scale: Fixed) -> u16 {
+    scaled_glyph_raster_extent(ppem.max(1), scale).unwrap_or(u16::MAX)
 }
 
 #[cfg(any(
@@ -294,7 +297,10 @@ pub trait FontProvider: 'static {
     }
     fn map_char(&self, ch: char) -> Option<GlyphId>;
     fn glyph_advance(&self, glyph: GlyphId, ppem: u16) -> Option<Fixed>;
-    fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>>;
+    /// Returns raster storage selected for `output_ppem`, with placement
+    /// expressed in logical pixels at `layout_ppem`.
+    fn raster(&self, glyph: GlyphId, layout_ppem: u16, output_ppem: u16)
+    -> Option<RasterGlyph<'_>>;
     fn metrics(&self, ppem: u16) -> FontMetrics;
 
     fn notdef_glyph(&self) -> Option<GlyphId> {
@@ -464,7 +470,7 @@ impl Font {
     pub fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>> {
         match &self.backend {
             FontBackend::Bitmap8x8 => None,
-            FontBackend::Custom(provider) => provider.raster(glyph, ppem),
+            FontBackend::Custom(provider) => provider.raster(glyph, ppem, ppem),
         }
     }
 
@@ -479,6 +485,15 @@ impl Font {
     }
 
     pub fn glyph_by_id(&self, glyph: GlyphId, requested_size: u16) -> Option<Glyph<'_>> {
+        self.glyph_by_id_for_output(glyph, requested_size, requested_size)
+    }
+
+    pub(crate) fn glyph_by_id_for_output(
+        &self,
+        glyph: GlyphId,
+        requested_size: u16,
+        output_ppem: u16,
+    ) -> Option<Glyph<'_>> {
         match &self.backend {
             FontBackend::Bitmap8x8 => {
                 let value = u8::try_from(glyph.value()).ok()?;
@@ -489,7 +504,7 @@ impl Font {
             }
             FontBackend::Custom(provider) => {
                 let advance = provider.glyph_advance(glyph, requested_size)?;
-                let raster = provider.raster(glyph, requested_size)?;
+                let raster = provider.raster(glyph, requested_size, output_ppem)?;
                 let region = raster.region.unwrap_or_else(|| {
                     ::mirx::image::Region::new(0, 0, 0, 0).expect("empty glyph region")
                 });
@@ -1153,7 +1168,12 @@ mod tests {
             fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
                 Some(Fixed::from_int(6))
             }
-            fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+            fn raster(
+                &self,
+                _glyph: GlyphId,
+                _layout_ppem: u16,
+                _output_ppem: u16,
+            ) -> Option<RasterGlyph<'_>> {
                 Some(RasterGlyph {
                     surface: GlyphSurface::new(
                         &[],
@@ -1222,7 +1242,12 @@ mod tests {
                 Some(Fixed::from_int(6))
             }
 
-            fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+            fn raster(
+                &self,
+                _glyph: GlyphId,
+                _layout_ppem: u16,
+                _output_ppem: u16,
+            ) -> Option<RasterGlyph<'_>> {
                 None
             }
 
@@ -1301,7 +1326,12 @@ mod tests {
                 Some(Fixed::from_int(6))
             }
 
-            fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+            fn raster(
+                &self,
+                _glyph: GlyphId,
+                _layout_ppem: u16,
+                _output_ppem: u16,
+            ) -> Option<RasterGlyph<'_>> {
                 None
             }
 

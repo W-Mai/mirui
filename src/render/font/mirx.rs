@@ -359,8 +359,13 @@ impl FontProvider for MirxFontProvider {
         value
     }
 
-    fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>> {
-        let selected = self.selected(ppem)?;
+    fn raster(
+        &self,
+        glyph: GlyphId,
+        layout_ppem: u16,
+        output_ppem: u16,
+    ) -> Option<RasterGlyph<'_>> {
+        let selected = self.selected(output_ppem)?;
         let mirx_glyph = mirx::font::GlyphId::new(glyph.value());
         let ordinal = self.face.raster_ordinal(mirx_glyph)?;
         let metric = selected.raster_metrics(mirx_glyph)?;
@@ -393,12 +398,12 @@ impl FontProvider for MirxFontProvider {
             representation: selected.record().representation(),
             offset_x: scale(
                 metric.offset_x(),
-                ppem,
+                layout_ppem,
                 selected.record().representation().design_ppem(),
             ),
             offset_y: scale(
                 metric.offset_y(),
-                ppem,
+                layout_ppem,
                 selected.record().representation().design_ppem(),
             ),
         })
@@ -561,7 +566,7 @@ mod tests {
     fn atlas_regions_and_fractional_metrics_reach_the_renderer_unchanged() {
         let provider = atlas_face();
         let glyph_id = provider.map_char('A').unwrap();
-        let glyph = provider.raster(glyph_id, 16).unwrap();
+        let glyph = provider.raster(glyph_id, 16, 16).unwrap();
         assert_eq!(
             provider.glyph_advance(glyph_id, 16),
             Some(crate::types::Fixed::from_ratio(11, 2))
@@ -575,7 +580,7 @@ mod tests {
         assert_eq!(glyph.offset_x, crate::types::Fixed::from_ratio(-1, 2));
         assert_eq!(glyph.offset_y, crate::types::Fixed::from_ratio(45, 4));
         let space = provider.map_char(' ').unwrap();
-        assert!(provider.raster(space, 16).unwrap().region.is_none());
+        assert!(provider.raster(space, 16, 16).unwrap().region.is_none());
         assert!(provider.map_char('Z').is_none());
     }
 
@@ -675,7 +680,9 @@ mod tests {
                 .unwrap();
 
         for (ch, y) in [('A', 0), ('B', 2)] {
-            let glyph = provider.raster(provider.map_char(ch).unwrap(), 8).unwrap();
+            let glyph = provider
+                .raster(provider.map_char(ch).unwrap(), 8, 8)
+                .unwrap();
             let samples = glyph.surface.samples();
             let stride = glyph.surface.stride();
             let region = glyph.region.unwrap();
