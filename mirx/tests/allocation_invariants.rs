@@ -18,7 +18,7 @@ use mirx::{
 use support::{crc32, encode_chunks};
 
 fn wire_fixed(bits: i32) -> Fixed {
-    Fixed::from_le_bytes(bits.to_le_bytes())
+    Fixed::from_ratio(bits, 256)
 }
 
 struct TrackingAllocator;

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Interactive Gallery input.** Interaction Lab no longer installs a looping simulated pointer and rotary timeline over live user input.
 - **Reactive text configuration.** Signal-driven content updates preserve the existing paragraph policy, including horizontal and vertical alignment.
 - **Text box alignment.** `ParagraphStyle` supports explicit vertical alignment, and centered labels use shaped line width and measured text height instead of manual spacing or fixed offsets.
 - **Thai stacked-mark shaping.** The Gallery Thai font subset includes the base and tone-mark variants required by `ตั้ง`, with zero-advance vowel and tone placement preserved through MIRX shaping.
@@ -22,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Consolidated component demos.** TabBar selection history is signal-driven in the retained TabBar scenario; the Widgets form includes Button, Checkbox, ProgressBar and Image coverage alongside Slider and Switch.
 - **Nested declarative composition.** Lowercase `#[compose]` functions can appear directly inside `ui!` trees, receive the surrounding node as parent and accept positional arguments.
-- **Interaction Lab.** A signal-owned showcase combines tap counts, long press, drag, dynamic event suppression, input focus, user states, business-value controls, cursor feedback and a simulated timeline.
+- **Interaction Lab.** A signal-owned showcase combines tap counts, long press, drag, dynamic event suppression, input focus, user states, business-value controls and cursor feedback.
 - **Layout Lab.** A single responsive composition demonstrates content sizing, growth limits, wrapping, bordered surfaces, absolute overlays, image placement, collection walking and conditional branches.
 - **Responsive Orbit Console.** Named composition sections use flex growth, wrapping and live render rectangles across compact portrait, compact landscape, tablet, desktop and wide viewports.
 - **Declarative text configuration.** `ui!` routes `font_stack` into inherited text styling and applies `paragraph` to the constructed `Text`, preserving fallback and shaping policy in declarative widget trees.
@@ -105,6 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Duplicate Gallery scenarios.** Layout, Typography and Interaction Labs replace 21 single-capability demos; Slider/Switch, TabBar selection and static component coverage now live in retained component scenarios.
+- **Raw MIRX fixed-point byte access.** `mirx::types::Fixed` keeps little-endian conversion inside MIRX; semantic integer, ratio and floating-point conversions remain public.
+- **Internal font and text-layout helpers.** Applications configure `FontManager` and `TextLayoutLimits`; `App` owns default font resolution while layout caches, handles and measurements remain implementation state.
 
 ## [0.43.0] - 2026-09-07
 

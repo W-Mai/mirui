@@ -180,7 +180,7 @@ impl GlyphSource for MirxGlyphSource<'_> {
 }
 
 fn fixed_raw(value: ::mirx::types::Fixed) -> i32 {
-    i32::from_le_bytes(value.to_le_bytes())
+    (value.to_f64() * 256.0) as i32
 }
 
 fn horizontal_advance(

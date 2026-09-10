@@ -2,7 +2,7 @@
 //!
 //! Wire layout: four little-endian bytes containing the signed Q24.8 value.
 //! The integer representation stays private; wire implementations use the
-//! explicit byte conversion methods.
+//! crate-private byte conversion methods.
 //!
 //! mirx intentionally does **not** implement arithmetic on `Fixed`.
 //! Consumers convert to their own `Fixed` (which has the `Add` / `Mul`
@@ -30,6 +30,16 @@
 /// ```compile_fail
 /// use mirx::types::Fixed;
 /// let value = Fixed::ONE.0;
+/// ```
+///
+/// ```compile_fail
+/// use mirx::types::Fixed;
+/// let value = Fixed::from_le_bytes(128_i32.to_le_bytes());
+/// ```
+///
+/// ```compile_fail
+/// use mirx::types::Fixed;
+/// let bytes = Fixed::ONE.to_le_bytes();
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fixed(i32);
@@ -73,11 +83,11 @@ impl Fixed {
         self.0 < 0
     }
 
-    pub const fn from_le_bytes(bytes: [u8; 4]) -> Self {
+    pub(crate) const fn from_le_bytes(bytes: [u8; 4]) -> Self {
         Self(i32::from_le_bytes(bytes))
     }
 
-    pub const fn to_le_bytes(self) -> [u8; 4] {
+    pub(crate) const fn to_le_bytes(self) -> [u8; 4] {
         self.0.to_le_bytes()
     }
 

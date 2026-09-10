@@ -1076,7 +1076,7 @@ pub type FontManager = ResourceManager<Font>;
 
 /// Build the default font manager: an unbounded-budget
 /// [`ResourceManager`] whose fallback is the 8x8 bitmap.
-pub fn default_font_manager() -> FontManager {
+pub(crate) fn default_font_manager() -> FontManager {
     ResourceManager::new(crate::core::cache::MaxSize::Unbound, Font::bitmap_8x8())
 }
 
@@ -1084,7 +1084,7 @@ pub fn default_font_manager() -> FontManager {
 /// the manager has not been inserted yet. Returns an owned `Rc<Font>`
 /// so the `&World` borrow ends at the call — the render path holds the
 /// `Rc` locally instead of borrowing through the manager's `RefCell`.
-pub fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<Font>> {
+pub(crate) fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<Font>> {
     world
         .resource::<FontManager>()
         .map(|m| m.resolve(token.cache_key()))

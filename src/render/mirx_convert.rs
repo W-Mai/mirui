@@ -9,13 +9,13 @@ use crate::types::{Color, Fixed, Point, Rect, Transform, fixed::storage};
 
 impl From<mirx::types::Fixed> for Fixed {
     fn from(v: mirx::types::Fixed) -> Self {
-        storage::from_le_bytes(v.to_le_bytes())
+        storage::from_mirx(v)
     }
 }
 
 impl From<Fixed> for mirx::types::Fixed {
     fn from(v: Fixed) -> Self {
-        mirx::types::Fixed::from_le_bytes(storage::to_le_bytes(v))
+        storage::to_mirx(v)
     }
 }
 
@@ -627,12 +627,10 @@ mod tests {
     #[test]
     fn fixed_conversion_preserves_every_endpoint_bit() {
         for bits in [i32::MIN, -1, 0, 1, i32::MAX] {
-            let wire = mirx::types::Fixed::from_le_bytes(bits.to_le_bytes());
+            let wire = mirx::types::Fixed::from_ratio(bits, 256);
             let runtime = Fixed::from(wire);
-            assert_eq!(
-                mirx::types::Fixed::from(runtime).to_le_bytes(),
-                bits.to_le_bytes()
-            );
+            assert_eq!(storage::to_i32(runtime), bits);
+            assert_eq!(mirx::types::Fixed::from(runtime).to_f64(), wire.to_f64());
         }
     }
 }

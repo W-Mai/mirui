@@ -93,11 +93,13 @@ impl TextLayout<'_> {
         self.lines
     }
 
-    pub const fn runs(&self) -> &[VisualRun] {
+    #[cfg(test)]
+    pub(crate) const fn runs(&self) -> &[VisualRun] {
         self.runs
     }
 
-    pub const fn glyphs(&self) -> &[PositionedGlyph] {
+    #[cfg(test)]
+    pub(crate) const fn glyphs(&self) -> &[PositionedGlyph] {
         self.glyphs
     }
 

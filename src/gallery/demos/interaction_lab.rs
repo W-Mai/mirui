@@ -2,13 +2,7 @@ extern crate alloc;
 
 use alloc::format;
 
-#[cfg(feature = "std")]
-use crate::anim::ease;
-#[cfg(feature = "std")]
-use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::BubbleControl;
-#[cfg(feature = "std")]
-use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 #[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
@@ -18,9 +12,6 @@ use crate::ui::widgets::{
     Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextAlign, TextInput, TextVerticalAlign,
     TextWrap,
 };
-#[cfg(feature = "std")]
-use alloc::vec;
-
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
 const BACKGROUND: Color = Color::rgb(9, 16, 28);
@@ -687,42 +678,7 @@ where
         app.world.insert_resource(InteractionModel::default());
     }
     app.add_plugin(InputFeedbackPlugin::new())
-        .add_plugin(StdInstantClockPlugin)
         .add_system(sync_interaction_user_states::system());
-    app.world.insert_resource(
-        SimTimeline::new(vec![
-            SimAction::move_to(
-                Point {
-                    x: Fixed::from_int(80),
-                    y: Fixed::from_int(210),
-                },
-                Point {
-                    x: Fixed::from_int(880),
-                    y: Fixed::from_int(210),
-                },
-                2600,
-                ease::ease_in_out_cubic,
-            ),
-            SimAction::wait(350),
-            SimAction::rotate(8, 50),
-            SimAction::wait(500),
-            SimAction::move_to(
-                Point {
-                    x: Fixed::from_int(880),
-                    y: Fixed::from_int(210),
-                },
-                Point {
-                    x: Fixed::from_int(80),
-                    y: Fixed::from_int(210),
-                },
-                2600,
-                ease::ease_in_out_cubic,
-            ),
-            SimAction::wait(350),
-        ])
-        .looping(true),
-    );
-    app.add_system(sim_timeline_system::system());
     app.compose(parent, build_widgets);
 }
 
@@ -906,7 +862,7 @@ mod tests {
     }
 
     #[test]
-    fn setup_installs_feedback_and_simulated_input() {
+    fn setup_installs_input_feedback() {
         let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
@@ -914,7 +870,6 @@ mod tests {
 
         assert!(app.world.resource::<InputFeedback>().is_some());
         assert!(app.world.resource::<InputFeedbackInput>().is_some());
-        assert!(app.world.resource::<SimTimeline>().is_some());
     }
 
     #[test]

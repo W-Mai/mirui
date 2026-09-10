@@ -1,12 +1,11 @@
 //! Bounded Unicode layout and shaping shared by widget measurement and render backends.
 
-pub mod layout;
+pub(crate) mod layout;
 pub mod mirx;
 mod opentype;
 
-pub use layout::{
-    TextLayout, TextLayoutCache, TextLayoutError, TextLayoutHandle, TextLayoutLimits, TextMeasure,
-};
+pub use layout::TextLayoutLimits;
+pub(crate) use layout::{TextLayout, TextLayoutHandle, TextMeasure};
 pub use textflow::TextFlow;
 pub use textflow::shaping::{
     FlowPoint, FontAccessError, FontFeature, FontId, FontMetrics, GlyphId, GlyphSource,

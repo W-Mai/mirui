@@ -674,13 +674,13 @@ pub(crate) mod storage {
     }
 
     #[inline]
-    pub const fn from_le_bytes(bytes: [u8; 4]) -> Fixed {
-        Fixed(i32::from_le_bytes(bytes))
+    pub fn from_mirx(value: mirx::types::Fixed) -> Fixed {
+        Fixed((value.to_f64() * super::SCALE as f64) as i32)
     }
 
     #[inline]
-    pub const fn to_le_bytes(value: Fixed) -> [u8; 4] {
-        value.0.to_le_bytes()
+    pub const fn to_mirx(value: Fixed) -> mirx::types::Fixed {
+        mirx::types::Fixed::from_ratio(value.0, super::SCALE)
     }
 }
 
@@ -699,7 +699,7 @@ pub(crate) fn checked_scale_mirx(
     denominator: u16,
 ) -> Option<Fixed> {
     let raw = checked_scale_q24_8(
-        i32::from_le_bytes(value.to_le_bytes()),
+        storage::to_i32(storage::from_mirx(value)),
         numerator,
         denominator,
     )?;

@@ -310,7 +310,7 @@ impl FontProvider for MirxFontProvider {
         let source = crate::text::mirx::MirxGlyphSource::new(self.id, self.face);
         let advance = source.glyph_advance(glyph).ok()?.x;
         crate::types::fixed::checked_scale_mirx(
-            mirx::types::Fixed::from_le_bytes(advance.to_le_bytes()),
+            mirx::types::Fixed::from_ratio(advance, 256),
             ppem,
             self.face.face().units_per_em(),
         )
@@ -322,7 +322,7 @@ impl FontProvider for MirxFontProvider {
         let source = crate::text::mirx::MirxGlyphSource::new(self.id, self.face);
         let Some(value) = source.kerning(left, right).ok().and_then(|value| {
             crate::types::fixed::checked_scale_mirx(
-                mirx::types::Fixed::from_le_bytes(value.to_le_bytes()),
+                mirx::types::Fixed::from_ratio(value, 256),
                 ppem,
                 self.face.face().units_per_em(),
             )
