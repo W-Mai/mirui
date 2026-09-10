@@ -31,6 +31,14 @@ pub enum TextAlign {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum TextVerticalAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum TextOverflow {
     #[default]
     Clip,
@@ -145,6 +153,7 @@ pub struct FontFeatureCapacityError {
 pub struct ParagraphStyle {
     pub wrap: TextWrap,
     pub align: TextAlign,
+    pub vertical_align: TextVerticalAlign,
     pub overflow: TextOverflow,
     pub max_lines: Option<u16>,
     pub line_height: Option<Fixed>,
@@ -161,6 +170,7 @@ impl Default for ParagraphStyle {
         Self {
             wrap: TextWrap::Word,
             align: TextAlign::Start,
+            vertical_align: TextVerticalAlign::Start,
             overflow: TextOverflow::Clip,
             max_lines: None,
             line_height: None,
@@ -175,6 +185,16 @@ impl Default for ParagraphStyle {
 }
 
 impl ParagraphStyle {
+    pub fn with_align(mut self, align: TextAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    pub fn with_vertical_align(mut self, align: TextVerticalAlign) -> Self {
+        self.vertical_align = align;
+        self
+    }
+
     pub(crate) fn layout_request<'a>(
         &'a self,
         text: &'a str,
@@ -410,9 +430,9 @@ fn text_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    if world.get::<Text>(entity).is_none() {
+    let Some(text) = world.get::<Text>(entity) else {
         return;
-    }
+    };
     let color = ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state);
     let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
         return;
@@ -433,6 +453,11 @@ fn text_render(
     let Some(layout) = cache.get(handle) else {
         return;
     };
+    let offset_y = vertical_offset(
+        text.paragraph().vertical_align,
+        rect.h,
+        crate::types::fixed::from_textflow(layout.measure().height),
+    );
     draw_text_layout(
         renderer,
         &layout,
@@ -440,13 +465,22 @@ fn text_render(
         TextPaint::new(
             Point {
                 x: rect.x,
-                y: rect.y,
+                y: rect.y + offset_y,
             },
             ctx.transform,
             ctx.clip,
             color,
         ),
     );
+}
+
+fn vertical_offset(align: TextVerticalAlign, box_height: Fixed, text_height: Fixed) -> Fixed {
+    let free_height = (box_height - text_height).max(Fixed::ZERO);
+    match align {
+        TextVerticalAlign::Start => Fixed::ZERO,
+        TextVerticalAlign::Center => free_height / Fixed::from_int(2),
+        TextVerticalAlign::End => free_height,
+    }
 }
 
 pub(crate) struct TextPaint<'a> {
@@ -716,6 +750,7 @@ mod tests {
         let paragraph = ParagraphStyle::default();
         assert_eq!(paragraph.wrap, TextWrap::Word);
         assert_eq!(paragraph.align, TextAlign::Start);
+        assert_eq!(paragraph.vertical_align, TextVerticalAlign::Start);
         assert_eq!(paragraph.shaping, ShapingPolicy::Auto);
         assert!(paragraph.features.as_slice().is_empty());
 
@@ -729,6 +764,28 @@ mod tests {
             Some(Fixed::from_int(4)),
         );
         assert_eq!(request.wrap, textflow::layout::WrapMode::WordOrGrapheme);
+    }
+
+    #[test]
+    fn vertical_alignment_uses_remaining_box_height() {
+        let box_height = Fixed::from_int(30);
+        let text_height = Fixed::from_int(12);
+        assert_eq!(
+            vertical_offset(TextVerticalAlign::Start, box_height, text_height),
+            Fixed::ZERO
+        );
+        assert_eq!(
+            vertical_offset(TextVerticalAlign::Center, box_height, text_height),
+            Fixed::from_int(9)
+        );
+        assert_eq!(
+            vertical_offset(TextVerticalAlign::End, box_height, text_height),
+            Fixed::from_int(18)
+        );
+        assert_eq!(
+            vertical_offset(TextVerticalAlign::Center, text_height, box_height),
+            Fixed::ZERO
+        );
     }
 
     #[test]

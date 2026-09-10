@@ -11,8 +11,8 @@ use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
 use mirui::surface::framebuf::FramebufSurface;
 
-const WIDTH: u16 = orbit_console::VIEWPORT.0;
-const HEIGHT: u16 = orbit_console::VIEWPORT.1;
+const DEFAULT_WIDTH: u16 = orbit_console::VIEWPORT.0;
+const DEFAULT_HEIGHT: u16 = orbit_console::VIEWPORT.1;
 
 #[derive(Debug, Default)]
 struct PaletteCounts {
@@ -28,10 +28,10 @@ fn default_output() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/assets/orbit-console.png")
 }
 
-fn count_palette(pixels: &[u8], stride: usize) -> PaletteCounts {
+fn count_palette(pixels: &[u8], stride: usize, width: u16, height: u16) -> PaletteCounts {
     let mut counts = PaletteCounts::default();
-    for y in 0..HEIGHT as usize {
-        for pixel in pixels[y * stride..y * stride + WIDTH as usize * 4].chunks_exact(4) {
+    for y in 0..height as usize {
+        for pixel in pixels[y * stride..y * stride + width as usize * 4].chunks_exact(4) {
             let [r, g, b, _] = [pixel[0], pixel[1], pixel[2], pixel[3]];
             counts.non_background += usize::from(r > 12 || g > 22 || b > 35);
             counts.mint += usize::from(g > 145 && b > 115 && g > r.saturating_add(30));
@@ -66,42 +66,44 @@ fn luminance_range(
     high.saturating_sub(low)
 }
 
-fn validate(pixels: &[u8], stride: usize) {
-    assert_eq!(stride, WIDTH as usize * 4, "unexpected framebuffer stride");
+fn validate(pixels: &[u8], stride: usize, width: u16, height: u16) {
+    assert_eq!(stride, width as usize * 4, "unexpected framebuffer stride");
     assert_eq!(
         pixels.len(),
-        stride * HEIGHT as usize,
+        stride * height as usize,
         "unexpected byte count"
     );
 
-    let counts = count_palette(pixels, stride);
+    let counts = count_palette(pixels, stride, width, height);
+    let area = usize::from(width) * usize::from(height);
     println!("palette {counts:?}");
     assert!(
-        counts.non_background > 120_000,
+        counts.non_background > area / 4,
         "showcase rendered too little content"
     );
-    assert!(counts.mint > 700, "mint accent is missing");
-    assert!(counts.blue > 2_000, "blue accent is missing");
-    assert!(counts.violet > 700, "violet accent is missing");
-    assert!(counts.amber > 80, "amber accent is missing");
-    assert!(counts.bright > 900, "high-contrast text is missing");
+    assert!(counts.mint > area / 200, "mint accent is missing");
+    assert!(counts.blue > area / 200, "blue accent is missing");
+    assert!(counts.violet > area / 1_200, "violet accent is missing");
+    assert!(counts.amber > area / 5_000, "amber accent is missing");
+    assert!(counts.bright > area / 800, "high-contrast text is missing");
 
     assert!(
-        luminance_range(pixels, stride, 24..680, 88..616) > 120,
-        "orbit stage has insufficient luminance range"
-    );
-    assert!(
-        luminance_range(pixels, stride, 704..1000, 88..616) > 120,
-        "inspector has insufficient luminance range"
+        luminance_range(
+            pixels,
+            stride,
+            0..usize::from(width),
+            0..usize::from(height)
+        ) > 120,
+        "showcase has insufficient luminance range"
     );
 }
 
-fn write_png(path: &Path, pixels: &[u8]) {
+fn write_png(path: &Path, width: u16, height: u16, pixels: &[u8]) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create snapshot directory");
     }
     let file = BufWriter::new(File::create(path).expect("create snapshot"));
-    let mut encoder = png::Encoder::new(file, WIDTH.into(), HEIGHT.into());
+    let mut encoder = png::Encoder::new(file, width.into(), height.into());
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().expect("write PNG header");
@@ -109,11 +111,20 @@ fn write_png(path: &Path, pixels: &[u8]) {
 }
 
 fn main() {
-    let output = env::args()
-        .nth(1)
+    let mut args = env::args().skip(1);
+    let output = args
+        .next()
         .map(PathBuf::from)
         .unwrap_or_else(default_output);
-    let backend = FramebufSurface::with_format(WIDTH, HEIGHT, ColorFormat::RGBA8888, |_, _| {});
+    let width = args
+        .next()
+        .map(|value| value.parse().expect("viewport width"))
+        .unwrap_or(DEFAULT_WIDTH);
+    let height = args
+        .next()
+        .map(|value| value.parse().expect("viewport height"))
+        .unwrap_or(DEFAULT_HEIGHT);
+    let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
@@ -125,7 +136,7 @@ fn main() {
     let texture = app.backend.framebuffer();
     let stride = texture.stride;
     let pixels = texture.buf.as_slice();
-    validate(pixels, stride);
-    write_png(&output, pixels);
+    validate(pixels, stride, width, height);
+    write_png(&output, width, height, pixels);
     println!("wrote {}", output.display());
 }

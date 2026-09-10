@@ -19,7 +19,7 @@ use crate::render::renderer::Renderer;
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{Slider, Text};
+use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextAlign, TextVerticalAlign, TextWrap};
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
@@ -185,9 +185,13 @@ struct ConsoleNodes;
 
 #[cfg(test)]
 impl ConsoleNodes {
+    const SHELL: &'static str = "orbit_console_shell";
+    const WORKSPACE: &'static str = "orbit_console_workspace";
+    const INSPECTOR: &'static str = "orbit_console_inspector";
     const STAGE: &'static str = "orbit_console_stage";
     const SIGNAL: &'static str = "orbit_console_signal";
     const ACTIVITY: &'static str = "orbit_console_activity";
+    const CONTROLS: &'static str = "orbit_console_controls";
     const MODE_CHIPS: [&'static str; 3] = [
         "orbit_console_mode_orbit",
         "orbit_console_mode_flow",
@@ -324,8 +328,9 @@ impl<'a> DemoPainter<'a> {
         );
     }
 
-    fn fill_path(&mut self, path: &Path, paint: &Paint, translate: Point, opa: u8) {
-        let local = Transform::translate(translate.x, translate.y);
+    fn fill_path(&mut self, path: &Path, paint: &Paint, translate: Point, scale: Fixed, opa: u8) {
+        let local =
+            Transform::translate(translate.x, translate.y).compose(&Transform::scale(scale, scale));
         self.renderer.draw(
             &DrawCommand::FillPath {
                 path,
@@ -423,6 +428,7 @@ impl ConsoleBackdrop {
             &self.glow,
             &self.mint,
             Point::new(rect.x + Fixed::from_int(160), rect.y + Fixed::from_int(80)),
+            Fixed::ONE,
             160,
         );
         painter.fill_path(
@@ -432,6 +438,7 @@ impl ConsoleBackdrop {
                 rect.x + rect.w - Fixed::from_int(80),
                 rect.y + rect.h - Fixed::from_int(20),
             ),
+            Fixed::ONE,
             145,
         );
     }
@@ -461,10 +468,19 @@ impl OrbitInstrument {
     }
 
     fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, state: ConsoleState) {
-        let x0 = rect.x + Fixed::from_int(20);
-        let y0 = rect.y + Fixed::from_int(58);
-        let x1 = rect.x + rect.w - Fixed::from_int(20);
-        let y1 = rect.y + rect.h - Fixed::from_int(82);
+        let margin = (rect.w / Fixed::from_int(24))
+            .max(Fixed::from_int(8))
+            .min(Fixed::from_int(20));
+        let header = (rect.h / Fixed::from_int(6))
+            .max(Fixed::from_int(38))
+            .min(Fixed::from_int(72));
+        let footer = (rect.h / Fixed::from_int(8))
+            .max(Fixed::from_int(28))
+            .min(Fixed::from_int(56));
+        let x0 = rect.x + margin;
+        let y0 = rect.y + header;
+        let x1 = rect.x + rect.w - margin;
+        let y1 = rect.y + rect.h - footer;
 
         for column in 0..12 {
             let x = x0 + (x1 - x0) * Fixed::from_ratio(column, 11);
@@ -489,15 +505,23 @@ impl OrbitInstrument {
 
         let center = Point::new(
             rect.x + rect.w / Fixed::from_int(2),
-            rect.y + Fixed::from_int(258),
+            y0 + (y1 - y0) / Fixed::from_int(2),
         );
         let accent = state.mode.accent();
-        let radii = [92, 138, 184];
+        let outer_radius = ((x1 - x0) / Fixed::from_int(2))
+            .min((y1 - y0) / Fixed::from_int(2))
+            .max(Fixed::from_int(18))
+            - Fixed::from_int(5);
+        let radii = [
+            outer_radius / Fixed::from_int(2),
+            outer_radius * Fixed::from_ratio(3, 4),
+            outer_radius,
+        ];
         for (index, radius) in radii.into_iter().enumerate() {
             let offset = Fixed::from_int(index as i32 * 37);
             painter.arc(ArcStroke {
                 center,
-                radius: Fixed::from_int(radius),
+                radius,
                 start: Fixed::from_int(-28) + offset + state.phase() / Fixed::from_int(8),
                 end: Fixed::from_int(246) + offset + state.phase() / Fixed::from_int(8),
                 color: if index == state.focused_node as usize {
@@ -520,8 +544,13 @@ impl OrbitInstrument {
 
         for tick in 0..32 {
             let angle = Fixed::from_int(tick * 360 / 32);
-            let inner = Fixed::from_int(if tick % 4 == 0 { 177 } else { 180 });
-            let outer = Fixed::from_int(186);
+            let inner = outer_radius
+                - if tick % 4 == 0 {
+                    Fixed::from_int(9)
+                } else {
+                    Fixed::from_int(6)
+                };
+            let outer = outer_radius + Fixed::from_int(1);
             let sin = Fixed::sin_deg(angle);
             let cos = Fixed::cos_deg(angle);
             painter.line(
@@ -534,8 +563,11 @@ impl OrbitInstrument {
         }
 
         let intensity = Fixed::from_ratio(state.intensity as i32, 100);
+        let core_radius = (outer_radius * Fixed::from_ratio(13, 50))
+            .max(Fixed::from_int(12))
+            .min(Fixed::from_int(48));
         for halo in (0..4).rev() {
-            let radius = Fixed::from_int(54 + halo * 14);
+            let radius = core_radius + outer_radius * Fixed::from_ratio(halo + 1, 18);
             painter.fill(
                 Rect::new(center.x - radius, center.y - radius, radius * 2, radius * 2),
                 accent,
@@ -547,11 +579,12 @@ impl OrbitInstrument {
             &self.core,
             &self.core_paints[state.mode as usize],
             center,
+            core_radius / Fixed::from_int(48),
             255,
         );
         painter.arc(ArcStroke {
             center,
-            radius: Fixed::from_int(62),
+            radius: core_radius + outer_radius / Fixed::from_int(12),
             start: state.phase(),
             end: state.phase() + Fixed::from_int(110) + intensity * Fixed::from_int(60),
             color: Color::rgb(232, 255, 250),
@@ -560,7 +593,6 @@ impl OrbitInstrument {
         });
 
         let node_colors = [MINT, BLUE, VIOLET];
-        let node_radii = [92, 138, 184];
         let node_speeds = [
             Fixed::ONE,
             Fixed::from_ratio(-3, 5),
@@ -573,7 +605,7 @@ impl OrbitInstrument {
         ];
         for index in 0..3 {
             let angle = node_offsets[index] + state.phase() * node_speeds[index];
-            let radius = Fixed::from_int(node_radii[index]);
+            let radius = radii[index];
             let node = Point::new(
                 center.x + Fixed::cos_deg(angle) * radius,
                 center.y + Fixed::sin_deg(angle) * radius,
@@ -633,11 +665,20 @@ pub struct SignalMeter;
 
 impl SignalMeter {
     fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, state: ConsoleState) {
-        let center = Point::new(rect.x + Fixed::from_int(224), rect.y + Fixed::from_int(76));
+        let inset = (rect.w / Fixed::from_int(14))
+            .max(Fixed::from_int(6))
+            .min(Fixed::from_int(18));
+        let radius = (rect.w.min(rect.h) / Fixed::from_int(4))
+            .max(Fixed::from_int(10))
+            .min(Fixed::from_int(42));
+        let center = Point::new(
+            rect.x + rect.w - radius - inset,
+            rect.y + rect.h / Fixed::from_int(2),
+        );
         let accent = state.mode.accent();
         painter.arc(ArcStroke {
             center,
-            radius: Fixed::from_int(42),
+            radius,
             start: Fixed::from_int(145),
             end: Fixed::from_int(395),
             color: Color::rgb(43, 73, 89),
@@ -648,7 +689,7 @@ impl SignalMeter {
             + Fixed::from_ratio(state.intensity as i32, 100) * Fixed::from_int(250);
         painter.arc(ArcStroke {
             center,
-            radius: Fixed::from_int(42),
+            radius,
             start: Fixed::from_int(145),
             end: sweep,
             color: accent,
@@ -674,16 +715,22 @@ pub struct ActivityPlot;
 
 impl ActivityPlot {
     fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, state: ConsoleState) {
-        let left = rect.x + Fixed::from_int(20);
-        let baseline = rect.y + Fixed::from_int(112);
-        let width = rect.w - Fixed::from_int(40);
+        let inset = (rect.w / Fixed::from_int(16))
+            .max(Fixed::from_int(8))
+            .min(Fixed::from_int(20));
+        let left = rect.x + inset;
+        let width = rect.w - inset * Fixed::from_int(2);
+        let plot_top = rect.y + (rect.h / Fixed::from_int(4)).max(Fixed::from_int(24));
+        let plot_height = (rect.y + rect.h - plot_top - inset).max(Fixed::from_int(12));
+        let baseline = plot_top + plot_height * Fixed::from_ratio(2, 5);
         let accent = state.mode.accent();
         let mut previous = Point::new(left, baseline);
         for sample in 0..24 {
             let x = left + width * Fixed::from_ratio(sample, 23);
             let angle = state.phase() * Fixed::from_ratio(3, 2) + Fixed::from_int(sample * 23);
-            let primary = Fixed::sin_deg(angle) * Fixed::from_int(24);
-            let secondary = Fixed::sin_deg(angle * Fixed::from_ratio(5, 3)) * Fixed::from_int(8);
+            let primary = Fixed::sin_deg(angle) * plot_height * Fixed::from_ratio(3, 10);
+            let secondary =
+                Fixed::sin_deg(angle * Fixed::from_ratio(5, 3)) * plot_height / Fixed::from_int(10);
             let point = Point::new(x, baseline - primary - secondary);
             if sample > 0 {
                 painter.line(previous, point, accent, Fixed::from_ratio(3, 2), 225);
@@ -693,13 +740,14 @@ impl ActivityPlot {
 
         for bar in 0..14 {
             let angle = state.phase() + Fixed::from_int(bar * 31);
-            let height = Fixed::from_int(7) + Fixed::sin_deg(angle).abs() * Fixed::from_int(24);
-            let x = left + Fixed::from_int(bar * 17);
+            let height = Fixed::from_int(3)
+                + Fixed::sin_deg(angle).abs() * plot_height * Fixed::from_ratio(3, 10);
+            let x = left + width * Fixed::from_ratio(bar, 14);
             painter.fill(
                 Rect::new(
                     x,
-                    rect.y + Fixed::from_int(143) - height,
-                    Fixed::from_int(8),
+                    plot_top + plot_height * Fixed::from_ratio(4, 5) - height,
+                    (width / Fixed::from_int(28)).max(Fixed::from_int(3)),
                     height,
                 ),
                 if bar % 7 == 0 {
@@ -819,6 +867,16 @@ fn register_fonts(world: &mut World) {
     manager.add_static(FontToken::Mono.cache_key(), mono);
 }
 
+fn centered_label() -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: TextWrap::NoWrap,
+        align: TextAlign::Center,
+        vertical_align: TextVerticalAlign::Center,
+        max_lines: Some(1),
+        ..ParagraphStyle::default()
+    }
+}
+
 #[mirui_macros::system(order = ANIMATION)]
 pub fn console_animation_system(world: &mut World) {
     let delta_ms = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
@@ -827,18 +885,211 @@ pub fn console_animation_system(world: &mut World) {
     }
 }
 
+fn console_signal(cx: &mut crate::ui::UiScope<'_>) -> Signal<ConsoleState> {
+    cx.world_mut()
+        .resource::<ConsoleModel>()
+        .map(ConsoleModel::signal)
+        .expect("Orbit Console model must be installed before composition")
+}
+
 #[compose]
-pub fn build_widgets() {
+fn compose_header() -> Entity {
+    ui! {
+        Row (
+            height: 54,
+            align: AlignItems::Center,
+            column_gap: 10
+        ) {
+            View (
+                width: 40,
+                height: 40,
+                bg_color: MINT,
+                border_radius: 12
+            ) {
+                View (
+                    position: Position::Absolute,
+                    left: 9,
+                    top: 9,
+                    width: 22,
+                    height: 22,
+                    border_color: BG,
+                    border_width: 2,
+                    border_radius: 11
+                )
+                View (
+                    position: Position::Absolute,
+                    left: 18,
+                    top: 5,
+                    width: 4,
+                    height: 30,
+                    bg_color: BG,
+                    border_radius: 2
+                )
+            }
+            Column (grow: 1.0, justify: JustifyContent::Center, row_gap: 2) {
+                Text (
+                    "mirui : ORBIT CONSOLE",
+                    font: FontToken::Heading,
+                    font_size: 20,
+                    text_color: TEXT
+                )
+                Text (
+                    "fixed point graphics instrument",
+                    font: FontToken::Mono,
+                    font_size: 10,
+                    text_color: TEXT_MUTED
+                )
+            }
+        }
+    }
+}
+
+#[compose]
+fn compose_orbit_stage() -> Entity {
+    let state_signal = console_signal(cx);
+    let stage_visual = state_signal.clone();
+    let stage_action = state_signal.clone();
+    let focus_text = state_signal;
+
+    ui! {
+        Column (
+            id: "orbit_console_stage",
+            grow: 2.0,
+            min_width: 260,
+            min_height: Dimension::percent(48),
+            padding: Padding::all(12),
+            row_gap: 6,
+            bg_color: ${ stage_visual.get().mode.stage_background() },
+            border_color: BORDER,
+            border_width: 1,
+            border_radius: 20,
+            clip_children: true
+        ) [
+            OrbitInstrument::new(),
+        ] on Tap { ConsoleAction::CycleFocus.publish(&stage_action); }
+        {
+            Row (height: 24, align: AlignItems::Center, column_gap: 8) {
+                Text (
+                    "ORBIT FIELD : 03 NODES",
+                    grow: 1.0,
+                    font: FontToken::Mono,
+                    font_size: 10,
+                    text_color: TEXT_MUTED
+                )
+                Text (
+                    "LIVE VECTOR",
+                    width: 92,
+                    height: 22,
+                    bg_color: Color::rgba(20, 64, 65, 200),
+                    border_radius: 11,
+                    font: FontToken::Mono,
+                    font_size: 9,
+                    text_color: MINT,
+                    paragraph: centered_label()
+                )
+            }
+            View (grow: 1.0)
+            Text (
+                text: ${
+                    match focus_text.get().focused_node {
+                        0 => "NODE 01 : ACTIVE",
+                        1 => "NODE 02 : ACTIVE",
+                        _ => "NODE 03 : ACTIVE",
+                    }
+                },
+                id: "orbit_console_focus",
+                height: 20,
+                font: FontToken::Mono,
+                font_size: 10,
+                text_color: MINT
+            )
+        }
+    }
+}
+
+#[compose]
+fn compose_signal_card() -> Entity {
+    let state_signal = console_signal(cx);
+    let signal_visual = state_signal;
+
+    ui! {
+        Row (
+            id: "orbit_console_signal",
+            grow: 4.0,
+            min_height: 44,
+            padding: Padding::all(10),
+            align: AlignItems::Center,
+            bg_color: ${ signal_visual.get().mode.panel_background() },
+            border_color: BORDER,
+            border_width: 1,
+            border_radius: 16
+        ) [
+            SignalMeter,
+        ] {
+            Column (grow: 1.0, row_gap: 2) {
+                Text (
+                    "SIGNAL",
+                    font: FontToken::Mono,
+                    font_size: 9,
+                    text_color: TEXT_MUTED
+                )
+                Text (
+                    "98 PCT",
+                    font: FontToken::Heading,
+                    font_size: 20,
+                    text_color: TEXT
+                )
+            }
+            View (width: 48)
+        }
+    }
+}
+
+#[compose]
+fn compose_activity_card() -> Entity {
+    let state_signal = console_signal(cx);
+    let activity_visual = state_signal;
+
+    ui! {
+        Column (
+            id: "orbit_console_activity",
+            grow: 5.0,
+            min_height: 48,
+            padding: Padding::all(10),
+            bg_color: ${ activity_visual.get().mode.panel_background() },
+            border_color: BORDER,
+            border_width: 1,
+            border_radius: 16
+        ) [
+            ActivityPlot,
+        ] {
+            Row (height: 18, align: AlignItems::Center) {
+                Text (
+                    "ACTIVITY : LIVE",
+                    grow: 1.0,
+                    font: FontToken::Mono,
+                    font_size: 9,
+                    text_color: TEXT_MUTED
+                )
+                Text (
+                    "12.4",
+                    font: FontToken::Mono,
+                    font_size: 9,
+                    text_color: BLUE
+                )
+            }
+        }
+    }
+}
+
+#[compose]
+fn compose_controls() -> Entity {
     let state_signal = cx
         .world_mut()
         .resource::<ConsoleModel>()
         .map(ConsoleModel::signal)
         .expect("Orbit Console model must be installed before composition");
     let state = state_signal.get_untracked();
-    let (stage_visual, stage_action) = (state_signal.clone(), state_signal.clone());
-    let signal_visual = state_signal.clone();
-    let activity_visual = state_signal.clone();
-    let focus_text = state_signal.clone();
     let intensity_text = state_signal.clone();
     let (orbit_bg, orbit_fg, orbit_action) = (
         state_signal.clone(),
@@ -858,401 +1109,108 @@ pub fn build_widgets() {
     let slider_action = state_signal.clone();
     let (pause_text, pause_action) = (state_signal.clone(), state_signal);
 
-    ui! {
-        View (
-            position: Position::Absolute,
-            left: 0,
-            top: 0,
-            width: VIEWPORT.0 as i32,
-            height: VIEWPORT.1 as i32
-        ) [
-            ConsoleBackdrop::new(),
-        ]
-    };
-
-    ui! {
-        View (
-            position: Position::Absolute,
-            left: 24,
-            top: 18,
-            width: 40,
-            height: 40,
-            bg_color: MINT,
-            border_radius: 12
-        ) {
-            View (
-                position: Position::Absolute,
-                left: 9,
-                top: 9,
-                width: 22,
-                height: 22,
-                border_color: BG,
-                border_width: 2,
-                border_radius: 11
-            )
-            View (
-                position: Position::Absolute,
-                left: 18,
-                top: 5,
-                width: 4,
-                height: 30,
-                bg_color: BG,
-                border_radius: 2
-            )
-        }
-    };
-
-    ui! {
-        Text (
-            "mirui : ORBIT CONSOLE",
-            position: Position::Absolute,
-            left: 78,
-            top: 16,
-            font: FontToken::Heading,
-            text_color: TEXT
-        )
-    };
-    ui! {
-        Text (
-            "fixed point graphics instrument",
-            position: Position::Absolute,
-            left: 80,
-            top: 45,
-            font: FontToken::Mono,
-            text_color: TEXT_MUTED
-        )
-    };
-    ui! {
-        View (
-            position: Position::Absolute,
-            left: 868,
-            top: 24,
-            width: 132,
-            height: 28,
-            bg_color: Color::rgba(18, 69, 62, 190),
-            border_color: Color::rgba(99, 242, 207, 130),
-            border_width: 1,
-            border_radius: 14,
-            text: "  CONNECTED",
-            font: FontToken::Mono,
-            text_color: MINT
-        )
-    };
-    ui! {
-        View (
-            position: Position::Absolute,
-            left: 982,
-            top: 34,
-            width: 7,
-            height: 7,
-            bg_color: MINT,
-            border_radius: 4
-        )
-    };
-
-    ui! {
-        View (
-            id: "orbit_console_stage",
-            position: Position::Absolute,
-            left: 24,
-            top: 88,
-            width: 656,
-            height: 528,
-            bg_color: ${ stage_visual.get().mode.stage_background() },
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 20,
-            clip_children: true
-        ) [
-            OrbitInstrument::new(),
-        ] on Tap { ConsoleAction::CycleFocus.publish(&stage_action); }
-        {
-            Text (
-                "ORBIT FIELD : 03 NODES",
-                position: Position::Absolute,
-                left: 22,
-                top: 18,
-                font: FontToken::Mono,
-                text_color: TEXT_MUTED
-            )
-            View (
-                position: Position::Absolute,
-                left: 512,
-                top: 17,
-                width: 120,
-                height: 26,
-                bg_color: Color::rgba(20, 64, 65, 200),
-                border_radius: 13,
-                text: "LIVE VECTOR",
-                font: FontToken::Mono,
-                text_color: MINT
-            )
-            View (
-                position: Position::Absolute,
-                left: 18,
-                top: 448,
-                width: 620,
-                height: 62,
-                bg_color: Color::rgba(8, 24, 34, 224),
-                border_color: Color::rgba(84, 122, 143, 64),
-                border_width: 1,
-                border_radius: 12
-            ) {
-                Text (
-                    "FRAME",
-                    position: Position::Absolute,
-                    left: 18,
-                    top: 10,
-                    font: FontToken::Mono,
-                    text_color: TEXT_MUTED
-                )
-                Text (
-                    "16.67 ms",
-                    position: Position::Absolute,
-                    left: 18,
-                    top: 30,
-                    text_color: TEXT
-                )
-                Text (
-                    "PRECISION",
-                    position: Position::Absolute,
-                    left: 214,
-                    top: 10,
-                    font: FontToken::Mono,
-                    text_color: TEXT_MUTED
-                )
-                Text (
-                    "Q24.8 : SUBPIXEL",
-                    position: Position::Absolute,
-                    left: 214,
-                    top: 30,
-                    text_color: TEXT
-                )
-                Text (
-                    "TARGET",
-                    position: Position::Absolute,
-                    left: 456,
-                    top: 10,
-                    font: FontToken::Mono,
-                    text_color: TEXT_MUTED
-                )
-                Text (
-                    "CPU : NO FPU",
-                    position: Position::Absolute,
-                    left: 456,
-                    top: 30,
-                    text_color: TEXT
-                )
-            }
-        }
-    };
-
-    ui! {
-        Text (
-            text: ${
-                match focus_text.get().focused_node {
-                    0 => "NODE 01 : ACTIVE",
-                    1 => "NODE 02 : ACTIVE",
-                    _ => "NODE 03 : ACTIVE",
-                }
-            },
-            id: "orbit_console_focus",
-            position: Position::Absolute,
-            left: 48,
-            top: 400,
-            font: FontToken::Mono,
-            text_color: MINT
-        )
-    };
-
-    ui! {
-        View (
-            id: "orbit_console_signal",
-            position: Position::Absolute,
-            left: 704,
-            top: 88,
-            width: 296,
-            height: 144,
-            bg_color: ${ signal_visual.get().mode.panel_background() },
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 16
-        ) [
-            SignalMeter,
-        ] {
-            Text (
-                "SIGNAL",
-                position: Position::Absolute,
-                left: 20,
-                top: 18,
-                font: FontToken::Mono,
-                text_color: TEXT_MUTED
-            )
-            Text (
-                "98 PCT",
-                position: Position::Absolute,
-                left: 20,
-                top: 44,
-                font: FontToken::Heading,
-                text_color: TEXT
-            )
-            View (
-                position: Position::Absolute,
-                left: 20,
-                top: 96,
-                width: 86,
-                height: 24,
-                bg_color: Color::rgba(20, 76, 67, 190),
-                border_radius: 12,
-                text: "  STABLE",
-                font: FontToken::Mono,
-                text_color: MINT
-            )
-        }
-    };
-
-    ui! {
-        View (
-            id: "orbit_console_activity",
-            position: Position::Absolute,
-            left: 704,
-            top: 248,
-            width: 296,
-            height: 184,
-            bg_color: ${ activity_visual.get().mode.panel_background() },
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 16
-        ) [
-            ActivityPlot,
-        ] {
-            Text (
-                "ACTIVITY : LIVE",
-                position: Position::Absolute,
-                left: 20,
-                top: 16,
-                font: FontToken::Mono,
-                text_color: TEXT_MUTED
-            )
-            Text (
-                "12.4",
-                position: Position::Absolute,
-                left: 204,
-                top: 16,
-                font: FontToken::Mono,
-                text_color: BLUE
-            )
-        }
-    };
-
-    ui! {
-        View (
-            position: Position::Absolute,
-            left: 704,
-            top: 448,
-            width: 296,
-            height: 168,
+    let controls = ui! {
+        Column (
+            id: "orbit_console_controls",
+            grow: 4.0,
+            min_height: 64,
+            padding: Padding::all(10),
+            row_gap: 4,
             bg_color: SURFACE_RAISED,
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
         ) {
-            Text (
-                "CONTROL",
-                position: Position::Absolute,
-                left: 20,
-                top: 16,
-                font: FontToken::Mono,
-                text_color: TEXT_MUTED
-            )
-            Text (
-                "INTENSITY",
-                position: Position::Absolute,
-                left: 20,
-                top: 91,
-                font: FontToken::Mono,
-                text_color: TEXT_MUTED
-            )
+            Row (height: 16, align: AlignItems::Center) {
+                Text (
+                    "CONTROL · INTENSITY",
+                    grow: 1.0,
+                    font: FontToken::Mono,
+                    font_size: 8,
+                    text_color: TEXT_MUTED
+                )
+                Text (
+                    text: ${ format!("{}", intensity_text.get().intensity) },
+                    id: "orbit_console_intensity_value",
+                    font: FontToken::Mono,
+                    font_size: 9,
+                    text_color: MINT
+                )
+            }
+            Row (height: 20, column_gap: 4) {
+                Text (
+                    id: "orbit_console_mode_orbit",
+                    "ORBIT",
+                    grow: 1.0,
+                    height: 20,
+                    bg_color: ${ ConsoleMode::Orbit.chip_background(orbit_bg.get().mode) },
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 10,
+                    font: FontToken::Mono,
+                    font_size: 8,
+                    text_color: ${ ConsoleMode::Orbit.chip_foreground(orbit_fg.get().mode) },
+                    paragraph: centered_label()
+                ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
+                Text (
+                    id: "orbit_console_mode_flow",
+                    "FLOW",
+                    grow: 1.0,
+                    height: 20,
+                    bg_color: ${ ConsoleMode::Flow.chip_background(flow_bg.get().mode) },
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 10,
+                    font: FontToken::Mono,
+                    font_size: 8,
+                    text_color: ${ ConsoleMode::Flow.chip_foreground(flow_fg.get().mode) },
+                    paragraph: centered_label()
+                ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
+                Text (
+                    id: "orbit_console_mode_pulse",
+                    "PULSE",
+                    grow: 1.0,
+                    height: 20,
+                    bg_color: ${ ConsoleMode::Pulse.chip_background(pulse_bg.get().mode) },
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 10,
+                    font: FontToken::Mono,
+                    font_size: 8,
+                    text_color: ${ ConsoleMode::Pulse.chip_foreground(pulse_fg.get().mode) },
+                    paragraph: centered_label()
+                ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Pulse).publish(&pulse_action); }
+            }
+            Row (grow: 1.0, min_height: 20, align: AlignItems::Center, column_gap: 6) {
+                Slider (
+                    id: "orbit_console_intensity",
+                    grow: 1.0,
+                    height: 18
+                ) on ValueChanged {
+                    let _ = old;
+                    ConsoleAction::SetIntensity(*new).publish(&slider_action);
+                }
+                Text (
+                    id: "orbit_console_pause",
+                    text: ${ if pause_text.get().paused { "RESUME" } else { "PAUSE" } },
+                    width: 54,
+                    height: 20,
+                    bg_color: Color::rgba(32, 55, 71, 235),
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 10,
+                    font: FontToken::Mono,
+                    font_size: 8,
+                    text_color: TEXT,
+                    paragraph: centered_label()
+                ) on Tap { ConsoleAction::TogglePaused.publish(&pause_action); }
+            }
         }
     };
-
-    ui! {
-        Text (
-            text: ${ format!("{}", intensity_text.get().intensity) },
-            id: "orbit_console_intensity_value",
-            position: Position::Absolute,
-            left: 954,
-            top: 539,
-            font: FontToken::Mono,
-            text_color: MINT
-        )
-    };
-
-    ui! {
-        View (
-            id: "orbit_console_mode_orbit",
-            position: Position::Absolute,
-            left: 720,
-            top: 495,
-            width: 78,
-            height: 22,
-            bg_color: ${ ConsoleMode::Orbit.chip_background(orbit_bg.get().mode) },
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 10,
-            text: "   ORBIT",
-            font: FontToken::Mono,
-            text_color: ${ ConsoleMode::Orbit.chip_foreground(orbit_fg.get().mode) }
-        ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
-    };
-    ui! {
-        View (
-            id: "orbit_console_mode_flow",
-            position: Position::Absolute,
-            left: 810,
-            top: 495,
-            width: 78,
-            height: 22,
-            bg_color: ${ ConsoleMode::Flow.chip_background(flow_bg.get().mode) },
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 10,
-            text: "    FLOW",
-            font: FontToken::Mono,
-            text_color: ${ ConsoleMode::Flow.chip_foreground(flow_fg.get().mode) }
-        ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
-    };
-    ui! {
-        View (
-            id: "orbit_console_mode_pulse",
-            position: Position::Absolute,
-            left: 900,
-            top: 495,
-            width: 78,
-            height: 22,
-            bg_color: ${ ConsoleMode::Pulse.chip_background(pulse_bg.get().mode) },
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 10,
-            text: "   PULSE",
-            font: FontToken::Mono,
-            text_color: ${ ConsoleMode::Pulse.chip_foreground(pulse_fg.get().mode) }
-        ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Pulse).publish(&pulse_action); }
-    };
-
-    let slider = ui! {
-        Slider (
-            id: "orbit_console_intensity",
-            position: Position::Absolute,
-            left: 724,
-            top: 558,
-            width: 256,
-            height: 20
-        ) on ValueChanged {
-            let _ = old;
-            ConsoleAction::SetIntensity(*new).publish(&slider_action);
-        }
-    };
+    let slider = cx
+        .world_mut()
+        .find_by_id("orbit_console_intensity")
+        .expect("intensity slider id");
     if let Some(control) = cx.world_mut().get_mut::<Slider>(slider) {
         control.min = Fixed::ZERO;
         control.max = Fixed::from_int(100);
@@ -1261,24 +1219,91 @@ pub fn build_widgets() {
         control.fill_color = MINT.into();
         control.thumb_color = TEXT.into();
     }
+    controls
+}
 
-    ui! {
-        View (
-            id: "orbit_console_pause",
-            position: Position::Absolute,
-            left: 884,
-            top: 586,
-            width: 96,
-            height: 24,
-            bg_color: Color::rgba(32, 55, 71, 235),
-            border_color: BORDER,
-            border_width: 1,
-            border_radius: 10,
-            text: ${ if pause_text.get().paused { "     RESUME" } else { "      PAUSE" } },
-            font: FontToken::Mono,
-            text_color: TEXT
-        ) on Tap { ConsoleAction::TogglePaused.publish(&pause_action); }
+#[compose]
+fn compose_inspector() -> Entity {
+    let inspector = ui! {
+        Column (
+            id: "orbit_console_inspector",
+            grow: 1.0,
+            min_width: 170,
+            min_height: Dimension::percent(48),
+            row_gap: 8
+        )
     };
+    let mut inspector_cx = cx.with_parent(inspector);
+    compose_signal_card(&mut inspector_cx);
+    compose_activity_card(&mut inspector_cx);
+    compose_controls(&mut inspector_cx);
+    inspector
+}
+
+#[compose]
+fn compose_workspace() -> Entity {
+    let workspace = ui! {
+        Row (
+            id: "orbit_console_workspace",
+            grow: 1.0,
+            wrap: FlexWrap::Wrap,
+            align: AlignItems::Stretch,
+            row_gap: 10,
+            column_gap: 12
+        )
+    };
+    let mut workspace_cx = cx.with_parent(workspace);
+    compose_orbit_stage(&mut workspace_cx);
+    compose_inspector(&mut workspace_cx);
+    workspace
+}
+
+#[compose]
+fn compose_status_strip() -> Entity {
+    ui! {
+        Row (
+            height: 28,
+            padding: Padding::all(6),
+            align: AlignItems::Center,
+            column_gap: 8,
+            bg_color: Color::rgba(8, 24, 34, 224),
+            border_color: Color::rgba(84, 122, 143, 64),
+            border_width: 1,
+            border_radius: 10
+        ) {
+            Text ("16.67 ms", grow: 1.0, font: FontToken::Mono, font_size: 9, text_color: TEXT)
+            Text ("Q24.8", grow: 1.0, font: FontToken::Mono, font_size: 9, text_color: TEXT)
+            Text ("CPU", grow: 1.0, font: FontToken::Mono, font_size: 9, text_color: TEXT)
+            Text (
+                "CONNECTED",
+                width: 72,
+                font: FontToken::Mono,
+                font_size: 8,
+                text_color: MINT,
+                paragraph: centered_label()
+            )
+        }
+    }
+}
+
+#[compose]
+pub fn build_widgets() {
+    let shell = ui! {
+        Column (
+            id: "orbit_console_shell",
+            width: Dimension::percent(100),
+            height: Dimension::percent(100),
+            padding: Padding::all(14),
+            row_gap: 10,
+            clip_children: true
+        ) [
+            ConsoleBackdrop::new(),
+        ]
+    };
+    let mut shell_cx = cx.with_parent(shell);
+    compose_header(&mut shell_cx);
+    compose_workspace(&mut shell_cx);
+    compose_status_strip(&mut shell_cx);
 }
 
 #[cfg(feature = "std")]
@@ -1326,7 +1351,9 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::render::font::default_font_manager;
     use crate::ui::Children;
+    use crate::ui::ComputedRect;
     use crate::ui::IdMap;
+    use crate::ui::Parent;
     use crate::ui::UiScope;
     use crate::ui::dirty::Dirty;
     use crate::ui::view::ViewRegistry;
@@ -1395,21 +1422,93 @@ mod tests {
     #[test]
     fn build_widgets_creates_product_regions_and_controls() {
         let (world, parent) = fixture(ConsoleState::capture());
-        assert!(
-            world
-                .get::<Children>(parent)
-                .is_some_and(|children| children.0.len() >= 8)
-        );
+        let shell = world.find_by_id(ConsoleNodes::SHELL).expect("shell id");
+        let workspace = world
+            .find_by_id(ConsoleNodes::WORKSPACE)
+            .expect("workspace id");
+        let inspector = world
+            .find_by_id(ConsoleNodes::INSPECTOR)
+            .expect("inspector id");
         let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
         let signal = world.find_by_id(ConsoleNodes::SIGNAL).expect("signal id");
         let activity = world
             .find_by_id(ConsoleNodes::ACTIVITY)
             .expect("activity id");
+        let controls = world
+            .find_by_id(ConsoleNodes::CONTROLS)
+            .expect("controls id");
         let slider = world.find_by_id(ConsoleNodes::SLIDER).expect("slider id");
+        assert_eq!(
+            world
+                .get::<Children>(parent)
+                .map(|children| children.0.len()),
+            Some(1)
+        );
+        assert_eq!(
+            world.get::<Parent>(shell).map(|parent| parent.0),
+            Some(parent)
+        );
+        assert_eq!(
+            world.get::<Parent>(workspace).map(|parent| parent.0),
+            Some(shell)
+        );
+        assert_eq!(
+            world.get::<Parent>(stage).map(|parent| parent.0),
+            Some(workspace)
+        );
+        assert_eq!(
+            world.get::<Parent>(inspector).map(|parent| parent.0),
+            Some(workspace)
+        );
+        for card in [signal, activity, controls] {
+            assert_eq!(
+                world.get::<Parent>(card).map(|parent| parent.0),
+                Some(inspector)
+            );
+        }
         assert!(world.has::<OrbitInstrument>(stage));
         assert!(world.has::<SignalMeter>(signal));
         assert!(world.has::<ActivityPlot>(activity));
         assert!(world.has::<Slider>(slider));
+    }
+
+    #[test]
+    fn workspace_responds_across_supported_viewports() {
+        use crate::types::Viewport;
+        use crate::ui::render_system::update_layout;
+
+        for (width, height) in [(320, 568), (480, 320), (768, 480), (1024, 640), (1440, 900)] {
+            let (mut world, parent) = fixture(ConsoleState::capture());
+            update_layout(
+                &mut world,
+                parent,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+            let rect = |world: &World, id| {
+                let entity = world.find_by_id(id).expect("responsive region id");
+                world.get::<ComputedRect>(entity).expect("computed rect").0
+            };
+            let workspace = rect(&world, ConsoleNodes::WORKSPACE);
+            let stage = rect(&world, ConsoleNodes::STAGE);
+            let inspector = rect(&world, ConsoleNodes::INSPECTOR);
+            assert!(stage.w > Fixed::ZERO && stage.h > Fixed::ZERO);
+            assert!(inspector.w > Fixed::ZERO && inspector.h > Fixed::ZERO);
+            assert!(stage.x >= workspace.x && stage.x + stage.w <= workspace.x + workspace.w);
+            assert!(
+                inspector.x >= workspace.x
+                    && inspector.x + inspector.w <= workspace.x + workspace.w
+            );
+            assert!(stage.y >= workspace.y && stage.y + stage.h <= workspace.y + workspace.h);
+            assert!(
+                inspector.y >= workspace.y
+                    && inspector.y + inspector.h <= workspace.y + workspace.h
+            );
+            if width == 320 {
+                assert!(inspector.y > stage.y);
+            } else {
+                assert_eq!(inspector.y, stage.y);
+            }
+        }
     }
 
     #[test]

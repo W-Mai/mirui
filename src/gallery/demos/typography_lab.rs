@@ -11,7 +11,7 @@ use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::text::FontFeature;
 use crate::ui::widgets::{
     FontFeatures, LanguageTag, ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign,
-    TextDirection, TextOverflow, TextWrap,
+    TextDirection, TextOverflow, TextVerticalAlign, TextWrap,
 };
 
 pub const VIEWPORT: (u16, u16) = (1024, 720);
@@ -397,6 +397,16 @@ fn plain_paragraph() -> ParagraphStyle {
     }
 }
 
+fn centered_label() -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: TextWrap::NoWrap,
+        align: TextAlign::Center,
+        vertical_align: TextVerticalAlign::Center,
+        max_lines: Some(1),
+        ..ParagraphStyle::default()
+    }
+}
+
 fn features_off() -> ParagraphStyle {
     ParagraphStyle {
         wrap: TextWrap::NoWrap,
@@ -461,7 +471,8 @@ pub fn build_widgets() {
                     border_radius: 15,
                     font: UI,
                     font_size: 12,
-                    text_color: CYAN
+                    text_color: CYAN,
+                    paragraph: centered_label()
                 )
             }
             Row (
@@ -786,7 +797,8 @@ pub fn build_widgets() {
                             border_radius: 8,
                             font: UI,
                             font_size: 10,
-                            text_color: CYAN
+                            text_color: CYAN,
+                            paragraph: centered_label()
                         ) on Tap { TypographyAction::CycleWrap.publish(&wrap_action); }
                         Text (
                             id: "typography_align",
@@ -799,7 +811,8 @@ pub fn build_widgets() {
                             border_radius: 8,
                             font: UI,
                             font_size: 10,
-                            text_color: BLUE
+                            text_color: BLUE,
+                            paragraph: centered_label()
                         ) on Tap { TypographyAction::CycleAlign.publish(&align_action); }
                         Text (
                             id: "typography_overflow",
@@ -812,7 +825,8 @@ pub fn build_widgets() {
                             border_radius: 8,
                             font: UI,
                             font_size: 10,
-                            text_color: GOLD
+                            text_color: GOLD,
+                            paragraph: centered_label()
                         ) on Tap { TypographyAction::ToggleOverflow.publish(&overflow_action); }
                     }
                 }
