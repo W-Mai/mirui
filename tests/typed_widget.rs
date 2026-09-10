@@ -151,6 +151,46 @@ mod tests {
     }
 
     #[test]
+    fn text_widget_reacts_to_paragraph_signal() {
+        use mirui::core::reactive::{Signal, flush_signal_dirty};
+        use mirui::ui::widgets::{ParagraphStyle, Text, TextAlign, TextOverflow, TextWrap};
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+        let paragraph = Signal::new(ParagraphStyle::default());
+        let paragraph_view = paragraph.clone();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Text (
+                "responsive text",
+                paragraph: ${ paragraph_view.get() }
+            ) {}
+        };
+
+        let entity = world.query::<Text>().collect()[0];
+        paragraph.set(ParagraphStyle {
+            wrap: TextWrap::Grapheme,
+            align: TextAlign::End,
+            overflow: TextOverflow::Ellipsis,
+            max_lines: Some(2),
+            ..ParagraphStyle::default()
+        });
+        flush_signal_dirty(&mut world);
+
+        let actual = world.get::<Text>(entity).unwrap().paragraph();
+        assert_eq!(actual.wrap, TextWrap::Grapheme);
+        assert_eq!(actual.align, TextAlign::End);
+        assert_eq!(actual.overflow, TextOverflow::Ellipsis);
+        assert_eq!(actual.max_lines, Some(2));
+    }
+
+    #[test]
     fn text_input_text_color_routes_to_field() {
         use mirui::ui::widgets::TextInput;
 

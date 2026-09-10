@@ -402,7 +402,7 @@ fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
     }
 }
 
-fn reactive_setter(attr: &str) -> Option<&'static str> {
+fn reactive_setter(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
         "text" => Some("reactive_set_text"),
         "bg_color" => Some("reactive_set_bg_color"),
@@ -410,6 +410,7 @@ fn reactive_setter(attr: &str) -> Option<&'static str> {
         "font_size" => Some("reactive_set_font_size"),
         "width" => Some("reactive_set_width"),
         "height" => Some("reactive_set_height"),
+        "paragraph" if widget == "Text" => Some("reactive_set_paragraph"),
         _ => None,
     }
 }
@@ -583,7 +584,7 @@ impl MiruiRune {
             // Must run before the Text / Component `text` routes below, or a
             // reactive `text` gets frozen as static content instead of bound.
             if attr.reactive {
-                match reactive_setter(&name) {
+                match reactive_setter(widget_name, &name) {
                     Some(setter) => {
                         reactive_binds.push(ReactiveBind {
                             setter: syn::Ident::new(setter, attr_span),

@@ -59,6 +59,15 @@ pub fn reactive_set_font_size(entity: Entity, value: u16) {
     });
 }
 
+pub fn reactive_set_paragraph(entity: Entity, value: crate::ui::widgets::text::ParagraphStyle) {
+    crate::core::reactive::with_world(|w| {
+        if let Some(text) = w.get_mut::<crate::ui::widgets::text::Text>(entity) {
+            text.set_paragraph(value);
+        }
+        w.insert(entity, Dirty);
+    });
+}
+
 pub fn reactive_set_width(entity: Entity, value: impl Into<Dimension>) {
     let dim = value.into();
     crate::core::reactive::with_world(|w| {
@@ -112,6 +121,25 @@ mod tests {
         with_world_scope(&mut world, || reactive_set_font_size(e, 18));
         let style = world.get::<Style>(e).unwrap();
         assert_eq!(style.font_size, Some(18));
+        assert!(world.get::<Dirty>(e).is_some());
+    }
+
+    #[test]
+    fn set_paragraph_updates_text_layout_input() {
+        use crate::ui::widgets::text::{ParagraphStyle, Text, TextAlign, TextWrap};
+
+        let mut world = World::new();
+        let e = WidgetBuilder::new(&mut world).id();
+        world.insert(e, Text::from("responsive text"));
+        let paragraph = ParagraphStyle {
+            wrap: TextWrap::Grapheme,
+            align: TextAlign::Center,
+            max_lines: Some(2),
+            ..ParagraphStyle::default()
+        };
+        with_world_scope(&mut world, || reactive_set_paragraph(e, paragraph.clone()));
+
+        assert_eq!(world.get::<Text>(e).unwrap().paragraph(), &paragraph);
         assert!(world.get::<Dirty>(e).is_some());
     }
 

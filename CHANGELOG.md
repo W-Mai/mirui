@@ -88,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Reactive paragraph binding.** `ui!` accepts Signal-backed `Text` paragraph styles so wrapping, alignment, overflow and shaping controls update the authoritative layout input.
 - **Typography Lab.** A responsive Gallery surface renders Latin ligatures and kerning, CJK metrics, Arabic joining and marks, Thai mark placement, mixed-direction fallback, and the coverage-to-SDF size ladder from borrowed MIRX font assets.
 - **Borrowed MIRX OpenType layout.** MIRX typefaces apply GSUB single, multiple, ligature, and chaining-context substitutions plus GPOS pair, cursive, mark-to-base, mark-to-ligature, and mark-to-mark positioning directly from bounded shaping tables into caller-owned glyph storage. LangSys selection, GDEF mark filtering, Arabic joining, and Thai decomposition retain explicit capability errors for unsupported semantics.
 - **MIRX text shaping source.** `text::mirx::MirxGlyphSource` exposes stable font and glyph identities, face metrics, cmap lookup, compact advances, shaping-table advances, and legacy pair kerning without copying FONT payload bytes. `typeface(ppem)` normalizes metrics, advances and positioning to Q24.8 pixels through the same checked scale path used by raster glyph placement.
