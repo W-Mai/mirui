@@ -440,4 +440,94 @@ mod tests {
 
         assert_eq!(root.children[0].rect.w, Fixed::from_int(60));
     }
+
+    #[test]
+    fn shrink_uses_scaled_base_sizes() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            width: Dimension::px(60),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(80),
+            shrink: Fixed::ONE,
+            ..Default::default()
+        }));
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(40),
+            shrink: Fixed::ONE,
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(60),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.children[0].rect.w, Fixed::from_int(40));
+        assert_eq!(root.children[1].rect.w, Fixed::from_int(20));
+        assert_eq!(root.children[1].rect.x, Fixed::from_int(40));
+    }
+
+    #[test]
+    fn shrink_redistributes_after_minimum_is_reached() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(80),
+            min_width: Dimension::px(70),
+            shrink: Fixed::ONE,
+            ..Default::default()
+        }));
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(80),
+            shrink: Fixed::ONE,
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.children[0].rect.w, Fixed::from_int(70));
+        assert_eq!(root.children[1].rect.w, Fixed::from_int(30));
+        assert_eq!(root.children[1].rect.x, Fixed::from_int(70));
+    }
+
+    #[test]
+    fn shrink_is_opt_in() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            root.add_child(LayoutNode::new(LayoutStyle {
+                width: Dimension::px(80),
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.children[0].rect.w, Fixed::from_int(80));
+        assert_eq!(root.children[1].rect.w, Fixed::from_int(80));
+        assert_eq!(root.children[1].rect.x, Fixed::from_int(80));
+    }
 }

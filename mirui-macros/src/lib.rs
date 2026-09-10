@@ -25,6 +25,7 @@ const LAYOUT_ATTRS: &[&str] = &[
     "min_height",
     "max_height",
     "grow",
+    "shrink",
     "direction",
     "justify",
     "align",
@@ -645,6 +646,9 @@ impl MiruiRune {
                 }
                 "grow" => {
                     layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) })
+                }
+                "shrink" => {
+                    layout_fields.push(quote! { shrink: mirui::types::Fixed::from_f32(#value) })
                 }
                 "direction" => {
                     user_set_direction = true;

@@ -291,6 +291,34 @@ mod tests {
     }
 
     #[test]
+    fn shrink_routes_to_layout() {
+        use mirui::types::Fixed;
+        use mirui::ui::Style;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View (shrink: 0.5) {}
+        };
+
+        let entity = world
+            .query::<Style>()
+            .collect()
+            .into_iter()
+            .find(|entity| *entity != root)
+            .unwrap();
+        let layout = world.get::<Style>(entity).unwrap().layout;
+        assert_eq!(layout.shrink, Fixed::HALF);
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());

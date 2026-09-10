@@ -96,7 +96,30 @@ fn compute_node(
         if child.style.position == Position::Absolute {
             continue;
         }
-        total_main += child_size(child, is_row, main_size, cross_size, flex_unit).0;
+        total_main += base_main_size(child, is_row, main_size, flex_unit);
+    }
+    let shrink_fraction = resolve_shrink_fraction(
+        &node.children,
+        is_row,
+        main_size,
+        flex_unit,
+        (total_main - main_size).max(Fixed::ZERO),
+    );
+
+    total_main = gap_total;
+    for child in &node.children {
+        if child.style.position == Position::Absolute {
+            continue;
+        }
+        total_main += child_size(
+            child,
+            is_row,
+            main_size,
+            cross_size,
+            flex_unit,
+            shrink_fraction,
+        )
+        .0;
     }
 
     let free_space = (main_size - total_main).max(Fixed::ZERO);
@@ -150,7 +173,14 @@ fn compute_node(
             continue;
         }
 
-        let (m, c) = child_size(child, is_row, main_size, cross_size, flex_unit);
+        let (m, c) = child_size(
+            child,
+            is_row,
+            main_size,
+            cross_size,
+            flex_unit,
+            shrink_fraction,
+        );
 
         let cross_offset = match node.style.align {
             AlignItems::FlexStart | AlignItems::Stretch => Fixed::ZERO,
@@ -175,16 +205,19 @@ fn child_size(
     main_size: Fixed,
     cross_size: Fixed,
     flex_unit: Fixed,
+    shrink_fraction: Fixed,
 ) -> (Fixed, Fixed) {
-    let main = if flexible(child, is_row) {
-        constrain_main(child, is_row, flex_unit * child.style.grow, main_size)
-    } else {
+    let base_main = base_main_size(child, is_row, main_size, flex_unit);
+    let shrink_weight = base_main * child.style.shrink.max(Fixed::ZERO);
+    let main = if shrink_weight > Fixed::ZERO && shrink_fraction > Fixed::ZERO {
         constrain_main(
             child,
             is_row,
-            natural_main_size(child, is_row, main_size).unwrap_or(Fixed::ZERO),
+            (base_main - shrink_weight * shrink_fraction).max(Fixed::ZERO),
             main_size,
         )
+    } else {
+        base_main
     };
 
     let (cross_dimension, min_cross, max_cross, cross_intrinsic) = if is_row {
@@ -210,6 +243,77 @@ fn child_size(
         cross_intrinsic,
     );
     (main, cross)
+}
+
+fn base_main_size(child: &LayoutNode, is_row: bool, main_size: Fixed, flex_unit: Fixed) -> Fixed {
+    if flexible(child, is_row) {
+        constrain_main(child, is_row, flex_unit * child.style.grow, main_size)
+    } else {
+        constrain_main(
+            child,
+            is_row,
+            natural_main_size(child, is_row, main_size).unwrap_or(Fixed::ZERO),
+            main_size,
+        )
+    }
+}
+
+fn resolve_shrink_fraction(
+    children: &[LayoutNode],
+    is_row: bool,
+    main_size: Fixed,
+    flex_unit: Fixed,
+    overflow: Fixed,
+) -> Fixed {
+    if overflow <= Fixed::ZERO {
+        return Fixed::ZERO;
+    }
+
+    let mut active_weight = Fixed::ZERO;
+    for child in children {
+        if child.style.position == Position::Absolute || child.style.shrink <= Fixed::ZERO {
+            continue;
+        }
+        let base = base_main_size(child, is_row, main_size, flex_unit);
+        let (min, _) = main_bounds(child, is_row, main_size);
+        if base > min {
+            active_weight += base * child.style.shrink;
+        }
+    }
+    if active_weight <= Fixed::ZERO {
+        return Fixed::ZERO;
+    }
+
+    let mut fraction = overflow / active_weight;
+    for _ in 0..children.len() {
+        let mut frozen_reduction = Fixed::ZERO;
+        active_weight = Fixed::ZERO;
+        for child in children {
+            if child.style.position == Position::Absolute || child.style.shrink <= Fixed::ZERO {
+                continue;
+            }
+            let base = base_main_size(child, is_row, main_size, flex_unit);
+            let (min, _) = main_bounds(child, is_row, main_size);
+            if base <= min {
+                continue;
+            }
+            let weight = base * child.style.shrink;
+            if base - weight * fraction < min {
+                frozen_reduction += base - min;
+            } else {
+                active_weight += weight;
+            }
+        }
+        if active_weight <= Fixed::ZERO {
+            break;
+        }
+        let next = (overflow - frozen_reduction).max(Fixed::ZERO) / active_weight;
+        if next == fraction {
+            break;
+        }
+        fraction = next;
+    }
+    fraction
 }
 
 fn resolve_flex_unit(

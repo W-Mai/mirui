@@ -51,6 +51,7 @@ pub struct LayoutStyle {
     pub min_height: Dimension,
     pub max_height: Dimension,
     pub grow: Fixed,
+    pub shrink: Fixed,
     pub position: Position,
     pub left: Dimension,
     pub top: Dimension,
@@ -91,6 +92,11 @@ impl LayoutStyle {
 
     pub fn with_max_height(mut self, height: impl Into<Dimension>) -> Self {
         self.max_height = height.into();
+        self
+    }
+
+    pub fn with_shrink(mut self, shrink: impl Into<Fixed>) -> Self {
+        self.shrink = shrink.into();
         self
     }
 }
