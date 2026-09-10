@@ -174,6 +174,7 @@ basic_demo_scoped!(image, 480, 320);
 basic_demo!(image_flip, 480, 320);
 basic_demo_scoped!(input_feedback, 640, 360);
 basic_demo_scoped!(interactive_states, 720, 420);
+basic_demo_scoped!(layout_lab, 1024, 720);
 // Skip: LazyList pool warm-up needs multi-frame loop.
 // basic_demo_scoped!(lazy_list, 320, 320);
 basic_demo_scoped!(nested_scroll, 480, 400);

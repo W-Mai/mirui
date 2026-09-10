@@ -30,6 +30,7 @@ pub mod image;
 pub mod image_flip;
 pub mod input_feedback;
 pub mod interactive_states;
+pub mod layout_lab;
 pub mod lazy_list;
 pub mod life;
 pub mod multi_font;

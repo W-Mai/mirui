@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Layout Lab.** A single responsive composition demonstrates content sizing, growth limits, wrapping, bordered surfaces, absolute overlays, image placement, collection walking and conditional branches.
 - **Responsive Orbit Console.** Named composition sections use flex growth, wrapping and live render rectangles across compact portrait, compact landscape, tablet, desktop and wide viewports.
 - **Declarative text configuration.** `ui!` routes `font_stack` into inherited text styling and applies `paragraph` to the constructed `Text`, preserving fallback and shaping policy in declarative widget trees.
 - **Consistent accelerated text caches.** SDL GPU and Web Canvas rasterize fractional-DPR bounds after scaling, key entries by semantic font identity and revision, composite opacity outside cached pixels and retain affine glyph transforms.
