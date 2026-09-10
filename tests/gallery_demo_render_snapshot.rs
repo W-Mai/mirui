@@ -210,6 +210,11 @@ viewport_demo_ignored_noargs_scoped!(shapes, 480, 480);
 fn typography_lab_renders() {
     let (width, height) = mirui::gallery::demos::typography_lab::VIEWPORT;
     let colours = render_demo(width, height, |world, parent| {
+        let views = world
+            .resource_mut::<mirui::ui::view::ViewRegistry>()
+            .expect("view registry");
+        views.insert(mirui::gallery::demos::typography_lab::caret_overlay_view());
+        views.insert(mirui::gallery::demos::typography_lab::raster_contour_view());
         mirui::gallery::demos::typography_lab::register_fonts(world);
         let mut cx = mirui::ui::UiScope::new(world, parent);
         mirui::gallery::demos::typography_lab::build_widgets(&mut cx);

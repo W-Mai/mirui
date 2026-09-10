@@ -3,7 +3,11 @@ extern crate alloc;
 use alloc::format;
 
 use crate::prelude::*;
-use crate::render::font::{Font, FontManager, FontStack};
+use crate::render::command::DrawCommand;
+use crate::render::font::scalar::ScalarField;
+use crate::render::font::{Font, FontManager, FontStack, ResolvedFontStack};
+use crate::render::renderer::Renderer;
+use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::text::FontFeature;
 use crate::ui::widgets::{
     FontFeatures, LanguageTag, ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign,
@@ -24,6 +28,29 @@ const THAI: FontToken = FontToken::Custom("typography_thai");
 const FALLBACKS: [FontToken; 3] = [CJK, ARABIC, THAI];
 const FEATURES_OFF: [FontFeature; 2] =
     [FontFeature::new(*b"liga", 0), FontFeature::new(*b"kern", 0)];
+const LIVE_SAMPLE: &str = "office AVATAR · 中文字体排版 · مرحبا بالعالم · ภาษาไทย";
+
+#[derive(Default, crate::Component)]
+struct CaretOverlay {
+    target: &'static str,
+}
+
+#[derive(crate::Component)]
+struct RasterContour {
+    font: FontToken,
+    character: char,
+    ppem: u16,
+}
+
+impl Default for RasterContour {
+    fn default() -> Self {
+        Self {
+            font: UI,
+            character: 'S',
+            ppem: 56,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct TypographyState {
@@ -140,6 +167,193 @@ const BLUE: Color = Color::rgb(104, 161, 255);
 const GOLD: Color = Color::rgb(255, 197, 92);
 const VIOLET: Color = Color::rgb(177, 132, 255);
 
+fn active_render_path() -> &'static str {
+    if cfg!(all(feature = "web-canvas", target_arch = "wasm32")) {
+        "WEB CANVAS · RUN CACHE → A8 / SDF"
+    } else if cfg!(feature = "wgpu") {
+        "WGPU · GLYPH ATLAS → A8 / SDF"
+    } else if cfg!(feature = "sdl-gpu") {
+        "SDL GPU · RUN CACHE → A8 / SDF"
+    } else {
+        "SOFTWARE · GLYPH RUN → A8 / SDF"
+    }
+}
+
+fn draw_line(renderer: &mut dyn Renderer, ctx: &ViewCtx<'_>, p1: Point, p2: Point, color: Color) {
+    renderer.draw(
+        &DrawCommand::Line {
+            p1,
+            p2,
+            transform: ctx.transform,
+            color,
+            width: Fixed::ONE,
+            opa: 255,
+        },
+        ctx.clip,
+    );
+}
+
+fn caret_overlay_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let Some(target) = world
+        .get::<CaretOverlay>(entity)
+        .and_then(|overlay| world.find_by_id(overlay.target))
+    else {
+        return;
+    };
+    let (Some(style), Some(handle), Some(resource)) = (
+        world.get::<crate::ui::Style>(target),
+        world.get::<crate::text::TextLayoutHandle>(target).copied(),
+        world.resource::<crate::text::layout::TextLayoutResource>(),
+    ) else {
+        return;
+    };
+    let face_limit = resource.borrow().limits().fallback_faces;
+    let Ok(Some(fonts)) =
+        ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit)
+    else {
+        return;
+    };
+    let metrics = fonts.primary().metrics(fonts.primary().size);
+    let cache = resource.borrow();
+    let Some(layout) = cache.get(handle) else {
+        return;
+    };
+    for line in layout.lines() {
+        let baseline = rect.y + crate::types::fixed::from_textflow(line.origin().y);
+        draw_line(
+            renderer,
+            ctx,
+            Point {
+                x: rect.x,
+                y: baseline,
+            },
+            Point {
+                x: rect.x + rect.w,
+                y: baseline,
+            },
+            BORDER,
+        );
+    }
+    for caret in layout.carets() {
+        let x = rect.x + crate::types::fixed::from_textflow(caret.position.x);
+        if x < rect.x || x > rect.x + rect.w {
+            continue;
+        }
+        let baseline = rect.y + crate::types::fixed::from_textflow(caret.position.y);
+        draw_line(
+            renderer,
+            ctx,
+            Point {
+                x,
+                y: baseline - metrics.ascender,
+            },
+            Point {
+                x,
+                y: baseline - metrics.ascender + metrics.line_height,
+            },
+            if caret.bidi_level & 1 == 0 {
+                CYAN
+            } else {
+                VIOLET
+            },
+        );
+    }
+}
+
+fn contour_color(value: Fixed) -> Color {
+    match crate::types::fixed::to_textflow(value).clamp(0, 256) {
+        0..=63 => Color::rgb(15, 28, 46),
+        64..=111 => Color::rgb(46, 86, 142),
+        112..=144 => GOLD,
+        145..=207 => Color::rgb(44, 153, 153),
+        _ => CYAN,
+    }
+}
+
+fn raster_contour_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let (Some(spec), Some(manager)) = (
+        world.get::<RasterContour>(entity),
+        world.resource::<FontManager>(),
+    ) else {
+        return;
+    };
+    let font = manager.resolve(spec.font.cache_key());
+    let Some(raster) = font
+        .map_char(spec.character)
+        .and_then(|glyph| font.raster(glyph, spec.ppem))
+    else {
+        return;
+    };
+    let Some(region) = raster.region else {
+        return;
+    };
+    let bits = match raster.representation.kind() {
+        mirx::font::FontRepresentationKind::Coverage { bits }
+        | mirx::font::FontRepresentationKind::SignedDistance { bits, .. } => bits,
+        _ => return,
+    };
+    let Some(field) = ScalarField::new(
+        raster.surface.samples(),
+        raster.surface.stride(),
+        region,
+        bits,
+    ) else {
+        return;
+    };
+    let width = i32::try_from(field.width()).unwrap_or(i32::MAX).max(1);
+    let height = i32::try_from(field.height()).unwrap_or(i32::MAX).max(1);
+    let cell = (rect.w.to_int() / width)
+        .min(rect.h.to_int() / height)
+        .max(1);
+    let grid_width = Fixed::from_int(width * cell);
+    let grid_height = Fixed::from_int(height * cell);
+    let origin = Point {
+        x: rect.x + (rect.w - grid_width) / Fixed::from_int(2),
+        y: rect.y + (rect.h - grid_height) / Fixed::from_int(2),
+    };
+    let extent = Fixed::from_int((cell - 1).max(1));
+    for y in 0..height {
+        for x in 0..width {
+            renderer.draw(
+                &DrawCommand::Fill {
+                    area: Rect {
+                        x: origin.x + Fixed::from_int(x * cell),
+                        y: origin.y + Fixed::from_int(y * cell),
+                        w: extent,
+                        h: extent,
+                    },
+                    transform: ctx.transform,
+                    quad: None,
+                    color: contour_color(field.sample(x, y)),
+                    radius: Fixed::ZERO,
+                    opa: 255,
+                },
+                ctx.clip,
+            );
+        }
+    }
+}
+
+pub fn caret_overlay_view() -> View {
+    View::new("CaretOverlay", 61, caret_overlay_render)
+}
+
+pub fn raster_contour_view() -> View {
+    View::new("RasterContour", 61, raster_contour_render)
+}
+
 fn font(bytes: &'static [u8], family: &'static str) -> Font {
     Font::from_mirx(family, 24, bytes, &mirx::reader::PayloadLimits::HOST)
         .expect("Typography Lab font")
@@ -190,6 +404,7 @@ fn features_off() -> ParagraphStyle {
 pub fn build_widgets() {
     let state = Signal::new(TypographyState::default());
     let sample_width = state.clone();
+    let caret_width = state.clone();
     let sample_ppem = state.clone();
     let sample_paragraph = state.clone();
     let ppem_value = state.clone();
@@ -230,6 +445,7 @@ pub fn build_widgets() {
                     )
                 }
                 Text (
+                    id: "typography_panel_count",
                     "6 TEST PANELS",
                     width: 158,
                     height: 30,
@@ -410,22 +626,23 @@ pub fn build_widgets() {
                     border_radius: 14
                 ) {
                     Text ("COVERAGE / SDF", font: UI, font_size: 12, text_color: GOLD)
-                    Row (height: 66, align: AlignItems::Center, column_gap: 12) {
-                        Text ("Aa", font: UI, font_size: 11, text_color: MUTED)
-                        Text ("Aa", font: UI, font_size: 22, text_color: TEXT)
-                        Text ("Aa", font: UI, font_size: 38, text_color: CYAN)
-                        Text ("Aa", font: UI, font_size: 56, text_color: BLUE)
-                    }
-                    Text (
-                        "exact A8 sizes → bounded distance field",
+                    RasterContour (
+                        id: "typography_contour",
                         font: UI,
-                        font_size: 13,
+                        character: 'S',
+                        ppem: 56u16,
+                        height: 88
+                    )
+                    Text (
+                        "midpoint contour · actual packed A8 samples",
+                        font: UI,
+                        font_size: 11,
                         text_color: MUTED
                     )
                     Text (
-                        "missing scalar 10FFFF uses .notdef",
+                        active_render_path(),
                         font: UI,
-                        font_size: 12,
+                        font_size: 10,
                         text_color: VIOLET,
                         paragraph: plain_paragraph()
                     )
@@ -443,18 +660,32 @@ pub fn build_widgets() {
             ) {
                 Column (grow: 1.0, row_gap: 6) {
                     Text ("LIVE PARAGRAPH", font: UI, font_size: 12, text_color: CYAN)
+                    View (grow: 1.0, height: 78) {
+                        Text (
+                            id: "typography_live_sample",
+                            LIVE_SAMPLE,
+                            position: Position::Absolute,
+                            left: 0,
+                            top: 0,
+                            width: ${ sample_width.get().width },
+                            height: 78,
+                            font_stack: mixed_stack(),
+                            font_size: ${ sample_ppem.get().ppem },
+                            text_color: TEXT,
+                            paragraph: ${ sample_paragraph.get().paragraph() }
+                        )
+                        CaretOverlay (
+                            id: "typography_carets",
+                            target: "typography_live_sample",
+                            position: Position::Absolute,
+                            left: 0,
+                            top: 0,
+                            width: ${ caret_width.get().width },
+                            height: 78
+                        )
+                    }
                     Text (
-                        id: "typography_live_sample",
-                        "office AVATAR · 中文字体排版 · مرحبا بالعالم · ภาษาไทย",
-                        width: ${ sample_width.get().width },
-                        height: 78,
-                        font_stack: mixed_stack(),
-                        font_size: ${ sample_ppem.get().ppem },
-                        text_color: TEXT,
-                        paragraph: ${ sample_paragraph.get().paragraph() }
-                    )
-                    Text (
-                        "Signal state → paragraph layout → shared positioned glyphs",
+                        "cyan LTR · violet RTL · lines are authoritative caret stops",
                         font: UI,
                         font_size: 11,
                         text_color: MUTED
@@ -563,6 +794,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_widget(caret_overlay_view());
+    app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
     app.compose(parent, build_widgets);
 }
@@ -573,13 +806,21 @@ mod tests {
     use crate::core::reactive::flush_signal_dirty;
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
+    use crate::ui::view::ViewRegistry;
     use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
     use crate::ui::{IdMap, UiScope};
 
     fn fixture() -> World {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
+        let mut views = ViewRegistry::with_builtins();
+        views.insert(caret_overlay_view());
+        views.insert(raster_contour_view());
+        world.insert_resource(views);
         world.insert_resource(crate::render::font::default_font_manager());
+        world.insert_resource(crate::text::layout::TextLayoutResource::new(
+            crate::text::TextLayoutLimits::EMBEDDED,
+        ));
         register_fonts(&mut world);
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
@@ -613,8 +854,25 @@ mod tests {
             "typography_thai",
             "typography_bidi",
             "typography_rasters",
+            "typography_contour",
+            "typography_carets",
         ] {
             assert!(world.find_by_id(id).is_some(), "missing {id}");
+        }
+    }
+
+    #[test]
+    fn labels_use_text_components() {
+        let world = fixture();
+
+        for id in [
+            "typography_panel_count",
+            "typography_wrap",
+            "typography_align",
+            "typography_overflow",
+        ] {
+            let entity = world.find_by_id(id).expect("label id");
+            assert!(world.get::<Text>(entity).is_some(), "{id} is not Text");
         }
     }
 
