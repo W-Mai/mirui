@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 
 gallery::register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console,        1024, 640),
+    ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab,       1024, 720),
 
     ("hello",                "hello",                "Basics",      hello,                480, 320),
     ("dsl",                  "dsl walk + if",        "Basics",      dsl,                  480, 320),

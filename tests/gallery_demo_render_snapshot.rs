@@ -207,6 +207,17 @@ viewport_demo_ignored_noargs!(flip_card, 480, 320);
 viewport_demo_ignored_noargs_scoped!(shapes, 480, 480);
 
 #[test]
+fn typography_lab_renders() {
+    let (width, height) = mirui::gallery::demos::typography_lab::VIEWPORT;
+    let colours = render_demo(width, height, |world, parent| {
+        mirui::gallery::demos::typography_lab::register_fonts(world);
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::typography_lab::build_widgets(&mut cx);
+    });
+    assert_renders("typography_lab", colours);
+}
+
+#[test]
 fn three_body_renders() {
     let cs = render_demo(480, 320, |world, parent| {
         let mut cx = mirui::ui::UiScope::new(world, parent);
