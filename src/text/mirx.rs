@@ -1,9 +1,10 @@
 //! Borrowed MIRX FONT access for the renderer-neutral textflow pipeline.
 
 use textflow::shaping::{
-    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource, ShapeError,
-    ShapeRequest, ShapedGlyph, SimpleTypeface, Typeface,
+    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource, ScriptProvider,
+    ScriptTypeface, ShapeError, ShapeRequest, ShapedGlyph, SimpleTypeface, Typeface,
 };
+use textflow::unicode::Script;
 
 #[derive(Clone, Copy, Debug)]
 /// Borrowed MIRX face data exposed through textflow's scalar font contract.
@@ -82,14 +83,15 @@ impl Typeface for MirxTypeface<'_, '_> {
     }
 
     fn covers(&self, grapheme: &str) -> Result<bool, FontAccessError> {
-        let mut characters = grapheme.chars();
-        let Some(character) = characters.next() else {
-            return Ok(false);
-        };
-        if characters.next().is_some() {
+        if grapheme.is_empty() {
             return Ok(false);
         }
-        Ok(self.source.glyph_for(character)?.is_some())
+        for character in grapheme.chars() {
+            if self.source.glyph_for(character)?.is_none() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn supports_complex_shaping(&self) -> bool {
@@ -102,6 +104,14 @@ impl Typeface for MirxTypeface<'_, '_> {
         output: &mut [ShapedGlyph],
     ) -> Result<usize, ShapeError> {
         let count = match self.source.shaping_data() {
+            Some(shaping) if matches!(request.script, Script::Arabic | Script::Thai) => {
+                let shaping = crate::text::opentype::OpenTypeShaping::new(shaping);
+                let scripts: [&dyn ScriptProvider; 2] =
+                    [&textflow::scripts::ARABIC, &textflow::scripts::THAI];
+                ScriptTypeface::new(self.source, &shaping)
+                    .with_scripts(&scripts)
+                    .shape_into(request, output)
+            }
             Some(shaping) => crate::text::opentype::shape(self.source, shaping, request, output),
             None => SimpleTypeface::new(self.source).shape_into(request, output),
         }?;
@@ -296,6 +306,8 @@ mod tests {
     use textflow::{bidi::Direction, unicode::Script};
 
     const FONT: &[u8] = include_bytes!("../gallery/demos/assets/misans_ui.mirx");
+    const ARABIC_FONT: &[u8] = include_bytes!("../gallery/demos/assets/typography_arabic.mirx");
+    const THAI_FONT: &[u8] = include_bytes!("../gallery/demos/assets/typography_thai.mirx");
 
     fn source() -> MirxGlyphSource<'static> {
         let reader = ::mirx::Reader::open(FONT).unwrap();
@@ -310,6 +322,19 @@ mod tests {
         MirxGlyphSource::new(FontId::new(17), face)
     }
 
+    fn source_from(bytes: &'static [u8], id: u64) -> MirxGlyphSource<'static> {
+        let reader = ::mirx::Reader::open(bytes).unwrap();
+        let chunk = reader
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == ::mirx::ChunkType::FONT)
+            .unwrap();
+        let face = chunk
+            .font(&::mirx::reader::PayloadLimits::HOST)
+            .unwrap()
+            .unwrap();
+        MirxGlyphSource::new(FontId::new(id), face)
+    }
+
     #[test]
     fn exposes_stable_identity_metrics_and_cmap() {
         let source = source();
@@ -320,6 +345,15 @@ mod tests {
         assert!(metrics.descender < 0);
         assert!(source.glyph_for('A').unwrap().is_some());
         assert!(source.glyph_for('\u{10ffff}').unwrap().is_none());
+    }
+
+    #[test]
+    fn covers_every_scalar_in_a_grapheme() {
+        let source = source_from(ARABIC_FONT, 18);
+        let typeface = source.typeface(48);
+
+        assert!(typeface.covers("مَ").unwrap());
+        assert!(!typeface.covers("م\u{10ffff}").unwrap());
     }
 
     #[test]
@@ -382,5 +416,61 @@ mod tests {
         assert!(glyphs[0].advance.x < source_advance * 24 / units_per_em);
         assert_eq!(typeface.ppem(), 24);
         assert!(glyphs.iter().all(|glyph| glyph.advance.x > 0));
+    }
+
+    #[test]
+    fn shapes_arabic_forms_marks_and_rtl_order_from_mirx() {
+        let source = source_from(ARABIC_FONT, 18);
+        let typeface = source.typeface(48);
+        let text = "مَرْحَبًا بِالْعَالَمِ";
+        let request =
+            ShapeRequest::new(text, 0..text.len(), Direction::RightToLeft, Script::Arabic);
+        let mut glyphs = [textflow::shaping::ShapedGlyph::default(); 32];
+        let count = typeface.shape_into(&request, &mut glyphs).unwrap();
+
+        assert_eq!(count, 22);
+        assert_eq!(glyphs[0].glyph_id(), GlyphId::new(46));
+        assert_eq!(glyphs[0].advance.x, 0);
+        assert_eq!(glyphs[0].offset, FlowPoint { x: 3219, y: -233 });
+        assert_eq!(glyphs[0].cluster, glyphs[1].cluster);
+        assert_eq!(glyphs[14].glyph_id(), GlyphId::new(44));
+        assert_eq!(glyphs[14].advance.x, 0);
+        assert_eq!(glyphs[14].offset, FlowPoint { x: -86, y: -4042 });
+        assert_eq!(glyphs[18].offset, FlowPoint { x: -135, y: -3944 });
+        assert_eq!(glyphs[19].offset, FlowPoint { x: -737, y: 0 });
+        assert_eq!(glyphs[21].glyph_id(), GlyphId::new(29));
+        assert!(
+            glyphs[..count]
+                .iter()
+                .filter(|glyph| matches!(glyph.glyph_id().value(), 44..=47))
+                .all(|glyph| glyph.advance.x == 0 && glyph.unsafe_to_break())
+        );
+    }
+
+    #[test]
+    fn shapes_thai_marks_and_decomposition_from_mirx() {
+        let source = source_from(THAI_FONT, 19);
+        let typeface = source.typeface(48);
+        let text = "สวัสดีครับ ภาษาไทย กำลังทดสอบ";
+        let request = ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Thai)
+            .with_language("th");
+        let mut glyphs = [textflow::shaping::ShapedGlyph::default(); 48];
+        let count = typeface.shape_into(&request, &mut glyphs).unwrap();
+
+        assert_eq!(count, 30);
+        assert_eq!(glyphs[0].glyph_id(), GlyphId::new(17));
+        assert_eq!(glyphs[0].advance.x, 7028);
+        assert_eq!(glyphs[2].glyph_id(), GlyphId::new(6));
+        assert_eq!(glyphs[2].offset, FlowPoint { x: 122, y: 0 });
+        assert_eq!(glyphs[8].offset, FlowPoint { x: 602, y: 0 });
+        assert_eq!(glyphs[20].glyph_id(), GlyphId::new(8));
+        assert_eq!(glyphs[20].offset, FlowPoint { x: -24, y: 0 });
+        assert_eq!(glyphs[20].cluster, glyphs[21].cluster);
+        assert_eq!(glyphs[23].offset, FlowPoint { x: -86, y: 0 });
+        assert!(
+            [2, 5, 8, 20, 23]
+                .into_iter()
+                .all(|index| glyphs[index].advance.x == 0 && glyphs[index].unsafe_to_break())
+        );
     }
 }
