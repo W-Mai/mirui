@@ -121,6 +121,16 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
     app
 }
 
+fn build_backend_parity_app(backend: gallery::ActiveSurface) -> WebApp {
+    let mut app = gallery::assemble_app(backend, gallery::ActiveFactory::default());
+    set_canvas_size(
+        gallery::backend_parity::WIDTH,
+        gallery::backend_parity::HEIGHT,
+    );
+    gallery::backend_parity::build(&mut app);
+    app
+}
+
 fn set_canvas_size(w: u16, h: u16) {
     if let Some(canvas) = web_sys::window()
         .and_then(|win| win.document())
@@ -149,9 +159,14 @@ pub fn start() {
 
     DARK.with(|d| d.set(prefers_dark()));
     let slug = read_demo_query().unwrap_or_else(|| DEFAULT_DEMO.to_string());
-    let demo = lookup_demo(&slug)
-        .unwrap_or_else(|| lookup_demo(DEFAULT_DEMO).expect("default demo registered"));
-    let app = build_app_for(demo, gallery::grab_canvas());
+    let backend = gallery::grab_canvas();
+    let app = if backend_parity_enabled() {
+        build_backend_parity_app(backend)
+    } else {
+        let demo = lookup_demo(&slug)
+            .unwrap_or_else(|| lookup_demo(DEFAULT_DEMO).expect("default demo registered"));
+        build_app_for(demo, backend)
+    };
     let cell = Rc::new(RefCell::new(Some(app)));
     APP.with(|slot| *slot.borrow_mut() = Some(cell.clone()));
     gallery::mirui::app::Runner::<gallery::ActiveSurface, gallery::ActiveFactory>::drive_animation_frame(cell);
@@ -200,6 +215,16 @@ fn read_demo_query() -> Option<String> {
         }
     }
     None
+}
+
+fn backend_parity_enabled() -> bool {
+    let Some(search) = web_sys::window().and_then(|window| window.location().search().ok()) else {
+        return false;
+    };
+    search.trim_start_matches('?').split('&').any(|pair| {
+        let mut parts = pair.splitn(2, '=');
+        parts.next() == Some("backend_parity") && parts.next() == Some("1")
+    })
 }
 
 #[wasm_bindgen]

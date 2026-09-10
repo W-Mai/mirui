@@ -21,6 +21,9 @@ pub mod prelude {
     pub use mirui::prelude::*;
 }
 
+#[doc(hidden)]
+pub mod backend_parity;
+
 pub use mirui;
 
 use mirui::app::{App, RendererFactory};

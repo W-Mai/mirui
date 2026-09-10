@@ -1202,6 +1202,11 @@
           }
           activeLink.scrollIntoView({ block: "nearest" });
         }
+        if (params.get("backend_parity") === "1") {
+          stageName.textContent = "Backend Parity";
+          initW = 640;
+          initH = 260;
+        }
         applyCanvasSize(initW, initH);
 
         // ── Resize ring ────────────────────────────────────────

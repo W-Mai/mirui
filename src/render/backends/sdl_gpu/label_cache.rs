@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
-use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
+use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_ScaleMode, SDL_Vertex};
 
 use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::render::SwRenderer;
@@ -269,6 +269,12 @@ fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTe
         .update(None, ctx.raster_buf, byte_stride)
         .map_err(|_| ())?;
     new_tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+    if unsafe {
+        sdl2_sys::SDL_SetTextureScaleMode(new_tex.raw(), SDL_ScaleMode::SDL_ScaleModeLinear)
+    } != 0
+    {
+        return Err(());
+    }
 
     // Erase the creator's borrow so the texture can sit inside `LruCache`.
     // Soundness: every texture is dropped before its creator because

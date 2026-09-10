@@ -1823,6 +1823,217 @@ mod glyph_tests {
     use super::*;
     use crate::render::font::{FontSurfaceId, GlyphSurface};
 
+    fn render_scalar_field(shader: ShaderKind, spread: u16) -> alloc::vec::Vec<u8> {
+        const WIDTH: u32 = 32;
+        const HEIGHT: u32 = 16;
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .unwrap();
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("mirui-glyph-parity-device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+            ..Default::default()
+        }))
+        .unwrap();
+        let atlas = device.create_texture_with_data(
+            &queue,
+            &wgpu::TextureDescriptor {
+                label: Some("mirui-glyph-parity-atlas"),
+                size: wgpu::Extent3d {
+                    width: 4,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &[0, 64, 192, 255],
+        );
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-glyph-parity-target"),
+            size: wgpu::Extent3d {
+                width: WIDTH,
+                height: HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let msaa = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-glyph-parity-msaa"),
+            size: wgpu::Extent3d {
+                width: WIDTH,
+                height: HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLES,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let viewport = ViewportUniform {
+            size: [WIDTH as f32, HEIGHT as f32],
+            _pad: [0.0; 2],
+        };
+        let glyph = GlyphUniform {
+            color: [1.0; 4],
+            spread_pad: [f32::from(spread), 0.0, 0.0, 0.0],
+        };
+        let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-glyph-parity-viewport"),
+            contents: bytemuck::bytes_of(&viewport),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let mut glyph_uniforms = [0u8; UNIFORM_ALIGN as usize];
+        glyph_uniforms[..core::mem::size_of::<GlyphUniform>()]
+            .copy_from_slice(bytemuck::bytes_of(&glyph));
+        let glyph_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-glyph-parity-uniform"),
+            contents: &glyph_uniforms,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let vertices = [
+            GlyphVertex {
+                pos: [0.0, 0.0],
+                uv: [0.0, 0.0],
+                uv_bounds: [0.0, 0.0, 1.0, 1.0],
+            },
+            GlyphVertex {
+                pos: [WIDTH as f32, 0.0],
+                uv: [1.0, 0.0],
+                uv_bounds: [0.0, 0.0, 1.0, 1.0],
+            },
+            GlyphVertex {
+                pos: [WIDTH as f32, HEIGHT as f32],
+                uv: [1.0, 1.0],
+                uv_bounds: [0.0, 0.0, 1.0, 1.0],
+            },
+            GlyphVertex {
+                pos: [0.0, HEIGHT as f32],
+                uv: [0.0, 1.0],
+                uv_bounds: [0.0, 0.0, 1.0, 1.0],
+            },
+        ];
+        let indices = [0u16, 1, 2, 0, 2, 3];
+        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-glyph-parity-vertices"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-glyph-parity-indices"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let mut pipelines = PipelineCache::new(&device);
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-glyph-parity-bind-group"),
+            layout: &pipelines.glyph_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &glyph_buf,
+                        offset: 0,
+                        size: core::num::NonZeroU64::new(
+                            core::mem::size_of::<GlyphUniform>() as u64
+                        ),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &atlas.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
+                        &wgpu::SamplerDescriptor {
+                            mag_filter: wgpu::FilterMode::Linear,
+                            min_filter: wgpu::FilterMode::Linear,
+                            ..Default::default()
+                        },
+                    )),
+                },
+            ],
+        });
+        let pipeline = pipelines.get_or_build(
+            &device,
+            PipelineKey {
+                shader,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                composite: CompositeMode::SourceOver,
+            },
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mirui-glyph-parity-encoder"),
+        });
+        {
+            let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let msaa_view = msaa.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mirui-glyph-parity-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &msaa_view,
+                    resolve_target: Some(&target_view),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[0]);
+            pass.set_vertex_buffer(0, vertex_buf.slice(..));
+            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        wgpu_readback_rgba8(
+            &device,
+            &queue,
+            &target,
+            wgpu::TextureFormat::Rgba8Unorm,
+            0,
+            0,
+            WIDTH,
+            HEIGHT,
+        )
+        .unwrap()
+    }
+
+    fn alpha_at(bytes: &[u8], x: usize, y: usize) -> u8 {
+        bytes[(y * 32 + x) * 4 + 3]
+    }
+
     #[test]
     fn glyph_buffer_ranges_are_disjoint_and_capacity_is_bounded() {
         let (first_vertices, first_indices) = GlyphBufferArena::ranges(0, 1).unwrap();
@@ -1896,6 +2107,22 @@ mod glyph_tests {
         assert_eq!(vertices[0].pos, [6.0, 9.0]);
         assert_eq!(vertices[2].pos, [10.0, 12.0]);
         assert_eq!(vertices[0].uv_bounds, [0.25, 0.125, 0.75, 0.5]);
+    }
+
+    #[test]
+    fn coverage_and_sdf_shaders_preserve_scalar_edges() {
+        for (shader, spread) in [(ShaderKind::GlyphCoverage, 0), (ShaderKind::GlyphSdf, 4)] {
+            let pixels = render_scalar_field(shader, spread);
+            let samples = [
+                alpha_at(&pixels, 2, 8),
+                alpha_at(&pixels, 10, 8),
+                alpha_at(&pixels, 20, 8),
+                alpha_at(&pixels, 29, 8),
+            ];
+            assert!(samples.windows(2).all(|pair| pair[0] <= pair[1]));
+            assert!(samples[0] < 32, "{shader:?} left edge {samples:?}");
+            assert!(samples[3] > 223, "{shader:?} right edge {samples:?}");
+        }
     }
 }
 

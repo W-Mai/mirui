@@ -133,6 +133,19 @@ name = "real_font_snapshot"
 path = "examples/tools/real_font_snapshot.rs"
 
 [[example]]
+name = "text_backend_sw_snapshot"
+path = "examples/tools/text_backend_sw_snapshot.rs"
+
+[[example]]
+name = "text_backend_sdl_snapshot"
+path = "examples/tools/text_backend_sdl_snapshot.rs"
+required-features = ["sdl-gpu"]
+
+[[example]]
+name = "text_backend_compare"
+path = "examples/tools/text_backend_compare.rs"
+
+[[example]]
 name = "sdf_cjk_snapshot"
 path = "examples/tools/sdf_cjk_snapshot.rs"
 
