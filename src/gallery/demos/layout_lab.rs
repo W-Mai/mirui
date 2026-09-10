@@ -356,20 +356,15 @@ fn compose_collection_card() -> Entity {
 #[compose]
 pub fn build_widgets() {
     //~focus-start
-    let shell = ui! {
+    ui! {
         Column (
             id: "layout_lab_shell",
             grow: 1.0,
             padding: Padding::all(18),
             row_gap: 12,
             bg_color: BACKGROUND
-        )
-    };
-    let mut shell_cx = cx.with_parent(shell);
-    compose_header(&mut shell_cx);
-    let grid = {
-        let cx = &mut shell_cx;
-        ui! {
+        ) {
+            compose_header ()
             Row (
                 id: "layout_lab_grid",
                 grow: 1.0,
@@ -377,14 +372,14 @@ pub fn build_widgets() {
                 align: AlignItems::FlexStart,
                 row_gap: 12,
                 column_gap: 12
-            )
+            ) {
+                compose_flex_card ()
+                compose_surface_card ()
+                compose_overlay_card ()
+                compose_collection_card ()
+            }
         }
     };
-    let mut grid_cx = shell_cx.with_parent(grid);
-    compose_flex_card(&mut grid_cx);
-    compose_surface_card(&mut grid_cx);
-    compose_overlay_card(&mut grid_cx);
-    compose_collection_card(&mut grid_cx);
     //~focus-end
 }
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reactive text configuration.** Signal-driven content updates preserve the existing paragraph policy, including horizontal and vertical alignment.
 - **Text box alignment.** `ParagraphStyle` supports explicit vertical alignment, and centered labels use shaped line width and measured text height instead of manual spacing or fixed offsets.
 - **Thai stacked-mark shaping.** The Gallery Thai font subset includes the base and tone-mark variants required by `ตั้ง`, with zero-advance vowel and tone placement preserved through MIRX shaping.
 - **Gallery SDF contours.** The bundled MiSans distance fields are generated from outline distance and non-zero winding, reducing curve stepping at large sizes.
@@ -19,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Nested declarative composition.** Lowercase `#[compose]` functions can appear directly inside `ui!` trees, receive the surrounding node as parent and accept positional arguments.
+- **Interaction Lab.** A signal-owned showcase combines tap counts, long press, drag, dynamic event suppression, input focus, user states, business-value controls, cursor feedback and a simulated timeline.
 - **Layout Lab.** A single responsive composition demonstrates content sizing, growth limits, wrapping, bordered surfaces, absolute overlays, image placement, collection walking and conditional branches.
 - **Responsive Orbit Console.** Named composition sections use flex growth, wrapping and live render rectangles across compact portrait, compact landscape, tablet, desktop and wide viewports.
 - **Declarative text configuration.** `ui!` routes `font_stack` into inherited text styling and applies `paragraph` to the constructed `Text`, preserving fallback and shaping policy in declarative widget trees.

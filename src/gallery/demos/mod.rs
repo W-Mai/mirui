@@ -29,6 +29,7 @@ pub mod icon;
 pub mod image;
 pub mod image_flip;
 pub mod input_feedback;
+pub mod interaction_lab;
 pub mod interactive_states;
 pub mod layout_lab;
 pub mod lazy_list;

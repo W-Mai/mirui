@@ -137,9 +137,8 @@ mod tests {
         build_widgets(&mut cx);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
-        // reactive branches mount after static siblings: [toggle, cycle, if/else, match]
         let branch_text = |w: &World| {
-            let branch = w.get::<Children>(col).unwrap().0[2];
+            let branch = w.get::<Children>(col).unwrap().0[1];
             w.get::<Text>(branch).unwrap().resolve(w).into_owned()
         };
         assert_eq!(branch_text(&world), "hidden — tap to show");
@@ -245,18 +244,16 @@ mod tests {
             let e = w.get::<Children>(col).unwrap().0[i];
             w.get::<Text>(e).unwrap().resolve(w).into_owned()
         };
-        // static-ordered: top(0), bottom(1), then the reactive branch appends(2)
         assert_eq!(text_at(&world, 0), "top");
-        assert_eq!(text_at(&world, 1), "bottom");
-        assert_eq!(text_at(&world, 2), "off");
+        assert_eq!(text_at(&world, 1), "off");
+        assert_eq!(text_at(&world, 2), "bottom");
 
         flag.set(true);
         flush_signal_dirty(&mut world);
-        // swap keeps the branch at its index; statics stay put
         assert_eq!(text_at(&world, 0), "top");
-        assert_eq!(text_at(&world, 1), "bottom");
+        assert_eq!(text_at(&world, 2), "bottom");
         assert_eq!(
-            text_at(&world, 2),
+            text_at(&world, 1),
             "on",
             "branch swapped in place, no reorder"
         );

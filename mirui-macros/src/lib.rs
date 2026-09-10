@@ -345,11 +345,20 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
 #[allow(clippy::large_enum_variant)]
 enum Cmd {
     Widget(WidgetCmd),
+    Compose(ComposeCmd),
     Iter(IterCmd),
     If(IfCmd),
     Niche(NicheCmd),
     Match(MatchCmd),
     CodeBlock(proc_macro2::TokenStream),
+}
+
+struct ComposeCmd {
+    function: syn::Ident,
+    var: syn::Ident,
+    args: Vec<syn::Expr>,
+    errors: Vec<proc_macro2::TokenStream>,
+    id_lookups: Vec<(syn::Ident, String)>,
 }
 
 struct OnCmd {
@@ -768,11 +777,37 @@ impl MiruiRune {
     ) -> proc_macro2::TokenStream {
         match cmd {
             Cmd::Widget(w) => Self::emit_widget(w, world),
+            Cmd::Compose(c) => Self::emit_compose(c, world, parent_var),
             Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
             Cmd::Niche(n) => Self::emit_niche(n, world, parent_var),
             Cmd::Match(m) => Self::emit_match(m, world, parent_var),
             Cmd::CodeBlock(ts) => quote! { #ts },
+        }
+    }
+
+    fn emit_compose(
+        cmd: &ComposeCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let function = &cmd.function;
+        let var = &cmd.var;
+        let args = &cmd.args;
+        let errors = &cmd.errors;
+        let id_lookups = cmd.id_lookups.iter().map(|(ident, key)| {
+            quote! {
+                let #ident = mirui::ecs::World::find_by_id(&*(#world), #key)
+                    .expect(concat!("ui!: id '", #key, "' not found in IdMap"));
+            }
+        });
+        quote! {
+            #(#errors)*
+            let #var: mirui::ecs::Entity = {
+                #(#id_lookups)*
+                let mut __compose_cx = mirui::ui::UiScope::new(#world, #parent_var);
+                #function(&mut __compose_cx #(, #args)*)
+            };
         }
     }
 
@@ -940,38 +975,17 @@ impl MiruiRune {
             });
         }
 
-        let var_ts = quote! { #var };
-        let mut child_vars = Vec::new();
-        let mut deferred_iters = Vec::new();
         let on_handlers: Vec<&OnCmd> = cmd.on_handlers.iter().collect();
-
-        for child in &cmd.children {
-            match child {
-                Cmd::Widget(w) => {
-                    tokens.extend(Self::emit_widget(w, world));
-                    child_vars.push(&w.var);
-                }
-                Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) | Cmd::Match(_) | Cmd::CodeBlock(_) => {
-                    deferred_iters.push(child);
-                }
-            }
-        }
-
-        // Create this widget with static children
         let layout_call = if layout_fields.is_empty() {
             quote! {}
         } else {
             quote! { .layout(mirui::ui::layout::LayoutStyle { #(#layout_fields,)* ..Default::default() }) }
         };
 
-        let child_calls: Vec<proc_macro2::TokenStream> =
-            child_vars.iter().map(|c| quote! { .child(#c) }).collect();
-
         tokens.extend(quote! {
             let #var = mirui::ui::builder::WidgetBuilder::new(#world)
                 #(#attrs)*
                 #layout_call
-                #(#child_calls)*
                 .id();
         });
 
@@ -1063,9 +1077,21 @@ impl MiruiRune {
             });
         }
 
-        // Now emit iter children — they attach dynamically to this widget
-        for iter_cmd in deferred_iters {
-            tokens.extend(Self::emit_cmd(iter_cmd, world, &var_ts));
+        let var_ts = quote! { #var };
+        for child in &cmd.children {
+            tokens.extend(Self::emit_cmd(child, world, &var_ts));
+            if let Cmd::Widget(widget) = child {
+                let child_var = &widget.var;
+                tokens.extend(quote! {
+                    {
+                        use mirui::ui::{Children, Parent};
+                        (#world).insert(#child_var, Parent(#var));
+                        if let Some(children) = (#world).get_mut::<Children>(#var) {
+                            children.0.push(#child_var);
+                        }
+                    }
+                });
+            }
         }
 
         tokens
@@ -1392,14 +1418,28 @@ impl MiruiRune {
         let mut root: Option<proc_macro2::TokenStream> = None;
         for child in body {
             stmts.extend(Self::emit_cmd(child, &w, &p));
-            if let Cmd::Widget(cw) = child {
-                let cv = &cw.var;
+            let child_var = match child {
+                Cmd::Widget(cw) => Some((&cw.var, false)),
+                Cmd::Compose(compose) => Some((&compose.var, true)),
+                _ => None,
+            };
+            if let Some((cv, already_attached)) = child_var {
                 if root.is_none() {
+                    let detach = already_attached.then(|| {
+                        quote! {
+                            if let Some(children) = (#w).get_mut::<mirui::ui::Children>(#p) {
+                                if let Some(index) = children.0.iter().position(|entity| *entity == #cv) {
+                                    children.0.remove(index);
+                                }
+                            }
+                        }
+                    });
                     stmts.extend(quote! {
+                        #detach
                         (#w).insert(#cv, mirui::ui::Parent(#p));
                     });
                     root = Some(quote! { #cv });
-                } else {
+                } else if !already_attached {
                     stmts.extend(quote! {
                         {
                             use mirui::ui::{Children, Parent};
@@ -1635,6 +1675,58 @@ impl DsRune for MiruiRune {
         children: &[DsTreeRef],
     ) {
         let kind = classify_widget_name(name);
+        let is_compose_call = kind == WidgetKind::IllegalLowercase
+            && attrs.iter().all(|attr| attr.name.is_none())
+            && enchants.is_empty()
+            && on_handlers.is_empty()
+            && children.is_empty();
+        if is_compose_call {
+            let mut args = Vec::new();
+            let mut errors = Vec::new();
+            let mut id_lookups = Vec::new();
+            for attr in attrs {
+                if let Some(attr_name) = &attr.name {
+                    errors.push(
+                        syn::Error::new(
+                            attr_name.span(),
+                            "compose calls accept positional arguments only",
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                }
+                if attr.reactive {
+                    errors.push(
+                        syn::Error::new(
+                            syn::spanned::Spanned::span(&attr.value),
+                            "compose call arguments cannot use reactive binding syntax",
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                }
+                let mut value = attr.value.clone();
+                syn::visit_mut::VisitMut::visit_expr_mut(
+                    &mut crate::visit_id::IdRewriter {
+                        captured: &mut id_lookups,
+                    },
+                    &mut value,
+                );
+                args.push(value);
+            }
+            let var = self.next_var();
+            self.stack
+                .last_mut()
+                .unwrap()
+                .push(Cmd::Compose(ComposeCmd {
+                    function: name.clone(),
+                    var,
+                    args,
+                    errors,
+                    id_lookups,
+                }));
+            return;
+        }
         let var = self.next_var();
         let mut parsed = self.parse_attrs(attrs, &name.to_string(), kind);
         if !parsed.user_set_direction {
@@ -1857,19 +1949,23 @@ impl DsRune for MiruiRune {
         // Attach top-level widgets to parent (iter attaches inside its own loop)
         let mut last_var = None;
         for cmd in root_cmds {
-            if let Cmd::Widget(w) = cmd {
-                let var = &w.var;
-                last_var = Some(var.clone());
-                tokens.extend(quote! {
-                    {
-                        use mirui::ui::{Children, Parent};
-                        let __seal_parent = #parent_entity;
-                        (#world).insert(#var, Parent(__seal_parent));
-                        if let Some(children) = (#world).get_mut::<Children>(__seal_parent) {
-                            children.0.push(#var);
+            match cmd {
+                Cmd::Widget(w) => {
+                    let var = &w.var;
+                    last_var = Some(var.clone());
+                    tokens.extend(quote! {
+                        {
+                            use mirui::ui::{Children, Parent};
+                            let __seal_parent = #parent_entity;
+                            (#world).insert(#var, Parent(__seal_parent));
+                            if let Some(children) = (#world).get_mut::<Children>(__seal_parent) {
+                                children.0.push(#var);
+                            }
                         }
-                    }
-                });
+                    });
+                }
+                Cmd::Compose(compose) => last_var = Some(compose.var.clone()),
+                _ => {}
             }
         }
 
@@ -1935,6 +2031,18 @@ pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///   }
 ///   ```
 ///
+///   Lowercase `#[compose]` functions can appear directly as tree nodes. Their
+///   returned root entity is attached at that position:
+///
+///   ```ignore
+///   ui! {
+///       Column (grow: 1.0) {
+///           compose_header()
+///           compose_card("Status")
+///       }
+///   };
+///   ```
+///
 ///   `world` and `parent` come from `cx.world_mut()` / `cx.parent()` by
 ///   default. The legacy header form `ui! { :( parent world :) X }` still
 ///   parses and takes precedence over the implicit `cx` lookup — useful
@@ -1942,8 +2050,8 @@ pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///   `#[compose]` fn.
 ///
 /// - **Fn-call form** (`ui!(func(args))`) rewrites a free-fn call to
-///   `func(cx, args)`, threading the enclosing scope's `cx` into the
-///   callee for you:
+///   `func(cx, args)`, threading the enclosing scope's `cx` into the callee
+///   when no surrounding DSL node supplies the parent:
 ///
 ///   ```ignore
 ///   #[compose]

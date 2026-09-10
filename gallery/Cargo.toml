@@ -166,6 +166,10 @@ name = "layout_lab_snapshot"
 path = "examples/tools/layout_lab_snapshot.rs"
 
 [[example]]
+name = "interaction_lab_snapshot"
+path = "examples/tools/interaction_lab_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 

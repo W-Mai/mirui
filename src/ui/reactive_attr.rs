@@ -25,7 +25,11 @@ impl<T: alloc::string::ToString> IntoText for T {
 pub fn reactive_set_text(entity: Entity, value: impl IntoText) {
     let text = value.into_text();
     crate::core::reactive::with_world(|w| {
-        w.insert(entity, crate::ui::widgets::text::Text::from(text));
+        if let Some(component) = w.get_mut::<crate::ui::widgets::text::Text>(entity) {
+            component.set_content(text);
+        } else {
+            w.insert(entity, crate::ui::widgets::text::Text::from(text));
+        }
         w.insert(entity, Dirty);
     });
 }
@@ -97,11 +101,20 @@ mod tests {
 
     #[test]
     fn set_text_mutates_component_and_marks_dirty() {
+        use crate::ui::widgets::text::{ParagraphStyle, Text, TextAlign, TextVerticalAlign};
+
         let mut world = World::new();
         let e = WidgetBuilder::new(&mut world).id();
+        let paragraph = ParagraphStyle {
+            align: TextAlign::Center,
+            vertical_align: TextVerticalAlign::Center,
+            ..ParagraphStyle::default()
+        };
+        world.insert(e, Text::from("before").with_paragraph(paragraph.clone()));
         with_world_scope(&mut world, || reactive_set_text(e, 42i32));
-        let text = world.get::<crate::ui::widgets::text::Text>(e).unwrap();
+        let text = world.get::<Text>(e).unwrap();
         assert_eq!(text.resolve(&world), "42");
+        assert_eq!(text.paragraph(), &paragraph);
         assert!(world.get::<Dirty>(e).is_some(), "attr change marks Dirty");
     }
 

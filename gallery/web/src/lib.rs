@@ -6,6 +6,7 @@ gallery::register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console,        1024, 640),
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab,           1024, 720),
     ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab,       1024, 720),
+    ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab,      1024, 720),
 
     ("hello",                "hello",                "Basics",      hello,                480, 320),
     ("dsl",                  "dsl walk + if",        "Basics",      dsl,                  480, 320),

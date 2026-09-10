@@ -1224,25 +1224,24 @@ fn compose_controls() -> Entity {
 
 #[compose]
 fn compose_inspector() -> Entity {
-    let inspector = ui! {
+    ui! {
         Column (
             id: "orbit_console_inspector",
             grow: 1.0,
             min_width: 170,
             min_height: Dimension::percent(48),
             row_gap: 8
-        )
-    };
-    let mut inspector_cx = cx.with_parent(inspector);
-    compose_signal_card(&mut inspector_cx);
-    compose_activity_card(&mut inspector_cx);
-    compose_controls(&mut inspector_cx);
-    inspector
+        ) {
+            compose_signal_card ()
+            compose_activity_card ()
+            compose_controls ()
+        }
+    }
 }
 
 #[compose]
 fn compose_workspace() -> Entity {
-    let workspace = ui! {
+    ui! {
         Row (
             id: "orbit_console_workspace",
             grow: 1.0,
@@ -1250,12 +1249,11 @@ fn compose_workspace() -> Entity {
             align: AlignItems::Stretch,
             row_gap: 10,
             column_gap: 12
-        )
-    };
-    let mut workspace_cx = cx.with_parent(workspace);
-    compose_orbit_stage(&mut workspace_cx);
-    compose_inspector(&mut workspace_cx);
-    workspace
+        ) {
+            compose_orbit_stage ()
+            compose_inspector ()
+        }
+    }
 }
 
 #[compose]
@@ -1288,7 +1286,7 @@ fn compose_status_strip() -> Entity {
 
 #[compose]
 pub fn build_widgets() {
-    let shell = ui! {
+    ui! {
         Column (
             id: "orbit_console_shell",
             width: Dimension::percent(100),
@@ -1298,12 +1296,12 @@ pub fn build_widgets() {
             clip_children: true
         ) [
             ConsoleBackdrop::new(),
-        ]
+        ] {
+            compose_header ()
+            compose_workspace ()
+            compose_status_strip ()
+        }
     };
-    let mut shell_cx = cx.with_parent(shell);
-    compose_header(&mut shell_cx);
-    compose_workspace(&mut shell_cx);
-    compose_status_strip(&mut shell_cx);
 }
 
 #[cfg(feature = "std")]

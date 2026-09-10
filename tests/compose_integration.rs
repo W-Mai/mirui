@@ -32,6 +32,26 @@ fn call_helper() {
     ui!(hello_only());
 }
 
+#[compose]
+fn titled_row(title: &'static str) -> Entity {
+    ui! {
+        Row () {
+            Text(title)
+        }
+    }
+}
+
+#[compose]
+fn nested_helpers() -> Entity {
+    ui! {
+        Column () {
+            titled_row("alpha")
+            Text("middle")
+            titled_row("beta")
+        }
+    }
+}
+
 #[test]
 fn ui_fn_call_form_injects_cx() {
     let mut world = World::new();
@@ -51,6 +71,32 @@ fn ui_fn_call_form_injects_cx() {
     for &t in &texts {
         assert_eq!(world.get::<Parent>(t).unwrap().0, root);
     }
+}
+
+#[test]
+fn compose_functions_are_tree_nodes() {
+    let mut world = World::new();
+    world.insert_resource(IdMap::new());
+    world.insert_resource(ViewRegistry::default());
+    let root = WidgetBuilder::new(&mut world).id();
+
+    let mut cx = UiScope::new(&mut world, root);
+    let column = nested_helpers(&mut cx);
+
+    assert_eq!(world.get::<Parent>(column).unwrap().0, root);
+    let children = &world.get::<mirui::ui::Children>(column).unwrap().0;
+    assert_eq!(children.len(), 3);
+    for &child in children {
+        assert_eq!(world.get::<Parent>(child).unwrap().0, column);
+    }
+    let first = world.get::<mirui::ui::Children>(children[0]).unwrap().0[0];
+    let last = world.get::<mirui::ui::Children>(children[2]).unwrap().0[0];
+    assert_eq!(world.get::<Text>(first).unwrap().resolve(&world), "alpha");
+    assert_eq!(
+        world.get::<Text>(children[1]).unwrap().resolve(&world),
+        "middle"
+    );
+    assert_eq!(world.get::<Text>(last).unwrap().resolve(&world), "beta");
 }
 
 #[test]
