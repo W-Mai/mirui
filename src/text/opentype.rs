@@ -194,8 +194,8 @@ fn apply_requested_layout(
     let script_list = table.offset16(4).ok_or_else(malformed)?;
     let feature_list = table.offset16(6).ok_or_else(malformed)?;
     let lookup_list = table.offset16(8).ok_or_else(malformed)?;
-    let Some(langsys) =
-        script_list.langsys(script_tag(request.shape().script), request.shape().language)?
+    let (script, legacy_script) = script_tags(request.shape().script);
+    let Some(langsys) = script_list.langsys(script, legacy_script, request.shape().language)?
     else {
         return Ok(LookupStatus::NotFound);
     };
@@ -350,6 +350,7 @@ fn apply_substitution_lookup_buffer(
             1 => apply_single_substitution(subtable, filter, request, glyphs)?,
             2 => apply_multiple_substitution(subtable, filter, request, glyphs)?,
             4 => apply_ligature_substitution(subtable, filter, request, glyphs)?,
+            5 => apply_context_substitution(subtable, lookup_list, filter, request, glyphs, depth)?,
             6 => apply_chained_substitution(subtable, lookup_list, filter, request, glyphs, depth)?,
             _ => {
                 return Err(ShapeError::UnsupportedFeature {
@@ -359,6 +360,213 @@ fn apply_substitution_lookup_buffer(
         }
     }
     Ok(())
+}
+
+fn apply_context_substitution(
+    table: Table<'_>,
+    lookup_list: Table<'_>,
+    filter: LookupFilter<'_>,
+    request: LookupRequest<'_, '_>,
+    glyphs: &mut GlyphBuffer<'_>,
+    depth: u8,
+) -> Result<(), ShapeError> {
+    match table.u16(0).ok_or_else(malformed)? {
+        2 => apply_class_context_substitution(table, lookup_list, filter, request, glyphs, depth),
+        3 => {
+            apply_coverage_context_substitution(table, lookup_list, filter, request, glyphs, depth)
+        }
+        _ => Err(ShapeError::UnsupportedFeature {
+            tag: request.feature(),
+        }),
+    }
+}
+
+fn apply_coverage_context_substitution(
+    table: Table<'_>,
+    lookup_list: Table<'_>,
+    filter: LookupFilter<'_>,
+    request: LookupRequest<'_, '_>,
+    glyphs: &mut GlyphBuffer<'_>,
+    depth: u8,
+) -> Result<(), ShapeError> {
+    let glyph_count = usize::from(table.u16(2).ok_or_else(malformed)?);
+    let record_count = usize::from(table.u16(4).ok_or_else(malformed)?);
+    if glyph_count == 0 {
+        return Err(malformed());
+    }
+    let records = 6usize
+        .checked_add(glyph_count.checked_mul(2).ok_or_else(malformed)?)
+        .ok_or_else(malformed)?;
+    let mut start = 0;
+    while start < glyphs.len() {
+        if !selected(request, glyphs, start)
+            || filter.ignores(glyphs.get(start).ok_or_else(malformed)?)?
+        {
+            start += 1;
+            continue;
+        }
+        let mut matches = true;
+        for input in 0..glyph_count {
+            let Some(slot) = included_at(glyphs, filter, start, input)? else {
+                matches = false;
+                break;
+            };
+            let coverage = table.offset16(6 + input * 2).ok_or_else(malformed)?;
+            matches &= covered(coverage, glyphs.get(slot).ok_or_else(malformed)?)?;
+        }
+        if matches {
+            SubstitutionRecords {
+                table,
+                offset: records,
+                count: record_count,
+                input_count: glyph_count,
+            }
+            .apply(
+                SubstitutionApplication {
+                    lookup_list,
+                    gdef: filter.gdef,
+                    request,
+                    depth: depth + 1,
+                },
+                filter,
+                glyphs,
+                start,
+            )?;
+        }
+        start += 1;
+    }
+    Ok(())
+}
+
+fn apply_class_context_substitution(
+    table: Table<'_>,
+    lookup_list: Table<'_>,
+    filter: LookupFilter<'_>,
+    request: LookupRequest<'_, '_>,
+    glyphs: &mut GlyphBuffer<'_>,
+    depth: u8,
+) -> Result<(), ShapeError> {
+    let coverage = table.offset16(2).ok_or_else(malformed)?;
+    let classes = table.offset16(4).ok_or_else(malformed)?;
+    let set_count = table.u16(6).ok_or_else(malformed)?;
+    let mut start = 0;
+    while start < glyphs.len() {
+        let first = glyphs.get(start).ok_or_else(malformed)?;
+        if !selected(request, glyphs, start) || filter.ignores(first)? || !covered(coverage, first)?
+        {
+            start += 1;
+            continue;
+        }
+        let class = class_index(classes, first.glyph_id().value())?;
+        if class >= set_count {
+            start += 1;
+            continue;
+        }
+        let set_offset = table
+            .u16(8 + usize::from(class) * 2)
+            .ok_or_else(malformed)?;
+        if set_offset == 0 {
+            start += 1;
+            continue;
+        }
+        let set = table.tail(usize::from(set_offset)).ok_or_else(malformed)?;
+        let rule_count = set.u16(0).ok_or_else(malformed)?;
+        for rule_index in 0..rule_count {
+            let rule = set
+                .offset16(2 + usize::from(rule_index) * 2)
+                .ok_or_else(malformed)?;
+            let glyph_count = usize::from(rule.u16(0).ok_or_else(malformed)?);
+            let record_count = usize::from(rule.u16(2).ok_or_else(malformed)?);
+            if glyph_count == 0 {
+                return Err(malformed());
+            }
+            let mut matches = true;
+            for input in 1..glyph_count {
+                let Some(slot) = included_at(glyphs, filter, start, input)? else {
+                    matches = false;
+                    break;
+                };
+                let expected = rule.u16(4 + (input - 1) * 2).ok_or_else(malformed)?;
+                let actual = class_index(
+                    classes,
+                    glyphs.get(slot).ok_or_else(malformed)?.glyph_id().value(),
+                )?;
+                if actual != expected {
+                    matches = false;
+                    break;
+                }
+            }
+            if !matches {
+                continue;
+            }
+            let records = 4usize
+                .checked_add(
+                    glyph_count
+                        .saturating_sub(1)
+                        .checked_mul(2)
+                        .ok_or_else(malformed)?,
+                )
+                .ok_or_else(malformed)?;
+            SubstitutionRecords {
+                table: rule,
+                offset: records,
+                count: record_count,
+                input_count: glyph_count,
+            }
+            .apply(
+                SubstitutionApplication {
+                    lookup_list,
+                    gdef: filter.gdef,
+                    request,
+                    depth: depth + 1,
+                },
+                filter,
+                glyphs,
+                start,
+            )?;
+            break;
+        }
+        start += 1;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct SubstitutionRecords<'a> {
+    table: Table<'a>,
+    offset: usize,
+    count: usize,
+    input_count: usize,
+}
+
+impl SubstitutionRecords<'_> {
+    fn apply(
+        self,
+        application: SubstitutionApplication<'_, '_, '_>,
+        filter: LookupFilter<'_>,
+        glyphs: &mut GlyphBuffer<'_>,
+        start: usize,
+    ) -> Result<(), ShapeError> {
+        for record in 0..self.count {
+            let offset = self
+                .offset
+                .checked_add(record.checked_mul(4).ok_or_else(malformed)?)
+                .ok_or_else(malformed)?;
+            let sequence_index = usize::from(self.table.u16(offset).ok_or_else(malformed)?);
+            if sequence_index >= self.input_count {
+                return Err(malformed());
+            }
+            let lookup_index = self.table.u16(offset + 2).ok_or_else(malformed)?;
+            let target =
+                included_at(glyphs, filter, start, sequence_index)?.ok_or_else(malformed)?;
+            application.apply_at(
+                lookup_at(application.lookup_list, lookup_index)?,
+                glyphs,
+                target,
+            )?;
+        }
+        Ok(())
+    }
 }
 
 fn apply_single_substitution(
@@ -557,11 +765,25 @@ fn apply_chained_substitution(
     glyphs: &mut GlyphBuffer<'_>,
     depth: u8,
 ) -> Result<(), ShapeError> {
-    if table.u16(0) != Some(3) {
-        return Err(ShapeError::UnsupportedFeature {
+    match table.u16(0).ok_or_else(malformed)? {
+        2 => apply_class_chained_substitution(table, lookup_list, filter, request, glyphs, depth),
+        3 => {
+            apply_coverage_chained_substitution(table, lookup_list, filter, request, glyphs, depth)
+        }
+        _ => Err(ShapeError::UnsupportedFeature {
             tag: request.feature(),
-        });
+        }),
     }
+}
+
+fn apply_coverage_chained_substitution(
+    table: Table<'_>,
+    lookup_list: Table<'_>,
+    filter: LookupFilter<'_>,
+    request: LookupRequest<'_, '_>,
+    glyphs: &mut GlyphBuffer<'_>,
+    depth: u8,
+) -> Result<(), ShapeError> {
     let context = ChainedContext::parse(table)?;
 
     let mut start = 0;
@@ -592,6 +814,165 @@ fn apply_chained_substitution(
         start += 1;
     }
     Ok(())
+}
+
+fn apply_class_chained_substitution(
+    table: Table<'_>,
+    lookup_list: Table<'_>,
+    filter: LookupFilter<'_>,
+    request: LookupRequest<'_, '_>,
+    glyphs: &mut GlyphBuffer<'_>,
+    depth: u8,
+) -> Result<(), ShapeError> {
+    let coverage = table.offset16(2).ok_or_else(malformed)?;
+    let backtrack_classes = table.offset16(4).ok_or_else(malformed)?;
+    let input_classes = table.offset16(6).ok_or_else(malformed)?;
+    let lookahead_classes = table.offset16(8).ok_or_else(malformed)?;
+    let set_count = table.u16(10).ok_or_else(malformed)?;
+
+    let mut start = 0;
+    while start < glyphs.len() {
+        let first = glyphs.get(start).ok_or_else(malformed)?;
+        if !selected(request, glyphs, start) || filter.ignores(first)? || !covered(coverage, first)?
+        {
+            start += 1;
+            continue;
+        }
+        let class = class_index(input_classes, first.glyph_id().value())?;
+        if class >= set_count {
+            start += 1;
+            continue;
+        }
+        let set_offset = table
+            .u16(12 + usize::from(class) * 2)
+            .ok_or_else(malformed)?;
+        if set_offset == 0 {
+            start += 1;
+            continue;
+        }
+        let set = table.tail(usize::from(set_offset)).ok_or_else(malformed)?;
+        let rule_count = set.u16(0).ok_or_else(malformed)?;
+        for rule_index in 0..rule_count {
+            let rule = set
+                .offset16(2 + usize::from(rule_index) * 2)
+                .ok_or_else(malformed)?;
+            let Some((records, input_count)) = class_chained_rule_records(
+                rule,
+                backtrack_classes,
+                input_classes,
+                lookahead_classes,
+                filter,
+                glyphs,
+                start,
+            )?
+            else {
+                continue;
+            };
+            let record_count = usize::from(rule.u16(records).ok_or_else(malformed)?);
+            for record in 0..record_count {
+                let offset = records + 2 + record * 4;
+                let sequence_index = usize::from(rule.u16(offset).ok_or_else(malformed)?);
+                if sequence_index >= input_count {
+                    return Err(malformed());
+                }
+                let lookup_index = rule.u16(offset + 2).ok_or_else(malformed)?;
+                let target =
+                    included_at(glyphs, filter, start, sequence_index)?.ok_or_else(malformed)?;
+                SubstitutionApplication {
+                    lookup_list,
+                    gdef: filter.gdef,
+                    request,
+                    depth: depth + 1,
+                }
+                .apply_at(lookup_at(lookup_list, lookup_index)?, glyphs, target)?;
+            }
+            break;
+        }
+        start += 1;
+    }
+    Ok(())
+}
+
+fn class_chained_rule_records(
+    rule: Table<'_>,
+    backtrack_classes: Table<'_>,
+    input_classes: Table<'_>,
+    lookahead_classes: Table<'_>,
+    filter: LookupFilter<'_>,
+    glyphs: &GlyphBuffer<'_>,
+    start: usize,
+) -> Result<Option<(usize, usize)>, ShapeError> {
+    let backtrack_count = usize::from(rule.u16(0).ok_or_else(malformed)?);
+    let mut slot = start;
+    for index in 0..backtrack_count {
+        let Some(previous) = previous_included(glyphs, filter, slot)? else {
+            return Ok(None);
+        };
+        let expected = rule.u16(2 + index * 2).ok_or_else(malformed)?;
+        let actual = class_index(
+            backtrack_classes,
+            glyphs
+                .get(previous)
+                .ok_or_else(malformed)?
+                .glyph_id()
+                .value(),
+        )?;
+        if actual != expected {
+            return Ok(None);
+        }
+        slot = previous;
+    }
+
+    let input_count_offset = 2 + backtrack_count * 2;
+    let input_count = usize::from(rule.u16(input_count_offset).ok_or_else(malformed)?);
+    if input_count == 0 {
+        return Err(malformed());
+    }
+    for input in 1..input_count {
+        let Some(input_slot) = included_at(glyphs, filter, start, input)? else {
+            return Ok(None);
+        };
+        let expected = rule
+            .u16(input_count_offset + 2 + (input - 1) * 2)
+            .ok_or_else(malformed)?;
+        let actual = class_index(
+            input_classes,
+            glyphs
+                .get(input_slot)
+                .ok_or_else(malformed)?
+                .glyph_id()
+                .value(),
+        )?;
+        if actual != expected {
+            return Ok(None);
+        }
+    }
+
+    let lookahead_count_offset = input_count_offset + 2 + input_count.saturating_sub(1) * 2;
+    let lookahead_count = usize::from(rule.u16(lookahead_count_offset).ok_or_else(malformed)?);
+    let Some(mut slot) = included_at(glyphs, filter, start, input_count - 1)? else {
+        return Ok(None);
+    };
+    for lookahead in 0..lookahead_count {
+        let Some(next) = next_included(glyphs, filter, slot + 1)? else {
+            return Ok(None);
+        };
+        let expected = rule
+            .u16(lookahead_count_offset + 2 + lookahead * 2)
+            .ok_or_else(malformed)?;
+        let actual = class_index(
+            lookahead_classes,
+            glyphs.get(next).ok_or_else(malformed)?.glyph_id().value(),
+        )?;
+        if actual != expected {
+            return Ok(None);
+        }
+        slot = next;
+    }
+    Ok(Some((
+        lookahead_count_offset + 2 + lookahead_count * 2,
+        input_count,
+    )))
 }
 
 #[derive(Clone, Copy)]
@@ -735,6 +1116,14 @@ impl SubstitutionApplication<'_, '_, '_> {
                     apply_multiple_at(subtable, glyphs, index)?;
                 }
                 4 => apply_ligature_buffer(subtable, filter, glyphs, index)?,
+                5 => apply_context_substitution(
+                    subtable,
+                    self.lookup_list,
+                    filter,
+                    self.request,
+                    glyphs,
+                    self.depth,
+                )?,
                 6 => apply_chained_substitution(
                     subtable,
                     self.lookup_list,
@@ -1235,7 +1624,8 @@ fn apply_layout(
     let script_list = table.offset16(4).ok_or_else(malformed)?;
     let feature_list = table.offset16(6).ok_or_else(malformed)?;
     let lookup_list = table.offset16(8).ok_or_else(malformed)?;
-    let Some(langsys) = script_list.langsys(script_tag(request.script), request.language)? else {
+    let (script, legacy_script) = script_tags(request.script);
+    let Some(langsys) = script_list.langsys(script, legacy_script, request.language)? else {
         return Ok(LayoutOutcome {
             glyph_count: count,
             kern_lookups: 0,
@@ -1693,19 +2083,19 @@ fn class_index(table: Table<'_>, glyph: u16) -> Result<u16, ShapeError> {
     }
 }
 
-fn script_tag(script: Script) -> [u8; 4] {
+fn script_tags(script: Script) -> ([u8; 4], Option<[u8; 4]>) {
     match script {
-        Script::Latin => *b"latn",
-        Script::Greek => *b"grek",
-        Script::Cyrillic => *b"cyrl",
-        Script::Hebrew => *b"hebr",
-        Script::Arabic => *b"arab",
-        Script::Thai => *b"thai",
-        Script::Devanagari => *b"deva",
-        Script::Han => *b"hani",
-        Script::Hiragana | Script::Katakana => *b"kana",
-        Script::Hangul => *b"hang",
-        Script::Common | Script::Inherited | Script::Unknown => *b"DFLT",
+        Script::Latin => (*b"latn", None),
+        Script::Greek => (*b"grek", None),
+        Script::Cyrillic => (*b"cyrl", None),
+        Script::Hebrew => (*b"hebr", None),
+        Script::Arabic => (*b"arab", None),
+        Script::Thai => (*b"thai", None),
+        Script::Devanagari => (*b"dev2", Some(*b"deva")),
+        Script::Han => (*b"hani", None),
+        Script::Hiragana | Script::Katakana => (*b"kana", None),
+        Script::Hangul => (*b"hang", None),
+        Script::Common | Script::Inherited | Script::Unknown => (*b"DFLT", None),
     }
 }
 
@@ -1756,9 +2146,11 @@ impl<'a> Table<'a> {
     fn langsys(
         self,
         requested: [u8; 4],
+        legacy: Option<[u8; 4]>,
         language: Option<&str>,
     ) -> Result<Option<Self>, ShapeError> {
         let count = self.u16(0).ok_or_else(malformed)?;
+        let mut legacy_fallback = None;
         let mut fallback = None;
         for index in 0..count {
             let record = 2 + usize::from(index) * 6;
@@ -1767,11 +2159,14 @@ impl<'a> Table<'a> {
             if tag == requested {
                 return script.language_system(language);
             }
+            if Some(tag) == legacy {
+                legacy_fallback = Some(script);
+            }
             if tag == *b"DFLT" {
                 fallback = Some(script);
             }
         }
-        match fallback {
+        match legacy_fallback.or(fallback) {
             Some(script) => script.language_system(language),
             None => Ok(None),
         }
@@ -1815,6 +2210,8 @@ fn language_tag(language: Option<&str>) -> Option<[u8; 4]> {
         Some(*b"URD ")
     } else if language.eq_ignore_ascii_case("th") {
         Some(*b"THA ")
+    } else if language.eq_ignore_ascii_case("hi") {
+        Some(*b"HIN ")
     } else {
         None
     }
@@ -1831,12 +2228,14 @@ mod tests {
     use textflow::shaping::{FlowPoint, GlyphId};
 
     #[test]
-    fn maps_thai_to_the_opentype_script_tag() {
-        assert_eq!(script_tag(Script::Thai), *b"thai");
+    fn maps_scripts_and_languages_to_opentype_tags() {
+        assert_eq!(script_tags(Script::Thai), (*b"thai", None));
+        assert_eq!(script_tags(Script::Devanagari), (*b"dev2", Some(*b"deva")));
         assert_eq!(language_tag(Some("ar")), Some(*b"ARA "));
         assert_eq!(language_tag(Some("fa-IR")), Some(*b"FAR "));
         assert_eq!(language_tag(Some("ur_PK")), Some(*b"URD "));
         assert_eq!(language_tag(Some("th")), Some(*b"THA "));
+        assert_eq!(language_tag(Some("hi-IN")), Some(*b"HIN "));
         assert_eq!(language_tag(Some("en")), None);
     }
 
@@ -1852,6 +2251,23 @@ mod tests {
 
     fn patch_u16(bytes: &mut [u8], offset: usize, value: usize) {
         bytes[offset..offset + 2].copy_from_slice(&u16::try_from(value).unwrap().to_be_bytes());
+    }
+
+    fn script_list(entries: &[([u8; 4], u16)]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write_u16(&mut bytes, u16::try_from(entries.len()).unwrap());
+        let records = bytes.len();
+        bytes.resize(records + entries.len() * 6, 0);
+        for (index, (tag, required_feature)) in entries.iter().enumerate() {
+            let record = records + index * 6;
+            bytes[record..record + 4].copy_from_slice(tag);
+            let offset = bytes.len();
+            patch_u16(&mut bytes, record + 4, offset);
+            for value in [4, 0, 0, *required_feature, 0] {
+                write_u16(&mut bytes, value);
+            }
+        }
+        bytes
     }
 
     fn ligature_lookup(first: u16, second: u16, replacement: u16) -> Vec<u8> {
@@ -1877,6 +2293,21 @@ mod tests {
             write_u16(&mut bytes, value);
         }
         bytes
+    }
+
+    #[test]
+    fn script_system_prefers_modern_then_legacy_then_default() {
+        let all = script_list(&[(*b"DFLT", 1), (*b"deva", 2), (*b"dev2", 3)]);
+        let legacy = script_list(&[(*b"DFLT", 1), (*b"deva", 2)]);
+        let default = script_list(&[(*b"DFLT", 1)]);
+
+        for (bytes, required) in [(&all, 3), (&legacy, 2), (&default, 1)] {
+            let langsys = Table::new(bytes)
+                .langsys(*b"dev2", Some(*b"deva"), Some("hi"))
+                .unwrap()
+                .unwrap();
+            assert_eq!(langsys.u16(2), Some(required));
+        }
     }
 
     fn layout_table(tag: [u8; 4], lookups: &[Vec<u8>], order: &[u16]) -> Vec<u8> {

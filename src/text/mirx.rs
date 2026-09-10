@@ -104,10 +104,18 @@ impl Typeface for MirxTypeface<'_, '_> {
         output: &mut [ShapedGlyph],
     ) -> Result<usize, ShapeError> {
         let count = match self.source.shaping_data() {
-            Some(shaping) if matches!(request.script, Script::Arabic | Script::Thai) => {
+            Some(shaping)
+                if matches!(
+                    request.script,
+                    Script::Arabic | Script::Devanagari | Script::Thai
+                ) =>
+            {
                 let shaping = crate::text::opentype::OpenTypeShaping::new(shaping);
-                let scripts: [&dyn ScriptProvider; 2] =
-                    [&textflow::scripts::ARABIC, &textflow::scripts::THAI];
+                let scripts: [&dyn ScriptProvider; 3] = [
+                    &textflow::scripts::ARABIC,
+                    &textflow::scripts::DEVANAGARI,
+                    &textflow::scripts::THAI,
+                ];
                 ScriptTypeface::new(self.source, &shaping)
                     .with_scripts(&scripts)
                     .shape_into(request, output)
@@ -302,11 +310,13 @@ fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use textflow::shaping::{ShapeRequest, Typeface};
+    use textflow::shaping::{ShapeRequest, TextRange, Typeface};
     use textflow::{bidi::Direction, unicode::Script};
 
     const FONT: &[u8] = include_bytes!("../gallery/demos/assets/misans_ui.mirx");
     const ARABIC_FONT: &[u8] = include_bytes!("../gallery/demos/assets/typography_arabic.mirx");
+    const DEVANAGARI_FONT: &[u8] =
+        include_bytes!("../gallery/demos/assets/typography_devanagari.mirx");
     const THAI_FONT: &[u8] = include_bytes!("../gallery/demos/assets/typography_thai.mirx");
 
     fn source() -> MirxGlyphSource<'static> {
@@ -471,6 +481,48 @@ mod tests {
             [2, 5, 8, 20, 23]
                 .into_iter()
                 .all(|index| glyphs[index].advance.x == 0 && glyphs[index].unsafe_to_break())
+        );
+    }
+
+    #[test]
+    fn shapes_devanagari_matra_and_conjuncts_from_mirx() {
+        let source = source_from(DEVANAGARI_FONT, 20);
+        let typeface = source.typeface(36);
+        let text = "किरण क्षत्रिय";
+        let request = ShapeRequest::new(
+            text,
+            0..text.len(),
+            Direction::LeftToRight,
+            Script::Devanagari,
+        )
+        .with_language("hi");
+        let mut glyphs = [textflow::shaping::ShapedGlyph::default(); 24];
+        let count = typeface.shape_into(&request, &mut glyphs).unwrap();
+
+        assert_eq!(count, 9);
+        assert_eq!(
+            glyphs[..count]
+                .iter()
+                .map(|glyph| glyph.glyph_id().value())
+                .collect::<Vec<_>>(),
+            [38, 3, 7, 4, 1, 9, 38, 19, 6]
+        );
+        assert_eq!(
+            glyphs[..count]
+                .iter()
+                .map(|glyph| glyph.advance.x)
+                .collect::<Vec<_>>(),
+            [2386, 7077, 3769, 6663, 2396, 6607, 2386, 5087, 5345]
+        );
+        assert_eq!(glyphs[0].cluster, TextRange::new(0, 6));
+        assert_eq!(glyphs[1].cluster, TextRange::new(0, 6));
+        assert_eq!(glyphs[5].cluster, TextRange::new(13, 22));
+        assert_eq!(glyphs[6].cluster, TextRange::new(22, 34));
+        assert_eq!(glyphs[7].cluster, TextRange::new(22, 34));
+        assert!(
+            [0, 1, 5, 6, 7]
+                .into_iter()
+                .all(|index| glyphs[index].unsafe_to_break())
         );
     }
 }

@@ -19,16 +19,18 @@ pub const VIEWPORT: (u16, u16) = (1024, 720);
 const UI_FONT: &[u8] = include_bytes!("assets/misans_ui.mirx");
 const CJK_FONT: &[u8] = include_bytes!("assets/typography_cjk.mirx");
 const ARABIC_FONT: &[u8] = include_bytes!("assets/typography_arabic.mirx");
+const DEVANAGARI_FONT: &[u8] = include_bytes!("assets/typography_devanagari.mirx");
 const THAI_FONT: &[u8] = include_bytes!("assets/typography_thai.mirx");
 
 const UI: FontToken = FontToken::Custom("typography_ui");
 const CJK: FontToken = FontToken::Custom("typography_cjk");
 const ARABIC: FontToken = FontToken::Custom("typography_arabic");
+const DEVANAGARI: FontToken = FontToken::Custom("typography_devanagari");
 const THAI: FontToken = FontToken::Custom("typography_thai");
-const FALLBACKS: [FontToken; 3] = [CJK, ARABIC, THAI];
+const FALLBACKS: [FontToken; 4] = [CJK, ARABIC, DEVANAGARI, THAI];
 const FEATURES_OFF: [FontFeature; 2] =
     [FontFeature::new(*b"liga", 0), FontFeature::new(*b"kern", 0)];
-const LIVE_SAMPLE: &str = "office AVATAR · 中文字体排版 · مرحبا بالعالم · ภาษาไทย";
+const LIVE_SAMPLE: &str = "office AVATAR · 中文字体排版 · مرحبا · किरण · ภาษาไทย";
 
 #[derive(Default, crate::Component)]
 struct CaretOverlay {
@@ -366,6 +368,10 @@ pub fn register_fonts(world: &mut World) {
     manager.add_static(UI.cache_key(), font(UI_FONT, "MiSans UI"));
     manager.add_static(CJK.cache_key(), font(CJK_FONT, "MiSans CJK"));
     manager.add_static(ARABIC.cache_key(), font(ARABIC_FONT, "MiSans Arabic"));
+    manager.add_static(
+        DEVANAGARI.cache_key(),
+        font(DEVANAGARI_FONT, "Noto Sans Devanagari"),
+    );
     manager.add_static(THAI.cache_key(), font(THAI_FONT, "Noto Sans Thai"));
 }
 
@@ -446,7 +452,7 @@ pub fn build_widgets() {
                 }
                 Text (
                     id: "typography_panel_count",
-                    "6 TEST PANELS",
+                    "7 TEST PANELS",
                     width: 158,
                     height: 30,
                     bg_color: PANEL_ALT,
@@ -468,7 +474,7 @@ pub fn build_widgets() {
                 Column (
                     id: "typography_latin",
                     grow: 1.0,
-                    min_width: 300,
+                    min_width: 220,
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 8,
@@ -504,7 +510,7 @@ pub fn build_widgets() {
                 Column (
                     id: "typography_cjk",
                     grow: 1.0,
-                    min_width: 300,
+                    min_width: 220,
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
@@ -532,7 +538,7 @@ pub fn build_widgets() {
                 Column (
                     id: "typography_arabic",
                     grow: 1.0,
-                    min_width: 300,
+                    min_width: 220,
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
@@ -560,7 +566,7 @@ pub fn build_widgets() {
                 Column (
                     id: "typography_thai",
                     grow: 1.0,
-                    min_width: 300,
+                    min_width: 220,
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
@@ -586,9 +592,37 @@ pub fn build_widgets() {
                     )
                 }
                 Column (
+                    id: "typography_devanagari",
+                    grow: 1.0,
+                    min_width: 220,
+                    height: 186,
+                    padding: Padding::all(14),
+                    row_gap: 9,
+                    bg_color: PANEL,
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 14
+                ) {
+                    Text ("DEVANAGARI · CONJUNCTS", font: UI, font_size: 12, text_color: GOLD)
+                    Text (
+                        id: "typography_devanagari_sample",
+                        "किरण · क्षत्रिय",
+                        font: DEVANAGARI,
+                        font_size: 27,
+                        text_color: TEXT,
+                        paragraph: paragraph(Some("hi"), TextDirection::LeftToRight)
+                    )
+                    Text (
+                        "pre-base matra · conjunct forms",
+                        font: UI,
+                        font_size: 13,
+                        text_color: MUTED
+                    )
+                }
+                Column (
                     id: "typography_bidi",
                     grow: 1.0,
-                    min_width: 300,
+                    min_width: 220,
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
@@ -616,7 +650,7 @@ pub fn build_widgets() {
                 Column (
                     id: "typography_rasters",
                     grow: 1.0,
-                    min_width: 300,
+                    min_width: 220,
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 7,
@@ -852,6 +886,7 @@ mod tests {
             "typography_cjk",
             "typography_arabic",
             "typography_thai",
+            "typography_devanagari",
             "typography_bidi",
             "typography_rasters",
             "typography_contour",
@@ -907,6 +942,19 @@ mod tests {
         assert_eq!(
             thai.paragraph().language.as_ref().map(LanguageTag::as_str),
             Some("th")
+        );
+
+        let devanagari = world
+            .get::<Text>(world.find_by_id("typography_devanagari_sample").unwrap())
+            .unwrap();
+        assert_eq!(devanagari.paragraph().direction, TextDirection::LeftToRight);
+        assert_eq!(
+            devanagari
+                .paragraph()
+                .language
+                .as_ref()
+                .map(LanguageTag::as_str),
+            Some("hi")
         );
 
         let bidi = world
