@@ -47,6 +47,7 @@ const STYLE_ATTRS: &[&str] = &[
     "border_width",
     "clip_children",
     "font",
+    "font_stack",
     "font_size",
 ];
 
@@ -424,6 +425,7 @@ struct WidgetCmd {
     on_handlers: Vec<OnCmd>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
+    text_paragraph_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
@@ -437,6 +439,7 @@ struct ParsedAttrs {
     component_inserts: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
+    text_paragraph_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
@@ -511,6 +514,7 @@ impl MiruiRune {
         let component_inserts = Vec::new();
         let mut component_fields = Vec::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
+        let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
         let mut reactive_binds: Vec<ReactiveBind> = Vec::new();
@@ -605,6 +609,11 @@ impl MiruiRune {
                 continue;
             }
 
+            if is_text_widget && name == "paragraph" {
+                text_paragraph_value = Some(quote! { #value });
+                continue;
+            }
+
             if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
                 let field_ident = syn::Ident::new(&name, attr_span);
                 component_fields.push(Self::field_init_tokens(&field_ident, value));
@@ -626,6 +635,7 @@ impl MiruiRune {
                 "border_color" => builder_calls.push(quote! { .border(#value, 1) }),
                 "border_width" => builder_calls.push(quote! { .border_width(#value) }),
                 "font" => builder_calls.push(quote! { .font(#value) }),
+                "font_stack" => builder_calls.push(quote! { .font_stack(#value) }),
                 "font_size" => builder_calls.push(quote! { .font_size(#value) }),
                 "width" => {
                     layout_fields.push(quote! { width: mirui::types::Dimension::from(#value) })
@@ -713,6 +723,7 @@ impl MiruiRune {
             component_inserts,
             component_fields,
             text_tuple_value,
+            text_paragraph_value,
             id_registrations,
             id_lookups,
             reactive_binds,
@@ -968,11 +979,18 @@ impl MiruiRune {
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
             if cmd.name == "Text" {
-                let init = match &cmd.text_tuple_value {
-                    Some(text_value) => {
+                let init = match (&cmd.text_tuple_value, &cmd.text_paragraph_value) {
+                    (Some(text_value), Some(paragraph_value)) => quote! {
+                        ::core::convert::Into::<#comp_name>::into(#text_value)
+                            .with_paragraph(#paragraph_value)
+                    },
+                    (Some(text_value), None) => {
                         quote! { ::core::convert::Into::<#comp_name>::into(#text_value) }
                     }
-                    None => quote! { #comp_name::from("") },
+                    (None, Some(paragraph_value)) => {
+                        quote! { #comp_name::from("").with_paragraph(#paragraph_value) }
+                    }
+                    (None, None) => quote! { #comp_name::from("") },
                 };
                 tokens.extend(quote! {
                     (#world).insert(#var, #init);
@@ -1695,6 +1713,7 @@ impl DsRune for MiruiRune {
             on_handlers: collected_on_handlers,
             component_fields: parsed.component_fields,
             text_tuple_value: parsed.text_tuple_value,
+            text_paragraph_value: parsed.text_paragraph_value,
             id_registrations: parsed.id_registrations,
             id_lookups,
             reactive_binds: parsed.reactive_binds,

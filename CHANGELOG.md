@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Declarative text configuration.** `ui!` routes `font_stack` into inherited text styling and applies `paragraph` to the constructed `Text`, preserving fallback and shaping policy in declarative widget trees.
 - **Consistent accelerated text caches.** SDL GPU and Web Canvas rasterize fractional-DPR bounds after scaling, key entries by semantic font identity and revision, composite opacity outside cached pixels and retain affine glyph transforms.
 - **Direct WGPU glyph rendering.** Coverage and signed-distance glyphs use cached R8 font surfaces, positioned affine quads and GPU edge reconstruction without rasterizing complete runs through an intermediate RGBA texture.
 - **TextFlow 0.2.2 integration.** Word wrapping retains word-first grapheme fallback through `WordOrGrapheme`; Arabic and Thai script providers assign bounded feature masks without internal glyph storage.

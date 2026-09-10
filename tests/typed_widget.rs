@@ -107,6 +107,50 @@ mod tests {
     }
 
     #[test]
+    fn text_widget_routes_font_stack_and_paragraph() {
+        use mirui::render::font::{FontStack, FontToken};
+        use mirui::ui::Style;
+        use mirui::ui::widgets::{ParagraphStyle, Text, TextDirection, TextWrap};
+
+        const PRIMARY: FontToken = FontToken::Custom("primary");
+        static FALLBACKS: [FontToken; 2] = [
+            FontToken::Custom("fallback-cjk"),
+            FontToken::Custom("fallback-arabic"),
+        ];
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+        let paragraph = ParagraphStyle {
+            wrap: TextWrap::NoWrap,
+            direction: TextDirection::RightToLeft,
+            max_lines: Some(1),
+            ..ParagraphStyle::default()
+        };
+        let expected_paragraph = paragraph.clone();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Text (
+                "مرحبا",
+                font_stack: FontStack::new(PRIMARY).with_fallbacks(&FALLBACKS[..]),
+                paragraph: paragraph
+            ) {}
+        };
+
+        let entity = world.query::<Text>().collect()[0];
+        let style = world.get::<Style>(entity).unwrap();
+        let text = world.get::<Text>(entity).unwrap();
+        assert_eq!(style.font_stack.primary(), &PRIMARY);
+        assert_eq!(style.font_stack.fallbacks(), &FALLBACKS);
+        assert_eq!(text.paragraph(), &expected_paragraph);
+    }
+
+    #[test]
     fn text_input_text_color_routes_to_field() {
         use mirui::ui::widgets::TextInput;
 
