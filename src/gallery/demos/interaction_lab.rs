@@ -626,7 +626,7 @@ fn compose_controls_card() -> Entity {
             )
             Text (
                 id: "interaction_feedback_status",
-                "CURSOR + ROTARY FEEDBACK · SIMULATED TIMELINE",
+                "CURSOR + ROTARY FEEDBACK · LIVE INPUT",
                 height: 32,
                 bg_color: Color::rgb(21, 67, 68),
                 border_radius: 8,
@@ -863,6 +863,8 @@ mod tests {
 
     #[test]
     fn setup_installs_input_feedback() {
+        use crate::input::event::sim::SimTimeline;
+
         let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
@@ -870,6 +872,7 @@ mod tests {
 
         assert!(app.world.resource::<InputFeedback>().is_some());
         assert!(app.world.resource::<InputFeedbackInput>().is_some());
+        assert!(app.world.resource::<SimTimeline>().is_none());
     }
 
     #[test]
