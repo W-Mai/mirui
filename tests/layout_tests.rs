@@ -330,4 +330,114 @@ mod tests {
 
         assert_eq!(root.children[0].rect, Rect::new(0, 0, 10, 10));
     }
+
+    #[test]
+    fn min_and_max_constraints_clamp_fixed_and_root_sizes() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            max_width: Dimension::px(80),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(10),
+            min_width: Dimension::px(30),
+            height: Dimension::px(40),
+            max_height: Dimension::px(16),
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.rect.w, Fixed::from_int(80));
+        assert_eq!(root.children[0].rect.w, Fixed::from_int(30));
+        assert_eq!(root.children[0].rect.h, Fixed::from_int(16));
+    }
+
+    #[test]
+    fn constrained_grow_redistributes_remaining_space() {
+        let mut max_root = LayoutNode::new(LayoutStyle {
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        max_root.add_child(LayoutNode::new(LayoutStyle {
+            grow: Fixed::ONE,
+            max_width: Dimension::px(30),
+            ..Default::default()
+        }));
+        max_root.add_child(LayoutNode::new(LayoutStyle {
+            grow: Fixed::ONE,
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut max_root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(max_root.children[0].rect.w, Fixed::from_int(30));
+        assert_eq!(max_root.children[1].rect.w, Fixed::from_int(70));
+        assert_eq!(max_root.children[1].rect.x, Fixed::from_int(30));
+
+        let mut min_root = LayoutNode::new(LayoutStyle {
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        min_root.add_child(LayoutNode::new(LayoutStyle {
+            grow: Fixed::ONE,
+            min_width: Dimension::px(60),
+            ..Default::default()
+        }));
+        min_root.add_child(LayoutNode::new(LayoutStyle {
+            grow: Fixed::ONE,
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut min_root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(min_root.children[0].rect.w, Fixed::from_int(60));
+        assert_eq!(min_root.children[1].rect.w, Fixed::from_int(40));
+        assert_eq!(min_root.children[1].rect.x, Fixed::from_int(60));
+    }
+
+    #[test]
+    fn minimum_wins_when_bounds_cross() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(40),
+            min_width: Dimension::px(60),
+            max_width: Dimension::px(20),
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.children[0].rect.w, Fixed::from_int(60));
+    }
 }

@@ -255,6 +255,42 @@ mod tests {
     }
 
     #[test]
+    fn size_constraints_route_to_layout() {
+        use mirui::types::Dimension;
+        use mirui::ui::Style;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View (
+                min_width: 120,
+                max_width: 320,
+                min_height: 80,
+                max_height: 240
+            ) {}
+        };
+
+        let entity = world
+            .query::<Style>()
+            .collect()
+            .into_iter()
+            .find(|entity| *entity != root)
+            .unwrap();
+        let layout = world.get::<Style>(entity).unwrap().layout;
+        assert_eq!(layout.min_width, Dimension::px(120));
+        assert_eq!(layout.max_width, Dimension::px(320));
+        assert_eq!(layout.min_height, Dimension::px(80));
+        assert_eq!(layout.max_height, Dimension::px(240));
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());

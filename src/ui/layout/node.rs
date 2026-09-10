@@ -45,7 +45,11 @@ pub struct LayoutStyle {
     pub row_gap: Dimension,
     pub column_gap: Dimension,
     pub width: Dimension,
+    pub min_width: Dimension,
+    pub max_width: Dimension,
     pub height: Dimension,
+    pub min_height: Dimension,
+    pub max_height: Dimension,
     pub grow: Fixed,
     pub position: Position,
     pub left: Dimension,
@@ -67,6 +71,26 @@ impl LayoutStyle {
 
     pub fn with_column_gap(mut self, gap: impl Into<Dimension>) -> Self {
         self.column_gap = gap.into();
+        self
+    }
+
+    pub fn with_min_width(mut self, width: impl Into<Dimension>) -> Self {
+        self.min_width = width.into();
+        self
+    }
+
+    pub fn with_max_width(mut self, width: impl Into<Dimension>) -> Self {
+        self.max_width = width.into();
+        self
+    }
+
+    pub fn with_min_height(mut self, height: impl Into<Dimension>) -> Self {
+        self.min_height = height.into();
+        self
+    }
+
+    pub fn with_max_height(mut self, height: impl Into<Dimension>) -> Self {
+        self.max_height = height.into();
         self
     }
 }

@@ -19,7 +19,11 @@ use xrune::ds_rune::decipher::decipher;
 
 const LAYOUT_ATTRS: &[&str] = &[
     "width",
+    "min_width",
+    "max_width",
     "height",
+    "min_height",
+    "max_height",
     "grow",
     "direction",
     "justify",
@@ -624,8 +628,20 @@ impl MiruiRune {
                 "width" => {
                     layout_fields.push(quote! { width: mirui::types::Dimension::from(#value) })
                 }
+                "min_width" => {
+                    layout_fields.push(quote! { min_width: mirui::types::Dimension::from(#value) })
+                }
+                "max_width" => {
+                    layout_fields.push(quote! { max_width: mirui::types::Dimension::from(#value) })
+                }
                 "height" => {
                     layout_fields.push(quote! { height: mirui::types::Dimension::from(#value) })
+                }
+                "min_height" => {
+                    layout_fields.push(quote! { min_height: mirui::types::Dimension::from(#value) })
+                }
+                "max_height" => {
+                    layout_fields.push(quote! { max_height: mirui::types::Dimension::from(#value) })
                 }
                 "grow" => {
                     layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) })
