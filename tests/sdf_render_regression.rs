@@ -10,7 +10,7 @@ use mirui::types::Viewport;
 use mirui::ui::render_system;
 use mirui::ui::widgets::Text;
 
-const ATLAS_BYTES: &[u8] = include_bytes!("fixtures/misans_sdf_ascii_32.mirx");
+const UI_FONT_BYTES: &[u8] = include_bytes!("../src/gallery/demos/assets/misans_ui.mirx");
 
 fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -33,7 +33,7 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
         let font = Font::from_mirx(
             "MiSans-Regular",
             size,
-            ATLAS_BYTES,
+            UI_FONT_BYTES,
             &mirx::reader::PayloadLimits::HOST,
         )
         .expect("parse font");
@@ -94,9 +94,9 @@ fn mono_hello_byte_hash_is_stable() {
 }
 
 #[test]
-fn sdf_size_range_byte_hashes_are_stable() {
-    let hashes = [16, 32, 64].map(|size| {
-        let pixels = render_text("Ag mirui", FontToken::Heading, Some(size));
+fn real_font_size_matrix_byte_hashes_are_stable() {
+    let hashes = [10, 12, 14, 18, 24, 36, 48, 96].map(|size| {
+        let pixels = render_text("Ag", FontToken::Heading, Some(size));
         assert_eq!(
             pixels.len(),
             240 * usize::from(size.saturating_mul(2).max(48)) * 4
@@ -106,10 +106,15 @@ fn sdf_size_range_byte_hashes_are_stable() {
     assert_eq!(
         hashes,
         [
-            0xddbb_8922_fef1_5740,
-            0x1563_d3b8_6c20_0e77,
-            0x8c8d_6fac_88a0_fec3,
+            0x1e48_de85_444e_197d,
+            0x14c7_b990_cf8a_740c,
+            0xb5b6_74e6_a854_c85c,
+            0x394b_cdc5_6885_2730,
+            0xf409_9bb3_6484_9342,
+            0x9b55_27bc_4dec_e4b1,
+            0xe48c_f827_6451_1b69,
+            0xddf1_b7f4_6d14_78ea,
         ],
-        "SDF MiSans size range drifted; inspect the rendered edge before updating",
+        "production UI font pixels drifted; inspect the size matrix before updating",
     );
 }

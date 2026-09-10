@@ -129,6 +129,10 @@ name = "sdf_label_snapshot"
 path = "examples/tools/sdf_label_snapshot.rs"
 
 [[example]]
+name = "real_font_snapshot"
+path = "examples/tools/real_font_snapshot.rs"
+
+[[example]]
 name = "sdf_cjk_snapshot"
 path = "examples/tools/sdf_cjk_snapshot.rs"
 
