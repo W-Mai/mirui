@@ -229,14 +229,14 @@ pub fn build_widgets() {
                         paragraph: plain_paragraph()
                     )
                 }
-                View (
+                Text (
+                    "6 TEST PANELS",
                     width: 158,
                     height: 30,
                     bg_color: PANEL_ALT,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 15,
-                    text: "6 TEST PANELS",
                     font: UI,
                     font_size: 12,
                     text_color: CYAN
@@ -510,41 +510,41 @@ pub fn build_widgets() {
                         )
                     }
                     Row (height: 28, column_gap: 7) {
-                        View (
+                        Text (
                             id: "typography_wrap",
+                            text: ${ wrap_value.get().wrap_label() },
                             grow: 1.0,
                             height: 28,
                             bg_color: PANEL_ALT,
                             border_color: BORDER,
                             border_width: 1,
                             border_radius: 8,
-                            text: ${ wrap_value.get().wrap_label() },
                             font: UI,
                             font_size: 10,
                             text_color: CYAN
                         ) on Tap { TypographyAction::CycleWrap.publish(&wrap_action); }
-                        View (
+                        Text (
                             id: "typography_align",
+                            text: ${ align_value.get().align_label() },
                             grow: 1.0,
                             height: 28,
                             bg_color: PANEL_ALT,
                             border_color: BORDER,
                             border_width: 1,
                             border_radius: 8,
-                            text: ${ align_value.get().align_label() },
                             font: UI,
                             font_size: 10,
                             text_color: BLUE
                         ) on Tap { TypographyAction::CycleAlign.publish(&align_action); }
-                        View (
+                        Text (
                             id: "typography_overflow",
+                            text: ${ overflow_value.get().overflow_label() },
                             grow: 1.0,
                             height: 28,
                             bg_color: PANEL_ALT,
                             border_color: BORDER,
                             border_width: 1,
                             border_radius: 8,
-                            text: ${ overflow_value.get().overflow_label() },
                             font: UI,
                             font_size: 10,
                             text_color: GOLD
