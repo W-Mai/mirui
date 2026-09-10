@@ -1,7 +1,55 @@
 #[cfg(test)]
 mod tests {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
     use mirui::types::{Dimension, Fixed, Rect};
     use mirui::ui::layout::*;
+
+    struct TrackingAllocator;
+
+    std::thread_local! {
+        static TRACK_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
+        static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    unsafe impl GlobalAlloc for TrackingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            TRACK_ALLOCATIONS.with(|tracking| {
+                if tracking.get() {
+                    ALLOCATION_COUNT.with(|count| count.set(count.get() + 1));
+                }
+            });
+            // SAFETY: `layout` is forwarded unchanged to the system allocator.
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: `ptr` and `layout` came from this allocator's system allocation.
+            unsafe { System.dealloc(ptr, layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            TRACK_ALLOCATIONS.with(|tracking| {
+                if tracking.get() {
+                    ALLOCATION_COUNT.with(|count| count.set(count.get() + 1));
+                }
+            });
+            // SAFETY: the allocation remains owned by the system allocator.
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+
+    #[global_allocator]
+    static ALLOCATOR: TrackingAllocator = TrackingAllocator;
+
+    fn tracked_allocations(run: impl FnOnce()) -> usize {
+        ALLOCATION_COUNT.with(|count| count.set(0));
+        TRACK_ALLOCATIONS.with(|tracking| tracking.set(true));
+        run();
+        TRACK_ALLOCATIONS.with(|tracking| tracking.set(false));
+        ALLOCATION_COUNT.with(Cell::get)
+    }
 
     #[test]
     fn row_fixed_sizes() {
@@ -663,5 +711,41 @@ mod tests {
 
         assert_eq!(root.children[0].rect, Rect::new(0, 0, 100, 20));
         assert_eq!(root.children[1].rect, Rect::new(0, 25, 100, 20));
+    }
+
+    #[test]
+    fn responsive_layout_reuses_existing_tree_storage() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            wrap: FlexWrap::Wrap,
+            width: Dimension::px(160),
+            height: Dimension::px(120),
+            row_gap: Dimension::px(6),
+            column_gap: Dimension::px(8),
+            ..Default::default()
+        });
+        for index in 0..12 {
+            root.add_child(LayoutNode::new(LayoutStyle {
+                width: Dimension::px(36 + index % 3 * 4),
+                min_width: Dimension::px(24),
+                max_width: Dimension::px(48),
+                height: Dimension::px(18),
+                shrink: Fixed::ONE,
+                ..Default::default()
+            }));
+        }
+
+        let allocations = tracked_allocations(|| {
+            compute_layout(
+                &mut root,
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(160),
+                Fixed::from_int(120),
+            );
+        });
+
+        assert_eq!(allocations, 0);
+        assert_eq!(root.children[0].rect, Rect::new(0, 0, 36, 18));
+        assert!(root.children[11].rect.y > Fixed::ZERO);
     }
 }
