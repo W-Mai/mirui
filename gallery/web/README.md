@@ -22,6 +22,12 @@ trunk serve
 
 Opens a dev server at <http://127.0.0.1:8080/?demo=orbit_console>, rebuilds and reloads the browser on edits. Orbit Console is the default; pick another demo with `?demo=<slug>`.
 
+## Gallery structure
+
+Layout Lab, Typography Lab and Interaction Lab group related framework capabilities into responsive, inspectable scenarios. Focused entries remain for subsystems with distinct runtime behavior, including scrolling, animation, effects, text input and specialized controls.
+
+The source panel reads the selected scenario module directly. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
+
 ## Build for release
 
 ```bash

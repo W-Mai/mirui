@@ -158,22 +158,9 @@ macro_rules! viewport_demo_ignored_noargs_scoped {
     };
 }
 
-basic_demo_scoped!(absolute, 480, 320);
 basic_demo_scoped!(animation, 320, 180);
-basic_demo_scoped!(app_demo, 480, 320);
 basic_demo_scoped!(book_flip, 640, 360);
-basic_demo_scoped!(click, 480, 320);
-basic_demo_scoped!(components, 480, 320);
-basic_demo_scoped!(disabled, 480, 320);
-basic_demo_scoped!(dsl, 480, 320);
-basic_demo_scoped!(enchants, 480, 320);
-basic_demo_scoped!(gesture, 320, 240);
-basic_demo_scoped!(hello, 480, 320);
-basic_demo_scoped!(hover_tour, 720, 360);
-basic_demo_scoped!(image, 480, 320);
 basic_demo!(image_flip, 480, 320);
-basic_demo_scoped!(input_feedback, 640, 360);
-basic_demo_scoped!(interactive_states, 720, 420);
 basic_demo_scoped!(interaction_lab, 1024, 720);
 basic_demo_scoped!(layout_lab, 1024, 720);
 // Skip: LazyList pool warm-up needs multi-frame loop.
@@ -181,21 +168,14 @@ basic_demo_scoped!(layout_lab, 1024, 720);
 basic_demo_scoped!(nested_scroll, 480, 400);
 basic_demo_scoped!(offscreen, 360, 360);
 basic_demo_scoped!(offscreen_modal, 360, 360);
-basic_demo_scoped!(on_handlers, 640, 320);
 basic_demo_scoped!(pinch_rotate, 480, 360);
-basic_demo_scoped!(rounded, 480, 320);
 basic_demo_scoped!(scroll, 480, 320);
-basic_demo_scoped!(slider_switch, 320, 200);
 basic_demo_scoped!(slider_value_changed, 720, 320);
 basic_demo_scoped!(spatial_anim, 400, 300);
 basic_demo_scoped!(tabbar, 480, 320);
-basic_demo_scoped!(tabbar_selection, 640, 320);
-basic_demo_scoped!(text, 480, 320);
 basic_demo_scoped!(text_input, 480, 200);
 basic_demo_scoped!(theme_swap, 480, 320);
-basic_demo_scoped!(toggle, 640, 320);
 basic_demo!(transform, 480, 320);
-basic_demo_scoped!(walk, 480, 320);
 
 basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);

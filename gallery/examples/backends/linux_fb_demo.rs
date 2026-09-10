@@ -1,4 +1,4 @@
-//! Runs the shared `hello` scene on the Linux fbdev backend.
+//! Runs the shared TabBar scene on the Linux fbdev backend.
 //!
 //! `cargo run -p gallery --example linux_fb_demo --features=linux-fb`
 //! (Linux only — needs `/dev/fb0` and `/dev/input/event*`
@@ -8,7 +8,7 @@
 fn main() {
     gallery::run("mirui linux fbdev", 800, 600, |setup| {
         let parent = mirui::ui::builder::WidgetBuilder::new(&mut setup.app.world).id();
-        mirui::gallery::demos::hello::setup_app(setup.app, parent);
+        mirui::gallery::demos::tabbar::setup_app(setup.app, parent);
         parent
     });
 }

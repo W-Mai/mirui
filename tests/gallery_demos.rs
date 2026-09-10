@@ -36,43 +36,20 @@ fn all_demos_build_widgets_smoke() {
         }};
     }
 
-    smoke_scoped!(mirui::gallery::demos::absolute::build_widgets);
     smoke_scoped!(mirui::gallery::demos::animation::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::app_demo::build_widgets);
     smoke_scoped!(mirui::gallery::demos::book_flip::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::click::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::components::build_widgets);
-
-    smoke_scoped!(mirui::gallery::demos::disabled::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::dsl::build_widgets);
-
-    smoke_scoped!(mirui::gallery::demos::enchants::build_widgets);
-
-    smoke_scoped!(mirui::gallery::demos::gesture::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::hello::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::hover_tour::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::image::build_widgets);
     smoke!(mirui::gallery::demos::image_flip::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::input_feedback::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::interactive_states::build_widgets);
     smoke_scoped!(mirui::gallery::demos::lazy_list::build_widgets);
     smoke_scoped!(mirui::gallery::demos::nested_scroll::build_widgets);
     smoke_scoped!(mirui::gallery::demos::offscreen::build_widgets);
     smoke_scoped!(mirui::gallery::demos::offscreen_modal::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::on_handlers::build_widgets);
     smoke_scoped!(mirui::gallery::demos::pinch_rotate::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::rounded::build_widgets);
     smoke_scoped!(mirui::gallery::demos::scroll::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::slider_switch::build_widgets);
     smoke_scoped!(mirui::gallery::demos::slider_value_changed::build_widgets);
     smoke_scoped!(mirui::gallery::demos::spatial_anim::build_widgets);
     smoke_scoped!(mirui::gallery::demos::tabbar::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::tabbar_selection::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::text::build_widgets);
     smoke_scoped!(mirui::gallery::demos::text_input::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::toggle::build_widgets);
     smoke!(mirui::gallery::demos::transform::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::walk::build_widgets);
 }
 
 fn assert_demo_built(world: &World, parent: mirui::ecs::Entity) {
