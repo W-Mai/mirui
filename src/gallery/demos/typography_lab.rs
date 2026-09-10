@@ -578,7 +578,7 @@ pub fn build_widgets() {
                     Text ("THAI · MARK PLACEMENT", font: UI, font_size: 12, text_color: CYAN)
                     Text (
                         id: "typography_thai_sample",
-                        "สวัสดีครับ ภาษาไทย",
+                        "สวัสดีครับ · ตั้ง",
                         font: THAI,
                         font_size: 27,
                         text_color: TEXT,

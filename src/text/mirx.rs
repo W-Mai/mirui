@@ -468,12 +468,12 @@ mod tests {
         let count = typeface.shape_into(&request, &mut glyphs).unwrap();
 
         assert_eq!(count, 30);
-        assert_eq!(glyphs[0].glyph_id(), GlyphId::new(17));
+        assert_eq!(glyphs[0].glyph_id(), GlyphId::new(19));
         assert_eq!(glyphs[0].advance.x, 7028);
         assert_eq!(glyphs[2].glyph_id(), GlyphId::new(6));
         assert_eq!(glyphs[2].offset, FlowPoint { x: 122, y: 0 });
         assert_eq!(glyphs[8].offset, FlowPoint { x: 602, y: 0 });
-        assert_eq!(glyphs[20].glyph_id(), GlyphId::new(8));
+        assert_eq!(glyphs[20].glyph_id(), GlyphId::new(10));
         assert_eq!(glyphs[20].offset, FlowPoint { x: -24, y: 0 });
         assert_eq!(glyphs[20].cluster, glyphs[21].cluster);
         assert_eq!(glyphs[23].offset, FlowPoint { x: -86, y: 0 });
@@ -482,6 +482,39 @@ mod tests {
                 .into_iter()
                 .all(|index| glyphs[index].advance.x == 0 && glyphs[index].unsafe_to_break())
         );
+    }
+
+    #[test]
+    fn shapes_thai_stacked_marks_from_mirx() {
+        let source = source_from(THAI_FONT, 19);
+        let typeface = source.typeface(48);
+        let text = "ตั้ง";
+        let request = ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Thai)
+            .with_language("th");
+        let mut glyphs = [textflow::shaping::ShapedGlyph::default(); 8];
+        let count = typeface.shape_into(&request, &mut glyphs).unwrap();
+
+        assert_eq!(count, 4);
+        assert_eq!(
+            glyphs[..count]
+                .iter()
+                .map(|glyph| glyph.glyph_id().value())
+                .collect::<Vec<_>>(),
+            [22, 6, 8, 9]
+        );
+        assert_eq!(glyphs[0].advance.x, 7815);
+        assert_eq!(glyphs[1].advance.x, 0);
+        assert_eq!(glyphs[1].offset, FlowPoint { x: -49, y: 0 });
+        assert_eq!(glyphs[2].advance.x, 0);
+        assert_eq!(glyphs[2].offset, FlowPoint { x: 319, y: -700 });
+        assert_eq!(glyphs[3].advance.x, 6598);
+        assert!(
+            glyphs[..3]
+                .iter()
+                .all(|glyph| { glyph.cluster == TextRange::new(0, 9) && glyph.unsafe_to_break() })
+        );
+        assert_eq!(glyphs[3].cluster, TextRange::new(9, 12));
+        assert!(!glyphs[3].unsafe_to_break());
     }
 
     #[test]
