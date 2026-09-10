@@ -12,7 +12,8 @@ use crate::types::DimPoint;
 use crate::ui::dirty::Dirty;
 use crate::ui::theme;
 use crate::ui::widgets::{
-    LazyList, LazyListBinder, LazyListPool, ProgressBar, Slider, Switch, TabBar, TabContent, Text,
+    Button, Checkbox, Image, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
+    Slider, Switch, TabBar, TabContent, Text, TextAlign, TextVerticalAlign, TextWrap,
 };
 use crate::ui::{Children, OffscreenRender, Theme};
 use alloc::format;
@@ -29,6 +30,16 @@ pub const ACCENT: ColorToken = ColorToken::custom("accent");
 struct FormSlider;
 struct FormProgress;
 pub struct ThemeCycleIndex(pub u8);
+
+fn centered_label() -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: TextWrap::NoWrap,
+        align: TextAlign::Center,
+        vertical_align: TextVerticalAlign::Center,
+        max_lines: Some(1),
+        ..ParagraphStyle::default()
+    }
+}
 
 struct DemoSize {
     tabbar_h: i32,
@@ -130,26 +141,23 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
             count: 3,
             indicator_height: Fixed::from_int(2 * scale_)
         ) {
-            View (
-                text: "List",
+            Text (
+                "List",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: centered_label()
             )
-            View (
-                text: "Form",
+            Text (
+                "Form",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: centered_label()
             )
-            View (
-                text: "Thm",
+            Text (
+                "Thm",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: centered_label()
             )
         }
     };
@@ -221,7 +229,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                 height: 28 * scale_,
                 align: AlignItems::Center
             ) {
-                View (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0)
+                Text ("Enable", text_color: ColorToken::OnSurface, grow: 1.0)
                 Switch (width: 40 * scale_, height: 20 * scale_) [
                     OffscreenRender::default(),
                 ]
@@ -257,6 +265,55 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     FormProgress,
                 ]
             }
+            Row (
+                height: 20 * scale_,
+                align: AlignItems::Center,
+                column_gap: 4 * scale_
+            ) {
+                Image (
+                    width: 16 * scale_,
+                    height: 16 * scale_,
+                    src: "thumbs_up"
+                )
+                Button (
+                    grow: 1.0,
+                    height: 18 * scale_,
+                    border_radius: 4 * scale_ as u32,
+                    normal_color: ColorToken::Success,
+                    pressed_color: ColorToken::Primary,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::from("Apply").with_paragraph(centered_label()),
+                ]
+                Button (
+                    grow: 1.0,
+                    height: 18 * scale_,
+                    border_radius: 4 * scale_ as u32,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::Primary,
+                    text_color: ColorToken::OnSurface
+                ) [
+                    Text::from("Reset").with_paragraph(centered_label()),
+                ]
+            }
+            Row (
+                height: 16 * scale_,
+                align: AlignItems::Center,
+                column_gap: 5 * scale_
+            ) {
+                Text ("Options", text_color: ColorToken::OnSurface, grow: 1.0)
+                Checkbox (
+                    width: 14 * scale_,
+                    height: 14 * scale_,
+                    checked: true,
+                    checked_color: ColorToken::Primary
+                )
+                Checkbox (
+                    width: 14 * scale_,
+                    height: 14 * scale_,
+                    checked_color: ColorToken::Success
+                )
+            }
         }
     };
     //~focus-end
@@ -274,15 +331,15 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                 index: 2,
             },
         ] {
-            View (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * scale_)
+            Text ("Primary", text_color: ColorToken::OnSurface, height: 14 * scale_)
             View (
                 width: 80 * scale_,
                 height: 18 * scale_,
                 bg_color: ColorToken::Primary,
                 border_radius: 4 * scale_ as u32
             )
-            View (
-                text: "accent (custom)",
+            Text (
+                "accent (custom)",
                 text_color: ColorToken::OnSurfaceVariant,
                 height: 12 * scale_,
                 padding: Padding {
@@ -311,6 +368,7 @@ where
     app.add_plugin(InputFeedbackPlugin::default());
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(FpsSummaryPlugin::default());
+    app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     app.with_offscreen_pool_budget(512 * 1024);
     app.add_system(crate::input::event::sim::sim_timeline_system::system());
     app.add_system(slider_to_progress_system::system());
@@ -414,5 +472,9 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+        assert_eq!(world.query::<Button>().collect().len(), 2);
+        assert_eq!(world.query::<Checkbox>().collect().len(), 2);
+        assert_eq!(world.query::<Image>().collect().len(), 1);
+        assert!(!world.query::<ProgressBar>().collect().is_empty());
     }
 }
