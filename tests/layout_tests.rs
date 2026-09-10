@@ -530,4 +530,138 @@ mod tests {
         assert_eq!(root.children[1].rect.w, Fixed::from_int(80));
         assert_eq!(root.children[1].rect.x, Fixed::from_int(80));
     }
+
+    #[test]
+    fn row_wraps_with_independent_axis_gaps() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            wrap: FlexWrap::Wrap,
+            width: Dimension::px(100),
+            height: Dimension::px(100),
+            row_gap: Dimension::px(5),
+            column_gap: Dimension::px(10),
+            ..Default::default()
+        });
+        for _ in 0..3 {
+            root.add_child(LayoutNode::new(LayoutStyle {
+                width: Dimension::px(45),
+                height: Dimension::px(20),
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(100),
+        );
+
+        assert_eq!(root.children[0].rect, Rect::new(0, 0, 45, 20));
+        assert_eq!(root.children[1].rect, Rect::new(55, 0, 45, 20));
+        assert_eq!(root.children[2].rect, Rect::new(0, 25, 45, 20));
+    }
+
+    #[test]
+    fn column_wraps_with_independent_axis_gaps() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            direction: FlexDirection::Column,
+            wrap: FlexWrap::Wrap,
+            width: Dimension::px(100),
+            height: Dimension::px(100),
+            row_gap: Dimension::px(10),
+            column_gap: Dimension::px(5),
+            ..Default::default()
+        });
+        for _ in 0..3 {
+            root.add_child(LayoutNode::new(LayoutStyle {
+                width: Dimension::px(20),
+                height: Dimension::px(45),
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(100),
+        );
+
+        assert_eq!(root.children[0].rect, Rect::new(0, 0, 20, 45));
+        assert_eq!(root.children[1].rect, Rect::new(0, 55, 20, 45));
+        assert_eq!(root.children[2].rect, Rect::new(25, 0, 20, 45));
+    }
+
+    #[test]
+    fn wrapped_lines_resolve_grow_and_shrink_independently() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            wrap: FlexWrap::Wrap,
+            width: Dimension::px(100),
+            height: Dimension::px(100),
+            row_gap: Dimension::px(5),
+            column_gap: Dimension::px(10),
+            ..Default::default()
+        });
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(60),
+            height: Dimension::px(20),
+            ..Default::default()
+        }));
+        root.add_child(LayoutNode::new(LayoutStyle {
+            grow: Fixed::ONE,
+            height: Dimension::px(20),
+            ..Default::default()
+        }));
+        root.add_child(LayoutNode::new(LayoutStyle {
+            width: Dimension::px(120),
+            height: Dimension::px(20),
+            shrink: Fixed::ONE,
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(100),
+        );
+
+        assert_eq!(root.children[0].rect, Rect::new(0, 0, 60, 20));
+        assert_eq!(root.children[1].rect, Rect::new(70, 0, 30, 20));
+        assert_eq!(root.children[2].rect, Rect::new(0, 25, 100, 20));
+    }
+
+    #[test]
+    fn minimums_wrap_flexible_items_before_grow_distribution() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            wrap: FlexWrap::Wrap,
+            width: Dimension::px(100),
+            height: Dimension::px(100),
+            row_gap: Dimension::px(5),
+            column_gap: Dimension::px(10),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            root.add_child(LayoutNode::new(LayoutStyle {
+                min_width: Dimension::px(60),
+                height: Dimension::px(20),
+                grow: Fixed::ONE,
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(100),
+        );
+
+        assert_eq!(root.children[0].rect, Rect::new(0, 0, 100, 20));
+        assert_eq!(root.children[1].rect, Rect::new(0, 25, 100, 20));
+    }
 }

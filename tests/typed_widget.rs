@@ -319,6 +319,34 @@ mod tests {
     }
 
     #[test]
+    fn flex_wrap_routes_to_layout() {
+        use mirui::ui::Style;
+        use mirui::ui::layout::FlexWrap;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Row (wrap: FlexWrap::Wrap) {}
+        };
+
+        let entity = world
+            .query::<Style>()
+            .collect()
+            .into_iter()
+            .find(|entity| *entity != root)
+            .unwrap();
+        let layout = world.get::<Style>(entity).unwrap().layout;
+        assert_eq!(layout.wrap, FlexWrap::Wrap);
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());

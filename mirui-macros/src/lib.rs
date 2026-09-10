@@ -27,6 +27,7 @@ const LAYOUT_ATTRS: &[&str] = &[
     "grow",
     "shrink",
     "direction",
+    "wrap",
     "justify",
     "align",
     "padding",
@@ -654,6 +655,7 @@ impl MiruiRune {
                     user_set_direction = true;
                     layout_fields.push(quote! { direction: #value });
                 }
+                "wrap" => layout_fields.push(quote! { wrap: #value }),
                 "justify" => layout_fields.push(quote! { justify: #value }),
                 "align" => layout_fields.push(quote! { align: #value }),
                 "padding" => layout_fields.push(quote! { padding: #value }),

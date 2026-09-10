@@ -136,7 +136,7 @@ pub mod prelude {
     pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::layout::{
-        AlignItems, FlexDirection, JustifyContent, LayoutStyle, Padding, Position,
+        AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutStyle, Padding, Position,
     };
     pub use crate::ui::theme::{ColorToken, ThemedColor};
     pub use crate::ui::{Style, Widget};

@@ -10,6 +10,13 @@ pub enum FlexDirection {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FlexWrap {
+    #[default]
+    NoWrap,
+    Wrap,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum JustifyContent {
     #[default]
     FlexStart,
@@ -39,6 +46,7 @@ pub enum Position {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LayoutStyle {
     pub direction: FlexDirection,
+    pub wrap: FlexWrap,
     pub justify: JustifyContent,
     pub align: AlignItems,
     pub padding: Padding,
@@ -58,6 +66,11 @@ pub struct LayoutStyle {
 }
 
 impl LayoutStyle {
+    pub fn with_wrap(mut self, wrap: FlexWrap) -> Self {
+        self.wrap = wrap;
+        self
+    }
+
     pub fn with_gap(mut self, gap: impl Into<Dimension>) -> Self {
         let gap = gap.into();
         self.row_gap = gap;
