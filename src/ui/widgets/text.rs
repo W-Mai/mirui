@@ -1,6 +1,7 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::Range;
 
 use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
@@ -651,35 +652,163 @@ impl PathCaretHit {
     pub const fn bidi_level(self) -> u8 {
         self.bidi_level
     }
+}
 
-    pub fn nearest(
-        world: &World,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PathSelectionRibbon {
+    quad: [Point; 4],
+    text_start: u32,
+    text_end: u32,
+    bidi_level: u8,
+}
+
+impl Default for PathSelectionRibbon {
+    fn default() -> Self {
+        Self {
+            quad: [Point {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            }; 4],
+            text_start: 0,
+            text_end: 0,
+            bidi_level: 0,
+        }
+    }
+}
+
+impl PathSelectionRibbon {
+    pub const fn quad(self) -> [Point; 4] {
+        self.quad
+    }
+
+    pub const fn text_range(self) -> Range<u32> {
+        self.text_start..self.text_end
+    }
+
+    pub const fn bidi_level(self) -> u8 {
+        self.bidi_level
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathTextGeometryError {
+    Unavailable,
+    InsufficientCapacity { required: usize, provided: usize },
+}
+
+pub struct PathTextGeometry<'a> {
+    world: &'a World,
+    entity: Entity,
+    rect: Rect,
+    transform: Transform,
+}
+
+impl<'a> PathTextGeometry<'a> {
+    pub fn for_widget(
+        world: &'a World,
         entity: Entity,
         rect: Rect,
         transform: Transform,
-        point: Point,
-        max_distance: Fixed,
     ) -> Option<Self> {
-        let text_path = world.get::<crate::text::TextPath>(entity).copied()?;
-        let paths = world.resource::<crate::render::path::PathStore>()?;
-        let path_cache = world.resource::<crate::text::baseline::PathBaselineResource>()?;
-        let style = world.get::<crate::ui::Style>(entity)?;
-        let layouts = world.resource::<crate::text::layout::TextLayoutResource>()?;
+        world.get::<Text>(entity)?;
+        world.get::<crate::text::TextPath>(entity)?;
+        world.get::<crate::text::TextLayoutHandle>(entity)?;
+        Some(Self {
+            world,
+            entity,
+            rect,
+            transform,
+        })
+    }
+
+    pub fn hit_test(&self, point: Point, max_distance: Fixed) -> Option<PathCaretHit> {
+        let limit = square_wide(Fixed64::from_fixed(max_distance.max(Fixed::ZERO)));
+        self.with_carets(|layout, frames, metrics| {
+            let mut nearest = None;
+            for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
+                let (start, end) = caret_segment(self.rect, self.transform, *frame, metrics);
+                let distance = point_segment_distance_squared(point, start, end);
+                if distance > limit
+                    || nearest
+                        .as_ref()
+                        .is_some_and(|(_, best_distance)| distance >= *best_distance)
+                {
+                    continue;
+                }
+                nearest = Some((
+                    PathCaretHit {
+                        index,
+                        text_offset: caret.text_offset,
+                        bidi_level: caret.bidi_level,
+                    },
+                    distance,
+                ));
+            }
+            nearest.map(|(hit, _)| hit)
+        })
+        .flatten()
+    }
+
+    pub fn selection_into<'output>(
+        &self,
+        selection: Range<u32>,
+        output: &'output mut [PathSelectionRibbon],
+    ) -> Result<&'output [PathSelectionRibbon], PathTextGeometryError> {
+        self.with_carets(|layout, frames, metrics| {
+            let required = selected_caret_pairs(layout, frames, selection.clone()).count();
+            if output.len() < required {
+                return Err(PathTextGeometryError::InsufficientCapacity {
+                    required,
+                    provided: output.len(),
+                });
+            }
+            for (slot, pair) in output
+                .iter_mut()
+                .zip(selected_caret_pairs(layout, frames, selection))
+            {
+                *slot = selection_ribbon(self.rect, self.transform, metrics, pair);
+            }
+            Ok(&output[..required])
+        })
+        .ok_or(PathTextGeometryError::Unavailable)?
+    }
+
+    fn with_carets<R>(
+        &self,
+        inspect: impl FnOnce(
+            &textflow::layout::ParagraphLayout<'_>,
+            &[textflow::placement::CaretFrame],
+            crate::render::font::FontMetrics,
+        ) -> R,
+    ) -> Option<R> {
+        let text_path = self
+            .world
+            .get::<crate::text::TextPath>(self.entity)
+            .copied()?;
+        let paths = self.world.resource::<crate::render::path::PathStore>()?;
+        let path_cache = self
+            .world
+            .resource::<crate::text::baseline::PathBaselineResource>()?;
+        let style = self.world.get::<crate::ui::Style>(self.entity)?;
+        let layouts = self
+            .world
+            .resource::<crate::text::layout::TextLayoutResource>()?;
         let face_limit = layouts.borrow().limits().fallback_faces;
         let fonts = crate::render::font::ResolvedFontStack::resolve(
-            world,
+            self.world,
             &style.font_stack,
             style.font_size,
             face_limit,
         )
         .ok()??;
         let metrics = fonts.primary().metrics(fonts.primary().size);
-        let handle = world
-            .get::<crate::text::TextLayoutHandle>(entity)
+        let handle = self
+            .world
+            .get::<crate::text::TextLayoutHandle>(self.entity)
             .copied()?;
         let layouts = layouts.borrow();
         let layout = layouts.get(handle)?;
-        let limit = square_wide(Fixed64::from_fixed(max_distance.max(Fixed::ZERO)));
+        let paragraph = layout.paragraph().ok()?;
         path_cache
             .with_caret_frames(
                 paths,
@@ -687,52 +816,113 @@ impl PathCaretHit {
                 crate::text::baseline::DEFAULT_TOLERANCE,
                 handle,
                 &layout,
-                |frames| {
-                    let mut nearest = None;
-                    for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
-                        let origin = Point {
-                            x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
-                            y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
-                        };
-                        let tangent = Point {
-                            x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
-                            y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
-                        };
-                        let normal = Point {
-                            x: Fixed::ZERO - tangent.y,
-                            y: tangent.x,
-                        };
-                        let start = transform.apply_point(Point {
-                            x: origin.x - normal.x * metrics.ascender,
-                            y: origin.y - normal.y * metrics.ascender,
-                        });
-                        let end = transform.apply_point(Point {
-                            x: origin.x + normal.x * (metrics.line_height - metrics.ascender),
-                            y: origin.y + normal.y * (metrics.line_height - metrics.ascender),
-                        });
-                        let distance = point_segment_distance_squared(point, start, end);
-                        if distance > limit
-                            || nearest
-                                .as_ref()
-                                .is_some_and(|(_, best_distance)| distance >= *best_distance)
-                        {
-                            continue;
-                        }
-                        nearest = Some((
-                            Self {
-                                index,
-                                text_offset: caret.text_offset,
-                                bidi_level: caret.bidi_level,
-                            },
-                            distance,
-                        ));
-                    }
-                    nearest.map(|(hit, _)| hit)
-                },
+                |frames| inspect(&paragraph, frames, metrics),
             )
             .ok()
-            .flatten()
     }
+}
+
+#[derive(Clone, Copy)]
+struct SelectedCaretPair {
+    start: textflow::shaping::CaretStop,
+    start_frame: textflow::placement::CaretFrame,
+    end: textflow::shaping::CaretStop,
+    end_frame: textflow::placement::CaretFrame,
+}
+
+fn selected_caret_pairs<'a>(
+    layout: &'a textflow::layout::ParagraphLayout<'a>,
+    frames: &'a [textflow::placement::CaretFrame],
+    selection: Range<u32>,
+) -> impl Iterator<Item = SelectedCaretPair> + 'a {
+    layout.lines().iter().flat_map(move |line| {
+        let caret_range = line.carets();
+        let carets = &layout.carets()[caret_range.start as usize..caret_range.end as usize];
+        let frames = &frames[caret_range.start as usize..caret_range.end as usize];
+        let run_range = line.runs();
+        layout.runs()[run_range.start as usize..run_range.end as usize]
+            .iter()
+            .flat_map({
+                let selection = selection.clone();
+                move |run| {
+                    carets.windows(2).zip(frames.windows(2)).filter_map({
+                        let selection = selection.clone();
+                        move |(carets, frames)| {
+                            selected_pair(carets, run.text(), run.bidi_level(), &selection)
+                                .then_some(SelectedCaretPair {
+                                    start: carets[0],
+                                    start_frame: frames[0],
+                                    end: carets[1],
+                                    end_frame: frames[1],
+                                })
+                        }
+                    })
+                }
+            })
+    })
+}
+
+fn selected_pair(
+    carets: &[textflow::shaping::CaretStop],
+    run: textflow::shaping::TextRange,
+    bidi_level: u8,
+    selection: &Range<u32>,
+) -> bool {
+    let start = carets[0].text_offset.min(carets[1].text_offset);
+    let end = carets[0].text_offset.max(carets[1].text_offset);
+    start < end
+        && start >= run.start
+        && end <= run.end
+        && start < selection.end
+        && end > selection.start
+        && carets[0].bidi_level == bidi_level
+        && carets[1].bidi_level == bidi_level
+}
+
+fn selection_ribbon(
+    rect: Rect,
+    transform: Transform,
+    metrics: crate::render::font::FontMetrics,
+    pair: SelectedCaretPair,
+) -> PathSelectionRibbon {
+    let (start_top, start_bottom) = caret_segment(rect, transform, pair.start_frame, metrics);
+    let (end_top, end_bottom) = caret_segment(rect, transform, pair.end_frame, metrics);
+    PathSelectionRibbon {
+        quad: [start_top, end_top, end_bottom, start_bottom],
+        text_start: pair.start.text_offset.min(pair.end.text_offset),
+        text_end: pair.start.text_offset.max(pair.end.text_offset),
+        bidi_level: pair.start.bidi_level,
+    }
+}
+
+fn caret_segment(
+    rect: Rect,
+    transform: Transform,
+    frame: textflow::placement::CaretFrame,
+    metrics: crate::render::font::FontMetrics,
+) -> (Point, Point) {
+    let origin = Point {
+        x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
+        y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
+    };
+    let tangent = Point {
+        x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
+        y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
+    };
+    let normal = Point {
+        x: Fixed::ZERO - tangent.y,
+        y: tangent.x,
+    };
+    (
+        transform.apply_point(Point {
+            x: origin.x - normal.x * metrics.ascender,
+            y: origin.y - normal.y * metrics.ascender,
+        }),
+        transform.apply_point(Point {
+            x: origin.x + normal.x * (metrics.line_height - metrics.ascender),
+            y: origin.y + normal.y * (metrics.line_height - metrics.ascender),
+        }),
+    )
 }
 
 fn square_wide(value: Fixed64) -> Fixed64 {
@@ -1100,6 +1290,104 @@ mod tests {
             point_segment_distance_squared(Point::new(7, 12), caret, caret),
             Fixed64::from_int(25)
         );
+    }
+
+    #[test]
+    fn selection_pairs_stay_inside_one_visual_run() {
+        let ltr = [
+            textflow::shaping::CaretStop {
+                text_offset: 0,
+                position: FlowPoint { x: 0, y: 0 },
+                bidi_level: 0,
+            },
+            textflow::shaping::CaretStop {
+                text_offset: 2,
+                position: FlowPoint { x: 2 << 8, y: 0 },
+                bidi_level: 0,
+            },
+        ];
+        assert!(selected_pair(
+            &ltr,
+            textflow::shaping::TextRange::new(0, 3),
+            0,
+            &(1..3)
+        ));
+        assert!(!selected_pair(
+            &ltr,
+            textflow::shaping::TextRange::new(1, 3),
+            0,
+            &(0..3)
+        ));
+
+        let rtl = [
+            textflow::shaping::CaretStop {
+                text_offset: 4,
+                position: FlowPoint { x: 0, y: 0 },
+                bidi_level: 1,
+            },
+            textflow::shaping::CaretStop {
+                text_offset: 2,
+                position: FlowPoint { x: 2 << 8, y: 0 },
+                bidi_level: 1,
+            },
+        ];
+        assert!(selected_pair(
+            &rtl,
+            textflow::shaping::TextRange::new(2, 4),
+            1,
+            &(2..4)
+        ));
+    }
+
+    #[test]
+    fn selection_ribbon_uses_oriented_caret_edges() {
+        let pair = SelectedCaretPair {
+            start: textflow::shaping::CaretStop {
+                text_offset: 0,
+                position: FlowPoint::default(),
+                bidi_level: 0,
+            },
+            start_frame: textflow::placement::CaretFrame {
+                local_origin: FlowPoint {
+                    x: 10 << 8,
+                    y: 20 << 8,
+                },
+                unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
+            },
+            end: textflow::shaping::CaretStop {
+                text_offset: 1,
+                position: FlowPoint::default(),
+                bidi_level: 0,
+            },
+            end_frame: textflow::placement::CaretFrame {
+                local_origin: FlowPoint {
+                    x: 20 << 8,
+                    y: 20 << 8,
+                },
+                unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
+            },
+        };
+        let ribbon = selection_ribbon(
+            Rect::new(0, 0, 100, 40),
+            Transform::IDENTITY,
+            crate::render::font::FontMetrics {
+                ascender: Fixed::from_int(7),
+                descender: Fixed::from_int(-2),
+                line_height: Fixed::from_int(10),
+            },
+            pair,
+        );
+
+        assert_eq!(
+            ribbon.quad(),
+            [
+                Point::new(10, 13),
+                Point::new(20, 13),
+                Point::new(20, 23),
+                Point::new(10, 23),
+            ]
+        );
+        assert_eq!(ribbon.text_range(), 0..1);
     }
 
     #[test]

@@ -230,17 +230,21 @@ fn caret_overlay_render(
         return;
     };
     if let Some(text_path) = world.get::<TextPath>(target).copied() {
-        let center_hit = crate::ui::widgets::text::PathCaretHit::nearest(
+        let center_hit = crate::ui::widgets::text::PathTextGeometry::for_widget(
             world,
             target,
             *rect,
             ctx.transform,
-            ctx.transform.apply_point(Point {
-                x: rect.x + rect.w / Fixed::from_int(2),
-                y: rect.y + rect.h / Fixed::from_int(2),
-            }),
-            rect.w.max(rect.h),
-        );
+        )
+        .and_then(|geometry| {
+            geometry.hit_test(
+                ctx.transform.apply_point(Point {
+                    x: rect.x + rect.w / Fixed::from_int(2),
+                    y: rect.y + rect.h / Fixed::from_int(2),
+                }),
+                rect.w.max(rect.h),
+            )
+        });
         let (Some(paths), Some(path_cache)) = (
             world.resource::<crate::render::path::PathStore>(),
             world.resource::<crate::text::baseline::PathBaselineResource>(),

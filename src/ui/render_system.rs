@@ -2239,27 +2239,39 @@ mod text_layout_check {
         assert!(ink.y >= layout.y + layout.h);
 
         let translated = Transform::translate(Fixed::from_int(10), Fixed::from_int(5));
-        let hit = crate::ui::widgets::text::PathCaretHit::nearest(
-            &world,
-            label,
-            layout,
-            translated,
-            Point::new(26, 53),
-            Fixed::from_int(2),
+        let geometry = crate::ui::widgets::text::PathTextGeometry::for_widget(
+            &world, label, layout, translated,
         )
         .unwrap();
+        let hit = geometry
+            .hit_test(Point::new(26, 53), Fixed::from_int(2))
+            .unwrap();
         assert_eq!(hit.text_offset(), 2);
         assert_eq!(hit.bidi_level(), 0);
         assert!(
-            crate::ui::widgets::text::PathCaretHit::nearest(
-                &world,
-                label,
-                layout,
-                translated,
-                Point::new(26, 70),
-                Fixed::from_int(2),
+            geometry
+                .hit_test(Point::new(26, 70), Fixed::from_int(2))
+                .is_none()
+        );
+        let mut ribbons = [crate::ui::widgets::text::PathSelectionRibbon::default(); 3];
+        let selection = geometry.selection_into(1..3, &mut ribbons).unwrap();
+        assert_eq!(selection.len(), 2);
+        assert_eq!(selection[0].text_range(), 1..2);
+        assert_eq!(selection[1].text_range(), 2..3);
+        assert!(
+            selection
+                .iter()
+                .all(|ribbon| ribbon.quad()[0] != ribbon.quad()[1])
+        );
+        let mut insufficient = [crate::ui::widgets::text::PathSelectionRibbon::default(); 1];
+        assert_eq!(
+            geometry.selection_into(1..3, &mut insufficient),
+            Err(
+                crate::ui::widgets::text::PathTextGeometryError::InsufficientCapacity {
+                    required: 2,
+                    provided: 1,
+                }
             )
-            .is_none()
         );
 
         let mut recorder = Recorder::default();
