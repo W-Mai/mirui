@@ -2,7 +2,7 @@ use super::SwRenderer;
 use crate::render::font::scalar::ScalarField;
 use crate::render::font::sdf::SignedDistanceField;
 use crate::render::font::{Font, Glyph, GlyphKind};
-use crate::types::{Color, Fixed, Point, Rect, Transform, fixed::storage};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, fixed::storage};
 
 #[derive(Clone, Copy)]
 struct GlyphRasterContext {
@@ -35,6 +35,28 @@ pub(super) struct PosedRun<'a> {
     pub frames: &'a [textflow::placement::GlyphFrame],
     pub font: &'a Font,
     pub transform: &'a Transform,
+    pub clip: Rect,
+    pub color: &'a Color,
+    pub opacity: u8,
+}
+
+pub(super) struct ProjectiveRun<'a> {
+    pub pos: &'a Point,
+    pub glyphs: &'a [textflow::shaping::PositionedGlyph],
+    pub font: &'a Font,
+    pub transform: &'a Transform3D,
+    pub clip: Rect,
+    pub color: &'a Color,
+    pub opacity: u8,
+}
+
+pub(super) struct ProjectivePosedRun<'a> {
+    pub pos: &'a Point,
+    pub glyphs: &'a [textflow::shaping::PositionedGlyph],
+    pub frames: &'a [textflow::placement::GlyphFrame],
+    pub font: &'a Font,
+    pub command_transform: &'a Transform,
+    pub projective_transform: &'a Transform3D,
     pub clip: Rect,
     pub color: &'a Color,
     pub opacity: u8,
@@ -256,6 +278,261 @@ impl SwRenderer<'_> {
                     run.color,
                     run.opacity,
                 );
+            }
+        }
+    }
+
+    pub(super) fn draw_glyph_run_projective_inner(&mut self, run: ProjectiveRun<'_>) {
+        let (Some(first), Some(inverse)) = (run.glyphs.first(), run.transform.inverse()) else {
+            return;
+        };
+        let requested_size = run.font.size.max(1);
+        let output_ppem = crate::render::font::output_ppem(
+            requested_size,
+            projective_scale_at(run.transform, *run.pos),
+        );
+        let metrics = run.font.metrics(requested_size);
+        for positioned in run.glyphs {
+            let Some(glyph) =
+                run.font
+                    .glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
+                continue;
+            };
+            let Some(dx) = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)
+                .and_then(|value| value.checked_add(positioned.offset.x))
+            else {
+                continue;
+            };
+            let Some(dy) = positioned
+                .origin
+                .y
+                .checked_sub(first.origin.y)
+                .and_then(|value| value.checked_add(positioned.offset.y))
+            else {
+                continue;
+            };
+            let x = run.pos.x + crate::types::fixed::from_textflow(dx);
+            let baseline = run.pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy);
+            match glyph.kind {
+                GlyphKind::Mono(bitmap) => {
+                    let rect = Rect {
+                        x,
+                        y: baseline - metrics.ascender,
+                        w: Fixed::from_int(8),
+                        h: metrics.line_height,
+                    };
+                    self.blit_projective_glyph(
+                        TransformedGlyph::Mono(bitmap),
+                        rect,
+                        run.transform,
+                        &inverse,
+                        run.clip,
+                        run.color,
+                        run.opacity,
+                    );
+                }
+                GlyphKind::Raster {
+                    samples,
+                    stride,
+                    region,
+                    representation,
+                    bearing_x,
+                    bearing_y,
+                } => {
+                    if region.width() == 0 || region.height() == 0 {
+                        continue;
+                    }
+                    let scale = Fixed::from_int(i32::from(requested_size))
+                        / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
+                    let rect = Rect {
+                        x: x + bearing_x,
+                        y: baseline - bearing_y,
+                        w: Fixed::from_int(region.width() as i32) * scale,
+                        h: Fixed::from_int(region.height() as i32) * scale,
+                    };
+                    let field = match representation.kind() {
+                        mirx::font::FontRepresentationKind::Coverage { bits } => {
+                            ScalarField::new(samples, stride, region, bits)
+                                .map(TransformedGlyph::Coverage)
+                        }
+                        mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => {
+                            SignedDistanceField::new(samples, stride, region, bits, spread)
+                                .map(TransformedGlyph::SignedDistance)
+                        }
+                        _ => None,
+                    };
+                    if let Some(field) = field {
+                        self.blit_projective_glyph(
+                            field,
+                            rect,
+                            run.transform,
+                            &inverse,
+                            run.clip,
+                            run.color,
+                            run.opacity,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn draw_posed_glyph_run_projective_inner(&mut self, run: ProjectivePosedRun<'_>) {
+        let requested_size = run.font.size.max(1);
+        for (positioned, frame) in run.glyphs.iter().zip(run.frames) {
+            let output_ppem = crate::render::font::output_ppem(
+                requested_size,
+                projective_scale_at(run.projective_transform, *run.pos),
+            );
+            let Some(raster) =
+                run.font
+                    .raster_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
+                continue;
+            };
+            let Some(quad) =
+                raster.posed_quad(*run.pos, *frame, requested_size, *run.command_transform)
+            else {
+                continue;
+            };
+            let combined = run
+                .projective_transform
+                .compose(&Transform3D::from_affine(quad.transform));
+            let Some(inverse) = combined.inverse() else {
+                continue;
+            };
+            let Some(region) = raster.region else {
+                continue;
+            };
+            let field = match raster.representation.kind() {
+                mirx::font::FontRepresentationKind::Coverage { bits } => ScalarField::new(
+                    raster.surface.samples(),
+                    raster.surface.stride(),
+                    region,
+                    bits,
+                )
+                .map(TransformedGlyph::Coverage),
+                mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => {
+                    SignedDistanceField::new(
+                        raster.surface.samples(),
+                        raster.surface.stride(),
+                        region,
+                        bits,
+                        spread,
+                    )
+                    .map(TransformedGlyph::SignedDistance)
+                }
+                _ => None,
+            };
+            if let Some(field) = field {
+                self.blit_projective_glyph(
+                    field,
+                    quad.rect,
+                    &combined,
+                    &inverse,
+                    run.clip,
+                    run.color,
+                    run.opacity,
+                );
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blit_projective_glyph(
+        &mut self,
+        glyph: TransformedGlyph<'_>,
+        logical_rect: Rect,
+        physical_transform: &Transform3D,
+        inverse: &Transform3D,
+        physical_clip: Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        if logical_rect.w <= Fixed::ZERO || logical_rect.h <= Fixed::ZERO {
+            return;
+        }
+        let Some(draw_area) = physical_transform
+            .apply_rect(logical_rect)
+            .map(|quad| Rect::bounding_quad(&quad))
+            .and_then(|area| area.intersect(&physical_clip))
+            .and_then(|area| {
+                area.intersect(&Rect::new(0, 0, self.target.width, self.target.height))
+            })
+        else {
+            return;
+        };
+        let (source_width, source_height) = glyph.dimensions();
+        let source_scale_x = Fixed::from_int(source_width as i32) / logical_rect.w;
+        let source_scale_y = Fixed::from_int(source_height as i32) / logical_rect.h;
+        let (x0, y0, x1, y1) = draw_area.pixel_bounds();
+        let target_width = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|mask| mask.alpha.as_slice());
+        for py in y0..y1 {
+            let mask_row = py as usize * target_width;
+            for px in x0..x1 {
+                let screen = Point {
+                    x: Fixed::from_int(px) + Fixed::HALF,
+                    y: Fixed::from_int(py) + Fixed::HALF,
+                };
+                let Some(logical) = inverse.apply_point(screen) else {
+                    continue;
+                };
+                let u = logical.x - logical_rect.x;
+                let v = logical.y - logical_rect.y;
+                if u < Fixed::ZERO || v < Fixed::ZERO || u >= logical_rect.w || v >= logical_rect.h
+                {
+                    continue;
+                }
+                let sx = u * source_scale_x - Fixed::HALF;
+                let sy = v * source_scale_y - Fixed::HALF;
+                let coverage = match &glyph {
+                    TransformedGlyph::Mono(bitmap) => sample_mono_bilinear(bitmap, sx, sy),
+                    TransformedGlyph::Coverage(field) => field.sample_bilinear(sx, sy),
+                    TransformedGlyph::SignedDistance(field) => {
+                        let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
+                        let Some(logical_x) = inverse.apply_point(Point {
+                            x: screen.x + Fixed::ONE,
+                            y: screen.y,
+                        }) else {
+                            continue;
+                        };
+                        let Some(logical_y) = inverse.apply_point(Point {
+                            x: screen.x,
+                            y: screen.y + Fixed::ONE,
+                        }) else {
+                            continue;
+                        };
+                        let source_dx_x = (logical_x.x - logical.x) * source_scale_x;
+                        let source_dx_y = (logical_x.y - logical.y) * source_scale_y;
+                        let source_dy_x = (logical_y.x - logical.x) * source_scale_x;
+                        let source_dy_y = (logical_y.y - logical.y) * source_scale_y;
+                        let screen_x = gradient_x * source_dx_x + gradient_y * source_dx_y;
+                        let screen_y = gradient_x * source_dy_x + gradient_y * source_dy_y;
+                        let edge_half = ((screen_x * screen_x + screen_y * screen_y).sqrt() / 2)
+                            .max(Fixed::from_ratio(1, 256));
+                        ((distance + edge_half) / (edge_half * 2))
+                            .max(Fixed::ZERO)
+                            .min(Fixed::ONE)
+                    }
+                };
+                if coverage <= Fixed::ZERO {
+                    continue;
+                }
+                let mut alpha = (coverage * Fixed::from_int(i32::from(opa)))
+                    .to_int()
+                    .clamp(0, 255) as u8;
+                if let Some(mask) = clip_mask {
+                    alpha = ((u16::from(alpha) * u16::from(mask[mask_row + px as usize]) + 127)
+                        / 255) as u8;
+                }
+                if alpha != 0 {
+                    self.target.blend_pixel_int(px, py, color, alpha);
+                }
             }
         }
     }
@@ -605,6 +882,35 @@ fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
     let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
     pixels.clamp(1, u64::from(u16::MAX)) as u16
+}
+
+fn projective_scale_at(transform: &Transform3D, point: Point) -> Fixed {
+    let Some(origin) = transform.apply_point(point) else {
+        return Fixed::ONE;
+    };
+    let x = transform
+        .apply_point(Point {
+            x: point.x + Fixed::ONE,
+            y: point.y,
+        })
+        .map(|p| {
+            let dx = p.x - origin.x;
+            let dy = p.y - origin.y;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .unwrap_or(Fixed::ONE);
+    let y = transform
+        .apply_point(Point {
+            x: point.x,
+            y: point.y + Fixed::ONE,
+        })
+        .map(|p| {
+            let dx = p.x - origin.x;
+            let dy = p.y - origin.y;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .unwrap_or(Fixed::ONE);
+    x.max(y).max(Fixed::from_ratio(1, 256))
 }
 
 #[cfg(test)]

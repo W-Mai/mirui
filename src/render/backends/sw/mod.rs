@@ -1,9 +1,9 @@
-use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
+use crate::render::renderer::{ProjectiveDrawError, Renderer};
 use crate::render::texture::Texture;
 
 #[cfg(feature = "perf")]
@@ -922,6 +922,123 @@ impl Renderer for SwRenderer<'_> {
                 }
             }
         }
+    }
+
+    fn draw_projective(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if projective.is_identity() {
+            self.draw(cmd, clip);
+            return Ok(());
+        }
+        let logical = projective.compose(&Transform3D::from_affine(cmd.transform()));
+        match cmd {
+            DrawCommand::Fill {
+                area,
+                color,
+                radius,
+                opa,
+                ..
+            } => {
+                let Some(quad) = logical.apply_rect(*area) else {
+                    return Ok(());
+                };
+                self.dispatch_fill_quad(&quad, area, color, *radius, *opa, clip);
+            }
+            DrawCommand::Border {
+                area,
+                color,
+                width,
+                radius,
+                opa,
+                ..
+            } => {
+                let Some(quad) = logical.apply_rect(*area) else {
+                    return Ok(());
+                };
+                self.dispatch_border_quad(&quad, color, *width, *radius, *opa, clip);
+            }
+            DrawCommand::Blit {
+                pos,
+                size,
+                texture,
+                opa,
+                radius,
+                composite,
+                ..
+            } => {
+                if *opa != 255
+                    || *radius != Fixed::ZERO
+                    || !matches!(composite, CompositeMode::SourceOver)
+                {
+                    return Err(ProjectiveDrawError::Unsupported);
+                }
+                let Some(quad) = logical.apply_rect(Rect {
+                    x: pos.x,
+                    y: pos.y,
+                    w: size.x,
+                    h: size.y,
+                }) else {
+                    return Ok(());
+                };
+                self.dispatch_blit_quad(&quad, texture, clip, *radius, *composite);
+            }
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => {
+                let physical =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(&logical);
+                self.draw_glyph_run_projective_inner(label::ProjectiveRun {
+                    pos,
+                    glyphs,
+                    font,
+                    transform: &physical,
+                    clip: self.viewport.rect_to_physical(*clip),
+                    color,
+                    opacity: *opa,
+                });
+            }
+            DrawCommand::PosedGlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => {
+                let physical_projective =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(projective);
+                self.draw_posed_glyph_run_projective_inner(label::ProjectivePosedRun {
+                    pos,
+                    glyphs: glyphs.glyphs(),
+                    frames: glyphs.frames(),
+                    font,
+                    command_transform: transform,
+                    projective_transform: &physical_projective,
+                    clip: self.viewport.rect_to_physical(*clip),
+                    color,
+                    opacity: *opa,
+                });
+            }
+            DrawCommand::Line { .. }
+            | DrawCommand::Arc { .. }
+            | DrawCommand::FillPath { .. }
+            | DrawCommand::StrokePath { .. }
+            | DrawCommand::PushClip { .. }
+            | DrawCommand::PopClip
+            | DrawCommand::ApplyBlur { .. } => {
+                return Err(ProjectiveDrawError::Unsupported);
+            }
+        }
+        Ok(())
     }
 
     fn flush(&mut self) {
@@ -2651,5 +2768,63 @@ mod tests {
         }
 
         assert_eq!(dst_no_radius, dst_zero_radius);
+    }
+
+    #[test]
+    fn projective_glyph_run_renders_without_an_intermediate_surface() {
+        let mut pixels = vec![0u8; 32 * 16 * 4];
+        let mut renderer =
+            SwRenderer::new(Texture::new(&mut pixels, 32, 16, ColorFormat::RGBA8888));
+        let font = crate::render::font::Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            crate::render::font::GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let command = DrawCommand::GlyphRun {
+            pos: Point::new(8, 4),
+            transform: Transform::IDENTITY,
+            glyphs: &glyphs,
+            font: &font,
+            color: Color::rgb(255, 255, 255),
+            opa: 255,
+        };
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400));
+
+        assert_eq!(
+            renderer.draw_projective(&command, &Rect::new(0, 0, 32, 16), &projective),
+            Ok(())
+        );
+        assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    }
+
+    #[test]
+    fn projective_path_reports_unsupported_instead_of_drawing_affine() {
+        let mut pixels = vec![0u8; 8 * 8 * 4];
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
+        let path = Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(4),
+            Fixed::from_int(4),
+        );
+        let paint = Paint::Color(Color::rgb(255, 255, 255).into());
+        let command = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            opa: 255,
+            fill_rule: crate::render::raster::FillRule::NonZero,
+        };
+
+        assert_eq!(
+            renderer.draw_projective(
+                &command,
+                &Rect::new(0, 0, 8, 8),
+                &Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400),),
+            ),
+            Err(ProjectiveDrawError::Unsupported)
+        );
+        assert!(pixels.iter().all(|byte| *byte == 0));
     }
 }

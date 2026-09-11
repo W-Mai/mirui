@@ -24,6 +24,7 @@ pub use backends::wgpu;
 pub use canvas::{Canvas, Paint};
 pub use command::{CompositeMode, DrawCommand};
 pub use factory::{RendererFactory, SwRendererFactory};
+pub use renderer::ProjectiveDrawError;
 pub use renderer::Renderer;
 pub use sw::SwRenderer;
 #[cfg(feature = "perf")]

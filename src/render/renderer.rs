@@ -1,10 +1,33 @@
-use crate::types::{Fixed, Rect};
+use crate::types::{Fixed, Rect, Transform3D};
 
 use super::command::DrawCommand;
 use super::texture::ColorFormat;
 
+/// Failure to execute a draw command under a non-affine homography.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProjectiveDrawError {
+    /// The renderer or command variant has no exact projective path.
+    Unsupported,
+}
+
 pub trait Renderer {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect);
+
+    /// Draw one command after its affine transform under `transform`.
+    fn draw_projective(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        transform: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if transform.is_identity() {
+            self.draw(cmd, clip);
+            Ok(())
+        } else {
+            Err(ProjectiveDrawError::Unsupported)
+        }
+    }
+
     fn flush(&mut self);
 
     fn output_scale(&self) -> Fixed {
@@ -99,5 +122,26 @@ mod tests {
     fn default_supports_offscreen_is_false() {
         let r = NoopRenderer;
         assert!(!r.supports_offscreen());
+    }
+
+    #[test]
+    fn default_projective_path_accepts_only_identity() {
+        let mut renderer = NoopRenderer;
+        let command = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE,
+            region: Rect::new(0, 0, 1, 1),
+        };
+        assert_eq!(
+            renderer.draw_projective(&command, &Rect::new(0, 0, 1, 1), &Transform3D::IDENTITY),
+            Ok(())
+        );
+        assert_eq!(
+            renderer.draw_projective(
+                &command,
+                &Rect::new(0, 0, 1, 1),
+                &Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400),),
+            ),
+            Err(ProjectiveDrawError::Unsupported)
+        );
     }
 }
