@@ -28,6 +28,11 @@ pub trait Renderer {
         }
     }
 
+    /// Whether non-identity calls to [`Self::draw_projective`] are accepted.
+    fn supports_projective(&self) -> bool {
+        false
+    }
+
     fn flush(&mut self);
 
     fn output_scale(&self) -> Fixed {
@@ -122,6 +127,7 @@ mod tests {
     fn default_supports_offscreen_is_false() {
         let r = NoopRenderer;
         assert!(!r.supports_offscreen());
+        assert!(!r.supports_projective());
     }
 
     #[test]

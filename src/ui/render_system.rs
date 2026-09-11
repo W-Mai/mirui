@@ -14,6 +14,46 @@ use super::theme::WidgetState;
 use super::view::{ViewCtx, ViewRegistry};
 use super::{Children, Hidden, Parent, Style, Widget};
 
+struct ProjectiveRenderer<'a> {
+    inner: &'a mut dyn Renderer,
+    transform: Transform3D,
+    unsupported: bool,
+}
+
+impl Renderer for ProjectiveRenderer<'_> {
+    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        if self
+            .inner
+            .draw_projective(cmd, clip, &self.transform)
+            .is_err()
+        {
+            self.unsupported = true;
+        }
+    }
+
+    fn draw_projective(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        transform: &Transform3D,
+    ) -> Result<(), crate::render::ProjectiveDrawError> {
+        self.inner
+            .draw_projective(cmd, clip, &self.transform.compose(transform))
+    }
+
+    fn supports_projective(&self) -> bool {
+        true
+    }
+
+    fn flush(&mut self) {
+        self.inner.flush();
+    }
+
+    fn output_scale(&self) -> Fixed {
+        self.inner.output_scale()
+    }
+}
+
 /// Disabled (subtree) > Errored (self) > Pressed > Hovered > Enabled.
 fn resolve_widget_state(world: &World, entity: Entity) -> WidgetState {
     let mut cur = Some(entity);
@@ -78,6 +118,31 @@ fn effective_transform_3d(
         .compose(&to_origin)
 }
 
+fn render_transforms(
+    parent_affine: Transform,
+    parent_projective: Transform3D,
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+) -> (Transform, Transform3D) {
+    let local_affine = effective_transform(&Transform::IDENTITY, world, entity, rect);
+    let local_projective = effective_transform_3d(&Transform3D::IDENTITY, world, entity, rect);
+    if parent_projective.is_identity() && local_projective.is_identity() {
+        return (parent_affine.compose(&local_affine), Transform3D::IDENTITY);
+    }
+    let outer = if parent_projective.is_identity() {
+        Transform3D::from_affine(parent_affine)
+    } else {
+        parent_projective
+    };
+    (
+        Transform::IDENTITY,
+        outer
+            .compose(&local_projective)
+            .compose(&Transform3D::from_affine(local_affine)),
+    )
+}
+
 /// Once any ancestor declares a 3D transform, the whole subtree
 /// renders through the 3D quad path. Descendants without a
 /// `WidgetTransform3D` either lift their 2D `WidgetTransform` to
@@ -124,6 +189,26 @@ fn affine_visual_bounds(
     crate::ui::widgets::text::path_text_ink_bounds(world, entity, rect, transform, output_scale)
         .map(|ink| layout.union(&ink))
         .unwrap_or(layout)
+}
+
+fn projective_visual_bounds(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    transform: Transform3D,
+    output_scale: Fixed,
+) -> Option<Rect> {
+    let layout = transform.apply_rect(rect).map(quad_bbox)?;
+    let ink = crate::ui::widgets::text::path_text_ink_bounds(
+        world,
+        entity,
+        rect,
+        Transform::IDENTITY,
+        output_scale,
+    )
+    .and_then(|bounds| transform.apply_rect(bounds))
+    .map(quad_bbox);
+    Some(ink.map(|bounds| layout.union(&bounds)).unwrap_or(layout))
 }
 
 fn seed_prev_rect_walk(
@@ -483,9 +568,27 @@ fn draw_tree_offset(
             generation: 0,
         }
     };
-    let tf = effective_transform(parent_transform, world, entity, shifted_rect);
-    let tf_3d = accumulate_3d(parent_transform_3d, world, entity, shifted_rect);
-    let quad = quad_for(world, entity, shifted_rect, parent_transform_3d).or_else(|| {
+    let projective_renderer = renderer.supports_projective();
+    let (tf, tf_3d) = if projective_renderer {
+        render_transforms(
+            *parent_transform,
+            *parent_transform_3d,
+            world,
+            entity,
+            shifted_rect,
+        )
+    } else {
+        (
+            effective_transform(parent_transform, world, entity, shifted_rect),
+            accumulate_3d(parent_transform_3d, world, entity, shifted_rect),
+        )
+    };
+    let quad = if projective_renderer && !tf_3d.is_identity() {
+        tf_3d.apply_rect(shifted_rect)
+    } else {
+        quad_for(world, entity, shifted_rect, parent_transform_3d)
+    }
+    .or_else(|| {
         if matches!(
             tf.classify(),
             crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
@@ -496,9 +599,14 @@ fn draw_tree_offset(
         }
     });
 
-    let cull_rect = quad.map(quad_bbox).unwrap_or_else(|| {
-        affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
-    });
+    let cull_rect = if projective_renderer && !tf_3d.is_identity() {
+        projective_visual_bounds(world, entity, shifted_rect, tf_3d, renderer.output_scale())
+            .unwrap_or(shifted_rect)
+    } else {
+        quad.map(quad_bbox).unwrap_or_else(|| {
+            affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
+        })
+    };
     if !rects_intersect(&cull_rect, clip) {
         *idx += count_nodes(node);
         return;
@@ -549,16 +657,18 @@ fn draw_tree_offset(
                 bg_handled: false,
                 state,
             };
-            if let Some(registry) = world.resource::<ViewRegistry>() {
-                crate::trace_span!("draw.view_dispatch");
-                for view in registry.iter() {
-                    if let Some(tid) = view.component_filter()
-                        && !world.has_type(entity, tid)
-                    {
-                        continue;
-                    }
-                    (view.render())(renderer, world, entity, &shifted_rect, &mut ctx);
+            if !tf_3d.is_identity() && projective_renderer {
+                let mut scoped = ProjectiveRenderer {
+                    inner: renderer,
+                    transform: tf_3d,
+                    unsupported: false,
+                };
+                render_views(&mut scoped, world, entity, &shifted_rect, &mut ctx);
+                if scoped.unsupported {
+                    crate::warn!("projective draw unsupported for entity {:?}", entity);
                 }
+            } else {
+                render_views(renderer, world, entity, &shifted_rect, &mut ctx);
             }
         }
     }
@@ -595,6 +705,77 @@ fn draw_tree_offset(
             &tf_3d,
             inside_offscreen,
         );
+    }
+}
+
+fn render_views(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx<'_>,
+) {
+    let Some(registry) = world.resource::<ViewRegistry>() else {
+        return;
+    };
+    crate::trace_span!("draw.view_dispatch");
+    for view in registry.iter() {
+        if let Some(tid) = view.component_filter()
+            && !world.has_type(entity, tid)
+        {
+            continue;
+        }
+        (view.render())(renderer, world, entity, rect, ctx);
+    }
+}
+
+#[cfg(test)]
+mod projective_transform_tests {
+    use super::*;
+
+    #[test]
+    fn first_projective_boundary_folds_affine_ancestors_once() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let affine = Transform::translate(Fixed::from_int(3), Fixed::from_int(2));
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400));
+        world.insert(entity, WidgetTransform(affine));
+        world.insert(entity, WidgetTransform3D(projective));
+        let parent = Transform::scale(Fixed::from_int(2), Fixed::from_int(2));
+        let rect = Rect::new(10, 10, 20, 10);
+
+        let (command, scope) =
+            render_transforms(parent, Transform3D::IDENTITY, &world, entity, rect);
+        let local_affine = effective_transform(&Transform::IDENTITY, &world, entity, rect);
+        let local_projective = effective_transform_3d(&Transform3D::IDENTITY, &world, entity, rect);
+        let expected = Transform3D::from_affine(parent)
+            .compose(&local_projective)
+            .compose(&Transform3D::from_affine(local_affine));
+
+        assert_eq!(command, Transform::IDENTITY);
+        assert_eq!(scope, expected);
+    }
+
+    #[test]
+    fn affine_descendant_composes_inside_existing_projective_scope() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(
+            entity,
+            WidgetTransform(Transform::translate(
+                Fixed::from_int(4),
+                Fixed::from_int(-2),
+            )),
+        );
+        let parent = Transform3D::rotate_x_perspective(Fixed::from_int(12), Fixed::from_int(360));
+        let rect = Rect::new(8, 6, 24, 12);
+
+        let (command, scope) = render_transforms(Transform::IDENTITY, parent, &world, entity, rect);
+        let local = effective_transform(&Transform::IDENTITY, &world, entity, rect);
+
+        assert_eq!(command, Transform::IDENTITY);
+        assert_eq!(scope, parent.compose(&Transform3D::from_affine(local)));
     }
 }
 

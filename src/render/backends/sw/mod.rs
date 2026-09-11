@@ -1041,6 +1041,10 @@ impl Renderer for SwRenderer<'_> {
         Ok(())
     }
 
+    fn supports_projective(&self) -> bool {
+        true
+    }
+
     fn flush(&mut self) {
         Canvas::flush(self);
     }
