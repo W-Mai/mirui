@@ -69,10 +69,22 @@ ui! {
 ```
 
 When `label` changes, only that attribute updates — the widget is not
-rebuilt. Reactive binding is supported on `text`, `bg_color`,
+rebuilt. Reactive binding is supported on `text`, `path`, `bg_color`,
 `text_color`, `width`, and `height`.
 
 `attr: $signal` is shorthand for `attr: ${ signal.get() }`.
+
+A reactive text path keeps the text entity stable while transferring its subscription to the selected path:
+
+```rust
+let selected = Signal::new(first_path);
+
+ui! {
+    Text("Live route", path: $selected)
+}
+```
+
+To derive the geometry of one mutable path from signals, use `UiScope::bind_path`. The owner-bound effect edits the existing `PathId`, retains its allocation, and invalidates drawing and text consumers when its revision changes. See [`typography.md`](typography.md#derive-path-geometry-from-signals).
 
 ## Reactive control flow
 

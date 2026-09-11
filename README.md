@@ -19,6 +19,7 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 - **`no_std` + `alloc`** — runs on bare-metal MCUs (ESP32-C3, STM32) with a global allocator
 - **Subpixel rasterizer** — 24.8 fixed-point throughout (layout, rendering, hit-test, events). Scanline coverage AA on any `Path`; SDF / 2×2 supersample fast paths for quad fills
 - **Vector drawing** — `Canvas` exposes `fill_path` / `stroke_path` / `draw_line` / `draw_arc`; `DrawCommand::FillPath` puts path fills inside the same View pipeline as built-in widgets
+- **Typography** — shaped text supports bounded layout, fallback fonts, bidirectional scripts, path placement, oriented carets, selection geometry, and path-aware hit testing
 - **Layout** — Flexbox, absolute positioning, padding, justify / align; `Dimension::{Px, Percent, Auto, Content}`
 - **Animation** — Tween, Spring (WWDC23-derived critical damping), retargetable; declarative `animate!` and `timer!` macros
 - **Theme** — `ColorToken` / `ThemedColor`; built-in dark / light + custom tokens; per-`WidgetState` (Hovered / Pressed / Error / Disabled) overlay routing
@@ -98,6 +99,8 @@ desktop and embedded targets unchanged. See
 [`docs/quickstart.md`](docs/quickstart.md) for the full walkthrough,
 including ESP32-C3 wiring, the workspace layout, and a recipe for
 adding new target crates.
+
+[`docs/typography.md`](docs/typography.md) covers text paths, static and mutable geometry, reactive path selection, signal-derived curves, and handler-driven edits.
 
 ## MIRX assets
 
