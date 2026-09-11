@@ -19,7 +19,7 @@ members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web"]
 [dependencies]
 mirui-macros = { version = "0.43.0", path = "mirui-macros" }
 mirx = { version = "0.43.0", path = "mirx" }
-textflow-rs = { version = "0.2.3", default-features = false, features = ["script-arabic", "script-devanagari", "script-thai"] }
+textflow-rs = { version = "0.2.4", default-features = false, features = ["alloc", "script-arabic", "script-devanagari", "script-thai"] }
 critical-section = { version = "1.2", default-features = false }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 rustc-hash = { version = "2", default-features = false }

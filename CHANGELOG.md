@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Canonical text layout workspace.** Mirui delegates bidi resolution, shaping, line breaking and private scratch growth to `textflow-rs` 0.2.4 while retaining caller-owned final output, stable layout handles and one shared cache-memory budget.
 - **Consolidated component demos.** TabBar selection history is signal-driven in the retained TabBar scenario; the Widgets form includes Button, Checkbox, ProgressBar and Image coverage alongside Slider and Switch.
 - **Nested declarative composition.** Lowercase `#[compose]` functions can appear directly inside `ui!` trees, receive the surrounding node as parent and accept positional arguments.
 - **Interaction Lab.** A signal-owned showcase combines tap counts, long press, drag, dynamic event suppression, input focus, user states, business-value controls and cursor feedback.
