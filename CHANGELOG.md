@@ -98,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Retained path identity.** Bounded generational `PathStore` slots keep static command slices borrowed, edit mutable paths transactionally, publish compact revisions and reject stale or immutable handles without duplicating path geometry.
 - **Reactive paragraph binding.** `ui!` accepts Signal-backed `Text` paragraph styles so wrapping, alignment, overflow and shaping controls update the authoritative layout input.
 - **Typography Lab.** A responsive Gallery surface renders Latin ligatures and kerning, CJK metrics, Arabic joining and marks, Thai mark placement, mixed-direction fallback, and the coverage-to-SDF size ladder from borrowed MIRX font assets. Signal-backed controls change ppem, width, wrapping, alignment and overflow through the shared paragraph layout. Live caret overlays and a magnified packed-sample view expose the positioned layout and selected raster path.
 - **Borrowed MIRX OpenType layout.** MIRX typefaces apply GSUB single, multiple, ligature, and chaining-context substitutions plus GPOS pair, cursive, mark-to-base, mark-to-ligature, and mark-to-mark positioning directly from bounded shaping tables into caller-owned glyph storage. LangSys selection, GDEF mark filtering, Arabic joining, and Thai decomposition retain explicit capability errors for unsupported semantics.

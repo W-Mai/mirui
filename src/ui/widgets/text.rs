@@ -289,6 +289,7 @@ impl Text {
         TextBuilder {
             text: source.into(),
             style: None,
+            path: None,
         }
     }
 
@@ -381,6 +382,7 @@ impl From<Localized> for Text {
 pub struct TextBuilder {
     text: Text,
     style: Option<crate::ui::Style>,
+    path: Option<crate::text::TextPath>,
 }
 
 impl TextBuilder {
@@ -391,6 +393,11 @@ impl TextBuilder {
 
     pub fn paragraph(mut self, paragraph: ParagraphStyle) -> Self {
         self.text.paragraph = paragraph;
+        self
+    }
+
+    pub fn path(mut self, path: impl Into<crate::text::TextPath>) -> Self {
+        self.path = Some(path.into());
         self
     }
 
@@ -419,6 +426,9 @@ impl crate::ecs::IntoBundle for TextBuilder {
         world.insert(entity, self.text);
         if let Some(style) = self.style {
             world.insert(entity, style);
+        }
+        if let Some(path) = self.path {
+            crate::text::path::set_text_path(world, entity, path);
         }
     }
 }

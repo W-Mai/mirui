@@ -2,6 +2,11 @@ use crate::types::{Fixed, Point, Rect};
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
+mod store;
+
+pub(crate) use store::PathSubscription;
+pub use store::{PathId, PathRevision, PathStore, PathStoreError};
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum PathCmd {
     MoveTo(Point),
@@ -20,7 +25,19 @@ pub enum PathCmd {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Path {
-    pub cmds: Cow<'static, [PathCmd]>,
+    pub(crate) cmds: Cow<'static, [PathCmd]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathCapacityError {
+    Overflow,
+    Allocation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PathCommandError {
+    pub index: usize,
+    pub len: usize,
 }
 
 impl Path {
@@ -40,6 +57,72 @@ impl Path {
         Self {
             cmds: Cow::Owned(cmds),
         }
+    }
+
+    pub fn try_with_capacity(capacity: usize) -> Result<Self, PathCapacityError> {
+        let mut cmds = Vec::new();
+        cmds.try_reserve_exact(capacity)
+            .map_err(|_| PathCapacityError::Allocation)?;
+        Ok(Self {
+            cmds: Cow::Owned(cmds),
+        })
+    }
+
+    pub fn commands(&self) -> &[PathCmd] {
+        &self.cmds
+    }
+
+    pub fn is_borrowed(&self) -> bool {
+        matches!(self.cmds, Cow::Borrowed(_))
+    }
+
+    pub fn command_capacity(&self) -> usize {
+        match &self.cmds {
+            Cow::Borrowed(cmds) => cmds.len(),
+            Cow::Owned(cmds) => cmds.capacity(),
+        }
+    }
+
+    pub fn try_reserve_commands(&mut self, additional: usize) -> Result<(), PathCapacityError> {
+        match &mut self.cmds {
+            Cow::Owned(cmds) => cmds
+                .try_reserve_exact(additional)
+                .map_err(|_| PathCapacityError::Allocation),
+            Cow::Borrowed(cmds) => {
+                let capacity = cmds
+                    .len()
+                    .checked_add(additional)
+                    .ok_or(PathCapacityError::Overflow)?;
+                let mut owned = Vec::new();
+                owned
+                    .try_reserve_exact(capacity)
+                    .map_err(|_| PathCapacityError::Allocation)?;
+                owned.extend_from_slice(cmds);
+                self.cmds = Cow::Owned(owned);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn clear(&mut self) -> &mut Self {
+        match &mut self.cmds {
+            Cow::Owned(cmds) => cmds.clear(),
+            Cow::Borrowed(_) => self.cmds = Cow::Owned(Vec::new()),
+        }
+        self
+    }
+
+    pub fn set_command(
+        &mut self,
+        index: usize,
+        command: PathCmd,
+    ) -> Result<&mut Self, PathCommandError> {
+        let len = self.cmds.len();
+        let Some(target) = self.cmds.to_mut().get_mut(index) else {
+            return Err(PathCommandError { index, len });
+        };
+        *target = command;
+        Ok(self)
     }
 
     pub fn move_to(&mut self, p: Point) -> &mut Self {

@@ -132,7 +132,9 @@ pub mod prelude {
     pub use crate::core::reactive::{Computed, Effect, Signal};
     pub use crate::ecs::{Component, Entity, IntoBundle, MonoClock, World};
     pub use crate::render::font::FontToken;
+    pub use crate::render::path::{Path, PathId};
     pub use crate::surface::Surface;
+    pub use crate::text::{PathDirection, TextPath};
     pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::layout::{

@@ -201,6 +201,10 @@ pub struct HandlerCtx<'a, E> {
 }
 
 impl<'a, E> HandlerCtx<'a, E> {
+    pub fn paths(&mut self) -> crate::text::PathAccess<'_> {
+        crate::text::PathAccess::new(self.world)
+    }
+
     /// Run a UI composition rooted at this handler's widget entity.
     ///
     /// Builds a fresh [`UiScope`](crate::ui::UiScope) from the handler's

@@ -82,6 +82,11 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn text_path(self, path: impl Into<crate::text::TextPath>) -> Self {
+        crate::text::path::set_text_path(self.world, self.entity, path);
+        self
+    }
+
     pub fn image(self, img: crate::ui::widgets::image::Image) -> Self {
         self.world.insert(self.entity, img);
         self

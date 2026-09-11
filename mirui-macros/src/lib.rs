@@ -420,6 +420,7 @@ fn reactive_setter(widget: &str, attr: &str) -> Option<&'static str> {
         "width" => Some("reactive_set_width"),
         "height" => Some("reactive_set_height"),
         "paragraph" if widget == "Text" => Some("reactive_set_paragraph"),
+        "path" if widget == "Text" => Some("reactive_set_text_path"),
         _ => None,
     }
 }
@@ -621,6 +622,11 @@ impl MiruiRune {
 
             if is_text_widget && name == "paragraph" {
                 text_paragraph_value = Some(quote! { #value });
+                continue;
+            }
+
+            if is_text_widget && name == "path" {
+                builder_calls.push(quote! { .text_path(#value) });
                 continue;
             }
 

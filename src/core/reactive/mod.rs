@@ -227,6 +227,23 @@ pub struct Signal<T: 'static> {
     inner: Rc<RefCell<SignalInner<T>>>,
 }
 
+pub(crate) struct SignalSubscription<T: 'static> {
+    inner: Weak<RefCell<SignalInner<T>>>,
+    subscriber: Subscriber,
+}
+
+impl<T: 'static> Drop for SignalSubscription<T> {
+    fn drop(&mut self) {
+        let Some(inner) = self.inner.upgrade() else {
+            return;
+        };
+        inner
+            .borrow_mut()
+            .subscribers
+            .retain(|subscriber| *subscriber != self.subscriber);
+    }
+}
+
 impl<T: 'static> Clone for Signal<T> {
     fn clone(&self) -> Self {
         Signal {
@@ -247,12 +264,23 @@ impl<T: 'static> Signal<T> {
 
     fn track(&self) {
         if let Some(sub) = current_scope() {
-            let mut inner = self.inner.borrow_mut();
-            // dedup: an effect re-running re-reads the signal; without this the
-            // subscriber accumulates duplicates and set() re-enqueues O(n) times.
-            if !inner.subscribers.contains(&sub) {
-                inner.subscribers.push(sub);
-            }
+            self.add_subscriber(sub);
+        }
+    }
+
+    fn add_subscriber(&self, subscriber: Subscriber) {
+        let mut inner = self.inner.borrow_mut();
+        if !inner.subscribers.contains(&subscriber) {
+            inner.subscribers.push(subscriber);
+        }
+    }
+
+    pub(crate) fn subscribe_widget(&self, entity: Entity) -> SignalSubscription<T> {
+        let subscriber = Subscriber::Widget(entity);
+        self.add_subscriber(subscriber);
+        SignalSubscription {
+            inner: Rc::downgrade(&self.inner),
+            subscriber,
         }
     }
 

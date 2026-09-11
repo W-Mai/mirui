@@ -134,6 +134,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(crate::text::layout::TextLayoutResource::new(
             crate::text::TextLayoutLimits::default(),
         ));
+        world.insert_resource(crate::render::path::PathStore::default());
         world.insert_resource(crate::core::i18n::I18n::default());
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());
@@ -174,6 +175,24 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world
             .insert_resource(crate::text::layout::TextLayoutResource::new(limits));
         self
+    }
+
+    pub fn with_path_capacity(
+        &mut self,
+        capacity: usize,
+    ) -> Result<&mut Self, crate::render::path::PathStoreError> {
+        if let Some(store) = self.world.resource::<crate::render::path::PathStore>() {
+            if !store.is_empty() {
+                return Err(crate::render::path::PathStoreError::InUse { paths: store.len() });
+            }
+        }
+        self.world
+            .insert_resource(crate::render::path::PathStore::new(capacity)?);
+        Ok(self)
+    }
+
+    pub fn paths(&mut self) -> crate::text::PathAccess<'_> {
+        crate::text::PathAccess::new(&mut self.world)
     }
 
     pub fn with_i18n(&mut self, i18n: crate::core::i18n::I18n) -> &mut Self {
@@ -1065,6 +1084,22 @@ mod swap_tests {
                 .expect("swap must restore the app, never leave None");
             assert!(app.root.is_some(), "rebuilt app must have a root");
         }
+    }
+
+    #[test]
+    fn path_capacity_cannot_replace_a_live_store() {
+        let mut app = App::headless(64, 64);
+        let path = app
+            .paths()
+            .insert(crate::render::path::Path::new())
+            .unwrap();
+
+        let result = app.with_path_capacity(8);
+        assert!(matches!(
+            result,
+            Err(crate::render::path::PathStoreError::InUse { paths: 1 })
+        ));
+        assert!(app.paths().with(path, |_| ()).is_ok());
     }
 }
 
