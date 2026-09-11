@@ -309,17 +309,7 @@ impl SwRenderer<'_> {
                 let sx = u * source_scale_x - Fixed::HALF;
                 let sy = v * source_scale_y - Fixed::HALF;
                 let coverage = match &glyph {
-                    TransformedGlyph::Mono(bitmap) => {
-                        let x = (u * source_scale_x).to_int().clamp(0, 7);
-                        let y = (v * source_scale_y)
-                            .to_int()
-                            .clamp(0, bitmap.len() as i32 - 1);
-                        if bitmap[y as usize] & (0x80 >> x) == 0 {
-                            Fixed::ZERO
-                        } else {
-                            Fixed::ONE
-                        }
-                    }
+                    TransformedGlyph::Mono(bitmap) => sample_mono_bilinear(bitmap, sx, sy),
                     TransformedGlyph::Coverage(field) => field.sample_bilinear(sx, sy),
                     TransformedGlyph::SignedDistance(field) => {
                         let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
@@ -588,6 +578,29 @@ impl SwRenderer<'_> {
     }
 }
 
+fn sample_mono_bilinear(bitmap: &[u8], x: Fixed, y: Fixed) -> Fixed {
+    let x0 = x.floor().to_int();
+    let y0 = y.floor().to_int();
+    let tx = x - Fixed::from_int(x0);
+    let ty = y - Fixed::from_int(y0);
+    let top_left = mono_sample(bitmap, x0, y0);
+    let top = top_left + (mono_sample(bitmap, x0 + 1, y0) - top_left) * tx;
+    let bottom_left = mono_sample(bitmap, x0, y0 + 1);
+    let bottom = bottom_left + (mono_sample(bitmap, x0 + 1, y0 + 1) - bottom_left) * tx;
+    top + (bottom - top) * ty
+}
+
+fn mono_sample(bitmap: &[u8], x: i32, y: i32) -> Fixed {
+    if !(0..8).contains(&x) || y < 0 || y as usize >= bitmap.len() {
+        return Fixed::ZERO;
+    }
+    if bitmap[y as usize] & (0x80 >> x) == 0 {
+        Fixed::ZERO
+    } else {
+        Fixed::ONE
+    }
+}
+
 fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
     let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
@@ -610,6 +623,28 @@ mod tests {
 
     fn pixel_alpha(buf: &[u8], stride: usize, x: usize, y: usize) -> u8 {
         buf[(y * stride + x) * 4 + 3]
+    }
+
+    #[test]
+    fn transformed_mono_sampling_filters_edges_and_transparent_border() {
+        let bitmap = [0b1000_0000];
+
+        assert_eq!(
+            sample_mono_bilinear(&bitmap, Fixed::ZERO, Fixed::ZERO),
+            Fixed::ONE
+        );
+        assert_eq!(
+            sample_mono_bilinear(&bitmap, Fixed::HALF, Fixed::ZERO),
+            Fixed::HALF
+        );
+        assert_eq!(
+            sample_mono_bilinear(&bitmap, -Fixed::HALF, Fixed::ZERO),
+            Fixed::HALF
+        );
+        assert_eq!(
+            sample_mono_bilinear(&bitmap, Fixed::HALF, Fixed::HALF),
+            Fixed::from_ratio(1, 4)
+        );
     }
 
     #[test]

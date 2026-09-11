@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rotated bitmap glyph edges.** Software rendering bilinearly filters transformed 1-bit glyph coverage against a transparent atlas border while keeping untransformed pixel fonts on the exact raster path.
 - **Interactive Gallery input.** Interaction Lab no longer installs a looping simulated pointer and rotary timeline over live user input.
 - **Reactive text configuration.** Signal-driven content updates preserve the existing paragraph policy, including horizontal and vertical alignment.
 - **Text box alignment.** `ParagraphStyle` supports explicit vertical alignment, and centered labels use shaped line width and measured text height instead of manual spacing or fixed offsets.
