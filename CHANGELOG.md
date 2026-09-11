@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Text on paths.** Retained path bindings place shaped glyphs and carets along measured baselines, preserve caller-owned bounded frame storage, expose transformed caret hit testing, and render posed glyph runs across software, SDL GPU, WGPU, and Web Canvas backends.
 - **Canonical text layout workspace.** Mirui delegates bidi resolution, shaping, line breaking and private scratch growth to `textflow-rs` 0.2.4 while retaining caller-owned final output, stable layout handles and one shared cache-memory budget.
 - **Consolidated component demos.** TabBar selection history is signal-driven in the retained TabBar scenario; the Widgets form includes Button, Checkbox, ProgressBar and Image coverage alongside Slider and Switch.
 - **Nested declarative composition.** Lowercase `#[compose]` functions can appear directly inside `ui!` trees, receive the surrounding node as parent and accept positional arguments.

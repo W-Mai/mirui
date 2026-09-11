@@ -3,10 +3,11 @@ extern crate alloc;
 use alloc::format;
 
 use crate::prelude::*;
-use crate::render::command::DrawCommand;
+use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
 use crate::render::font::scalar::ScalarField;
 use crate::render::font::{Font, FontManager, FontStack, ResolvedFontStack};
 use crate::render::renderer::Renderer;
+use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::text::FontFeature;
 use crate::ui::widgets::{
@@ -31,6 +32,8 @@ const FALLBACKS: [FontToken; 4] = [CJK, ARABIC, DEVANAGARI, THAI];
 const FEATURES_OFF: [FontFeature; 2] =
     [FontFeature::new(*b"liga", 0), FontFeature::new(*b"kern", 0)];
 const LIVE_SAMPLE: &str = "office AVATAR · 中文字体排版 · مرحبا · किरण · ภาษาไทย";
+
+static WAVE_BASELINE: Path = path!(M 4 68 C 38 16 92 14 126 50 C 148 74 170 68 188 34);
 
 #[derive(Default, crate::Component)]
 struct CaretOverlay {
@@ -226,6 +229,85 @@ fn caret_overlay_render(
     let Some(layout) = cache.get(handle) else {
         return;
     };
+    if let Some(text_path) = world.get::<TextPath>(target).copied() {
+        let center_hit = crate::ui::widgets::text::PathCaretHit::nearest(
+            world,
+            target,
+            *rect,
+            ctx.transform,
+            ctx.transform.apply_point(Point {
+                x: rect.x + rect.w / Fixed::from_int(2),
+                y: rect.y + rect.h / Fixed::from_int(2),
+            }),
+            rect.w.max(rect.h),
+        );
+        let (Some(paths), Some(path_cache)) = (
+            world.resource::<crate::render::path::PathStore>(),
+            world.resource::<crate::text::baseline::PathBaselineResource>(),
+        ) else {
+            return;
+        };
+        if let Ok(path) = paths.get(text_path.path()) {
+            let paint = Paint::Color(BORDER.into());
+            renderer.draw(
+                &DrawCommand::StrokePath {
+                    path,
+                    transform: ctx.transform.compose(&Transform::translate(rect.x, rect.y)),
+                    paint: &paint,
+                    width: Fixed::ONE,
+                    opa: 255,
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
+                    miter_limit: Fixed::from_int(4),
+                    dash: &[],
+                },
+                ctx.clip,
+            );
+        }
+        let _ = path_cache.with_caret_frames(
+            paths,
+            text_path,
+            crate::text::baseline::DEFAULT_TOLERANCE,
+            handle,
+            &layout,
+            |frames| {
+                for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
+                    let origin = Point {
+                        x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
+                        y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
+                    };
+                    let tangent = Point {
+                        x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
+                        y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
+                    };
+                    let normal = Point {
+                        x: Fixed::ZERO - tangent.y,
+                        y: tangent.x,
+                    };
+                    draw_line(
+                        renderer,
+                        ctx,
+                        Point {
+                            x: origin.x - normal.x * metrics.ascender,
+                            y: origin.y - normal.y * metrics.ascender,
+                        },
+                        Point {
+                            x: origin.x + normal.x * (metrics.line_height - metrics.ascender),
+                            y: origin.y + normal.y * (metrics.line_height - metrics.ascender),
+                        },
+                        if center_hit.is_some_and(|hit| hit.index() == index) {
+                            GOLD
+                        } else if caret.bidi_level & 1 == 0 {
+                            CYAN
+                        } else {
+                            VIOLET
+                        },
+                    );
+                }
+            },
+        );
+        return;
+    }
     for line in layout.lines() {
         let baseline = rect.y + crate::types::fixed::from_textflow(line.origin().y);
         draw_line(
@@ -375,6 +457,14 @@ pub fn register_fonts(world: &mut World) {
     manager.add_static(THAI.cache_key(), font(THAI_FONT, "Noto Sans Thai"));
 }
 
+pub fn register_path(world: &mut World) -> PathId {
+    world
+        .resource_mut::<crate::render::path::PathStore>()
+        .expect("path store")
+        .insert_static(WAVE_BASELINE.commands())
+        .expect("static typography path")
+}
+
 fn mixed_stack() -> FontStack {
     FontStack::new(UI).with_fallbacks(&FALLBACKS[..])
 }
@@ -417,7 +507,7 @@ fn features_off() -> ParagraphStyle {
 }
 
 #[compose]
-pub fn build_widgets() {
+pub fn build_widgets(wave_path: PathId) {
     let state = Signal::new(TypographyState::default());
     let sample_width = state.clone();
     let caret_width = state.clone();
@@ -462,7 +552,7 @@ pub fn build_widgets() {
                 }
                 Text (
                     id: "typography_panel_count",
-                    "7 TEST PANELS",
+                    "8 TEST PANELS",
                     width: 158,
                     height: 30,
                     bg_color: PANEL_ALT,
@@ -692,6 +782,51 @@ pub fn build_widgets() {
                         paragraph: plain_paragraph()
                     )
                 }
+                Column (
+                    id: "typography_path",
+                    grow: 1.0,
+                    min_width: 220,
+                    height: 186,
+                    padding: Padding::all(14),
+                    row_gap: 7,
+                    bg_color: PANEL,
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 14
+                ) {
+                    Text ("PATH · GLYPH POSES", font: UI, font_size: 12, text_color: CYAN)
+                    View (grow: 1.0, height: 104) {
+                        Text (
+                            id: "typography_path_sample",
+                            "TEXT FOLLOWS ONE PATH",
+                            path: wave_path,
+                            position: Position::Absolute,
+                            left: 0,
+                            top: 0,
+                            width: 190,
+                            height: 104,
+                            font: UI,
+                            font_size: 15,
+                            text_color: TEXT,
+                            paragraph: plain_paragraph()
+                        )
+                        CaretOverlay (
+                            id: "typography_path_carets",
+                            target: "typography_path_sample",
+                            position: Position::Absolute,
+                            left: 0,
+                            top: 0,
+                            width: 190,
+                            height: 104
+                        )
+                    }
+                    Text (
+                        "shared Path · cached glyph and caret frames",
+                        font: UI,
+                        font_size: 11,
+                        text_color: MUTED
+                    )
+                }
             }
             Row (
                 id: "typography_controls",
@@ -845,7 +980,8 @@ where
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
-    app.compose(parent, build_widgets);
+    let wave_path = register_path(&mut app.world);
+    app.compose(parent, |cx| build_widgets(cx, wave_path));
 }
 
 #[cfg(test)]
@@ -869,10 +1005,13 @@ mod tests {
         world.insert_resource(crate::text::layout::TextLayoutResource::new(
             crate::text::TextLayoutLimits::EMBEDDED,
         ));
+        world.insert_resource(crate::render::path::PathStore::new(1).unwrap());
+        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
         register_fonts(&mut world);
+        let wave_path = register_path(&mut world);
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx);
+        build_widgets(&mut cx, wave_path);
         drop(cx);
         world
     }
@@ -903,8 +1042,10 @@ mod tests {
             "typography_devanagari",
             "typography_bidi",
             "typography_rasters",
+            "typography_path",
             "typography_contour",
             "typography_carets",
+            "typography_path_carets",
         ] {
             assert!(world.find_by_id(id).is_some(), "missing {id}");
         }

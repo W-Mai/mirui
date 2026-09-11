@@ -9,6 +9,7 @@ use crate::render::texture::Texture;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecordError {
     BadUtf8,
+    UnsupportedCommand,
 }
 
 /// Maps a borrowed `Font` / `Texture` to the `ResourceRef` that will appear
@@ -71,6 +72,7 @@ pub fn record_command(
             opa: *opa,
             glyphs: glyphs.to_vec().into(),
         },
+        DrawCommand::PosedGlyphRun { .. } => return Err(RecordError::UnsupportedCommand),
         DrawCommand::Line {
             p1,
             p2,

@@ -490,6 +490,10 @@ impl SdlGpuRenderer<'_> {
 }
 
 impl Renderer for SdlGpuRenderer<'_> {
+    fn output_scale(&self) -> Fixed {
+        self.viewport.scale()
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
@@ -552,6 +556,26 @@ impl Renderer for SdlGpuRenderer<'_> {
                 self.draw_glyph_run_inner(label::GlyphRunDraw {
                     pos,
                     glyphs,
+                    font,
+                    transform,
+                    clip,
+                    color,
+                    opacity: *opa,
+                });
+                return;
+            }
+            DrawCommand::PosedGlyphRun {
+                pos,
+                glyphs,
+                font,
+                transform,
+                color,
+                opa,
+            } => {
+                self.draw_posed_glyph_run_inner(label::PosedGlyphRunDraw {
+                    pos,
+                    glyphs: glyphs.glyphs(),
+                    frames: glyphs.frames(),
                     font,
                     transform,
                     clip,
@@ -660,7 +684,9 @@ impl Renderer for SdlGpuRenderer<'_> {
                     *opa,
                 )
             }
-            DrawCommand::GlyphRun { .. } => unreachable!("glyph runs return before dispatch"),
+            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. } => {
+                unreachable!("glyph runs return before dispatch")
+            }
             DrawCommand::FillPath {
                 path, paint, opa, ..
             } => {
@@ -921,6 +947,27 @@ impl Canvas for SdlGpuRenderer<'_> {
         self.draw_glyph_run_inner(label::GlyphRunDraw {
             pos,
             glyphs,
+            font,
+            transform: &Transform::IDENTITY,
+            clip,
+            color,
+            opacity: opa,
+        });
+    }
+
+    fn draw_posed_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: crate::render::command::PosedGlyphs<'_>,
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_posed_glyph_run_inner(label::PosedGlyphRunDraw {
+            pos,
+            glyphs: glyphs.glyphs(),
+            frames: glyphs.frames(),
             font,
             transform: &Transform::IDENTITY,
             clip,

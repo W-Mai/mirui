@@ -135,6 +135,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::text::TextLayoutLimits::default(),
         ));
         world.insert_resource(crate::render::path::PathStore::default());
+        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
         world.insert_resource(crate::core::i18n::I18n::default());
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());

@@ -13,6 +13,7 @@ impl Canvas for Dummy {
     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8, _: Fixed, _: CompositeMode) {}
     fn clear(&mut self, _: &Rect, _: &Color) {}
     fn draw_glyph_run(&mut self, _: &Point, _: &[mirui::text::PositionedGlyph], _: &Font, _: &Rect, _: &Color, _: u8) {}
+    fn draw_posed_glyph_run(&mut self, _: &Point, _: mirui::render::command::PosedGlyphs<'_>, _: &Font, _: &Rect, _: &Color, _: u8) {}
     fn flush(&mut self) {}
 }
 

@@ -6,7 +6,7 @@ use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::types::{Fixed, Point, Rect, Transform};
+use crate::types::{Fixed, Fixed64, Point, Rect, Transform};
 use crate::ui::view::{View, ViewCtx};
 
 pub use textflow::shaping::FontFeature;
@@ -463,6 +463,40 @@ fn text_render(
     let Some(layout) = cache.get(handle) else {
         return;
     };
+    if let Some(path) = world.get::<crate::text::TextPath>(entity).copied() {
+        let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
+            return;
+        };
+        let Some(path_cache) = world.resource::<crate::text::baseline::PathBaselineResource>()
+        else {
+            return;
+        };
+        let _ = path_cache.with_glyph_frames(
+            paths,
+            path,
+            crate::text::baseline::DEFAULT_TOLERANCE,
+            handle,
+            &layout,
+            |frames| {
+                draw_posed_text_layout(
+                    renderer,
+                    &layout,
+                    frames,
+                    |font_id| fonts.font(font_id),
+                    TextPaint::new(
+                        Point {
+                            x: rect.x,
+                            y: rect.y,
+                        },
+                        ctx.transform,
+                        ctx.clip,
+                        color,
+                    ),
+                );
+            },
+        );
+        return;
+    }
     let offset_y = vertical_offset(
         text.paragraph().vertical_align,
         rect.h,
@@ -482,6 +516,251 @@ fn text_render(
             color,
         ),
     );
+}
+
+fn draw_posed_text_layout<'font>(
+    renderer: &mut dyn Renderer,
+    layout: &crate::text::TextLayout<'_>,
+    frames: &[textflow::placement::GlyphFrame],
+    font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
+    paint: TextPaint<'_>,
+) {
+    for_each_posed_run(layout, frames, font_for, |font, glyphs| {
+        renderer.draw(
+            &DrawCommand::PosedGlyphRun {
+                pos: paint.origin,
+                transform: paint.transform,
+                glyphs,
+                font,
+                color: paint.color,
+                opa: 255,
+            },
+            paint.clip,
+        );
+    });
+}
+
+fn for_each_posed_run<'font>(
+    layout: &crate::text::TextLayout<'_>,
+    frames: &[textflow::placement::GlyphFrame],
+    font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
+    mut visit: impl FnMut(&'font crate::render::font::Font, crate::render::command::PosedGlyphs<'_>),
+) {
+    for line in layout.lines() {
+        let Some(runs) = layout.runs_for(*line) else {
+            continue;
+        };
+        for run in runs {
+            let Some(font) = font_for(run.font_id()) else {
+                continue;
+            };
+            let range = run.glyphs();
+            let range = range.start as usize..range.end as usize;
+            let Some(glyphs) = layout.glyphs().get(range.clone()) else {
+                continue;
+            };
+            let Some(frames) = frames.get(range) else {
+                continue;
+            };
+            let Some(glyphs) = crate::render::command::PosedGlyphs::new(glyphs, frames) else {
+                continue;
+            };
+            visit(font, glyphs);
+        }
+    }
+}
+
+pub(crate) fn path_text_ink_bounds(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    transform: Transform,
+    output_scale: Fixed,
+) -> Option<Rect> {
+    let text_path = world.get::<crate::text::TextPath>(entity).copied()?;
+    let paths = world.resource::<crate::render::path::PathStore>()?;
+    let path_cache = world.resource::<crate::text::baseline::PathBaselineResource>()?;
+    let style = world.get::<crate::ui::Style>(entity)?;
+    let layouts = world.resource::<crate::text::layout::TextLayoutResource>()?;
+    let face_limit = layouts.borrow().limits().fallback_faces;
+    let fonts = crate::render::font::ResolvedFontStack::resolve(
+        world,
+        &style.font_stack,
+        style.font_size,
+        face_limit,
+    )
+    .ok()??;
+    let handle = world
+        .get::<crate::text::TextLayoutHandle>(entity)
+        .copied()?;
+    let layouts = layouts.borrow();
+    let layout = layouts.get(handle)?;
+    path_cache
+        .with_glyph_frames(
+            paths,
+            text_path,
+            crate::text::baseline::DEFAULT_TOLERANCE,
+            handle,
+            &layout,
+            |frames| {
+                let mut bounds: Option<Rect> = None;
+                for_each_posed_run(
+                    &layout,
+                    frames,
+                    |font_id| fonts.font(font_id),
+                    |font, glyphs| {
+                        if let Some(run_bounds) = glyphs.ink_bounds(
+                            font,
+                            Point {
+                                x: rect.x,
+                                y: rect.y,
+                            },
+                            transform,
+                            output_scale,
+                        ) {
+                            bounds = Some(match bounds {
+                                Some(current) => current.union(&run_bounds),
+                                None => run_bounds,
+                            });
+                        }
+                    },
+                );
+                bounds
+            },
+        )
+        .ok()
+        .flatten()
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PathCaretHit {
+    index: usize,
+    text_offset: u32,
+    bidi_level: u8,
+}
+
+impl PathCaretHit {
+    pub const fn index(self) -> usize {
+        self.index
+    }
+
+    pub const fn text_offset(self) -> u32 {
+        self.text_offset
+    }
+
+    pub const fn bidi_level(self) -> u8 {
+        self.bidi_level
+    }
+
+    pub fn nearest(
+        world: &World,
+        entity: Entity,
+        rect: Rect,
+        transform: Transform,
+        point: Point,
+        max_distance: Fixed,
+    ) -> Option<Self> {
+        let text_path = world.get::<crate::text::TextPath>(entity).copied()?;
+        let paths = world.resource::<crate::render::path::PathStore>()?;
+        let path_cache = world.resource::<crate::text::baseline::PathBaselineResource>()?;
+        let style = world.get::<crate::ui::Style>(entity)?;
+        let layouts = world.resource::<crate::text::layout::TextLayoutResource>()?;
+        let face_limit = layouts.borrow().limits().fallback_faces;
+        let fonts = crate::render::font::ResolvedFontStack::resolve(
+            world,
+            &style.font_stack,
+            style.font_size,
+            face_limit,
+        )
+        .ok()??;
+        let metrics = fonts.primary().metrics(fonts.primary().size);
+        let handle = world
+            .get::<crate::text::TextLayoutHandle>(entity)
+            .copied()?;
+        let layouts = layouts.borrow();
+        let layout = layouts.get(handle)?;
+        let limit = square_wide(Fixed64::from_fixed(max_distance.max(Fixed::ZERO)));
+        path_cache
+            .with_caret_frames(
+                paths,
+                text_path,
+                crate::text::baseline::DEFAULT_TOLERANCE,
+                handle,
+                &layout,
+                |frames| {
+                    let mut nearest = None;
+                    for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
+                        let origin = Point {
+                            x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
+                            y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
+                        };
+                        let tangent = Point {
+                            x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
+                            y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
+                        };
+                        let normal = Point {
+                            x: Fixed::ZERO - tangent.y,
+                            y: tangent.x,
+                        };
+                        let start = transform.apply_point(Point {
+                            x: origin.x - normal.x * metrics.ascender,
+                            y: origin.y - normal.y * metrics.ascender,
+                        });
+                        let end = transform.apply_point(Point {
+                            x: origin.x + normal.x * (metrics.line_height - metrics.ascender),
+                            y: origin.y + normal.y * (metrics.line_height - metrics.ascender),
+                        });
+                        let distance = point_segment_distance_squared(point, start, end);
+                        if distance > limit
+                            || nearest
+                                .as_ref()
+                                .is_some_and(|(_, best_distance)| distance >= *best_distance)
+                        {
+                            continue;
+                        }
+                        nearest = Some((
+                            Self {
+                                index,
+                                text_offset: caret.text_offset,
+                                bidi_level: caret.bidi_level,
+                            },
+                            distance,
+                        ));
+                    }
+                    nearest.map(|(hit, _)| hit)
+                },
+            )
+            .ok()
+            .flatten()
+    }
+}
+
+fn square_wide(value: Fixed64) -> Fixed64 {
+    value.mul_wide(value)
+}
+
+fn point_segment_distance_squared(point: Point, start: Point, end: Point) -> Fixed64 {
+    let ax = Fixed64::from_fixed(start.x);
+    let ay = Fixed64::from_fixed(start.y);
+    let vx = Fixed64::from_fixed(end.x) - ax;
+    let vy = Fixed64::from_fixed(end.y) - ay;
+    let wx = Fixed64::from_fixed(point.x) - ax;
+    let wy = Fixed64::from_fixed(point.y) - ay;
+    let length_squared = square_wide(vx) + square_wide(vy);
+    if length_squared.is_zero() {
+        return square_wide(wx) + square_wide(wy);
+    }
+    let projection = wx.mul_wide(vx) + wy.mul_wide(vy);
+    if !projection.is_positive() {
+        return square_wide(wx) + square_wide(wy);
+    }
+    if projection >= length_squared {
+        let dx = wx - vx;
+        let dy = wy - vy;
+        return square_wide(dx) + square_wide(dy);
+    }
+    let cross = wx.mul_wide(vy) - wy.mul_wide(vx);
+    square_wide(cross).div_wide(length_squared)
 }
 
 fn vertical_offset(align: TextVerticalAlign, box_height: Fixed, text_height: Fixed) -> Fixed {
@@ -795,6 +1074,31 @@ mod tests {
         assert_eq!(
             vertical_offset(TextVerticalAlign::Center, text_height, box_height),
             Fixed::ZERO
+        );
+    }
+
+    #[test]
+    fn caret_hit_distance_clamps_to_the_segment() {
+        let start = Point::new(10, 10);
+        let end = Point::new(10, 20);
+
+        assert_eq!(
+            point_segment_distance_squared(Point::new(13, 15), start, end),
+            Fixed64::from_int(9)
+        );
+        assert_eq!(
+            point_segment_distance_squared(Point::new(13, 24), start, end),
+            Fixed64::from_int(25)
+        );
+    }
+
+    #[test]
+    fn caret_hit_distance_handles_a_collapsed_segment() {
+        let caret = Point::new(4, 8);
+
+        assert_eq!(
+            point_segment_distance_squared(Point::new(7, 12), caret, caret),
+            Fixed64::from_int(25)
         );
     }
 

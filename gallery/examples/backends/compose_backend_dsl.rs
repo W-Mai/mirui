@@ -100,6 +100,18 @@ impl<B: Canvas> Canvas for Logging<B> {
         self.inner
             .draw_glyph_run(pos, glyphs, font, clip, color, opa);
     }
+    fn draw_posed_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: mirui::render::command::PosedGlyphs<'_>,
+        font: &mirui::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.inner
+            .draw_posed_glyph_run(pos, glyphs, font, clip, color, opa);
+    }
     fn flush(&mut self) {
         self.inner.flush();
     }

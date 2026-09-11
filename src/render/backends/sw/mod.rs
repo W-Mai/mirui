@@ -280,6 +280,23 @@ impl<'a> SwRenderer<'a> {
                 color,
                 opacity: *opa,
             }),
+            DrawCommand::PosedGlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                ..
+            } => self.draw_posed_glyph_run_inner(label::PosedRun {
+                pos,
+                glyphs: glyphs.glyphs(),
+                frames: glyphs.frames(),
+                font,
+                transform: &phys_tf,
+                clip: phys_clip,
+                color,
+                opacity: *opa,
+            }),
         }
     }
 }
@@ -379,6 +396,27 @@ impl<'a> Canvas for SwRenderer<'a> {
         opa: u8,
     ) {
         self.draw_glyph_run_inner(pos, glyphs, font, clip, color, opa);
+    }
+
+    fn draw_posed_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: crate::render::command::PosedGlyphs<'_>,
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_posed_glyph_run_inner(label::PosedRun {
+            pos,
+            glyphs: glyphs.glyphs(),
+            frames: glyphs.frames(),
+            font,
+            transform: &Transform::IDENTITY,
+            clip: *clip,
+            color,
+            opacity: opa,
+        });
     }
 
     fn flush(&mut self) {}
@@ -638,6 +676,10 @@ impl SwRenderer<'_> {
 }
 
 impl Renderer for SwRenderer<'_> {
+    fn output_scale(&self) -> Fixed {
+        self.viewport.scale()
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
@@ -759,6 +801,27 @@ impl Renderer for SwRenderer<'_> {
             } => {
                 crate::trace_span!("sw.glyph_run");
                 self.dispatch_glyph_run(pos, glyphs, font, color, *opa, tx, ty, clip);
+            }
+            DrawCommand::PosedGlyphRun {
+                pos,
+                glyphs,
+                font,
+                color,
+                opa,
+                transform,
+            } => {
+                crate::trace_span!("sw.posed_glyph_run");
+                let phys_tf = self.viewport.as_transform().compose(transform);
+                self.draw_posed_glyph_run_inner(label::PosedRun {
+                    pos,
+                    glyphs: glyphs.glyphs(),
+                    frames: glyphs.frames(),
+                    font,
+                    transform: &phys_tf,
+                    clip: self.viewport.rect_to_physical(*clip),
+                    color,
+                    opacity: *opa,
+                });
             }
             DrawCommand::Line {
                 p1,

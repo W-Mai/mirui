@@ -198,8 +198,9 @@ fn typography_lab_renders() {
         views.insert(mirui::gallery::demos::typography_lab::caret_overlay_view());
         views.insert(mirui::gallery::demos::typography_lab::raster_contour_view());
         mirui::gallery::demos::typography_lab::register_fonts(world);
+        let wave_path = mirui::gallery::demos::typography_lab::register_path(world);
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::typography_lab::build_widgets(&mut cx);
+        mirui::gallery::demos::typography_lab::build_widgets(&mut cx, wave_path);
     });
     assert_renders("typography_lab", colours);
 }

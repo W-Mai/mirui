@@ -113,6 +113,19 @@ fn quad_bbox(q: [Point; 4]) -> Rect {
     Rect::bounding_quad(&q)
 }
 
+fn affine_visual_bounds(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    transform: Transform,
+    output_scale: Fixed,
+) -> Rect {
+    let layout = transform.apply_rect_bbox(rect);
+    crate::ui::widgets::text::path_text_ink_bounds(world, entity, rect, transform, output_scale)
+        .map(|ink| layout.union(&ink))
+        .unwrap_or(layout)
+}
+
 fn seed_prev_rect_walk(
     node: &LayoutNode,
     world: &mut World,
@@ -120,6 +133,7 @@ fn seed_prev_rect_walk(
     idx: &mut usize,
     parent_transform: &Transform,
     parent_3d: &Transform3D,
+    output_scale: Fixed,
 ) {
     if *idx >= entities.len() {
         return;
@@ -129,7 +143,7 @@ fn seed_prev_rect_walk(
     let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
     let effective_rect = quad_for(world, entity, node.rect, parent_3d)
         .map(quad_bbox)
-        .unwrap_or_else(|| tf.apply_rect_bbox(node.rect));
+        .unwrap_or_else(|| affine_visual_bounds(world, entity, node.rect, tf, output_scale));
     let x0 = effective_rect.x.floor();
     let y0 = effective_rect.y.floor();
     let x1 = (effective_rect.x + effective_rect.w).ceil();
@@ -145,7 +159,7 @@ fn seed_prev_rect_walk(
     );
     *idx += 1;
     for child in &node.children {
-        seed_prev_rect_walk(child, world, entities, idx, &tf, &tf_3d);
+        seed_prev_rect_walk(child, world, entities, idx, &tf, &tf_3d, output_scale);
     }
 }
 
@@ -164,6 +178,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
                 &mut idx,
                 &Transform::IDENTITY,
                 &Transform3D::IDENTITY,
+                transform.scale(),
             );
             world.insert_resource(snapshot);
             return;
@@ -190,6 +205,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         &mut idx,
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
+        transform.scale(),
     );
 }
 
@@ -250,6 +266,10 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
+    let width = match world.get::<crate::text::TextPath>(entity).copied() {
+        Some(path) => crate::text::path::layout_width(world, path).ok()?,
+        None => width,
+    };
     let request = text
         .paragraph()
         .layout_request(&content, metrics, Some(width));
@@ -317,6 +337,9 @@ fn compute_layout_snapshot(
     if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
         cache.borrow_mut().begin_frame();
     }
+    if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
+        cache.begin_frame();
+    }
     let mut text_index = 0;
     layout_text_tree(&mut layout_tree, world, &entities, &mut text_index);
     compute_layout(
@@ -357,7 +380,14 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
-    let request = text.paragraph().layout_request(&content, metrics, None);
+    let width = match world.get::<crate::text::TextPath>(entity).copied() {
+        Some(path) => match crate::text::path::layout_width(world, path) {
+            Ok(width) => Some(width),
+            Err(_) => return,
+        },
+        None => None,
+    };
+    let request = text.paragraph().layout_request(&content, metrics, width);
     let language = text
         .paragraph()
         .language
@@ -466,9 +496,9 @@ fn draw_tree_offset(
         }
     });
 
-    let cull_rect = quad
-        .map(quad_bbox)
-        .unwrap_or_else(|| tf.apply_rect_bbox(shifted_rect));
+    let cull_rect = quad.map(quad_bbox).unwrap_or_else(|| {
+        affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
+    });
     if !rects_intersect(&cull_rect, clip) {
         *idx += count_nodes(node);
         return;
@@ -1123,6 +1153,7 @@ fn collect_dirty_walk(
     idx: &mut usize,
     parent_transform: &Transform,
     parent_3d: &Transform3D,
+    output_scale: Fixed,
     scroll_offset: (Fixed, Fixed),
     inside_scroll: bool,
     // Innermost scroll container's screen rect: a LazyList row
@@ -1157,6 +1188,7 @@ fn collect_dirty_walk(
                 node,
                 parent_3d,
                 &tf,
+                output_scale,
                 scroll_offset,
                 inside_scroll,
                 scroll_clip,
@@ -1185,6 +1217,7 @@ fn collect_dirty_walk(
                     node,
                     parent_3d,
                     &tf,
+                    output_scale,
                     scroll_offset,
                     inside_scroll,
                     scroll_clip,
@@ -1255,6 +1288,7 @@ fn collect_dirty_walk(
                 node,
                 parent_3d,
                 &tf,
+                output_scale,
                 scroll_offset,
                 inside_scroll,
                 scroll_clip,
@@ -1282,6 +1316,7 @@ fn collect_dirty_walk(
             idx,
             &tf,
             &tf_3d,
+            output_scale,
             child_scroll,
             child_inside_scroll,
             child_scroll_clip,
@@ -1349,6 +1384,7 @@ fn push_entity_dirty(
     node: &LayoutNode,
     parent_3d: &Transform3D,
     tf: &Transform,
+    output_scale: Fixed,
     scroll_offset: (Fixed, Fixed),
     inside_scroll: bool,
     scroll_clip: Option<Rect>,
@@ -1358,7 +1394,7 @@ fn push_entity_dirty(
     use super::dirty::Dirty;
     let curr_layout = quad_for(world, entity, node.rect, parent_3d)
         .map(quad_bbox)
-        .unwrap_or_else(|| tf.apply_rect_bbox(node.rect));
+        .unwrap_or_else(|| affine_visual_bounds(world, entity, node.rect, *tf, output_scale));
     let mut curr = Rect {
         x: curr_layout.x - scroll_offset.0,
         y: curr_layout.y - scroll_offset.1,
@@ -1502,6 +1538,7 @@ pub fn collect_dirty_regions(
             &mut idx,
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
+            transform.scale(),
             (Fixed::ZERO, Fixed::ZERO),
             false,
             None,
@@ -2128,6 +2165,109 @@ mod text_layout_check {
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(20));
         assert_eq!(rect.h, Fixed::from_int(20));
+    }
+
+    #[test]
+    fn path_text_ink_drives_culling_and_damage_outside_layout_bounds() {
+        #[derive(Default)]
+        struct Recorder {
+            posed_runs: usize,
+        }
+
+        impl Renderer for Recorder {
+            fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
+                if matches!(command, DrawCommand::PosedGlyphRun { .. }) {
+                    self.posed_runs += 1;
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(96, 96);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(96),
+                    height: Dimension::px(96),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Content,
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("ABC"));
+        let mut baseline = crate::render::path::Path::new();
+        baseline
+            .move_to(Point::new(0, 48))
+            .line_to(Point::new(64, 48));
+        let path = world
+            .resource_mut::<crate::render::path::PathStore>()
+            .unwrap()
+            .insert(baseline)
+            .unwrap();
+        crate::text::path::set_text_path(&mut world, label, path);
+        let viewport = Viewport::new(96, 96, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+
+        let layout = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        let ink = crate::ui::widgets::text::path_text_ink_bounds(
+            &world,
+            label,
+            layout,
+            Transform::IDENTITY,
+            Fixed::ONE,
+        )
+        .unwrap();
+        assert!(ink.y >= layout.y + layout.h);
+
+        let translated = Transform::translate(Fixed::from_int(10), Fixed::from_int(5));
+        let hit = crate::ui::widgets::text::PathCaretHit::nearest(
+            &world,
+            label,
+            layout,
+            translated,
+            Point::new(26, 53),
+            Fixed::from_int(2),
+        )
+        .unwrap();
+        assert_eq!(hit.text_offset(), 2);
+        assert_eq!(hit.bidi_level(), 0);
+        assert!(
+            crate::ui::widgets::text::PathCaretHit::nearest(
+                &world,
+                label,
+                layout,
+                translated,
+                Point::new(26, 70),
+                Fixed::from_int(2),
+            )
+            .is_none()
+        );
+
+        let mut recorder = Recorder::default();
+        render_region(&world, root, &viewport, &ink, &mut recorder);
+        assert_eq!(recorder.posed_runs, 1);
+
+        let damage = collect_dirty_region(&mut world, root, &viewport).unwrap();
+        assert!(damage.y + damage.h >= ink.y + ink.h);
     }
 }
 

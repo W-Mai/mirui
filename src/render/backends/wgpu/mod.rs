@@ -7,13 +7,14 @@ mod texture_pool;
 use wgpu::util::DeviceExt;
 
 use crate::render::canvas::{Canvas, Paint};
-use crate::render::command::{CompositeMode, DrawCommand};
+use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
 use crate::render::factory::RendererFactory;
+use crate::render::font::Font;
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
-use crate::types::{Color, Fixed, Point, Rect, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 use self::path::PathTessellator;
 use self::pipeline::{
@@ -317,6 +318,16 @@ struct GlyphRunDraw<'a> {
     glyphs: &'a [textflow::shaping::PositionedGlyph],
     font: &'a crate::render::font::Font,
     transform: &'a crate::types::Transform,
+    clip: &'a Rect,
+    color: &'a Color,
+    opacity: u8,
+}
+
+struct PosedGlyphRunDraw<'a> {
+    pos: &'a Point,
+    glyphs: PosedGlyphs<'a>,
+    font: &'a Font,
+    transform: &'a Transform,
     clip: &'a Rect,
     color: &'a Color,
     opacity: u8,
@@ -1490,9 +1501,63 @@ impl WgpuRenderer<'_> {
             color,
             opacity,
         } = draw;
-        let Some(first) = glyphs.first() else {
+        let Some(first) = glyphs.first().copied() else {
             return;
         };
+        let requested_size = font.size.max(1);
+        let raster_scale = self.viewport.scale() * transform.raster_scale();
+        let output_ppem = crate::render::font::output_ppem(requested_size, raster_scale);
+        let metrics = font.metrics(requested_size);
+        self.draw_glyph_quads(
+            glyphs,
+            font,
+            output_ppem,
+            clip,
+            color,
+            opacity,
+            |_, positioned, raster, region| {
+                let dx = positioned
+                    .origin
+                    .x
+                    .checked_sub(first.origin.x)?
+                    .checked_add(positioned.offset.x)?;
+                let dy = positioned
+                    .origin
+                    .y
+                    .checked_sub(first.origin.y)?
+                    .checked_add(positioned.offset.y)?;
+                let scale = Fixed::from_int(i32::from(requested_size))
+                    / Fixed::from_int(i32::from(raster.representation.design_ppem().max(1)));
+                Some((
+                    Rect {
+                        x: pos.x + crate::types::fixed::from_textflow(dx) + raster.offset_x,
+                        y: pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy)
+                            - raster.offset_y,
+                        w: Fixed::from_int(region.width() as i32) * scale,
+                        h: Fixed::from_int(region.height() as i32) * scale,
+                    },
+                    *transform,
+                ))
+            },
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyph_quads(
+        &mut self,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        output_ppem: u16,
+        clip: &Rect,
+        color: &Color,
+        opacity: u8,
+        mut geometry: impl FnMut(
+            usize,
+            &textflow::shaping::PositionedGlyph,
+            crate::render::font::RasterGlyph<'_>,
+            mirx::image::Region,
+        ) -> Option<(Rect, Transform)>,
+    ) {
         if !self.begin_frame() {
             return;
         }
@@ -1501,14 +1566,11 @@ impl WgpuRenderer<'_> {
             return;
         }
         let requested_size = font.size.max(1);
-        let raster_scale = self.viewport.scale() * transform.raster_scale();
-        let output_ppem = crate::render::font::output_ppem(requested_size, raster_scale);
-        let metrics = font.metrics(requested_size);
         let mut active: Option<GlyphBatch<'_>> = None;
         self.factory.glyph_vertices.clear();
         self.factory.glyph_indices.clear();
 
-        for positioned in glyphs {
+        for (index, positioned) in glyphs.iter().enumerate() {
             let Some(raster) =
                 font.raster_for_output(positioned.glyph_id(), requested_size, output_ppem)
             else {
@@ -1532,6 +1594,9 @@ impl WgpuRenderer<'_> {
             if alpha_bits(raster.surface.sample_layout()) != Some(bits) {
                 continue;
             }
+            let Some((rect, transform)) = geometry(index, positioned, raster, region) else {
+                continue;
+            };
             let key = GlyphBatchKey {
                 surface: ScalarSurfaceKey::new(font.face_id(), font.revision(), raster.surface),
                 shader,
@@ -1549,43 +1614,56 @@ impl WgpuRenderer<'_> {
                 });
             }
 
-            let Some(dx) = positioned
-                .origin
-                .x
-                .checked_sub(first.origin.x)
-                .and_then(|value| value.checked_add(positioned.offset.x))
-            else {
-                continue;
-            };
-            let Some(dy) = positioned
-                .origin
-                .y
-                .checked_sub(first.origin.y)
-                .and_then(|value| value.checked_add(positioned.offset.y))
-            else {
-                continue;
-            };
-            let scale = Fixed::from_int(i32::from(requested_size))
-                / Fixed::from_int(i32::from(raster.representation.design_ppem().max(1)));
-            let rect = Rect {
-                x: pos.x + crate::types::fixed::from_textflow(dx) + raster.offset_x,
-                y: pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy)
-                    - raster.offset_y,
-                w: Fixed::from_int(region.width() as i32) * scale,
-                h: Fixed::from_int(region.height() as i32) * scale,
-            };
             append_glyph_quad(
                 &mut self.factory.glyph_vertices,
                 &mut self.factory.glyph_indices,
                 rect,
                 region,
                 raster.surface,
-                transform,
+                &transform,
             );
         }
         if let Some(batch) = active {
             self.submit_glyph_batch(batch, scissor, color, opacity);
         }
+    }
+
+    fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
+        let PosedGlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform,
+            clip,
+            color,
+            opacity,
+        } = draw;
+        if glyphs
+            .ink_bounds(font, *pos, *transform, self.viewport.scale())
+            .and_then(|bounds| bounds.intersect(clip))
+            .is_none()
+        {
+            return;
+        }
+        let requested_size = font.size.max(1);
+        let output_ppem = crate::render::font::output_ppem(
+            requested_size,
+            self.viewport.scale() * transform.raster_scale(),
+        );
+        self.draw_glyph_quads(
+            glyphs.glyphs(),
+            font,
+            output_ppem,
+            clip,
+            color,
+            opacity,
+            |index, _, raster, region| {
+                let frame = glyphs.frames().get(index)?;
+                let quad = raster.posed_quad(*pos, *frame, requested_size, *transform)?;
+                debug_assert_eq!(raster.region, Some(region));
+                Some((quad.rect, quad.transform))
+            },
+        );
     }
 
     fn submit_glyph_batch(
@@ -2110,6 +2188,44 @@ mod glyph_tests {
     }
 
     #[test]
+    fn glyph_quad_rotates_about_its_pose_origin() {
+        let surface = GlyphSurface::new(
+            &[0; 64],
+            8,
+            8,
+            8,
+            mirx::image::SampleLayout::A8,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(9),
+        )
+        .unwrap();
+        let region = mirx::image::Region::new(0, 0, 8, 8).unwrap();
+        let mut vertices = alloc::vec::Vec::new();
+        let mut indices = alloc::vec::Vec::new();
+        let pose = Transform {
+            m00: Fixed::ZERO,
+            m01: -Fixed::ONE,
+            tx: Fixed::from_int(12),
+            m10: Fixed::ONE,
+            m11: Fixed::ZERO,
+            ty: Fixed::from_int(1),
+        };
+
+        append_glyph_quad(
+            &mut vertices,
+            &mut indices,
+            Rect::new(0, -7, 8, 8),
+            region,
+            surface,
+            &pose,
+        );
+
+        assert_eq!(vertices[0].pos, [19.0, 1.0]);
+        assert_eq!(vertices[2].pos, [11.0, 9.0]);
+        assert_eq!(indices, [0, 1, 2, 0, 2, 3]);
+    }
+
+    #[test]
     fn coverage_and_sdf_shaders_preserve_scalar_edges() {
         for (shader, spread) in [(ShaderKind::GlyphCoverage, 0), (ShaderKind::GlyphSdf, 4)] {
             let pixels = render_scalar_field(shader, spread);
@@ -2127,6 +2243,10 @@ mod glyph_tests {
 }
 
 impl Renderer for WgpuRenderer<'_> {
+    fn output_scale(&self) -> Fixed {
+        self.viewport.scale()
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
@@ -2203,6 +2323,25 @@ impl Renderer for WgpuRenderer<'_> {
                 self.draw_glyph_run_inner(GlyphRunDraw {
                     pos,
                     glyphs,
+                    font,
+                    transform,
+                    clip,
+                    color,
+                    opacity: *opa,
+                });
+                return;
+            }
+            DrawCommand::PosedGlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => {
+                self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
+                    pos,
+                    glyphs: *glyphs,
                     font,
                     transform,
                     clip,
@@ -2327,7 +2466,7 @@ impl Renderer for WgpuRenderer<'_> {
                     unimplemented!("wgpu backend: StrokePath under translate not yet implemented");
                 }
             }
-            DrawCommand::GlyphRun { .. } => {
+            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. } => {
                 unreachable!("glyph runs return before transform dispatch")
             }
         }
@@ -2543,6 +2682,26 @@ impl Canvas for WgpuRenderer<'_> {
             glyphs,
             font,
             transform: &crate::types::Transform::IDENTITY,
+            clip,
+            color,
+            opacity: opa,
+        });
+    }
+
+    fn draw_posed_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: PosedGlyphs<'_>,
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform: &Transform::IDENTITY,
             clip,
             color,
             opacity: opa,

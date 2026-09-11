@@ -1,5 +1,6 @@
 //! Bounded Unicode layout and shaping shared by widget measurement and render backends.
 
+pub(crate) mod baseline;
 pub(crate) mod layout;
 pub mod mirx;
 mod opentype;

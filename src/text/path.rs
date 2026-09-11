@@ -86,6 +86,29 @@ impl From<PathId> for TextPath {
     }
 }
 
+pub(crate) fn layout_width(
+    world: &World,
+    text_path: TextPath,
+) -> Result<Fixed, crate::text::baseline::PathBaselineError> {
+    use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineError, PathBaselineResource};
+
+    let store = world
+        .resource::<PathStore>()
+        .ok_or(PathBaselineError::Unavailable)?;
+    let resource = world
+        .resource::<PathBaselineResource>()
+        .ok_or(PathBaselineError::Unavailable)?;
+    resource.with(store, text_path, DEFAULT_TOLERANCE, |baseline| {
+        let length = baseline.length();
+        let end = text_path.end().unwrap_or(length);
+        if text_path.start() < Fixed::ZERO || end <= text_path.start() || end > length {
+            Err(PathBaselineError::InvalidRange)
+        } else {
+            Ok(end - text_path.start())
+        }
+    })?
+}
+
 pub(crate) struct TextPathSubscription {
     _inner: crate::render::path::PathSubscription,
 }
@@ -230,5 +253,44 @@ mod tests {
             .unwrap();
         crate::core::reactive::flush_signal_dirty(&mut world);
         assert!(world.get::<Dirty>(widget).is_some());
+    }
+
+    #[test]
+    fn layout_width_uses_the_selected_baseline_range() {
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
+        let id = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(crate::types::Point::new(0, 0)),
+                PathCmd::LineTo(crate::types::Point::new(100, 0)),
+            ]))
+            .unwrap();
+        let path = TextPath::new(id).with_range(Fixed::from_int(20)..Fixed::from_int(80));
+
+        assert_eq!(layout_width(&world, path), Ok(Fixed::from_int(60)));
+    }
+
+    #[test]
+    fn layout_width_rejects_ranges_outside_the_path() {
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
+        let id = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(crate::types::Point::new(0, 0)),
+                PathCmd::LineTo(crate::types::Point::new(10, 0)),
+            ]))
+            .unwrap();
+        let path = TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(11));
+
+        assert_eq!(
+            layout_width(&world, path),
+            Err(crate::text::baseline::PathBaselineError::InvalidRange)
+        );
     }
 }

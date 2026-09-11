@@ -17,13 +17,7 @@ use alloc::{borrow::Cow, rc::Rc};
 
 use crate::core::resource::{HasProbe, ResourceManager};
 use crate::ecs::World;
-use crate::types::{Fixed, fixed::to_textflow};
-
-#[cfg(any(
-    feature = "sdl-gpu",
-    all(feature = "web-canvas", target_arch = "wasm32")
-))]
-use crate::types::Point;
+use crate::types::{Fixed, Point, Rect, Transform, fixed::to_textflow};
 
 pub use textflow::shaping::{FontId as FontFaceId, GlyphId};
 
@@ -147,6 +141,53 @@ pub struct RasterGlyph<'a> {
     pub offset_x: Fixed,
     pub offset_y: Fixed,
     pub representation: ::mirx::font::FontRepresentation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RasterQuad {
+    pub rect: Rect,
+    pub transform: Transform,
+}
+
+impl RasterGlyph<'_> {
+    pub(crate) fn posed_quad(
+        self,
+        pos: Point,
+        frame: textflow::placement::GlyphFrame,
+        requested_size: u16,
+        transform: Transform,
+    ) -> Option<RasterQuad> {
+        let region = self
+            .region
+            .filter(|region| region.width() > 0 && region.height() > 0)?;
+        let tangent = Point {
+            x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
+            y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
+        };
+        let origin = Point {
+            x: pos.x + crate::types::fixed::from_textflow(frame.local_origin.x),
+            y: pos.y + crate::types::fixed::from_textflow(frame.local_origin.y),
+        };
+        let pose = Transform {
+            m00: tangent.x,
+            m01: Fixed::ZERO - tangent.y,
+            tx: origin.x,
+            m10: tangent.y,
+            m11: tangent.x,
+            ty: origin.y,
+        };
+        let scale = Fixed::from_int(i32::from(requested_size))
+            / Fixed::from_int(i32::from(self.representation.design_ppem().max(1)));
+        Some(RasterQuad {
+            rect: Rect {
+                x: self.offset_x,
+                y: Fixed::ZERO - self.offset_y,
+                w: Fixed::from_int(i32::try_from(region.width()).ok()?) * scale,
+                h: Fixed::from_int(i32::try_from(region.height()).ok()?) * scale,
+            },
+            transform: transform.compose(&pose),
+        })
+    }
 }
 
 /// One glyph the renderer consumes: an `advance` for layout and a
@@ -576,7 +617,6 @@ impl Font {
         }
     }
 
-    #[cfg(feature = "wgpu")]
     pub(crate) fn raster_for_output(
         &self,
         glyph: GlyphId,

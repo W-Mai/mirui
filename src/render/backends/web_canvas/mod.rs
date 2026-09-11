@@ -13,7 +13,7 @@ use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 use self::texture_pool::{GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
 use crate::render::backends::sw::SwRenderer;
 use crate::render::canvas::{Canvas, Paint};
-use crate::render::command::{CompositeMode, DrawCommand};
+use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
 use crate::render::raster::{LineCap, LineJoin};
@@ -86,6 +86,17 @@ pub struct WebCanvasRenderer<'a> {
 struct GlyphRunDraw<'a> {
     pos: &'a Point,
     glyphs: &'a [textflow::shaping::PositionedGlyph],
+    font: &'a crate::render::font::Font,
+    transform: &'a Transform,
+    clip: &'a Rect,
+    color: &'a Color,
+    opacity: u8,
+}
+
+struct PosedGlyphRunDraw<'a> {
+    pos: &'a Point,
+    glyphs: &'a [textflow::shaping::PositionedGlyph],
+    frames: &'a [textflow::placement::GlyphFrame],
     font: &'a crate::render::font::Font,
     transform: &'a Transform,
     clip: &'a Rect,
@@ -515,6 +526,10 @@ impl WebCanvasRenderer<'_> {
 }
 
 impl Renderer for WebCanvasRenderer<'_> {
+    fn output_scale(&self) -> Fixed {
+        self.viewport.scale()
+    }
+
     fn supports_offscreen(&self) -> bool {
         true
     }
@@ -840,6 +855,25 @@ impl Renderer for WebCanvasRenderer<'_> {
                     opacity: *opa,
                 });
             }
+            DrawCommand::PosedGlyphRun {
+                pos,
+                glyphs,
+                font,
+                transform,
+                color,
+                opa,
+            } => {
+                self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
+                    pos,
+                    glyphs: glyphs.glyphs(),
+                    frames: glyphs.frames(),
+                    font,
+                    transform,
+                    clip,
+                    color,
+                    opacity: *opa,
+                });
+            }
             DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
             }
         }
@@ -853,6 +887,41 @@ impl Renderer for WebCanvasRenderer<'_> {
 }
 
 impl WebCanvasRenderer<'_> {
+    fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
+        for (positioned, frame) in draw.glyphs.iter().zip(draw.frames) {
+            let tangent_x = crate::types::fixed::from_textflow(frame.unit_tangent.x);
+            let tangent_y = crate::types::fixed::from_textflow(frame.unit_tangent.y);
+            let origin_x = draw.pos.x + crate::types::fixed::from_textflow(frame.local_origin.x);
+            let origin_y = draw.pos.y + crate::types::fixed::from_textflow(frame.local_origin.y);
+            let ctx = self.ctx();
+            ctx.save();
+            let transformed = ctx.transform(
+                tangent_x.to_f32() as f64,
+                tangent_y.to_f32() as f64,
+                -tangent_y.to_f32() as f64,
+                tangent_x.to_f32() as f64,
+                origin_x.to_f32() as f64,
+                origin_y.to_f32() as f64,
+            );
+            if transformed.is_ok() {
+                let glyph = [textflow::shaping::PositionedGlyph::new(
+                    positioned.glyph_id(),
+                    textflow::shaping::FlowPoint { x: 0, y: 0 },
+                )];
+                self.draw_glyph_run_inner(GlyphRunDraw {
+                    pos: &Point::ZERO,
+                    glyphs: &glyph,
+                    font: draw.font,
+                    transform: draw.transform,
+                    clip: draw.clip,
+                    color: draw.color,
+                    opacity: draw.opacity,
+                });
+            }
+            self.ctx().restore();
+        }
+    }
+
     fn draw_glyph_run_inner(&mut self, draw: GlyphRunDraw<'_>) {
         let GlyphRunDraw {
             pos,
@@ -1140,6 +1209,27 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.draw_glyph_run_inner(GlyphRunDraw {
             pos,
             glyphs,
+            font,
+            transform: &Transform::IDENTITY,
+            clip,
+            color,
+            opacity: opa,
+        });
+    }
+
+    fn draw_posed_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: PosedGlyphs<'_>,
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
+            pos,
+            glyphs: glyphs.glyphs(),
+            frames: glyphs.frames(),
             font,
             transform: &Transform::IDENTITY,
             clip,

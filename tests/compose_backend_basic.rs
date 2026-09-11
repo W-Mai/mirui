@@ -20,6 +20,7 @@ struct Counts {
     blit: Cell<u32>,
     clear: Cell<u32>,
     draw_glyph_run: Cell<u32>,
+    draw_posed_glyph_run: Cell<u32>,
     flush: Cell<u32>,
     fill_rect: Cell<u32>,
     stroke_rect: Cell<u32>,
@@ -94,6 +95,19 @@ impl Canvas for Dummy {
         self.counts
             .draw_glyph_run
             .set(self.counts.draw_glyph_run.get() + 1);
+    }
+    fn draw_posed_glyph_run(
+        &mut self,
+        _: &Point,
+        _: mirui::render::command::PosedGlyphs<'_>,
+        _: &mirui::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+        self.counts
+            .draw_posed_glyph_run
+            .set(self.counts.draw_posed_glyph_run.get() + 1);
     }
     fn flush(&mut self) {
         self.counts.flush.set(self.counts.flush.get() + 1);
@@ -189,11 +203,22 @@ fn default_methods_route_to_sw() {
         &color,
         255,
     );
+    let positioned = [mirui::text::PositionedGlyph::default()];
+    let frames = [textflow::placement::GlyphFrame::default()];
+    h.draw_posed_glyph_run(
+        &Point::ZERO,
+        mirui::render::command::PosedGlyphs::new(&positioned, &frames).unwrap(),
+        &font,
+        &rect,
+        &color,
+        255,
+    );
     h.flush();
 
     assert_eq!(h.sw.counts.fill_path.get(), 1);
     assert_eq!(h.sw.counts.stroke_path.get(), 1);
     assert_eq!(h.sw.counts.draw_glyph_run.get(), 1);
+    assert_eq!(h.sw.counts.draw_posed_glyph_run.get(), 1);
     assert_eq!(h.sw.counts.flush.get(), 1);
     assert_eq!(h.gpu.counts.fill_path.get(), 0);
 }
@@ -329,6 +354,16 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         _: u8,
     ) {
     }
+    fn draw_posed_glyph_run(
+        &mut self,
+        _: &Point,
+        _: mirui::render::command::PosedGlyphs<'_>,
+        _: &mirui::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+    }
     fn flush(&mut self) {}
 }
 
@@ -373,6 +408,16 @@ impl Canvas for PlainDummy {
         &mut self,
         _: &Point,
         _: &[mirui::text::PositionedGlyph],
+        _: &mirui::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+    }
+    fn draw_posed_glyph_run(
+        &mut self,
+        _: &Point,
+        _: mirui::render::command::PosedGlyphs<'_>,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,

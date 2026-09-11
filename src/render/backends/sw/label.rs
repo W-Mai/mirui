@@ -29,6 +29,17 @@ pub(super) struct TransformedRun<'a> {
     pub opacity: u8,
 }
 
+pub(super) struct PosedRun<'a> {
+    pub pos: &'a Point,
+    pub glyphs: &'a [textflow::shaping::PositionedGlyph],
+    pub frames: &'a [textflow::placement::GlyphFrame],
+    pub font: &'a Font,
+    pub transform: &'a Transform,
+    pub clip: Rect,
+    pub color: &'a Color,
+    pub opacity: u8,
+}
+
 impl TransformedGlyph<'_> {
     fn dimensions(&self) -> (u32, u32) {
         match self {
@@ -190,6 +201,61 @@ impl SwRenderer<'_> {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    pub(super) fn draw_posed_glyph_run_inner(&mut self, run: PosedRun<'_>) {
+        let requested_size = run.font.size.max(1);
+        for (positioned, frame) in run.glyphs.iter().zip(run.frames) {
+            let output_ppem =
+                crate::render::font::output_ppem(requested_size, run.transform.raster_scale());
+            let Some(raster) =
+                run.font
+                    .raster_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
+                continue;
+            };
+            let Some(quad) = raster.posed_quad(*run.pos, *frame, requested_size, *run.transform)
+            else {
+                continue;
+            };
+            let Some(inverse) = quad.transform.inverse() else {
+                continue;
+            };
+            let Some(region) = raster.region else {
+                continue;
+            };
+            let field = match raster.representation.kind() {
+                mirx::font::FontRepresentationKind::Coverage { bits } => ScalarField::new(
+                    raster.surface.samples(),
+                    raster.surface.stride(),
+                    region,
+                    bits,
+                )
+                .map(TransformedGlyph::Coverage),
+                mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => {
+                    SignedDistanceField::new(
+                        raster.surface.samples(),
+                        raster.surface.stride(),
+                        region,
+                        bits,
+                        spread,
+                    )
+                    .map(TransformedGlyph::SignedDistance)
+                }
+                _ => None,
+            };
+            if let Some(field) = field {
+                self.blit_transformed_glyph(
+                    field,
+                    quad.rect,
+                    &quad.transform,
+                    &inverse,
+                    run.clip,
+                    run.color,
+                    run.opacity,
+                );
             }
         }
     }
@@ -654,6 +720,48 @@ mod tests {
             painted
                 .iter()
                 .all(|&(x, y)| (4..12).contains(&x) && (1..9).contains(&y))
+        );
+    }
+
+    #[test]
+    fn posed_glyph_run_uses_each_glyph_tangent() {
+        let font = Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(u16::from(b'A')),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let frames = [textflow::placement::GlyphFrame {
+            local_origin: textflow::shaping::FlowPoint {
+                x: 12 << 8,
+                y: 1 << 8,
+            },
+            unit_tangent: textflow::shaping::FlowPoint { x: 0, y: 1 << 8 },
+        }];
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let texture = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(texture);
+
+        renderer.draw_posed_glyph_run_inner(PosedRun {
+            pos: &Point::ZERO,
+            glyphs: &glyphs,
+            frames: &frames,
+            font: &font,
+            transform: &Transform::IDENTITY,
+            clip: Rect::new(0, 0, 16, 16),
+            color: &Color::rgba(255, 255, 255, 255),
+            opacity: 255,
+        });
+
+        let painted: alloc::vec::Vec<_> = buf
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(index, pixel)| (pixel[0] != 0).then_some((index % 16, index / 16)))
+            .collect();
+        assert!(!painted.is_empty());
+        assert!(
+            painted
+                .iter()
+                .all(|&(x, y)| (11..16).contains(&x) && (1..9).contains(&y))
         );
     }
 

@@ -1,4 +1,4 @@
-use crate::render::command::CompositeMode;
+use crate::render::command::{CompositeMode, PosedGlyphs};
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
@@ -45,6 +45,16 @@ pub trait Canvas {
         &mut self,
         pos: &Point,
         glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    );
+    #[allow(clippy::too_many_arguments)]
+    fn draw_posed_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: PosedGlyphs<'_>,
         font: &Font,
         clip: &Rect,
         color: &Color,

@@ -7,6 +7,10 @@ pub trait Renderer {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect);
     fn flush(&mut self);
 
+    fn output_scale(&self) -> Fixed {
+        Fixed::ONE
+    }
+
     /// Whether this backend serves
     /// [`crate::ui::OffscreenRender`] entities through the SW
     /// pipeline: an inner `SwRenderer` over an owned buffer, blit'd

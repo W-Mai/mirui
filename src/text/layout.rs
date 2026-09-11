@@ -100,9 +100,17 @@ impl TextLayout<'_> {
         self.runs
     }
 
-    #[cfg(test)]
     pub(crate) const fn glyphs(&self) -> &[PositionedGlyph] {
         self.glyphs
+    }
+
+    pub(crate) fn paragraph(&self) -> Result<textflow::layout::ParagraphLayout<'_>, LayoutError> {
+        textflow::layout::ParagraphLayout::from_slices(
+            self.lines,
+            self.runs,
+            self.glyphs,
+            self.carets,
+        )
     }
 
     pub const fn carets(&self) -> &[CaretStop] {
