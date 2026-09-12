@@ -343,6 +343,7 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
                     line_limit,
                     |widths| {
                         let mut request = request;
+                        request.max_lines = request.max_lines.min(widths.line_count());
                         request.line_widths = Some(widths);
                         fonts.with_typefaces(language, text.paragraph().shaping, |typefaces| {
                             resource.borrow_mut().layout_cached(
@@ -484,6 +485,7 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
                 line_limit,
                 |widths| {
                     let mut request = request;
+                    request.max_lines = request.max_lines.min(widths.line_count());
                     request.line_widths = Some(widths);
                     fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
                         cache.borrow_mut().measure_cached(

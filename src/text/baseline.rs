@@ -1188,6 +1188,10 @@ pub(crate) struct PathLineProvider<'a> {
 }
 
 impl PathLineProvider<'_> {
+    pub(crate) const fn line_count(&self) -> usize {
+        self.line_count
+    }
+
     fn line_path(&self, line: usize) -> Option<TextPath> {
         let offset = u16::try_from(line).ok()?;
         let subpath = self.text_path.subpath().checked_add(offset)?;
@@ -2098,6 +2102,43 @@ mod tests {
     }
 
     #[test]
+    fn reverse_closed_seam_wraps_in_one_monotonic_domain() {
+        use textflow::placement::{BaselineCursor as _, TextBaseline as _};
+
+        let path = Path::from_owned(alloc::vec![
+            PathCmd::MoveTo(point(0, 0)),
+            PathCmd::LineTo(point(10, 0)),
+            PathCmd::LineTo(point(10, 10)),
+            PathCmd::LineTo(point(0, 10)),
+            PathCmd::Close,
+        ]);
+        let baseline = PathBaseline::Line(
+            PathMeasure::new(&path, 0, DEFAULT_TOLERANCE)
+                .unwrap()
+                .line()
+                .unwrap(),
+        );
+        let id = path_id(path.clone());
+        let window = BaselineWindow::new(
+            baseline,
+            TextPath::new(id)
+                .with_direction(PathDirection::Reverse)
+                .with_seam(Fixed::from_int(10)),
+        )
+        .unwrap();
+        let mut cursor = window.cursor();
+
+        assert_eq!(
+            cursor.sample_forward(0).unwrap().position,
+            FlowPoint { x: 10 << 8, y: 0 }
+        );
+        assert_eq!(
+            cursor.sample_forward(20 << 8).unwrap().position,
+            FlowPoint { x: 0, y: 10 << 8 }
+        );
+    }
+
+    #[test]
     fn seam_requires_closed_geometry() {
         let path = Path::from_owned(alloc::vec![
             PathCmd::MoveTo(point(0, 0)),
@@ -2260,6 +2301,41 @@ mod tests {
             cursor.sample_forward(Fixed::from_int(7)),
             Err(PathBaselineError::DistanceOrder { .. })
         ));
+    }
+
+    #[test]
+    fn zero_segments_and_cusps_use_the_next_nonzero_tangent() {
+        let path = Path::from_owned(alloc::vec![
+            PathCmd::MoveTo(point(0, 0)),
+            PathCmd::LineTo(point(0, 0)),
+            PathCmd::LineTo(point(10, 0)),
+            PathCmd::LineTo(point(0, 0)),
+            PathCmd::LineTo(point(0, 0)),
+        ]);
+        let baseline = PathMeasure::new(&path, 0, Fixed::ONE)
+            .unwrap()
+            .line()
+            .unwrap();
+        let mut cursor = baseline.cursor();
+
+        assert_eq!(
+            cursor.sample_forward(Fixed::ZERO).unwrap().unit_tangent,
+            point(1, 0)
+        );
+        assert_eq!(
+            cursor
+                .sample_forward(Fixed::from_int(10))
+                .unwrap()
+                .unit_tangent,
+            point(-1, 0)
+        );
+        assert_eq!(
+            cursor
+                .sample_forward(Fixed::from_int(20))
+                .unwrap()
+                .unit_tangent,
+            point(-1, 0)
+        );
     }
 
     #[test]
@@ -2562,6 +2638,123 @@ mod tests {
                             x: 30 << 8,
                             y: 40 << 8
                         }
+                    );
+                },
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn available_subpaths_bound_ellipsis_to_the_last_path_line() {
+        let face = SimpleTypeface::new(&Mono);
+        let mut layouts = TextLayoutCache::default();
+        let mut store = PathStore::new(1).unwrap();
+        let path = store
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(point(10, 20)),
+                PathCmd::LineTo(point(13, 20)),
+            ]))
+            .unwrap();
+        let resource = PathBaselineResource::default();
+        let text_path = TextPath::new(path);
+        let handle = resource
+            .with_lines(&store, text_path, DEFAULT_TOLERANCE, 2, |widths| {
+                layouts.layout(
+                    TextLayoutRequest {
+                        text: "ab cd",
+                        max_width: i32::MAX,
+                        width: None,
+                        max_lines: widths.line_count(),
+                        line_height: 256,
+                        baseline: 192,
+                        direction: BaseDirection::LeftToRight,
+                        wrap: WrapMode::Word,
+                        alignment: Alignment::Start,
+                        overflow: Overflow::Ellipsis,
+                        spacing: TextSpacing::default(),
+                        features: &[],
+                        line_widths: Some(widths),
+                    },
+                    &[&face],
+                )
+            })
+            .unwrap()
+            .unwrap();
+        let layout = layouts.get(handle).unwrap();
+
+        assert_eq!(layout.lines().len(), 1);
+        assert_eq!(layout.glyphs().len(), 3);
+        assert_eq!(
+            layout.glyphs()[2].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
+        resource
+            .with_glyph_frames(
+                &store,
+                text_path,
+                DEFAULT_TOLERANCE,
+                handle,
+                &layout,
+                |frames| assert_eq!(frames.len(), 3),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn rtl_ellipsis_occupies_the_visual_start_of_the_path() {
+        let face = SimpleTypeface::new(&Mono);
+        let mut layouts = TextLayoutCache::default();
+        let mut store = PathStore::new(1).unwrap();
+        let path = store
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(point(10, 20)),
+                PathCmd::LineTo(point(13, 20)),
+            ]))
+            .unwrap();
+        let resource = PathBaselineResource::default();
+        let text_path = TextPath::new(path);
+        let handle = resource
+            .with_lines(&store, text_path, DEFAULT_TOLERANCE, 1, |widths| {
+                layouts.layout(
+                    TextLayoutRequest {
+                        text: "ab cd",
+                        max_width: i32::MAX,
+                        width: None,
+                        max_lines: widths.line_count(),
+                        line_height: 256,
+                        baseline: 192,
+                        direction: BaseDirection::RightToLeft,
+                        wrap: WrapMode::Word,
+                        alignment: Alignment::Start,
+                        overflow: Overflow::Ellipsis,
+                        spacing: TextSpacing::default(),
+                        features: &[],
+                        line_widths: Some(widths),
+                    },
+                    &[&face],
+                )
+            })
+            .unwrap()
+            .unwrap();
+        let layout = layouts.get(handle).unwrap();
+
+        assert_eq!(
+            layout.glyphs()[0].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
+        resource
+            .with_glyph_frames(
+                &store,
+                text_path,
+                DEFAULT_TOLERANCE,
+                handle,
+                &layout,
+                |frames| {
+                    assert_eq!(frames[0].local_origin.x, 10 << 8);
+                    assert!(
+                        frames
+                            .windows(2)
+                            .all(|pair| pair[0].local_origin.x <= pair[1].local_origin.x)
                     );
                 },
             )
