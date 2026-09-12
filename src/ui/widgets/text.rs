@@ -249,6 +249,7 @@ impl ParagraphStyle {
                 word: to_textflow(self.word_spacing),
             },
             features: self.features.as_slice(),
+            line_widths: None,
         }
     }
 }

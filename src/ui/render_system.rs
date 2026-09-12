@@ -320,29 +320,54 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
-    let width = match world.get::<crate::text::TextPath>(entity).copied() {
-        Some(path) => crate::text::path::layout_width(world, path).ok()?,
-        None => width,
-    };
-    let request = text
-        .paragraph()
-        .layout_request(&content, metrics, Some(width));
+    let text_path = world.get::<crate::text::TextPath>(entity).copied();
+    let request =
+        text.paragraph()
+            .layout_request(&content, metrics, text_path.is_none().then_some(width));
     let language = text
         .paragraph()
         .language
         .as_ref()
         .map(crate::ui::widgets::LanguageTag::as_str);
     let font_fingerprint = fonts.layout_fingerprint(language, text.paragraph().shaping);
-    let handle = fonts
-        .with_typefaces(language, text.paragraph().shaping, |typefaces| {
-            resource.borrow_mut().layout_cached(
-                text_layout_owner(entity),
-                font_fingerprint,
-                request,
-                typefaces,
-            )
-        })
-        .ok()?;
+    let handle = match text_path {
+        Some(path) => {
+            let paths = world.resource::<crate::render::path::PathStore>()?;
+            let baselines = world.resource::<crate::text::baseline::PathBaselineResource>()?;
+            let line_limit = request.max_lines.min(resource.borrow().limits().lines);
+            baselines
+                .with_lines(
+                    paths,
+                    path,
+                    crate::text::baseline::DEFAULT_TOLERANCE,
+                    line_limit,
+                    |widths| {
+                        let mut request = request;
+                        request.line_widths = Some(widths);
+                        fonts.with_typefaces(language, text.paragraph().shaping, |typefaces| {
+                            resource.borrow_mut().layout_cached(
+                                text_layout_owner(entity),
+                                font_fingerprint,
+                                request,
+                                typefaces,
+                            )
+                        })
+                    },
+                )
+                .ok()?
+                .ok()?
+        }
+        None => fonts
+            .with_typefaces(language, text.paragraph().shaping, |typefaces| {
+                resource.borrow_mut().layout_cached(
+                    text_layout_owner(entity),
+                    font_fingerprint,
+                    request,
+                    typefaces,
+                )
+            })
+            .ok()?,
+    };
     let measure = resource.borrow().get(handle)?.measure();
     Some(LaidOutText { handle, measure })
 }
@@ -434,29 +459,59 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
-    let width = match world.get::<crate::text::TextPath>(entity).copied() {
-        Some(path) => match crate::text::path::layout_width(world, path) {
-            Ok(width) => Some(width),
-            Err(_) => return,
-        },
-        None => None,
-    };
-    let request = text.paragraph().layout_request(&content, metrics, width);
+    let text_path = world.get::<crate::text::TextPath>(entity).copied();
+    let request = text.paragraph().layout_request(&content, metrics, None);
     let language = text
         .paragraph()
         .language
         .as_ref()
         .map(crate::ui::widgets::LanguageTag::as_str);
     let font_fingerprint = fonts.layout_fingerprint(language, text.paragraph().shaping);
-    let Ok(measure) = fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
-        cache.borrow_mut().measure_cached(
-            text_layout_owner(entity),
-            font_fingerprint,
-            request,
-            faces,
-        )
-    }) else {
-        return;
+    let measure = match text_path {
+        Some(path) => {
+            let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
+                return;
+            };
+            let Some(baselines) = world.resource::<crate::text::baseline::PathBaselineResource>()
+            else {
+                return;
+            };
+            let line_limit = request.max_lines.min(cache.borrow().limits().lines);
+            let Ok(Ok(measure)) = baselines.with_lines(
+                paths,
+                path,
+                crate::text::baseline::DEFAULT_TOLERANCE,
+                line_limit,
+                |widths| {
+                    let mut request = request;
+                    request.line_widths = Some(widths);
+                    fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
+                        cache.borrow_mut().measure_cached(
+                            text_layout_owner(entity),
+                            font_fingerprint,
+                            request,
+                            faces,
+                        )
+                    })
+                },
+            ) else {
+                return;
+            };
+            measure
+        }
+        None => {
+            let Ok(measure) = fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
+                cache.borrow_mut().measure_cached(
+                    text_layout_owner(entity),
+                    font_fingerprint,
+                    request,
+                    faces,
+                )
+            }) else {
+                return;
+            };
+            measure
+        }
     };
     node.set_intrinsic_size(from_textflow(measure.width), from_textflow(measure.height));
 }

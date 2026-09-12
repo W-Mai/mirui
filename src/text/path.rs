@@ -86,6 +86,7 @@ impl From<PathId> for TextPath {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn layout_width(
     world: &World,
     text_path: TextPath,

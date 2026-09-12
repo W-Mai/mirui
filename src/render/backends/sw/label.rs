@@ -981,6 +981,7 @@ mod tests {
                     overflow: textflow::layout::Overflow::Clip,
                     spacing: textflow::layout::TextSpacing::default(),
                     features: &[],
+                    line_widths: None,
                 },
                 &faces,
             )

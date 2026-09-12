@@ -146,6 +146,7 @@ pub(crate) struct TextLayoutRequest<'a> {
     pub overflow: Overflow,
     pub spacing: TextSpacing,
     pub features: &'a [FontFeature],
+    pub line_widths: Option<&'a dyn textflow::layout::LineWidthProvider>,
 }
 
 pub struct TextLayoutCache {
@@ -421,6 +422,9 @@ impl TextLayoutCache {
             .with_alignment(request.alignment)
             .with_max_lines(request.max_lines)
             .with_overflow(request.overflow);
+        if let Some(widths) = request.line_widths {
+            flow = flow.with_line_widths(widths);
+        }
         if let Some(width) = request.width {
             flow = flow.with_width(
                 usize::try_from(width)
@@ -783,6 +787,17 @@ impl LayoutKey {
             hash.write_u32(feature.range.start);
             hash.write_u32(feature.range.end);
         }
+        if let Some(widths) = request.line_widths {
+            hash.write_u8(1);
+            let line_count = widths.line_count().min(request.max_lines);
+            hash.write_usize(line_count);
+            for line in 0..line_count {
+                hash.write_usize(widths.width(line).unwrap_or(usize::MAX));
+            }
+        } else {
+            hash.write_u8(0);
+            hash.write_usize(0);
+        }
         hash.write_u64(font_fingerprint);
         Self {
             owner,
@@ -1052,6 +1067,7 @@ mod tests {
             overflow: Overflow::Clip,
             spacing: TextSpacing::default(),
             features: &[],
+            line_widths: None,
         }
     }
 
@@ -1114,6 +1130,31 @@ mod tests {
 
         assert_ne!(changed, first);
         assert_eq!(cache.entries.iter().flatten().count(), 2);
+    }
+
+    #[test]
+    fn cached_layout_includes_per_line_widths_in_its_key() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let first_widths = [2 * 256, 256];
+        let second_widths = [256, 2 * 256];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let mut first_request = request("abc", i32::MAX);
+        first_request.line_widths = Some(&first_widths);
+        let first = cache
+            .layout_cached(7, 11, first_request, &typefaces)
+            .unwrap();
+        let mut second_request = request("abc", i32::MAX);
+        second_request.line_widths = Some(&second_widths);
+        let second = cache
+            .layout_cached(7, 11, second_request, &typefaces)
+            .unwrap();
+
+        assert_ne!(second, first);
+        assert_eq!(cache.get(first).unwrap().lines()[0].advance(), 2 * 256);
+        assert_eq!(cache.get(second).unwrap().lines()[0].advance(), 256);
     }
 
     #[test]

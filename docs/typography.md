@@ -27,6 +27,42 @@ fn curved_title(arc: PathId) {
 
 Passing a `PathId` uses subpath `0`, starts at distance `0`, follows the path forward, and uses the full available length.
 
+## Place multiple lines
+
+Each paragraph line uses one consecutive subpath, beginning at `TextPath::subpath()`. The usable length of each subpath constrains wrapping, alignment, justification, and ellipsis before glyph placement.
+
+```rust
+use mirui::prelude::*;
+
+static LINES: Path = path!(
+    M 12 36 L 172 36
+    M 24 68 Q 92 104 160 68
+);
+
+fn register_lines(app: &mut App<impl Surface>) -> PathId {
+    app.paths()
+        .insert_static(LINES.commands())
+        .expect("path capacity")
+}
+
+#[compose]
+fn multiline_label(lines: PathId) {
+    ui! {
+        Text(
+            "The first line stays straight and the next follows the curve.",
+            path: lines,
+            paragraph: ParagraphStyle {
+                wrap: TextWrap::Word,
+                max_lines: Some(2),
+                ..ParagraphStyle::default()
+            },
+        )
+    };
+}
+```
+
+No baseline array or copied command buffer is created. Line-only subpaths are sampled directly from `Path`; curved subpaths reuse the bounded measurement cache. A missing or invalid subpath rejects the path layout before placed glyph or caret frames are published.
+
 ## Select a range and direction
 
 `TextPath` describes how text consumes a registered path without copying its commands.
@@ -138,6 +174,7 @@ ui! {
 - Mutable entries own or adopt their command storage and expose a monotonically advancing revision.
 - Text entities subscribe to the path selected by their `TextPath` component.
 - Baseline sampling, posed glyphs, caret frames, ink bounds, and hit testing are cached by path identity and revision.
+- Path edits recompute affected line lengths and invalidate placement through the same path revision.
 - Ordinary text without a `TextPath` stays on the linear shaping and rendering path.
 
 Set the registry limit before inserting paths when the application needs a fixed budget:

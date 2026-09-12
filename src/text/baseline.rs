@@ -29,7 +29,6 @@ pub(crate) enum PathBaselineError {
     InvalidRange,
     InvalidSeam,
     OpenSeam,
-    LineCount { count: usize },
     Layout(textflow::layout::LayoutError),
     Placement(textflow::placement::PlacementError),
 }
@@ -653,7 +652,6 @@ fn flow_error(error: PathBaselineError) -> textflow::placement::BaselineError {
         | PathBaselineError::InvalidRange
         | PathBaselineError::InvalidSeam
         | PathBaselineError::OpenSeam
-        | PathBaselineError::LineCount { .. }
         | PathBaselineError::Layout(_)
         | PathBaselineError::Placement(_) => BaselineError::InvalidGeometry,
     }
@@ -719,6 +717,7 @@ impl textflow::placement::BaselineCursor for MeasuredCursor<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum PathBaseline<'a> {
     Line(LineBaseline<'a>),
     Measured(MeasuredBaseline<'a>),
@@ -736,6 +735,22 @@ impl PathBaseline<'_> {
         match self {
             Self::Line(baseline) => baseline.is_closed(),
             Self::Measured(baseline) => baseline.is_closed(),
+        }
+    }
+}
+
+impl<'a> PathBaseline<'a> {
+    fn cursor_owned(self) -> PathCursor<'a> {
+        match self {
+            Self::Line(baseline) => PathCursor::Line(baseline.cursor()),
+            Self::Measured(baseline) => PathCursor::Measured(baseline.cursor()),
+        }
+    }
+
+    fn reverse_cursor_owned(self) -> ReversePathCursor<'a> {
+        match self {
+            Self::Line(baseline) => ReversePathCursor::Line(baseline.reverse_cursor()),
+            Self::Measured(baseline) => ReversePathCursor::Measured(baseline.reverse_cursor()),
         }
     }
 }
@@ -764,15 +779,6 @@ impl ReversePathCursor<'_> {
     }
 }
 
-impl PathBaseline<'_> {
-    fn reverse_cursor(&self) -> ReversePathCursor<'_> {
-        match self {
-            Self::Line(baseline) => ReversePathCursor::Line(baseline.reverse_cursor()),
-            Self::Measured(baseline) => ReversePathCursor::Measured(baseline.reverse_cursor()),
-        }
-    }
-}
-
 impl textflow::placement::TextBaseline for PathBaseline<'_> {
     type Cursor<'a>
         = PathCursor<'a>
@@ -784,10 +790,7 @@ impl textflow::placement::TextBaseline for PathBaseline<'_> {
     }
 
     fn cursor(&self) -> Self::Cursor<'_> {
-        match self {
-            Self::Line(baseline) => PathCursor::Line(baseline.cursor()),
-            Self::Measured(baseline) => PathCursor::Measured(baseline.cursor()),
-        }
+        (*self).cursor_owned()
     }
 }
 
@@ -814,6 +817,7 @@ impl textflow::placement::BaselineCursor for PathCursor<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 struct BaselineWindow<'a> {
     baseline: PathBaseline<'a>,
     anchor: Fixed,
@@ -852,6 +856,31 @@ impl<'a> BaselineWindow<'a> {
             wraps,
         })
     }
+
+    fn cursor_owned(self) -> WindowCursor<'a> {
+        let primary = match self.direction {
+            PathDirection::Forward => TraversalCursor::Forward(self.baseline.cursor_owned()),
+            PathDirection::Reverse => {
+                TraversalCursor::Reverse(self.baseline.reverse_cursor_owned())
+            }
+        };
+        let wrapped = self.wraps.then(|| match self.direction {
+            PathDirection::Forward => TraversalCursor::Forward(self.baseline.cursor_owned()),
+            PathDirection::Reverse => {
+                TraversalCursor::Reverse(self.baseline.reverse_cursor_owned())
+            }
+        });
+        WindowCursor {
+            primary,
+            wrapped,
+            anchor_raw: to_textflow(self.anchor),
+            start_raw: to_textflow(self.start),
+            full_length_raw: to_textflow(self.baseline.length()),
+            length_raw: to_textflow(self.length),
+            direction: self.direction,
+            previous: None,
+        }
+    }
 }
 
 enum TraversalCursor<'a> {
@@ -873,7 +902,7 @@ impl TraversalCursor<'_> {
     }
 }
 
-struct WindowCursor<'a> {
+pub(crate) struct WindowCursor<'a> {
     primary: TraversalCursor<'a>,
     wrapped: Option<TraversalCursor<'a>>,
     anchor_raw: i32,
@@ -895,28 +924,7 @@ impl textflow::placement::TextBaseline for BaselineWindow<'_> {
     }
 
     fn cursor(&self) -> Self::Cursor<'_> {
-        let primary = match self.direction {
-            PathDirection::Forward => {
-                TraversalCursor::Forward(textflow::placement::TextBaseline::cursor(&self.baseline))
-            }
-            PathDirection::Reverse => TraversalCursor::Reverse(self.baseline.reverse_cursor()),
-        };
-        let wrapped = self.wraps.then(|| match self.direction {
-            PathDirection::Forward => {
-                TraversalCursor::Forward(textflow::placement::TextBaseline::cursor(&self.baseline))
-            }
-            PathDirection::Reverse => TraversalCursor::Reverse(self.baseline.reverse_cursor()),
-        });
-        WindowCursor {
-            primary,
-            wrapped,
-            anchor_raw: to_textflow(self.anchor),
-            start_raw: to_textflow(self.start),
-            full_length_raw: to_textflow(self.baseline.length()),
-            length_raw: to_textflow(self.length),
-            direction: self.direction,
-            previous: None,
-        }
+        (*self).cursor_owned()
     }
 }
 
@@ -1068,6 +1076,15 @@ impl PathBaselineCache {
         }
     }
 
+    fn prepared<'a>(&'a self, key: MeasurementKey, path: &'a Path) -> Option<PathBaseline<'a>> {
+        let measure = PathMeasure::new(path, key.subpath, key.tolerance).ok()?;
+        if measure.is_line_only() {
+            return measure.line().ok().map(PathBaseline::Line);
+        }
+        let index = self.entries.iter().position(|entry| entry.key == key)?;
+        Some(PathBaseline::Measured(self.baseline(index)))
+    }
+
     fn make_room(&mut self, incoming_segments: usize) -> Result<(), PathBaselineError> {
         let single = core::mem::size_of::<MeasurementEntry>().saturating_add(
             incoming_segments.saturating_mul(core::mem::size_of::<MeasuredSegment>()),
@@ -1087,6 +1104,7 @@ impl PathBaselineCache {
                 .entries
                 .iter()
                 .enumerate()
+                .filter(|(_, entry)| entry.last_used != self.frame)
                 .min_by_key(|(_, entry)| entry.last_used)
                 .map(|(index, _)| index)
             else {
@@ -1157,6 +1175,115 @@ impl PathBaselineCache {
         }
         self.segments.truncate(next);
     }
+}
+
+pub(crate) struct PathLineProvider<'a> {
+    cache: &'a PathBaselineCache,
+    path: &'a Path,
+    path_id: PathId,
+    revision: Option<PathRevision>,
+    text_path: TextPath,
+    tolerance: Fixed,
+    line_count: usize,
+}
+
+impl PathLineProvider<'_> {
+    fn line_path(&self, line: usize) -> Option<TextPath> {
+        let offset = u16::try_from(line).ok()?;
+        let subpath = self.text_path.subpath().checked_add(offset)?;
+        Some(self.text_path.with_subpath(subpath))
+    }
+
+    fn window(&self, line: usize) -> Option<BaselineWindow<'_>> {
+        if line >= self.line_count {
+            return None;
+        }
+        let text_path = self.line_path(line)?;
+        let key = MeasurementKey {
+            path: self.path_id,
+            revision: self.revision,
+            subpath: text_path.subpath(),
+            tolerance: self.tolerance,
+        };
+        BaselineWindow::new(self.cache.prepared(key, self.path)?, text_path).ok()
+    }
+}
+
+impl textflow::layout::LineWidthProvider for PathLineProvider<'_> {
+    fn line_count(&self) -> usize {
+        self.line_count
+    }
+
+    fn width(&self, line: usize) -> Option<usize> {
+        usize::try_from(to_textflow(self.window(line)?.length)).ok()
+    }
+}
+
+impl textflow::placement::BaselineProvider for PathLineProvider<'_> {
+    type Cursor<'a>
+        = WindowCursor<'a>
+    where
+        Self: 'a;
+
+    fn line_count(&self) -> usize {
+        self.line_count
+    }
+
+    fn cursor(&self, line: usize) -> Option<Self::Cursor<'_>> {
+        self.window(line).map(BaselineWindow::cursor_owned)
+    }
+}
+
+fn prepare_path_lines<'a>(
+    cache: &'a mut PathBaselineCache,
+    path: &'a Path,
+    path_id: PathId,
+    revision: Option<PathRevision>,
+    text_path: TextPath,
+    tolerance: Fixed,
+    line_limit: usize,
+) -> Result<PathLineProvider<'a>, PathBaselineError> {
+    let total = path
+        .commands()
+        .iter()
+        .filter(|command| matches!(command, PathCmd::MoveTo(_)))
+        .count();
+    let first = usize::from(text_path.subpath());
+    if first >= total {
+        return Err(PathBaselineError::MissingSubpath(text_path.subpath()));
+    }
+    let addressable = usize::from(u16::MAX - text_path.subpath()) + 1;
+    let line_count = total.saturating_sub(first).min(addressable).min(line_limit);
+    for line in 0..line_count {
+        let subpath = text_path
+            .subpath()
+            .checked_add(u16::try_from(line).map_err(|_| PathBaselineError::LengthOverflow)?)
+            .ok_or(PathBaselineError::LengthOverflow)?;
+        let line_path = text_path.with_subpath(subpath);
+        let key = MeasurementKey {
+            path: path_id,
+            revision,
+            subpath,
+            tolerance,
+        };
+        let baseline = cache.resolve(key, path)?;
+        let _ = BaselineWindow::new(baseline, line_path)?;
+    }
+    let provider = PathLineProvider {
+        cache,
+        path,
+        path_id,
+        revision,
+        text_path,
+        tolerance,
+        line_count,
+    };
+    for line in 0..line_count {
+        if provider.window(line).is_none() {
+            return Err(PathBaselineError::Unavailable);
+        }
+    }
+    Ok(provider)
 }
 
 fn capacity_bytes(entries: usize, segments: usize) -> usize {
@@ -1365,11 +1492,10 @@ impl PathPlacementCache {
         &'a mut self,
         key: PlacementKey,
         layout: &TextLayout<'_>,
-        baseline: &BaselineWindow<'_>,
+        baselines: &PathLineProvider<'_>,
     ) -> Result<&'a [textflow::placement::GlyphFrame], PathBaselineError> {
-        let paragraph = single_line_paragraph(layout)?;
-        let baselines = core::slice::from_ref(baseline);
-        let placement = paragraph.place_on(baselines);
+        let paragraph = layout.paragraph().map_err(PathBaselineError::Layout)?;
+        let placement = paragraph.place_with(baselines);
         let requirements = placement
             .preflight()
             .map_err(PathBaselineError::Placement)?;
@@ -1385,11 +1511,10 @@ impl PathPlacementCache {
         &'a mut self,
         key: PlacementKey,
         layout: &TextLayout<'_>,
-        baseline: &BaselineWindow<'_>,
+        baselines: &PathLineProvider<'_>,
     ) -> Result<&'a [textflow::placement::CaretFrame], PathBaselineError> {
-        let paragraph = single_line_paragraph(layout)?;
-        let baselines = core::slice::from_ref(baseline);
-        let placement = paragraph.place_on(baselines);
+        let paragraph = layout.paragraph().map_err(PathBaselineError::Layout)?;
+        let placement = paragraph.place_with(baselines);
         let requirements = placement
             .preflight()
             .map_err(PathBaselineError::Placement)?;
@@ -1400,18 +1525,6 @@ impl PathPlacementCache {
                 .map_err(PathBaselineError::Placement)
         })
     }
-}
-
-fn single_line_paragraph<'a>(
-    layout: &'a TextLayout<'_>,
-) -> Result<textflow::layout::ParagraphLayout<'a>, PathBaselineError> {
-    let paragraph = layout.paragraph().map_err(PathBaselineError::Layout)?;
-    if paragraph.lines().len() != 1 {
-        return Err(PathBaselineError::LineCount {
-            count: paragraph.lines().len(),
-        });
-    }
-    Ok(paragraph)
 }
 
 impl Default for PathPlacementCache {
@@ -1453,6 +1566,7 @@ impl PathBaselineResource {
         runtime.placements.begin_frame();
     }
 
+    #[cfg(test)]
     pub fn with<R>(
         &self,
         store: &PathStore,
@@ -1477,6 +1591,33 @@ impl PathBaselineResource {
         Ok(inspect(&baseline))
     }
 
+    pub fn with_lines<R>(
+        &self,
+        store: &PathStore,
+        text_path: TextPath,
+        tolerance: Fixed,
+        line_limit: usize,
+        inspect: impl FnOnce(&PathLineProvider<'_>) -> R,
+    ) -> Result<R, PathBaselineError> {
+        let path = store
+            .get(text_path.path())
+            .map_err(PathBaselineError::Store)?;
+        let revision = store
+            .revision(text_path.path())
+            .map_err(PathBaselineError::Store)?;
+        let runtime = &mut *self.0.borrow_mut();
+        let lines = prepare_path_lines(
+            &mut runtime.baselines,
+            path,
+            text_path.path(),
+            revision,
+            text_path,
+            tolerance,
+            line_limit,
+        )?;
+        Ok(inspect(&lines))
+    }
+
     pub fn with_glyph_frames<R>(
         &self,
         store: &PathStore,
@@ -1492,12 +1633,6 @@ impl PathBaselineResource {
         let revision = store
             .revision(text_path.path())
             .map_err(PathBaselineError::Store)?;
-        let baseline_key = MeasurementKey {
-            path: text_path.path(),
-            revision,
-            subpath: text_path.subpath(),
-            tolerance,
-        };
         let placement_key = PlacementKey {
             layout: layout_handle,
             path: text_path,
@@ -1509,9 +1644,16 @@ impl PathBaselineResource {
             baselines,
             placements,
         } = runtime;
-        let baseline = baselines.resolve(baseline_key, path)?;
-        let window = BaselineWindow::new(baseline, text_path)?;
-        let frames = placements.resolve_glyphs(placement_key, layout, &window)?;
+        let lines = prepare_path_lines(
+            baselines,
+            path,
+            text_path.path(),
+            revision,
+            text_path,
+            tolerance,
+            layout.lines().len(),
+        )?;
+        let frames = placements.resolve_glyphs(placement_key, layout, &lines)?;
         Ok(inspect(frames))
     }
 
@@ -1530,12 +1672,6 @@ impl PathBaselineResource {
         let revision = store
             .revision(text_path.path())
             .map_err(PathBaselineError::Store)?;
-        let baseline_key = MeasurementKey {
-            path: text_path.path(),
-            revision,
-            subpath: text_path.subpath(),
-            tolerance,
-        };
         let placement_key = PlacementKey {
             layout: layout_handle,
             path: text_path,
@@ -1547,9 +1683,16 @@ impl PathBaselineResource {
             baselines,
             placements,
         } = runtime;
-        let baseline = baselines.resolve(baseline_key, path)?;
-        let window = BaselineWindow::new(baseline, text_path)?;
-        let frames = placements.resolve_carets(placement_key, layout, &window)?;
+        let lines = prepare_path_lines(
+            baselines,
+            path,
+            text_path.path(),
+            revision,
+            text_path,
+            tolerance,
+            layout.lines().len(),
+        )?;
+        let frames = placements.resolve_carets(placement_key, layout, &lines)?;
         Ok(inspect(frames))
     }
 }
@@ -2270,6 +2413,7 @@ mod tests {
                     overflow: Overflow::Clip,
                     spacing: TextSpacing::default(),
                     features: &[],
+                    line_widths: None,
                 },
                 &[&face],
             )
@@ -2344,5 +2488,83 @@ mod tests {
         let runtime = resource.0.borrow();
         assert_eq!(runtime.placements.glyphs.entries.len(), 1);
         assert_eq!(runtime.placements.carets.entries.len(), 1);
+    }
+
+    #[test]
+    fn consecutive_subpaths_constrain_and_place_independent_lines() {
+        let face = SimpleTypeface::new(&Mono);
+        let mut layouts = TextLayoutCache::default();
+        let mut store = PathStore::new(1).unwrap();
+        let path = store
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(point(10, 20)),
+                PathCmd::LineTo(point(12, 20)),
+                PathCmd::MoveTo(point(30, 40)),
+                PathCmd::LineTo(point(31, 40)),
+            ]))
+            .unwrap();
+        let resource = PathBaselineResource::default();
+        let text_path = TextPath::new(path);
+        let handle = resource
+            .with_lines(&store, text_path, DEFAULT_TOLERANCE, 2, |widths| {
+                layouts.layout(
+                    TextLayoutRequest {
+                        text: "abc",
+                        max_width: i32::MAX,
+                        width: None,
+                        max_lines: 2,
+                        line_height: 256,
+                        baseline: 192,
+                        direction: BaseDirection::LeftToRight,
+                        wrap: WrapMode::Grapheme,
+                        alignment: Alignment::Start,
+                        overflow: Overflow::Clip,
+                        spacing: TextSpacing::default(),
+                        features: &[],
+                        line_widths: Some(widths),
+                    },
+                    &[&face],
+                )
+            })
+            .unwrap()
+            .unwrap();
+        let layout = layouts.get(handle).unwrap();
+        assert_eq!(layout.lines().len(), 2);
+        assert_eq!(layout.lines()[0].advance(), 2 << 8);
+        assert_eq!(layout.lines()[1].advance(), 1 << 8);
+
+        resource
+            .with_glyph_frames(
+                &store,
+                text_path,
+                DEFAULT_TOLERANCE,
+                handle,
+                &layout,
+                |frames| {
+                    assert_eq!(frames.len(), 3);
+                    assert_eq!(
+                        frames[0].local_origin,
+                        FlowPoint {
+                            x: 10 << 8,
+                            y: 20 << 8
+                        }
+                    );
+                    assert_eq!(
+                        frames[1].local_origin,
+                        FlowPoint {
+                            x: 11 << 8,
+                            y: 20 << 8
+                        }
+                    );
+                    assert_eq!(
+                        frames[2].local_origin,
+                        FlowPoint {
+                            x: 30 << 8,
+                            y: 40 << 8
+                        }
+                    );
+                },
+            )
+            .unwrap();
     }
 }
