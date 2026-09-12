@@ -211,6 +211,21 @@ fn projective_visual_bounds(
     Some(ink.map(|bounds| layout.union(&bounds)).unwrap_or(layout))
 }
 
+fn visual_bounds(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    affine: Transform,
+    projective: Transform3D,
+    output_scale: Fixed,
+) -> Rect {
+    if projective.is_identity() {
+        affine_visual_bounds(world, entity, rect, affine, output_scale)
+    } else {
+        projective_visual_bounds(world, entity, rect, projective, output_scale).unwrap_or(rect)
+    }
+}
+
 fn seed_prev_rect_walk(
     node: &LayoutNode,
     world: &mut World,
@@ -224,11 +239,8 @@ fn seed_prev_rect_walk(
         return;
     }
     let entity = entities[*idx];
-    let tf = effective_transform(parent_transform, world, entity, node.rect);
-    let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
-    let effective_rect = quad_for(world, entity, node.rect, parent_3d)
-        .map(quad_bbox)
-        .unwrap_or_else(|| affine_visual_bounds(world, entity, node.rect, tf, output_scale));
+    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, node.rect);
+    let effective_rect = visual_bounds(world, entity, node.rect, tf, tf_3d, output_scale);
     let x0 = effective_rect.x.floor();
     let y0 = effective_rect.y.floor();
     let x1 = (effective_rect.x + effective_rect.w).ceil();
@@ -1262,9 +1274,13 @@ fn prerender_sources(
         return;
     }
     let entity = entities[*idx];
-    let tf = effective_transform(parent_transform, world, entity, node.rect);
-    let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
-    let quad = quad_for(world, entity, node.rect, parent_3d).or_else(|| {
+    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, node.rect);
+    let quad = if tf_3d.is_identity() {
+        None
+    } else {
+        tf_3d.apply_rect(node.rect)
+    }
+    .or_else(|| {
         if matches!(
             tf.classify(),
             crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
@@ -1350,8 +1366,7 @@ fn collect_dirty_walk(
         return;
     }
     let entity = entities[*idx];
-    let tf = effective_transform(parent_transform, world, entity, node.rect);
-    let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
+    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, node.rect);
 
     // Offscreen subtree containment: any Dirty under an OffscreenRender
     // entity must promote to the entity itself (so its full
@@ -1367,8 +1382,8 @@ fn collect_dirty_walk(
                 world,
                 entity,
                 node,
-                parent_3d,
                 &tf,
+                &tf_3d,
                 output_scale,
                 scroll_offset,
                 inside_scroll,
@@ -1396,8 +1411,8 @@ fn collect_dirty_walk(
                     world,
                     entity,
                     node,
-                    parent_3d,
                     &tf,
+                    &tf_3d,
                     output_scale,
                     scroll_offset,
                     inside_scroll,
@@ -1467,8 +1482,8 @@ fn collect_dirty_walk(
                 world,
                 entity,
                 node,
-                parent_3d,
                 &tf,
+                &tf_3d,
                 output_scale,
                 scroll_offset,
                 inside_scroll,
@@ -1563,8 +1578,8 @@ fn push_entity_dirty(
     world: &mut World,
     entity: Entity,
     node: &LayoutNode,
-    parent_3d: &Transform3D,
     tf: &Transform,
+    tf_3d: &Transform3D,
     output_scale: Fixed,
     scroll_offset: (Fixed, Fixed),
     inside_scroll: bool,
@@ -1573,9 +1588,7 @@ fn push_entity_dirty(
     out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
 ) {
     use super::dirty::Dirty;
-    let curr_layout = quad_for(world, entity, node.rect, parent_3d)
-        .map(quad_bbox)
-        .unwrap_or_else(|| affine_visual_bounds(world, entity, node.rect, *tf, output_scale));
+    let curr_layout = visual_bounds(world, entity, node.rect, *tf, *tf_3d, output_scale);
     let mut curr = Rect {
         x: curr_layout.x - scroll_offset.0,
         y: curr_layout.y - scroll_offset.1,
@@ -2791,6 +2804,87 @@ mod clip_children_check {
         assert_eq!(dirty.y, Fixed::from_int(15));
         assert_eq!(dirty.w, Fixed::from_int(20));
         assert_eq!(dirty.h, Fixed::from_int(20));
+    }
+
+    #[test]
+    fn projective_dirty_and_previous_bounds_include_affine_ancestors() {
+        use crate::types::{Transform, Transform3D};
+        use crate::ui::dirty::{Dirty, PrevRect};
+        use crate::ui::widgets::transform::WidgetTransform;
+        use crate::ui::widgets::transform_3d::WidgetTransform3D;
+
+        let mut world = make_world();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(18)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(16)),
+                    height: Dimension::Px(Fixed::from_int(12)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            root,
+            WidgetTransform(Transform::translate(Fixed::from_int(7), Fixed::from_int(3))),
+        );
+        world.insert(
+            target,
+            WidgetTransform3D(Transform3D::rotate_y_perspective(
+                Fixed::from_int(18),
+                Fixed::from_int(320),
+            )),
+        );
+        let viewport = vp();
+        update_layout(&mut world, root, &viewport);
+
+        let root_rect = world.get::<super::super::ComputedRect>(root).unwrap().0;
+        let target_rect = world.get::<super::super::ComputedRect>(target).unwrap().0;
+        let (root_affine, root_projective) = render_transforms(
+            Transform::IDENTITY,
+            Transform3D::IDENTITY,
+            &world,
+            root,
+            root_rect,
+        );
+        let (target_affine, target_projective) =
+            render_transforms(root_affine, root_projective, &world, target, target_rect);
+        let expected = visual_bounds(
+            &world,
+            target,
+            target_rect,
+            target_affine,
+            target_projective,
+            viewport.scale(),
+        );
+        let (x0, y0, x1, y1) = expected.pixel_bounds();
+        let expected = Rect::new(x0, y0, x1 - x0, y1 - y0);
+
+        seed_prev_rects(&mut world, root, &viewport);
+        assert_eq!(world.get::<PrevRect>(target).unwrap().0, expected);
+
+        world.insert(target, Dirty);
+        assert_eq!(
+            collect_dirty_region(&mut world, root, &viewport),
+            Some(expected)
+        );
     }
 
     #[test]
