@@ -42,7 +42,7 @@ impl Renderer for ProjectiveRenderer<'_> {
     }
 
     fn supports_projective(&self) -> bool {
-        true
+        self.inner.supports_projective()
     }
 
     fn flush(&mut self) {
@@ -141,37 +141,6 @@ fn render_transforms(
             .compose(&local_projective)
             .compose(&Transform3D::from_affine(local_affine)),
     )
-}
-
-/// Once any ancestor declares a 3D transform, the whole subtree
-/// renders through the 3D quad path. Descendants without a
-/// `WidgetTransform3D` either lift their 2D `WidgetTransform` to
-/// homogeneous coordinates or pass the parent through unchanged.
-fn accumulate_3d(
-    parent_3d: &Transform3D,
-    world: &World,
-    entity: Entity,
-    rect: Rect,
-) -> Transform3D {
-    if let Some(t3d) = world.get::<WidgetTransform3D>(entity) {
-        if !t3d.0.is_identity() {
-            return effective_transform_3d(parent_3d, world, entity, rect);
-        }
-    }
-    if !parent_3d.is_identity() {
-        if let Some(t2d) = world.get::<WidgetTransform>(entity) {
-            if !t2d.0.is_identity() {
-                let (cx, cy) = origin_point(world, entity, rect);
-                let to_origin = Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
-                let from_origin = Transform3D::translate(cx, cy);
-                return parent_3d
-                    .compose(&from_origin)
-                    .compose(&Transform3D::from_affine(t2d.0))
-                    .compose(&to_origin);
-            }
-        }
-    }
-    *parent_3d
 }
 
 fn quad_bbox(q: [Point; 4]) -> Rect {
@@ -304,23 +273,6 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         &Transform3D::IDENTITY,
         transform.scale(),
     );
-}
-
-fn quad_for(
-    world: &World,
-    entity: Entity,
-    rect: Rect,
-    parent_3d: &Transform3D,
-) -> Option<[Point; 4]> {
-    let has_local_3d = world
-        .get::<WidgetTransform3D>(entity)
-        .map(|t| !t.0.is_identity())
-        .unwrap_or(false);
-    if parent_3d.is_identity() && !has_local_3d {
-        return None;
-    }
-    let tf = accumulate_3d(parent_3d, world, entity, rect);
-    tf.apply_rect(rect)
 }
 
 /// Recursively build a LayoutNode tree from ECS entities
@@ -580,25 +532,17 @@ fn draw_tree_offset(
             generation: 0,
         }
     };
-    let projective_renderer = renderer.supports_projective();
-    let (tf, tf_3d) = if projective_renderer {
-        render_transforms(
-            *parent_transform,
-            *parent_transform_3d,
-            world,
-            entity,
-            shifted_rect,
-        )
-    } else {
-        (
-            effective_transform(parent_transform, world, entity, shifted_rect),
-            accumulate_3d(parent_transform_3d, world, entity, shifted_rect),
-        )
-    };
-    let quad = if projective_renderer && !tf_3d.is_identity() {
+    let (tf, tf_3d) = render_transforms(
+        *parent_transform,
+        *parent_transform_3d,
+        world,
+        entity,
+        shifted_rect,
+    );
+    let quad = if !tf_3d.is_identity() {
         tf_3d.apply_rect(shifted_rect)
     } else {
-        quad_for(world, entity, shifted_rect, parent_transform_3d)
+        None
     }
     .or_else(|| {
         if matches!(
@@ -611,7 +555,7 @@ fn draw_tree_offset(
         }
     });
 
-    let cull_rect = if projective_renderer && !tf_3d.is_identity() {
+    let cull_rect = if !tf_3d.is_identity() {
         projective_visual_bounds(world, entity, shifted_rect, tf_3d, renderer.output_scale())
             .unwrap_or(shifted_rect)
     } else {
@@ -669,7 +613,7 @@ fn draw_tree_offset(
                 bg_handled: false,
                 state,
             };
-            if !tf_3d.is_identity() && projective_renderer {
+            if !tf_3d.is_identity() {
                 let mut scoped = ProjectiveRenderer {
                     inner: renderer,
                     transform: tf_3d,
@@ -745,6 +689,19 @@ fn render_views(
 mod projective_transform_tests {
     use super::*;
 
+    #[derive(Default)]
+    struct AffineOnlyRenderer {
+        draws: usize,
+    }
+
+    impl Renderer for AffineOnlyRenderer {
+        fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {
+            self.draws += 1;
+        }
+
+        fn flush(&mut self) {}
+    }
+
     #[test]
     fn first_projective_boundary_folds_affine_ancestors_once() {
         let mut world = World::new();
@@ -788,6 +745,31 @@ mod projective_transform_tests {
 
         assert_eq!(command, Transform::IDENTITY);
         assert_eq!(scope, parent.compose(&Transform3D::from_affine(local)));
+    }
+
+    #[test]
+    fn affine_only_renderer_does_not_receive_projective_approximation() {
+        let mut renderer = AffineOnlyRenderer::default();
+        let mut scoped = ProjectiveRenderer {
+            inner: &mut renderer,
+            transform: Transform3D::translate(Fixed::from_int(4), Fixed::ZERO),
+            unsupported: false,
+        };
+        scoped.draw(
+            &DrawCommand::Fill {
+                area: Rect::new(0, 0, 8, 8),
+                transform: Transform::IDENTITY,
+                quad: None,
+                color: crate::types::Color::rgb(255, 255, 255),
+                radius: Fixed::ZERO,
+                opa: u8::MAX,
+            },
+            &Rect::new(0, 0, 16, 16),
+        );
+
+        assert!(scoped.unsupported);
+        drop(scoped);
+        assert_eq!(renderer.draws, 0);
     }
 }
 

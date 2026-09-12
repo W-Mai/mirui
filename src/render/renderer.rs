@@ -28,7 +28,9 @@ pub trait Renderer {
         }
     }
 
-    /// Whether non-identity calls to [`Self::draw_projective`] are accepted.
+    /// Whether the renderer has exact non-identity projective paths.
+    /// Individual command variants can still return
+    /// [`ProjectiveDrawError::Unsupported`].
     fn supports_projective(&self) -> bool {
         false
     }
