@@ -2213,9 +2213,7 @@ impl Renderer for WgpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
-        // Quad short-circuits: render_system already pre-projected the
-        // 3D / non-affine widget into 4 corner points, so the GPU only
-        // has to draw the resulting quad.
+        // Explicit leaf quads short-circuit before affine dispatch.
         match cmd {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
             }

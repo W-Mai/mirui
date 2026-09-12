@@ -208,7 +208,8 @@ created only when queried and use caller-provided bounded storage.
 `PathTextGeometry::with_transform` accepts an explicit `Transform` or
 `Transform3D` for scene tools that already hold the final render transform.
 Projection through or behind the near plane returns
-`PathTextGeometryError::InvalidProjection`.
+`PathTextGeometryError::InvalidProjection`. Selection output remains unchanged
+when capacity or projection validation fails.
 
 ## Backend behavior
 

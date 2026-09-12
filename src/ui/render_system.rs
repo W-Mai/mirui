@@ -610,6 +610,14 @@ fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
     }
 }
 
+fn transformed_clip_bounds(rect: Rect, affine: Transform, projective: Transform3D) -> Option<Rect> {
+    if projective.is_identity() {
+        Some(affine.apply_rect_bbox(rect))
+    } else {
+        projective.apply_rect(rect).map(quad_bbox)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[mirui::trace_fn("draw.entity")]
 fn draw_tree_offset(
@@ -647,21 +655,15 @@ fn draw_tree_offset(
         entity,
         shifted_rect,
     );
-    let quad = if !tf_3d.is_identity() {
-        tf_3d.apply_rect(shifted_rect)
-    } else {
-        None
-    }
-    .or_else(|| {
-        if matches!(
+    let quad = if tf_3d.is_identity()
+        && !matches!(
             tf.classify(),
             crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
         ) {
-            None
-        } else {
-            Some(tf.apply_rect(shifted_rect))
-        }
-    });
+        Some(tf.apply_rect(shifted_rect))
+    } else {
+        None
+    };
 
     let cull_rect = if !tf_3d.is_identity() {
         projective_visual_bounds(world, entity, shifted_rect, tf_3d, renderer.output_scale())
@@ -687,7 +689,6 @@ fn draw_tree_offset(
         );
         debug_assert!(!inside_offscreen, "nested OffscreenRender not supported");
         if !has_3d
-            && !inside_offscreen
             && renderer.supports_offscreen()
             && try_draw_offscreen(
                 node,
@@ -738,19 +739,24 @@ fn draw_tree_offset(
     }
     *idx += 1;
 
+    let clips_children = world
+        .get::<Style>(entity)
+        .is_some_and(|style| style.clip_children);
+    let self_clip = || {
+        transformed_clip_bounds(shifted_rect, tf, tf_3d)
+            .map(|bounds| intersect_with_self(clip, &bounds))
+            .unwrap_or(Rect {
+                x: clip.x,
+                y: clip.y,
+                w: Fixed::ZERO,
+                h: Fixed::ZERO,
+            })
+    };
     let (child_clip, sx, sy) =
         if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
-            (
-                intersect_with_self(clip, &shifted_rect),
-                offset_x + scroll.x,
-                offset_y + scroll.y,
-            )
-        } else if world
-            .get::<Style>(entity)
-            .map(|s| s.clip_children)
-            .unwrap_or(false)
-        {
-            (intersect_with_self(clip, &shifted_rect), offset_x, offset_y)
+            (self_clip(), offset_x + scroll.x, offset_y + scroll.y)
+        } else if clips_children {
+            (self_clip(), offset_x, offset_y)
         } else {
             (*clip, offset_x, offset_y)
         };
@@ -802,9 +808,34 @@ mod projective_transform_tests {
         draws: usize,
     }
 
+    #[derive(Default)]
+    struct ProjectiveLeafCapture {
+        quad_was_none: Option<bool>,
+        transform: Option<Transform3D>,
+    }
+
     impl Renderer for AffineOnlyRenderer {
         fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {
             self.draws += 1;
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    impl Renderer for ProjectiveLeafCapture {
+        fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+
+        fn draw_projective(
+            &mut self,
+            command: &DrawCommand,
+            _clip: &Rect,
+            transform: &Transform3D,
+        ) -> Result<(), crate::render::ProjectiveDrawError> {
+            if let DrawCommand::Fill { quad, .. } = command {
+                self.quad_was_none = Some(quad.is_none());
+                self.transform = Some(*transform);
+            }
+            Ok(())
         }
 
         fn flush(&mut self) {}
@@ -878,6 +909,65 @@ mod projective_transform_tests {
         assert!(scoped.unsupported);
         drop(scoped);
         assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
+    fn projective_widget_keeps_the_leaf_unprojected() {
+        let mut app = crate::app::App::headless(32, 24);
+        app.with_default_widgets();
+        let root = app.world.spawn_empty();
+        app.world.insert(root, Widget);
+        app.world.insert(
+            root,
+            Style {
+                bg_color: Some(crate::types::Color::rgb(20, 40, 60).into()),
+                layout: crate::ui::layout::LayoutStyle {
+                    width: crate::types::Dimension::px(32),
+                    height: crate::types::Dimension::px(24),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(320));
+        app.world.insert(root, WidgetTransform3D(projective));
+
+        let mut capture = ProjectiveLeafCapture::default();
+        render(
+            &app.world,
+            root,
+            &Viewport::new(32, 24, Fixed::ONE),
+            &mut capture,
+        );
+
+        assert_eq!(capture.quad_was_none, Some(true));
+        assert!(capture.transform.is_some_and(|value| !value.is_identity()));
+    }
+
+    #[test]
+    fn child_clip_uses_the_effective_transform() {
+        let rect = Rect::new(8, 6, 20, 12);
+        let affine = Transform::translate(Fixed::from_int(4), Fixed::from_int(-2));
+        assert_eq!(
+            transformed_clip_bounds(rect, affine, Transform3D::IDENTITY),
+            Some(affine.apply_rect_bbox(rect))
+        );
+
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(320));
+        let expected = projective.apply_rect(rect).map(quad_bbox);
+        assert_eq!(
+            transformed_clip_bounds(rect, Transform::IDENTITY, projective),
+            expected
+        );
+
+        let mut behind = Transform3D::IDENTITY;
+        behind.m22 = -crate::types::Fixed64::ONE;
+        assert_eq!(
+            transformed_clip_bounds(rect, Transform::IDENTITY, behind),
+            None
+        );
     }
 }
 
@@ -2562,6 +2652,13 @@ mod text_layout_check {
             invalid_geometry.hit_test(Point::ZERO, Fixed::ONE),
             Err(crate::ui::widgets::text::PathTextGeometryError::InvalidProjection)
         );
+        let sentinel = crate::ui::widgets::text::PathSelectionRibbon::default();
+        let mut invalid_ribbons = [sentinel; 3];
+        assert_eq!(
+            invalid_geometry.selection_into(1..3, &mut invalid_ribbons),
+            Err(crate::ui::widgets::text::PathTextGeometryError::InvalidProjection)
+        );
+        assert_eq!(invalid_ribbons, [sentinel; 3]);
         let mut ribbons = [crate::ui::widgets::text::PathSelectionRibbon::default(); 3];
         let selection = geometry.selection_into(1..3, &mut ribbons).unwrap();
         assert_eq!(selection.len(), 2);

@@ -512,10 +512,7 @@ impl Renderer for SdlGpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
-        // Quad fast paths short-circuit before the axis-aligned
-        // translate/transform branch: the render_system has already
-        // pre-projected any 3D/2D affine into the 4 quad vertices, so
-        // the GPU just needs to tessellate / UV-map them.
+        // Explicit leaf quads short-circuit before affine dispatch.
         match cmd {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
             }

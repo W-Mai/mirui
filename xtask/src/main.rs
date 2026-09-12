@@ -117,6 +117,7 @@ fn cmd_linux_fb_check() -> Result {
 fn cmd_wasm_build() -> Result {
     let web_dir = format!("{}/gallery/web", project_root());
     let status = Command::new("trunk")
+        .env("NO_COLOR", "true")
         .args(["build", "--release"])
         .current_dir(&web_dir)
         .status()
@@ -132,6 +133,7 @@ fn cmd_wasm_build() -> Result {
 fn cmd_web_serve() -> Result {
     let web_dir = format!("{}/gallery/web", project_root());
     let status = Command::new("trunk")
+        .env("NO_COLOR", "true")
         .arg("serve")
         .current_dir(&web_dir)
         .status()

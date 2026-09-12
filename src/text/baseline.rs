@@ -1965,6 +1965,21 @@ mod tests {
     }
 
     #[test]
+    fn idle_path_runtime_reserves_no_heap_storage() {
+        let resource = PathBaselineResource::default();
+        let runtime = resource.0.borrow();
+
+        assert_eq!(runtime.baselines.entries.capacity(), 0);
+        assert_eq!(runtime.baselines.segments.capacity(), 0);
+        assert_eq!(runtime.placements.glyphs.entries.capacity(), 0);
+        assert_eq!(runtime.placements.glyphs.values.capacity(), 0);
+        assert_eq!(runtime.placements.carets.entries.capacity(), 0);
+        assert_eq!(runtime.placements.carets.values.capacity(), 0);
+        assert_eq!(core::mem::size_of::<textflow::placement::GlyphFrame>(), 16);
+        assert_eq!(core::mem::size_of::<textflow::placement::CaretFrame>(), 16);
+    }
+
+    #[test]
     fn line_path_samples_commands_without_measured_storage() {
         let path = Path::from_owned(alloc::vec![
             PathCmd::MoveTo(point(0, 0)),

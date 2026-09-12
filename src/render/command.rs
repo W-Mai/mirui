@@ -6,6 +6,7 @@ use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
 pub use mirx::scene::{LineCap, LineJoin, Paint};
 
+/// Paired shaped glyphs and path-placement frames for one posed run.
 #[derive(Clone, Copy, Debug)]
 pub struct PosedGlyphs<'a> {
     glyphs: &'a [textflow::shaping::PositionedGlyph],
@@ -243,13 +244,10 @@ mod posed_glyph_tests {
 /// Draw operation produced by `render_system` and consumed by `Renderer::draw`.
 ///
 /// All coordinate fields (`area`, `pos`, path points, `radius`, `width`) are
-/// in **logical pixels**. Each variant carries a [`Transform`] (2D widget
-/// affine). Variants that can participate in a 3D warp also carry an
-/// optional pre-projected `quad: Option<[Point; 4]>`; when present, the
-/// renderer uses the quad directly and ignores `area + transform` for
-/// geometry. Renderers may `unimplemented!()` on transform classes they
-/// don't handle (see `SwRenderer::draw_transformed` for what the software
-/// backend covers today).
+/// in **logical pixels**. Each drawable variant carries its local [`Transform`].
+/// An optional `quad` is explicit leaf geometry, not inherited projective
+/// state. Widget and scene homographies are supplied through
+/// [`crate::render::renderer::Renderer::draw_projective`].
 pub enum DrawCommand<'a> {
     Fill {
         area: Rect,

@@ -634,6 +634,7 @@ pub(crate) fn path_text_ink_bounds(
         .flatten()
 }
 
+/// The nearest visual caret returned by a path-text hit query.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PathCaretHit {
     index: usize,
@@ -655,6 +656,7 @@ impl PathCaretHit {
     }
 }
 
+/// One projected selection segment within a line and visual bidi run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PathSelectionRibbon {
     quad: [Point; 4],
@@ -691,13 +693,18 @@ impl PathSelectionRibbon {
     }
 }
 
+/// Failure to resolve or project path-text interaction geometry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PathTextGeometryError {
+    /// Required retained layout or path data is unavailable.
     Unavailable,
+    /// The geometry is singular or crosses the projective near plane.
     InvalidProjection,
+    /// Caller-provided selection storage is too small.
     InsufficientCapacity { required: usize, provided: usize },
 }
 
+/// Read-only access to the geometry used to render one retained path-text widget.
 pub struct PathTextGeometry<'a> {
     world: &'a World,
     entity: Entity,
@@ -784,12 +791,17 @@ impl<'a> PathTextGeometry<'a> {
                     provided: output.len(),
                 });
             }
+            if selected_caret_pairs(layout, frames, selection.clone())
+                .any(|pair| selection_ribbon(self.rect, self.transform, metrics, pair).is_none())
+            {
+                return Err(PathTextGeometryError::InvalidProjection);
+            }
             for (slot, pair) in output
                 .iter_mut()
                 .zip(selected_caret_pairs(layout, frames, selection))
             {
                 *slot = selection_ribbon(self.rect, self.transform, metrics, pair)
-                    .ok_or(PathTextGeometryError::InvalidProjection)?;
+                    .expect("selection projection was preflighted");
             }
             Ok(&output[..required])
         })
