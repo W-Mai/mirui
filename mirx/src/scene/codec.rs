@@ -5,7 +5,8 @@ use crate::crc32;
 use crate::path::{Path, PathCmd};
 use crate::scene::header::VectorChunkHeader;
 use crate::scene::op::{
-    CompositeMode, FillRule, GlyphPlacement, LineCap, LineJoin, ResourceRef, Scene, SceneOp,
+    CompositeMode, FillRule, GlyphPlacement, GlyphPose, LineCap, LineJoin, ResourceRef, Scene,
+    SceneOp,
 };
 use crate::scene::paint::{
     GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode,
@@ -31,6 +32,7 @@ const TAG_STROKE_PATH: u8 = 0x0A;
 const TAG_PUSH_CLIP: u8 = 0x0B;
 const TAG_POP_CLIP: u8 = 0x0C;
 const TAG_GLYPH_RUN: u8 = 0x0D;
+const TAG_POSED_GLYPH_RUN: u8 = 0x0E;
 
 const FIELD_TRANSFORM: u8 = 1 << 0;
 const FIELD_QUAD: u8 = 1 << 1;
@@ -122,6 +124,7 @@ pub enum CodecError {
     UnknownFlags(u8),
     BadComposite(u8),
     InvalidPpem,
+    InvalidGlyphDirection,
 }
 
 struct Reader<'a> {
@@ -796,6 +799,44 @@ pub(super) fn write_op<W: ByteSink>(out: &mut W, op: &SceneOp) -> Result<(), Cod
             }
             Ok(())
         }
+        SceneOp::PosedGlyphRun {
+            font,
+            ppem,
+            pos,
+            transform,
+            color,
+            opa,
+            glyphs,
+        } => {
+            if *ppem == 0 {
+                return Err(CodecError::InvalidPpem);
+            }
+            if glyphs.iter().any(|glyph| !glyph.has_unit_tangent()) {
+                return Err(CodecError::InvalidGlyphDirection);
+            }
+            out.push(TAG_POSED_GLYPH_RUN);
+            let bits = if transform.is_identity() {
+                0
+            } else {
+                FIELD_TRANSFORM
+            };
+            out.push(bits);
+            write_resource_ref(out, font);
+            out.extend_from_slice(&ppem.to_le_bytes());
+            write_point(out, *pos);
+            write_color(out, *color);
+            out.push(*opa);
+            write_varuint(out, glyphs.len() as u32);
+            for glyph in glyphs {
+                out.extend_from_slice(&glyph.glyph_id().to_le_bytes());
+                write_point(out, glyph.origin());
+                write_point(out, glyph.tangent());
+            }
+            if bits & FIELD_TRANSFORM != 0 {
+                write_transform(out, *transform);
+            }
+            Ok(())
+        }
         SceneOp::Line {
             p1,
             p2,
@@ -1028,6 +1069,37 @@ fn read_op_with<A: DecodeAllocator>(
             }
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::GlyphRun {
+                font,
+                ppem,
+                pos,
+                transform,
+                color,
+                opa,
+                glyphs,
+            })
+        }
+        TAG_POSED_GLYPH_RUN => {
+            let bits = r.u8()?;
+            let font = read_resource_ref_with(r, allocator)?;
+            let ppem = r.u16()?;
+            if ppem == 0 {
+                return Err(CodecError::InvalidPpem.into());
+            }
+            let pos = r.point()?;
+            let color = r.color()?;
+            let opa = r.u8()?;
+            let count = r.varuint()? as usize;
+            let mut glyphs = Vec::new();
+            allocator.reserve(&mut glyphs, count)?;
+            for _ in 0..count {
+                let glyph = GlyphPose::new(r.u16()?, r.point()?, r.point()?);
+                if !glyph.has_unit_tangent() {
+                    return Err(CodecError::InvalidGlyphDirection.into());
+                }
+                glyphs.push(glyph);
+            }
+            let transform = read_transform_opt(r, bits)?;
+            Ok(SceneOp::PosedGlyphRun {
                 font,
                 ppem,
                 pos,
@@ -1411,6 +1483,23 @@ mod tests {
             },
             SceneOp::GroupEnd,
         ]);
+    }
+
+    #[test]
+    fn posed_glyph_run_roundtrips() {
+        roundtrip(vec![SceneOp::PosedGlyphRun {
+            font: ResourceRef::Index(4),
+            ppem: 18,
+            pos: Point::new(Fixed::from_int(2), Fixed::from_int(3)),
+            transform: Transform::translate(Fixed::ONE, Fixed::from_int(2)),
+            color: red(),
+            opa: 207,
+            glyphs: vec![GlyphPose::new(
+                71,
+                Point::new(Fixed::from_int(12), Fixed::from_int(8)),
+                Point::new(Fixed::ZERO, Fixed::ONE),
+            )],
+        }]);
     }
 
     #[test]

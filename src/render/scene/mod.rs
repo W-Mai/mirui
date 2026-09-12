@@ -35,6 +35,36 @@ pub enum ResourceRef {
     Inline(Path),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct PosedGlyphBuffer {
+    glyphs: Cow<'static, [textflow::shaping::PositionedGlyph]>,
+    frames: Cow<'static, [textflow::placement::GlyphFrame]>,
+}
+
+impl PosedGlyphBuffer {
+    pub fn new(
+        glyphs: impl Into<Cow<'static, [textflow::shaping::PositionedGlyph]>>,
+        frames: impl Into<Cow<'static, [textflow::placement::GlyphFrame]>>,
+    ) -> Option<Self> {
+        let glyphs = glyphs.into();
+        let frames = frames.into();
+        (glyphs.len() == frames.len()).then_some(Self { glyphs, frames })
+    }
+
+    pub fn glyphs(&self) -> &[textflow::shaping::PositionedGlyph] {
+        &self.glyphs
+    }
+
+    pub fn frames(&self) -> &[textflow::placement::GlyphFrame] {
+        &self.frames
+    }
+
+    pub fn as_draw(&self) -> crate::render::command::PosedGlyphs<'_> {
+        crate::render::command::PosedGlyphs::new(self.glyphs(), self.frames())
+            .expect("scene glyph pose lengths are validated at construction")
+    }
+}
+
 /// One drawing operation. Owned (deser / reactive / recorded) or borrowed
 /// (macro-emitted `&'static`) geometry via `Cow`.
 ///
@@ -103,6 +133,15 @@ pub enum SceneOp {
         color: Color,
         opa: u8,
         glyphs: Cow<'static, [textflow::shaping::PositionedGlyph]>,
+    },
+    PosedGlyphRun {
+        font: ResourceRef,
+        ppem: u16,
+        pos: Point,
+        transform: Transform,
+        color: Color,
+        opa: u8,
+        glyphs: PosedGlyphBuffer,
     },
     Line {
         p1: Point,

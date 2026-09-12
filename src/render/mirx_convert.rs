@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::render::command::CompositeMode;
 use crate::render::path::{Path, PathCmd};
 use crate::render::raster::FillRule;
-use crate::render::scene::{ResourceRef, Scene, SceneOp};
+use crate::render::scene::{PosedGlyphBuffer, ResourceRef, Scene, SceneOp};
 use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, fixed::storage};
 
 impl From<mirx::types::Fixed> for Fixed {
@@ -407,6 +407,44 @@ impl From<mirx::scene::SceneOp> for SceneOp {
                     .collect::<alloc::vec::Vec<_>>()
                     .into(),
             },
+            mirx::scene::SceneOp::PosedGlyphRun {
+                font,
+                ppem,
+                pos,
+                transform,
+                color,
+                opa,
+                glyphs,
+            } => {
+                let mut positioned = Vec::with_capacity(glyphs.len());
+                let mut frames = Vec::with_capacity(glyphs.len());
+                for glyph in glyphs {
+                    positioned.push(textflow::shaping::PositionedGlyph::new(
+                        crate::render::font::GlyphId::new(glyph.glyph_id()),
+                        textflow::shaping::FlowPoint { x: 0, y: 0 },
+                    ));
+                    frames.push(textflow::placement::GlyphFrame {
+                        local_origin: textflow::shaping::FlowPoint {
+                            x: crate::types::fixed::to_textflow(glyph.origin().x.into()),
+                            y: crate::types::fixed::to_textflow(glyph.origin().y.into()),
+                        },
+                        unit_tangent: textflow::shaping::FlowPoint {
+                            x: crate::types::fixed::to_textflow(glyph.tangent().x.into()),
+                            y: crate::types::fixed::to_textflow(glyph.tangent().y.into()),
+                        },
+                    });
+                }
+                Self::PosedGlyphRun {
+                    font: font.into(),
+                    ppem,
+                    pos: pos.into(),
+                    transform: transform.into(),
+                    color: color.into(),
+                    opa,
+                    glyphs: PosedGlyphBuffer::new(positioned, frames)
+                        .expect("decoded glyph pose lengths match"),
+                }
+            }
             mirx::scene::SceneOp::Line {
                 p1,
                 p2,
@@ -598,6 +636,40 @@ impl From<SceneOp> for mirx::scene::SceneOp {
                     })
                     .collect(),
             },
+            SceneOp::PosedGlyphRun {
+                font,
+                ppem,
+                pos,
+                transform,
+                color,
+                opa,
+                glyphs,
+            } => Self::PosedGlyphRun {
+                font: font.into(),
+                ppem,
+                pos: pos.into(),
+                transform: transform.into(),
+                color: color.into(),
+                opa,
+                glyphs: glyphs
+                    .glyphs()
+                    .iter()
+                    .zip(glyphs.frames())
+                    .map(|(glyph, frame)| {
+                        mirx::scene::GlyphPose::new(
+                            glyph.glyph_id().value(),
+                            mirx::types::Point::new(
+                                crate::types::fixed::from_textflow(frame.local_origin.x).into(),
+                                crate::types::fixed::from_textflow(frame.local_origin.y).into(),
+                            ),
+                            mirx::types::Point::new(
+                                crate::types::fixed::from_textflow(frame.unit_tangent.x).into(),
+                                crate::types::fixed::from_textflow(frame.unit_tangent.y).into(),
+                            ),
+                        )
+                    })
+                    .collect(),
+            },
             SceneOp::Line {
                 p1,
                 p2,
@@ -690,5 +762,35 @@ mod tests {
             let back = mirx::types::Fixed64::from(runtime);
             assert_eq!(back.to_parts(), wire.to_parts());
         }
+    }
+
+    #[test]
+    fn posed_scene_conversion_preserves_compact_geometry() {
+        let glyphs = vec![textflow::shaping::PositionedGlyph::new(
+            crate::render::font::GlyphId::new(42),
+            textflow::shaping::FlowPoint { x: 0, y: 0 },
+        )];
+        let frames = vec![textflow::placement::GlyphFrame {
+            local_origin: textflow::shaping::FlowPoint {
+                x: 12 << 8,
+                y: 7 << 8,
+            },
+            unit_tangent: textflow::shaping::FlowPoint { x: 0, y: 1 << 8 },
+        }];
+        let scene = Scene {
+            ops: vec![SceneOp::PosedGlyphRun {
+                font: ResourceRef::Index(3),
+                ppem: 20,
+                pos: Point::ZERO,
+                transform: Transform::IDENTITY,
+                color: Color::rgb(1, 2, 3),
+                opa: 255,
+                glyphs: PosedGlyphBuffer::new(glyphs, frames).unwrap(),
+            }],
+        };
+
+        let wire: mirx::scene::Scene = scene.clone().into();
+        let back: Scene = wire.into();
+        assert_eq!(back, scene);
     }
 }

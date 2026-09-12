@@ -18,6 +18,7 @@ pub enum CodecError {
     UnknownFlags(u8),
     BadComposite(u8),
     InvalidPpem,
+    InvalidGlyphDirection,
 }
 
 impl From<mirx::scene::CodecError> for CodecError {
@@ -39,6 +40,7 @@ impl From<mirx::scene::CodecError> for CodecError {
             mirx::scene::CodecError::UnknownFlags(f) => Self::UnknownFlags(f),
             mirx::scene::CodecError::BadComposite(b) => Self::BadComposite(b),
             mirx::scene::CodecError::InvalidPpem => Self::InvalidPpem,
+            mirx::scene::CodecError::InvalidGlyphDirection => Self::InvalidGlyphDirection,
         }
     }
 }

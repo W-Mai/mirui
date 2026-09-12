@@ -380,6 +380,27 @@ fn op_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
                 len.add(24)?;
             }
         }
+        SceneOp::PosedGlyphRun {
+            font,
+            ppem,
+            transform,
+            glyphs,
+            ..
+        } => {
+            if *ppem == 0 {
+                return Err(invalid_scene(CodecError::InvalidPpem));
+            }
+            if glyphs.iter().any(|glyph| !glyph.has_unit_tangent()) {
+                return Err(invalid_scene(CodecError::InvalidGlyphDirection));
+            }
+            len.add(resource_ref_len(font)?)?;
+            len.add(15)?;
+            let count = checked_wire_len(glyphs.len())?;
+            len.add(wire_collection_len(glyphs.len(), varuint_len(count), 18)?)?;
+            if !transform.is_identity() {
+                len.add(24)?;
+            }
+        }
         SceneOp::Line { transform, .. } => {
             len.add(25)?;
             if !transform.is_identity() {
@@ -872,6 +893,47 @@ mod tests {
             Scene::decode(&with_perspective.encode_payload().unwrap()).unwrap(),
             with_perspective
         );
+    }
+
+    #[test]
+    fn posed_records_are_fixed_size_and_validate_directions_before_output() {
+        let make_scene = |glyphs| {
+            Scene::from_ops(vec![SceneOp::PosedGlyphRun {
+                font: ResourceRef::Index(1),
+                ppem: 16,
+                pos: Point::ZERO,
+                transform: Transform::IDENTITY,
+                color: color(1),
+                opa: 255,
+                glyphs,
+            }])
+        };
+        let empty = make_scene(vec![]);
+        let one = make_scene(vec![crate::scene::GlyphPose::new(
+            5,
+            point(2, 3),
+            Point::new(Fixed::ONE, Fixed::ZERO),
+        )]);
+        assert_eq!(
+            one.encoded_payload_len().unwrap(),
+            empty.encoded_payload_len().unwrap() + 18
+        );
+
+        let invalid = make_scene(vec![crate::scene::GlyphPose::new(
+            5,
+            point(2, 3),
+            Point::ZERO,
+        )]);
+        assert_eq!(
+            invalid.encoded_payload_len(),
+            Err(VectorEncodeError::InvalidPayload(VectorReadError::Codec(
+                CodecError::InvalidGlyphDirection
+            )))
+        );
+        let mut output = [0xa5; 64];
+        let before = output;
+        assert!(invalid.encode_payload_into(&mut output).is_err());
+        assert_eq!(output, before);
     }
 
     #[test]

@@ -6,14 +6,14 @@ use super::{
     PAINT_KIND_LINEAR, PAINT_KIND_RADIAL, RES_KIND_INDEX, RES_KIND_INLINE, RES_KIND_TOKEN,
     SLOT_CLIP, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY, SLOT_PROJECTIVE, SLOT_TRANSFORM, TAG_ARC,
     TAG_BLIT, TAG_BORDER, TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT, TAG_GLYPH_RUN, TAG_GROUP_BEGIN,
-    TAG_GROUP_END, TAG_LINE, TAG_POP_CLIP, TAG_PUSH_CLIP, TAG_STROKE_PATH, VERSION,
-    composite_from_u8, decode_body_with, fill_rule_from_u8, line_cap_from_u8, line_join_from_u8,
-    spread_from_u8, units_from_u8,
+    TAG_GROUP_END, TAG_LINE, TAG_POP_CLIP, TAG_POSED_GLYPH_RUN, TAG_PUSH_CLIP, TAG_STROKE_PATH,
+    VERSION, composite_from_u8, decode_body_with, fill_rule_from_u8, line_cap_from_u8,
+    line_join_from_u8, spread_from_u8, units_from_u8,
 };
 use crate::path::{Path, PathCmd};
 use crate::reader::PayloadLimits;
 use crate::scene::{
-    GlyphPlacement, GradientStop, Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader,
+    GlyphPlacement, GlyphPose, GradientStop, Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader,
 };
 use crate::types::Fixed;
 
@@ -329,6 +329,23 @@ fn validate_scene_limits(scene: &Scene, limits: &PayloadLimits) -> Result<(), Ve
                     size_of::<GlyphPlacement>(),
                 )?;
             }
+            SceneOp::PosedGlyphRun {
+                font, ppem, glyphs, ..
+            } => {
+                if *ppem == 0 {
+                    return Err(CodecError::InvalidPpem.into());
+                }
+                if glyphs.iter().any(|glyph| !glyph.has_unit_tangent()) {
+                    return Err(CodecError::InvalidGlyphDirection.into());
+                }
+                add_resource_ref(&mut budget, font)?;
+                add_items(
+                    &mut budget,
+                    ItemKind::PositionedGlyph,
+                    glyphs.len(),
+                    size_of::<GlyphPose>(),
+                )?;
+            }
             SceneOp::Blit { texture, .. } => add_resource_ref(&mut budget, texture)?,
             SceneOp::GroupEnd
             | SceneOp::PopClip
@@ -505,7 +522,8 @@ impl<'a> Scanner<'a> {
                     self.depth -= 1;
                 }
                 TAG_FILL_PATH | TAG_STROKE_PATH | TAG_PUSH_CLIP | TAG_POP_CLIP | TAG_FILL_RECT
-                | TAG_BORDER | TAG_GLYPH_RUN | TAG_LINE | TAG_ARC | TAG_BLIT => {
+                | TAG_BORDER | TAG_GLYPH_RUN | TAG_POSED_GLYPH_RUN | TAG_LINE | TAG_ARC
+                | TAG_BLIT => {
                     self.begin_decoded_op()?;
                     self.scan_op(tag)?;
                 }
@@ -599,7 +617,7 @@ impl<'a> Scanner<'a> {
                 let _ = self.cursor.take(16 + 4 + 4 + 1)?;
                 self.skip_optional(bits)
             }
-            TAG_GLYPH_RUN => {
+            TAG_GLYPH_RUN | TAG_POSED_GLYPH_RUN => {
                 let bits = self.cursor.u8()?;
                 self.scan_resource_ref()?;
                 let ppem = self.cursor.u16()?;
@@ -610,14 +628,40 @@ impl<'a> Scanner<'a> {
                 let count = self.cursor.varuint()?;
                 let count_usize =
                     usize::try_from(count).map_err(|_| VectorReadError::SizeOverflow)?;
-                let bytes = count_usize
-                    .checked_mul(18)
-                    .ok_or(VectorReadError::SizeOverflow)?;
-                let _ = self.cursor.take(bytes)?;
+                if tag == TAG_POSED_GLYPH_RUN {
+                    self.cursor.ensure_remaining(
+                        count_usize
+                            .checked_mul(18)
+                            .ok_or(VectorReadError::SizeOverflow)?,
+                    )?;
+                    for _ in 0..count_usize {
+                        let record = self.cursor.take(18)?;
+                        let tangent = GlyphPose::new(
+                            0,
+                            crate::types::Point::ZERO,
+                            crate::types::Point::new(
+                                Fixed::from_le_bytes(record[10..14].try_into().unwrap()),
+                                Fixed::from_le_bytes(record[14..18].try_into().unwrap()),
+                            ),
+                        );
+                        if !tangent.has_unit_tangent() {
+                            return Err(CodecError::InvalidGlyphDirection.into());
+                        }
+                    }
+                } else {
+                    let bytes = count_usize
+                        .checked_mul(18)
+                        .ok_or(VectorReadError::SizeOverflow)?;
+                    let _ = self.cursor.take(bytes)?;
+                }
                 self.budget.add_items(
                     ItemKind::PositionedGlyph,
                     count,
-                    size_of::<GlyphPlacement>(),
+                    if tag == TAG_GLYPH_RUN {
+                        size_of::<GlyphPlacement>()
+                    } else {
+                        size_of::<GlyphPose>()
+                    },
                 )?;
                 self.skip_transform_if(bits)
             }
@@ -1356,6 +1400,37 @@ mod tests {
                 "accepted body prefix of {available} bytes"
             );
         }
+    }
+
+    #[test]
+    fn posed_run_preflight_rejects_truncation_and_non_unit_direction() {
+        let scene = Scene::from_ops(vec![SceneOp::PosedGlyphRun {
+            font: ResourceRef::Index(1),
+            ppem: 16,
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            color: color(1),
+            opa: 255,
+            glyphs: vec![GlyphPose::new(
+                7,
+                point(2, 3),
+                Point::new(Fixed::ONE, Fixed::ZERO),
+            )],
+        }]);
+        let payload = scene.encode().unwrap();
+        let body = &payload[VectorChunkHeader::SIZE..];
+        for available in 0..body.len() {
+            let truncated = payload_from_body(&body[..available]);
+            assert!(Scene::preflight(&truncated, &PayloadLimits::HOST).is_err());
+        }
+
+        let mut invalid = payload;
+        invalid[VectorChunkHeader::SIZE + 33..VectorChunkHeader::SIZE + 41].fill(0);
+        refresh_payload_crc(&mut invalid);
+        assert_eq!(
+            Scene::preflight(&invalid, &PayloadLimits::HOST),
+            Err(VectorReadError::Codec(CodecError::InvalidGlyphDirection))
+        );
     }
 
     #[test]

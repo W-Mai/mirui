@@ -350,6 +350,34 @@ pub fn replay_scene(
                     clip,
                 )?;
             }
+            SceneOp::PosedGlyphRun {
+                font,
+                ppem,
+                pos,
+                transform,
+                color,
+                opa,
+                glyphs,
+            } => {
+                let mut font = resolver
+                    .font(font)
+                    .ok_or(ReplayError::UnresolvedFont)?
+                    .clone();
+                font.size = *ppem;
+                draw_in_frame(
+                    renderer,
+                    &top,
+                    &DrawCommand::PosedGlyphRun {
+                        pos: *pos,
+                        transform: top.transform.compose(transform),
+                        glyphs: glyphs.as_draw(),
+                        font: &font,
+                        color: *color,
+                        opa: mul_alpha(*opa, top.alpha),
+                    },
+                    clip,
+                )?;
+            }
             SceneOp::Line {
                 p1,
                 p2,
@@ -741,6 +769,76 @@ mod tests {
 
         assert_eq!(renderer.glyphs, 1);
         assert_eq!(renderer.ppem, 19);
+    }
+
+    #[test]
+    fn replay_preserves_posed_glyph_geometry() {
+        struct GlyphRenderer {
+            origin: Option<textflow::shaping::FlowPoint>,
+            tangent: Option<textflow::shaping::FlowPoint>,
+        }
+        impl Renderer for GlyphRenderer {
+            fn draw(&mut self, command: &DrawCommand, _: &Rect) {
+                if let DrawCommand::PosedGlyphRun { glyphs, .. } = command {
+                    self.origin = glyphs.frames().first().map(|frame| frame.local_origin);
+                    self.tangent = glyphs.frames().first().map(|frame| frame.unit_tangent);
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        struct FontResolver(Font);
+        impl SceneResolver for FontResolver {
+            fn font(&self, _: &ResourceRef) -> Option<&Font> {
+                Some(&self.0)
+            }
+
+            fn texture(&self, _: &ResourceRef) -> Option<&Texture<'_>> {
+                None
+            }
+        }
+
+        let origin = textflow::shaping::FlowPoint {
+            x: 6 << 8,
+            y: 9 << 8,
+        };
+        let tangent = textflow::shaping::FlowPoint { x: 0, y: 1 << 8 };
+        let glyphs = super::super::PosedGlyphBuffer::new(
+            vec![textflow::shaping::PositionedGlyph::new(
+                crate::render::font::GlyphId::new(65),
+                textflow::shaping::FlowPoint { x: 0, y: 0 },
+            )],
+            vec![textflow::placement::GlyphFrame {
+                local_origin: origin,
+                unit_tangent: tangent,
+            }],
+        )
+        .unwrap();
+        let ops = [SceneOp::PosedGlyphRun {
+            font: ResourceRef::Index(0),
+            ppem: 19,
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            color: Color::rgb(1, 2, 3),
+            opa: 255,
+            glyphs,
+        }];
+        let mut renderer = GlyphRenderer {
+            origin: None,
+            tangent: None,
+        };
+
+        replay_scene(
+            &ops,
+            &mut renderer,
+            &rect(),
+            &FontResolver(Font::bitmap_8x8()),
+        )
+        .unwrap();
+
+        assert_eq!(renderer.origin, Some(origin));
+        assert_eq!(renderer.tangent, Some(tangent));
     }
 
     fn group(opa: Option<u8>, hint: bool) -> SceneOp {

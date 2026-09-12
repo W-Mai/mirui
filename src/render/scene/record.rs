@@ -1,6 +1,6 @@
 //! Record a live `DrawCommand` stream into owned `SceneOp`s.
 
-use super::{Paint, ResourceRef, SceneOp};
+use super::{Paint, PosedGlyphBuffer, ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
 use crate::render::path::Path;
@@ -72,7 +72,23 @@ pub fn record_command(
             opa: *opa,
             glyphs: glyphs.to_vec().into(),
         },
-        DrawCommand::PosedGlyphRun { .. } => return Err(RecordError::UnsupportedCommand),
+        DrawCommand::PosedGlyphRun {
+            pos,
+            transform,
+            glyphs,
+            font,
+            color,
+            opa,
+        } => SceneOp::PosedGlyphRun {
+            font: resolver.resolve_font(font),
+            ppem: font.size,
+            pos: *pos,
+            transform: *transform,
+            color: *color,
+            opa: *opa,
+            glyphs: PosedGlyphBuffer::new(glyphs.glyphs().to_vec(), glyphs.frames().to_vec())
+                .expect("draw glyph pose lengths are validated at construction"),
+        },
         DrawCommand::Line {
             p1,
             p2,
@@ -296,5 +312,50 @@ mod tests {
             panic!("expected positioned glyph run")
         };
         assert_eq!(recorded.as_ref(), glyphs.as_slice());
+    }
+
+    #[test]
+    fn posed_glyphs_retain_one_paired_geometry_buffer() {
+        let font = Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 0 },
+        )];
+        let frames = [textflow::placement::GlyphFrame {
+            local_origin: textflow::shaping::FlowPoint {
+                x: 4 << 8,
+                y: 7 << 8,
+            },
+            unit_tangent: textflow::shaping::FlowPoint { x: 0, y: 1 << 8 },
+        }];
+        let command = DrawCommand::PosedGlyphRun {
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            glyphs: crate::render::command::PosedGlyphs::new(&glyphs, &frames).unwrap(),
+            font: &font,
+            color: red(),
+            opa: 255,
+        };
+
+        struct FontResolver;
+        impl ResourceResolver for FontResolver {
+            fn resolve_font(&mut self, _: &Font) -> ResourceRef {
+                ResourceRef::Index(3)
+            }
+
+            fn resolve_texture(&mut self, _: &Texture<'_>) -> ResourceRef {
+                unreachable!()
+            }
+        }
+
+        let recorded = record_command(&command, &mut FontResolver).unwrap();
+        let SceneOp::PosedGlyphRun {
+            glyphs: recorded, ..
+        } = recorded
+        else {
+            panic!("expected posed glyph run")
+        };
+        assert_eq!(recorded.glyphs(), glyphs);
+        assert_eq!(recorded.frames(), frames);
     }
 }

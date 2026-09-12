@@ -50,6 +50,42 @@ pub struct GlyphPlacement {
     offset: Point,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GlyphPose {
+    glyph_id: u16,
+    origin: Point,
+    tangent: Point,
+}
+
+impl GlyphPose {
+    pub const fn new(glyph_id: u16, origin: Point, tangent: Point) -> Self {
+        Self {
+            glyph_id,
+            origin,
+            tangent,
+        }
+    }
+
+    pub const fn glyph_id(self) -> u16 {
+        self.glyph_id
+    }
+
+    pub const fn origin(self) -> Point {
+        self.origin
+    }
+
+    pub const fn tangent(self) -> Point {
+        self.tangent
+    }
+
+    pub(crate) const fn has_unit_tangent(self) -> bool {
+        let x = i32::from_le_bytes(self.tangent.x.to_le_bytes());
+        let y = i32::from_le_bytes(self.tangent.y.to_le_bytes());
+        let magnitude = x as i64 * x as i64 + y as i64 * y as i64;
+        magnitude >= 254_i64 * 254_i64 && magnitude <= 258_i64 * 258_i64
+    }
+}
+
 impl GlyphPlacement {
     pub const fn new(glyph_id: u16, origin: Point) -> Self {
         Self {
@@ -138,6 +174,15 @@ pub enum SceneOp {
         color: Color,
         opa: u8,
         glyphs: Vec<GlyphPlacement>,
+    },
+    PosedGlyphRun {
+        font: ResourceRef,
+        ppem: u16,
+        pos: Point,
+        transform: Transform,
+        color: Color,
+        opa: u8,
+        glyphs: Vec<GlyphPose>,
     },
     Line {
         p1: Point,
