@@ -90,6 +90,8 @@ Encoded representations reuse shared coding and group tables. Caller-owned group
 
 `FontView::map_char` resolves a Unicode scalar to `GlyphId`. `raster_ordinal`, `advance`, `raster_metrics`, `representation`, and `glyphs` keep identity, placement, selection, and sample access separate while borrowing the original payload.
 
+VECTOR keeps ordinary and path-posed glyph runs in separate fixed record layouts. Both layouts cost 18 bytes per glyph; posed runs replace the shaping offset with a normalized tangent and derive the normal during rendering. Projective transforms are shared by scene groups and omitted when identity. [VECTOR payload structure](docs/vector-payload.md) defines the byte layout, ownership boundary, and transform order.
+
 ## Runtime reading
 
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.

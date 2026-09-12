@@ -1487,7 +1487,7 @@ mod tests {
 
     #[test]
     fn posed_glyph_run_roundtrips() {
-        roundtrip(vec![SceneOp::PosedGlyphRun {
+        let scene = Scene::from_ops(vec![SceneOp::PosedGlyphRun {
             font: ResourceRef::Index(4),
             ppem: 18,
             pos: Point::new(Fixed::from_int(2), Fixed::from_int(3)),
@@ -1500,6 +1500,12 @@ mod tests {
                 Point::new(Fixed::ZERO, Fixed::ONE),
             )],
         }]);
+        roundtrip(scene.ops.clone());
+
+        let payload = scene.encode().unwrap();
+        let mut unaligned = vec![0xa5];
+        unaligned.extend_from_slice(&payload);
+        assert_eq!(Scene::decode(&unaligned[1..]).unwrap(), scene);
     }
 
     #[test]
