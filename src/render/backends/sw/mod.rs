@@ -1041,8 +1041,30 @@ impl Renderer for SwRenderer<'_> {
         Ok(())
     }
 
-    fn supports_projective(&self) -> bool {
-        true
+    fn can_draw_projective(&self, command: &DrawCommand) -> bool {
+        match command {
+            DrawCommand::Fill { .. }
+            | DrawCommand::Border { .. }
+            | DrawCommand::GlyphRun { .. }
+            | DrawCommand::PosedGlyphRun { .. } => true,
+            DrawCommand::Blit {
+                opa,
+                radius,
+                composite,
+                ..
+            } => {
+                *opa == 255
+                    && *radius == Fixed::ZERO
+                    && matches!(composite, CompositeMode::SourceOver)
+            }
+            DrawCommand::Line { .. }
+            | DrawCommand::Arc { .. }
+            | DrawCommand::FillPath { .. }
+            | DrawCommand::StrokePath { .. }
+            | DrawCommand::PushClip { .. }
+            | DrawCommand::PopClip
+            | DrawCommand::ApplyBlur { .. } => false,
+        }
     }
 
     fn flush(&mut self) {

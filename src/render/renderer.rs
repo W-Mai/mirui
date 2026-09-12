@@ -28,10 +28,8 @@ pub trait Renderer {
         }
     }
 
-    /// Whether the renderer has exact non-identity projective paths.
-    /// Individual command variants can still return
-    /// [`ProjectiveDrawError::Unsupported`].
-    fn supports_projective(&self) -> bool {
+    /// Whether this command has an exact non-identity projective path.
+    fn can_draw_projective(&self, _command: &DrawCommand) -> bool {
         false
     }
 
@@ -126,10 +124,14 @@ mod tests {
     }
 
     #[test]
-    fn default_supports_offscreen_is_false() {
+    fn default_capabilities_are_disabled() {
         let r = NoopRenderer;
         assert!(!r.supports_offscreen());
-        assert!(!r.supports_projective());
+        let command = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE,
+            region: Rect::new(0, 0, 1, 1),
+        };
+        assert!(!r.can_draw_projective(&command));
     }
 
     #[test]

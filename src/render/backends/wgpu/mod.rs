@@ -2621,8 +2621,18 @@ impl Renderer for WgpuRenderer<'_> {
         Ok(())
     }
 
-    fn supports_projective(&self) -> bool {
-        true
+    fn can_draw_projective(&self, command: &DrawCommand) -> bool {
+        matches!(
+            command,
+            DrawCommand::Fill { .. }
+                | DrawCommand::Border { .. }
+                | DrawCommand::Blit {
+                    radius: Fixed::ZERO,
+                    ..
+                }
+                | DrawCommand::GlyphRun { .. }
+                | DrawCommand::PosedGlyphRun { .. }
+        )
     }
 
     fn flush(&mut self) {

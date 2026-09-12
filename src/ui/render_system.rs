@@ -41,8 +41,8 @@ impl Renderer for ProjectiveRenderer<'_> {
             .draw_projective(cmd, clip, &self.transform.compose(transform))
     }
 
-    fn supports_projective(&self) -> bool {
-        self.inner.supports_projective()
+    fn can_draw_projective(&self, command: &DrawCommand) -> bool {
+        self.inner.can_draw_projective(command)
     }
 
     fn flush(&mut self) {

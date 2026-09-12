@@ -1,6 +1,5 @@
 //! Replay an owned `SceneOp` stream back through a live `Renderer`.
 
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::bbox::{direct_children_bboxes, pairwise_disjoint, union_of_children};
@@ -29,9 +28,9 @@ pub enum ReplayError {
 fn parse_blur_filter(filter: &str) -> Option<Fixed> {
     for part in filter.split(';') {
         if let Some(rest) = part.strip_prefix("blur:") {
-            let parts: Vec<&str> = rest.split(':').collect();
-            let std_dev = parts
-                .first()
+            let std_dev = rest
+                .split(':')
+                .next()
                 .and_then(|s| s.parse::<f32>().ok())
                 .unwrap_or(0.0);
             if std_dev > 0.0 {
@@ -44,29 +43,43 @@ fn parse_blur_filter(filter: &str) -> Option<Fixed> {
 }
 
 #[derive(Clone)]
-struct GroupFrame {
+struct GroupFrame<'a> {
     transform: Transform,
     projective: Option<Transform3D>,
     alpha: u8,
     has_clip: bool,
-    filter: Option<String>,
+    filter: Option<&'a str>,
     start_idx: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReplayPass {
+    Preflight,
+    Draw,
 }
 
 fn draw_in_frame(
     renderer: &mut dyn Renderer,
-    frame: &GroupFrame,
+    frame: &GroupFrame<'_>,
     command: &DrawCommand,
     clip: &Rect,
+    pass: ReplayPass,
 ) -> Result<(), ReplayError> {
     if let Some(projective) = frame.projective {
-        renderer
+        if pass == ReplayPass::Preflight {
+            return renderer
+                .can_draw_projective(command)
+                .then_some(())
+                .ok_or(ReplayError::ProjectiveDrawUnsupported);
+        }
+        return renderer
             .draw_projective(command, clip, &projective)
-            .map_err(|ProjectiveDrawError::Unsupported| ReplayError::ProjectiveDrawUnsupported)
-    } else {
-        renderer.draw(command, clip);
-        Ok(())
+            .map_err(|ProjectiveDrawError::Unsupported| ReplayError::ProjectiveDrawUnsupported);
     }
+    if pass == ReplayPass::Draw {
+        renderer.draw(command, clip);
+    }
+    Ok(())
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -105,6 +118,17 @@ pub fn replay_scene(
     renderer: &mut dyn Renderer,
     clip: &Rect,
     resolver: &dyn SceneResolver,
+) -> Result<(), ReplayError> {
+    replay_scene_pass(ops, renderer, clip, resolver, ReplayPass::Preflight)?;
+    replay_scene_pass(ops, renderer, clip, resolver, ReplayPass::Draw)
+}
+
+fn replay_scene_pass(
+    ops: &[SceneOp],
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    resolver: &dyn SceneResolver,
+    pass: ReplayPass,
 ) -> Result<(), ReplayError> {
     let mut stack: Vec<GroupFrame> = alloc::vec![GroupFrame {
         transform: Transform::IDENTITY,
@@ -218,6 +242,7 @@ pub fn replay_scene(
                             fill_rule: crate::render::raster::FillRule::EvenOdd,
                         },
                         clip,
+                        pass,
                     )?;
                     true
                 } else if group_clip.is_some() {
@@ -231,7 +256,7 @@ pub fn replay_scene(
                     alpha: next_alpha,
                     has_clip,
                     filter: filter.as_ref().and_then(|r| match r {
-                        ResourceRef::Token(s) => Some(s.to_string()),
+                        ResourceRef::Token(s) => Some(&**s),
                         ResourceRef::Index(_) | ResourceRef::Inline(_) => None,
                     }),
                     start_idx: i,
@@ -242,7 +267,7 @@ pub fn replay_scene(
                     return Err(ReplayError::UnbalancedGroup);
                 }
                 let frame = stack.pop().unwrap();
-                if frame.has_clip {
+                if frame.has_clip && pass == ReplayPass::Draw {
                     renderer.draw(&DrawCommand::PopClip, clip);
                 }
                 if let Some(filter_str) = &frame.filter {
@@ -257,6 +282,7 @@ pub fn replay_scene(
                                 region,
                             },
                             clip,
+                            pass,
                         )?;
                     }
                 }
@@ -275,10 +301,13 @@ pub fn replay_scene(
                         fill_rule: *fill_rule,
                     },
                     clip,
+                    pass,
                 )?;
             }
             SceneOp::PopClip => {
-                renderer.draw(&DrawCommand::PopClip, clip);
+                if pass == ReplayPass::Draw {
+                    renderer.draw(&DrawCommand::PopClip, clip);
+                }
             }
             SceneOp::FillRect {
                 area,
@@ -299,6 +328,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
+                pass,
             )?,
             SceneOp::Border {
                 area,
@@ -321,6 +351,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
+                pass,
             )?,
             SceneOp::GlyphRun {
                 font,
@@ -348,6 +379,7 @@ pub fn replay_scene(
                         opa: mul_alpha(*opa, top.alpha),
                     },
                     clip,
+                    pass,
                 )?;
             }
             SceneOp::PosedGlyphRun {
@@ -376,6 +408,7 @@ pub fn replay_scene(
                         opa: mul_alpha(*opa, top.alpha),
                     },
                     clip,
+                    pass,
                 )?;
             }
             SceneOp::Line {
@@ -397,6 +430,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
+                pass,
             )?,
             SceneOp::Arc {
                 center,
@@ -421,6 +455,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
+                pass,
             )?,
             SceneOp::Blit {
                 texture,
@@ -449,6 +484,7 @@ pub fn replay_scene(
                         composite: *composite,
                     },
                     clip,
+                    pass,
                 )?;
             }
             SceneOp::FillPath {
@@ -469,6 +505,7 @@ pub fn replay_scene(
                         fill_rule: *fill_rule,
                     },
                     clip,
+                    pass,
                 )?;
             }
             SceneOp::StrokePath {
@@ -497,6 +534,7 @@ pub fn replay_scene(
                         dash,
                     },
                     clip,
+                    pass,
                 )?;
             }
         }
@@ -550,8 +588,39 @@ mod tests {
             Ok(())
         }
 
-        fn supports_projective(&self) -> bool {
+        fn can_draw_projective(&self, _: &DrawCommand) -> bool {
             true
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    #[derive(Default)]
+    struct FillOnlyProjectiveRenderer {
+        draws: usize,
+    }
+
+    impl Renderer for FillOnlyProjectiveRenderer {
+        fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+            self.draws += 1;
+        }
+
+        fn draw_projective(
+            &mut self,
+            command: &DrawCommand,
+            _: &Rect,
+            _: &Transform3D,
+        ) -> Result<(), ProjectiveDrawError> {
+            if self.can_draw_projective(command) {
+                self.draws += 1;
+                Ok(())
+            } else {
+                Err(ProjectiveDrawError::Unsupported)
+            }
+        }
+
+        fn can_draw_projective(&self, command: &DrawCommand) -> bool {
+            matches!(command, DrawCommand::Fill { .. })
         }
 
         fn flush(&mut self) {}
@@ -645,6 +714,40 @@ mod tests {
             renderer.scope,
             Some(projective.compose(&Transform3D::from_affine(group_affine)))
         );
+    }
+
+    #[test]
+    fn projective_capabilities_are_checked_before_the_first_draw() {
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
+        let ops = vec![
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(projective),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            fill(Transform::IDENTITY),
+            SceneOp::Line {
+                p1: Point::ZERO,
+                p2: Point::new(Fixed::ONE, Fixed::ONE),
+                transform: Transform::IDENTITY,
+                color: Color::rgb(255, 255, 255),
+                width: Fixed::ONE,
+                opa: 255,
+            },
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = FillOnlyProjectiveRenderer::default();
+
+        assert_eq!(
+            replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
+            Err(ReplayError::ProjectiveDrawUnsupported)
+        );
+        assert_eq!(renderer.draws, 0);
     }
 
     #[test]
