@@ -930,6 +930,7 @@ impl Renderer for SwRenderer<'_> {
         clip: &Rect,
         projective: &Transform3D,
     ) -> Result<(), ProjectiveDrawError> {
+        self.preflight_projective(cmd, projective)?;
         if projective.is_identity() {
             self.draw(cmd, clip);
             return Ok(());
@@ -943,9 +944,9 @@ impl Renderer for SwRenderer<'_> {
                 opa,
                 ..
             } => {
-                let Some(quad) = logical.apply_rect(*area) else {
-                    return Ok(());
-                };
+                let quad = logical
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 self.dispatch_fill_quad(&quad, area, color, *radius, *opa, clip);
             }
             DrawCommand::Border {
@@ -956,9 +957,9 @@ impl Renderer for SwRenderer<'_> {
                 opa,
                 ..
             } => {
-                let Some(quad) = logical.apply_rect(*area) else {
-                    return Ok(());
-                };
+                let quad = logical
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 self.dispatch_border_quad(&quad, color, *width, *radius, *opa, clip);
             }
             DrawCommand::Blit {
@@ -976,14 +977,14 @@ impl Renderer for SwRenderer<'_> {
                 {
                     return Err(ProjectiveDrawError::Unsupported);
                 }
-                let Some(quad) = logical.apply_rect(Rect {
-                    x: pos.x,
-                    y: pos.y,
-                    w: size.x,
-                    h: size.y,
-                }) else {
-                    return Ok(());
-                };
+                let quad = logical
+                    .apply_rect(Rect {
+                        x: pos.x,
+                        y: pos.y,
+                        w: size.x,
+                        h: size.y,
+                    })
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 self.dispatch_blit_quad(&quad, texture, clip, *radius, *composite);
             }
             DrawCommand::GlyphRun {
@@ -1041,8 +1042,19 @@ impl Renderer for SwRenderer<'_> {
         Ok(())
     }
 
-    fn can_draw_projective(&self, command: &DrawCommand) -> bool {
-        match command {
+    fn preflight_projective(
+        &self,
+        command: &DrawCommand,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if projective.is_identity() {
+            return Ok(());
+        }
+        let logical = projective.compose(&Transform3D::from_affine(command.transform()));
+        if logical.inverse().is_none() {
+            return Err(ProjectiveDrawError::InvalidProjection);
+        }
+        let supported = match command {
             DrawCommand::Fill { .. }
             | DrawCommand::Border { .. }
             | DrawCommand::GlyphRun { .. }
@@ -1064,7 +1076,54 @@ impl Renderer for SwRenderer<'_> {
             | DrawCommand::PushClip { .. }
             | DrawCommand::PopClip
             | DrawCommand::ApplyBlur { .. } => false,
+        };
+        if !supported {
+            return Err(ProjectiveDrawError::Unsupported);
         }
+        let valid_geometry = match command {
+            DrawCommand::Fill { area, .. } | DrawCommand::Border { area, .. } => {
+                logical.apply_rect(*area).is_some()
+            }
+            DrawCommand::Blit { pos, size, .. } => logical
+                .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
+                .is_some(),
+            DrawCommand::PosedGlyphRun {
+                pos,
+                glyphs,
+                font,
+                transform,
+                ..
+            } => glyphs
+                .ink_bounds(font, *pos, *transform, self.viewport.scale())
+                .is_none_or(|bounds| projective.apply_rect(bounds).is_some()),
+            DrawCommand::GlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                ..
+            } => {
+                let physical =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(&logical);
+                let output_ppem = crate::render::font::output_ppem(
+                    font.size.max(1),
+                    label::projective_scale_at(&physical, *pos),
+                );
+                font.glyph_run_ink_bounds(glyphs, *pos, *transform, output_ppem)
+                    .is_none_or(|bounds| projective.apply_rect(bounds).is_some())
+            }
+            DrawCommand::Line { .. }
+            | DrawCommand::Arc { .. }
+            | DrawCommand::FillPath { .. }
+            | DrawCommand::StrokePath { .. }
+            | DrawCommand::PushClip { .. }
+            | DrawCommand::PopClip
+            | DrawCommand::ApplyBlur { .. } => true,
+        };
+        if !valid_geometry {
+            return Err(ProjectiveDrawError::InvalidProjection);
+        }
+        Ok(())
     }
 
     fn flush(&mut self) {
@@ -2822,6 +2881,63 @@ mod tests {
             Ok(())
         );
         assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    }
+
+    #[test]
+    fn projective_glyph_run_rejects_ink_behind_near_plane() {
+        let mut pixels = vec![0u8; 16 * 16 * 4];
+        let before = pixels.clone();
+        let mut renderer =
+            SwRenderer::new(Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888));
+        let font = crate::render::font::Font::bitmap_8x8();
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            crate::render::font::GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let command = DrawCommand::GlyphRun {
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            glyphs: &glyphs,
+            font: &font,
+            color: Color::rgb(255, 255, 255),
+            opa: 255,
+        };
+        let projective = Transform3D {
+            m20: crate::types::Fixed64::ONE,
+            m22: crate::types::Fixed64::from_int(-4),
+            ..Transform3D::IDENTITY
+        };
+
+        assert_eq!(
+            renderer.draw_projective(&command, &Rect::new(0, 0, 16, 16), &projective),
+            Err(ProjectiveDrawError::InvalidProjection)
+        );
+        assert_eq!(pixels, before);
+    }
+
+    #[test]
+    fn projective_fill_rejects_singular_geometry_before_writing() {
+        let mut pixels = vec![0u8; 8 * 8 * 4];
+        let before = pixels.clone();
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
+        let command = DrawCommand::Fill {
+            area: Rect::new(0, 0, 8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(255, 255, 255),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let projective = Transform3D {
+            m22: crate::types::Fixed64::ZERO,
+            ..Transform3D::IDENTITY
+        };
+
+        assert_eq!(
+            renderer.draw_projective(&command, &Rect::new(0, 0, 8, 8), &projective),
+            Err(ProjectiveDrawError::InvalidProjection)
+        );
+        assert_eq!(pixels, before);
     }
 
     #[test]

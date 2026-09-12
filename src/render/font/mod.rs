@@ -307,61 +307,7 @@ impl RasterRunBounds {
         if scale <= Fixed::ZERO {
             return None;
         }
-        let first = glyphs.first()?;
-        let requested_size = font.size.max(1);
-        let metrics = font.metrics(requested_size);
-        let mut bounds: Option<crate::types::Rect> = None;
-        for positioned in glyphs {
-            let Some(glyph) =
-                font.glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
-            else {
-                continue;
-            };
-            let dx = positioned
-                .origin
-                .x
-                .checked_sub(first.origin.x)?
-                .checked_add(positioned.offset.x)?;
-            let dy = positioned
-                .origin
-                .y
-                .checked_sub(first.origin.y)?
-                .checked_add(positioned.offset.y)?;
-            let dx = crate::types::fixed::from_textflow(dx);
-            let dy = crate::types::fixed::from_textflow(dy);
-            let rect = match glyph.kind {
-                GlyphKind::Mono(_) => crate::types::Rect {
-                    x: dx,
-                    y: dy,
-                    w: Fixed::from_int(bitmap_8x8::CHAR_W as i32),
-                    h: metrics.line_height,
-                },
-                GlyphKind::Raster {
-                    region,
-                    representation,
-                    bearing_x,
-                    bearing_y,
-                    ..
-                } => {
-                    if region.width() == 0 || region.height() == 0 {
-                        continue;
-                    }
-                    let glyph_scale = Fixed::from_int(i32::from(requested_size))
-                        / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
-                    crate::types::Rect {
-                        x: dx + bearing_x,
-                        y: metrics.ascender + dy - bearing_y,
-                        w: Fixed::from_int(i32::try_from(region.width()).ok()?) * glyph_scale,
-                        h: Fixed::from_int(i32::try_from(region.height()).ok()?) * glyph_scale,
-                    }
-                }
-            };
-            bounds = Some(match bounds {
-                Some(current) => current.union(&rect),
-                None => rect,
-            });
-        }
-        Self::from_logical(bounds?, scale)
+        Self::from_logical(font.glyph_run_local_bounds(glyphs, output_ppem)?, scale)
     }
 }
 
@@ -709,6 +655,81 @@ impl Font {
                 })
             }
         }
+    }
+
+    pub(crate) fn glyph_run_ink_bounds(
+        &self,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        pos: Point,
+        transform: Transform,
+        output_ppem: u16,
+    ) -> Option<Rect> {
+        let mut bounds = self.glyph_run_local_bounds(glyphs, output_ppem)?;
+        bounds.x += pos.x;
+        bounds.y += pos.y;
+        Some(transform.apply_rect_bbox(bounds))
+    }
+
+    fn glyph_run_local_bounds(
+        &self,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        output_ppem: u16,
+    ) -> Option<Rect> {
+        let first = glyphs.first()?;
+        let requested_size = self.size.max(1);
+        let metrics = self.metrics(requested_size);
+        let mut bounds: Option<Rect> = None;
+        for positioned in glyphs {
+            let Some(glyph) =
+                self.glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
+                continue;
+            };
+            let dx = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)?
+                .checked_add(positioned.offset.x)?;
+            let dy = positioned
+                .origin
+                .y
+                .checked_sub(first.origin.y)?
+                .checked_add(positioned.offset.y)?;
+            let dx = crate::types::fixed::from_textflow(dx);
+            let dy = crate::types::fixed::from_textflow(dy);
+            let rect = match glyph.kind {
+                GlyphKind::Mono(_) => Rect {
+                    x: dx,
+                    y: dy,
+                    w: Fixed::from_int(bitmap_8x8::CHAR_W as i32),
+                    h: metrics.line_height,
+                },
+                GlyphKind::Raster {
+                    region,
+                    representation,
+                    bearing_x,
+                    bearing_y,
+                    ..
+                } => {
+                    if region.width() == 0 || region.height() == 0 {
+                        continue;
+                    }
+                    let glyph_scale = Fixed::from_int(i32::from(requested_size))
+                        / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
+                    Rect {
+                        x: dx + bearing_x,
+                        y: metrics.ascender + dy - bearing_y,
+                        w: Fixed::from_int(i32::try_from(region.width()).ok()?) * glyph_scale,
+                        h: Fixed::from_int(i32::try_from(region.height()).ok()?) * glyph_scale,
+                    }
+                }
+            };
+            bounds = Some(match bounds {
+                Some(current) => current.union(&rect),
+                None => rect,
+            });
+        }
+        bounds
     }
 
     /// Cheap metrics — no glyph touch.

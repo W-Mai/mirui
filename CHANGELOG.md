@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Atomic projective scene replay.** Renderers preflight command support, invertibility and near-plane geometry before drawing, so invalid projective groups fail without partially updating the target.
 - **Rotated bitmap glyph edges.** Software rendering bilinearly filters transformed 1-bit glyph coverage against a transparent atlas border while keeping untransformed pixel fonts on the exact raster path.
 - **Interactive Gallery input.** Interaction Lab no longer installs a looping simulated pointer and rotary timeline over live user input.
 - **Reactive text configuration.** Signal-driven content updates preserve the existing paragraph policy, including horizontal and vertical alignment.

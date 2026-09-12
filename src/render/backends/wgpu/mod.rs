@@ -2537,6 +2537,7 @@ impl Renderer for WgpuRenderer<'_> {
     ) -> Result<(), crate::render::ProjectiveDrawError> {
         use crate::render::ProjectiveDrawError;
 
+        self.preflight_projective(cmd, projective)?;
         if projective.is_identity() {
             self.draw(cmd, clip);
             return Ok(());
@@ -2552,7 +2553,7 @@ impl Renderer for WgpuRenderer<'_> {
             } => {
                 let quad = transform
                     .apply_rect(*area)
-                    .ok_or(ProjectiveDrawError::Unsupported)?;
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 self.fill_quad_inner(area, &quad, *radius, clip, color, *opa);
             }
             DrawCommand::Border {
@@ -2565,7 +2566,7 @@ impl Renderer for WgpuRenderer<'_> {
             } => {
                 let quad = transform
                     .apply_rect(*area)
-                    .ok_or(ProjectiveDrawError::Unsupported)?;
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 self.stroke_quad_inner(area, &quad, *width, *radius, clip, color, *opa);
             }
             DrawCommand::Blit {
@@ -2579,7 +2580,7 @@ impl Renderer for WgpuRenderer<'_> {
             } if *radius == Fixed::ZERO => {
                 let quad = transform
                     .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
-                    .ok_or(ProjectiveDrawError::Unsupported)?;
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 self.blit_quad_inner(texture, &quad, clip, *opa, *composite);
             }
             DrawCommand::GlyphRun {
@@ -2621,8 +2622,21 @@ impl Renderer for WgpuRenderer<'_> {
         Ok(())
     }
 
-    fn can_draw_projective(&self, command: &DrawCommand) -> bool {
-        matches!(
+    fn preflight_projective(
+        &self,
+        command: &DrawCommand,
+        projective: &Transform3D,
+    ) -> Result<(), crate::render::ProjectiveDrawError> {
+        use crate::render::ProjectiveDrawError;
+
+        if projective.is_identity() {
+            return Ok(());
+        }
+        let logical = projective.compose(&Transform3D::from_affine(command.transform()));
+        if logical.inverse().is_none() {
+            return Err(ProjectiveDrawError::InvalidProjection);
+        }
+        let supported = matches!(
             command,
             DrawCommand::Fill { .. }
                 | DrawCommand::Border { .. }
@@ -2632,7 +2646,52 @@ impl Renderer for WgpuRenderer<'_> {
                 }
                 | DrawCommand::GlyphRun { .. }
                 | DrawCommand::PosedGlyphRun { .. }
-        )
+        );
+        if !supported {
+            return Err(ProjectiveDrawError::Unsupported);
+        }
+        let valid_geometry = match command {
+            DrawCommand::Fill { area, .. } | DrawCommand::Border { area, .. } => {
+                logical.apply_rect(*area).is_some()
+            }
+            DrawCommand::Blit { pos, size, .. } => logical
+                .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
+                .is_some(),
+            DrawCommand::PosedGlyphRun {
+                pos,
+                glyphs,
+                font,
+                transform,
+                ..
+            } => glyphs
+                .ink_bounds(font, *pos, *transform, self.viewport.scale())
+                .is_none_or(|bounds| projective.apply_rect(bounds).is_some()),
+            DrawCommand::GlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                ..
+            } => {
+                let output_ppem = crate::render::font::output_ppem(
+                    font.size.max(1),
+                    self.viewport.scale() * transform.raster_scale(),
+                );
+                font.glyph_run_ink_bounds(glyphs, *pos, *transform, output_ppem)
+                    .is_none_or(|bounds| projective.apply_rect(bounds).is_some())
+            }
+            DrawCommand::Line { .. }
+            | DrawCommand::Arc { .. }
+            | DrawCommand::FillPath { .. }
+            | DrawCommand::StrokePath { .. }
+            | DrawCommand::PushClip { .. }
+            | DrawCommand::PopClip
+            | DrawCommand::ApplyBlur { .. } => true,
+        };
+        if !valid_geometry {
+            return Err(ProjectiveDrawError::InvalidProjection);
+        }
+        Ok(())
     }
 
     fn flush(&mut self) {

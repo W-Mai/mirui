@@ -41,8 +41,13 @@ impl Renderer for ProjectiveRenderer<'_> {
             .draw_projective(cmd, clip, &self.transform.compose(transform))
     }
 
-    fn can_draw_projective(&self, command: &DrawCommand) -> bool {
-        self.inner.can_draw_projective(command)
+    fn preflight_projective(
+        &self,
+        command: &DrawCommand,
+        transform: &Transform3D,
+    ) -> Result<(), crate::render::ProjectiveDrawError> {
+        self.inner
+            .preflight_projective(command, &self.transform.compose(transform))
     }
 
     fn flush(&mut self) {

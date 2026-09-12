@@ -8,6 +8,8 @@ use super::texture::ColorFormat;
 pub enum ProjectiveDrawError {
     /// The renderer or command variant has no exact projective path.
     Unsupported,
+    /// The effective transform is singular or crosses the near plane.
+    InvalidProjection,
 }
 
 pub trait Renderer {
@@ -28,9 +30,17 @@ pub trait Renderer {
         }
     }
 
-    /// Whether this command has an exact non-identity projective path.
-    fn can_draw_projective(&self, _command: &DrawCommand) -> bool {
-        false
+    /// Validate one command under a homography without drawing it.
+    fn preflight_projective(
+        &self,
+        _command: &DrawCommand,
+        transform: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if transform.is_identity() {
+            Ok(())
+        } else {
+            Err(ProjectiveDrawError::Unsupported)
+        }
     }
 
     fn flush(&mut self);
@@ -131,7 +141,13 @@ mod tests {
             alpha: Fixed::ONE,
             region: Rect::new(0, 0, 1, 1),
         };
-        assert!(!r.can_draw_projective(&command));
+        assert_eq!(
+            r.preflight_projective(
+                &command,
+                &Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400),),
+            ),
+            Err(ProjectiveDrawError::Unsupported)
+        );
     }
 
     #[test]

@@ -884,7 +884,7 @@ fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     pixels.clamp(1, u64::from(u16::MAX)) as u16
 }
 
-fn projective_scale_at(transform: &Transform3D, point: Point) -> Fixed {
+pub(super) fn projective_scale_at(transform: &Transform3D, point: Point) -> Fixed {
     let Some(origin) = transform.apply_point(point) else {
         return Fixed::ONE;
     };

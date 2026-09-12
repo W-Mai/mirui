@@ -23,6 +23,7 @@ pub enum ReplayError {
     /// hint to flatten with a visible seam.
     GroupOpacityNeedsOffscreen,
     ProjectiveDrawUnsupported,
+    InvalidProjectiveGeometry,
 }
 
 fn parse_blur_filter(filter: &str) -> Option<Fixed> {
@@ -68,18 +69,24 @@ fn draw_in_frame(
     if let Some(projective) = frame.projective {
         if pass == ReplayPass::Preflight {
             return renderer
-                .can_draw_projective(command)
-                .then_some(())
-                .ok_or(ReplayError::ProjectiveDrawUnsupported);
+                .preflight_projective(command, &projective)
+                .map_err(projective_replay_error);
         }
         return renderer
             .draw_projective(command, clip, &projective)
-            .map_err(|ProjectiveDrawError::Unsupported| ReplayError::ProjectiveDrawUnsupported);
+            .map_err(projective_replay_error);
     }
     if pass == ReplayPass::Draw {
         renderer.draw(command, clip);
     }
     Ok(())
+}
+
+const fn projective_replay_error(error: ProjectiveDrawError) -> ReplayError {
+    match error {
+        ProjectiveDrawError::Unsupported => ReplayError::ProjectiveDrawUnsupported,
+        ProjectiveDrawError::InvalidProjection => ReplayError::InvalidProjectiveGeometry,
+    }
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -588,16 +595,29 @@ mod tests {
             Ok(())
         }
 
-        fn can_draw_projective(&self, _: &DrawCommand) -> bool {
-            true
+        fn preflight_projective(
+            &self,
+            _: &DrawCommand,
+            _: &Transform3D,
+        ) -> Result<(), ProjectiveDrawError> {
+            Ok(())
         }
 
         fn flush(&mut self) {}
     }
 
-    #[derive(Default)]
     struct FillOnlyProjectiveRenderer {
         draws: usize,
+        line_error: ProjectiveDrawError,
+    }
+
+    impl Default for FillOnlyProjectiveRenderer {
+        fn default() -> Self {
+            Self {
+                draws: 0,
+                line_error: ProjectiveDrawError::Unsupported,
+            }
+        }
     }
 
     impl Renderer for FillOnlyProjectiveRenderer {
@@ -611,7 +631,10 @@ mod tests {
             _: &Rect,
             _: &Transform3D,
         ) -> Result<(), ProjectiveDrawError> {
-            if self.can_draw_projective(command) {
+            if self
+                .preflight_projective(command, &Transform3D::IDENTITY)
+                .is_ok()
+            {
                 self.draws += 1;
                 Ok(())
             } else {
@@ -619,8 +642,16 @@ mod tests {
             }
         }
 
-        fn can_draw_projective(&self, command: &DrawCommand) -> bool {
-            matches!(command, DrawCommand::Fill { .. })
+        fn preflight_projective(
+            &self,
+            command: &DrawCommand,
+            _: &Transform3D,
+        ) -> Result<(), ProjectiveDrawError> {
+            if matches!(command, DrawCommand::Fill { .. }) {
+                Ok(())
+            } else {
+                Err(self.line_error)
+            }
         }
 
         fn flush(&mut self) {}
@@ -746,6 +777,43 @@ mod tests {
         assert_eq!(
             replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
             Err(ReplayError::ProjectiveDrawUnsupported)
+        );
+        assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
+    fn invalid_projective_geometry_is_distinct_and_failure_atomic() {
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
+        let ops = vec![
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(projective),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            fill(Transform::IDENTITY),
+            SceneOp::Line {
+                p1: Point::ZERO,
+                p2: Point::new(Fixed::ONE, Fixed::ONE),
+                transform: Transform::IDENTITY,
+                color: Color::rgb(255, 255, 255),
+                width: Fixed::ONE,
+                opa: 255,
+            },
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = FillOnlyProjectiveRenderer {
+            line_error: ProjectiveDrawError::InvalidProjection,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
+            Err(ReplayError::InvalidProjectiveGeometry)
         );
         assert_eq!(renderer.draws, 0);
     }
