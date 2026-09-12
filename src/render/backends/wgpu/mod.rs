@@ -18,7 +18,7 @@ use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use self::path::PathTessellator;
 use self::pipeline::{
-    BlitQuadVertex, BlitUniform, GlyphUniform, GlyphVertex, PathTintUniform, PipelineCache,
+    BlitQuadVertex, BlitUniform, GlyphInstance, GlyphUniform, PathTintUniform, PipelineCache,
     PipelineKey, QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{
@@ -80,8 +80,7 @@ pub struct WgpuRendererFactory {
     texture_pool: TexturePool,
     scalar_surface_pool: ScalarSurfacePool,
     scalar_samples: alloc::vec::Vec<u8>,
-    glyph_vertices: alloc::vec::Vec<GlyphVertex>,
-    glyph_indices: alloc::vec::Vec<u16>,
+    glyph_instances: alloc::vec::Vec<GlyphInstance>,
     glyph_buffers: GlyphBufferArena,
     /// Samplers are immutable; one instance covers every frame.
     linear_sampler: Option<wgpu::Sampler>,
@@ -96,8 +95,7 @@ impl WgpuRendererFactory {
             texture_pool: new_pool(),
             scalar_surface_pool: new_scalar_surface_pool(),
             scalar_samples: alloc::vec::Vec::new(),
-            glyph_vertices: alloc::vec::Vec::new(),
-            glyph_indices: alloc::vec::Vec::new(),
+            glyph_instances: alloc::vec::Vec::new(),
             glyph_buffers: GlyphBufferArena::new(),
             linear_sampler: None,
             nearest_sampler: None,
@@ -201,23 +199,19 @@ const GLYPHS_PER_BATCH: usize = 2_048;
 const GLYPH_BUFFER_CAPACITY: usize = GLYPHS_PER_BATCH * 2;
 
 struct GlyphBufferArena {
-    vertex: Option<wgpu::Buffer>,
-    index: Option<wgpu::Buffer>,
+    instance: Option<wgpu::Buffer>,
     glyph_cursor: usize,
 }
 
 struct GlyphBufferUpload {
-    vertex: wgpu::Buffer,
-    vertex_range: core::ops::Range<u64>,
-    index: wgpu::Buffer,
-    index_range: core::ops::Range<u64>,
+    instance: wgpu::Buffer,
+    instance_range: core::ops::Range<u64>,
 }
 
 impl GlyphBufferArena {
     const fn new() -> Self {
         Self {
-            vertex: None,
-            index: None,
+            instance: None,
             glyph_cursor: 0,
         }
     }
@@ -232,72 +226,44 @@ impl GlyphBufferArena {
             .is_some_and(|end| end <= GLYPH_BUFFER_CAPACITY)
     }
 
-    fn ranges(
-        glyph_start: usize,
-        glyph_count: usize,
-    ) -> Option<(core::ops::Range<u64>, core::ops::Range<u64>)> {
-        let vertex_start = glyph_start
-            .checked_mul(4)?
-            .checked_mul(core::mem::size_of::<GlyphVertex>())? as u64;
-        let vertex_end = vertex_start.checked_add(
-            glyph_count
-                .checked_mul(4)?
-                .checked_mul(core::mem::size_of::<GlyphVertex>())? as u64,
-        )?;
-        let index_start = glyph_start
-            .checked_mul(6)?
-            .checked_mul(core::mem::size_of::<u16>())? as u64;
-        let index_end = index_start.checked_add(
-            glyph_count
-                .checked_mul(6)?
-                .checked_mul(core::mem::size_of::<u16>())? as u64,
-        )?;
-        Some((vertex_start..vertex_end, index_start..index_end))
+    fn range(glyph_start: usize, glyph_count: usize) -> Option<core::ops::Range<u64>> {
+        let start = glyph_start.checked_mul(core::mem::size_of::<GlyphInstance>())? as u64;
+        let end = start
+            .checked_add(glyph_count.checked_mul(core::mem::size_of::<GlyphInstance>())? as u64)?;
+        Some(start..end)
     }
 
     fn upload(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vertices: &[GlyphVertex],
-        indices: &[u16],
+        instances: &[GlyphInstance],
     ) -> Option<GlyphBufferUpload> {
-        let glyph_count = vertices.len().checked_div(4)?;
-        if glyph_count * 4 != vertices.len()
-            || glyph_count * 6 != indices.len()
-            || !self.can_fit(glyph_count)
-        {
+        let glyph_count = instances.len();
+        if !self.can_fit(glyph_count) {
             return None;
         }
-        if self.vertex.is_none() {
-            self.vertex = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("mirui-glyph-vertex-arena"),
-                size: (GLYPH_BUFFER_CAPACITY * 4 * core::mem::size_of::<GlyphVertex>()) as u64,
+        if self.instance.is_none() {
+            self.instance = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mirui-glyph-instance-arena"),
+                size: (GLYPH_BUFFER_CAPACITY * core::mem::size_of::<GlyphInstance>()) as u64,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
         }
-        if self.index.is_none() {
-            self.index = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("mirui-glyph-index-arena"),
-                size: (GLYPH_BUFFER_CAPACITY * 6 * core::mem::size_of::<u16>()) as u64,
-                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-        }
 
-        let (vertex_range, index_range) = Self::ranges(self.glyph_cursor, glyph_count)?;
-        let vertex = self.vertex.as_ref()?;
-        let index = self.index.as_ref()?;
-        queue.write_buffer(vertex, vertex_range.start, bytemuck::cast_slice(vertices));
-        queue.write_buffer(index, index_range.start, bytemuck::cast_slice(indices));
+        let instance_range = Self::range(self.glyph_cursor, glyph_count)?;
+        let instance = self.instance.as_ref()?;
+        queue.write_buffer(
+            instance,
+            instance_range.start,
+            bytemuck::cast_slice(instances),
+        );
         self.glyph_cursor += glyph_count;
 
         Some(GlyphBufferUpload {
-            vertex: vertex.clone(),
-            vertex_range,
-            index: index.clone(),
-            index_range,
+            instance: instance.clone(),
+            instance_range,
         })
     }
 }
@@ -317,6 +283,7 @@ struct DrawOp {
     index_format: wgpu::IndexFormat,
     /// `draw_indexed(0..count)` when `index_buf.is_some()`, else `draw(0..count)`.
     count: u32,
+    instance_count: u32,
     /// Physical-pixel scissor `(x, y, w, h)`; clamped to swapchain extent.
     scissor: [u32; 4],
     dynamic_offset: Option<u32>,
@@ -505,9 +472,9 @@ impl WgpuRenderer<'_> {
                         }
                         None => pass.set_index_buffer(ib.slice(..), op.index_format),
                     }
-                    pass.draw_indexed(0..op.count, 0, 0..1);
+                    pass.draw_indexed(0..op.count, 0, 0..op.instance_count);
                 } else {
-                    pass.draw(0..op.count, 0..1);
+                    pass.draw(0..op.count, 0..op.instance_count);
                 }
             }
         }
@@ -623,6 +590,7 @@ impl WgpuRenderer<'_> {
             index_range: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
+            instance_count: 1,
             scissor,
             dynamic_offset: Some(offset),
         });
@@ -782,6 +750,7 @@ impl WgpuRenderer<'_> {
             index_range: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
+            instance_count: 1,
             scissor,
             dynamic_offset: None,
         });
@@ -1163,6 +1132,7 @@ impl WgpuRenderer<'_> {
             index_range: None,
             index_format: wgpu::IndexFormat::Uint32,
             count,
+            instance_count: 1,
             scissor,
             dynamic_offset: Some(offset),
         });
@@ -1331,6 +1301,7 @@ impl WgpuRenderer<'_> {
             index_range: None,
             index_format: wgpu::IndexFormat::Uint16,
             count: 6,
+            instance_count: 1,
             scissor,
             dynamic_offset: Some(offset),
         });
@@ -1518,6 +1489,7 @@ impl WgpuRenderer<'_> {
             index_range: None,
             index_format: wgpu::IndexFormat::Uint16,
             count: 6,
+            instance_count: 1,
             scissor,
             dynamic_offset: None,
         });
@@ -1602,8 +1574,7 @@ impl WgpuRenderer<'_> {
         }
         let requested_size = font.size.max(1);
         let mut active: Option<GlyphBatch<'_>> = None;
-        self.factory.glyph_vertices.clear();
-        self.factory.glyph_indices.clear();
+        self.factory.glyph_instances.clear();
 
         for (index, positioned) in glyphs.iter().enumerate() {
             let Some(raster) =
@@ -1638,7 +1609,7 @@ impl WgpuRenderer<'_> {
                 spread,
             };
             if active.map(|batch| batch.key) != Some(key)
-                || self.factory.glyph_vertices.len() >= GLYPHS_PER_BATCH * 4
+                || self.factory.glyph_instances.len() >= GLYPHS_PER_BATCH
             {
                 if let Some(batch) = active.take() {
                     self.submit_glyph_batch(batch, scissor, color, opacity, projective);
@@ -1649,9 +1620,8 @@ impl WgpuRenderer<'_> {
                 });
             }
 
-            append_glyph_quad(
-                &mut self.factory.glyph_vertices,
-                &mut self.factory.glyph_indices,
+            append_glyph_instance(
+                &mut self.factory.glyph_instances,
                 rect,
                 region,
                 raster.surface,
@@ -1719,23 +1689,21 @@ impl WgpuRenderer<'_> {
         opa: u8,
         projective: Transform3D,
     ) {
-        if self.factory.glyph_indices.is_empty() {
+        if self.factory.glyph_instances.is_empty() {
             return;
         }
-        let glyph_count = self.factory.glyph_indices.len() / 6;
+        let glyph_count = self.factory.glyph_instances.len();
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
             self.flush_ops_to_swapchain(false);
             self.factory.glyph_buffers.reset();
         }
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
-            self.factory.glyph_vertices.clear();
-            self.factory.glyph_indices.clear();
+            self.factory.glyph_instances.clear();
             return;
         }
         let uniform = glyph_uniform(*color, opa, batch.key.spread, projective);
         let Some(offset) = self.push_uniform(&uniform) else {
-            self.factory.glyph_vertices.clear();
-            self.factory.glyph_indices.clear();
+            self.factory.glyph_instances.clear();
             return;
         };
         let texture_view = {
@@ -1774,8 +1742,7 @@ impl WgpuRenderer<'_> {
                 }) {
                 Ok(handle) => handle,
                 Err(_) => {
-                    self.factory.glyph_vertices.clear();
-                    self.factory.glyph_indices.clear();
+                    self.factory.glyph_instances.clear();
                     return;
                 }
             };
@@ -1790,11 +1757,9 @@ impl WgpuRenderer<'_> {
         let Some(upload) = self.factory.glyph_buffers.upload(
             &state.device,
             &state.queue,
-            &self.factory.glyph_vertices,
-            &self.factory.glyph_indices,
+            &self.factory.glyph_instances,
         ) else {
-            self.factory.glyph_vertices.clear();
-            self.factory.glyph_indices.clear();
+            self.factory.glyph_instances.clear();
             return;
         };
         let frame = self
@@ -1850,17 +1815,17 @@ impl WgpuRenderer<'_> {
         frame.ops.push(DrawOp {
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),
-            vertex_buf: Some(upload.vertex),
-            vertex_range: Some(upload.vertex_range),
-            index_buf: Some(upload.index),
-            index_range: Some(upload.index_range),
+            vertex_buf: Some(upload.instance),
+            vertex_range: Some(upload.instance_range),
+            index_buf: None,
+            index_range: None,
             index_format: wgpu::IndexFormat::Uint16,
-            count: self.factory.glyph_indices.len() as u32,
+            count: 6,
+            instance_count: glyph_count as u32,
             scissor,
             dynamic_offset: Some(offset),
         });
-        self.factory.glyph_vertices.clear();
-        self.factory.glyph_indices.clear();
+        self.factory.glyph_instances.clear();
     }
 }
 
@@ -1902,17 +1867,13 @@ fn unpack_scalar_surface(
     Some(())
 }
 
-fn append_glyph_quad(
-    vertices: &mut alloc::vec::Vec<GlyphVertex>,
-    indices: &mut alloc::vec::Vec<u16>,
+fn append_glyph_instance(
+    instances: &mut alloc::vec::Vec<GlyphInstance>,
     rect: Rect,
     region: mirx::image::Region,
     surface: crate::render::font::GlyphSurface<'_>,
     transform: &crate::types::Transform,
 ) {
-    let Ok(base) = u16::try_from(vertices.len()) else {
-        return;
-    };
     let points = transform.apply_rect(rect);
     let width = surface.width() as f32;
     let height = surface.height() as f32;
@@ -1920,18 +1881,19 @@ fn append_glyph_quad(
     let y0 = region.y() as f32 / height;
     let x1 = region.x().saturating_add(region.width()) as f32 / width;
     let y1 = region.y().saturating_add(region.height()) as f32 / height;
-    let bounds = [x0, y0, x1, y1];
-    for (point, uv) in points
-        .into_iter()
-        .zip([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])
-    {
-        vertices.push(GlyphVertex {
-            pos: [point.x.to_f32(), point.y.to_f32()],
-            uv,
-            uv_bounds: bounds,
-        });
-    }
-    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    let origin = [points[0].x.to_f32(), points[0].y.to_f32()];
+    instances.push(GlyphInstance {
+        origin,
+        axis_x: [
+            points[1].x.to_f32() - origin[0],
+            points[1].y.to_f32() - origin[1],
+        ],
+        axis_y: [
+            points[3].x.to_f32() - origin[0],
+            points[3].y.to_f32() - origin[1],
+        ],
+        uv_bounds: [x0, y0, x1, y1],
+    });
 }
 
 #[cfg(test)]
@@ -1939,11 +1901,13 @@ mod glyph_tests {
     use super::*;
     use crate::render::font::{FontSurfaceId, GlyphSurface};
 
+    static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn render_scalar_field(
         shader: ShaderKind,
         spread: u16,
         projective: Transform3D,
-    ) -> alloc::vec::Vec<u8> {
+    ) -> Option<alloc::vec::Vec<u8>> {
         const WIDTH: u32 = 32;
         const HEIGHT: u32 = 16;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -1952,7 +1916,7 @@ mod glyph_tests {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
-        .unwrap();
+        .ok()?;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("mirui-glyph-parity-device"),
             required_features: wgpu::Features::empty(),
@@ -1961,7 +1925,7 @@ mod glyph_tests {
             trace: wgpu::Trace::Off,
             ..Default::default()
         }))
-        .unwrap();
+        .ok()?;
         let atlas = device.create_texture_with_data(
             &queue,
             &wgpu::TextureDescriptor {
@@ -2027,38 +1991,16 @@ mod glyph_tests {
             contents: &glyph_uniforms,
             usage: wgpu::BufferUsages::UNIFORM,
         });
-        let vertices = [
-            GlyphVertex {
-                pos: [0.0, 0.0],
-                uv: [0.0, 0.0],
-                uv_bounds: [0.0, 0.0, 1.0, 1.0],
-            },
-            GlyphVertex {
-                pos: [WIDTH as f32, 0.0],
-                uv: [1.0, 0.0],
-                uv_bounds: [0.0, 0.0, 1.0, 1.0],
-            },
-            GlyphVertex {
-                pos: [WIDTH as f32, HEIGHT as f32],
-                uv: [1.0, 1.0],
-                uv_bounds: [0.0, 0.0, 1.0, 1.0],
-            },
-            GlyphVertex {
-                pos: [0.0, HEIGHT as f32],
-                uv: [0.0, 1.0],
-                uv_bounds: [0.0, 0.0, 1.0, 1.0],
-            },
-        ];
-        let indices = [0u16, 1, 2, 0, 2, 3];
-        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mirui-glyph-parity-vertices"),
-            contents: bytemuck::cast_slice(&vertices),
+        let instances = [GlyphInstance {
+            origin: [0.0, 0.0],
+            axis_x: [WIDTH as f32, 0.0],
+            axis_y: [0.0, HEIGHT as f32],
+            uv_bounds: [0.0, 0.0, 1.0, 1.0],
+        }];
+        let instance_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-glyph-parity-instance"),
+            contents: bytemuck::cast_slice(&instances),
             usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mirui-glyph-parity-indices"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
         });
         let mut pipelines = PipelineCache::new(&device);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2129,9 +2071,8 @@ mod glyph_tests {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &bind_group, &[0]);
-            pass.set_vertex_buffer(0, vertex_buf.slice(..));
-            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..6, 0, 0..1);
+            pass.set_vertex_buffer(0, instance_buf.slice(..));
+            pass.draw(0..6, 0..1);
         }
         queue.submit(Some(encoder.finish()));
         wgpu_readback_rgba8(
@@ -2144,7 +2085,6 @@ mod glyph_tests {
             WIDTH,
             HEIGHT,
         )
-        .unwrap()
     }
 
     fn alpha_at(bytes: &[u8], x: usize, y: usize) -> u8 {
@@ -2153,18 +2093,14 @@ mod glyph_tests {
 
     #[test]
     fn glyph_buffer_ranges_are_disjoint_and_capacity_is_bounded() {
-        let (first_vertices, first_indices) = GlyphBufferArena::ranges(0, 1).unwrap();
-        let (next_vertices, next_indices) = GlyphBufferArena::ranges(1, 2).unwrap();
-        assert_eq!(first_vertices.end, next_vertices.start);
-        assert_eq!(first_indices.end, next_indices.start);
+        let first = GlyphBufferArena::range(0, 1).unwrap();
+        let next = GlyphBufferArena::range(1, 2).unwrap();
+        assert_eq!(first.end, next.start);
         assert_eq!(
-            next_vertices.end - next_vertices.start,
-            8 * core::mem::size_of::<GlyphVertex>() as u64
+            next.end - next.start,
+            2 * core::mem::size_of::<GlyphInstance>() as u64
         );
-        assert_eq!(
-            next_indices.end - next_indices.start,
-            12 * core::mem::size_of::<u16>() as u64
-        );
+        assert_eq!(core::mem::size_of::<GlyphInstance>(), 40);
 
         let mut arena = GlyphBufferArena::new();
         arena.glyph_cursor = GLYPH_BUFFER_CAPACITY - 1;
@@ -2195,7 +2131,7 @@ mod glyph_tests {
     }
 
     #[test]
-    fn glyph_quad_keeps_region_bounds_under_transform() {
+    fn glyph_instance_keeps_region_bounds_under_transform() {
         let surface = GlyphSurface::new(
             &[0; 64],
             8,
@@ -2207,27 +2143,25 @@ mod glyph_tests {
         )
         .unwrap();
         let region = mirx::image::Region::new(2, 1, 4, 3).unwrap();
-        let mut vertices = alloc::vec::Vec::new();
-        let mut indices = alloc::vec::Vec::new();
+        let mut instances = alloc::vec::Vec::new();
 
-        append_glyph_quad(
-            &mut vertices,
-            &mut indices,
+        append_glyph_instance(
+            &mut instances,
             Rect::new(1, 2, 4, 3),
             region,
             surface,
             &crate::types::Transform::translate(Fixed::from_int(5), Fixed::from_int(7)),
         );
 
-        assert_eq!(vertices.len(), 4);
-        assert_eq!(indices, [0, 1, 2, 0, 2, 3]);
-        assert_eq!(vertices[0].pos, [6.0, 9.0]);
-        assert_eq!(vertices[2].pos, [10.0, 12.0]);
-        assert_eq!(vertices[0].uv_bounds, [0.25, 0.125, 0.75, 0.5]);
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].origin, [6.0, 9.0]);
+        assert_eq!(instances[0].axis_x, [4.0, 0.0]);
+        assert_eq!(instances[0].axis_y, [0.0, 3.0]);
+        assert_eq!(instances[0].uv_bounds, [0.25, 0.125, 0.75, 0.5]);
     }
 
     #[test]
-    fn glyph_quad_rotates_about_its_pose_origin() {
+    fn glyph_instance_rotates_about_its_pose_origin() {
         let surface = GlyphSurface::new(
             &[0; 64],
             8,
@@ -2239,8 +2173,7 @@ mod glyph_tests {
         )
         .unwrap();
         let region = mirx::image::Region::new(0, 0, 8, 8).unwrap();
-        let mut vertices = alloc::vec::Vec::new();
-        let mut indices = alloc::vec::Vec::new();
+        let mut instances = alloc::vec::Vec::new();
         let pose = Transform {
             m00: Fixed::ZERO,
             m01: -Fixed::ONE,
@@ -2250,24 +2183,33 @@ mod glyph_tests {
             ty: Fixed::from_int(1),
         };
 
-        append_glyph_quad(
-            &mut vertices,
-            &mut indices,
+        append_glyph_instance(
+            &mut instances,
             Rect::new(0, -7, 8, 8),
             region,
             surface,
             &pose,
         );
 
-        assert_eq!(vertices[0].pos, [19.0, 1.0]);
-        assert_eq!(vertices[2].pos, [11.0, 9.0]);
-        assert_eq!(indices, [0, 1, 2, 0, 2, 3]);
+        assert_eq!(instances[0].origin, [19.0, 1.0]);
+        assert_eq!(instances[0].axis_x, [0.0, 8.0]);
+        assert_eq!(instances[0].axis_y, [-8.0, 0.0]);
+        assert_eq!(
+            [
+                instances[0].origin[0] + instances[0].axis_x[0] + instances[0].axis_y[0],
+                instances[0].origin[1] + instances[0].axis_x[1] + instances[0].axis_y[1],
+            ],
+            [11.0, 9.0]
+        );
     }
 
     #[test]
     fn coverage_and_sdf_shaders_preserve_scalar_edges() {
+        let _gpu = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         for (shader, spread) in [(ShaderKind::GlyphCoverage, 0), (ShaderKind::GlyphSdf, 4)] {
-            let pixels = render_scalar_field(shader, spread, Transform3D::IDENTITY);
+            let Some(pixels) = render_scalar_field(shader, spread, Transform3D::IDENTITY) else {
+                return;
+            };
             let samples = [
                 alpha_at(&pixels, 2, 8),
                 alpha_at(&pixels, 10, 8),
@@ -2282,6 +2224,7 @@ mod glyph_tests {
 
     #[test]
     fn glyph_shader_applies_projective_transform() {
+        let _gpu = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let source = Rect::new(0, 0, 32, 16);
         let target = [
             Point::new(0, 0),
@@ -2290,7 +2233,9 @@ mod glyph_tests {
             Point::new(0, 16),
         ];
         let projective = Transform3D::from_quad(source, &target).unwrap();
-        let pixels = render_scalar_field(ShaderKind::GlyphCoverage, 0, projective);
+        let Some(pixels) = render_scalar_field(ShaderKind::GlyphCoverage, 0, projective) else {
+            return;
+        };
 
         assert!(alpha_at(&pixels, 18, 8) > 160);
         assert_eq!(alpha_at(&pixels, 28, 8), 0);

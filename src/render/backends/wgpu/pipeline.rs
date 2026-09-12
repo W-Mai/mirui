@@ -78,9 +78,10 @@ pub struct GlyphUniform {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
-pub struct GlyphVertex {
-    pub pos: [f32; 2],
-    pub uv: [f32; 2],
+pub struct GlyphInstance {
+    pub origin: [f32; 2],
+    pub axis_x: [f32; 2],
+    pub axis_y: [f32; 2],
     pub uv_bounds: [f32; 4],
 }
 
@@ -337,9 +338,9 @@ fn build_pipeline(
             },
         ],
     };
-    let glyph_vertex_layout = wgpu::VertexBufferLayout {
-        array_stride: core::mem::size_of::<GlyphVertex>() as u64,
-        step_mode: wgpu::VertexStepMode::Vertex,
+    let glyph_instance_layout = wgpu::VertexBufferLayout {
+        array_stride: core::mem::size_of::<GlyphInstance>() as u64,
+        step_mode: wgpu::VertexStepMode::Instance,
         attributes: &[
             wgpu::VertexAttribute {
                 format: wgpu::VertexFormat::Float32x2,
@@ -352,9 +353,14 @@ fn build_pipeline(
                 shader_location: 1,
             },
             wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x4,
+                format: wgpu::VertexFormat::Float32x2,
                 offset: 16,
                 shader_location: 2,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x4,
+                offset: 24,
+                shader_location: 3,
             },
         ],
     };
@@ -366,7 +372,7 @@ fn build_pipeline(
             wgpu::PrimitiveTopology::TriangleList,
         ),
         ShaderKind::GlyphCoverage | ShaderKind::GlyphSdf => (
-            core::slice::from_ref(&glyph_vertex_layout),
+            core::slice::from_ref(&glyph_instance_layout),
             wgpu::PrimitiveTopology::TriangleList,
         ),
         ShaderKind::Path => (
@@ -495,7 +501,7 @@ const _: () = {
     // Must match `PathTint` in shader/path.wgsl.
     assert!(core::mem::size_of::<PathTintUniform>() == 16);
     assert!(core::mem::size_of::<GlyphUniform>() == 80);
-    assert!(core::mem::size_of::<GlyphVertex>() == 32);
+    assert!(core::mem::size_of::<GlyphInstance>() == 40);
     // Must match `VertexIn` in shader/blit_quad.wgsl
     // (vec2 + vec3 + f32 = 24).
     assert!(core::mem::size_of::<BlitQuadVertex>() == 24);

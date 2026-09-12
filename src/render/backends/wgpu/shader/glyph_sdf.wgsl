@@ -17,9 +17,10 @@ struct Glyph {
 @group(0) @binding(3) var atlas_sampler: sampler;
 
 struct VertexIn {
-    @location(0) pos: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) uv_bounds: vec4<f32>,
+    @location(0) origin: vec2<f32>,
+    @location(1) axis_x: vec2<f32>,
+    @location(2) axis_y: vec2<f32>,
+    @location(3) uv_bounds: vec4<f32>,
 };
 
 struct VertexOut {
@@ -29,8 +30,18 @@ struct VertexOut {
 };
 
 @vertex
-fn vs_main(in: VertexIn) -> VertexOut {
-    let local = vec3<f32>(in.pos, 1.0);
+fn vs_main(in: VertexIn, @builtin(vertex_index) vertex: u32) -> VertexOut {
+    let corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(1.0, 1.0),
+        vec2<f32>(0.0, 1.0),
+    );
+    let corner = corners[vertex];
+    let position = in.origin + in.axis_x * corner.x + in.axis_y * corner.y;
+    let local = vec3<f32>(position, 1.0);
     let projected = vec3<f32>(
         dot(glyph.projective_row_0.xyz, local),
         dot(glyph.projective_row_1.xyz, local),
@@ -42,7 +53,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     );
     var out: VertexOut;
     out.clip = vec4<f32>(ndc, 0.0, projected.z);
-    out.uv = in.uv;
+    out.uv = mix(in.uv_bounds.xy, in.uv_bounds.zw, corner);
     out.uv_bounds = in.uv_bounds;
     return out;
 }
