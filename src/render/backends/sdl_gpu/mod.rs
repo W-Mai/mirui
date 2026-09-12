@@ -391,7 +391,10 @@ type CacheAccessor = fn(&SdlGpuSurface) -> &dyn CacheInspect;
 
 impl InspectCaches for SdlGpuSurface {
     fn inspect_caches(&self) -> impl Iterator<Item = (&'static str, &dyn CacheInspect)> + '_ {
-        const ENTRIES: &[CacheAccessor] = &[|s: &SdlGpuSurface| s.label_cache.as_inspect()];
+        const ENTRIES: &[CacheAccessor] = &[
+            |s: &SdlGpuSurface| s.label_cache.as_inspect(),
+            |s: &SdlGpuSurface| s.label_cache.scalar_inspect(),
+        ];
         ENTRIES.iter().map(move |f| {
             let c = f(self);
             (c.cache_name(), c)

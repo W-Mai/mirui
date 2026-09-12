@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Consistent accelerated text caches.** SDL GPU and Web Canvas rasterize fractional-DPR bounds after scaling, key entries by semantic font identity and revision, composite opacity outside cached pixels and retain affine glyph transforms.
 - **Direct WGPU glyph rendering.** Coverage and signed-distance glyphs use cached R8 font surfaces, positioned affine quads and GPU edge reconstruction without rasterizing complete runs through an intermediate RGBA texture.
 - **Instanced WGPU glyph batches.** Coverage and signed-distance atlas draws upload one 40-byte affine frame per glyph and generate quad corners in the vertex shader.
+- **Native posed 2D text.** SDL GPU batches consecutive coverage glyphs against cached scalar atlases, while Web Canvas applies each canonical glyph frame through its local transform stack.
 - **TextFlow 0.2.2 integration.** Word wrapping retains word-first grapheme fallback through `WordOrGrapheme`; Arabic and Thai script providers assign bounded feature masks without internal glyph storage.
 - **Explicit MIRX font construction.** `Font::from_mirx` and `Font::from_mirx_with_storage` require a nonzero logical ppem; raster representation sizes no longer determine the font resource size, and the free MIRX font constructors have been removed.
 - **Mark-aware OpenType kerning.** Pair positioning honors `IgnoreMarks` through GDEF glyph classes and reports unsupported lookup semantics instead of silently approximating them.

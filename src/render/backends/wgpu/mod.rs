@@ -1597,7 +1597,8 @@ impl WgpuRenderer<'_> {
                 }
                 _ => continue,
             };
-            if alpha_bits(raster.surface.sample_layout()) != Some(bits) {
+            if crate::render::font::scalar::alpha_bits(raster.surface.sample_layout()) != Some(bits)
+            {
                 continue;
             }
             let Some((rect, transform)) = geometry(index, positioned, raster, region) else {
@@ -1717,7 +1718,7 @@ impl WgpuRenderer<'_> {
                 .scalar_surface_pool
                 .entry(batch.key.surface)
                 .or_try_insert_with::<_, ()>(|| {
-                    unpack_scalar_surface(batch.surface, samples).ok_or(())?;
+                    crate::render::font::scalar::unpack_surface(batch.surface, samples).ok_or(())?;
                     let texture = state.device.create_texture_with_data(
                         &state.queue,
                         &wgpu::TextureDescriptor {
@@ -1827,44 +1828,6 @@ impl WgpuRenderer<'_> {
         });
         self.factory.glyph_instances.clear();
     }
-}
-
-fn alpha_bits(layout: mirx::image::SampleLayout) -> Option<u8> {
-    match layout {
-        mirx::image::SampleLayout::A1 => Some(1),
-        mirx::image::SampleLayout::A2 => Some(2),
-        mirx::image::SampleLayout::A4 => Some(4),
-        mirx::image::SampleLayout::A8 => Some(8),
-        _ => None,
-    }
-}
-
-fn unpack_scalar_surface(
-    surface: crate::render::font::GlyphSurface<'_>,
-    output: &mut alloc::vec::Vec<u8>,
-) -> Option<()> {
-    let bits = alpha_bits(surface.sample_layout())?;
-    let width = usize::try_from(surface.width()).ok()?;
-    let height = usize::try_from(surface.height()).ok()?;
-    let stride = usize::try_from(surface.stride()).ok()?;
-    let len = width.checked_mul(height)?;
-    output.clear();
-    output.resize(len, 0);
-    let max = (1u16 << bits) - 1;
-    for y in 0..height {
-        let row = surface
-            .samples()
-            .get(y.checked_mul(stride)?..)?
-            .get(..stride)?;
-        for x in 0..width {
-            let bit = x.checked_mul(usize::from(bits))?;
-            let byte = *row.get(bit / 8)?;
-            let shift = 8 - bits - (bit % 8) as u8;
-            let value = u16::from((byte >> shift) & max as u8);
-            output[y * width + x] = ((value * 255 + max / 2) / max) as u8;
-        }
-    }
-    Some(())
 }
 
 fn append_glyph_instance(
@@ -2125,7 +2088,7 @@ mod glyph_tests {
         .unwrap();
         let mut output = alloc::vec::Vec::new();
 
-        unpack_scalar_surface(surface, &mut output).unwrap();
+        crate::render::font::scalar::unpack_surface(surface, &mut output).unwrap();
 
         assert_eq!(output, [255, 0, 255, 0, 255, 0]);
     }

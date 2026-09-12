@@ -48,35 +48,17 @@ impl SdlGpuRenderer<'_> {
     }
 
     pub(super) fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
-        for (positioned, frame) in draw.glyphs.iter().zip(draw.frames) {
-            let tangent = Point {
-                x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
-                y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
-            };
-            let pose = Transform {
-                m00: tangent.x,
-                m01: crate::types::Fixed::ZERO - tangent.y,
-                tx: draw.pos.x + crate::types::fixed::from_textflow(frame.local_origin.x),
-                m10: tangent.y,
-                m11: tangent.x,
-                ty: draw.pos.y + crate::types::fixed::from_textflow(frame.local_origin.y),
-            };
-            let transform = draw.transform.compose(&pose);
-            let glyph = [textflow::shaping::PositionedGlyph::new(
-                positioned.glyph_id(),
-                textflow::shaping::FlowPoint { x: 0, y: 0 },
-            )];
-            self.label_cache.draw_glyph_run(
-                self.canvas,
-                &Point::ZERO,
-                &glyph,
-                draw.font,
-                &transform,
-                draw.clip,
-                draw.color,
-                draw.opacity,
-                self.viewport,
-            );
-        }
+        self.label_cache.draw_posed_glyph_run(
+            self.canvas,
+            *draw.pos,
+            draw.glyphs,
+            draw.frames,
+            draw.font,
+            *draw.transform,
+            *draw.clip,
+            *draw.color,
+            draw.opacity,
+            self.viewport,
+        );
     }
 }

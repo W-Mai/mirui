@@ -1,6 +1,49 @@
 use crate::types::Fixed;
 use mirx::image::Region;
 
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+use super::GlyphSurface;
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+pub(crate) const fn alpha_bits(layout: mirx::image::SampleLayout) -> Option<u8> {
+    match layout {
+        mirx::image::SampleLayout::A1 => Some(1),
+        mirx::image::SampleLayout::A2 => Some(2),
+        mirx::image::SampleLayout::A4 => Some(4),
+        mirx::image::SampleLayout::A8 => Some(8),
+        _ => None,
+    }
+}
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+pub(crate) fn unpack_surface(
+    surface: GlyphSurface<'_>,
+    output: &mut alloc::vec::Vec<u8>,
+) -> Option<()> {
+    let bits = alpha_bits(surface.sample_layout())?;
+    let width = usize::try_from(surface.width()).ok()?;
+    let height = usize::try_from(surface.height()).ok()?;
+    let stride = usize::try_from(surface.stride()).ok()?;
+    let len = width.checked_mul(height)?;
+    output.clear();
+    output.resize(len, 0);
+    let max = (1u16 << bits) - 1;
+    for y in 0..height {
+        let row = surface
+            .samples()
+            .get(y.checked_mul(stride)?..)?
+            .get(..stride)?;
+        for x in 0..width {
+            let bit = x.checked_mul(usize::from(bits))?;
+            let byte = *row.get(bit / 8)?;
+            let shift = 8 - bits - (bit % 8) as u8;
+            let value = u16::from((byte >> shift) & max as u8);
+            output[y * width + x] = ((value * 255 + max / 2) / max) as u8;
+        }
+    }
+    Some(())
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ScalarField<'a> {
     samples: &'a [u8],
@@ -104,6 +147,25 @@ mod tests {
 
         assert_eq!(field.quantized(0, 0), 2);
         assert_eq!(field.quantized(1, 0), 3);
+    }
+
+    #[test]
+    fn unpacked_surface_removes_stride_and_expands_alpha() {
+        let surface = GlyphSurface::new(
+            &[0b1010_0000, 0, 0b0100_0000, 0],
+            3,
+            2,
+            2,
+            mirx::image::SampleLayout::A1,
+            mirx::types::ByteAlignment::ONE,
+            super::super::FontSurfaceId::new(7),
+        )
+        .unwrap();
+        let mut output = alloc::vec::Vec::new();
+
+        unpack_surface(surface, &mut output).unwrap();
+
+        assert_eq!(output, [255, 0, 255, 0, 255, 0]);
     }
 
     #[test]
