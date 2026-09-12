@@ -127,6 +127,7 @@ macro_rules! register_demos {
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 mod backend {
     use super::*;
+    use mirui::render::ProjectiveGlyphFallback;
     use mirui::render::web_canvas::WebCanvasRendererFactory;
     use mirui::surface::web_canvas::WebCanvasSurface;
     use wasm_bindgen::JsCast;
@@ -149,7 +150,8 @@ mod backend {
         let _ = style.set_property("width", &format!("{w}px"));
         let _ = style.set_property("height", &format!("{h}px"));
         let backend = WebCanvasSurface::new(canvas);
-        let factory = WebCanvasRendererFactory::new();
+        let factory = WebCanvasRendererFactory::new()
+            .with_projective_glyph_fallback(ProjectiveGlyphFallback::new(vec![0; 512 * 160 * 4]));
         assemble_app(backend, factory)
     }
 
@@ -206,6 +208,7 @@ mod backend {
 ))]
 mod backend {
     use super::*;
+    use mirui::render::ProjectiveGlyphFallback;
     use mirui::render::sdl_gpu::SdlGpuFactory;
     use mirui::surface::sdl_gpu::SdlGpuSurface;
 
@@ -214,7 +217,8 @@ mod backend {
 
     pub fn build_app(title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
         let backend = SdlGpuSurface::new(title, w, h);
-        let factory = SdlGpuFactory;
+        let factory = SdlGpuFactory::new()
+            .with_projective_glyph_fallback(ProjectiveGlyphFallback::new(vec![0; 512 * 160 * 4]));
         let mut app = App::with_factory(backend, factory);
         app.with_default_widgets().with_default_systems();
         app

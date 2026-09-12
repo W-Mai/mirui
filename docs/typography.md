@@ -167,6 +167,65 @@ ui! {
 };
 ```
 
+## Query caret and selection geometry
+
+`PathTextGeometry::for_widget` resolves the text entity's computed rectangle,
+scroll offsets, and accumulated 2D or projective transform. Caret hit testing
+and selection ribbons therefore use the same placed geometry as rendering.
+
+```rust
+use mirui::prelude::*;
+
+fn inspect_path_text(
+    world: &World,
+    label: Entity,
+    pointer: Point,
+    mut visit: impl FnMut([Point; 4]),
+) {
+    let Some(geometry) = PathTextGeometry::for_widget(world, label) else {
+        return;
+    };
+
+    if let Some(hit) = geometry
+        .hit_test(pointer, Fixed::from_int(6))
+        .expect("valid projection")
+    {
+        let mut storage = [PathSelectionRibbon::default(); 16];
+        let selection = hit.text_offset()..hit.text_offset().saturating_add(4);
+        let ribbons = geometry
+            .selection_into(selection, &mut storage)
+            .expect("selection capacity");
+        for ribbon in ribbons {
+            visit(ribbon.quad());
+        }
+    }
+}
+```
+
+Mixed-direction selections are split at visual-run and line boundaries. A
+render-only label pays no caret-frame cost; caret frames and ribbons are
+created only when queried and use caller-provided bounded storage.
+`PathTextGeometry::with_transform` accepts an explicit `Transform` or
+`Transform3D` for scene tools that already hold the final render transform.
+Projection through or behind the near plane returns
+`PathTextGeometryError::InvalidProjection`.
+
+## Backend behavior
+
+| Geometry | Software | WGPU | SDL GPU | Web Canvas |
+|---|---|---|---|---|
+| Linear and affine | native | native | native run cache | native canvas path |
+| Posed coverage | inverse sampled | instanced atlas | batched scalar atlas | per-glyph transform |
+| Posed SDF | derivative-aware | derivative-aware | exact coverage route | exact coverage route |
+| Projective glyphs | inverse sampled | projective atlas | bounded software target | bounded software target |
+
+SDL GPU and Web Canvas require a `ProjectiveGlyphFallback` supplied through
+their renderer factory for projective glyphs. Its fixed RGBA storage is both
+the target and scratch space. Preflight reports the exact clipped byte
+requirement before drawing and rejects missing or insufficient capacity.
+Other unsupported projective commands remain errors rather than approximate
+draws.
+
 ## Storage and invalidation
 
 - `PathId` is a generational handle; removing a path invalidates stale handles.

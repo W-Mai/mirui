@@ -336,6 +336,12 @@ impl Transform3D {
     }
 }
 
+impl From<super::Transform> for Transform3D {
+    fn from(value: super::Transform) -> Self {
+        Self::from_affine(value)
+    }
+}
+
 impl Default for Transform3D {
     fn default() -> Self {
         Self::IDENTITY

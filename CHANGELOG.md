@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Projective path-text interaction.** `PathTextGeometry` resolves retained widget transforms and scroll offsets, projects caret and selection geometry through the same homography as rendering, and reports invalid near-plane projections; Typography Lab includes curved mixed-direction text, projective glyphs, backend paths, and explicit memory costs.
+
 - **Bounded projective glyph fallback.** SDL GPU and Web Canvas can render projective glyph runs through an explicitly supplied fixed-capacity RGBA target; clipped byte requirements, missing storage, and insufficient storage are reported during preflight before drawing.
 - **Text on paths.** Retained path bindings constrain and place independent paragraph lines on consecutive subpaths, preserve caller-owned bounded frame storage, expose transformed caret hit testing and selection ribbons, and render posed glyph runs across software, SDL GPU, WGPU, and Web Canvas backends.
 - **Canonical text layout workspace.** Mirui delegates bidi resolution, shaping, line breaking and private scratch growth to `textflow-rs` 0.2.4 while retaining caller-owned final output, stable layout handles and one shared cache-memory budget.

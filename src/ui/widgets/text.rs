@@ -7,7 +7,7 @@ use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::types::{Fixed, Fixed64, Point, Rect, Transform};
+use crate::types::{Fixed, Fixed64, Point, Rect, Transform, Transform3D};
 use crate::ui::view::{View, ViewCtx};
 
 pub use textflow::shaping::FontFeature;
@@ -694,6 +694,7 @@ impl PathSelectionRibbon {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PathTextGeometryError {
     Unavailable,
+    InvalidProjection,
     InsufficientCapacity { required: usize, provided: usize },
 }
 
@@ -701,15 +702,28 @@ pub struct PathTextGeometry<'a> {
     world: &'a World,
     entity: Entity,
     rect: Rect,
-    transform: Transform,
+    transform: Transform3D,
 }
 
 impl<'a> PathTextGeometry<'a> {
-    pub fn for_widget(
+    /// Resolves the retained layout, scroll offsets, and transforms for a text widget.
+    pub fn for_widget(world: &'a World, entity: Entity) -> Option<Self> {
+        let (rect, affine, projective) =
+            crate::ui::render_system::widget_render_geometry(world, entity)?;
+        let transform = if projective.is_identity() {
+            Transform3D::from(affine)
+        } else {
+            projective
+        };
+        Self::with_transform(world, entity, rect, transform)
+    }
+
+    /// Creates geometry access with a caller-supplied final transform.
+    pub fn with_transform(
         world: &'a World,
         entity: Entity,
         rect: Rect,
-        transform: Transform,
+        transform: impl Into<Transform3D>,
     ) -> Option<Self> {
         world.get::<Text>(entity)?;
         world.get::<crate::text::TextPath>(entity)?;
@@ -718,16 +732,22 @@ impl<'a> PathTextGeometry<'a> {
             world,
             entity,
             rect,
-            transform,
+            transform: transform.into(),
         })
     }
 
-    pub fn hit_test(&self, point: Point, max_distance: Fixed) -> Option<PathCaretHit> {
+    /// Finds the nearest caret within `max_distance` of a projected point.
+    pub fn hit_test(
+        &self,
+        point: Point,
+        max_distance: Fixed,
+    ) -> Result<Option<PathCaretHit>, PathTextGeometryError> {
         let limit = square_wide(Fixed64::from_fixed(max_distance.max(Fixed::ZERO)));
         self.with_carets(|layout, frames, metrics| {
             let mut nearest = None;
             for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
-                let (start, end) = caret_segment(self.rect, self.transform, *frame, metrics);
+                let (start, end) = caret_segment(self.rect, self.transform, *frame, metrics)
+                    .ok_or(PathTextGeometryError::InvalidProjection)?;
                 let distance = point_segment_distance_squared(point, start, end);
                 if distance > limit
                     || nearest
@@ -745,11 +765,12 @@ impl<'a> PathTextGeometry<'a> {
                     distance,
                 ));
             }
-            nearest.map(|(hit, _)| hit)
+            Ok(nearest.map(|(hit, _)| hit))
         })
-        .flatten()
+        .ok_or(PathTextGeometryError::Unavailable)?
     }
 
+    /// Writes projected selection ribbons into caller-provided storage.
     pub fn selection_into<'output>(
         &self,
         selection: Range<u32>,
@@ -767,7 +788,8 @@ impl<'a> PathTextGeometry<'a> {
                 .iter_mut()
                 .zip(selected_caret_pairs(layout, frames, selection))
             {
-                *slot = selection_ribbon(self.rect, self.transform, metrics, pair);
+                *slot = selection_ribbon(self.rect, self.transform, metrics, pair)
+                    .ok_or(PathTextGeometryError::InvalidProjection)?;
             }
             Ok(&output[..required])
         })
@@ -882,26 +904,26 @@ fn selected_pair(
 
 fn selection_ribbon(
     rect: Rect,
-    transform: Transform,
+    transform: Transform3D,
     metrics: crate::render::font::FontMetrics,
     pair: SelectedCaretPair,
-) -> PathSelectionRibbon {
-    let (start_top, start_bottom) = caret_segment(rect, transform, pair.start_frame, metrics);
-    let (end_top, end_bottom) = caret_segment(rect, transform, pair.end_frame, metrics);
-    PathSelectionRibbon {
+) -> Option<PathSelectionRibbon> {
+    let (start_top, start_bottom) = caret_segment(rect, transform, pair.start_frame, metrics)?;
+    let (end_top, end_bottom) = caret_segment(rect, transform, pair.end_frame, metrics)?;
+    Some(PathSelectionRibbon {
         quad: [start_top, end_top, end_bottom, start_bottom],
         text_start: pair.start.text_offset.min(pair.end.text_offset),
         text_end: pair.start.text_offset.max(pair.end.text_offset),
         bidi_level: pair.start.bidi_level,
-    }
+    })
 }
 
 fn caret_segment(
     rect: Rect,
-    transform: Transform,
+    transform: Transform3D,
     frame: textflow::placement::CaretFrame,
     metrics: crate::render::font::FontMetrics,
-) -> (Point, Point) {
+) -> Option<(Point, Point)> {
     let origin = Point {
         x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
         y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
@@ -914,16 +936,16 @@ fn caret_segment(
         x: Fixed::ZERO - tangent.y,
         y: tangent.x,
     };
-    (
+    Some((
         transform.apply_point(Point {
             x: origin.x - normal.x * metrics.ascender,
             y: origin.y - normal.y * metrics.ascender,
-        }),
+        })?,
         transform.apply_point(Point {
             x: origin.x + normal.x * (metrics.line_height - metrics.ascender),
             y: origin.y + normal.y * (metrics.line_height - metrics.ascender),
-        }),
-    )
+        })?,
+    ))
 }
 
 fn square_wide(value: Fixed64) -> Fixed64 {
@@ -1370,14 +1392,15 @@ mod tests {
         };
         let ribbon = selection_ribbon(
             Rect::new(0, 0, 100, 40),
-            Transform::IDENTITY,
+            Transform3D::IDENTITY,
             crate::render::font::FontMetrics {
                 ascender: Fixed::from_int(7),
                 descender: Fixed::from_int(-2),
                 line_height: Fixed::from_int(10),
             },
             pair,
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             ribbon.quad(),
@@ -1389,6 +1412,52 @@ mod tests {
             ]
         );
         assert_eq!(ribbon.text_range(), 0..1);
+    }
+
+    #[test]
+    fn selection_ribbon_rejects_carets_behind_the_projective_plane() {
+        let pair = SelectedCaretPair {
+            start: textflow::shaping::CaretStop {
+                text_offset: 0,
+                position: FlowPoint::default(),
+                bidi_level: 0,
+            },
+            start_frame: textflow::placement::CaretFrame {
+                local_origin: FlowPoint {
+                    x: 10 << 8,
+                    y: 20 << 8,
+                },
+                unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
+            },
+            end: textflow::shaping::CaretStop {
+                text_offset: 1,
+                position: FlowPoint::default(),
+                bidi_level: 0,
+            },
+            end_frame: textflow::placement::CaretFrame {
+                local_origin: FlowPoint {
+                    x: 20 << 8,
+                    y: 20 << 8,
+                },
+                unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
+            },
+        };
+        let mut behind = Transform3D::IDENTITY;
+        behind.m22 = -Fixed64::ONE;
+
+        assert!(
+            selection_ribbon(
+                Rect::new(0, 0, 100, 40),
+                behind,
+                crate::render::font::FontMetrics {
+                    ascender: Fixed::from_int(7),
+                    descender: Fixed::from_int(-2),
+                    line_height: Fixed::from_int(10),
+                },
+                pair,
+            )
+            .is_none()
+        );
     }
 
     #[test]

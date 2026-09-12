@@ -7,12 +7,12 @@ use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
 use crate::render::font::scalar::ScalarField;
 use crate::render::font::{Font, FontManager, FontStack, ResolvedFontStack};
 use crate::render::renderer::Renderer;
-use crate::types::Transform;
+use crate::types::{Transform, Transform3D};
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::text::FontFeature;
 use crate::ui::widgets::{
     FontFeatures, LanguageTag, ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign,
-    TextDirection, TextOverflow, TextVerticalAlign, TextWrap,
+    TextDirection, TextOverflow, TextVerticalAlign, TextWrap, WidgetTransform3D,
 };
 
 pub const VIEWPORT: (u16, u16) = (1024, 720);
@@ -230,21 +230,19 @@ fn caret_overlay_render(
         return;
     };
     if let Some(text_path) = world.get::<TextPath>(target).copied() {
-        let center_hit = crate::ui::widgets::text::PathTextGeometry::for_widget(
-            world,
-            target,
-            *rect,
-            ctx.transform,
-        )
-        .and_then(|geometry| {
-            geometry.hit_test(
-                ctx.transform.apply_point(Point {
-                    x: rect.x + rect.w / Fixed::from_int(2),
-                    y: rect.y + rect.h / Fixed::from_int(2),
-                }),
-                rect.w.max(rect.h),
-            )
-        });
+        let center_hit = crate::ui::widgets::text::PathTextGeometry::for_widget(world, target)
+            .and_then(|geometry| {
+                geometry
+                    .hit_test(
+                        ctx.transform.apply_point(Point {
+                            x: rect.x + rect.w / Fixed::from_int(2),
+                            y: rect.y + rect.h / Fixed::from_int(2),
+                        }),
+                        rect.w.max(rect.h),
+                    )
+                    .ok()
+                    .flatten()
+            });
         let (Some(paths), Some(path_cache)) = (
             world.resource::<crate::render::path::PathStore>(),
             world.resource::<crate::text::baseline::PathBaselineResource>(),
@@ -499,6 +497,13 @@ fn centered_label() -> ParagraphStyle {
         max_lines: Some(1),
         ..ParagraphStyle::default()
     }
+}
+
+fn geometry_cost_label() -> alloc::string::String {
+    format!(
+        "POSE {} B RAM / 18 B WIRE · MATRIX 72 B\nSW/WGPU NATIVE · SDL/WEB 320 KiB MAX",
+        core::mem::size_of::<textflow::placement::GlyphFrame>()
+    )
 }
 
 fn features_off() -> ParagraphStyle {
@@ -790,29 +795,29 @@ pub fn build_widgets(wave_path: PathId) {
                     id: "typography_path",
                     grow: 1.0,
                     min_width: 220,
-                    height: 186,
+                    height: 212,
                     padding: Padding::all(14),
-                    row_gap: 7,
+                    row_gap: 6,
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 14
                 ) {
-                    Text ("PATH · GLYPH POSES", font: UI, font_size: 12, text_color: CYAN)
-                    View (grow: 1.0, height: 104) {
+                    Text ("PATH + PROJECTIVE", font: UI, font_size: 12, text_color: CYAN)
+                    View (height: 78) {
                         Text (
                             id: "typography_path_sample",
-                            "TEXT FOLLOWS ONE PATH",
+                            "mirui 42 · مرحبا",
                             path: wave_path,
                             position: Position::Absolute,
                             left: 0,
                             top: 0,
                             width: 190,
-                            height: 104,
-                            font: UI,
-                            font_size: 15,
+                            height: 78,
+                            font_stack: mixed_stack(),
+                            font_size: 17,
                             text_color: TEXT,
-                            paragraph: plain_paragraph()
+                            paragraph: paragraph(None, TextDirection::Auto)
                         )
                         CaretOverlay (
                             id: "typography_path_carets",
@@ -821,13 +826,30 @@ pub fn build_widgets(wave_path: PathId) {
                             left: 0,
                             top: 0,
                             width: 190,
-                            height: 104
+                            height: 78
+                        )
+                    }
+                    View (id: "typography_projective_frame", height: 48, clip_children: true) [
+                        WidgetTransform3D(
+                            Transform3D::rotate_y_perspective(Fixed::from_int(-12), Fixed::from_int(500)),
+                        ),
+                    ] {
+                        Text (
+                            id: "typography_projective_sample",
+                            "2.5D",
+                            width: 190,
+                            height: 48,
+                            font: UI,
+                            font_size: 20,
+                            text_color: GOLD,
+                            paragraph: centered_label()
                         )
                     }
                     Text (
-                        "shared Path · cached glyph and caret frames",
+                        text: geometry_cost_label(),
+                        height: 24,
                         font: UI,
-                        font_size: 11,
+                        font_size: 9,
                         text_color: MUTED
                     )
                 }
@@ -994,6 +1016,8 @@ mod tests {
     use crate::core::reactive::flush_signal_dirty;
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
+    use crate::types::Viewport;
+    use crate::ui::Parent;
     use crate::ui::view::ViewRegistry;
     use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
     use crate::ui::{IdMap, UiScope};
@@ -1007,13 +1031,19 @@ mod tests {
         world.insert_resource(views);
         world.insert_resource(crate::render::font::default_font_manager());
         world.insert_resource(crate::text::layout::TextLayoutResource::new(
-            crate::text::TextLayoutLimits::EMBEDDED,
+            crate::text::TextLayoutLimits::HOST,
         ));
         world.insert_resource(crate::render::path::PathStore::new(1).unwrap());
         world.insert_resource(crate::text::baseline::PathBaselineResource::default());
         register_fonts(&mut world);
         let wave_path = register_path(&mut world);
-        let parent = WidgetBuilder::new(&mut world).id();
+        let parent = WidgetBuilder::new(&mut world)
+            .layout(LayoutStyle {
+                width: Dimension::px(i32::from(VIEWPORT.0)),
+                height: Dimension::px(i32::from(VIEWPORT.1)),
+                ..LayoutStyle::default()
+            })
+            .id();
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx, wave_path);
         drop(cx);
@@ -1050,6 +1080,7 @@ mod tests {
             "typography_contour",
             "typography_carets",
             "typography_path_carets",
+            "typography_projective_sample",
         ] {
             assert!(world.find_by_id(id).is_some(), "missing {id}");
         }
@@ -1075,6 +1106,48 @@ mod tests {
         let stack = mixed_stack();
         assert_eq!(stack.primary(), &UI);
         assert_eq!(stack.fallbacks(), &FALLBACKS);
+    }
+
+    #[test]
+    fn path_sample_shares_curved_bidi_interaction_geometry() {
+        let mut world = fixture();
+        let root = world.find_by_id("typography_path").unwrap();
+        let mut parent = root;
+        while let Some(next) = world.get::<Parent>(parent).map(|parent| parent.0) {
+            parent = next;
+        }
+        crate::ui::render_system::update_layout(
+            &mut world,
+            parent,
+            &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
+        );
+        let sample = world.find_by_id("typography_path_sample").unwrap();
+        let geometry =
+            crate::ui::widgets::text::PathTextGeometry::for_widget(&world, sample).unwrap();
+        let text = world.get::<Text>(sample).unwrap().resolve(&world);
+        let mut storage = [crate::ui::widgets::text::PathSelectionRibbon::default(); 32];
+        let ribbons = geometry
+            .selection_into(0..text.len() as u32, &mut storage)
+            .unwrap();
+
+        assert!(ribbons.iter().any(|ribbon| ribbon.bidi_level() == 0));
+        assert!(ribbons.iter().any(|ribbon| ribbon.bidi_level() & 1 == 1));
+        assert!(ribbons.windows(2).any(|pair| {
+            let first = pair[0].quad();
+            let second = pair[1].quad();
+            first[1].x - first[0].x != second[1].x - second[0].x
+                || first[1].y - first[0].y != second[1].y - second[0].y
+        }));
+
+        let ribbon = ribbons[0];
+        let quad = ribbon.quad();
+        let probe = Point {
+            x: (quad[0].x + quad[3].x) / Fixed::from_int(2),
+            y: (quad[0].y + quad[3].y) / Fixed::from_int(2),
+        };
+        let hit = geometry.hit_test(probe, Fixed::ONE).unwrap().unwrap();
+        let range = ribbon.text_range();
+        assert!(hit.text_offset() == range.start || hit.text_offset() == range.end);
     }
 
     #[test]

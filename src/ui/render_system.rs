@@ -149,6 +149,51 @@ fn render_transforms(
     )
 }
 
+pub(crate) fn widget_render_geometry(
+    world: &World,
+    entity: Entity,
+) -> Option<(Rect, Transform, Transform3D)> {
+    fn resolve(
+        world: &World,
+        entity: Entity,
+        depth: u16,
+    ) -> Option<(Rect, Transform, Transform3D, Fixed, Fixed)> {
+        if depth == 0 {
+            return None;
+        }
+        let (parent_affine, parent_projective, offset_x, offset_y) = if let Some(parent) =
+            world.get::<Parent>(entity).map(|parent| parent.0)
+        {
+            let (_, affine, projective, offset_x, offset_y) = resolve(world, parent, depth - 1)?;
+            (affine, projective, offset_x, offset_y)
+        } else {
+            (
+                Transform::IDENTITY,
+                Transform3D::IDENTITY,
+                Fixed::ZERO,
+                Fixed::ZERO,
+            )
+        };
+        let computed = world.get::<super::ComputedRect>(entity)?.0;
+        let rect = Rect {
+            x: computed.x - offset_x,
+            y: computed.y - offset_y,
+            w: computed.w,
+            h: computed.h,
+        };
+        let (affine, projective) =
+            render_transforms(parent_affine, parent_projective, world, entity, rect);
+        let (child_offset_x, child_offset_y) = world
+            .get::<crate::input::event::scroll::ScrollOffset>(entity)
+            .map_or((offset_x, offset_y), |scroll| {
+                (offset_x + scroll.x, offset_y + scroll.y)
+            });
+        Some((rect, affine, projective, child_offset_x, child_offset_y))
+    }
+
+    resolve(world, entity, 1_024).map(|(rect, affine, projective, _, _)| (rect, affine, projective))
+}
+
 fn quad_bbox(q: [Point; 4]) -> Rect {
     Rect::bounding_quad(&q)
 }
@@ -2451,7 +2496,7 @@ mod text_layout_check {
                 ..Style::default()
             },
         );
-        world.insert(label, Text::from("ABC"));
+        world.insert(label, Text::from("ABCDEFG"));
         let mut baseline = crate::render::path::Path::new();
         baseline
             .move_to(Point::new(0, 48))
@@ -2478,19 +2523,44 @@ mod text_layout_check {
         assert!(ink.y >= layout.y + layout.h);
 
         let translated = Transform::translate(Fixed::from_int(10), Fixed::from_int(5));
-        let geometry = crate::ui::widgets::text::PathTextGeometry::for_widget(
+        let geometry = crate::ui::widgets::text::PathTextGeometry::with_transform(
             &world, label, layout, translated,
         )
         .unwrap();
         let hit = geometry
             .hit_test(Point::new(26, 53), Fixed::from_int(2))
+            .unwrap()
             .unwrap();
         assert_eq!(hit.text_offset(), 2);
         assert_eq!(hit.bidi_level(), 0);
         assert!(
             geometry
                 .hit_test(Point::new(26, 70), Fixed::from_int(2))
+                .unwrap()
                 .is_none()
+        );
+        let projective = Transform3D::from_affine(translated).compose(
+            &Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(320)),
+        );
+        let projected_caret = projective.apply_point(Point::new(16, 48)).unwrap();
+        let projective_geometry = crate::ui::widgets::text::PathTextGeometry::with_transform(
+            &world, label, layout, projective,
+        )
+        .unwrap();
+        let projected_hit = projective_geometry
+            .hit_test(projected_caret, Fixed::from_int(2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(projected_hit.text_offset(), 2);
+        let mut behind = Transform3D::IDENTITY;
+        behind.m22 = -crate::types::Fixed64::ONE;
+        let invalid_geometry = crate::ui::widgets::text::PathTextGeometry::with_transform(
+            &world, label, layout, behind,
+        )
+        .unwrap();
+        assert_eq!(
+            invalid_geometry.hit_test(Point::ZERO, Fixed::ONE),
+            Err(crate::ui::widgets::text::PathTextGeometryError::InvalidProjection)
         );
         let mut ribbons = [crate::ui::widgets::text::PathSelectionRibbon::default(); 3];
         let selection = geometry.selection_into(1..3, &mut ribbons).unwrap();
@@ -2502,6 +2572,12 @@ mod text_layout_check {
                 .iter()
                 .all(|ribbon| ribbon.quad()[0] != ribbon.quad()[1])
         );
+        let affine_quad = selection[0].quad();
+        let projected_selection = projective_geometry
+            .selection_into(1..3, &mut ribbons)
+            .unwrap();
+        assert_eq!(projected_selection.len(), 2);
+        assert_ne!(projected_selection[0].quad(), affine_quad);
         let mut insufficient = [crate::ui::widgets::text::PathSelectionRibbon::default(); 1];
         assert_eq!(
             geometry.selection_into(1..3, &mut insufficient),
@@ -2512,6 +2588,40 @@ mod text_layout_check {
                 }
             )
         );
+        world.insert(
+            label,
+            WidgetTransform3D(Transform3D::rotate_y_perspective(
+                Fixed::from_int(12),
+                Fixed::from_int(320),
+            )),
+        );
+        world.insert(
+            root,
+            crate::input::event::scroll::ScrollOffset {
+                x: Fixed::from_int(3),
+                y: Fixed::from_int(2),
+            },
+        );
+        let shifted_layout = Rect {
+            x: layout.x - Fixed::from_int(3),
+            y: layout.y - Fixed::from_int(2),
+            ..layout
+        };
+        let widget_projection =
+            effective_transform_3d(&Transform3D::IDENTITY, &world, label, shifted_layout);
+        let widget_probe = widget_projection.apply_point(Point::new(13, 46)).unwrap();
+        let widget_geometry =
+            crate::ui::widgets::text::PathTextGeometry::for_widget(&world, label).unwrap();
+        assert_eq!(
+            widget_geometry
+                .hit_test(widget_probe, Fixed::from_int(2))
+                .unwrap()
+                .unwrap()
+                .text_offset(),
+            2
+        );
+        world.remove::<WidgetTransform3D>(label);
+        world.remove::<crate::input::event::scroll::ScrollOffset>(root);
 
         let mut recorder = Recorder::default();
         render_region(&world, root, &viewport, &ink, &mut recorder);
@@ -2519,6 +2629,92 @@ mod text_layout_check {
 
         let damage = collect_dirty_region(&mut world, root, &viewport).unwrap();
         assert!(damage.y + damage.h >= ink.y + ink.h);
+    }
+
+    #[test]
+    fn path_text_uses_the_ancestor_clip_without_changing_placed_geometry() {
+        #[derive(Default)]
+        struct Recorder {
+            clip: Option<Rect>,
+        }
+
+        impl Renderer for Recorder {
+            fn draw(&mut self, command: &DrawCommand, clip: &Rect) {
+                if matches!(command, DrawCommand::PosedGlyphRun { .. }) {
+                    self.clip = Some(*clip);
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(96, 96);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(96),
+                    height: Dimension::px(96),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let clipper = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                clip_children: true,
+                layout: LayoutStyle {
+                    width: Dimension::px(10),
+                    height: Dimension::px(30),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(&mut world, Some(clipper), Style::default());
+        world.insert(label, Text::from("ABC"));
+        let mut baseline = crate::render::path::Path::new();
+        baseline
+            .move_to(Point::new(0, 20))
+            .quad_to(Point::new(32, 4), Point::new(64, 20));
+        let path = world
+            .resource_mut::<crate::render::path::PathStore>()
+            .unwrap()
+            .insert(baseline)
+            .unwrap();
+        crate::text::path::set_text_path(&mut world, label, path);
+        let viewport = Viewport::new(96, 96, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+
+        let label_rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        let uncut_ink = crate::ui::widgets::text::path_text_ink_bounds(
+            &world,
+            label,
+            label_rect,
+            Transform::IDENTITY,
+            Fixed::ONE,
+        )
+        .unwrap();
+        let clip = world.get::<super::super::ComputedRect>(clipper).unwrap().0;
+        assert!(
+            uncut_ink.x + uncut_ink.w > clip.x + clip.w,
+            "ink {uncut_ink:?} must extend beyond clip {clip:?}"
+        );
+
+        let mut recorder = Recorder::default();
+        render_region(
+            &world,
+            root,
+            &viewport,
+            &Rect::new(0, 0, 96, 96),
+            &mut recorder,
+        );
+        assert_eq!(recorder.clip, Some(clip));
     }
 }
 
