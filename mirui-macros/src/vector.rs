@@ -1666,6 +1666,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                             m10: #m10, m11: #m11, ty: #ty,
                         }
                     ),
+                    projective: ::core::option::Option::None,
                     opacity: #opacity,
                     clip: ::core::option::Option::None,
                     mask: ::core::option::Option::None,

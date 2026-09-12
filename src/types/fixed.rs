@@ -666,7 +666,7 @@ impl fmt::Debug for Fixed64 {
 /// Keeping this under an explicit namespace makes representation-sensitive
 /// code reviewable without exposing raw integers in the public numeric API.
 pub(crate) mod storage {
-    use super::Fixed;
+    use super::{Fixed, Fixed64};
 
     #[inline]
     pub const fn to_i32(value: Fixed) -> i32 {
@@ -681,6 +681,17 @@ pub(crate) mod storage {
     #[inline]
     pub const fn to_mirx(value: Fixed) -> mirx::types::Fixed {
         mirx::types::Fixed::from_ratio(value.0, super::SCALE)
+    }
+
+    #[inline]
+    pub fn from_mirx64(value: mirx::types::Fixed64) -> Fixed64 {
+        let (whole, fractional) = value.to_parts();
+        Fixed64((whole << super::FRAC_BITS_64) | i64::from(fractional))
+    }
+
+    #[inline]
+    pub fn to_mirx64(value: Fixed64) -> mirx::types::Fixed64 {
+        mirx::types::Fixed64::from_ratio(value.0, super::SCALE_64)
     }
 }
 

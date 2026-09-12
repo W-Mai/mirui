@@ -193,6 +193,7 @@ fn blur_filter_render(
     let mut ops: Vec<SceneOp> = Vec::new();
     ops.push(SceneOp::GroupBegin {
         transform: None,
+        projective: None,
         opacity: Some(255),
         clip: None,
         mask: None,

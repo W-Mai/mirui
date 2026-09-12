@@ -3,8 +3,8 @@ use alloc::vec::Vec;
 use super::{
     ByteSink, CodecError, DEFAULT_SCALE, FIELD_ALPHA, FIELD_COMPOSITE, FIELD_QUAD, FIELD_RADIUS,
     FIELD_TRANSFORM, SLOT_CLIP, SLOT_DISJOINT_HINT, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY,
-    SLOT_TRANSFORM, TAG_EOF, TAG_GROUP_BEGIN, TAG_GROUP_END, VERSION, field_bits, write_op,
-    write_resource_ref, write_transform, write_varuint,
+    SLOT_PROJECTIVE, SLOT_TRANSFORM, TAG_EOF, TAG_GROUP_BEGIN, TAG_GROUP_END, VERSION, field_bits,
+    write_op, write_resource_ref, write_transform, write_transform_3d, write_varuint,
 };
 use crate::path::{Path, PathCmd};
 use crate::scene::{Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader, VectorReadError};
@@ -124,6 +124,7 @@ impl<'a> VectorPayloadPlan<'a> {
                 match op {
                     SceneOp::GroupBegin {
                         transform,
+                        projective,
                         opacity,
                         clip,
                         mask,
@@ -131,8 +132,15 @@ impl<'a> VectorPayloadPlan<'a> {
                         disjoint_hint,
                     } => {
                         writer.push(TAG_GROUP_BEGIN);
-                        let bits =
-                            group_bits(transform, opacity, clip, mask, filter, *disjoint_hint);
+                        let bits = group_bits(
+                            transform,
+                            projective,
+                            opacity,
+                            clip,
+                            mask,
+                            filter,
+                            *disjoint_hint,
+                        );
                         write_varuint(&mut writer, bits);
                         let patch_pos = writer.position();
                         let previous = group_head
@@ -143,6 +151,9 @@ impl<'a> VectorPayloadPlan<'a> {
                         writer.extend_from_slice(&previous.to_le_bytes());
                         if let Some(transform) = transform {
                             write_transform(&mut writer, *transform);
+                        }
+                        if let Some(value) = projective.filter(|value| !value.is_identity()) {
+                            write_transform_3d(&mut writer, value);
                         }
                         if let Some(opacity) = opacity {
                             writer.push(*opacity);
@@ -248,6 +259,7 @@ fn checked_payload_len(body_len: usize) -> Result<usize, VectorEncodeError> {
 fn group_begin_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
     let SceneOp::GroupBegin {
         transform,
+        projective,
         opacity,
         clip,
         mask,
@@ -257,10 +269,21 @@ fn group_begin_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
     else {
         unreachable!("group size requires a group begin")
     };
-    let bits = group_bits(transform, opacity, clip, mask, filter, *disjoint_hint);
+    let bits = group_bits(
+        transform,
+        projective,
+        opacity,
+        clip,
+        mask,
+        filter,
+        *disjoint_hint,
+    );
     let mut len = CheckedLen::new(1 + varuint_len(bits) + 4);
     if transform.is_some() {
         len.add(24)?;
+    }
+    if projective.is_some_and(|value| !value.is_identity()) {
+        len.add(72)?;
     }
     if opacity.is_some() {
         len.add(1)?;
@@ -492,6 +515,7 @@ fn optional_len(bits: u8) -> usize {
 
 fn group_bits(
     transform: &Option<crate::types::Transform>,
+    projective: &Option<crate::types::Transform3D>,
     opacity: &Option<u8>,
     clip: &Option<ResourceRef>,
     mask: &Option<ResourceRef>,
@@ -501,6 +525,9 @@ fn group_bits(
     let mut bits = 0;
     if transform.is_some() {
         bits |= SLOT_TRANSFORM;
+    }
+    if projective.is_some_and(|value| !value.is_identity()) {
+        bits |= SLOT_PROJECTIVE;
     }
     if opacity.is_some() {
         bits |= SLOT_OPACITY;
@@ -584,7 +611,7 @@ mod tests {
         CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient,
         RadialGradient, SpreadMode,
     };
-    use crate::types::{Color, Fixed, Point, Rect, Transform};
+    use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D};
 
     fn fixed(value: i32) -> Fixed {
         Fixed::from_int(value)
@@ -608,6 +635,7 @@ mod tests {
     fn empty_group() -> SceneOp {
         SceneOp::GroupBegin {
             transform: None,
+            projective: None,
             opacity: None,
             clip: None,
             mask: None,
@@ -622,6 +650,10 @@ mod tests {
         Scene::from_ops(vec![
             SceneOp::GroupBegin {
                 transform: Some(transform),
+                projective: Some(Transform3D {
+                    m20: Fixed64::from_ratio(1, 800),
+                    ..Transform3D::IDENTITY
+                }),
                 opacity: Some(200),
                 clip: Some(ResourceRef::Token(String::from("clip"))),
                 mask: Some(ResourceRef::Inline(close_path())),
@@ -795,6 +827,51 @@ mod tests {
         assert_eq!(&out[needed..], &[0xa5; 3]);
         assert_eq!(Scene::preflight(&legacy, &PayloadLimits::HOST), Ok(()));
         assert_eq!(Scene::decode(&legacy).unwrap(), scene);
+    }
+
+    #[test]
+    fn projective_group_costs_one_shared_matrix_and_omits_identity() {
+        let without = Scene::from_ops(vec![empty_group(), SceneOp::GroupEnd]);
+        let with_identity = Scene::from_ops(vec![
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(Transform3D::IDENTITY),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            SceneOp::GroupEnd,
+        ]);
+        let with_perspective = Scene::from_ops(vec![
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(Transform3D {
+                    m20: Fixed64::from_ratio(1, 800),
+                    ..Transform3D::IDENTITY
+                }),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            SceneOp::GroupEnd,
+        ]);
+
+        assert_eq!(
+            without.encode_payload().unwrap(),
+            with_identity.encode_payload().unwrap()
+        );
+        assert_eq!(
+            with_perspective.encoded_payload_len().unwrap(),
+            without.encoded_payload_len().unwrap() + 72
+        );
+        assert_eq!(
+            Scene::decode(&with_perspective.encode_payload().unwrap()).unwrap(),
+            with_perspective
+        );
     }
 
     #[test]

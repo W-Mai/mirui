@@ -287,6 +287,7 @@ mod tests {
         let ops = [
             SceneOp::GroupBegin {
                 transform: None,
+                projective: None,
                 opacity: None,
                 clip: None,
                 mask: None,

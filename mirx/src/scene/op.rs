@@ -1,6 +1,6 @@
 use crate::path::Path;
 use crate::scene::paint::Paint;
-use crate::types::{Color, Fixed, Point, Rect, Transform};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D};
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -81,6 +81,7 @@ impl GlyphPlacement {
 pub enum SceneOp {
     GroupBegin {
         transform: Option<Transform>,
+        projective: Option<Transform3D>,
         opacity: Option<u8>,
         clip: Option<ResourceRef>,
         mask: Option<ResourceRef>,

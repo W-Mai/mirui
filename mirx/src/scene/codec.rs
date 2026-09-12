@@ -10,7 +10,7 @@ use crate::scene::op::{
 use crate::scene::paint::{
     GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode,
 };
-use crate::types::{Color, Fixed, Point, Rect, Transform};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D};
 
 mod encoder;
 mod preflight;
@@ -44,6 +44,7 @@ const SLOT_CLIP: u32 = 1 << 2;
 const SLOT_MASK: u32 = 1 << 3;
 const SLOT_FILTER: u32 = 1 << 4;
 const SLOT_DISJOINT_HINT: u32 = 1 << 5;
+const SLOT_PROJECTIVE: u32 = 1 << 6;
 
 const RES_KIND_INDEX: u8 = 0;
 const RES_KIND_TOKEN: u8 = 1;
@@ -178,6 +179,13 @@ impl<'a> Reader<'a> {
         Ok(Fixed::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
+    fn fixed64(&mut self) -> Result<Fixed64, CodecError> {
+        let b = self.take(8)?;
+        Ok(Fixed64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ]))
+    }
+
     fn point(&mut self) -> Result<Point, CodecError> {
         Ok(Point {
             x: self.fixed()?,
@@ -212,6 +220,20 @@ impl<'a> Reader<'a> {
             m10: self.fixed()?,
             m11: self.fixed()?,
             ty: self.fixed()?,
+        })
+    }
+
+    fn transform_3d(&mut self) -> Result<Transform3D, CodecError> {
+        Ok(Transform3D {
+            m00: self.fixed64()?,
+            m01: self.fixed64()?,
+            m02: self.fixed64()?,
+            m10: self.fixed64()?,
+            m11: self.fixed64()?,
+            m12: self.fixed64()?,
+            m20: self.fixed64()?,
+            m21: self.fixed64()?,
+            m22: self.fixed64()?,
         })
     }
 
@@ -468,6 +490,14 @@ fn read_transform_raw(r: &mut Reader) -> Result<Transform, CodecError> {
 pub(super) fn write_transform<W: ByteSink>(out: &mut W, t: Transform) {
     for f in [t.m00, t.m01, t.tx, t.m10, t.m11, t.ty] {
         write_fixed(out, f);
+    }
+}
+
+pub(super) fn write_transform_3d<W: ByteSink>(out: &mut W, t: Transform3D) {
+    for value in [
+        t.m00, t.m01, t.m02, t.m10, t.m11, t.m12, t.m20, t.m21, t.m22,
+    ] {
+        out.extend_from_slice(&value.to_le_bytes());
     }
 }
 
@@ -1138,6 +1168,11 @@ fn decode_body_with<A: DecodeAllocator>(
                 } else {
                     None
                 };
+                let projective = if bits & SLOT_PROJECTIVE != 0 {
+                    Some(r.transform_3d()?)
+                } else {
+                    None
+                };
                 let opacity = if bits & SLOT_OPACITY != 0 {
                     Some(r.u8()?)
                 } else {
@@ -1162,6 +1197,7 @@ fn decode_body_with<A: DecodeAllocator>(
                 depth += 1;
                 ops.push(SceneOp::GroupBegin {
                     transform,
+                    projective,
                     opacity,
                     clip,
                     mask,
@@ -1193,6 +1229,7 @@ impl Scene {
             match op {
                 SceneOp::GroupBegin {
                     transform,
+                    projective,
                     opacity,
                     clip,
                     mask,
@@ -1203,6 +1240,9 @@ impl Scene {
                     let mut bits = 0u32;
                     if transform.is_some() {
                         bits |= SLOT_TRANSFORM;
+                    }
+                    if projective.is_some_and(|value| !value.is_identity()) {
+                        bits |= SLOT_PROJECTIVE;
                     }
                     if opacity.is_some() {
                         bits |= SLOT_OPACITY;
@@ -1224,6 +1264,9 @@ impl Scene {
                     body.extend_from_slice(&0u32.to_le_bytes());
                     if let Some(t) = transform {
                         write_transform(&mut body, *t);
+                    }
+                    if let Some(value) = projective.filter(|value| !value.is_identity()) {
+                        write_transform_3d(&mut body, value);
                     }
                     if let Some(o) = opacity {
                         body.push(*o);
@@ -1347,6 +1390,27 @@ mod tests {
                     )),
             ],
         }]);
+    }
+
+    #[test]
+    fn projective_group_roundtrips() {
+        let projective = Transform3D {
+            m20: Fixed64::from_ratio(1, 640),
+            m21: Fixed64::from_ratio(-1, 960),
+            ..Transform3D::IDENTITY
+        };
+        roundtrip(vec![
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(projective),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            SceneOp::GroupEnd,
+        ]);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::render::command::CompositeMode;
 use crate::render::path::{Path, PathCmd};
 use crate::render::raster::FillRule;
 use crate::render::scene::{ResourceRef, Scene, SceneOp};
-use crate::types::{Color, Fixed, Point, Rect, Transform, fixed::storage};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, fixed::storage};
 
 impl From<mirx::types::Fixed> for Fixed {
     fn from(v: mirx::types::Fixed) -> Self {
@@ -16,6 +16,18 @@ impl From<mirx::types::Fixed> for Fixed {
 impl From<Fixed> for mirx::types::Fixed {
     fn from(v: Fixed) -> Self {
         storage::to_mirx(v)
+    }
+}
+
+impl From<mirx::types::Fixed64> for Fixed64 {
+    fn from(value: mirx::types::Fixed64) -> Self {
+        storage::from_mirx64(value)
+    }
+}
+
+impl From<Fixed64> for mirx::types::Fixed64 {
+    fn from(value: Fixed64) -> Self {
+        storage::to_mirx64(value)
     }
 }
 
@@ -81,6 +93,38 @@ impl From<Transform> for mirx::types::Transform {
             m10: t.m10.into(),
             m11: t.m11.into(),
             ty: t.ty.into(),
+        }
+    }
+}
+
+impl From<mirx::types::Transform3D> for Transform3D {
+    fn from(value: mirx::types::Transform3D) -> Self {
+        Self {
+            m00: value.m00.into(),
+            m01: value.m01.into(),
+            m02: value.m02.into(),
+            m10: value.m10.into(),
+            m11: value.m11.into(),
+            m12: value.m12.into(),
+            m20: value.m20.into(),
+            m21: value.m21.into(),
+            m22: value.m22.into(),
+        }
+    }
+}
+
+impl From<Transform3D> for mirx::types::Transform3D {
+    fn from(value: Transform3D) -> Self {
+        Self {
+            m00: value.m00.into(),
+            m01: value.m01.into(),
+            m02: value.m02.into(),
+            m10: value.m10.into(),
+            m11: value.m11.into(),
+            m12: value.m12.into(),
+            m20: value.m20.into(),
+            m21: value.m21.into(),
+            m22: value.m22.into(),
         }
     }
 }
@@ -233,6 +277,7 @@ impl From<mirx::scene::SceneOp> for SceneOp {
         match op {
             mirx::scene::SceneOp::GroupBegin {
                 transform,
+                projective,
                 opacity,
                 clip,
                 mask,
@@ -240,6 +285,7 @@ impl From<mirx::scene::SceneOp> for SceneOp {
                 disjoint_hint,
             } => Self::GroupBegin {
                 transform: transform.map(Into::into),
+                projective: projective.map(Into::into),
                 opacity,
                 clip: clip.map(Into::into),
                 mask: mask.map(Into::into),
@@ -423,6 +469,7 @@ impl From<SceneOp> for mirx::scene::SceneOp {
         match op {
             SceneOp::GroupBegin {
                 transform,
+                projective,
                 opacity,
                 clip,
                 mask,
@@ -430,6 +477,7 @@ impl From<SceneOp> for mirx::scene::SceneOp {
                 disjoint_hint,
             } => Self::GroupBegin {
                 transform: transform.map(Into::into),
+                projective: projective.map(Into::into),
                 opacity,
                 clip: clip.map(Into::into),
                 mask: mask.map(Into::into),
@@ -631,6 +679,16 @@ mod tests {
             let runtime = Fixed::from(wire);
             assert_eq!(storage::to_i32(runtime), bits);
             assert_eq!(mirx::types::Fixed::from(runtime).to_f64(), wire.to_f64());
+        }
+    }
+
+    #[test]
+    fn fixed64_conversion_preserves_every_endpoint_bit() {
+        for bits in [i64::MIN, -1, 0, 1, i64::MAX] {
+            let wire = mirx::types::Fixed64::from_ratio(bits, 65_536);
+            let runtime = Fixed64::from(wire);
+            let back = mirx::types::Fixed64::from(runtime);
+            assert_eq!(back.to_parts(), wire.to_parts());
         }
     }
 }

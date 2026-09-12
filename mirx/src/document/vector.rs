@@ -176,6 +176,7 @@ mod tests {
         Scene::from_ops(vec![
             SceneOp::GroupBegin {
                 transform: None,
+                projective: None,
                 opacity: Some(200),
                 clip: Some(ResourceRef::Token(String::from("clip"))),
                 mask: Some(ResourceRef::Inline(Path::from_cmds(vec![PathCmd::Close]))),

@@ -7,9 +7,9 @@ use super::bbox::{direct_children_bboxes, pairwise_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
-use crate::render::renderer::Renderer;
+use crate::render::renderer::{ProjectiveDrawError, Renderer};
 use crate::render::texture::Texture;
-use crate::types::{Fixed, Rect, Transform};
+use crate::types::{Fixed, Rect, Transform, Transform3D};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplayError {
@@ -23,6 +23,7 @@ pub enum ReplayError {
     /// compositing isn't available. Separate the children, or set the
     /// hint to flatten with a visible seam.
     GroupOpacityNeedsOffscreen,
+    ProjectiveDrawUnsupported,
 }
 
 fn parse_blur_filter(filter: &str) -> Option<Fixed> {
@@ -45,10 +46,27 @@ fn parse_blur_filter(filter: &str) -> Option<Fixed> {
 #[derive(Clone)]
 struct GroupFrame {
     transform: Transform,
+    projective: Option<Transform3D>,
     alpha: u8,
     has_clip: bool,
     filter: Option<String>,
     start_idx: usize,
+}
+
+fn draw_in_frame(
+    renderer: &mut dyn Renderer,
+    frame: &GroupFrame,
+    command: &DrawCommand,
+    clip: &Rect,
+) -> Result<(), ReplayError> {
+    if let Some(projective) = frame.projective {
+        renderer
+            .draw_projective(command, clip, &projective)
+            .map_err(|ProjectiveDrawError::Unsupported| ReplayError::ProjectiveDrawUnsupported)
+    } else {
+        renderer.draw(command, clip);
+        Ok(())
+    }
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -90,6 +108,7 @@ pub fn replay_scene(
 ) -> Result<(), ReplayError> {
     let mut stack: Vec<GroupFrame> = alloc::vec![GroupFrame {
         transform: Transform::IDENTITY,
+        projective: None,
         alpha: 255,
         has_clip: false,
         filter: None,
@@ -125,15 +144,33 @@ pub fn replay_scene(
         match op {
             SceneOp::GroupBegin {
                 transform,
+                projective,
                 opacity,
                 clip: group_clip,
                 disjoint_hint,
                 filter,
                 ..
             } => {
-                let composed = match transform {
-                    Some(t) => top.transform.compose(t),
-                    None => top.transform,
+                let local_affine = transform.unwrap_or(Transform::IDENTITY);
+                let local_projective = projective.filter(|value| !value.is_identity());
+                let (composed, composed_projective) = match (top.projective, local_projective) {
+                    (None, None) => (top.transform.compose(&local_affine), None),
+                    (Some(parent), local) => (
+                        Transform::IDENTITY,
+                        Some(
+                            parent
+                                .compose(local.as_ref().unwrap_or(&Transform3D::IDENTITY))
+                                .compose(&Transform3D::from_affine(local_affine)),
+                        ),
+                    ),
+                    (None, Some(local)) => (
+                        Transform::IDENTITY,
+                        Some(
+                            Transform3D::from_affine(top.transform)
+                                .compose(&local)
+                                .compose(&Transform3D::from_affine(local_affine)),
+                        ),
+                    ),
                 };
                 let next_alpha = match opacity {
                     None => top.alpha,
@@ -142,6 +179,7 @@ pub fn replay_scene(
                         skip_until_depth = Some(stack.len());
                         stack.push(GroupFrame {
                             transform: composed,
+                            projective: composed_projective,
                             alpha: 0,
                             has_clip: false,
                             filter: None,
@@ -164,14 +202,23 @@ pub fn replay_scene(
                     }
                 };
                 let has_clip = if let Some(ResourceRef::Inline(path)) = group_clip {
-                    renderer.draw(
+                    draw_in_frame(
+                        renderer,
+                        &GroupFrame {
+                            transform: composed,
+                            projective: composed_projective,
+                            alpha: next_alpha,
+                            has_clip: false,
+                            filter: None,
+                            start_idx: i,
+                        },
                         &DrawCommand::PushClip {
                             path,
                             transform: composed,
                             fill_rule: crate::render::raster::FillRule::EvenOdd,
                         },
                         clip,
-                    );
+                    )?;
                     true
                 } else if group_clip.is_some() {
                     return Err(ReplayError::UnresolvedClip);
@@ -180,6 +227,7 @@ pub fn replay_scene(
                 };
                 stack.push(GroupFrame {
                     transform: composed,
+                    projective: composed_projective,
                     alpha: next_alpha,
                     has_clip,
                     filter: filter.as_ref().and_then(|r| match r {
@@ -201,13 +249,15 @@ pub fn replay_scene(
                     if let Some(blur_alpha) = parse_blur_filter(filter_str) {
                         let children = &ops[frame.start_idx + 1..i];
                         let region = union_of_children(children, &frame.transform);
-                        renderer.draw(
+                        draw_in_frame(
+                            renderer,
+                            &frame,
                             &DrawCommand::ApplyBlur {
                                 alpha: blur_alpha,
                                 region,
                             },
                             clip,
-                        );
+                        )?;
                     }
                 }
             }
@@ -216,14 +266,16 @@ pub fn replay_scene(
                 transform,
                 fill_rule,
             } => {
-                renderer.draw(
+                draw_in_frame(
+                    renderer,
+                    &top,
                     &DrawCommand::PushClip {
                         path,
                         transform: top.transform.compose(transform),
                         fill_rule: *fill_rule,
                     },
                     clip,
-                );
+                )?;
             }
             SceneOp::PopClip => {
                 renderer.draw(&DrawCommand::PopClip, clip);
@@ -235,7 +287,9 @@ pub fn replay_scene(
                 color,
                 radius,
                 opa,
-            } => renderer.draw(
+            } => draw_in_frame(
+                renderer,
+                &top,
                 &DrawCommand::Fill {
                     area: *area,
                     transform: top.transform.compose(transform),
@@ -245,7 +299,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-            ),
+            )?,
             SceneOp::Border {
                 area,
                 transform,
@@ -254,7 +308,9 @@ pub fn replay_scene(
                 width,
                 radius,
                 opa,
-            } => renderer.draw(
+            } => draw_in_frame(
+                renderer,
+                &top,
                 &DrawCommand::Border {
                     area: *area,
                     transform: top.transform.compose(transform),
@@ -265,7 +321,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-            ),
+            )?,
             SceneOp::GlyphRun {
                 font,
                 ppem,
@@ -280,7 +336,9 @@ pub fn replay_scene(
                     .ok_or(ReplayError::UnresolvedFont)?
                     .clone();
                 font.size = *ppem;
-                renderer.draw(
+                draw_in_frame(
+                    renderer,
+                    &top,
                     &DrawCommand::GlyphRun {
                         pos: *pos,
                         transform: top.transform.compose(transform),
@@ -290,7 +348,7 @@ pub fn replay_scene(
                         opa: mul_alpha(*opa, top.alpha),
                     },
                     clip,
-                );
+                )?;
             }
             SceneOp::Line {
                 p1,
@@ -299,7 +357,9 @@ pub fn replay_scene(
                 color,
                 width,
                 opa,
-            } => renderer.draw(
+            } => draw_in_frame(
+                renderer,
+                &top,
                 &DrawCommand::Line {
                     p1: *p1,
                     p2: *p2,
@@ -309,7 +369,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-            ),
+            )?,
             SceneOp::Arc {
                 center,
                 transform,
@@ -319,7 +379,9 @@ pub fn replay_scene(
                 color,
                 width,
                 opa,
-            } => renderer.draw(
+            } => draw_in_frame(
+                renderer,
+                &top,
                 &DrawCommand::Arc {
                     center: *center,
                     transform: top.transform.compose(transform),
@@ -331,7 +393,7 @@ pub fn replay_scene(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-            ),
+            )?,
             SceneOp::Blit {
                 texture,
                 pos,
@@ -345,7 +407,9 @@ pub fn replay_scene(
                 let texture = resolver
                     .texture(texture)
                     .ok_or(ReplayError::UnresolvedTexture)?;
-                renderer.draw(
+                draw_in_frame(
+                    renderer,
+                    &top,
                     &DrawCommand::Blit {
                         pos: *pos,
                         size: *size,
@@ -357,7 +421,7 @@ pub fn replay_scene(
                         composite: *composite,
                     },
                     clip,
-                );
+                )?;
             }
             SceneOp::FillPath {
                 path,
@@ -366,7 +430,9 @@ pub fn replay_scene(
                 opa,
                 fill_rule,
             } => {
-                renderer.draw(
+                draw_in_frame(
+                    renderer,
+                    &top,
                     &DrawCommand::FillPath {
                         path,
                         transform: top.transform.compose(transform),
@@ -375,7 +441,7 @@ pub fn replay_scene(
                         fill_rule: *fill_rule,
                     },
                     clip,
-                );
+                )?;
             }
             SceneOp::StrokePath {
                 path,
@@ -388,7 +454,9 @@ pub fn replay_scene(
                 miter_limit,
                 dash,
             } => {
-                renderer.draw(
+                draw_in_frame(
+                    renderer,
+                    &top,
                     &DrawCommand::StrokePath {
                         path,
                         transform: top.transform.compose(transform),
@@ -401,7 +469,7 @@ pub fn replay_scene(
                         dash,
                     },
                     clip,
-                );
+                )?;
             }
         }
         i += 1;
@@ -431,6 +499,33 @@ mod tests {
                 self.fill_opas.push(*opa);
             }
         }
+        fn flush(&mut self) {}
+    }
+
+    #[derive(Default)]
+    struct ProjectiveCapture {
+        command_transform: Option<Transform>,
+        scope: Option<Transform3D>,
+    }
+
+    impl Renderer for ProjectiveCapture {
+        fn draw(&mut self, _: &DrawCommand, _: &Rect) {}
+
+        fn draw_projective(
+            &mut self,
+            command: &DrawCommand,
+            _: &Rect,
+            transform: &Transform3D,
+        ) -> Result<(), ProjectiveDrawError> {
+            self.command_transform = Some(command.transform());
+            self.scope = Some(*transform);
+            Ok(())
+        }
+
+        fn supports_projective(&self) -> bool {
+            true
+        }
+
         fn flush(&mut self) {}
     }
 
@@ -476,6 +571,7 @@ mod tests {
         let ops = vec![
             SceneOp::GroupBegin {
                 transform: Some(group_tf),
+                projective: None,
                 opacity: None,
                 clip: None,
                 mask: None,
@@ -491,6 +587,36 @@ mod tests {
         };
         replay_scene(&ops, &mut r, &rect(), &NoResolver).unwrap();
         assert_eq!(r.transforms, vec![group_tf.compose(&child_tf)]);
+    }
+
+    #[test]
+    fn projective_group_keeps_one_scope_and_leaf_affine() {
+        let group_affine = Transform::translate(Fixed::from_int(10), Fixed::ZERO);
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
+        let child_affine = Transform::translate(Fixed::ZERO, Fixed::from_int(5));
+        let ops = vec![
+            SceneOp::GroupBegin {
+                transform: Some(group_affine),
+                projective: Some(projective),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            fill(child_affine),
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = ProjectiveCapture::default();
+
+        replay_scene(&ops, &mut renderer, &rect(), &NoResolver).unwrap();
+
+        assert_eq!(renderer.command_transform, Some(child_affine));
+        assert_eq!(
+            renderer.scope,
+            Some(projective.compose(&Transform3D::from_affine(group_affine)))
+        );
     }
 
     #[test]
@@ -620,6 +746,7 @@ mod tests {
     fn group(opa: Option<u8>, hint: bool) -> SceneOp {
         SceneOp::GroupBegin {
             transform: None,
+            projective: None,
             opacity: opa,
             clip: None,
             mask: None,

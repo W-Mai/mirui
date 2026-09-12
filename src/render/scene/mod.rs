@@ -46,6 +46,7 @@ pub enum ResourceRef {
 pub enum SceneOp {
     GroupBegin {
         transform: Option<Transform>,
+        projective: Option<crate::types::Transform3D>,
         opacity: Option<u8>,
         clip: Option<ResourceRef>,
         mask: Option<ResourceRef>,
@@ -183,6 +184,7 @@ impl Scene {
     pub fn group(&mut self, transform: Transform, body: impl FnOnce(&mut Self)) -> &mut Self {
         self.ops.push(SceneOp::GroupBegin {
             transform: Some(transform),
+            projective: None,
             opacity: None,
             clip: None,
             mask: None,
@@ -207,6 +209,7 @@ impl Scene {
         let header_idx = self.ops.len();
         self.ops.push(SceneOp::GroupBegin {
             transform: Some(transform),
+            projective: None,
             opacity: Some(opacity),
             clip: None,
             mask: None,
@@ -237,6 +240,7 @@ impl Scene {
     ) -> &mut Self {
         self.ops.push(SceneOp::GroupBegin {
             transform: Some(transform),
+            projective: None,
             opacity: Some(opacity),
             clip: None,
             mask: None,
@@ -603,6 +607,7 @@ mod tests {
         let manual = alloc::vec![
             SceneOp::GroupBegin {
                 transform: Some(t),
+                projective: None,
                 opacity: None,
                 clip: None,
                 mask: None,
@@ -611,6 +616,7 @@ mod tests {
             },
             SceneOp::GroupBegin {
                 transform: Some(Transform::IDENTITY),
+                projective: None,
                 opacity: Some(128),
                 clip: None,
                 mask: None,

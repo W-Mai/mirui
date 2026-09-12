@@ -4,10 +4,11 @@ use super::{
     CheckedDecodeAllocator, CodecError, DEFAULT_SCALE, DecodeAllocator, FIELD_ALPHA,
     FIELD_COMPOSITE, FIELD_QUAD, FIELD_RADIUS, FIELD_TRANSFORM, PAINT_KIND_COLOR,
     PAINT_KIND_LINEAR, PAINT_KIND_RADIAL, RES_KIND_INDEX, RES_KIND_INLINE, RES_KIND_TOKEN,
-    SLOT_CLIP, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY, SLOT_TRANSFORM, TAG_ARC, TAG_BLIT, TAG_BORDER,
-    TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT, TAG_GLYPH_RUN, TAG_GROUP_BEGIN, TAG_GROUP_END, TAG_LINE,
-    TAG_POP_CLIP, TAG_PUSH_CLIP, TAG_STROKE_PATH, VERSION, composite_from_u8, decode_body_with,
-    fill_rule_from_u8, line_cap_from_u8, line_join_from_u8, spread_from_u8, units_from_u8,
+    SLOT_CLIP, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY, SLOT_PROJECTIVE, SLOT_TRANSFORM, TAG_ARC,
+    TAG_BLIT, TAG_BORDER, TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT, TAG_GLYPH_RUN, TAG_GROUP_BEGIN,
+    TAG_GROUP_END, TAG_LINE, TAG_POP_CLIP, TAG_PUSH_CLIP, TAG_STROKE_PATH, VERSION,
+    composite_from_u8, decode_body_with, fill_rule_from_u8, line_cap_from_u8, line_join_from_u8,
+    spread_from_u8, units_from_u8,
 };
 use crate::path::{Path, PathCmd};
 use crate::reader::PayloadLimits;
@@ -537,6 +538,9 @@ impl<'a> Scanner<'a> {
         if bits & SLOT_TRANSFORM != 0 {
             self.skip_transform()?;
         }
+        if bits & SLOT_PROJECTIVE != 0 {
+            self.cursor.take(72)?;
+        }
         if bits & SLOT_OPACITY != 0 {
             let _ = self.cursor.u8()?;
         }
@@ -809,6 +813,7 @@ mod tests {
         Scene::from_ops(vec![
             SceneOp::GroupBegin {
                 transform: Some(transform),
+                projective: None,
                 opacity: Some(200),
                 clip: Some(ResourceRef::Token(String::from("c"))),
                 mask: Some(ResourceRef::Inline(one_command_path())),
@@ -1377,9 +1382,17 @@ mod tests {
         );
         assert!(Scene::decode(&unknown_field).is_ok());
 
-        let mut unknown_slot = representative_scene().encode().unwrap();
-        unknown_slot[VectorChunkHeader::SIZE + 1] |= 0x40;
-        refresh_payload_crc(&mut unknown_slot);
+        let unknown_slot = payload_from_body(&[
+            TAG_GROUP_BEGIN,
+            0x80,
+            0x01,
+            8,
+            0,
+            0,
+            0,
+            TAG_GROUP_END,
+            TAG_EOF,
+        ]);
         assert_eq!(
             Scene::preflight(&unknown_slot, &PayloadLimits::HOST),
             Ok(())

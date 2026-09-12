@@ -188,6 +188,7 @@ fn parse_op(kind: &str, a: &[&str]) -> Result<SceneOp> {
             }
             Ok(SceneOp::GroupBegin {
                 transform: Some(Transform::translate(fixed(a[0])?, fixed(a[1])?)),
+                projective: None,
                 opacity,
                 clip: None,
                 mask: None,
