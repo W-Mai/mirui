@@ -6,6 +6,9 @@ struct Viewport {
 struct Glyph {
     color: vec4<f32>,
     spread_pad: vec4<f32>,
+    projective_row_0: vec4<f32>,
+    projective_row_1: vec4<f32>,
+    projective_row_2: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> view: Viewport;
@@ -27,12 +30,18 @@ struct VertexOut {
 
 @vertex
 fn vs_main(in: VertexIn) -> VertexOut {
+    let local = vec3<f32>(in.pos, 1.0);
+    let projected = vec3<f32>(
+        dot(glyph.projective_row_0.xyz, local),
+        dot(glyph.projective_row_1.xyz, local),
+        dot(glyph.projective_row_2.xyz, local),
+    );
     let ndc = vec2<f32>(
-        (in.pos.x / view.size.x) * 2.0 - 1.0,
-        1.0 - (in.pos.y / view.size.y) * 2.0,
+        (projected.x / view.size.x) * 2.0 - projected.z,
+        projected.z - (projected.y / view.size.y) * 2.0,
     );
     var out: VertexOut;
-    out.clip = vec4<f32>(ndc, 0.0, 1.0);
+    out.clip = vec4<f32>(ndc, 0.0, projected.z);
     out.uv = in.uv;
     out.uv_bounds = in.uv_bounds;
     return out;

@@ -71,6 +71,9 @@ pub struct PathTintUniform {
 pub struct GlyphUniform {
     pub color: [f32; 4],
     pub spread_pad: [f32; 4],
+    pub projective_row_0: [f32; 4],
+    pub projective_row_1: [f32; 4],
+    pub projective_row_2: [f32; 4],
 }
 
 #[repr(C)]
@@ -491,7 +494,7 @@ const _: () = {
     assert!(core::mem::size_of::<BlitUniform>() == 48);
     // Must match `PathTint` in shader/path.wgsl.
     assert!(core::mem::size_of::<PathTintUniform>() == 16);
-    assert!(core::mem::size_of::<GlyphUniform>() == 32);
+    assert!(core::mem::size_of::<GlyphUniform>() == 80);
     assert!(core::mem::size_of::<GlyphVertex>() == 32);
     // Must match `VertexIn` in shader/blit_quad.wgsl
     // (vec2 + vec3 + f32 = 24).

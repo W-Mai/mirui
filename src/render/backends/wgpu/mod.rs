@@ -14,7 +14,7 @@ use crate::render::path::Path;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
-use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use self::path::PathTessellator;
 use self::pipeline::{
@@ -41,6 +41,36 @@ fn paint_color(paint: &Paint) -> Color {
             .first()
             .map(|stop| stop.color.into())
             .unwrap_or(Color::rgba(0, 0, 0, 0)),
+    }
+}
+
+fn glyph_uniform(color: Color, opacity: u8, spread: u16, transform: Transform3D) -> GlyphUniform {
+    GlyphUniform {
+        color: [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+            color.a as f32 / 255.0 * opacity as f32 / 255.0,
+        ],
+        spread_pad: [f32::from(spread), 0.0, 0.0, 0.0],
+        projective_row_0: [
+            transform.m00.to_f32(),
+            transform.m01.to_f32(),
+            transform.m02.to_f32(),
+            0.0,
+        ],
+        projective_row_1: [
+            transform.m10.to_f32(),
+            transform.m11.to_f32(),
+            transform.m12.to_f32(),
+            0.0,
+        ],
+        projective_row_2: [
+            transform.m20.to_f32(),
+            transform.m21.to_f32(),
+            transform.m22.to_f32(),
+            0.0,
+        ],
     }
 }
 
@@ -321,6 +351,7 @@ struct GlyphRunDraw<'a> {
     clip: &'a Rect,
     color: &'a Color,
     opacity: u8,
+    projective: Transform3D,
 }
 
 struct PosedGlyphRunDraw<'a> {
@@ -331,6 +362,7 @@ struct PosedGlyphRunDraw<'a> {
     clip: &'a Rect,
     color: &'a Color,
     opacity: u8,
+    projective: Transform3D,
 }
 
 impl WgpuRenderer<'_> {
@@ -1500,6 +1532,7 @@ impl WgpuRenderer<'_> {
             clip,
             color,
             opacity,
+            projective,
         } = draw;
         let Some(first) = glyphs.first().copied() else {
             return;
@@ -1515,6 +1548,7 @@ impl WgpuRenderer<'_> {
             clip,
             color,
             opacity,
+            projective,
             |_, positioned, raster, region| {
                 let dx = positioned
                     .origin
@@ -1551,6 +1585,7 @@ impl WgpuRenderer<'_> {
         clip: &Rect,
         color: &Color,
         opacity: u8,
+        projective: Transform3D,
         mut geometry: impl FnMut(
             usize,
             &textflow::shaping::PositionedGlyph,
@@ -1606,7 +1641,7 @@ impl WgpuRenderer<'_> {
                 || self.factory.glyph_vertices.len() >= GLYPHS_PER_BATCH * 4
             {
                 if let Some(batch) = active.take() {
-                    self.submit_glyph_batch(batch, scissor, color, opacity);
+                    self.submit_glyph_batch(batch, scissor, color, opacity, projective);
                 }
                 active = Some(GlyphBatch {
                     key,
@@ -1624,7 +1659,7 @@ impl WgpuRenderer<'_> {
             );
         }
         if let Some(batch) = active {
-            self.submit_glyph_batch(batch, scissor, color, opacity);
+            self.submit_glyph_batch(batch, scissor, color, opacity, projective);
         }
     }
 
@@ -1637,12 +1672,21 @@ impl WgpuRenderer<'_> {
             clip,
             color,
             opacity,
+            projective,
         } = draw;
-        if glyphs
+        let visible = glyphs
             .ink_bounds(font, *pos, *transform, self.viewport.scale())
-            .and_then(|bounds| bounds.intersect(clip))
-            .is_none()
-        {
+            .and_then(|bounds| {
+                if projective.is_identity() {
+                    bounds.intersect(clip)
+                } else {
+                    projective
+                        .apply_rect(bounds)
+                        .map(|quad| Rect::bounding_quad(&quad))
+                        .and_then(|bounds| bounds.intersect(clip))
+                }
+            });
+        if visible.is_none() {
             return;
         }
         let requested_size = font.size.max(1);
@@ -1657,6 +1701,7 @@ impl WgpuRenderer<'_> {
             clip,
             color,
             opacity,
+            projective,
             |index, _, raster, region| {
                 let frame = glyphs.frames().get(index)?;
                 let quad = raster.posed_quad(*pos, *frame, requested_size, *transform)?;
@@ -1672,6 +1717,7 @@ impl WgpuRenderer<'_> {
         scissor: [u32; 4],
         color: &Color,
         opa: u8,
+        projective: Transform3D,
     ) {
         if self.factory.glyph_indices.is_empty() {
             return;
@@ -1686,15 +1732,7 @@ impl WgpuRenderer<'_> {
             self.factory.glyph_indices.clear();
             return;
         }
-        let uniform = GlyphUniform {
-            color: [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0 * opa as f32 / 255.0,
-            ],
-            spread_pad: [f32::from(batch.key.spread), 0.0, 0.0, 0.0],
-        };
+        let uniform = glyph_uniform(*color, opa, batch.key.spread, projective);
         let Some(offset) = self.push_uniform(&uniform) else {
             self.factory.glyph_vertices.clear();
             self.factory.glyph_indices.clear();
@@ -1901,7 +1939,11 @@ mod glyph_tests {
     use super::*;
     use crate::render::font::{FontSurfaceId, GlyphSurface};
 
-    fn render_scalar_field(shader: ShaderKind, spread: u16) -> alloc::vec::Vec<u8> {
+    fn render_scalar_field(
+        shader: ShaderKind,
+        spread: u16,
+        projective: Transform3D,
+    ) -> alloc::vec::Vec<u8> {
         const WIDTH: u32 = 32;
         const HEIGHT: u32 = 16;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -1971,10 +2013,7 @@ mod glyph_tests {
             size: [WIDTH as f32, HEIGHT as f32],
             _pad: [0.0; 2],
         };
-        let glyph = GlyphUniform {
-            color: [1.0; 4],
-            spread_pad: [f32::from(spread), 0.0, 0.0, 0.0],
-        };
+        let glyph = glyph_uniform(Color::rgb(255, 255, 255), u8::MAX, spread, projective);
         let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mirui-glyph-parity-viewport"),
             contents: bytemuck::bytes_of(&viewport),
@@ -2228,7 +2267,7 @@ mod glyph_tests {
     #[test]
     fn coverage_and_sdf_shaders_preserve_scalar_edges() {
         for (shader, spread) in [(ShaderKind::GlyphCoverage, 0), (ShaderKind::GlyphSdf, 4)] {
-            let pixels = render_scalar_field(shader, spread);
+            let pixels = render_scalar_field(shader, spread, Transform3D::IDENTITY);
             let samples = [
                 alpha_at(&pixels, 2, 8),
                 alpha_at(&pixels, 10, 8),
@@ -2239,6 +2278,22 @@ mod glyph_tests {
             assert!(samples[0] < 32, "{shader:?} left edge {samples:?}");
             assert!(samples[3] > 223, "{shader:?} right edge {samples:?}");
         }
+    }
+
+    #[test]
+    fn glyph_shader_applies_projective_transform() {
+        let source = Rect::new(0, 0, 32, 16);
+        let target = [
+            Point::new(0, 0),
+            Point::new(24, 2),
+            Point::new(20, 14),
+            Point::new(0, 16),
+        ];
+        let projective = Transform3D::from_quad(source, &target).unwrap();
+        let pixels = render_scalar_field(ShaderKind::GlyphCoverage, 0, projective);
+
+        assert!(alpha_at(&pixels, 18, 8) > 160);
+        assert_eq!(alpha_at(&pixels, 28, 8), 0);
     }
 }
 
@@ -2328,6 +2383,7 @@ impl Renderer for WgpuRenderer<'_> {
                     clip,
                     color,
                     opacity: *opa,
+                    projective: Transform3D::IDENTITY,
                 });
                 return;
             }
@@ -2347,6 +2403,7 @@ impl Renderer for WgpuRenderer<'_> {
                     clip,
                     color,
                     opacity: *opa,
+                    projective: Transform3D::IDENTITY,
                 });
                 return;
             }
@@ -2470,6 +2527,102 @@ impl Renderer for WgpuRenderer<'_> {
                 unreachable!("glyph runs return before transform dispatch")
             }
         }
+    }
+
+    fn draw_projective(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), crate::render::ProjectiveDrawError> {
+        use crate::render::ProjectiveDrawError;
+
+        if projective.is_identity() {
+            self.draw(cmd, clip);
+            return Ok(());
+        }
+        let transform = projective.compose(&Transform3D::from_affine(cmd.transform()));
+        match cmd {
+            DrawCommand::Fill {
+                area,
+                color,
+                radius,
+                opa,
+                ..
+            } => {
+                let quad = transform
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::Unsupported)?;
+                self.fill_quad_inner(area, &quad, *radius, clip, color, *opa);
+            }
+            DrawCommand::Border {
+                area,
+                width,
+                radius,
+                color,
+                opa,
+                ..
+            } => {
+                let quad = transform
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::Unsupported)?;
+                self.stroke_quad_inner(area, &quad, *width, *radius, clip, color, *opa);
+            }
+            DrawCommand::Blit {
+                pos,
+                size,
+                texture,
+                opa,
+                radius,
+                composite,
+                ..
+            } if *radius == Fixed::ZERO => {
+                let quad = transform
+                    .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
+                    .ok_or(ProjectiveDrawError::Unsupported)?;
+                self.blit_quad_inner(texture, &quad, clip, *opa, *composite);
+            }
+            DrawCommand::GlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => self.draw_glyph_run_inner(GlyphRunDraw {
+                pos,
+                glyphs,
+                font,
+                transform,
+                clip,
+                color,
+                opacity: *opa,
+                projective: *projective,
+            }),
+            DrawCommand::PosedGlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
+                pos,
+                glyphs: *glyphs,
+                font,
+                transform,
+                clip,
+                color,
+                opacity: *opa,
+                projective: *projective,
+            }),
+            _ => return Err(ProjectiveDrawError::Unsupported),
+        }
+        Ok(())
+    }
+
+    fn supports_projective(&self) -> bool {
+        true
     }
 
     fn flush(&mut self) {
@@ -2685,6 +2838,7 @@ impl Canvas for WgpuRenderer<'_> {
             clip,
             color,
             opacity: opa,
+            projective: Transform3D::IDENTITY,
         });
     }
 
@@ -2705,6 +2859,7 @@ impl Canvas for WgpuRenderer<'_> {
             clip,
             color,
             opacity: opa,
+            projective: Transform3D::IDENTITY,
         });
     }
 
