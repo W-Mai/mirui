@@ -23,6 +23,11 @@ pub enum ReplayError {
     /// hint to flatten with a visible seam.
     GroupOpacityNeedsOffscreen,
     ProjectiveDrawUnsupported,
+    ProjectiveFallbackUnavailable,
+    ProjectiveFallbackCapacity {
+        required_bytes: usize,
+        capacity_bytes: usize,
+    },
     InvalidProjectiveGeometry,
 }
 
@@ -69,7 +74,7 @@ fn draw_in_frame(
     if let Some(projective) = frame.projective {
         if pass == ReplayPass::Preflight {
             return renderer
-                .preflight_projective(command, &projective)
+                .preflight_projective(command, clip, &projective)
                 .map_err(projective_replay_error);
         }
         return renderer
@@ -85,6 +90,14 @@ fn draw_in_frame(
 const fn projective_replay_error(error: ProjectiveDrawError) -> ReplayError {
     match error {
         ProjectiveDrawError::Unsupported => ReplayError::ProjectiveDrawUnsupported,
+        ProjectiveDrawError::MissingFallbackStorage => ReplayError::ProjectiveFallbackUnavailable,
+        ProjectiveDrawError::InsufficientFallbackStorage {
+            required_bytes,
+            capacity_bytes,
+        } => ReplayError::ProjectiveFallbackCapacity {
+            required_bytes,
+            capacity_bytes,
+        },
         ProjectiveDrawError::InvalidProjection => ReplayError::InvalidProjectiveGeometry,
     }
 }
@@ -598,6 +611,7 @@ mod tests {
         fn preflight_projective(
             &self,
             _: &DrawCommand,
+            _: &Rect,
             _: &Transform3D,
         ) -> Result<(), ProjectiveDrawError> {
             Ok(())
@@ -628,11 +642,11 @@ mod tests {
         fn draw_projective(
             &mut self,
             command: &DrawCommand,
-            _: &Rect,
+            clip: &Rect,
             _: &Transform3D,
         ) -> Result<(), ProjectiveDrawError> {
             if self
-                .preflight_projective(command, &Transform3D::IDENTITY)
+                .preflight_projective(command, clip, &Transform3D::IDENTITY)
                 .is_ok()
             {
                 self.draws += 1;
@@ -645,6 +659,7 @@ mod tests {
         fn preflight_projective(
             &self,
             command: &DrawCommand,
+            _: &Rect,
             _: &Transform3D,
         ) -> Result<(), ProjectiveDrawError> {
             if matches!(command, DrawCommand::Fill { .. }) {
@@ -814,6 +829,49 @@ mod tests {
         assert_eq!(
             replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
             Err(ReplayError::InvalidProjectiveGeometry)
+        );
+        assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
+    fn fallback_capacity_error_is_distinct_and_failure_atomic() {
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
+        let ops = vec![
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(projective),
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            fill(Transform::IDENTITY),
+            SceneOp::Line {
+                p1: Point::ZERO,
+                p2: Point::new(Fixed::ONE, Fixed::ONE),
+                transform: Transform::IDENTITY,
+                color: Color::rgb(255, 255, 255),
+                width: Fixed::ONE,
+                opa: 255,
+            },
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = FillOnlyProjectiveRenderer {
+            line_error: ProjectiveDrawError::InsufficientFallbackStorage {
+                required_bytes: 64,
+                capacity_bytes: 32,
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
+            Err(ReplayError::ProjectiveFallbackCapacity {
+                required_bytes: 64,
+                capacity_bytes: 32,
+            })
         );
         assert_eq!(renderer.draws, 0);
     }

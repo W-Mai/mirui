@@ -30,9 +30,10 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
+use crate::render::projective_fallback::ProjectiveGlyphFallback;
+use crate::render::renderer::{ProjectiveDrawError, Renderer};
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use crate::core::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
@@ -402,11 +403,20 @@ impl InspectCaches for SdlGpuSurface {
     }
 }
 
-pub struct SdlGpuFactory;
+pub struct SdlGpuFactory {
+    projective_glyph_fallback: Option<ProjectiveGlyphFallback>,
+}
 
 impl SdlGpuFactory {
     pub fn new() -> Self {
-        Self
+        Self {
+            projective_glyph_fallback: None,
+        }
+    }
+
+    pub fn with_projective_glyph_fallback(mut self, fallback: ProjectiveGlyphFallback) -> Self {
+        self.projective_glyph_fallback = Some(fallback);
+        self
     }
 }
 
@@ -433,6 +443,7 @@ impl RendererFactory<SdlGpuSurface> for SdlGpuFactory {
             canvas,
             label_cache,
             tessellator,
+            projective_glyph_fallback: self.projective_glyph_fallback.as_mut(),
             viewport,
         }
     }
@@ -442,6 +453,7 @@ pub struct SdlGpuRenderer<'a> {
     canvas: &'a mut SdlCanvas<Window>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
+    projective_glyph_fallback: Option<&'a mut ProjectiveGlyphFallback>,
     viewport: Viewport,
 }
 
@@ -705,6 +717,104 @@ impl Renderer for SdlGpuRenderer<'_> {
                 unimplemented!("sdl_gpu backend: StrokePath not yet implemented");
             }
         }
+    }
+
+    fn draw_projective(
+        &mut self,
+        command: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if projective.is_identity() {
+            self.draw(command, clip);
+            return Ok(());
+        }
+        self.preflight_projective(command, clip, projective)?;
+        let fallback = self
+            .projective_glyph_fallback
+            .as_deref_mut()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
+        let plan = fallback.plan(command, clip, projective, self.viewport)?;
+        if plan.width == 0 || plan.height == 0 {
+            return Ok(());
+        }
+
+        let read_rect = sdl2_sys::SDL_Rect {
+            x: plan.x,
+            y: plan.y,
+            w: i32::from(plan.width),
+            h: i32::from(plan.height),
+        };
+        let target = fallback.target_mut(plan);
+        let read_result = unsafe {
+            sdl2_sys::SDL_RenderReadPixels(
+                self.canvas.raw(),
+                &read_rect,
+                sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
+                target.as_mut_ptr().cast(),
+                i32::from(plan.width) * 4,
+            )
+        };
+        if read_result != 0 {
+            return Err(ProjectiveDrawError::Unsupported);
+        }
+
+        fallback.render(plan, command, projective, self.viewport)?;
+        let target = fallback.target(plan);
+        let canvas = &mut *self.canvas;
+        let mut uploaded = false;
+        self.label_cache.with_creator(|creator| {
+            let Ok(mut texture) = creator.create_texture_streaming(
+                sdl2::pixels::PixelFormatEnum::RGBA32,
+                u32::from(plan.width),
+                u32::from(plan.height),
+            ) else {
+                return;
+            };
+            if texture
+                .update(None, target, usize::from(plan.width) * 4)
+                .is_err()
+            {
+                return;
+            }
+            texture.set_blend_mode(sdl2::render::BlendMode::None);
+            let dst = sdl2::rect::Rect::new(
+                plan.x,
+                plan.y,
+                u32::from(plan.width),
+                u32::from(plan.height),
+            );
+            uploaded = canvas.copy(&texture, None, Some(dst)).is_ok();
+        });
+        if uploaded {
+            Ok(())
+        } else {
+            Err(ProjectiveDrawError::Unsupported)
+        }
+    }
+
+    fn preflight_projective(
+        &self,
+        command: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if projective.is_identity() {
+            return Ok(());
+        }
+        if !matches!(
+            command,
+            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. }
+        ) {
+            return Err(ProjectiveDrawError::Unsupported);
+        }
+        let fallback = self
+            .projective_glyph_fallback
+            .as_deref()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
+        fallback
+            .plan(command, clip, projective, self.viewport)
+            .map(|_| ())
     }
 
     fn flush(&mut self) {}

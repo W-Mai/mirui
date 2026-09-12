@@ -44,10 +44,11 @@ impl Renderer for ProjectiveRenderer<'_> {
     fn preflight_projective(
         &self,
         command: &DrawCommand,
+        clip: &Rect,
         transform: &Transform3D,
     ) -> Result<(), crate::render::ProjectiveDrawError> {
         self.inner
-            .preflight_projective(command, &self.transform.compose(transform))
+            .preflight_projective(command, clip, &self.transform.compose(transform))
     }
 
     fn flush(&mut self) {

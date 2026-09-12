@@ -8,6 +8,13 @@ use super::texture::ColorFormat;
 pub enum ProjectiveDrawError {
     /// The renderer or command variant has no exact projective path.
     Unsupported,
+    /// No bounded software target was supplied for an exact fallback.
+    MissingFallbackStorage,
+    /// The supplied software target cannot hold the clipped output region.
+    InsufficientFallbackStorage {
+        required_bytes: usize,
+        capacity_bytes: usize,
+    },
     /// The effective transform is singular or crosses the near plane.
     InvalidProjection,
 }
@@ -30,10 +37,13 @@ pub trait Renderer {
         }
     }
 
-    /// Validate one command under a homography without drawing it.
+    /// Validate one clipped command under a homography without drawing it.
+    /// Backends with a bounded software path use `clip` to report the exact
+    /// target capacity required before any command is drawn.
     fn preflight_projective(
         &self,
         _command: &DrawCommand,
+        _clip: &Rect,
         transform: &Transform3D,
     ) -> Result<(), ProjectiveDrawError> {
         if transform.is_identity() {
@@ -144,6 +154,7 @@ mod tests {
         assert_eq!(
             r.preflight_projective(
                 &command,
+                &Rect::new(0, 0, 1, 1),
                 &Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400),),
             ),
             Err(ProjectiveDrawError::Unsupported)

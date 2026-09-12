@@ -16,11 +16,12 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
+use crate::render::projective_fallback::ProjectiveGlyphFallback;
 use crate::render::raster::{LineCap, LineJoin};
-use crate::render::renderer::Renderer;
+use crate::render::renderer::{ProjectiveDrawError, Renderer};
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
-use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 fn paint_color(paint: &Paint) -> Color {
     match paint {
@@ -41,6 +42,7 @@ fn paint_color(paint: &Paint) -> Color {
 pub struct WebCanvasRendererFactory {
     texture_pool: TexturePool,
     glyph_pool: GlyphPool,
+    projective_glyph_fallback: Option<ProjectiveGlyphFallback>,
 }
 
 impl WebCanvasRendererFactory {
@@ -48,7 +50,13 @@ impl WebCanvasRendererFactory {
         Self {
             texture_pool: new_pool(),
             glyph_pool: new_glyph_pool(),
+            projective_glyph_fallback: None,
         }
+    }
+
+    pub fn with_projective_glyph_fallback(mut self, fallback: ProjectiveGlyphFallback) -> Self {
+        self.projective_glyph_fallback = Some(fallback);
+        self
     }
 }
 
@@ -879,6 +887,80 @@ impl Renderer for WebCanvasRenderer<'_> {
         }
 
         self.ctx().restore();
+    }
+
+    fn draw_projective(
+        &mut self,
+        command: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if projective.is_identity() {
+            self.draw(command, clip);
+            return Ok(());
+        }
+        self.preflight_projective(command, clip, projective)?;
+        let plan = self
+            .factory
+            .projective_glyph_fallback
+            .as_ref()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?
+            .plan(command, clip, projective, self.viewport)?;
+        if plan.width == 0 || plan.height == 0 {
+            return Ok(());
+        }
+
+        let image = self
+            .ctx()
+            .get_image_data(
+                f64::from(plan.x),
+                f64::from(plan.y),
+                f64::from(plan.width),
+                f64::from(plan.height),
+            )
+            .map_err(|_| ProjectiveDrawError::Unsupported)?;
+        let source = image.data();
+        let fallback = self
+            .factory
+            .projective_glyph_fallback
+            .as_mut()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
+        fallback.target_mut(plan).copy_from_slice(&source.0);
+        fallback.render(plan, command, projective, self.viewport)?;
+        let output = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+            wasm_bindgen::Clamped(fallback.target_mut(plan)),
+            u32::from(plan.width),
+            u32::from(plan.height),
+        )
+        .map_err(|_| ProjectiveDrawError::Unsupported)?;
+        self.ctx()
+            .put_image_data(&output, f64::from(plan.x), f64::from(plan.y))
+            .map_err(|_| ProjectiveDrawError::Unsupported)
+    }
+
+    fn preflight_projective(
+        &self,
+        command: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if projective.is_identity() {
+            return Ok(());
+        }
+        if !matches!(
+            command,
+            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. }
+        ) {
+            return Err(ProjectiveDrawError::Unsupported);
+        }
+        let fallback = self
+            .factory
+            .projective_glyph_fallback
+            .as_ref()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
+        fallback
+            .plan(command, clip, projective, self.viewport)
+            .map(|_| ())
     }
 
     fn flush(&mut self) {

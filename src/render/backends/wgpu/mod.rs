@@ -2445,7 +2445,7 @@ impl Renderer for WgpuRenderer<'_> {
     ) -> Result<(), crate::render::ProjectiveDrawError> {
         use crate::render::ProjectiveDrawError;
 
-        self.preflight_projective(cmd, projective)?;
+        self.preflight_projective(cmd, clip, projective)?;
         if projective.is_identity() {
             self.draw(cmd, clip);
             return Ok(());
@@ -2533,6 +2533,7 @@ impl Renderer for WgpuRenderer<'_> {
     fn preflight_projective(
         &self,
         command: &DrawCommand,
+        _clip: &Rect,
         projective: &Transform3D,
     ) -> Result<(), crate::render::ProjectiveDrawError> {
         use crate::render::ProjectiveDrawError;
