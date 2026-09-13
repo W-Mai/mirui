@@ -39,6 +39,8 @@ pub enum RenderFeature {
     AffineGeometry,
     ProjectiveGeometry,
     PathClip,
+    PathStroke,
+    FillRule,
     GradientPaint,
     StrokeStyle,
     Blur,
@@ -85,7 +87,37 @@ pub enum ProjectiveDrawError {
     InvalidProjection,
 }
 
+impl From<ProjectiveDrawError> for RenderError {
+    fn from(error: ProjectiveDrawError) -> Self {
+        match error {
+            ProjectiveDrawError::Unsupported => {
+                Self::Unsupported(RenderFeature::ProjectiveGeometry)
+            }
+            ProjectiveDrawError::MissingFallbackStorage => Self::MissingWorkspace,
+            ProjectiveDrawError::InsufficientFallbackStorage {
+                required_bytes,
+                capacity_bytes,
+            } => Self::InsufficientWorkspace {
+                required_bytes,
+                capacity_bytes,
+            },
+            ProjectiveDrawError::InvalidProjection => Self::InvalidGeometry,
+        }
+    }
+}
+
 pub trait Renderer {
+    /// Classify exact execution before changing the target. Unknown backends
+    /// conservatively reject requests until they define their own route.
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        let feature = if request.projective.is_identity() {
+            RenderFeature::AffineGeometry
+        } else {
+            RenderFeature::ProjectiveGeometry
+        };
+        Err(RenderError::Unsupported(feature))
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect);
 
     /// Draw one command after its affine transform under `transform`.
@@ -232,6 +264,10 @@ mod tests {
             alpha: Fixed::ONE,
             region: Rect::new(0, 0, 1, 1),
         };
+        assert_eq!(
+            r.route(&DrawRequest::new(&command, Rect::new(0, 0, 1, 1))),
+            Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        );
         assert_eq!(
             r.preflight_projective(
                 &command,

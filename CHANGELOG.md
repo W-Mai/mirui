@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Render request model.** `DrawRequest` carries a borrowed command, clip, and shared projection; `RenderRoute` and `RenderError` describe exact execution and bounded failure outcomes.
+- **WGPU route inspection.** `Renderer::route` classifies existing WGPU native paths and reports typed rejection for unsupported clip, blur, stroke, paint, rounded blit, composite, and transform semantics.
 
 ### Fixed
 

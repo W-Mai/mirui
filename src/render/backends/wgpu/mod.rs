@@ -11,7 +11,8 @@ use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
 use crate::render::factory::RendererFactory;
 use crate::render::font::Font;
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
+use crate::render::raster::FillRule;
+use crate::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
@@ -333,6 +334,78 @@ struct PosedGlyphRunDraw<'a> {
 }
 
 impl WgpuRenderer<'_> {
+    fn classify_request(request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        use crate::types::TransformClass;
+
+        match request.command {
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
+                return Err(RenderError::Unsupported(RenderFeature::PathClip));
+            }
+            DrawCommand::ApplyBlur { .. } => {
+                return Err(RenderError::Unsupported(RenderFeature::Blur));
+            }
+            DrawCommand::StrokePath { .. } => {
+                return Err(RenderError::Unsupported(RenderFeature::PathStroke));
+            }
+            DrawCommand::FillPath {
+                paint, fill_rule, ..
+            } => {
+                if !matches!(paint, Paint::Color(_)) {
+                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
+                }
+                if *fill_rule != FillRule::EvenOdd {
+                    return Err(RenderError::Unsupported(RenderFeature::FillRule));
+                }
+            }
+            DrawCommand::Blit {
+                radius, composite, ..
+            } => {
+                if *radius != Fixed::ZERO {
+                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
+                }
+                if matches!(
+                    composite,
+                    CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
+                ) {
+                    return Err(RenderError::Unsupported(RenderFeature::Composite(
+                        *composite,
+                    )));
+                }
+            }
+            _ => {}
+        }
+
+        if !request.projective.is_identity() {
+            return match request.command {
+                DrawCommand::Fill { .. }
+                | DrawCommand::Border { .. }
+                | DrawCommand::Blit { .. }
+                | DrawCommand::GlyphRun { .. }
+                | DrawCommand::PosedGlyphRun { .. } => Ok(RenderRoute::Native),
+                _ => Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry)),
+            };
+        }
+
+        let supports_affine = match request.command {
+            DrawCommand::Fill { quad, .. }
+            | DrawCommand::Border { quad, .. }
+            | DrawCommand::Blit { quad, .. } => quad.is_some(),
+            DrawCommand::GlyphRun { .. }
+            | DrawCommand::PosedGlyphRun { .. }
+            | DrawCommand::FillPath { .. } => true,
+            _ => false,
+        };
+        if !supports_affine
+            && !matches!(
+                request.command.transform().classify(),
+                TransformClass::Identity | TransformClass::Translate
+            )
+        {
+            return Err(RenderError::Unsupported(RenderFeature::AffineGeometry));
+        }
+        Ok(RenderRoute::Native)
+    }
+
     /// `false` on swapchain Outdated/Lost/Validation; caller drops the
     /// frame, next tick retries (Resized triggers a reconfigure).
     fn begin_frame(&mut self) -> bool {
@@ -1860,6 +1933,124 @@ fn append_glyph_instance(
 }
 
 #[cfg(test)]
+mod route_tests {
+    use super::*;
+    use crate::render::texture::ColorFormat;
+    use mirx::scene::{GradientUnits, LinearGradient, SpreadMode};
+
+    #[test]
+    fn rejects_commands_that_current_gpu_dispatch_ignores_or_reduces() {
+        let clip = Rect::new(0, 0, 32, 32);
+        let path = Path::new();
+        let paint = Paint::Color(Color::rgb(20, 30, 40).into());
+        let push = DrawCommand::PushClip {
+            path: &path,
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::EvenOdd,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&push, clip)),
+            Err(RenderError::Unsupported(RenderFeature::PathClip))
+        );
+
+        let fill = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            opa: 255,
+            fill_rule: FillRule::NonZero,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&fill, clip)),
+            Err(RenderError::Unsupported(RenderFeature::FillRule))
+        );
+
+        let gradient = Paint::LinearGradient(LinearGradient {
+            start: Point::ZERO.into(),
+            end: Point::new(10, 0).into(),
+            stops: alloc::borrow::Cow::Borrowed(&[]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::UserSpaceOnUse,
+            transform: Transform::IDENTITY.into(),
+        });
+        let gradient_fill = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &gradient,
+            opa: 255,
+            fill_rule: FillRule::EvenOdd,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&gradient_fill, clip)),
+            Err(RenderError::Unsupported(RenderFeature::GradientPaint))
+        );
+
+        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+        let blit = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ONE,
+            composite: CompositeMode::SourceOver,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            Err(RenderError::Unsupported(RenderFeature::RoundedBlit))
+        );
+
+        let difference = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::Difference,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&difference, clip)),
+            Err(RenderError::Unsupported(RenderFeature::Composite(
+                CompositeMode::Difference
+            )))
+        );
+    }
+
+    #[test]
+    fn accepts_native_fill_and_rejects_unrouted_affine_line() {
+        let clip = Rect::new(0, 0, 32, 32);
+        let fill = DrawCommand::Fill {
+            area: clip,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(20, 30, 40),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&fill, clip)),
+            Ok(RenderRoute::Native)
+        );
+
+        let line = DrawCommand::Line {
+            p1: Point::ZERO,
+            p2: Point::new(10, 10),
+            transform: Transform::rotate_deg(Fixed::from_int(20)),
+            color: Color::rgb(20, 30, 40),
+            width: Fixed::ONE,
+            opa: 255,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&line, clip)),
+            Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        );
+    }
+}
+
+#[cfg(test)]
 mod glyph_tests {
     use super::*;
     use crate::render::font::{FontSurfaceId, GlyphSurface};
@@ -2206,6 +2397,15 @@ mod glyph_tests {
 }
 
 impl Renderer for WgpuRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        let route = Self::classify_request(request)?;
+        if !request.projective.is_identity() {
+            self.preflight_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from)?;
+        }
+        Ok(route)
+    }
+
     fn output_scale(&self) -> Fixed {
         self.viewport.scale()
     }
