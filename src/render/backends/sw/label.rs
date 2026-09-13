@@ -289,7 +289,7 @@ impl SwRenderer<'_> {
         let requested_size = run.font.size.max(1);
         let output_ppem = crate::render::font::output_ppem(
             requested_size,
-            projective_scale_at(run.transform, *run.pos),
+            run.transform.raster_scale_at(*run.pos),
         );
         let metrics = run.font.metrics(requested_size);
         for positioned in run.glyphs {
@@ -386,7 +386,7 @@ impl SwRenderer<'_> {
         for (positioned, frame) in run.glyphs.iter().zip(run.frames) {
             let output_ppem = crate::render::font::output_ppem(
                 requested_size,
-                projective_scale_at(run.projective_transform, *run.pos),
+                run.projective_transform.raster_scale_at(*run.pos),
             );
             let Some(raster) =
                 run.font
@@ -882,35 +882,6 @@ fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
     let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
     pixels.clamp(1, u64::from(u16::MAX)) as u16
-}
-
-pub(super) fn projective_scale_at(transform: &Transform3D, point: Point) -> Fixed {
-    let Some(origin) = transform.apply_point(point) else {
-        return Fixed::ONE;
-    };
-    let x = transform
-        .apply_point(Point {
-            x: point.x + Fixed::ONE,
-            y: point.y,
-        })
-        .map(|p| {
-            let dx = p.x - origin.x;
-            let dy = p.y - origin.y;
-            (dx * dx + dy * dy).sqrt()
-        })
-        .unwrap_or(Fixed::ONE);
-    let y = transform
-        .apply_point(Point {
-            x: point.x,
-            y: point.y + Fixed::ONE,
-        })
-        .map(|p| {
-            let dx = p.x - origin.x;
-            let dy = p.y - origin.y;
-            (dx * dx + dy * dy).sqrt()
-        })
-        .unwrap_or(Fixed::ONE);
-    x.max(y).max(Fixed::from_ratio(1, 256))
 }
 
 #[cfg(test)]

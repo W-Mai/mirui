@@ -55,6 +55,17 @@ impl<'a> PosedGlyphs<'a> {
             requested_size,
             output_scale * transform.raster_scale(),
         );
+        self.ink_bounds_for_output(font, pos, transform, output_ppem)
+    }
+
+    pub(crate) fn ink_bounds_for_output(
+        self,
+        font: &Font,
+        pos: Point,
+        transform: Transform,
+        output_ppem: u16,
+    ) -> Option<Rect> {
+        let requested_size = font.size.max(1);
         let mut bounds: Option<Rect> = None;
         for (glyph, frame) in self.iter() {
             let Some(raster) =

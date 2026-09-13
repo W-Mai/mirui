@@ -232,6 +232,35 @@ impl Transform3D {
         })
     }
 
+    pub(crate) fn raster_scale_at(&self, point: Point) -> Fixed {
+        let Some(origin) = self.apply_point(point) else {
+            return Fixed::ONE;
+        };
+        let x = self
+            .apply_point(Point {
+                x: point.x + Fixed::ONE,
+                y: point.y,
+            })
+            .map(|p| {
+                let dx = p.x - origin.x;
+                let dy = p.y - origin.y;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .unwrap_or(Fixed::ONE);
+        let y = self
+            .apply_point(Point {
+                x: point.x,
+                y: point.y + Fixed::ONE,
+            })
+            .map(|p| {
+                let dx = p.x - origin.x;
+                let dy = p.y - origin.y;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .unwrap_or(Fixed::ONE);
+        x.max(y).max(Fixed::from_ratio(1, 256))
+    }
+
     pub fn apply_rect(&self, r: Rect) -> Option<[Point; 4]> {
         let x0 = r.x;
         let y0 = r.y;

@@ -113,7 +113,42 @@ impl ProjectiveFallback {
                     .ok_or(ProjectiveDrawError::InvalidProjection)?;
                 Rect::bounding_quad(&quad)
             }
-            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. } => *clip,
+            DrawCommand::GlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                ..
+            } => {
+                let physical = Transform3D::from_affine(viewport.as_transform()).compose(&logical);
+                let output_ppem = crate::render::font::output_ppem(
+                    font.size.max(1),
+                    physical.raster_scale_at(*pos),
+                );
+                font.glyph_run_ink_bounds(glyphs, *pos, *transform, output_ppem)
+                    .and_then(|bounds| projective.apply_rect(bounds))
+                    .map(|quad| Rect::bounding_quad(&quad))
+                    .unwrap_or(*clip)
+            }
+            DrawCommand::PosedGlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                ..
+            } => {
+                let physical =
+                    Transform3D::from_affine(viewport.as_transform()).compose(projective);
+                let output_ppem = crate::render::font::output_ppem(
+                    font.size.max(1),
+                    physical.raster_scale_at(*pos),
+                );
+                glyphs
+                    .ink_bounds_for_output(font, *pos, *transform, output_ppem)
+                    .and_then(|bounds| projective.apply_rect(bounds))
+                    .map(|quad| Rect::bounding_quad(&quad))
+                    .unwrap_or(*clip)
+            }
             _ => return Err(ProjectiveDrawError::Unsupported),
         };
         let draw_bounds = clip
@@ -215,8 +250,10 @@ impl ProjectiveFallback {
 mod tests {
     use super::*;
     use crate::render::command::CompositeMode;
+    use crate::render::command::PosedGlyphs;
     use crate::render::font::Font;
     use crate::types::{Color, Point, Transform};
+    use textflow::placement::GlyphFrame;
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
 
     fn glyph_command<'a>(glyphs: &'a [PositionedGlyph], font: &'a Font) -> DrawCommand<'a> {
@@ -254,6 +291,37 @@ mod tests {
                 capacity_bytes: 15,
             })
         );
+    }
+
+    #[test]
+    fn projected_glyph_uses_ink_bounds_instead_of_full_clip() {
+        let glyphs = [PositionedGlyph::new(
+            GlyphId::new(u16::from(b'A')),
+            FlowPoint { x: 0, y: 0 },
+        )];
+        let font = Font::bitmap_8x8();
+        let command = DrawCommand::GlyphRun {
+            pos: Point::new(10, 20),
+            transform: Transform::IDENTITY,
+            glyphs: &glyphs,
+            font: &font,
+            color: Color::rgb(255, 255, 255),
+            opa: 255,
+        };
+        let fallback = ProjectiveFallback::new(alloc::vec![0; 1024]);
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(10), Fixed::from_int(400));
+        let plan = fallback
+            .plan(
+                &command,
+                &Rect::new(0, 0, 64, 64),
+                &projection,
+                Viewport::new(64, 64, Fixed::ONE),
+            )
+            .expect("a small glyph should fit in a 1 KiB fallback target");
+        assert!(plan.required_bytes <= 1024);
+        assert!(plan.width < 64);
+        assert!(plan.height < 64);
     }
 
     #[test]
@@ -298,12 +366,7 @@ mod tests {
         let clip = Rect::new(3, 2, 9, 8);
         let transform = Transform3D::rotate_y_perspective(Fixed::from_int(8), Fixed::from_int(400));
         let mut expected = alloc::vec![19; WIDTH * HEIGHT * 4];
-        let mut actual = alloc::vec![0; 9 * 8 * 4];
-        for row in 0..8 {
-            let source = ((row + 2) * WIDTH + 3) * 4;
-            let target = row * 9 * 4;
-            actual[target..target + 9 * 4].copy_from_slice(&expected[source..source + 9 * 4]);
-        }
+        let mut actual = expected.clone();
 
         let mut direct = SwRenderer::new(Texture::new(
             &mut expected,
@@ -314,25 +377,36 @@ mod tests {
         direct.viewport = viewport;
         direct.draw_projective(&command, &clip, &transform).unwrap();
 
-        let mut fallback = ProjectiveFallback::new(actual);
+        let mut fallback = ProjectiveFallback::new(alloc::vec![0; 9 * 8 * 4]);
         let plan = fallback
             .plan(&command, &clip, &transform, viewport)
             .unwrap();
+        let width = usize::from(plan.width);
+        let height = usize::from(plan.height);
+        let target = fallback.target_mut(plan);
+        for row in 0..height {
+            let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let offset = row * width * 4;
+            target[offset..offset + width * 4].copy_from_slice(&actual[source..source + width * 4]);
+        }
         fallback
             .render(plan, &command, &transform, viewport)
             .unwrap();
-
-        for row in 0..8 {
-            let expected_start = ((row + 2) * WIDTH + 3) * 4;
-            let actual_start = row * 9 * 4;
-            assert_eq!(
-                &fallback.target(plan)[actual_start..actual_start + 9 * 4],
-                &expected[expected_start..expected_start + 9 * 4],
+        let target = fallback.target(plan);
+        for row in 0..height {
+            let dest = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let offset = row * width * 4;
+            actual[dest..dest + width * 4].copy_from_slice(&target[offset..offset + width * 4]);
+        }
+        if let Some(index) = actual.iter().zip(&expected).position(|(a, b)| a != b) {
+            panic!(
+                "pixel mismatch at byte {index}: actual {}, expected {}, plan {plan:?}",
+                actual[index], expected[index]
             );
         }
     }
 
-    fn matches_software_on_its_projected_region(command: &DrawCommand<'_>) {
+    fn matches_software_on_its_projected_region(command: &DrawCommand<'_>, tolerance: u8) {
         const WIDTH: usize = 64;
         const HEIGHT: usize = 64;
         let viewport = Viewport::new(WIDTH as u16, HEIGHT as u16, Fixed::ONE);
@@ -340,6 +414,7 @@ mod tests {
         let transform =
             Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
         let mut expected = alloc::vec![19; WIDTH * HEIGHT * 4];
+        let mut actual = expected.clone();
         let mut direct = SwRenderer::new(Texture::new(
             &mut expected,
             WIDTH as u16,
@@ -353,21 +428,43 @@ mod tests {
         let plan = fallback.plan(command, &clip, &transform, viewport).unwrap();
         assert!(plan.width < WIDTH as u16);
         assert!(plan.height < HEIGHT as u16);
-        fallback.target_mut(plan).fill(19);
-        let before = fallback.target(plan).to_vec();
+        let width = usize::from(plan.width);
+        let height = usize::from(plan.height);
+        let target = fallback.target_mut(plan);
+        for row in 0..height {
+            let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let offset = row * width * 4;
+            target[offset..offset + width * 4].copy_from_slice(&actual[source..source + width * 4]);
+        }
         fallback
             .render(plan, command, &transform, viewport)
             .unwrap();
-        assert_ne!(fallback.target(plan), before);
-
-        for row in 0..usize::from(plan.height) {
-            let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
-            let target = row * usize::from(plan.width) * 4;
-            assert_eq!(
-                &fallback.target(plan)[target..target + usize::from(plan.width) * 4],
-                &expected[source..source + usize::from(plan.width) * 4],
-            );
+        let target = fallback.target(plan);
+        for row in 0..height {
+            let dest = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let offset = row * width * 4;
+            actual[dest..dest + width * 4].copy_from_slice(&target[offset..offset + width * 4]);
         }
+        let mut max_inside = 0;
+        for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+            let pixel = index / 4;
+            let x = pixel % WIDTH;
+            let y = pixel / WIDTH;
+            let inside = x >= plan.x as usize
+                && x < plan.x as usize + width
+                && y >= plan.y as usize
+                && y < plan.y as usize + height;
+            let difference = actual.abs_diff(*expected);
+            if inside {
+                max_inside = max_inside.max(difference);
+            } else {
+                assert_eq!(difference, 0, "outside plan at byte {index}: {plan:?}");
+            }
+        }
+        assert!(
+            max_inside <= tolerance,
+            "maximum pixel difference {max_inside}: {plan:?}"
+        );
     }
 
     #[test]
@@ -380,7 +477,7 @@ mod tests {
             radius: Fixed::from_int(3),
             opa: 255,
         };
-        matches_software_on_its_projected_region(&fill);
+        matches_software_on_its_projected_region(&fill, 0);
 
         let border = DrawCommand::Border {
             area: Rect::new(12, 12, 20, 18),
@@ -391,7 +488,7 @@ mod tests {
             radius: Fixed::from_int(3),
             opa: 255,
         };
-        matches_software_on_its_projected_region(&border);
+        matches_software_on_its_projected_region(&border, 0);
 
         let mut pixels = [160; 8 * 8 * 4];
         let texture = Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888);
@@ -405,7 +502,50 @@ mod tests {
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         };
-        matches_software_on_its_projected_region(&blit);
+        matches_software_on_its_projected_region(&blit, 0);
+    }
+
+    #[test]
+    fn projected_glyph_bounds_preserve_full_software_output() {
+        let glyphs = [PositionedGlyph::new(
+            GlyphId::new(u16::from(b'A')),
+            FlowPoint { x: 0, y: 0 },
+        )];
+        let font = Font::bitmap_8x8();
+        let command = DrawCommand::GlyphRun {
+            pos: Point::new(20, 25),
+            transform: Transform::rotate_deg(Fixed::from_int(8)),
+            glyphs: &glyphs,
+            font: &font,
+            color: Color::rgb(255, 255, 255),
+            opa: 255,
+        };
+        matches_software_on_its_projected_region(&command, 4);
+    }
+
+    #[test]
+    fn projected_posed_glyph_bounds_preserve_full_software_output() {
+        let glyphs = [PositionedGlyph::new(
+            GlyphId::new(u16::from(b'A')),
+            FlowPoint { x: 0, y: 0 },
+        )];
+        let frames = [GlyphFrame {
+            local_origin: FlowPoint {
+                x: 20 << 8,
+                y: 20 << 8,
+            },
+            unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
+        }];
+        let font = Font::bitmap_8x8();
+        let command = DrawCommand::PosedGlyphRun {
+            pos: Point::ZERO,
+            transform: Transform::IDENTITY,
+            glyphs: PosedGlyphs::new(&glyphs, &frames).unwrap(),
+            font: &font,
+            color: Color::rgb(255, 255, 255),
+            opa: 255,
+        };
+        matches_software_on_its_projected_region(&command, 4);
     }
 
     #[test]

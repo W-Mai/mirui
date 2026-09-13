@@ -1153,7 +1153,7 @@ impl Renderer for SwRenderer<'_> {
                     Transform3D::from_affine(self.viewport.as_transform()).compose(&logical);
                 let output_ppem = crate::render::font::output_ppem(
                     font.size.max(1),
-                    label::projective_scale_at(&physical, *pos),
+                    physical.raster_scale_at(*pos),
                 );
                 font.glyph_run_ink_bounds(glyphs, *pos, *transform, output_ppem)
                     .is_none_or(|bounds| projective.apply_rect(bounds).is_some())
