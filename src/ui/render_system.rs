@@ -17,17 +17,13 @@ use super::{Children, Hidden, Parent, Style, Widget};
 struct ProjectiveRenderer<'a> {
     inner: &'a mut dyn Renderer,
     transform: Transform3D,
-    unsupported: bool,
+    error: Option<crate::render::ProjectiveDrawError>,
 }
 
 impl Renderer for ProjectiveRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        if self
-            .inner
-            .draw_projective(cmd, clip, &self.transform)
-            .is_err()
-        {
-            self.unsupported = true;
+        if let Err(error) = self.inner.draw_projective(cmd, clip, &self.transform) {
+            self.error = Some(error);
         }
     }
 
@@ -726,11 +722,15 @@ fn draw_tree_offset(
                 let mut scoped = ProjectiveRenderer {
                     inner: renderer,
                     transform: tf_3d,
-                    unsupported: false,
+                    error: None,
                 };
                 render_views(&mut scoped, world, entity, &shifted_rect, &mut ctx);
-                if scoped.unsupported {
-                    crate::warn!("projective draw unsupported for entity {:?}", entity);
+                if let Some(error) = scoped.error {
+                    crate::warn!(
+                        "projective draw failed for entity {:?}: {:?}",
+                        entity,
+                        error
+                    );
                 }
             } else {
                 render_views(renderer, world, entity, &shifted_rect, &mut ctx);
@@ -892,7 +892,7 @@ mod projective_transform_tests {
         let mut scoped = ProjectiveRenderer {
             inner: &mut renderer,
             transform: Transform3D::translate(Fixed::from_int(4), Fixed::ZERO),
-            unsupported: false,
+            error: None,
         };
         scoped.draw(
             &DrawCommand::Fill {
@@ -906,7 +906,10 @@ mod projective_transform_tests {
             &Rect::new(0, 0, 16, 16),
         );
 
-        assert!(scoped.unsupported);
+        assert_eq!(
+            scoped.error,
+            Some(crate::render::ProjectiveDrawError::Unsupported)
+        );
         drop(scoped);
         assert_eq!(renderer.draws, 0);
     }

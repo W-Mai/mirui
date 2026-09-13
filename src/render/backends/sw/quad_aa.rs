@@ -41,11 +41,9 @@ pub(super) struct PreparedEdge {
     /// raw signed distance into pixel units.
     #[cfg(all(feature = "quad-aa", feature = "std"))]
     pub inv_len: Fixed64,
-    /// `(|n| / 2)²` as Fixed64 — the std (SDF) band cut-off. Raw²
-    /// compared against this tells the hot path whether to skip the
-    /// normalise.
+    /// Half the edge length, used to skip normalization outside the AA band.
     #[cfg(all(feature = "quad-aa", feature = "std"))]
-    pub half_len_sq: Fixed64,
+    pub half_len: Fixed64,
     /// Quarter-normal increments used by the no_std 2×2 supersample
     /// path. A sample offset of ±0.25 along x or y shifts raw by
     /// ±(nx / 4) and ±(ny / 4); caching both keeps the inner loop to
@@ -70,7 +68,7 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
         let nx = -edge_dy;
         let ny = edge_dx;
         #[cfg(all(feature = "quad-aa", feature = "std"))]
-        let (inv_len, half_len_sq) = {
+        let (inv_len, half_len) = {
             // |n|² = |edge|² since rot90 preserves length. Fixed64
             // because the square of a screen-scale edge can overflow
             // Fixed (Q24.8). Only paid once per quad, so no hot-path cost.
@@ -82,7 +80,7 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
             } else {
                 Fixed64::ZERO
             };
-            (inv_len, len_sq / 4)
+            (inv_len, len / 2)
         };
         #[cfg(all(feature = "quad-aa", not(feature = "std")))]
         let (qx, qy) = {
@@ -98,7 +96,7 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
             #[cfg(all(feature = "quad-aa", feature = "std"))]
             inv_len,
             #[cfg(all(feature = "quad-aa", feature = "std"))]
-            half_len_sq,
+            half_len,
             #[cfg(all(feature = "quad-aa", not(feature = "std")))]
             qx,
             #[cfg(all(feature = "quad-aa", not(feature = "std")))]
@@ -312,8 +310,7 @@ pub(super) fn quad_pixel_coverage_row_sdf(
     let mut min_sdf = Fixed::MAX;
     for (e, raw_fixed) in edges.iter().zip(row.raw.iter()) {
         let raw = Fixed64::from_fixed(*raw_fixed);
-        let raw_sq = raw * raw;
-        if raw_sq >= e.half_len_sq {
+        if raw >= e.half_len || raw <= -e.half_len {
             // Safely inside or outside the ±0.5 band.
             if raw.is_negative() {
                 return Fixed::ZERO;

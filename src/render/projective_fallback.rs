@@ -31,9 +31,9 @@ use crate::render::texture::{ColorFormat, Texture};
 ))]
 use crate::types::{Fixed, Rect, Transform3D, Viewport};
 
-/// Fixed-capacity target used by GPU backends for exact software-rendered
-/// projective glyphs. The backing storage is supplied once and never grows.
-pub struct ProjectiveGlyphFallback {
+/// Fixed-capacity target for software-rendered projective commands.
+/// The backing storage is supplied once and never grows.
+pub struct ProjectiveFallback {
     target: Box<[u8]>,
 }
 
@@ -53,7 +53,7 @@ pub(crate) struct ProjectiveFallbackPlan {
     logical_origin_y: Fixed,
 }
 
-impl ProjectiveGlyphFallback {
+impl ProjectiveFallback {
     /// Uses `target` as both the clipped RGBA8888 target and rendering
     /// workspace.
     pub fn new(target: impl Into<Box<[u8]>>) -> Self {
@@ -62,7 +62,7 @@ impl ProjectiveGlyphFallback {
         }
     }
 
-    /// Returns the hard byte budget available to projective glyph rendering.
+    /// Returns the hard byte budget available to projective rendering.
     pub fn capacity(&self) -> usize {
         self.target.len()
     }
@@ -79,20 +79,38 @@ impl ProjectiveGlyphFallback {
         projective: &Transform3D,
         viewport: Viewport,
     ) -> Result<ProjectiveFallbackPlan, ProjectiveDrawError> {
-        if !matches!(
-            command,
-            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. }
-        ) {
-            return Err(ProjectiveDrawError::Unsupported);
-        }
-
         let mut empty = [];
         let mut validator = SwRenderer::new(Texture::new(&mut empty, 0, 0, ColorFormat::RGBA8888));
         validator.viewport = viewport;
         validator.preflight_projective(command, clip, projective)?;
 
+        let logical = projective.compose(&Transform3D::from_affine(command.transform()));
+        let visual_bounds = match command {
+            DrawCommand::Fill { area, .. } | DrawCommand::Border { area, .. } => {
+                let quad = logical
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
+                let bounds = Rect::bounding_quad(&quad);
+                if let DrawCommand::Border { width, .. } = command {
+                    bounds.inflate(*width)
+                } else {
+                    bounds
+                }
+            }
+            DrawCommand::Blit { pos, size, .. } => {
+                let quad = logical
+                    .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
+                Rect::bounding_quad(&quad)
+            }
+            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. } => *clip,
+            _ => return Err(ProjectiveDrawError::Unsupported),
+        };
+        let draw_bounds = clip
+            .intersect(&visual_bounds.inflate(Fixed::from_int(2) / viewport.scale()))
+            .unwrap_or(Rect::ZERO);
         let (physical_width, physical_height) = viewport.physical_size();
-        let (x0, y0, x1, y1) = viewport.rect_to_physical_pixel_bounds(*clip);
+        let (x0, y0, x1, y1) = viewport.rect_to_physical_pixel_bounds(draw_bounds);
         let x0 = x0.clamp(0, i32::from(physical_width));
         let y0 = y0.clamp(0, i32::from(physical_height));
         let x1 = x1.clamp(x0, i32::from(physical_width));
@@ -110,7 +128,7 @@ impl ProjectiveGlyphFallback {
             });
         }
 
-        Ok(ProjectiveFallbackPlan {
+        let plan = ProjectiveFallbackPlan {
             x: x0,
             y: y0,
             width,
@@ -118,7 +136,18 @@ impl ProjectiveGlyphFallback {
             required_bytes,
             logical_origin_x: Fixed::from_int(x0) / viewport.scale(),
             logical_origin_y: Fixed::from_int(y0) / viewport.scale(),
-        })
+        };
+        let local_projective =
+            Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+                .compose(projective);
+        let local_clip = Rect::new(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from(plan.width) / viewport.scale(),
+            Fixed::from(plan.height) / viewport.scale(),
+        );
+        validator.preflight_projective(command, &local_clip, &local_projective)?;
+        Ok(plan)
     }
 
     #[cfg(any(
@@ -175,6 +204,7 @@ impl ProjectiveGlyphFallback {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::command::CompositeMode;
     use crate::render::font::Font;
     use crate::types::{Color, Point, Transform};
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
@@ -198,7 +228,7 @@ mod tests {
         )];
         let font = Font::bitmap_8x8();
         let command = glyph_command(&glyphs, &font);
-        let fallback = ProjectiveGlyphFallback::new(alloc::vec![0; 15].into_boxed_slice());
+        let fallback = ProjectiveFallback::new(alloc::vec![0; 15].into_boxed_slice());
         let transform =
             Transform3D::rotate_y_perspective(Fixed::from_int(10), Fixed::from_int(400));
 
@@ -224,7 +254,7 @@ mod tests {
         )];
         let font = Font::bitmap_8x8();
         let command = glyph_command(&glyphs, &font);
-        let mut fallback = ProjectiveGlyphFallback::new(alloc::vec![7; 8 * 8 * 4]);
+        let mut fallback = ProjectiveFallback::new(alloc::vec![7; 8 * 8 * 4]);
         let viewport = Viewport::new(8, 8, Fixed::ONE);
         let transform = Transform3D::rotate_y_perspective(Fixed::from_int(5), Fixed::from_int(400));
         let plan = fallback
@@ -274,7 +304,7 @@ mod tests {
         direct.viewport = viewport;
         direct.draw_projective(&command, &clip, &transform).unwrap();
 
-        let mut fallback = ProjectiveGlyphFallback::new(actual);
+        let mut fallback = ProjectiveFallback::new(actual);
         let plan = fallback
             .plan(&command, &clip, &transform, viewport)
             .unwrap();
@@ -290,5 +320,153 @@ mod tests {
                 &expected[expected_start..expected_start + 9 * 4],
             );
         }
+    }
+
+    fn matches_software_on_its_projected_region(command: &DrawCommand<'_>) {
+        const WIDTH: usize = 64;
+        const HEIGHT: usize = 64;
+        let viewport = Viewport::new(WIDTH as u16, HEIGHT as u16, Fixed::ONE);
+        let clip = Rect::new(0, 0, WIDTH as i32, HEIGHT as i32);
+        let transform =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
+        let mut expected = alloc::vec![19; WIDTH * HEIGHT * 4];
+        let mut direct = SwRenderer::new(Texture::new(
+            &mut expected,
+            WIDTH as u16,
+            HEIGHT as u16,
+            ColorFormat::RGBA8888,
+        ));
+        direct.viewport = viewport;
+        direct.draw_projective(command, &clip, &transform).unwrap();
+
+        let mut fallback = ProjectiveFallback::new(alloc::vec![0; 32 * 32 * 4]);
+        let plan = fallback.plan(command, &clip, &transform, viewport).unwrap();
+        assert!(plan.width < WIDTH as u16);
+        assert!(plan.height < HEIGHT as u16);
+        fallback.target_mut(plan).fill(19);
+        let before = fallback.target(plan).to_vec();
+        fallback
+            .render(plan, command, &transform, viewport)
+            .unwrap();
+        assert_ne!(fallback.target(plan), before);
+
+        for row in 0..usize::from(plan.height) {
+            let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let target = row * usize::from(plan.width) * 4;
+            assert_eq!(
+                &fallback.target(plan)[target..target + usize::from(plan.width) * 4],
+                &expected[source..source + usize::from(plan.width) * 4],
+            );
+        }
+    }
+
+    #[test]
+    fn projected_shapes_fit_a_tight_budget_and_match_software() {
+        let fill = DrawCommand::Fill {
+            area: Rect::new(12, 12, 20, 18),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(12, 180, 220),
+            radius: Fixed::from_int(3),
+            opa: 255,
+        };
+        matches_software_on_its_projected_region(&fill);
+
+        let border = DrawCommand::Border {
+            area: Rect::new(12, 12, 20, 18),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(240, 50, 80),
+            width: Fixed::from_int(2),
+            radius: Fixed::from_int(3),
+            opa: 255,
+        };
+        matches_software_on_its_projected_region(&border);
+
+        let mut pixels = [160; 8 * 8 * 4];
+        let texture = Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888);
+        let blit = DrawCommand::Blit {
+            pos: Point::new(12, 12),
+            size: Point::new(20, 18),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        matches_software_on_its_projected_region(&blit);
+    }
+
+    #[test]
+    fn card_budget_uses_projected_pixels_not_the_full_viewport() {
+        let fill = DrawCommand::Fill {
+            area: Rect::new(140, 70, 200, 180),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(88, 166, 255),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let fallback = ProjectiveFallback::new(alloc::vec![0; 512 * 160 * 4]);
+        let plan = fallback
+            .plan(
+                &fill,
+                &Rect::new(0, 0, 480, 320),
+                &Transform3D::rotate_y_perspective(Fixed::from_int(8), Fixed::from_int(400)),
+                Viewport::new(480, 320, Fixed::ONE),
+            )
+            .unwrap();
+        assert!(plan.width > 0 && plan.height > 0);
+        assert!(plan.required_bytes <= fallback.capacity());
+    }
+
+    #[test]
+    fn projective_image_survives_a_full_y_rotation() {
+        let mut pixels = alloc::vec![255; 16 * 16 * 4];
+        let texture = Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888);
+        let command = DrawCommand::Blit {
+            pos: Point::new(180, 180),
+            size: Point::new(120, 120),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        let mut fallback = ProjectiveFallback::new(alloc::vec![0; 512 * 160 * 4]);
+        let clip = Rect::new(0, 0, 480, 320);
+        let viewport = Viewport::new(960, 640, Fixed::from_int(2));
+        let mut rendered = 0;
+        for angle in 0..360 {
+            let center = Transform3D::translate(Fixed::from_int(240), Fixed::from_int(240));
+            let origin = Transform3D::translate(Fixed::from_int(-240), Fixed::from_int(-240));
+            let phase = Fixed::from_int(angle % 180) / Fixed::from_int(180);
+            let two_t_minus_one = phase * Fixed::from_int(2) - Fixed::ONE;
+            let height = Fixed::ONE - two_t_minus_one * two_t_minus_one;
+            let bounce =
+                Transform3D::translate(Fixed::ZERO, Fixed::ZERO - height * Fixed::from_int(100));
+            let scale = Transform3D::scale(
+                Fixed::ONE - (Fixed::ONE - height) / Fixed::from_int(4),
+                Fixed::ONE + height / Fixed::from_int(8),
+            );
+            let projective = center
+                .compose(&bounce)
+                .compose(&Transform3D::rotate_y_perspective(
+                    Fixed::from_int(angle),
+                    Fixed::from_int(400),
+                ))
+                .compose(&scale)
+                .compose(&origin);
+            if let Ok(plan) = fallback.plan(&command, &clip, &projective, viewport) {
+                fallback.target_mut(plan).fill(0);
+                fallback
+                    .render(plan, &command, &projective, viewport)
+                    .unwrap();
+                rendered += 1;
+            }
+        }
+        assert!(rendered > 340, "rendered {rendered} angles");
     }
 }

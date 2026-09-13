@@ -30,7 +30,7 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
-use crate::render::projective_fallback::ProjectiveGlyphFallback;
+use crate::render::projective_fallback::ProjectiveFallback;
 use crate::render::renderer::{ProjectiveDrawError, Renderer};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
@@ -404,18 +404,18 @@ impl InspectCaches for SdlGpuSurface {
 }
 
 pub struct SdlGpuFactory {
-    projective_glyph_fallback: Option<ProjectiveGlyphFallback>,
+    projective_fallback: Option<ProjectiveFallback>,
 }
 
 impl SdlGpuFactory {
     pub fn new() -> Self {
         Self {
-            projective_glyph_fallback: None,
+            projective_fallback: None,
         }
     }
 
-    pub fn with_projective_glyph_fallback(mut self, fallback: ProjectiveGlyphFallback) -> Self {
-        self.projective_glyph_fallback = Some(fallback);
+    pub fn with_projective_fallback(mut self, fallback: ProjectiveFallback) -> Self {
+        self.projective_fallback = Some(fallback);
         self
     }
 }
@@ -443,7 +443,7 @@ impl RendererFactory<SdlGpuSurface> for SdlGpuFactory {
             canvas,
             label_cache,
             tessellator,
-            projective_glyph_fallback: self.projective_glyph_fallback.as_mut(),
+            projective_fallback: self.projective_fallback.as_mut(),
             viewport,
         }
     }
@@ -453,7 +453,7 @@ pub struct SdlGpuRenderer<'a> {
     canvas: &'a mut SdlCanvas<Window>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
-    projective_glyph_fallback: Option<&'a mut ProjectiveGlyphFallback>,
+    projective_fallback: Option<&'a mut ProjectiveFallback>,
     viewport: Viewport,
 }
 
@@ -726,9 +726,8 @@ impl Renderer for SdlGpuRenderer<'_> {
             self.draw(command, clip);
             return Ok(());
         }
-        self.preflight_projective(command, clip, projective)?;
         let fallback = self
-            .projective_glyph_fallback
+            .projective_fallback
             .as_deref_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
         let plan = fallback.plan(command, clip, projective, self.viewport)?;
@@ -799,14 +798,8 @@ impl Renderer for SdlGpuRenderer<'_> {
         if projective.is_identity() {
             return Ok(());
         }
-        if !matches!(
-            command,
-            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. }
-        ) {
-            return Err(ProjectiveDrawError::Unsupported);
-        }
         let fallback = self
-            .projective_glyph_fallback
+            .projective_fallback
             .as_deref()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
         fallback

@@ -86,7 +86,7 @@ fn current_theme() -> gallery::mirui::ui::Theme {
 }
 
 fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
-    let mut app = gallery::assemble_app(backend, gallery::ActiveFactory::default());
+    let mut app = gallery::assemble_app(backend, gallery::configured_factory());
     app.add_plugin(gallery::mirui::app::plugins::StdInstantClockPlugin);
     set_canvas_size(demo.width, demo.height);
     let root = {
@@ -100,7 +100,7 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
 }
 
 fn build_backend_parity_app(backend: gallery::ActiveSurface) -> WebApp {
-    let mut app = gallery::assemble_app(backend, gallery::ActiveFactory::default());
+    let mut app = gallery::assemble_app(backend, gallery::configured_factory());
     set_canvas_size(
         gallery::backend_parity::WIDTH,
         gallery::backend_parity::HEIGHT,

@@ -220,12 +220,13 @@ when capacity or projection validation fails.
 | Posed SDF | derivative-aware | derivative-aware | exact coverage route | exact coverage route |
 | Projective glyphs | inverse sampled | projective atlas | bounded software target | bounded software target |
 
-SDL GPU and Web Canvas require a `ProjectiveGlyphFallback` supplied through
-their renderer factory for projective glyphs. Its fixed RGBA storage is both
-the target and scratch space. Preflight reports the exact clipped byte
-requirement before drawing and rejects missing or insufficient capacity.
-Other unsupported projective commands remain errors rather than approximate
-draws.
+SDL GPU and Web Canvas use a `ProjectiveFallback` supplied through their
+renderer factory for projective glyphs, fills, borders, and plain blits. Its
+fixed RGBA storage is both the target and scratch space. Shape and image
+requests use projected visual bounds to limit the required storage; glyph
+requests use the effective clip. Preflight rejects missing or insufficient
+capacity before drawing. Unsupported projective commands remain errors.
+Gallery reserves 2 MiB for this target on Web Canvas and SDL GPU.
 
 ## Storage and invalidation
 

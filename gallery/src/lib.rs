@@ -127,13 +127,20 @@ macro_rules! register_demos {
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 mod backend {
     use super::*;
-    use mirui::render::ProjectiveGlyphFallback;
+    use mirui::render::ProjectiveFallback;
     use mirui::render::web_canvas::WebCanvasRendererFactory;
     use mirui::surface::web_canvas::WebCanvasSurface;
     use wasm_bindgen::JsCast;
 
+    const DEMO_PROJECTIVE_RGBA_BYTES: usize = 2 * 1024 * 1024;
+
     pub type ActiveSurface = WebCanvasSurface;
     pub type ActiveFactory = WebCanvasRendererFactory;
+
+    pub fn configured_factory() -> ActiveFactory {
+        WebCanvasRendererFactory::new()
+            .with_projective_fallback(ProjectiveFallback::new(vec![0; DEMO_PROJECTIVE_RGBA_BYTES]))
+    }
 
     pub fn build_app(_title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
         let canvas = web_sys::window()
@@ -150,9 +157,7 @@ mod backend {
         let _ = style.set_property("width", &format!("{w}px"));
         let _ = style.set_property("height", &format!("{h}px"));
         let backend = WebCanvasSurface::new(canvas);
-        let factory = WebCanvasRendererFactory::new()
-            .with_projective_glyph_fallback(ProjectiveGlyphFallback::new(vec![0; 512 * 160 * 4]));
-        assemble_app(backend, factory)
+        assemble_app(backend, configured_factory())
     }
 
     pub fn grab_canvas() -> WebCanvasSurface {
@@ -178,7 +183,7 @@ mod backend {
 }
 
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
-pub use backend::{assemble_app, grab_canvas};
+pub use backend::{assemble_app, configured_factory, grab_canvas};
 
 #[cfg(all(
     feature = "wgpu",
@@ -208,9 +213,11 @@ mod backend {
 ))]
 mod backend {
     use super::*;
-    use mirui::render::ProjectiveGlyphFallback;
+    use mirui::render::ProjectiveFallback;
     use mirui::render::sdl_gpu::SdlGpuFactory;
     use mirui::surface::sdl_gpu::SdlGpuSurface;
+
+    const DEMO_PROJECTIVE_RGBA_BYTES: usize = 2 * 1024 * 1024;
 
     pub type ActiveSurface = SdlGpuSurface;
     pub type ActiveFactory = SdlGpuFactory;
@@ -218,7 +225,7 @@ mod backend {
     pub fn build_app(title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
         let backend = SdlGpuSurface::new(title, w, h);
         let factory = SdlGpuFactory::new()
-            .with_projective_glyph_fallback(ProjectiveGlyphFallback::new(vec![0; 512 * 160 * 4]));
+            .with_projective_fallback(ProjectiveFallback::new(vec![0; DEMO_PROJECTIVE_RGBA_BYTES]));
         let mut app = App::with_factory(backend, factory);
         app.with_default_widgets().with_default_systems();
         app

@@ -16,7 +16,7 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
-use crate::render::projective_fallback::ProjectiveGlyphFallback;
+use crate::render::projective_fallback::ProjectiveFallback;
 use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::{ProjectiveDrawError, Renderer};
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
@@ -42,7 +42,7 @@ fn paint_color(paint: &Paint) -> Color {
 pub struct WebCanvasRendererFactory {
     texture_pool: TexturePool,
     glyph_pool: GlyphPool,
-    projective_glyph_fallback: Option<ProjectiveGlyphFallback>,
+    projective_fallback: Option<ProjectiveFallback>,
 }
 
 impl WebCanvasRendererFactory {
@@ -50,12 +50,12 @@ impl WebCanvasRendererFactory {
         Self {
             texture_pool: new_pool(),
             glyph_pool: new_glyph_pool(),
-            projective_glyph_fallback: None,
+            projective_fallback: None,
         }
     }
 
-    pub fn with_projective_glyph_fallback(mut self, fallback: ProjectiveGlyphFallback) -> Self {
-        self.projective_glyph_fallback = Some(fallback);
+    pub fn with_projective_fallback(mut self, fallback: ProjectiveFallback) -> Self {
+        self.projective_fallback = Some(fallback);
         self
     }
 }
@@ -899,10 +899,9 @@ impl Renderer for WebCanvasRenderer<'_> {
             self.draw(command, clip);
             return Ok(());
         }
-        self.preflight_projective(command, clip, projective)?;
         let plan = self
             .factory
-            .projective_glyph_fallback
+            .projective_fallback
             .as_ref()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?
             .plan(command, clip, projective, self.viewport)?;
@@ -922,7 +921,7 @@ impl Renderer for WebCanvasRenderer<'_> {
         let source = image.data();
         let fallback = self
             .factory
-            .projective_glyph_fallback
+            .projective_fallback
             .as_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
         fallback.target_mut(plan).copy_from_slice(&source.0);
@@ -947,15 +946,9 @@ impl Renderer for WebCanvasRenderer<'_> {
         if projective.is_identity() {
             return Ok(());
         }
-        if !matches!(
-            command,
-            DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. }
-        ) {
-            return Err(ProjectiveDrawError::Unsupported);
-        }
         let fallback = self
             .factory
-            .projective_glyph_fallback
+            .projective_fallback
             .as_ref()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
         fallback

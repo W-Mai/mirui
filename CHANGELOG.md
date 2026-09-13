@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Text hit-path interaction.** Hover and press state follows the deepest hit widget and its ancestors, so text inside an interactive container preserves the container's visual response.
+- **Text hit-path interaction.** Hover and press state is applied to the deepest hit widget and its ancestors, so text inside an interactive container preserves the container's visual response.
+- **Projective demo rendering.** SDL GPU and Web Canvas render projected fills, borders, and plain images through bounded software fallback, sizing the target from clipped visual bounds.
 - **Projective widget dispatch.** Widget homographies travel only through renderer scope; leaf commands no longer also carry a pre-projected quad, and descendant clips use transformed screen-space bounds.
 - **Web release builds.** `cargo xtask wasm-build` normalizes the inherited no-color setting for current Trunk releases.
 - **Atomic projective scene replay.** Renderers preflight command support, invertibility and near-plane geometry before drawing, so invalid projective groups fail without partially updating the target.
@@ -28,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Projective path-text interaction.** `PathTextGeometry` resolves retained widget transforms and scroll offsets, projects caret and selection geometry through the same homography as rendering, and reports invalid near-plane projections; Typography Lab includes curved mixed-direction text, projective glyphs, backend paths, and explicit memory costs.
 
-- **Bounded projective glyph fallback.** SDL GPU and Web Canvas can render projective glyph runs through an explicitly supplied fixed-capacity RGBA target; clipped byte requirements, missing storage, and insufficient storage are reported during preflight before drawing.
+- **Bounded projective fallback.** SDL GPU and Web Canvas use an explicitly supplied fixed-capacity RGBA target for projective commands; clipped byte requirements, missing storage, and insufficient storage are reported during preflight before drawing.
 - **Text on paths.** Retained path bindings constrain and place independent paragraph lines on consecutive subpaths, preserve caller-owned bounded frame storage, expose transformed caret hit testing and selection ribbons, and render posed glyph runs across software, SDL GPU, WGPU, and Web Canvas backends.
 - **Canonical text layout workspace.** Mirui delegates bidi resolution, shaping, line breaking and private scratch growth to `textflow-rs` 0.2.4 while retaining caller-owned final output, stable layout handles and one shared cache-memory budget.
 - **Consolidated component demos.** TabBar selection history is signal-driven in the retained TabBar scenario; the Widgets form includes Button, Checkbox, ProgressBar and Image coverage alongside Slider and Switch.
