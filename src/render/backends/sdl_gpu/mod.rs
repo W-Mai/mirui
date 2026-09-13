@@ -76,7 +76,7 @@ struct MultiGestureState {
 pub struct SdlGpuSurface {
     canvas: SdlCanvas<Window>,
     label_cache: LabelCache,
-    event_pump: EventPump,
+    _event_pump: EventPump,
     tessellator: TessellationCache,
     width: u16,
     height: u16,
@@ -137,7 +137,7 @@ impl SdlGpuSurface {
         Self {
             canvas,
             label_cache: LabelCache::new(texture_creator),
-            event_pump,
+            _event_pump: event_pump,
             tessellator: TessellationCache::new(),
             width: phys_w,
             height: phys_h,
@@ -286,10 +286,7 @@ impl Surface for SdlGpuSurface {
                 }
             }
         }
-        // poll_iter drains SDL's queue; queue all translated events
-        // before returning one or the tail of a busy frame is lost.
-        let events: Vec<_> = self.event_pump.poll_iter().collect();
-        for event in events {
+        while let Some(event) = crate::surface::sdl_events::poll() {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::KeyDown {

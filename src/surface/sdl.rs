@@ -54,7 +54,7 @@ pub struct SdlSurface {
     tex: SdlTexture<'static>,
     canvas: Canvas<Window>,
     pending_present: bool,
-    event_pump: EventPump,
+    _event_pump: EventPump,
     buf: Vec<u8>,
     width: u16,
     height: u16,
@@ -113,7 +113,7 @@ impl SdlSurface {
             tex,
             canvas,
             pending_present: false,
-            event_pump,
+            _event_pump: event_pump,
             buf,
             width: phys_w,
             height: phys_h,
@@ -298,10 +298,7 @@ impl Surface for SdlSurface {
             }
         }
 
-        // poll_iter drains SDL's queue; queue all translated events
-        // before returning one or the tail of a busy frame is lost.
-        let events: Vec<_> = self.event_pump.poll_iter().collect();
-        for event in events {
+        while let Some(event) = super::sdl_events::poll() {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::KeyDown {

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SDL event compatibility.** Software and SDL GPU surfaces discard unrecognized window subevents before converting the event queue, preserving interactive demos with SDL2 compatibility libraries.
 - **Text hit-path interaction.** Hover and press state is applied to the deepest hit widget and its ancestors, so text inside an interactive container preserves the container's visual response.
 - **Projective demo rendering.** SDL GPU and Web Canvas render projected fills, borders, and plain images through bounded software fallback, sizing the target from clipped visual bounds.
 - **Projective widget dispatch.** Widget homographies travel only through renderer scope; leaf commands no longer also carry a pre-projected quad, and descendant clips use transformed screen-space bounds.

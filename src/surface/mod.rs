@@ -16,6 +16,8 @@ pub mod nuttx;
 pub(crate) mod scale;
 #[cfg(feature = "sdl")]
 pub mod sdl;
+#[cfg(any(feature = "sdl", feature = "sdl-gpu"))]
+pub(crate) mod sdl_events;
 #[cfg(feature = "sdl-gpu")]
 pub mod sdl_gpu;
 #[cfg(feature = "std")]
