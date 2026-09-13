@@ -532,6 +532,7 @@ pub(crate) fn offset_polygon_into(
     subpath_scratch: &mut Vec<SubPath>,
     normals_scratch: &mut Vec<Point>,
     rail_scratch: &mut Vec<Point>,
+    left_rail_scratch: &mut Vec<Point>,
     arc_scratch: &mut Vec<Point>,
     dash_scratch: &mut Vec<SubPath>,
 ) {
@@ -591,10 +592,9 @@ pub(crate) fn offset_polygon_into(
                 join,
                 miter_limit,
                 /*left=*/ true,
-                rail_scratch,
+                left_rail_scratch,
                 arc_scratch,
             );
-            let left = rail_scratch.clone();
             build_open_rail_into(
                 &sub.segs,
                 normals_scratch,
@@ -605,7 +605,7 @@ pub(crate) fn offset_polygon_into(
                 rail_scratch,
                 arc_scratch,
             );
-            append_open_ribbon(out, &left, rail_scratch, cap, half);
+            append_open_ribbon(out, left_rail_scratch, rail_scratch, cap, half);
         }
     }
 }
@@ -1018,6 +1018,7 @@ mod tests {
         let mut scratch = Vec::new();
         let mut normals = Vec::new();
         let mut rail = Vec::new();
+        let mut left_rail = Vec::new();
         let mut arc = Vec::new();
         let mut dash_scratch = Vec::new();
         offset_polygon_into(
@@ -1032,6 +1033,7 @@ mod tests {
             &mut scratch,
             &mut normals,
             &mut rail,
+            &mut left_rail,
             &mut arc,
             &mut dash_scratch,
         );
@@ -1256,6 +1258,48 @@ mod tests {
             .filter(|c| matches!(c, PathCmd::Close))
             .count();
         assert_eq!(closes, 1);
+    }
+
+    #[test]
+    fn open_stroke_reuses_both_rail_buffers() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).line_to(pt(10, 0));
+        let mut outline = Path::new();
+        let mut subpaths = Vec::new();
+        let mut normals = Vec::new();
+        let mut right = Vec::new();
+        let mut left = Vec::new();
+        let mut arc = Vec::new();
+        let mut dashed = Vec::new();
+        let mut first = None;
+
+        for _ in 0..2 {
+            offset_polygon_into(
+                &path.cmds,
+                None,
+                Fixed::from_int(2),
+                LineCap::Butt,
+                LineJoin::Miter,
+                Fixed::from_int(4),
+                None,
+                &mut outline,
+                &mut subpaths,
+                &mut normals,
+                &mut right,
+                &mut left,
+                &mut arc,
+                &mut dashed,
+            );
+            let buffers = [
+                (left.as_ptr(), left.capacity()),
+                (right.as_ptr(), right.capacity()),
+            ];
+            assert!(buffers.iter().all(|(_, capacity)| *capacity > 0));
+            if let Some(previous) = first {
+                assert_eq!(buffers, previous);
+            }
+            first = Some(buffers);
+        }
     }
 
     #[test]

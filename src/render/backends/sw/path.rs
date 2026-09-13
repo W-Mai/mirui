@@ -336,6 +336,7 @@ impl SwRenderer<'_> {
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
+            &mut self.stroke_left_rail,
             &mut self.stroke_arc,
             &mut self.dash_scratch,
         );
@@ -374,6 +375,7 @@ impl SwRenderer<'_> {
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
+            &mut self.stroke_left_rail,
             &mut self.stroke_arc,
             &mut self.dash_scratch,
         );
