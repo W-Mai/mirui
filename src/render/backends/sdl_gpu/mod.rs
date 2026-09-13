@@ -1243,7 +1243,7 @@ impl Canvas for SdlGpuRenderer<'_> {
     fn draw_posed_glyph_run(
         &mut self,
         pos: &Point,
-        glyphs: crate::render::command::PosedGlyphs<'_>,
+        glyphs: crate::render::PosedGlyphs<'_>,
         font: &crate::render::font::Font,
         clip: &Rect,
         color: &Color,

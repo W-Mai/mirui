@@ -103,7 +103,7 @@ impl<B: Canvas> Canvas for Logging<B> {
     fn draw_posed_glyph_run(
         &mut self,
         pos: &Point,
-        glyphs: mirui::render::command::PosedGlyphs<'_>,
+        glyphs: mirui::render::PosedGlyphs<'_>,
         font: &mirui::render::font::Font,
         clip: &Rect,
         color: &Color,

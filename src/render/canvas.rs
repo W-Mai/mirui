@@ -1,4 +1,5 @@
-use crate::render::command::{CompositeMode, PosedGlyphs};
+use crate::render::PosedGlyphs;
+use crate::render::command::CompositeMode;
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 

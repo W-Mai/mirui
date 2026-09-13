@@ -6,8 +6,9 @@ mod texture_pool;
 
 use wgpu::util::DeviceExt;
 
+use crate::render::PosedGlyphs;
 use crate::render::canvas::{Canvas, Paint};
-use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::font::Font;
 use crate::render::path::Path;

@@ -546,7 +546,7 @@ fn for_each_posed_run<'font>(
     layout: &crate::text::TextLayout<'_>,
     frames: &[textflow::placement::GlyphFrame],
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
-    mut visit: impl FnMut(&'font crate::render::font::Font, crate::render::command::PosedGlyphs<'_>),
+    mut visit: impl FnMut(&'font crate::render::font::Font, crate::render::PosedGlyphs<'_>),
 ) {
     for line in layout.lines() {
         let Some(runs) = layout.runs_for(*line) else {
@@ -564,7 +564,7 @@ fn for_each_posed_run<'font>(
             let Some(frames) = frames.get(range) else {
                 continue;
             };
-            let Some(glyphs) = crate::render::command::PosedGlyphs::new(glyphs, frames) else {
+            let Some(glyphs) = crate::render::PosedGlyphs::new(glyphs, frames) else {
                 continue;
             };
             visit(font, glyphs);

@@ -38,7 +38,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "draw_posed_glyph_run",
-        "pos: &::mirui::types::Point, glyphs: ::mirui::render::command::PosedGlyphs<'_>, font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        "pos: &::mirui::types::Point, glyphs: ::mirui::render::PosedGlyphs<'_>, font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
         false,
     ),
     ("flush", "", false),

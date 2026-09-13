@@ -11,9 +11,10 @@ use wasm_bindgen::JsCast;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
+use crate::render::PosedGlyphs;
 use crate::render::backends::sw::SwRenderer;
 use crate::render::canvas::{Canvas, Paint};
-use crate::render::command::{CompositeMode, DrawCommand, PosedGlyphs};
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
 use crate::render::projective_fallback::ProjectiveFallback;

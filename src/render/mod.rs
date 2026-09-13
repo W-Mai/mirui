@@ -3,6 +3,7 @@ pub mod canvas;
 pub mod command;
 pub mod factory;
 pub mod font;
+pub mod glyph_run;
 pub mod membrane;
 pub mod mirx_convert;
 pub mod mirx_frames;
@@ -25,6 +26,7 @@ pub use backends::wgpu;
 pub use canvas::{Canvas, Paint};
 pub use command::{CompositeMode, DrawCommand};
 pub use factory::{RendererFactory, SwRendererFactory};
+pub use glyph_run::PosedGlyphs;
 pub use projective_fallback::ProjectiveFallback;
 pub use renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderResource, RenderRoute,

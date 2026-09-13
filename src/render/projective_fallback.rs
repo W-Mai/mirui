@@ -249,8 +249,8 @@ impl ProjectiveFallback {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::PosedGlyphs;
     use crate::render::command::CompositeMode;
-    use crate::render::command::PosedGlyphs;
     use crate::render::font::Font;
     use crate::types::{Color, Point, Transform};
     use textflow::placement::GlyphFrame;

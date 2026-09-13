@@ -99,7 +99,7 @@ impl Canvas for Dummy {
     fn draw_posed_glyph_run(
         &mut self,
         _: &Point,
-        _: mirui::render::command::PosedGlyphs<'_>,
+        _: mirui::render::PosedGlyphs<'_>,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,
@@ -207,7 +207,7 @@ fn default_methods_route_to_sw() {
     let frames = [textflow::placement::GlyphFrame::default()];
     h.draw_posed_glyph_run(
         &Point::ZERO,
-        mirui::render::command::PosedGlyphs::new(&positioned, &frames).unwrap(),
+        mirui::render::PosedGlyphs::new(&positioned, &frames).unwrap(),
         &font,
         &rect,
         &color,
@@ -357,7 +357,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
     fn draw_posed_glyph_run(
         &mut self,
         _: &Point,
-        _: mirui::render::command::PosedGlyphs<'_>,
+        _: mirui::render::PosedGlyphs<'_>,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,
@@ -417,7 +417,7 @@ impl Canvas for PlainDummy {
     fn draw_posed_glyph_run(
         &mut self,
         _: &Point,
-        _: mirui::render::command::PosedGlyphs<'_>,
+        _: mirui::render::PosedGlyphs<'_>,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,

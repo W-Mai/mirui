@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Posed glyph run API.** Borrowed posed glyphs are available as `render::PosedGlyphs` and `render::glyph_run::PosedGlyphs`; the command module no longer defines the type.
 - **Open path stroke scratch.** Software stroke rendering retains separate left and right rail buffers within a renderer, avoiding a rail clone for each open path.
 - **Projective path-text interaction.** `PathTextGeometry` resolves retained widget transforms and scroll offsets, projects caret and selection geometry through the same homography as rendering, and reports invalid near-plane projections; Typography Lab includes curved mixed-direction text, projective glyphs, backend paths, and explicit memory costs.
 

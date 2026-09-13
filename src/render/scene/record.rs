@@ -331,7 +331,7 @@ mod tests {
         let command = DrawCommand::PosedGlyphRun {
             pos: Point::ZERO,
             transform: Transform::IDENTITY,
-            glyphs: crate::render::command::PosedGlyphs::new(&glyphs, &frames).unwrap(),
+            glyphs: crate::render::PosedGlyphs::new(&glyphs, &frames).unwrap(),
             font: &font,
             color: red(),
             opa: 255,

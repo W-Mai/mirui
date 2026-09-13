@@ -59,8 +59,8 @@ impl PosedGlyphBuffer {
         &self.frames
     }
 
-    pub fn as_draw(&self) -> crate::render::command::PosedGlyphs<'_> {
-        crate::render::command::PosedGlyphs::new(self.glyphs(), self.frames())
+    pub fn as_draw(&self) -> crate::render::PosedGlyphs<'_> {
+        crate::render::PosedGlyphs::new(self.glyphs(), self.frames())
             .expect("scene glyph pose lengths are validated at construction")
     }
 }
