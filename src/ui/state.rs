@@ -2,8 +2,8 @@ use crate::ecs::{Entity, World};
 use crate::input::event::hit_test::hit_test;
 use crate::surface::DisplayInfo;
 use crate::types::Fixed;
-use crate::ui::WidgetRoot;
 use crate::ui::dirty::Dirty;
+use crate::ui::{Parent, WidgetRoot};
 
 /// Skip hover/press hit_test when PointerCursor hasn't moved since last
 /// frame. Without this, idle frames pay a full hit_test walk twice per
@@ -19,7 +19,10 @@ struct PointerSnapshot {
 #[derive(Default)]
 struct HoverSnapshot(PointerSnapshot);
 #[derive(Default)]
-struct PressSnapshot(PointerSnapshot);
+struct PressSnapshot {
+    pointer: PointerSnapshot,
+    target: Option<Entity>,
+}
 
 fn cursor_snapshot(world: &World) -> PointerSnapshot {
     let cursor = world
@@ -41,6 +44,7 @@ pub enum UserState {
 }
 
 /// Driven by `hover_system` / `press_system`; user shouldn't write directly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InteractionState {
     Hovered,
     Pressed,
@@ -62,11 +66,11 @@ pub fn hover_system(world: &mut World) {
     } else {
         compute_pointer_target(world, snap.x, snap.y)
     };
-    swap_marker(
+    swap_markers(
         world,
         new_hover,
         |s| matches!(s, InteractionState::Hovered),
-        || InteractionState::Hovered,
+        InteractionState::Hovered,
     );
 }
 
@@ -75,20 +79,18 @@ pub fn press_system(world: &mut World) {
     let snap = cursor_snapshot(world);
     let last = world
         .resource::<PressSnapshot>()
-        .map(|s| s.0)
+        .map(|s| s.pointer)
         .unwrap_or_default();
     if snap == last {
         return;
     }
-    world.insert_resource(PressSnapshot(snap));
 
     // Mid-drag: skip the ~1.4 ms hit_test while the pointer stays
-    // inside the already-Pressed entity's rect.
+    // inside the deepest Pressed entity's rect.
     if snap.down && last.down {
         let prev_pressed: Option<Entity> = world
-            .query::<InteractionState>()
-            .iter()
-            .find_map(|(e, s)| matches!(s, InteractionState::Pressed).then_some(e));
+            .resource::<PressSnapshot>()
+            .and_then(|snapshot| snapshot.target);
         if let Some(p) = prev_pressed
             && let Some(rect) = world.get::<crate::ui::ComputedRect>(p).map(|r| r.0)
             && snap.x >= rect.x
@@ -96,6 +98,10 @@ pub fn press_system(world: &mut World) {
             && snap.y >= rect.y
             && snap.y < rect.y + rect.h
         {
+            world.insert_resource(PressSnapshot {
+                pointer: snap,
+                target: prev_pressed,
+            });
             return;
         }
     }
@@ -105,11 +111,15 @@ pub fn press_system(world: &mut World) {
     } else {
         None
     };
-    swap_marker(
+    world.insert_resource(PressSnapshot {
+        pointer: snap,
+        target: new_pressed,
+    });
+    swap_markers(
         world,
         new_pressed,
         |s| matches!(s, InteractionState::Pressed),
-        || InteractionState::Pressed,
+        InteractionState::Pressed,
     );
 }
 
@@ -123,26 +133,45 @@ fn compute_pointer_target(
     hit_test(world, root, x, y, info.width, info.height)
 }
 
-fn swap_marker(
+fn on_hit_path(world: &World, target: Option<Entity>, candidate: Entity) -> bool {
+    let mut current = target;
+    while let Some(entity) = current {
+        if entity == candidate {
+            return true;
+        }
+        current = world.get::<Parent>(entity).map(|parent| parent.0);
+    }
+    false
+}
+
+fn swap_markers(
     world: &mut World,
     new_target: Option<Entity>,
     is_state: impl Fn(&InteractionState) -> bool,
-    make_state: impl Fn() -> InteractionState,
+    state: InteractionState,
 ) {
-    let prev: Option<Entity> = world
-        .query::<InteractionState>()
-        .iter()
-        .find_map(|(e, s)| if is_state(s) { Some(e) } else { None });
-    if prev == new_target {
-        return;
+    loop {
+        let stale = world
+            .query::<InteractionState>()
+            .iter()
+            .find_map(|(entity, current)| {
+                (is_state(current) && !on_hit_path(world, new_target, entity)).then_some(entity)
+            });
+        let Some(entity) = stale else {
+            break;
+        };
+        world.remove::<InteractionState>(entity);
+        world.insert(entity, Dirty);
     }
-    if let Some(p) = prev {
-        world.remove::<InteractionState>(p);
-        world.insert(p, Dirty);
-    }
-    if let Some(n) = new_target {
-        world.insert(n, make_state());
-        world.insert(n, Dirty);
+
+    let mut current = new_target;
+    while let Some(entity) = current {
+        let parent = world.get::<Parent>(entity).map(|parent| parent.0);
+        if !world.get::<InteractionState>(entity).is_some_and(&is_state) {
+            world.insert(entity, state);
+            world.insert(entity, Dirty);
+        }
+        current = parent;
     }
 }
 
@@ -154,11 +183,11 @@ mod tests {
     fn swap_marker_inserts_when_target_arrives() {
         let mut world = World::new();
         let e = world.spawn_empty();
-        swap_marker(
+        swap_markers(
             &mut world,
             Some(e),
             |s| matches!(s, InteractionState::Hovered),
-            || InteractionState::Hovered,
+            InteractionState::Hovered,
         );
         assert!(matches!(
             world.get::<InteractionState>(e),
@@ -171,11 +200,11 @@ mod tests {
         let mut world = World::new();
         let e = world.spawn_empty();
         world.insert(e, InteractionState::Hovered);
-        swap_marker(
+        swap_markers(
             &mut world,
             None,
             |s| matches!(s, InteractionState::Hovered),
-            || InteractionState::Hovered,
+            InteractionState::Hovered,
         );
         assert!(world.get::<InteractionState>(e).is_none());
     }
@@ -186,11 +215,11 @@ mod tests {
         let a = world.spawn_empty();
         let b = world.spawn_empty();
         world.insert(a, InteractionState::Hovered);
-        swap_marker(
+        swap_markers(
             &mut world,
             Some(b),
             |s| matches!(s, InteractionState::Hovered),
-            || InteractionState::Hovered,
+            InteractionState::Hovered,
         );
         assert!(world.get::<InteractionState>(a).is_none());
         assert!(matches!(
@@ -205,11 +234,11 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, InteractionState::Hovered);
         assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
-        swap_marker(
+        swap_markers(
             &mut world,
             Some(e),
             |s| matches!(s, InteractionState::Hovered),
-            || InteractionState::Hovered,
+            InteractionState::Hovered,
         );
         assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
     }
@@ -219,11 +248,13 @@ mod tests {
 mod hover_press_e2e {
     extern crate std;
     use super::*;
+    use crate::input::event::GestureHandler;
     use crate::input::event::PointerCursor;
+    use crate::input::event::gesture::GestureEvent;
     use crate::types::{Dimension, Fixed};
-    use crate::ui::Style;
-    use crate::ui::Widget;
-    use crate::ui::layout::LayoutStyle;
+    use crate::ui::layout::{LayoutStyle, Position};
+    use crate::ui::widgets::Text;
+    use crate::ui::{Children, Parent, Style, Widget};
 
     fn make_world_with_button() -> (World, Entity) {
         let mut app = crate::app::App::headless(64, 64);
@@ -249,6 +280,144 @@ mod hover_press_e2e {
             &crate::types::Viewport::new(64, 64, Fixed::ONE),
         );
         (world, root)
+    }
+
+    fn make_world_with_text_child() -> (World, Entity, Entity) {
+        let (mut world, root) = make_world_with_button();
+        let child = world.spawn_empty();
+        world.insert(child, Widget);
+        world.insert(child, Parent(root));
+        world.insert(child, Text::from("Tap me"));
+        world.insert(
+            child,
+            Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::px(8),
+                    top: Dimension::px(8),
+                    width: Dimension::px(40),
+                    height: Dimension::px(24),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(root, Children(alloc::vec![child]));
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(64, 64, Fixed::ONE),
+        );
+        (world, root, child)
+    }
+
+    #[derive(Default)]
+    struct TapCounts {
+        parent: u8,
+        child: u8,
+    }
+
+    fn parent_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        world.resource_mut::<TapCounts>().unwrap().parent += 1;
+        true
+    }
+
+    fn child_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        world.resource_mut::<TapCounts>().unwrap().child += 1;
+        true
+    }
+
+    #[test]
+    fn tap_on_text_reaches_its_own_handler_or_bubbles_to_parent() {
+        let (mut world, root, child) = make_world_with_text_child();
+        world.insert_resource(TapCounts::default());
+        world.insert(root, GestureHandler::from_fn(parent_tap));
+        let probe = Fixed::from_int(16);
+        let target = crate::input::event::hit_test::hit_test(&world, root, probe, probe, 64, 64)
+            .expect("text target");
+        assert_eq!(target, child);
+        let tap = GestureEvent::Tap {
+            x: probe,
+            y: probe,
+            target,
+        };
+        crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
+        assert_eq!(world.resource::<TapCounts>().unwrap().parent, 1);
+
+        world.insert(child, GestureHandler::from_fn(child_tap));
+        crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
+        let counts = world.resource::<TapCounts>().unwrap();
+        assert_eq!(counts.child, 1);
+        assert_eq!(counts.parent, 1);
+    }
+
+    #[test]
+    fn child_text_keeps_its_parent_hovered() {
+        let (mut world, root, child) = make_world_with_text_child();
+        let probe = Fixed::from_int(16);
+        assert_eq!(
+            crate::input::event::hit_test::hit_test(&world, root, probe, probe, 64, 64),
+            Some(child)
+        );
+        world.insert_resource(PointerCursor {
+            x: probe,
+            y: probe,
+            down: false,
+            event_seq: 1,
+        });
+        hover_system(&mut world);
+        assert_eq!(
+            world.get::<InteractionState>(child),
+            Some(&InteractionState::Hovered)
+        );
+        assert_eq!(
+            world.get::<InteractionState>(root),
+            Some(&InteractionState::Hovered)
+        );
+
+        world.insert_resource(PointerCursor {
+            x: Fixed::from_int(56),
+            y: Fixed::from_int(56),
+            down: false,
+            event_seq: 1,
+        });
+        hover_system(&mut world);
+        assert!(world.get::<InteractionState>(child).is_none());
+        assert_eq!(
+            world.get::<InteractionState>(root),
+            Some(&InteractionState::Hovered)
+        );
+    }
+
+    #[test]
+    fn child_text_keeps_its_parent_pressed() {
+        let (mut world, root, child) = make_world_with_text_child();
+        let probe = Fixed::from_int(16);
+        world.insert_resource(PointerCursor {
+            x: probe,
+            y: probe,
+            down: true,
+            event_seq: 1,
+        });
+        press_system(&mut world);
+        assert_eq!(
+            world.get::<InteractionState>(child),
+            Some(&InteractionState::Pressed)
+        );
+        assert_eq!(
+            world.get::<InteractionState>(root),
+            Some(&InteractionState::Pressed)
+        );
+
+        world.insert_resource(PointerCursor {
+            x: probe,
+            y: probe,
+            down: false,
+            event_seq: 2,
+        });
+        press_system(&mut world);
+        assert!(world.get::<InteractionState>(child).is_none());
+        assert!(world.get::<InteractionState>(root).is_none());
     }
 
     #[test]

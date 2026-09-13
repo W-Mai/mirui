@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text hit-path interaction.** Hover and press state follows the deepest hit widget and its ancestors, so text inside an interactive container preserves the container's visual response.
 - **Projective widget dispatch.** Widget homographies travel only through renderer scope; leaf commands no longer also carry a pre-projected quad, and descendant clips use transformed screen-space bounds.
 - **Web release builds.** `cargo xtask wasm-build` normalizes the inherited no-color setting for current Trunk releases.
 - **Atomic projective scene replay.** Renderers preflight command support, invertibility and near-plane geometry before drawing, so invalid projective groups fail without partially updating the target.
