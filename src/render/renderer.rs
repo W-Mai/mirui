@@ -24,6 +24,20 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
         self.projective = projective;
         self
     }
+
+    pub(crate) fn validate_projection(&self) -> Result<(), RenderError> {
+        if !self.projective.is_identity()
+            && matches!(
+                self.command,
+                DrawCommand::Fill { quad: Some(_), .. }
+                    | DrawCommand::Border { quad: Some(_), .. }
+                    | DrawCommand::Blit { quad: Some(_), .. }
+            )
+        {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        Ok(())
+    }
 }
 
 /// How a backend preserves the requested drawing semantics.
@@ -44,8 +58,11 @@ pub enum RenderFeature {
     GradientPaint,
     StrokeStyle,
     Blur,
+    RoundedFill,
     RoundedBlit,
+    BlitOpacity,
     Composite(CompositeMode),
+    TextureFormat(ColorFormat),
 }
 
 /// Bounded backend resource exhausted while preparing a draw.
@@ -248,6 +265,31 @@ mod tests {
         assert_eq!(request.clip, clip);
         assert_eq!(request.projective, projection);
         assert!(matches!(request.command, DrawCommand::ApplyBlur { .. }));
+    }
+
+    #[test]
+    fn request_rejects_explicit_quad_with_shared_projection() {
+        let clip = Rect::new(0, 0, 12, 12);
+        let command = DrawCommand::Fill {
+            area: clip,
+            transform: crate::types::Transform::IDENTITY,
+            quad: Some([
+                crate::types::Point::new(0, 0),
+                crate::types::Point::new(12, 0),
+                crate::types::Point::new(12, 12),
+                crate::types::Point::new(0, 12),
+            ]),
+            color: crate::types::Color::rgb(20, 30, 40),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let request = DrawRequest::new(&command, clip).with_projective(
+            Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400)),
+        );
+        assert_eq!(
+            request.validate_projection(),
+            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+        );
     }
 
     struct NoopRenderer;

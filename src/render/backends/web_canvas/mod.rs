@@ -18,7 +18,9 @@ use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
 use crate::render::projective_fallback::ProjectiveFallback;
 use crate::render::raster::{LineCap, LineJoin};
-use crate::render::renderer::{ProjectiveDrawError, Renderer};
+use crate::render::renderer::{
+    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
+};
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
@@ -406,27 +408,38 @@ impl WebCanvasRenderer<'_> {
         ctx.stroke();
     }
 
-    /// Quad blit via an `MESH_N × MESH_N` affine triangle mesh —
-    /// Canvas 2D has no homography, so subdivision approximates one.
+    /// Affine quads use a direct Canvas transform. Projective quads retain
+    /// the legacy mesh approximation until the checked fallback owns them.
     fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
         if opa == 0 {
             return;
         }
         const MESH_N: i32 = 8;
 
-        let key = TextureKey::from(src);
-        let handle = match self
-            .factory
-            .texture_pool
-            .entry(key)
-            .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
-        {
-            Ok(h) => h,
-            Err(_) => return,
+        let transient_up;
+        let pooled_handle;
+        let canvas_ref: &web_sys::OffscreenCanvas = if src.transient {
+            transient_up = match texture_pool::upload(src) {
+                Some(up) => up,
+                None => return,
+            };
+            &transient_up.canvas
+        } else {
+            let key = TextureKey::from(src);
+            pooled_handle = match self
+                .factory
+                .texture_pool
+                .entry(key)
+                .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
+            {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+            if pooled_handle.is_invalid() {
+                return;
+            }
+            &pooled_handle.canvas
         };
-        if handle.is_invalid() {
-            return;
-        }
 
         self.push_rect_clip(clip);
         let ctx = self.ctx();
@@ -434,6 +447,23 @@ impl WebCanvasRenderer<'_> {
         ctx.set_global_alpha(opa as f64 / 255.0);
         let src_w = src.width as f64;
         let src_h = src.height as f64;
+        if let Some(m) = quad_to_affine(q, &Rect::new(0, 0, src.width, src.height)) {
+            let dpr = self.dpr();
+            ctx.set_transform(
+                m.0 * dpr,
+                m.1 * dpr,
+                m.2 * dpr,
+                m.3 * dpr,
+                m.4 * dpr,
+                m.5 * dpr,
+            )
+            .expect("setTransform");
+            let _ = ctx
+                .draw_image_with_offscreen_canvas_and_dw_and_dh(canvas_ref, 0.0, 0.0, src_w, src_h);
+            ctx.set_global_alpha(prev_alpha);
+            self.pop_rect_clip();
+            return;
+        }
         // Quad index order matches `apply_rect`: 0=TL, 1=TR, 2=BR, 3=BL.
         let interp = |u: f64, v: f64| -> (f64, f64) {
             let q0x = q[0].x.to_f32() as f64;
@@ -465,30 +495,8 @@ impl WebCanvasRenderer<'_> {
                 let d10 = interp(u1, v0);
                 let d11 = interp(u1, v1);
                 let d01 = interp(u0, v1);
-                draw_textured_triangle(
-                    ctx,
-                    &handle.canvas,
-                    src_w,
-                    src_h,
-                    s00,
-                    s10,
-                    s11,
-                    d00,
-                    d10,
-                    d11,
-                );
-                draw_textured_triangle(
-                    ctx,
-                    &handle.canvas,
-                    src_w,
-                    src_h,
-                    s00,
-                    s11,
-                    s01,
-                    d00,
-                    d11,
-                    d01,
-                );
+                draw_textured_triangle(ctx, canvas_ref, src_w, src_h, s00, s10, s11, d00, d10, d11);
+                draw_textured_triangle(ctx, canvas_ref, src_w, src_h, s00, s11, s01, d00, d11, d01);
             }
         }
         ctx.set_global_alpha(prev_alpha);
@@ -533,7 +541,91 @@ impl WebCanvasRenderer<'_> {
     }
 }
 
+impl WebCanvasRenderer<'_> {
+    fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        use crate::types::TransformClass;
+
+        let projected = !request.projective.is_identity();
+        match request.command {
+            DrawCommand::ApplyBlur { .. } => {
+                return Err(RenderError::Unsupported(RenderFeature::Blur));
+            }
+            DrawCommand::FillPath { paint, .. } | DrawCommand::StrokePath { paint, .. }
+                if !projected && !matches!(paint, Paint::Color(_)) =>
+            {
+                return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
+            }
+            DrawCommand::StrokePath { dash, .. } if !projected && !dash.is_empty() => {
+                return Err(RenderError::Unsupported(RenderFeature::StrokeStyle));
+            }
+            DrawCommand::Blit {
+                quad,
+                texture,
+                radius,
+                composite,
+                ..
+            } if !projected => {
+                if let Some(q) = quad {
+                    if *radius != Fixed::ZERO {
+                        return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
+                    }
+                    if *composite != CompositeMode::SourceOver {
+                        return Err(RenderError::Unsupported(RenderFeature::Composite(
+                            *composite,
+                        )));
+                    }
+                    if !quad_is_parallelogram(q)
+                        || quad_to_affine(q, &Rect::new(0, 0, texture.width, texture.height))
+                            .is_none()
+                    {
+                        return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+                    }
+                }
+                if *radius != Fixed::ZERO
+                    && request.command.transform().classify() != TransformClass::Identity
+                {
+                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
+                }
+                if matches!(
+                    texture.format,
+                    ColorFormat::RGB565 | ColorFormat::RGB565Swapped
+                ) {
+                    return Err(RenderError::Unsupported(RenderFeature::TextureFormat(
+                        texture.format,
+                    )));
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
 impl Renderer for WebCanvasRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        request.validate_projection()?;
+        Self::classify_request(request)?;
+        if request.projective.is_identity() {
+            return Ok(RenderRoute::Native);
+        }
+        let fallback = self
+            .factory
+            .projective_fallback
+            .as_ref()
+            .ok_or(RenderError::MissingWorkspace)?;
+        let plan = fallback
+            .plan(
+                request.command,
+                &request.clip,
+                &request.projective,
+                self.viewport,
+            )
+            .map_err(RenderError::from)?;
+        Ok(RenderRoute::ExactFallback {
+            required_bytes: plan.required_bytes(),
+        })
+    }
+
     fn output_scale(&self) -> Fixed {
         self.viewport.scale()
     }
@@ -1388,10 +1480,14 @@ fn line_join_str(join: LineJoin) -> &'static str {
     }
 }
 
-/// Recover the 2D affine `(a, b, c, d, e, f)` (`setTransform` argument
-/// order) that maps `area`'s four corners to `q`. Returns `None` for
-/// perspective quads — the top and bottom edges no longer parallel /
-/// equal-length, which an affine matrix can't reproduce.
+fn quad_is_parallelogram(q: &[Point; 4]) -> bool {
+    let x = |index: usize| q[index].x.to_f32() as f64;
+    let y = |index: usize| q[index].y.to_f32() as f64;
+    x(0) + x(2) == x(1) + x(3) && y(0) + y(2) == y(1) + y(3)
+}
+
+/// Returns the affine transform mapping `area` to `q` when its opposite
+/// edges agree within the rounding tolerance.
 fn quad_to_affine(q: &[Point; 4], area: &Rect) -> Option<(f64, f64, f64, f64, f64, f64)> {
     let q0x = q[0].x.to_f32() as f64;
     let q0y = q[0].y.to_f32() as f64;

@@ -2398,6 +2398,7 @@ mod glyph_tests {
 
 impl Renderer for WgpuRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        request.validate_projection()?;
         let route = Self::classify_request(request)?;
         if !request.projective.is_identity() {
             self.preflight_projective(request.command, &request.clip, &request.projective)

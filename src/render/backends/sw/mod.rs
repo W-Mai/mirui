@@ -3,7 +3,9 @@ use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::path::Path;
-use crate::render::renderer::{ProjectiveDrawError, Renderer};
+use crate::render::renderer::{
+    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
+};
 use crate::render::texture::Texture;
 
 #[cfg(feature = "perf")]
@@ -676,6 +678,49 @@ impl SwRenderer<'_> {
 }
 
 impl Renderer for SwRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        use crate::types::TransformClass;
+
+        request.validate_projection()?;
+        let projected = !request.projective.is_identity();
+        let affine = !matches!(
+            request.command.transform().classify(),
+            TransformClass::Identity | TransformClass::Translate
+        );
+        match request.command {
+            DrawCommand::Fill {
+                quad: None, radius, ..
+            } if affine && *radius != Fixed::ZERO && !projected => {
+                return Err(RenderError::Unsupported(RenderFeature::RoundedFill));
+            }
+            DrawCommand::Blit {
+                quad,
+                radius,
+                composite,
+                opa,
+                ..
+            } if projected || affine || quad.is_some() => {
+                if *radius != Fixed::ZERO {
+                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
+                }
+                if *composite != CompositeMode::SourceOver {
+                    return Err(RenderError::Unsupported(RenderFeature::Composite(
+                        *composite,
+                    )));
+                }
+                if *opa != 255 {
+                    return Err(RenderError::Unsupported(RenderFeature::BlitOpacity));
+                }
+            }
+            _ => {}
+        }
+        if projected {
+            self.preflight_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from)?;
+        }
+        Ok(RenderRoute::Native)
+    }
+
     fn output_scale(&self) -> Fixed {
         self.viewport.scale()
     }
@@ -1270,6 +1315,56 @@ mod tests {
     use super::*;
     use crate::render::texture::ColorFormat;
     use alloc::vec;
+
+    #[test]
+    fn route_rejects_software_draws_that_drop_requested_semantics() {
+        let renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
+        let clip = Rect::new(0, 0, 16, 16);
+        let affine = Transform::rotate_deg(Fixed::from_int(20));
+        let fill = DrawCommand::Fill {
+            area: clip,
+            transform: affine,
+            quad: None,
+            color: Color::rgb(20, 30, 40),
+            radius: Fixed::from_int(3),
+            opa: 255,
+        };
+        assert_eq!(
+            renderer.route(&DrawRequest::new(&fill, clip)),
+            Err(RenderError::Unsupported(RenderFeature::RoundedFill))
+        );
+
+        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+        let blit = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: affine,
+            quad: None,
+            texture: &texture,
+            opa: 128,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        assert_eq!(
+            renderer.route(&DrawRequest::new(&blit, clip)),
+            Err(RenderError::Unsupported(RenderFeature::BlitOpacity))
+        );
+
+        let line = DrawCommand::Line {
+            p1: Point::ZERO,
+            p2: Point::new(10, 10),
+            transform: Transform::IDENTITY,
+            color: Color::rgb(20, 30, 40),
+            width: Fixed::ONE,
+            opa: 255,
+        };
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400));
+        assert_eq!(
+            renderer.route(&DrawRequest::new(&line, clip).with_projective(projective)),
+            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+        );
+    }
 
     /// Blit dst origin at a negative x — common when an OffscreenRender
     /// entity's WidgetTransform translates the buffer off the left

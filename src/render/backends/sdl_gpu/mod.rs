@@ -31,7 +31,10 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
 use crate::render::projective_fallback::ProjectiveFallback;
-use crate::render::renderer::{ProjectiveDrawError, Renderer};
+use crate::render::raster::FillRule;
+use crate::render::renderer::{
+    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
+};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
@@ -501,7 +504,189 @@ impl SdlGpuRenderer<'_> {
     }
 }
 
+impl SdlGpuRenderer<'_> {
+    fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        use crate::types::TransformClass;
+
+        let projected = !request.projective.is_identity();
+        match request.command {
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
+                return Err(RenderError::Unsupported(RenderFeature::PathClip));
+            }
+            DrawCommand::ApplyBlur { .. } => {
+                return Err(RenderError::Unsupported(RenderFeature::Blur));
+            }
+            DrawCommand::StrokePath { .. } => {
+                return Err(RenderError::Unsupported(RenderFeature::PathStroke));
+            }
+            DrawCommand::FillPath {
+                paint, fill_rule, ..
+            } if !projected => {
+                if !matches!(paint, Paint::Color(_)) {
+                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
+                }
+                if *fill_rule != FillRule::EvenOdd {
+                    return Err(RenderError::Unsupported(RenderFeature::FillRule));
+                }
+            }
+            DrawCommand::Blit {
+                quad,
+                texture,
+                radius,
+                composite,
+                ..
+            } if !projected => {
+                if *radius != Fixed::ZERO {
+                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
+                }
+                let supported = if quad.is_some() {
+                    *composite == CompositeMode::SourceOver
+                } else {
+                    matches!(
+                        composite,
+                        CompositeMode::SourceOver | CompositeMode::Add | CompositeMode::Multiply
+                    )
+                };
+                if !supported {
+                    return Err(RenderError::Unsupported(RenderFeature::Composite(
+                        *composite,
+                    )));
+                }
+                if texture.format == ColorFormat::RGB565Swapped {
+                    return Err(RenderError::Unsupported(RenderFeature::TextureFormat(
+                        texture.format,
+                    )));
+                }
+            }
+            _ => {}
+        }
+        if projected {
+            return Ok(());
+        }
+        let supports_affine = match request.command {
+            DrawCommand::Fill { quad, .. }
+            | DrawCommand::Border { quad, .. }
+            | DrawCommand::Blit { quad, .. } => quad.is_some(),
+            DrawCommand::FillPath { .. }
+            | DrawCommand::GlyphRun { .. }
+            | DrawCommand::PosedGlyphRun { .. } => true,
+            _ => false,
+        };
+        if !supports_affine
+            && !matches!(
+                request.command.transform().classify(),
+                TransformClass::Identity | TransformClass::Translate
+            )
+        {
+            return Err(RenderError::Unsupported(RenderFeature::AffineGeometry));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod route_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_ignored_sdl_gpu_commands_and_texture_format() {
+        let clip = Rect::new(0, 0, 16, 16);
+        let path = Path::new();
+        let push = DrawCommand::PushClip {
+            path: &path,
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::EvenOdd,
+        };
+        assert_eq!(
+            SdlGpuRenderer::classify_request(&DrawRequest::new(&push, clip)),
+            Err(RenderError::Unsupported(RenderFeature::PathClip))
+        );
+
+        let texture = Texture::owned(2, 2, ColorFormat::RGB565Swapped);
+        let blit = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        assert_eq!(
+            SdlGpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            Err(RenderError::Unsupported(RenderFeature::TextureFormat(
+                ColorFormat::RGB565Swapped
+            )))
+        );
+    }
+
+    #[test]
+    fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
+        let clip = Rect::new(0, 0, 16, 16);
+        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+        let quad = [
+            Point::ZERO,
+            Point::new(2, 0),
+            Point::new(2, 2),
+            Point::new(0, 2),
+        ];
+        let blit = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: Some(quad),
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::Add,
+        };
+        assert_eq!(
+            SdlGpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            Err(RenderError::Unsupported(RenderFeature::Composite(
+                CompositeMode::Add
+            )))
+        );
+
+        let line = DrawCommand::Line {
+            p1: Point::ZERO,
+            p2: Point::new(10, 10),
+            transform: Transform::rotate_deg(Fixed::from_int(20)),
+            color: Color::rgb(20, 30, 40),
+            width: Fixed::ONE,
+            opa: 255,
+        };
+        assert_eq!(
+            SdlGpuRenderer::classify_request(&DrawRequest::new(&line, clip)),
+            Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        );
+    }
+}
+
 impl Renderer for SdlGpuRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        request.validate_projection()?;
+        Self::classify_request(request)?;
+        if request.projective.is_identity() {
+            return Ok(RenderRoute::Native);
+        }
+        let fallback = self
+            .projective_fallback
+            .as_deref()
+            .ok_or(RenderError::MissingWorkspace)?;
+        let plan = fallback
+            .plan(
+                request.command,
+                &request.clip,
+                &request.projective,
+                self.viewport,
+            )
+            .map_err(RenderError::from)?;
+        Ok(RenderRoute::ExactFallback {
+            required_bytes: plan.required_bytes(),
+        })
+    }
+
     fn output_scale(&self) -> Fixed {
         self.viewport.scale()
     }

@@ -53,6 +53,16 @@ pub(crate) struct ProjectiveFallbackPlan {
     logical_origin_y: Fixed,
 }
 
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+impl ProjectiveFallbackPlan {
+    pub(crate) const fn required_bytes(self) -> usize {
+        self.required_bytes
+    }
+}
+
 impl ProjectiveFallback {
     /// Uses `target` as both the clipped RGBA8888 target and rendering
     /// workspace.
