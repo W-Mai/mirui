@@ -669,7 +669,10 @@ fn draw_tree_offset(
             affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
         })
     };
-    if !rects_intersect(&cull_rect, clip) {
+    // A zero-size layout wrapper may still contain painted children.
+    if !rects_intersect(&cull_rect, clip)
+        && (node.children.is_empty() || (cull_rect.w > Fixed::ZERO && cull_rect.h > Fixed::ZERO))
+    {
         *idx += count_nodes(node);
         return;
     }

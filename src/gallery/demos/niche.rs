@@ -101,8 +101,41 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::surface::FramebufferAccess;
     use crate::ui::UiScope;
     use crate::ui::{IdMap, NicheMap, Parent, ViewRegistry};
+
+    #[test]
+    fn dirty_text_inside_slots_matches_full_render() {
+        let mut app = App::headless(480, 320);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        setup_app(&mut app, root);
+        app.render();
+        crate::ui::render_system::collect_dirty_regions(
+            &mut app.world,
+            root,
+            &crate::types::Viewport::new(480, 320, Fixed::ONE),
+        );
+        let texts: Vec<_> = app
+            .world
+            .query::<Text>()
+            .iter()
+            .map(|(entity, _)| entity)
+            .collect();
+        for entity in texts {
+            app.world.insert(entity, crate::ui::dirty::Dirty);
+            app.render_dirty();
+            let partial = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render();
+            let full = app.backend.framebuffer().buf.as_slice().to_vec();
+            let mismatches = partial.iter().zip(&full).filter(|(a, b)| a != b).count();
+            assert_eq!(
+                mismatches, 0,
+                "dirty text {entity:?} differs from full render"
+            );
+        }
+    }
 
     #[test]
     fn build_widgets_smoke() {
