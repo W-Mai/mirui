@@ -1,7 +1,73 @@
 use crate::types::{Fixed, Rect, Transform3D};
 
-use super::command::DrawCommand;
+use super::command::{CompositeMode, DrawCommand};
 use super::texture::ColorFormat;
+
+/// One draw under its effective clip and shared projective transform.
+#[derive(Clone, Copy)]
+pub struct DrawRequest<'cmd, 'data> {
+    pub command: &'cmd DrawCommand<'data>,
+    pub clip: Rect,
+    pub projective: Transform3D,
+}
+
+impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
+    pub const fn new(command: &'cmd DrawCommand<'data>, clip: Rect) -> Self {
+        Self {
+            command,
+            clip,
+            projective: Transform3D::IDENTITY,
+        }
+    }
+
+    pub const fn with_projective(mut self, projective: Transform3D) -> Self {
+        self.projective = projective;
+        self
+    }
+}
+
+/// How a backend preserves the requested drawing semantics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderRoute {
+    Native,
+    ExactFallback { required_bytes: usize },
+}
+
+/// Semantic operation that a backend cannot execute exactly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderFeature {
+    AffineGeometry,
+    ProjectiveGeometry,
+    PathClip,
+    GradientPaint,
+    StrokeStyle,
+    Blur,
+    RoundedBlit,
+    Composite(CompositeMode),
+}
+
+/// Bounded backend resource exhausted while preparing a draw.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderResource {
+    Geometry,
+    Uniforms,
+    Texture,
+    Target,
+}
+
+/// Failure to preserve a requested draw without approximation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RenderError {
+    Unsupported(RenderFeature),
+    InvalidGeometry,
+    MissingWorkspace,
+    InsufficientWorkspace {
+        required_bytes: usize,
+        capacity_bytes: usize,
+    },
+    ResourceLimit(RenderResource),
+    BackendFailure,
+}
 
 /// Failure to execute a draw command under a non-affine homography.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -136,6 +202,21 @@ pub trait Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_keeps_command_data_borrow_independent_of_command_borrow() {
+        let clip = Rect::new(0, 0, 12, 12);
+        let command = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE,
+            region: clip,
+        };
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400));
+        let request = DrawRequest::new(&command, clip).with_projective(projection);
+        assert_eq!(request.clip, clip);
+        assert_eq!(request.projective, projection);
+        assert!(matches!(request.command, DrawCommand::ApplyBlur { .. }));
+    }
 
     struct NoopRenderer;
     impl Renderer for NoopRenderer {

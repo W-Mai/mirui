@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Render request model.** `DrawRequest` carries a borrowed command, clip, and shared projection; `RenderRoute` and `RenderError` describe exact execution and bounded failure outcomes.
+
 ### Fixed
 
 - **SDL event compatibility.** Software and SDL GPU surfaces discard unrecognized window subevents before converting the event queue, preserving interactive demos with SDL2 compatibility libraries.

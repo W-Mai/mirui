@@ -26,8 +26,10 @@ pub use canvas::{Canvas, Paint};
 pub use command::{CompositeMode, DrawCommand};
 pub use factory::{RendererFactory, SwRendererFactory};
 pub use projective_fallback::ProjectiveFallback;
-pub use renderer::ProjectiveDrawError;
-pub use renderer::Renderer;
+pub use renderer::{
+    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderResource, RenderRoute,
+    Renderer,
+};
 pub use sw::SwRenderer;
 #[cfg(feature = "perf")]
 pub use sw::{PerfCtx, quad_perf};
