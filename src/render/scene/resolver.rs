@@ -97,6 +97,14 @@ mod tests {
         sizes: alloc::vec::Vec<(u16, u16)>,
     }
     impl crate::render::renderer::Renderer for DimsRenderer {
+        fn route(
+            &self,
+            _: &crate::render::renderer::DrawRequest<'_, '_>,
+        ) -> Result<crate::render::renderer::RenderRoute, crate::render::renderer::RenderError>
+        {
+            Ok(crate::render::renderer::RenderRoute::Native)
+        }
+
         fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
             if let DrawCommand::Blit { texture, .. } = cmd {
                 self.sizes.push((texture.width, texture.height));

@@ -6,7 +6,7 @@ use super::bbox::{direct_children_bboxes, pairwise_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
-use crate::render::renderer::{ProjectiveDrawError, Renderer};
+use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::texture::Texture;
 use crate::types::{Fixed, Rect, Transform, Transform3D};
 
@@ -22,13 +22,7 @@ pub enum ReplayError {
     /// compositing isn't available. Separate the children, or set the
     /// hint to flatten with a visible seam.
     GroupOpacityNeedsOffscreen,
-    ProjectiveDrawUnsupported,
-    ProjectiveFallbackUnavailable,
-    ProjectiveFallbackCapacity {
-        required_bytes: usize,
-        capacity_bytes: usize,
-    },
-    InvalidProjectiveGeometry,
+    Render(RenderError),
 }
 
 fn parse_blur_filter(filter: &str) -> Option<Fixed> {
@@ -71,35 +65,21 @@ fn draw_in_frame(
     clip: &Rect,
     pass: ReplayPass,
 ) -> Result<(), ReplayError> {
+    let request = DrawRequest::new(command, *clip)
+        .with_projective(frame.projective.unwrap_or(Transform3D::IDENTITY));
+    if pass == ReplayPass::Preflight {
+        return renderer
+            .route(&request)
+            .map(|_| ())
+            .map_err(ReplayError::Render);
+    }
     if let Some(projective) = frame.projective {
-        if pass == ReplayPass::Preflight {
-            return renderer
-                .preflight_projective(command, clip, &projective)
-                .map_err(projective_replay_error);
-        }
         return renderer
             .draw_projective(command, clip, &projective)
-            .map_err(projective_replay_error);
+            .map_err(|error| ReplayError::Render(error.into()));
     }
-    if pass == ReplayPass::Draw {
-        renderer.draw(command, clip);
-    }
+    renderer.draw(command, clip);
     Ok(())
-}
-
-const fn projective_replay_error(error: ProjectiveDrawError) -> ReplayError {
-    match error {
-        ProjectiveDrawError::Unsupported => ReplayError::ProjectiveDrawUnsupported,
-        ProjectiveDrawError::MissingFallbackStorage => ReplayError::ProjectiveFallbackUnavailable,
-        ProjectiveDrawError::InsufficientFallbackStorage {
-            required_bytes,
-            capacity_bytes,
-        } => ReplayError::ProjectiveFallbackCapacity {
-            required_bytes,
-            capacity_bytes,
-        },
-        ProjectiveDrawError::InvalidProjection => ReplayError::InvalidProjectiveGeometry,
-    }
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -287,8 +267,8 @@ fn replay_scene_pass(
                     return Err(ReplayError::UnbalancedGroup);
                 }
                 let frame = stack.pop().unwrap();
-                if frame.has_clip && pass == ReplayPass::Draw {
-                    renderer.draw(&DrawCommand::PopClip, clip);
+                if frame.has_clip {
+                    draw_in_frame(renderer, &frame, &DrawCommand::PopClip, clip, pass)?;
                 }
                 if let Some(filter_str) = &frame.filter {
                     if let Some(blur_alpha) = parse_blur_filter(filter_str) {
@@ -325,9 +305,7 @@ fn replay_scene_pass(
                 )?;
             }
             SceneOp::PopClip => {
-                if pass == ReplayPass::Draw {
-                    renderer.draw(&DrawCommand::PopClip, clip);
-                }
+                draw_in_frame(renderer, &top, &DrawCommand::PopClip, clip, pass)?;
             }
             SceneOp::FillRect {
                 area,
@@ -570,6 +548,7 @@ fn replay_scene_pass(
 mod tests {
     use super::*;
     use crate::render::command::DrawCommand;
+    use crate::render::renderer::{ProjectiveDrawError, RenderFeature, RenderRoute};
     use crate::render::scene::Paint;
     use crate::types::{Color, Fixed, Point, Rect};
     use alloc::vec;
@@ -579,6 +558,10 @@ mod tests {
         fill_opas: Vec<u8>,
     }
     impl Renderer for CaptureRenderer {
+        fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            Ok(RenderRoute::Native)
+        }
+
         fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
             if let DrawCommand::Fill { transform, opa, .. } = cmd {
                 self.transforms.push(*transform);
@@ -595,6 +578,10 @@ mod tests {
     }
 
     impl Renderer for ProjectiveCapture {
+        fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            Ok(RenderRoute::Native)
+        }
+
         fn draw(&mut self, _: &DrawCommand, _: &Rect) {}
 
         fn draw_projective(
@@ -635,6 +622,14 @@ mod tests {
     }
 
     impl Renderer for FillOnlyProjectiveRenderer {
+        fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            if !request.projective.is_identity() {
+                self.preflight_projective(request.command, &request.clip, &request.projective)
+                    .map_err(RenderError::from)?;
+            }
+            Ok(RenderRoute::Native)
+        }
+
         fn draw(&mut self, _: &DrawCommand, _: &Rect) {
             self.draws += 1;
         }
@@ -791,7 +786,52 @@ mod tests {
 
         assert_eq!(
             replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
-            Err(ReplayError::ProjectiveDrawUnsupported)
+            Err(ReplayError::Render(RenderError::Unsupported(
+                RenderFeature::ProjectiveGeometry
+            )))
+        );
+        assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
+    fn affine_route_failure_prevents_earlier_draws() {
+        struct FillOnlyRoute {
+            draws: usize,
+        }
+
+        impl Renderer for FillOnlyRoute {
+            fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                if matches!(request.command, DrawCommand::Line { .. }) {
+                    Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+                } else {
+                    Ok(RenderRoute::Native)
+                }
+            }
+
+            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+                self.draws += 1;
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let ops = [
+            fill(Transform::IDENTITY),
+            SceneOp::Line {
+                p1: Point::ZERO,
+                p2: Point::new(Fixed::ONE, Fixed::ONE),
+                transform: Transform::IDENTITY,
+                color: Color::rgb(255, 255, 255),
+                width: Fixed::ONE,
+                opa: 255,
+            },
+        ];
+        let mut renderer = FillOnlyRoute { draws: 0 };
+        assert_eq!(
+            replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
+            Err(ReplayError::Render(RenderError::Unsupported(
+                RenderFeature::AffineGeometry
+            )))
         );
         assert_eq!(renderer.draws, 0);
     }
@@ -828,7 +868,7 @@ mod tests {
 
         assert_eq!(
             replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
-            Err(ReplayError::InvalidProjectiveGeometry)
+            Err(ReplayError::Render(RenderError::InvalidGeometry))
         );
         assert_eq!(renderer.draws, 0);
     }
@@ -868,10 +908,10 @@ mod tests {
 
         assert_eq!(
             replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
-            Err(ReplayError::ProjectiveFallbackCapacity {
+            Err(ReplayError::Render(RenderError::InsufficientWorkspace {
                 required_bytes: 64,
                 capacity_bytes: 32,
-            })
+            }))
         );
         assert_eq!(renderer.draws, 0);
     }
@@ -951,6 +991,10 @@ mod tests {
             ppem: u16,
         }
         impl Renderer for GlyphRenderer {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
                 if let DrawCommand::GlyphRun { glyphs, font, .. } = command {
                     self.glyphs = glyphs.len();
@@ -1007,6 +1051,10 @@ mod tests {
             tangent: Option<textflow::shaping::FlowPoint>,
         }
         impl Renderer for GlyphRenderer {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, command: &DrawCommand, _: &Rect) {
                 if let DrawCommand::PosedGlyphRun { glyphs, .. } = command {
                     self.origin = glyphs.frames().first().map(|frame| frame.local_origin);
