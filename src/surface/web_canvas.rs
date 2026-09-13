@@ -17,6 +17,7 @@ use web_sys::{
     TouchEvent, WheelEvent,
 };
 
+use super::backbuffer_invalidation::BackbufferInvalidation;
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface};
 use crate::core::cache::InspectCaches;
 use crate::input::event::input::{
@@ -39,6 +40,7 @@ struct Listener {
 pub struct WebCanvasSurface {
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
+    backbuffer: BackbufferInvalidation,
     event_queue: EventQueue,
     _listeners: Vec<Listener>,
 }
@@ -47,7 +49,7 @@ impl WebCanvasSurface {
     /// `canvas` must already be in the DOM with its CSS size set —
     /// mirui only owns the backing store and the 2D context state.
     pub fn new(canvas: HtmlCanvasElement) -> Self {
-        sync_canvas_size(&canvas);
+        let (css_w, css_h, scale, _) = sync_canvas_size(&canvas);
         let ctx = canvas
             .get_context("2d")
             .expect("canvas.getContext failed")
@@ -61,6 +63,7 @@ impl WebCanvasSurface {
         Self {
             canvas,
             ctx,
+            backbuffer: BackbufferInvalidation::new((css_w, css_h, scale)),
             event_queue,
             _listeners: listeners,
         }
@@ -94,7 +97,8 @@ impl Surface for WebCanvasSurface {
     fn display_info(&self) -> DisplayInfo {
         // Re-sync each query so window resizes / OS zoom are picked up
         // without a dedicated `resize` listener.
-        let (css_w, css_h, scale) = sync_canvas_size(&self.canvas);
+        let (css_w, css_h, scale, reset) = sync_canvas_size(&self.canvas);
+        self.backbuffer.observe((css_w, css_h, scale), reset);
         DisplayInfo {
             width: css_w,
             height: css_h,
@@ -110,22 +114,22 @@ impl Surface for WebCanvasSurface {
     }
 
     fn persistence(&self) -> BackbufferPersistence {
-        // `set_width` blanks the backing store on every resize / DPR
-        // change, so every frame repaints instead of trusting persistence.
-        BackbufferPersistence::Transient
+        self.display_info();
+        self.backbuffer.take_persistence()
     }
 }
 
 /// `set_width` / `set_height` blank the backing store on every
 /// assignment, so the `if !=` guards skip same-size frames.
 /// Fractional DPR is preserved to match the rendered extent.
-fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed) {
+fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed, bool) {
     let window = web_sys::window().expect("no global `window`");
     let dpr = window.device_pixel_ratio().max(1.0);
     let css_w = canvas.client_width().max(1) as u16;
     let css_h = canvas.client_height().max(1) as u16;
     let phys_w = (css_w as f64 * dpr).round() as u32;
     let phys_h = (css_h as f64 * dpr).round() as u32;
+    let reset = canvas.width() != phys_w || canvas.height() != phys_h;
     if canvas.width() != phys_w {
         canvas.set_width(phys_w);
     }
@@ -133,7 +137,7 @@ fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed) {
         canvas.set_height(phys_h);
     }
     let scale = Fixed::from_f32(dpr as f32);
-    (css_w, css_h, scale)
+    (css_w, css_h, scale, reset)
 }
 
 fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Listener> {

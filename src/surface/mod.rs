@@ -1,3 +1,5 @@
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+pub(crate) mod backbuffer_invalidation;
 pub mod framebuf;
 #[cfg(any(
     all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"),
@@ -53,8 +55,8 @@ pub use crate::input::event::input::{InputEvent, KEY_HW_BUTTON_0, KEY_ROTARY_PRE
 
 /// Does the backbuffer survive `flush()`?
 ///
-/// CPU raster backends are [`Persistent`]; swap-chain GPU backends
-/// (SDL accelerated / wgpu / Web canvas) are [`Transient`]. `App::run`
+/// CPU raster and Web Canvas backends are [`Persistent`] while their backing
+/// stores remain valid; swap-chain GPU backends are [`Transient`]. `App::run`
 /// picks dirty-only vs. full-frame rendering based on this.
 ///
 /// [`Persistent`]: Self::Persistent

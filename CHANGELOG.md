@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web Canvas frame persistence.** Stable backing stores use dirty-region repaint; the first frame and backing-store changes receive a full repaint.
 - **Projective glyph fallback bounds.** Linear and posed text size their bounded software target from projected glyph ink instead of the full clip, reducing readback and storage for small runs.
 - **Scene replay preflight.** Affine and projective commands use backend route inspection before any scene draw; `ReplayError::Render` carries unsupported and resource errors without partially painting the scene.
 - **SDL event compatibility.** Software and SDL GPU surfaces discard unrecognized window subevents before converting the event queue, preserving interactive demos with SDL2 compatibility libraries.
