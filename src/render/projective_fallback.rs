@@ -273,6 +273,39 @@ mod tests {
     use crate::render::font::Font;
     use crate::types::{Color, Point, Transform};
     use textflow::placement::GlyphFrame;
+
+    #[test]
+    fn identity_rounded_blit_uses_bounded_local_target() {
+        let source = [255u8, 0, 0, 255].repeat(16);
+        let texture = Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888);
+        let command = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::from_int(3),
+            composite: CompositeMode::SourceOver,
+        };
+        let mut bytes = [0u8; 12 * 12 * 4];
+        let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
+        let viewport = Viewport::new(12, 12, Fixed::ONE);
+        let plan = fallback
+            .plan(
+                &command,
+                &Rect::new(0, 0, 12, 12),
+                &Transform3D::IDENTITY,
+                viewport,
+            )
+            .unwrap();
+        assert!(plan.required_bytes() <= fallback.capacity());
+        fallback
+            .render(plan, &command, &Transform3D::IDENTITY, viewport)
+            .unwrap();
+        let data = fallback.target(plan);
+        assert!(data.iter().any(|&byte| byte == 255));
+    }
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
 
     fn glyph_command<'a>(glyphs: &'a [PositionedGlyph], font: &'a Font) -> DrawCommand<'a> {
