@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Software render scratch.** The default renderer factory retains path geometry, scanline, stroke, and clip-mask buffers between frames.
 - **Projected quad validation.** WGPU rejects degenerate or near-plane-crossing fill, border, and image quads before checked submission.
 - **Web Canvas path dashes.** Dashed strokes retain their pattern alongside native cap, join, and miter styling.
 - **GPU path strokes.** WGPU and SDL GPU use the shared fixed-point stroke outline for cap, join, miter and dash geometry; WGPU path meshes reuse tessellation storage.

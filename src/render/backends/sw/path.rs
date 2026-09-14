@@ -173,19 +173,33 @@ impl SwRenderer<'_> {
     ) {
         let w = self.target.width as usize;
         let h = self.target.height as usize;
-        self.clip_mask_buf.clear();
-        self.clip_mask_buf.resize(w * h, 0);
+        let scratch = &mut *self.scratch;
+        if scratch.clip_mask_buf.capacity() < w * h {
+            if let Some(index) = scratch
+                .clip_recycled
+                .iter()
+                .position(|mask| mask.alpha.capacity() >= w * h)
+            {
+                let mut mask = scratch.clip_recycled.swap_remove(index);
+                core::mem::swap(&mut scratch.clip_mask_buf, &mut mask.alpha);
+                if mask.alpha.capacity() > 0 {
+                    scratch.clip_recycled.push(mask);
+                }
+            }
+        }
+        scratch.clip_mask_buf.clear();
+        scratch.clip_mask_buf.resize(w * h, 0);
 
-        raster::flatten_into(&path.cmds, Some(phys_tf), &mut self.flatten_buf);
-        if !self.flatten_buf.is_empty() {
+        raster::flatten_into(&path.cmds, Some(phys_tf), &mut scratch.flatten_buf);
+        if !scratch.flatten_buf.is_empty() {
             let screen = Rect::new(0, 0, self.target.width, self.target.height);
             if let Some(bbox) = path::bbox_of_cmds_transformed(&path.cmds, Some(phys_tf)) {
                 if let Some(draw_area) = bbox.intersect(&screen) {
                     let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
-                    let segs = &self.flatten_buf;
-                    let acc = &mut self.scanline_acc;
-                    let crossings = &mut self.scanline_crossings;
-                    let mask = &mut self.clip_mask_buf;
+                    let segs = &scratch.flatten_buf;
+                    let acc = &mut scratch.scanline_acc;
+                    let crossings = &mut scratch.scanline_crossings;
+                    let mask = &mut scratch.clip_mask_buf;
                     raster::scanline_fill(
                         segs,
                         px_x0,
@@ -204,14 +218,14 @@ impl SwRenderer<'_> {
             }
         }
 
-        if let Some(prev) = self.clip_stack.last() {
-            for (dst, prev) in self.clip_mask_buf.iter_mut().zip(prev.alpha.iter()) {
+        if let Some(prev) = scratch.clip_stack.last() {
+            for (dst, prev) in scratch.clip_mask_buf.iter_mut().zip(prev.alpha.iter()) {
                 *dst = (*dst).min(*prev);
             }
         }
 
-        let alpha = core::mem::take(&mut self.clip_mask_buf);
-        self.clip_stack.push(super::ClipMask { alpha });
+        let alpha = core::mem::take(&mut scratch.clip_mask_buf);
+        scratch.clip_stack.push(super::ClipMask { alpha });
     }
 
     pub(super) fn fill_path_inner(
@@ -242,8 +256,9 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-        raster::flatten_into(&path.cmds, Some(phys_tf), &mut self.flatten_buf);
-        if self.flatten_buf.is_empty() {
+        let scratch = &mut *self.scratch;
+        raster::flatten_into(&path.cmds, Some(phys_tf), &mut scratch.flatten_buf);
+        if scratch.flatten_buf.is_empty() {
             return;
         }
         // PathCmd bbox keeps the AA edge pixels at curve extrema that
@@ -271,12 +286,12 @@ impl SwRenderer<'_> {
             Fixed::from_int(solid_color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
-        let segs = &self.flatten_buf;
+        let segs = &scratch.flatten_buf;
         let target_w = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         let target = &mut self.target;
-        let acc = &mut self.scanline_acc;
-        let crossings = &mut self.scanline_crossings;
+        let acc = &mut scratch.scanline_acc;
+        let crossings = &mut scratch.scanline_crossings;
         let paint_ref = paint;
         let grad_bbox = bbox;
         raster::scanline_fill(
@@ -324,27 +339,30 @@ impl SwRenderer<'_> {
         }
         let phys_tf = self.viewport.as_transform();
         let phys_width = width * self.viewport.scale();
-        raster::offset_polygon_into(
-            &path.cmds,
-            Some(&phys_tf),
-            phys_width,
-            cap,
-            join,
-            miter_limit,
-            if dash.is_empty() { None } else { Some(dash) },
-            &mut self.stroke_outline,
-            &mut self.flatten_buf,
-            &mut self.subpath_scratch,
-            &mut self.stroke_normals,
-            &mut self.stroke_rail,
-            &mut self.stroke_left_rail,
-            &mut self.stroke_arc,
-            &mut self.dash_segments,
-            &mut self.dash_scratch,
-        );
-        let outline_cmds = core::mem::take(&mut self.stroke_outline);
+        {
+            let scratch = &mut *self.scratch;
+            raster::offset_polygon_into(
+                &path.cmds,
+                Some(&phys_tf),
+                phys_width,
+                cap,
+                join,
+                miter_limit,
+                if dash.is_empty() { None } else { Some(dash) },
+                &mut scratch.stroke_outline,
+                &mut scratch.flatten_buf,
+                &mut scratch.subpath_scratch,
+                &mut scratch.stroke_normals,
+                &mut scratch.stroke_rail,
+                &mut scratch.stroke_left_rail,
+                &mut scratch.stroke_arc,
+                &mut scratch.dash_segments,
+                &mut scratch.dash_scratch,
+            );
+        }
+        let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
         self.fill_physical_path_with_paint(&outline_cmds, clip, paint, opa);
-        self.stroke_outline = outline_cmds;
+        self.scratch.stroke_outline = outline_cmds;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -365,27 +383,30 @@ impl SwRenderer<'_> {
             return;
         }
         let phys_width = width * self.viewport.scale();
-        raster::offset_polygon_into(
-            &path.cmds,
-            Some(phys_tf),
-            phys_width,
-            cap,
-            join,
-            miter_limit,
-            if dash.is_empty() { None } else { Some(dash) },
-            &mut self.stroke_outline,
-            &mut self.flatten_buf,
-            &mut self.subpath_scratch,
-            &mut self.stroke_normals,
-            &mut self.stroke_rail,
-            &mut self.stroke_left_rail,
-            &mut self.stroke_arc,
-            &mut self.dash_segments,
-            &mut self.dash_scratch,
-        );
-        let outline_cmds = core::mem::take(&mut self.stroke_outline);
+        {
+            let scratch = &mut *self.scratch;
+            raster::offset_polygon_into(
+                &path.cmds,
+                Some(phys_tf),
+                phys_width,
+                cap,
+                join,
+                miter_limit,
+                if dash.is_empty() { None } else { Some(dash) },
+                &mut scratch.stroke_outline,
+                &mut scratch.flatten_buf,
+                &mut scratch.subpath_scratch,
+                &mut scratch.stroke_normals,
+                &mut scratch.stroke_rail,
+                &mut scratch.stroke_left_rail,
+                &mut scratch.stroke_arc,
+                &mut scratch.dash_segments,
+                &mut scratch.dash_scratch,
+            );
+        }
+        let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
         self.fill_physical_path_with_paint(&outline_cmds, &phys_clip, paint, opa);
-        self.stroke_outline = outline_cmds;
+        self.scratch.stroke_outline = outline_cmds;
     }
 
     pub(super) fn fill_physical_path_with_paint(
@@ -409,9 +430,10 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
+        let scratch = &mut *self.scratch;
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        raster::flatten_into(&phys_path.cmds, None, &mut self.flatten_buf);
-        if self.flatten_buf.is_empty() {
+        raster::flatten_into(&phys_path.cmds, None, &mut scratch.flatten_buf);
+        if scratch.flatten_buf.is_empty() {
             return;
         }
         let Some(bbox) = phys_path.bbox() else { return };
@@ -435,12 +457,12 @@ impl SwRenderer<'_> {
             Fixed::from_int(solid_color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
-        let segs = &self.flatten_buf;
+        let segs = &scratch.flatten_buf;
         let target_w = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         let target = &mut self.target;
-        let acc = &mut self.scanline_acc;
-        let crossings = &mut self.scanline_crossings;
+        let acc = &mut scratch.scanline_acc;
+        let crossings = &mut scratch.scanline_crossings;
         let paint_ref = paint;
         let grad_bbox = bbox;
         raster::scanline_fill(

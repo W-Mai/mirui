@@ -49,7 +49,7 @@ struct PendingFrame {
 
 impl<B: FramebufferAccess> App<B, SwRendererFactory> {
     pub fn new(backend: B) -> Self {
-        Self::with_factory(backend, SwRendererFactory)
+        Self::with_factory(backend, SwRendererFactory::new())
     }
 }
 

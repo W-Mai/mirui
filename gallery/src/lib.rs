@@ -284,7 +284,7 @@ mod backend {
             ..linux::LinuxConfig::default()
         })
         .expect("open /dev/fb0");
-        let mut app = App::with_factory(backend, SwRendererFactory);
+        let mut app = App::with_factory(backend, SwRendererFactory::new());
         app.with_default_widgets().with_default_systems();
         app
     }
@@ -339,7 +339,7 @@ mod backend {
             ..linux::LinuxDrmConfig::default()
         })
         .expect("open DRM card");
-        let mut app = App::with_factory(backend, SwRendererFactory);
+        let mut app = App::with_factory(backend, SwRendererFactory::new());
         app.with_default_widgets().with_default_systems();
         app
     }

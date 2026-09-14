@@ -45,7 +45,7 @@ impl SwRenderer<'_> {
 
         let needs_composite_path =
             !matches!(composite, CompositeMode::SourceOver) || phys_radius != Fixed::ZERO;
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         if needs_composite_path {
             blit_composite_dda(
                 &mut self.target,

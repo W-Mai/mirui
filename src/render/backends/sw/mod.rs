@@ -33,6 +33,12 @@ pub use crate::render::texture::AlphaMode;
 pub struct SwRenderer<'a> {
     pub target: Texture<'a>,
     pub viewport: Viewport,
+    pub(super) scratch: ScratchStorage<'a>,
+    #[cfg(feature = "perf")]
+    pub perf: Option<PerfCtx>,
+}
+
+pub(crate) struct SwScratch {
     pub(super) flatten_buf: alloc::vec::Vec<crate::render::raster::LineSeg>,
     pub(super) stroke_outline: crate::render::path::Path,
     pub(super) subpath_scratch: alloc::vec::Vec<crate::render::raster::SubPath>,
@@ -45,22 +51,46 @@ pub struct SwRenderer<'a> {
     pub(super) stroke_left_rail: alloc::vec::Vec<crate::types::Point>,
     pub(super) stroke_arc: alloc::vec::Vec<crate::types::Point>,
     pub(super) clip_stack: alloc::vec::Vec<ClipMask>,
+    pub(super) clip_recycled: alloc::vec::Vec<ClipMask>,
     pub(super) clip_mask_buf: alloc::vec::Vec<u8>,
-    #[cfg(feature = "perf")]
-    pub perf: Option<PerfCtx>,
+}
+
+#[allow(
+    clippy::large_enum_variant,
+    reason = "direct renderer scratch stays on the stack"
+)]
+pub(super) enum ScratchStorage<'a> {
+    Owned(SwScratch),
+    Borrowed(&'a mut SwScratch),
+}
+
+impl core::ops::Deref for ScratchStorage<'_> {
+    type Target = SwScratch;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(scratch) => scratch,
+            Self::Borrowed(scratch) => scratch,
+        }
+    }
+}
+
+impl core::ops::DerefMut for ScratchStorage<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Owned(scratch) => scratch,
+            Self::Borrowed(scratch) => scratch,
+        }
+    }
 }
 
 pub(super) struct ClipMask {
     pub alpha: alloc::vec::Vec<u8>,
 }
 
-impl<'a> SwRenderer<'a> {
-    pub fn new(target: Texture<'a>) -> Self {
-        let w = target.width;
-        let h = target.height;
+impl SwScratch {
+    pub(crate) fn new() -> Self {
         Self {
-            target,
-            viewport: Viewport::new(w, h, Fixed::ONE),
             flatten_buf: alloc::vec::Vec::new(),
             stroke_outline: crate::render::path::Path::new(),
             subpath_scratch: alloc::vec::Vec::new(),
@@ -73,7 +103,50 @@ impl<'a> SwRenderer<'a> {
             stroke_left_rail: alloc::vec::Vec::new(),
             stroke_arc: alloc::vec::Vec::new(),
             clip_stack: alloc::vec::Vec::new(),
+            clip_recycled: alloc::vec::Vec::new(),
             clip_mask_buf: alloc::vec::Vec::new(),
+        }
+    }
+
+    fn reset_frame(&mut self) {
+        while let Some(mut mask) = self.clip_stack.pop() {
+            mask.alpha.clear();
+            self.clip_recycled.push(mask);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_buffer_state(&self) -> (usize, usize, usize, usize) {
+        assert!(self.flatten_buf.capacity() > 0);
+        assert!(self.scanline_acc.capacity() > 0);
+        assert!(self.stroke_rail.capacity() > 0);
+        let mask = &self.clip_recycled[0].alpha;
+        assert!(mask.capacity() >= 64 * 64);
+        (
+            self.flatten_buf.as_ptr() as usize,
+            self.scanline_acc.as_ptr() as usize,
+            self.stroke_rail.as_ptr() as usize,
+            mask.as_ptr() as usize,
+        )
+    }
+}
+
+impl<'a> SwRenderer<'a> {
+    pub fn new(target: Texture<'a>) -> Self {
+        Self::with_storage(target, ScratchStorage::Owned(SwScratch::new()))
+    }
+
+    pub(crate) fn with_scratch(target: Texture<'a>, scratch: &'a mut SwScratch) -> Self {
+        scratch.reset_frame();
+        Self::with_storage(target, ScratchStorage::Borrowed(scratch))
+    }
+
+    fn with_storage(target: Texture<'a>, scratch: ScratchStorage<'a>) -> Self {
+        let viewport = Viewport::new(target.width, target.height, Fixed::ONE);
+        Self {
+            target,
+            viewport,
+            scratch,
             #[cfg(feature = "perf")]
             perf: None,
         }
@@ -349,7 +422,10 @@ impl<'a> Canvas for SwRenderer<'a> {
     }
 
     fn pop_clip(&mut self) {
-        self.clip_stack.pop();
+        if let Some(mut mask) = self.scratch.clip_stack.pop() {
+            mask.alpha.clear();
+            self.scratch.clip_recycled.push(mask);
+        }
     }
 
     fn stroke_rect(

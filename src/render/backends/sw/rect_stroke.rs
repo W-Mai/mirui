@@ -36,7 +36,7 @@ impl SwRenderer<'_> {
         let inner_w = (area.w - bw * 2).max(Fixed::ZERO);
         let inner_h = (area.h - bw * 2).max(Fixed::ZERO);
 
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         let target_w = self.target.width as usize;
 
         for py in px_y0..px_y1 {

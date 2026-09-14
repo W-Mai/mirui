@@ -86,7 +86,7 @@ impl SwRenderer<'_> {
             return;
         };
         let target_w = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
 
         for dy in 0..target_height {
             let py = cy + dy;

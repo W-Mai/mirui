@@ -471,7 +471,11 @@ impl SwRenderer<'_> {
         let source_scale_y = Fixed::from_int(source_height as i32) / logical_rect.h;
         let (x0, y0, x1, y1) = draw_area.pixel_bounds();
         let target_width = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|mask| mask.alpha.as_slice());
+        let clip_mask = self
+            .scratch
+            .clip_stack
+            .last()
+            .map(|mask| mask.alpha.as_slice());
         for py in y0..y1 {
             let mask_row = py as usize * target_width;
             for px in x0..x1 {
@@ -569,7 +573,11 @@ impl SwRenderer<'_> {
         let source_dy_y = inverse.m11 * source_scale_y;
         let (x0, y0, x1, y1) = draw_area.pixel_bounds();
         let target_width = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|mask| mask.alpha.as_slice());
+        let clip_mask = self
+            .scratch
+            .clip_stack
+            .last()
+            .map(|mask| mask.alpha.as_slice());
         for py in y0..y1 {
             let mask_row = py as usize * target_width;
             for px in x0..x1 {
@@ -708,7 +716,7 @@ impl SwRenderer<'_> {
     ) {
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
         let target_w = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         for row in 0..char_h.min(bitmap.len() as i32) {
             let byte = bitmap[row as usize];
             for col in 0..8 {
@@ -818,7 +826,7 @@ impl SwRenderer<'_> {
         let scale_y = Fixed::from_int(source_height as i32) / Fixed::from_int(target_height as i32);
         let half_texel = Fixed::HALF;
         let target_w = self.target.width as usize;
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         for row in 0..target_height {
             let source_y = (Fixed::from_int(row as i32) + half_texel) * scale_y - half_texel;
             for col in 0..target_width {

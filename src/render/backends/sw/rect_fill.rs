@@ -31,7 +31,7 @@ impl SwRenderer<'_> {
         let opa_norm =
             Fixed::from_int(effective_opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
 
-        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         if clip_mask.is_some() {
             self.fill_rect_masked(
                 area,
@@ -285,7 +285,7 @@ impl SwRenderer<'_> {
         _effective_opa: u8,
         opa_norm: Fixed,
     ) {
-        let Some(clip_mask) = self.clip_stack.last().map(|m| m.alpha.as_slice()) else {
+        let Some(clip_mask) = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice()) else {
             return;
         };
         let target_w = self.target.width as usize;
