@@ -6,7 +6,9 @@ use crate::input::event::BubbleControl;
 #[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
+#[cfg(any(feature = "std", test))]
 use crate::ui::UserState;
+#[cfg(any(feature = "std", test))]
 use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{
     Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextAlign, TextInput, TextVerticalAlign,
@@ -159,6 +161,7 @@ fn centered_label() -> ParagraphStyle {
     }
 }
 
+#[cfg(any(feature = "std", test))]
 fn sync_user_state(
     world: &mut World,
     id: &'static str,
@@ -181,6 +184,7 @@ fn sync_user_state(
     world.insert(entity, Dirty);
 }
 
+#[cfg(any(feature = "std", test))]
 #[mirui_macros::system]
 fn sync_interaction_user_states(world: &mut World) {
     let Some(state) = world

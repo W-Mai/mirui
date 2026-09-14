@@ -2,7 +2,9 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::ecs::{Entity, FrameTimings, World};
+#[cfg(feature = "std")]
+use crate::ecs::Entity;
+use crate::ecs::{FrameTimings, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::ui::Theme;

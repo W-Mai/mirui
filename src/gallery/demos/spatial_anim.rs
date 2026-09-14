@@ -3,7 +3,9 @@ extern crate alloc;
 use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::ecs::{DeltaTimeMs, Entity, World};
+#[cfg(feature = "std")]
+use crate::ecs::Entity;
+use crate::ecs::{DeltaTimeMs, World};
 #[cfg(feature = "std")]
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;

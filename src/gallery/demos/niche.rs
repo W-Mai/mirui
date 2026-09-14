@@ -1,3 +1,4 @@
+#[cfg(any(feature = "std", test))]
 use crate::ecs::Entity;
 use crate::prelude::*;
 use crate::ui::widgets::Text;

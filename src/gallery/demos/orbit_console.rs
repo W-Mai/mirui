@@ -13,6 +13,7 @@ use crate::core::reactive::Signal;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
+#[cfg(any(feature = "std", test))]
 use crate::render::font::{Font, FontManager};
 use crate::render::path::Path;
 use crate::render::renderer::{DrawRequest, RenderError, Renderer};
@@ -23,6 +24,7 @@ use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextAlign, TextVerticalAl
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
+#[cfg(any(feature = "std", test))]
 const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
 const BG: Color = Color::rgb(6, 16, 23);
@@ -209,6 +211,7 @@ struct ConsoleModel {
 }
 
 impl ConsoleModel {
+    #[cfg(any(feature = "std", test))]
     fn new(state: ConsoleState) -> Self {
         Self {
             state: Signal::new(state),
@@ -848,6 +851,7 @@ pub fn activity_view() -> View {
     View::new("ActivityPlot", 60, activity_render).with_filter::<ActivityPlot>()
 }
 
+#[cfg(any(feature = "std", test))]
 fn register_fonts(world: &mut World) {
     let Some(manager) = world.resource::<FontManager>() else {
         return;

@@ -265,6 +265,32 @@ fn cmd_lint() -> Result {
         "-D",
         "warnings",
     ])?;
+    let riscv_installed = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .ok()
+        .is_some_and(|output| {
+            String::from_utf8_lossy(&output.stdout).contains("riscv32imc-unknown-none-elf")
+        });
+    if riscv_installed {
+        cargo(&[
+            "+stable",
+            "clippy",
+            "--lib",
+            "--no-default-features",
+            "--features",
+            "gallery",
+            "--target",
+            "riscv32imc-unknown-none-elf",
+            "--",
+            "-D",
+            "warnings",
+        ])?;
+    } else {
+        println!(
+            "  ⏭ riscv32imc-unknown-none-elf target not installed, no_std gallery clippy skipped"
+        );
+    }
     // `--all-features` enables `linux-fb` + `linux-drm`, but their
     // `cfg(target_os = "linux")` gate hides them on macOS / Windows
     // hosts — CI on Linux saw the only error. Re-run pinned to the
