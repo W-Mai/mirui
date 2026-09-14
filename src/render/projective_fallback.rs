@@ -23,6 +23,12 @@ use crate::render::renderer::{ProjectiveDrawError, Renderer};
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
+use crate::render::scratch::PlaneLayout;
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
+))]
 use crate::render::texture::{ColorFormat, Texture};
 #[cfg(any(
     feature = "sdl-gpu",
@@ -46,20 +52,27 @@ pub struct ProjectiveFallback {
 pub(crate) struct ProjectiveFallbackPlan {
     pub x: i32,
     pub y: i32,
-    pub width: u16,
-    pub height: u16,
-    required_bytes: usize,
+    layout: PlaneLayout,
     logical_origin_x: Fixed,
     logical_origin_y: Fixed,
 }
 
 #[cfg(any(
     feature = "sdl-gpu",
-    all(feature = "web-canvas", target_arch = "wasm32")
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
 ))]
 impl ProjectiveFallbackPlan {
+    pub(crate) const fn width(self) -> u16 {
+        self.layout.width()
+    }
+
+    pub(crate) const fn height(self) -> u16 {
+        self.layout.height()
+    }
+
     pub(crate) const fn required_bytes(self) -> usize {
-        self.required_bytes
+        self.layout.required_bytes()
     }
 }
 
@@ -162,10 +175,9 @@ impl ProjectiveFallback {
         let y1 = y1.clamp(y0, i32::from(physical_height));
         let width = u16::try_from(x1 - x0).map_err(|_| ProjectiveDrawError::InvalidProjection)?;
         let height = u16::try_from(y1 - y0).map_err(|_| ProjectiveDrawError::InvalidProjection)?;
-        let required_bytes = usize::from(width)
-            .checked_mul(usize::from(height))
-            .and_then(|pixels| pixels.checked_mul(ColorFormat::RGBA8888.bytes_per_pixel()))
-            .ok_or(ProjectiveDrawError::InvalidProjection)?;
+        let layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
+            .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
+        let required_bytes = layout.required_bytes();
         if required_bytes > self.target.len() {
             return Err(ProjectiveDrawError::InsufficientFallbackStorage {
                 required_bytes,
@@ -176,9 +188,7 @@ impl ProjectiveFallback {
         let plan = ProjectiveFallbackPlan {
             x: x0,
             y: y0,
-            width,
-            height,
-            required_bytes,
+            layout,
             logical_origin_x: Fixed::from_int(x0) / viewport.scale(),
             logical_origin_y: Fixed::from_int(y0) / viewport.scale(),
         };
@@ -188,8 +198,8 @@ impl ProjectiveFallback {
         let local_clip = Rect::new(
             Fixed::ZERO,
             Fixed::ZERO,
-            Fixed::from(plan.width) / viewport.scale(),
-            Fixed::from(plan.height) / viewport.scale(),
+            Fixed::from(plan.width()) / viewport.scale(),
+            Fixed::from(plan.height()) / viewport.scale(),
         );
         validator.preflight_projective(command, &local_clip, &local_projective)?;
         Ok(plan)
@@ -201,12 +211,12 @@ impl ProjectiveFallback {
         test
     ))]
     pub(crate) fn target_mut(&mut self, plan: ProjectiveFallbackPlan) -> &mut [u8] {
-        &mut self.target[..plan.required_bytes]
+        &mut self.target[..plan.required_bytes()]
     }
 
     #[cfg(any(feature = "sdl-gpu", test))]
     pub(crate) fn target(&self, plan: ProjectiveFallbackPlan) -> &[u8] {
-        &self.target[..plan.required_bytes]
+        &self.target[..plan.required_bytes()]
     }
 
     #[cfg(any(
@@ -221,7 +231,7 @@ impl ProjectiveFallback {
         projective: &Transform3D,
         viewport: Viewport,
     ) -> Result<(), ProjectiveDrawError> {
-        if plan.required_bytes == 0 {
+        if plan.required_bytes() == 0 {
             return Ok(());
         }
         let scale = viewport.scale();
@@ -231,17 +241,16 @@ impl ProjectiveFallback {
         let local_clip = Rect {
             x: Fixed::ZERO,
             y: Fixed::ZERO,
-            w: Fixed::from(plan.width) / scale,
-            h: Fixed::from(plan.height) / scale,
+            w: Fixed::from(plan.width()) / scale,
+            h: Fixed::from(plan.height()) / scale,
         };
-        let texture = Texture::new(
-            &mut self.target[..plan.required_bytes],
-            plan.width,
-            plan.height,
-            ColorFormat::RGBA8888,
-        );
+        let mut plane = plan
+            .layout
+            .bind(&mut self.target[..plan.required_bytes()])
+            .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
+        let texture = plane.texture();
         let mut renderer = SwRenderer::new(texture);
-        renderer.viewport = Viewport::new(plan.width, plan.height, scale);
+        renderer.viewport = Viewport::new(plan.width(), plan.height(), scale);
         renderer.draw_projective(command, &local_clip, &local_projective)
     }
 }
@@ -319,9 +328,9 @@ mod tests {
                 Viewport::new(64, 64, Fixed::ONE),
             )
             .expect("a small glyph should fit in a 1 KiB fallback target");
-        assert!(plan.required_bytes <= 1024);
-        assert!(plan.width < 64);
-        assert!(plan.height < 64);
+        assert!(plan.required_bytes() <= 1024);
+        assert!(plan.width() < 64);
+        assert!(plan.height() < 64);
     }
 
     #[test]
@@ -381,8 +390,8 @@ mod tests {
         let plan = fallback
             .plan(&command, &clip, &transform, viewport)
             .unwrap();
-        let width = usize::from(plan.width);
-        let height = usize::from(plan.height);
+        let width = usize::from(plan.width());
+        let height = usize::from(plan.height());
         let target = fallback.target_mut(plan);
         for row in 0..height {
             let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
@@ -426,10 +435,10 @@ mod tests {
 
         let mut fallback = ProjectiveFallback::new(alloc::vec![0; 32 * 32 * 4]);
         let plan = fallback.plan(command, &clip, &transform, viewport).unwrap();
-        assert!(plan.width < WIDTH as u16);
-        assert!(plan.height < HEIGHT as u16);
-        let width = usize::from(plan.width);
-        let height = usize::from(plan.height);
+        assert!(plan.width() < WIDTH as u16);
+        assert!(plan.height() < HEIGHT as u16);
+        let width = usize::from(plan.width());
+        let height = usize::from(plan.height());
         let target = fallback.target_mut(plan);
         for row in 0..height {
             let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
@@ -567,8 +576,8 @@ mod tests {
                 Viewport::new(480, 320, Fixed::ONE),
             )
             .unwrap();
-        assert!(plan.width > 0 && plan.height > 0);
-        assert!(plan.required_bytes <= fallback.capacity());
+        assert!(plan.width() > 0 && plan.height() > 0);
+        assert!(plan.required_bytes() <= fallback.capacity());
     }
 
     #[test]

@@ -509,7 +509,7 @@ impl SdlGpuRenderer<'_> {
         command: &DrawCommand,
         projective: &Transform3D,
     ) -> Result<(), ProjectiveDrawError> {
-        if plan.width == 0 || plan.height == 0 {
+        if plan.width() == 0 || plan.height() == 0 {
             return Ok(());
         }
         let fallback = self
@@ -519,8 +519,8 @@ impl SdlGpuRenderer<'_> {
         let read_rect = sdl2_sys::SDL_Rect {
             x: plan.x,
             y: plan.y,
-            w: i32::from(plan.width),
-            h: i32::from(plan.height),
+            w: i32::from(plan.width()),
+            h: i32::from(plan.height()),
         };
         let target = fallback.target_mut(plan);
         let read_result = unsafe {
@@ -529,7 +529,7 @@ impl SdlGpuRenderer<'_> {
                 &read_rect,
                 sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
                 target.as_mut_ptr().cast(),
-                i32::from(plan.width) * 4,
+                i32::from(plan.width()) * 4,
             )
         };
         if read_result != 0 {
@@ -543,13 +543,13 @@ impl SdlGpuRenderer<'_> {
         self.label_cache.with_creator(|creator| {
             let Ok(mut texture) = creator.create_texture_streaming(
                 sdl2::pixels::PixelFormatEnum::RGBA32,
-                u32::from(plan.width),
-                u32::from(plan.height),
+                u32::from(plan.width()),
+                u32::from(plan.height()),
             ) else {
                 return;
             };
             if texture
-                .update(None, target, usize::from(plan.width) * 4)
+                .update(None, target, usize::from(plan.width()) * 4)
                 .is_err()
             {
                 return;
@@ -558,8 +558,8 @@ impl SdlGpuRenderer<'_> {
             let dst = sdl2::rect::Rect::new(
                 plan.x,
                 plan.y,
-                u32::from(plan.width),
-                u32::from(plan.height),
+                u32::from(plan.width()),
+                u32::from(plan.height()),
             );
             uploaded = canvas.copy(&texture, None, Some(dst)).is_ok();
         });

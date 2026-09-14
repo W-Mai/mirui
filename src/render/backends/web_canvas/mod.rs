@@ -549,7 +549,7 @@ impl WebCanvasRenderer<'_> {
         command: &DrawCommand,
         projective: &Transform3D,
     ) -> Result<(), ProjectiveDrawError> {
-        if plan.width == 0 || plan.height == 0 {
+        if plan.width() == 0 || plan.height() == 0 {
             return Ok(());
         }
         let image = self
@@ -557,8 +557,8 @@ impl WebCanvasRenderer<'_> {
             .get_image_data(
                 f64::from(plan.x),
                 f64::from(plan.y),
-                f64::from(plan.width),
-                f64::from(plan.height),
+                f64::from(plan.width()),
+                f64::from(plan.height()),
             )
             .map_err(|_| ProjectiveDrawError::Unsupported)?;
         let source = image.data();
@@ -571,8 +571,8 @@ impl WebCanvasRenderer<'_> {
         fallback.render(plan, command, projective, self.viewport)?;
         let output = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
             wasm_bindgen::Clamped(fallback.target_mut(plan)),
-            u32::from(plan.width),
-            u32::from(plan.height),
+            u32::from(plan.width()),
+            u32::from(plan.height()),
         )
         .map_err(|_| ProjectiveDrawError::Unsupported)?;
         self.ctx()

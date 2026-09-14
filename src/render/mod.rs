@@ -14,6 +14,7 @@ mod projective_fallback;
 pub mod raster;
 pub mod renderer;
 pub mod scene;
+pub mod scratch;
 pub mod texture;
 
 #[cfg(feature = "sdl-gpu")]
@@ -32,6 +33,7 @@ pub use renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderResource, RenderRoute,
     Renderer,
 };
+pub use scratch::{AlignedPlane, PlaneError, PlaneLayout, PlaneRequirements};
 pub use sw::SwRenderer;
 #[cfg(feature = "perf")]
 pub use sw::{PerfCtx, quad_perf};
