@@ -788,25 +788,25 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         crate::render::texture::Texture::from_vec(img.data().0, w, h, ColorFormat::RGBA8888)
     }
 
-    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+    fn read_target_region(
+        &self,
+        src: &Rect,
+        dst: &mut crate::render::texture::Texture,
+    ) -> Result<(), RenderError> {
         let Some(phys) = self.physical_clip_rect(src) else {
-            return;
+            return Ok(());
         };
-        let Ok(img) = self.ctx().get_image_data(
-            phys.x.to_f32() as f64,
-            phys.y.to_f32() as f64,
-            phys.w.to_f32() as f64,
-            phys.h.to_f32() as f64,
-        ) else {
-            return;
-        };
-        let src_bytes = &img.data().0;
-        let dst_bytes = match &mut dst.buf {
-            crate::render::texture::TexBuf::Owned(v) => v.as_mut_slice(),
-            _ => return,
-        };
-        let copy_len = src_bytes.len().min(dst_bytes.len());
-        dst_bytes[..copy_len].copy_from_slice(&src_bytes[..copy_len]);
+        let img = self
+            .ctx()
+            .get_image_data(
+                phys.x.to_f32() as f64,
+                phys.y.to_f32() as f64,
+                phys.w.to_f32() as f64,
+                phys.h.to_f32() as f64,
+            )
+            .map_err(|_| RenderError::BackendFailure)?;
+        let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        crate::render::renderer::copy_packed_rgba8(&img.data().0, phys, (x, y), dst)
     }
 
     fn modify_target_region(

@@ -1342,7 +1342,7 @@ impl Renderer for SwRenderer<'_> {
         let w = (sx1 - sx0).max(1) as u16;
         let h = (sy1 - sy0).max(1) as u16;
         let mut tex = crate::render::texture::Texture::owned(w, h, self.target.format);
-        self.read_target_region(src, &mut tex);
+        self.read_target_region(src, &mut tex).ok()?;
         Some(tex)
     }
 
@@ -1408,7 +1408,14 @@ impl Renderer for SwRenderer<'_> {
         );
     }
 
-    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+    fn read_target_region(
+        &self,
+        src: &Rect,
+        dst: &mut crate::render::texture::Texture,
+    ) -> Result<(), RenderError> {
+        if !dst.valid_storage() || matches!(&dst.buf, crate::render::texture::TexBuf::Ref(_)) {
+            return Err(RenderError::InvalidTexture);
+        }
         // Caller may pass a logical-sized dst; clipping to the
         // overlap avoids stretched top-left samples on HiDPI.
         let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
@@ -1417,7 +1424,7 @@ impl Renderer for SwRenderer<'_> {
         let copy_w = ((sx1 - sx0).min(dst.width as i32)).max(0);
         let copy_h = ((sy1 - sy0).min(dst.height as i32)).max(0);
         if copy_w == 0 || copy_h == 0 {
-            return;
+            return Ok(());
         }
 
         // Same-format fast path: row-wise byte memcpy. Both callers
@@ -1446,7 +1453,7 @@ impl Renderer for SwRenderer<'_> {
                 dst_buf[dst_row_off..dst_row_off + row_bytes]
                     .copy_from_slice(&target_buf[src_row_off..src_row_off + row_bytes]);
             }
-            return;
+            return Ok(());
         }
 
         for dy in 0..copy_h {
@@ -1460,6 +1467,7 @@ impl Renderer for SwRenderer<'_> {
                 dst.set_pixel(dx, dy, &px);
             }
         }
+        Ok(())
     }
 }
 

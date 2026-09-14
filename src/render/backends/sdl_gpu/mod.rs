@@ -1168,9 +1168,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         )
     }
 
-    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+    fn read_target_region(
+        &self,
+        src: &Rect,
+        dst: &mut crate::render::texture::Texture,
+    ) -> Result<(), RenderError> {
         let Some(phys) = self.physical_clip_rect(src) else {
-            return;
+            return Ok(());
         };
         let sdl_rect = sdl2::rect::Rect::new(
             phys.x.to_int(),
@@ -1178,16 +1182,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
             phys.w.to_int() as u32,
             phys.h.to_int() as u32,
         );
-        let Ok(bytes) = self
+        let bytes = self
             .canvas
             .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
-        else {
-            return;
-        };
-        if let crate::render::texture::TexBuf::Owned(ref mut buf) = dst.buf {
-            let copy = buf.len().min(bytes.len());
-            buf[..copy].copy_from_slice(&bytes[..copy]);
-        }
+            .map_err(|_| RenderError::BackendFailure)?;
+        let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        crate::render::renderer::copy_packed_rgba8(&bytes, phys, (x, y), dst)
     }
 
     fn modify_target_region(

@@ -3680,19 +3680,23 @@ impl Renderer for WgpuRenderer<'_> {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+    fn read_target_region(
+        &self,
+        src: &Rect,
+        dst: &mut crate::render::texture::Texture,
+    ) -> Result<(), RenderError> {
         let Some(phys) = self.physical_clip_rect(src) else {
-            return;
+            return Ok(());
         };
         let w = phys.w.to_int() as u32;
         let h = phys.h.to_int() as u32;
         let Some(frame) = self.frame.as_ref() else {
-            return;
+            return Err(RenderError::BackendFailure);
         };
         let Some(state) = self.surface.state() else {
-            return;
+            return Err(RenderError::BackendFailure);
         };
-        let Some(bytes) = wgpu_readback_rgba8(
+        let bytes = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
             &frame.surface_texture.texture,
@@ -3701,17 +3705,20 @@ impl Renderer for WgpuRenderer<'_> {
             phys.y.to_int() as u32,
             w,
             h,
-        ) else {
-            return;
-        };
-        if let crate::render::texture::TexBuf::Owned(ref mut buf) = dst.buf {
-            let copy = buf.len().min(bytes.len());
-            buf[..copy].copy_from_slice(&bytes[..copy]);
-        }
+        )
+        .ok_or(RenderError::BackendFailure)?;
+        let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        crate::render::renderer::copy_packed_rgba8(&bytes, phys, (x, y), dst)
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn read_target_region(&self, _src: &Rect, _dst: &mut crate::render::texture::Texture) {}
+    fn read_target_region(
+        &self,
+        _src: &Rect,
+        _dst: &mut crate::render::texture::Texture,
+    ) -> Result<(), RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Readback))
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn modify_target_region(

@@ -2,6 +2,13 @@ use crate::types::{Fixed, Rect, Transform3D};
 
 use super::command::{CompositeMode, DrawCommand};
 use super::texture::ColorFormat;
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
+))]
+use super::texture::{TexBuf, Texture};
 
 /// One draw under its effective clip and shared projective transform.
 #[derive(Clone, Copy)]
@@ -75,6 +82,7 @@ pub enum RenderFeature {
     BlitOpacity,
     Composite(CompositeMode),
     TextureFormat(ColorFormat),
+    Readback,
 }
 
 /// Bounded backend resource exhausted while preparing a draw.
@@ -99,6 +107,54 @@ pub enum RenderError {
     },
     ResourceLimit(RenderResource),
     BackendFailure,
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
+))]
+pub(crate) fn copy_packed_rgba8(
+    bytes: &[u8],
+    clipped: Rect,
+    source_origin: (i32, i32),
+    dst: &mut Texture<'_>,
+) -> Result<(), RenderError> {
+    if dst.format != ColorFormat::RGBA8888
+        || !dst.valid_storage()
+        || matches!(&dst.buf, TexBuf::Ref(_))
+    {
+        return Err(RenderError::InvalidTexture);
+    }
+    let width = usize::try_from(clipped.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+    let height = usize::try_from(clipped.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+    let row_bytes = width.checked_mul(4).ok_or(RenderError::InvalidGeometry)?;
+    let required = row_bytes
+        .checked_mul(height)
+        .ok_or(RenderError::InvalidGeometry)?;
+    if bytes.len() < required {
+        return Err(RenderError::BackendFailure);
+    }
+    let x = usize::try_from(clipped.x.to_int() - source_origin.0)
+        .map_err(|_| RenderError::InvalidGeometry)?;
+    let y = usize::try_from(clipped.y.to_int() - source_origin.1)
+        .map_err(|_| RenderError::InvalidGeometry)?;
+    let copy_width = width.min(usize::from(dst.width).saturating_sub(x));
+    let copy_height = height.min(usize::from(dst.height).saturating_sub(y));
+    if copy_width == 0 || copy_height == 0 {
+        return Ok(());
+    }
+    let copy_bytes = copy_width * 4;
+    let dst_stride = dst.stride;
+    let dst_bytes = dst.buf.as_mut_slice();
+    for row in 0..copy_height {
+        let src_start = row * row_bytes;
+        let dst_start = (y + row) * dst_stride + x * 4;
+        dst_bytes[dst_start..dst_start + copy_bytes]
+            .copy_from_slice(&bytes[src_start..src_start + copy_bytes]);
+    }
+    Ok(())
 }
 
 /// Failure to execute a draw command under a non-affine homography.
@@ -220,14 +276,16 @@ pub trait Renderer {
     }
 
     /// Copy a logical-pixel rect from the current target into `dst`.
-    /// `dst` is sized in physical pixels by the caller — usually
-    /// because they already own the buffer (offscreen pre-seed). A
-    /// backend that returns `Some` from [`Self::offscreen_format`]
-    /// must override this. Effects that just want to grab a region
-    /// of the framebuffer should use [`Self::sample_target_region`]
-    /// instead.
-    fn read_target_region(&self, _src: &Rect, _dst: &mut crate::render::texture::Texture) {
-        unimplemented!("Renderer::read_target_region not implemented for this backend")
+    /// `dst` is sized in physical pixels by the caller. Pixels outside
+    /// the target are left unchanged. A backend that returns `Some`
+    /// from [`Self::offscreen_format`] must override this. Readback
+    /// failure must be reported before the caller reuses `dst`.
+    fn read_target_region(
+        &self,
+        _src: &Rect,
+        _dst: &mut crate::render::texture::Texture,
+    ) -> Result<(), RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
     /// Logical-pixel `src` in, physical-resolution texture out.
@@ -286,6 +344,29 @@ mod tests {
             RenderError::from(ProjectiveDrawError::BackendFailure),
             RenderError::BackendFailure
         );
+    }
+
+    #[test]
+    fn clipped_readback_preserves_pixel_rows_and_destination_offset() {
+        let mut pixels = [0u8; 4 * 3 * 4];
+        let mut dst = Texture::new(&mut pixels, 4, 3, ColorFormat::RGBA8888);
+        let source = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        copy_packed_rgba8(&source, Rect::new(1, 1, 2, 2), (0, 0), &mut dst).unwrap();
+        assert_eq!(&pixels[..20], &[0; 20]);
+        assert_eq!(&pixels[20..28], &source[..8]);
+        assert_eq!(&pixels[36..44], &source[8..]);
+        assert_eq!(&pixels[44..], &[0; 4]);
+    }
+
+    #[test]
+    fn short_readback_fails_before_modifying_destination() {
+        let mut pixels = [23u8; 16];
+        let mut dst = Texture::new(&mut pixels, 2, 2, ColorFormat::RGBA8888);
+        assert_eq!(
+            copy_packed_rgba8(&[1, 2, 3, 4], Rect::new(0, 0, 2, 2), (0, 0), &mut dst),
+            Err(RenderError::BackendFailure)
+        );
+        assert_eq!(pixels, [23; 16]);
     }
 
     #[test]

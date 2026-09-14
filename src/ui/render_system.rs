@@ -1199,18 +1199,14 @@ fn try_draw_offscreen(
         } else {
             tex_ref.transient = true;
         }
-        if clear_transparent {
-            // Effect widgets that need the buffer's alpha channel to
-            // encode the source's silhouette. Pre-seed would write
-            // the framebuffer's alpha here, which is opaque and
-            // erases the shape information.
-            for byte in tex_ref.buf.as_mut_slice().iter_mut() {
-                *byte = 0;
+        tex_ref.buf.as_mut_slice().fill(0);
+        if !clear_transparent {
+            let read = renderer.read_target_region(shifted_rect, &mut tex_ref);
+            drop(tex_ref);
+            if let Err(error) = read {
+                pool.cache.borrow_mut().cache_mut().clear();
+                return Err(error);
             }
-        } else {
-            // Pre-seed from framebuffer so AA fringe alpha blends against
-            // the existing background instead of transparent black.
-            renderer.read_target_region(shifted_rect, &mut tex_ref);
         }
     }
 
@@ -3838,6 +3834,62 @@ mod offscreen_render_check {
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let pool = world.resource::<OffscreenBufferPool>().expect("pool");
+        assert_eq!(pool.cache.borrow().cache().len(), 1);
+    }
+
+    #[test]
+    fn offscreen_read_failure_drops_incomplete_cache_entry() {
+        struct FailingRead;
+
+        impl Renderer for FailingRead {
+            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+
+            fn flush(&mut self) {}
+
+            fn supports_offscreen(&self) -> bool {
+                true
+            }
+
+            fn offscreen_format(&self) -> Option<ColorFormat> {
+                Some(ColorFormat::RGBA8888)
+            }
+
+            fn read_target_region(
+                &self,
+                _src: &Rect,
+                _dst: &mut Texture,
+            ) -> Result<(), RenderError> {
+                Err(RenderError::BackendFailure)
+            }
+        }
+
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(64, 128, 255).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::default());
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        assert_eq!(
+            super::render(&world, panel, &viewport, &mut FailingRead),
+            Err(RenderError::BackendFailure)
+        );
+        let pool = world.resource::<OffscreenBufferPool>().unwrap();
+        assert_eq!(pool.cache.borrow().cache().len(), 0);
+
+        let mut pixels = std::vec![0; 64 * 64 * 4];
+        let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(texture);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
         assert_eq!(pool.cache.borrow().cache().len(), 1);
     }
 
