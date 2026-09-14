@@ -126,7 +126,7 @@ fn main() {
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = viewport;
-        render_system::render(&app.world, root, &viewport, &mut renderer);
+        render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
     }
 
     let tex = app.backend.framebuffer();

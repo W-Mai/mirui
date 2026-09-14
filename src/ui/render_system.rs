@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::renderer::Renderer;
+use crate::render::renderer::{DrawRequest, RenderError, RenderRoute, Renderer};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use crate::ui::layout::{LayoutNode, compute_layout};
 use crate::ui::widgets::transform::WidgetTransform;
@@ -17,13 +17,27 @@ use super::{Children, Hidden, Parent, Style, Widget};
 struct ProjectiveRenderer<'a> {
     inner: &'a mut dyn Renderer,
     transform: Transform3D,
-    error: Option<crate::render::ProjectiveDrawError>,
+    error: Option<RenderError>,
 }
 
 impl Renderer for ProjectiveRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        self.inner.route(
+            &DrawRequest::new(request.command, request.clip)
+                .with_projective(self.transform.compose(&request.projective)),
+        )
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.inner.submit(
+            &DrawRequest::new(request.command, request.clip)
+                .with_projective(self.transform.compose(&request.projective)),
+        )
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        if let Err(error) = self.inner.draw_projective(cmd, clip, &self.transform) {
-            self.error = Some(error);
+        if self.error.is_none() {
+            self.error = self.submit(&DrawRequest::new(cmd, *clip)).err();
         }
     }
 
@@ -628,7 +642,7 @@ fn draw_tree_offset(
     parent_transform: &Transform,
     parent_transform_3d: &Transform3D,
     inside_offscreen: bool,
-) {
+) -> Result<(), RenderError> {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
         y: node.rect.y - offset_y,
@@ -674,7 +688,7 @@ fn draw_tree_offset(
         && (node.children.is_empty() || (cull_rect.w > Fixed::ZERO && cull_rect.h > Fixed::ZERO))
     {
         *idx += count_nodes(node);
-        return;
+        return Ok(());
     }
 
     // Offscreen-render branch — try to redirect the entity + its
@@ -701,9 +715,9 @@ fn draw_tree_offset(
                 entity,
                 &tf,
                 quad,
-            )
+            )?
         {
-            return;
+            return Ok(());
         }
         // Fallthrough: GPU backend, nested case (release silent), or
         // 3D conflict (release silent) — render inline as if the
@@ -761,11 +775,7 @@ fn draw_tree_offset(
                 };
                 render_views(&mut scoped, world, entity, &shifted_rect, &mut ctx);
                 if let Some(error) = scoped.error {
-                    crate::warn!(
-                        "projective draw failed for entity {:?}: {:?}",
-                        entity,
-                        error
-                    );
+                    return Err(error);
                 }
             } else {
                 render_views(renderer, world, entity, &shifted_rect, &mut ctx);
@@ -809,8 +819,9 @@ fn draw_tree_offset(
             &tf,
             &tf_3d,
             inside_offscreen,
-        );
+        )?;
     }
+    Ok(())
 }
 
 fn render_views(
@@ -858,6 +869,13 @@ mod projective_transform_tests {
     }
 
     impl Renderer for ProjectiveLeafCapture {
+        fn route(
+            &self,
+            _: &DrawRequest<'_, '_>,
+        ) -> Result<crate::render::RenderRoute, RenderError> {
+            Ok(crate::render::RenderRoute::Native)
+        }
+
         fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
 
         fn draw_projective(
@@ -943,7 +961,9 @@ mod projective_transform_tests {
 
         assert_eq!(
             scoped.error,
-            Some(crate::render::ProjectiveDrawError::Unsupported)
+            Some(RenderError::Unsupported(
+                crate::render::RenderFeature::ProjectiveGeometry
+            ))
         );
         drop(scoped);
         assert_eq!(renderer.draws, 0);
@@ -977,10 +997,52 @@ mod projective_transform_tests {
             root,
             &Viewport::new(32, 24, Fixed::ONE),
             &mut capture,
-        );
+        )
+        .unwrap();
 
         assert_eq!(capture.quad_was_none, Some(true));
         assert!(capture.transform.is_some_and(|value| !value.is_identity()));
+    }
+
+    #[test]
+    fn projective_widget_failure_reaches_render_caller() {
+        let mut app = crate::app::App::headless(32, 24);
+        app.with_default_widgets();
+        let root = app.world.spawn_empty();
+        app.world.insert(root, Widget);
+        app.world.insert(
+            root,
+            Style {
+                bg_color: Some(crate::types::Color::rgb(20, 40, 60).into()),
+                layout: crate::ui::layout::LayoutStyle {
+                    width: crate::types::Dimension::px(32),
+                    height: crate::types::Dimension::px(24),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        app.world.insert(
+            root,
+            WidgetTransform3D(Transform3D::rotate_y_perspective(
+                Fixed::from_int(12),
+                Fixed::from_int(320),
+            )),
+        );
+
+        let mut renderer = AffineOnlyRenderer::default();
+        assert_eq!(
+            render(
+                &app.world,
+                root,
+                &Viewport::new(32, 24, Fixed::ONE),
+                &mut renderer
+            ),
+            Err(RenderError::Unsupported(
+                crate::render::RenderFeature::ProjectiveGeometry
+            ))
+        );
+        assert_eq!(renderer.draws, 0);
     }
 
     #[test]
@@ -1022,7 +1084,7 @@ fn try_draw_offscreen(
     entity: Entity,
     outer_tf: &Transform,
     outer_quad: Option<[Point; 4]>,
-) -> bool {
+) -> Result<bool, RenderError> {
     use crate::render::canvas::Canvas;
     use crate::render::sw::SwRenderer;
     use crate::render::texture::Texture;
@@ -1030,7 +1092,7 @@ fn try_draw_offscreen(
 
     let backend_format = match renderer.offscreen_format() {
         Some(f) => f,
-        None => return false,
+        None => return Ok(false),
     };
     let needs_alpha = world
         .get::<super::OffscreenAlphaMode>(entity)
@@ -1074,7 +1136,7 @@ fn try_draw_offscreen(
 
     let pool = match world.resource::<super::OffscreenBufferPool>() {
         Some(p) => p,
-        None => return false,
+        None => return Ok(false),
     };
     pool.last_format.set(Some(format));
 
@@ -1082,7 +1144,7 @@ fn try_draw_offscreen(
 
     let (handle, was_hit) = match pool.cache.borrow_mut().entry(key).or_insert_with_status() {
         Ok((h, status)) => (h, status == crate::core::cache::factory::EntryStatus::Hit),
-        Err(_) => return false,
+        Err(_) => return Ok(false),
     };
 
     let clear_transparent = world
@@ -1110,72 +1172,74 @@ fn try_draw_offscreen(
     if was_hit {
         *idx += count_nodes(node);
     } else {
-        let mut tex_ref = handle.get().borrow_mut();
-        let buf_slice = tex_ref.buf.as_mut_slice();
-        let inner_tex = Texture::new(buf_slice, buf_w, buf_h, format);
-        // Buffers cleared to transparent need source-over alpha
-        // accumulation so the silhouette stays meaningful for
-        // downstream samplers (DropShadow, Mirror, etc).
-        let alpha_mode = if clear_transparent {
-            crate::render::sw::AlphaMode::Blend
-        } else {
-            crate::render::sw::AlphaMode::Opaque
-        };
-        let mut inner = SwRenderer::new(inner_tex).with_alpha_mode(alpha_mode);
-        inner.viewport = Viewport::new(buf_w, buf_h, scale);
-
-        // The entity's drawn rect maps to (0, 0) in the buffer's
-        // logical coordinate space. We can't recurse through
-        // draw_tree_offset for the whole subtree because it would
-        // re-detect the OffscreenRender marker on this same entity
-        // and panic on nesting; inline the entity's own view dispatch
-        // first, then recurse children with inside_offscreen=true.
-        let inner_offset_x = shifted_rect.x;
-        let inner_offset_y = shifted_rect.y;
-        let entity_rect = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: shifted_rect.w,
-            h: shifted_rect.h,
-        };
-        let inner_clip = entity_rect;
-
-        if let Some(style) = world.get::<Style>(entity) {
-            let state = resolve_widget_state(world, entity);
-            let mut ctx = ViewCtx {
-                style,
-                transform: Transform::IDENTITY,
-                quad: None,
-                clip: &inner_clip,
-                bg_handled: false,
-                state,
+        let draw_result = (|| -> Result<(), RenderError> {
+            let mut tex_ref = handle.get().borrow_mut();
+            let buf_slice = tex_ref.buf.as_mut_slice();
+            let inner_tex = Texture::new(buf_slice, buf_w, buf_h, format);
+            // Buffers cleared to transparent need source-over alpha
+            // accumulation so the silhouette stays meaningful for
+            // downstream samplers (DropShadow, Mirror, etc).
+            let alpha_mode = if clear_transparent {
+                crate::render::sw::AlphaMode::Blend
+            } else {
+                crate::render::sw::AlphaMode::Opaque
             };
-            if let Some(registry) = world.resource::<ViewRegistry>() {
-                crate::trace_span!("draw.view_dispatch");
-                for view in registry.iter() {
-                    if let Some(tid) = view.component_filter()
-                        && !world.has_type(entity, tid)
-                    {
-                        continue;
+            let mut inner = SwRenderer::new(inner_tex).with_alpha_mode(alpha_mode);
+            inner.viewport = Viewport::new(buf_w, buf_h, scale);
+
+            // The entity's drawn rect maps to (0, 0) in the buffer's
+            // logical coordinate space. We can't recurse through
+            // draw_tree_offset for the whole subtree because it would
+            // re-detect the OffscreenRender marker on this same entity
+            // and panic on nesting; inline the entity's own view dispatch
+            // first, then recurse children with inside_offscreen=true.
+            let inner_offset_x = shifted_rect.x;
+            let inner_offset_y = shifted_rect.y;
+            let entity_rect = Rect {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: shifted_rect.w,
+                h: shifted_rect.h,
+            };
+            let inner_clip = entity_rect;
+
+            if let Some(style) = world.get::<Style>(entity) {
+                let state = resolve_widget_state(world, entity);
+                let mut ctx = ViewCtx {
+                    style,
+                    transform: Transform::IDENTITY,
+                    quad: None,
+                    clip: &inner_clip,
+                    bg_handled: false,
+                    state,
+                };
+                if let Some(registry) = world.resource::<ViewRegistry>() {
+                    crate::trace_span!("draw.view_dispatch");
+                    for view in registry.iter() {
+                        if let Some(tid) = view.component_filter()
+                            && !world.has_type(entity, tid)
+                        {
+                            continue;
+                        }
+                        (view.render())(
+                            &mut inner as &mut dyn Renderer,
+                            world,
+                            entity,
+                            &entity_rect,
+                            &mut ctx,
+                        );
                     }
-                    (view.render())(
-                        &mut inner as &mut dyn Renderer,
-                        world,
-                        entity,
-                        &entity_rect,
-                        &mut ctx,
-                    );
                 }
             }
-        }
-        *idx += 1;
+            *idx += 1;
 
-        // Children handle scroll like the inline path; clip is the
-        // buffer rect (we already restricted by the entity's own rect
-        // above), and offsets shift child coords so the entity's
-        // origin maps to (0, 0) inside the buffer.
-        let (child_clip, sx, sy) =
-            if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
+            // Children handle scroll like the inline path; clip is the
+            // buffer rect (we already restricted by the entity's own rect
+            // above), and offsets shift child coords so the entity's
+            // origin maps to (0, 0) inside the buffer.
+            let (child_clip, sx, sy) = if let Some(scroll) =
+                world.get::<crate::input::event::scroll::ScrollOffset>(entity)
+            {
                 (
                     inner_clip,
                     inner_offset_x + scroll.x,
@@ -1185,22 +1249,28 @@ fn try_draw_offscreen(
                 (inner_clip, inner_offset_x, inner_offset_y)
             };
 
-        for child in &node.children {
-            draw_tree_offset(
-                child,
-                world,
-                entities,
-                idx,
-                &mut inner as &mut dyn Renderer,
-                &child_clip,
-                sx,
-                sy,
-                &Transform::IDENTITY,
-                &Transform3D::IDENTITY,
-                true,
-            );
+            for child in &node.children {
+                draw_tree_offset(
+                    child,
+                    world,
+                    entities,
+                    idx,
+                    &mut inner as &mut dyn Renderer,
+                    &child_clip,
+                    sx,
+                    sy,
+                    &Transform::IDENTITY,
+                    &Transform3D::IDENTITY,
+                    true,
+                )?;
+            }
+            Canvas::flush(&mut inner);
+            Ok(())
+        })();
+        if let Err(error) = draw_result {
+            pool.cache.borrow_mut().cache_mut().clear();
+            return Err(error);
         }
-        Canvas::flush(&mut inner);
     }
 
     // Blit buffer back to the outer renderer through DrawCommand::Blit.
@@ -1223,7 +1293,7 @@ fn try_draw_offscreen(
         renderer.draw(&blit_cmd, clip);
     }
 
-    true
+    Ok(true)
 }
 
 fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity>) {
@@ -1241,13 +1311,18 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
 
 /// Run the render system: build layout → compute → emit logical-coord
 /// DrawCommands. Backends convert to physical at draw time.
-pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut dyn Renderer) {
+pub fn render(
+    world: &World,
+    root: Entity,
+    transform: &Viewport,
+    renderer: &mut dyn Renderer,
+) -> Result<(), RenderError> {
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world
         .resource::<LayoutSnapshot>()
         .filter(|snapshot| snapshot.matches(root, logical_w, logical_h))
     {
-        render_full_with(
+        return render_full_with(
             world,
             &snapshot.layout_tree,
             &snapshot.entities,
@@ -1255,10 +1330,9 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
             logical_h,
             renderer,
         );
-        return;
     }
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
-        return;
+        return Ok(());
     };
     compute_layout(
         &mut layout_tree,
@@ -1276,7 +1350,7 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
         logical_w,
         logical_h,
         renderer,
-    );
+    )
 }
 
 fn render_full_with(
@@ -1286,7 +1360,7 @@ fn render_full_with(
     logical_w: u16,
     logical_h: u16,
     renderer: &mut dyn Renderer,
-) {
+) -> Result<(), RenderError> {
     let clip = Rect {
         x: Fixed::ZERO,
         y: Fixed::ZERO,
@@ -1316,7 +1390,7 @@ fn render_full_with(
                 &Transform::IDENTITY,
                 &Transform3D::IDENTITY,
                 &ref_sources,
-            );
+            )?;
         }
     }
 
@@ -1333,7 +1407,7 @@ fn render_full_with(
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
         false,
-    );
+    )
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
@@ -1371,23 +1445,22 @@ pub fn render_region(
     transform: &Viewport,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
-) {
+) -> Result<(), RenderError> {
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world
         .resource::<LayoutSnapshot>()
         .filter(|snapshot| snapshot.matches(root, logical_w, logical_h))
     {
-        render_region_with(
+        return render_region_with(
             world,
             &snapshot.layout_tree,
             &snapshot.entities,
             dirty_rect,
             renderer,
         );
-        return;
     }
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
-        return;
+        return Ok(());
     };
     compute_layout(
         &mut layout_tree,
@@ -1398,7 +1471,7 @@ pub fn render_region(
     );
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
-    render_region_with(world, &layout_tree, &entities, dirty_rect, renderer);
+    render_region_with(world, &layout_tree, &entities, dirty_rect, renderer)
 }
 
 /// Internal cached variant: caller supplies a layout tree + entity
@@ -1414,14 +1487,14 @@ pub(crate) fn render_region_cached(
     snapshot: &LayoutSnapshot,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
-) {
+) -> Result<(), RenderError> {
     render_region_with(
         world,
         &snapshot.layout_tree,
         &snapshot.entities,
         dirty_rect,
         renderer,
-    );
+    )
 }
 
 fn render_region_with(
@@ -1430,7 +1503,7 @@ fn render_region_with(
     entities: &[Entity],
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
-) {
+) -> Result<(), RenderError> {
     if world
         .storage::<super::offscreen::WidgetTextureRef>()
         .is_some()
@@ -1453,7 +1526,7 @@ fn render_region_with(
                 &Transform::IDENTITY,
                 &Transform3D::IDENTITY,
                 &ref_sources,
-            );
+            )?;
         }
     }
 
@@ -1472,8 +1545,9 @@ fn render_region_with(
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
             false,
-        );
+        )?;
     }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1487,9 +1561,9 @@ fn prerender_sources(
     parent_transform: &Transform,
     parent_3d: &Transform3D,
     targets: &[Entity],
-) {
+) -> Result<(), RenderError> {
     if *idx >= entities.len() {
-        return;
+        return Ok(());
     }
     let entity = entities[*idx];
     let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, node.rect);
@@ -1523,15 +1597,16 @@ fn prerender_sources(
                 entity,
                 &tf,
                 quad,
-            );
+            )?;
         }
     }
     *idx += 1;
     for child in &node.children {
         prerender_sources(
             child, world, entities, idx, renderer, clip, &tf, &tf_3d, targets,
-        );
+        )?;
     }
+    Ok(())
 }
 
 struct DirtyBounds {
@@ -2229,7 +2304,7 @@ mod text_layout_check {
         update_layout(&mut world, root, &viewport);
 
         let mut recorder = Recorder::default();
-        render(&world, root, &viewport, &mut recorder);
+        render(&world, root, &viewport, &mut recorder).unwrap();
         assert_eq!(
             recorder.clip,
             Some(world.get::<super::super::ComputedRect>(label).unwrap().0)
@@ -2299,7 +2374,7 @@ mod text_layout_check {
 
         update_layout(&mut world, root, &viewport);
         let mut recorder = Recorder::default();
-        render(&world, root, &viewport, &mut recorder);
+        render(&world, root, &viewport, &mut recorder).unwrap();
 
         assert!(recorder.fills.iter().any(|area| {
             area.x == Fixed::ZERO
@@ -2822,7 +2897,7 @@ mod text_layout_check {
         world.remove::<crate::input::event::scroll::ScrollOffset>(root);
 
         let mut recorder = Recorder::default();
-        render_region(&world, root, &viewport, &ink, &mut recorder);
+        render_region(&world, root, &viewport, &ink, &mut recorder).unwrap();
         assert_eq!(recorder.posed_runs, 1);
 
         let damage = collect_dirty_region(&mut world, root, &viewport).unwrap();
@@ -2911,7 +2986,8 @@ mod text_layout_check {
             &viewport,
             &Rect::new(0, 0, 96, 96),
             &mut recorder,
-        );
+        )
+        .unwrap();
         assert_eq!(recorder.clip, Some(clip));
     }
 }
@@ -3005,7 +3081,7 @@ mod clip_children_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
-        super::render(&world, root, &viewport, &mut renderer);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..8 {
             let c = renderer.target.get_pixel(x, 32);
@@ -3075,7 +3151,7 @@ mod clip_children_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
-        super::render(&world, root, &viewport, &mut renderer);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..64 {
             let c = renderer.target.get_pixel(x, 32);
@@ -3135,7 +3211,7 @@ mod clip_children_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
-        super::render(&world, root, &viewport, &mut renderer);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..64 {
             let c = renderer.target.get_pixel(x, 32);
@@ -3372,7 +3448,7 @@ mod clip_children_check {
         {
             let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render(&world, root, &viewport, &mut renderer);
+            super::render(&world, root, &viewport, &mut renderer).unwrap();
             assert_eq!(renderer.target.get_pixel(16, 16).b, 255);
         }
         seed_prev_rects(&mut world, root, &viewport);
@@ -3389,7 +3465,7 @@ mod clip_children_check {
         {
             let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render_region(&world, root, &viewport, &dirty, &mut renderer);
+            super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
             assert_eq!(renderer.target.get_pixel(16, 16).b, 0);
             assert_eq!(renderer.target.get_pixel(25, 25).b, 255);
         }
@@ -3442,7 +3518,7 @@ mod clip_children_check {
         {
             let tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render(&world, root, &viewport, &mut renderer);
+            super::render(&world, root, &viewport, &mut renderer).unwrap();
         }
 
         let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
@@ -3450,7 +3526,7 @@ mod clip_children_check {
         {
             let tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render_region(&world, root, &viewport, &dirty, &mut renderer);
+            super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
         }
 
         let full_tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888);
@@ -3537,7 +3613,7 @@ mod hidden_check {
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
-        super::render(&world, root, &viewport, &mut renderer);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..32 {
             let c = renderer.target.get_pixel(x, 16);
@@ -3611,7 +3687,7 @@ mod disabled_state_check {
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
-        super::render(&world, root, &viewport, &mut renderer);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         let expected = theme.blend_color_in(red, WidgetState::Disabled);
         let actual = renderer.target.get_pixel(16, 16);
@@ -3694,7 +3770,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let pool = world.resource::<OffscreenBufferPool>().expect("pool");
         assert_eq!(pool.cache.borrow().cache().len(), 1);
@@ -3727,7 +3803,7 @@ mod offscreen_render_check {
             let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
-            super::render(&world, panel, &viewport, &mut renderer);
+            super::render(&world, panel, &viewport, &mut renderer).unwrap();
         }
 
         // (b) Offscreen at scale=1.0.
@@ -3751,7 +3827,7 @@ mod offscreen_render_check {
             let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
-            super::render(&world, panel, &viewport, &mut renderer);
+            super::render(&world, panel, &viewport, &mut renderer).unwrap();
         }
 
         // Compare a center pixel of the panel; both should be blue.
@@ -3790,7 +3866,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         // Pool has 1 entry; the key reports the half-resolution buffer
         // dims (32 × 0.5 = 16).
@@ -3846,7 +3922,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let read_rgb = |x: usize, y: usize| -> (u8, u8, u8) {
             let i = (y * 128 + x) * 4;
@@ -3891,7 +3967,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGB565Swapped);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         // RGB565Swapped: blue (0, 0, 255) packs to 565 = 0x001F. The
         // "swapped" variant byte-swaps to 0x1F00 and stores it
@@ -3978,7 +4054,7 @@ mod offscreen_render_check {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
             let mut renderer = SwRenderer::new(tex);
-            super::render(world, panel, &viewport, &mut renderer);
+            super::render(world, panel, &viewport, &mut renderer).unwrap();
             fb
         };
 
@@ -4072,7 +4148,7 @@ mod offscreen_render_check {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render(world, panel, &viewport, &mut renderer);
+            super::render(world, panel, &viewport, &mut renderer).unwrap();
             fb
         };
 
@@ -4313,7 +4389,7 @@ mod offscreen_render_check {
                 w: Fixed::from_int(FB_W as i32),
                 h: Fixed::from_int(FB_H as i32),
             });
-            super::render_region(world, root, &viewport, &dirty, &mut renderer);
+            super::render_region(world, root, &viewport, &dirty, &mut renderer).unwrap();
             fb
         };
 
@@ -4412,7 +4488,7 @@ mod offscreen_render_check {
             let tex = Texture::new(&mut buf_inline, 128, 128, ColorFormat::RGB565Swapped);
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(128, 128, Fixed::ONE);
-            super::render(&world, switch, &viewport, &mut renderer);
+            super::render(&world, switch, &viewport, &mut renderer).unwrap();
         }
 
         let mut buf_off = std::vec![0u8; 128 * 128 * 2];
@@ -4435,7 +4511,7 @@ mod offscreen_render_check {
             let tex = Texture::new(&mut buf_off, 128, 128, ColorFormat::RGB565Swapped);
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(128, 128, Fixed::ONE);
-            super::render(&world, switch, &viewport, &mut renderer);
+            super::render(&world, switch, &viewport, &mut renderer).unwrap();
         }
 
         for &(x, y) in [(0, 0), (10, 5), (20, 10), (30, 15), (35, 18)].iter() {
@@ -4481,7 +4557,7 @@ mod offscreen_render_check {
             let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
-            super::render(&world, switch, &viewport, &mut renderer);
+            super::render(&world, switch, &viewport, &mut renderer).unwrap();
         }
 
         // (b) Offscreen Switch.
@@ -4505,7 +4581,7 @@ mod offscreen_render_check {
             let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
-            super::render(&world, switch, &viewport, &mut renderer);
+            super::render(&world, switch, &viewport, &mut renderer).unwrap();
         }
 
         // Sample a handful of pixels across the 40×20 switch rect.
@@ -4556,7 +4632,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         // After render: outer 64×64 framebuffer's (0..32, 0..32) region
         // should be solid red. The buffer is internally 16×16 but the
@@ -4610,7 +4686,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let read_r = |x: usize, y: usize| buf[(y * 32 + x) * 4];
         for (x, y) in [(0, 0), (7, 7), (15, 15), (3, 12)] {
@@ -4651,7 +4727,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
 
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         // Stamp magenta over the cached green buffer. Frame 2 raster
         // would overwrite it back to green; hit path leaves it alone.
@@ -4681,7 +4757,7 @@ mod offscreen_render_check {
         let mut buf2 = std::vec![0u8; 64 * 64 * 4];
         let tex2 = Texture::new(&mut buf2, 64, 64, ColorFormat::RGBA8888);
         let mut renderer2 = SwRenderer::new(tex2);
-        super::render(&world, panel, &viewport, &mut renderer2);
+        super::render(&world, panel, &viewport, &mut renderer2).unwrap();
 
         assert_eq!(
             (buf2[0], buf2[1], buf2[2]),
@@ -4727,7 +4803,7 @@ mod offscreen_render_check {
         {
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render(&world, panel, &viewport, &mut renderer);
+            super::render(&world, panel, &viewport, &mut renderer).unwrap();
         }
         super::seed_prev_rects(&mut world, panel, &viewport);
 
@@ -4746,7 +4822,7 @@ mod offscreen_render_check {
         {
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render_region(&world, panel, &viewport, &dirty, &mut renderer);
+            super::render_region(&world, panel, &viewport, &dirty, &mut renderer).unwrap();
         }
 
         let i = (15 * FB_W as usize + 25) * 4;
@@ -4801,7 +4877,7 @@ mod offscreen_render_check {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render(world, panel, &viewport, &mut renderer);
+            super::render(world, panel, &viewport, &mut renderer).unwrap();
             fb
         };
         let render_dirty = |world: &mut World| -> alloc::vec::Vec<u8> {
@@ -4814,7 +4890,7 @@ mod offscreen_render_check {
             });
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render_region(world, panel, &viewport, &dirty, &mut renderer);
+            super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
             fb
         };
 
@@ -4877,7 +4953,7 @@ mod offscreen_render_check {
             let mut fb = std::vec![0u8; 64 * 64 * 4];
             let tex = Texture::new(&mut fb, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render(world, root, &viewport, &mut renderer);
+            super::render(world, root, &viewport, &mut renderer).unwrap();
             fb
         };
 
@@ -4912,7 +4988,7 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
         // Frame 1
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
         let stats1 = *world
             .resource::<OffscreenBufferPool>()
             .unwrap()
@@ -4922,7 +4998,7 @@ mod offscreen_render_check {
             .stats();
 
         // Frame 2 — generation didn't change, pool should hit cache.
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
         let stats2 = *world
             .resource::<OffscreenBufferPool>()
             .unwrap()
@@ -4970,6 +5046,7 @@ mod offscreen_render_check {
 
         let snap = app
             .snapshot_widget(panel)
+            .unwrap()
             .expect("snapshot should produce an owned texture");
         assert_eq!(snap.width, 16);
         assert_eq!(snap.height, 16);
@@ -5016,7 +5093,7 @@ mod offscreen_render_check {
             });
             let tex = Texture::new(buf, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render_region(world, panel, &viewport, &dirty, &mut renderer);
+            super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
         };
 
         render_frame(&mut world, &mut buf);
@@ -5315,7 +5392,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
     }
 
     #[test]
@@ -5355,7 +5432,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::render(&world, outer, &viewport, &mut renderer);
+        super::render(&world, outer, &viewport, &mut renderer).unwrap();
     }
 
     #[test]
@@ -5409,7 +5486,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let pool = world.resource::<OffscreenBufferPool>().expect("pool");
         let cb = pool.cache.borrow();
@@ -5445,7 +5522,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let pool = world.resource::<OffscreenBufferPool>().expect("pool");
         assert_eq!(
@@ -5530,7 +5607,7 @@ mod offscreen_render_check {
                 super::collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
             let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
-            super::render_region(&world, root, &viewport, &dirty, &mut renderer);
+            super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
         }
 
         // Sample the mirror's rect (y in 16..32, x in 0..16). Expect
@@ -5589,7 +5666,7 @@ mod offscreen_render_check {
         let tex = Texture::new(&mut buf, 12, 12, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(12, 12, Fixed::ONE);
-        super::render(&world, panel, &viewport, &mut renderer);
+        super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
         let pool = world
             .resource::<super::super::OffscreenBufferPool>()
@@ -6377,10 +6454,10 @@ mod scroll_plan_check {
             .resource::<LayoutSnapshot>()
             .expect("snapshot present after dirty walk");
         let mut cached_out = Recorder(std::vec::Vec::new());
-        render_region_cached(&world, snap, &dirty_rect, &mut cached_out);
+        render_region_cached(&world, snap, &dirty_rect, &mut cached_out).unwrap();
 
         let mut fresh_out = Recorder(std::vec::Vec::new());
-        render_region(&world, root, &viewport, &dirty_rect, &mut fresh_out);
+        render_region(&world, root, &viewport, &dirty_rect, &mut fresh_out).unwrap();
 
         assert_eq!(
             cached_out.0, fresh_out.0,

@@ -72,7 +72,7 @@ fn main() {
         ColorFormat::RGBA8888,
     ));
     let transform = Viewport::new(W as u16, H as u16, Fixed::ONE);
-    render_system::render(&world, root, &transform, &mut renderer);
+    render_system::render(&world, root, &transform, &mut renderer).unwrap();
     renderer.flush();
 
     // SDL display

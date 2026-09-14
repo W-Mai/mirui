@@ -154,11 +154,11 @@ fn run(out_dir: &str, offscreen: bool) {
 
     let prefix = if offscreen { "off" } else { "inl" };
 
-    app.render();
+    app.render().unwrap();
 
     for frame in 0..FRAMES {
         app.systems.run_all(&mut app.world);
-        app.render_dirty();
+        app.render_dirty().unwrap();
         let path = PathBuf::from(out_dir).join(format!("{prefix}-{frame:03}.ppm"));
         write_ppm(&path, &capture.borrow(), WIN_W as u32, WIN_H as u32).expect("write ppm");
     }

@@ -236,15 +236,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     ///
     /// `None` when the renderer doesn't expose offscreen rendering
     /// (GPU backends) or when the pool can't fit the entity's buffer.
+    /// Render failures are returned without exposing a partial snapshot.
     pub fn snapshot_widget(
         &mut self,
         entity: crate::ecs::Entity,
-    ) -> Option<crate::render::texture::Texture<'static>> {
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, crate::render::RenderError> {
         use crate::ui::OffscreenRender;
         use crate::ui::offscreen::{OffscreenAutoAdded, WidgetTextureAccess};
 
         if let Some(snap) = self.world.texture_of(entity) {
-            return Some(clone_texture_owned(&snap.borrow()));
+            return Ok(Some(clone_texture_owned(&snap.borrow())));
         }
 
         let already_explicit = self.world.get::<OffscreenRender>(entity).is_some();
@@ -253,7 +254,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.world.insert(entity, OffscreenAutoAdded);
         }
 
-        self.render();
+        let render_result = self.render();
 
         let result = self
             .world
@@ -265,7 +266,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.world.remove::<OffscreenAutoAdded>(entity);
         }
 
-        result
+        render_result.map(|_| result)
     }
 
     /// Register one widget kind (built-in or user-defined).
@@ -409,8 +410,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Render one frame
     #[mirui::trace_fn("frame.full")]
-    pub fn render(&mut self) {
-        let Some(root) = self.root else { return };
+    pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
+        let Some(root) = self.root else { return Ok(()) };
         let info = self.backend.display_info();
         let transform = info.viewport();
 
@@ -427,10 +428,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
-        {
+        let render_result = {
             crate::trace_span!("frame.render");
             let mut renderer = self.factory.make(&mut self.backend, &transform);
-            render_system::render(&self.world, root, &transform, &mut renderer);
+            render_system::render(&self.world, root, &transform, &mut renderer)
+        };
+        if let Err(error) = render_result {
+            crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+            return Err(error);
         }
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
@@ -466,6 +471,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.post_render(&mut self.world, render_ns);
             }
         }
+        Ok(())
     }
 
     fn finalize_frame_stats(&mut self) {
@@ -532,7 +538,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.on_start(&mut self.world);
             }
         }
-        self.render();
+        if let Err(error) = self.render() {
+            crate::warn!("frame render failed: {:?}", error);
+        }
         loop {
             if self.tick() {
                 return;
@@ -687,9 +695,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             systems_end,
         });
         if transient {
-            self.render();
+            if let Err(error) = self.render() {
+                crate::warn!("frame render failed: {:?}", error);
+            }
         } else {
-            self.render_dirty();
+            if let Err(error) = self.render_dirty() {
+                crate::warn!("dirty frame render failed: {:?}", error);
+            }
         }
         self.backend.frame_end();
 
@@ -751,8 +763,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Render only dirty regions. Falls back to full render if no dirty tracking.
     #[mirui::trace_fn("frame.dirty")]
-    pub fn render_dirty(&mut self) {
-        let Some(root) = self.root else { return };
+    pub fn render_dirty(&mut self) -> Result<(), crate::render::RenderError> {
+        let Some(root) = self.root else { return Ok(()) };
         let info = self.backend.display_info();
         let transform = info.viewport();
 
@@ -795,29 +807,36 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
             // Union into one bbox: a single tree walk is ~3x cheaper than
             // N walks even when the union over-paints the gaps.
-            if let Some(union_rect) = plan.rects.iter().copied().reduce(|a, b| a.union(&b)) {
-                if let Some(snapshot) = self
-                    .world
-                    .resource::<crate::ui::render_system::LayoutSnapshot>()
-                {
-                    render_system::render_region_cached(
-                        &self.world,
-                        snapshot,
-                        &union_rect,
-                        &mut renderer,
-                    );
+            let render_result =
+                if let Some(union_rect) = plan.rects.iter().copied().reduce(|a, b| a.union(&b)) {
+                    if let Some(snapshot) = self
+                        .world
+                        .resource::<crate::ui::render_system::LayoutSnapshot>()
+                    {
+                        render_system::render_region_cached(
+                            &self.world,
+                            snapshot,
+                            &union_rect,
+                            &mut renderer,
+                        )
+                    } else {
+                        render_system::render_region(
+                            &self.world,
+                            root,
+                            &transform,
+                            &union_rect,
+                            &mut renderer,
+                        )
+                    }
                 } else {
-                    render_system::render_region(
-                        &self.world,
-                        root,
-                        &transform,
-                        &union_rect,
-                        &mut renderer,
-                    );
-                }
-            }
+                    Ok(())
+                };
 
             drop(renderer);
+            if let Err(error) = render_result {
+                crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+                return Err(error);
+            }
 
             let render_end = self.clock_ns();
             self.last_render_ns = render_end.saturating_sub(layout_end);
@@ -851,7 +870,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     p.post_render(&mut self.world, render_ns);
                 }
             }
-            return;
+            return Ok(());
         }
 
         // Idle frame: clear LastDirtyRegions so consumers (cursor
@@ -875,6 +894,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.post_render(&mut self.world, render_ns);
             }
         }
+        Ok(())
     }
 
     /// Consume into a [`Runner`].
@@ -928,7 +948,9 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
     /// `App::run` with `-> !`.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_blocking(mut self) -> ! {
-        self.app.render();
+        if let Err(error) = self.app.render() {
+            crate::warn!("frame render failed: {:?}", error);
+        }
         loop {
             if self.app.tick() {
                 break;

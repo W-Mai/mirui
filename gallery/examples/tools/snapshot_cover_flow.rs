@@ -183,7 +183,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
 
     app.set_root(root);
     app.systems.run_all(&mut app.world);
-    app.render();
+    app.render().unwrap();
     capture.borrow().clone()
 }
 

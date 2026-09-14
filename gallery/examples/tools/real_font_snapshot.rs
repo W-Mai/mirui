@@ -93,7 +93,7 @@ fn main() {
         let texture = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(texture);
         renderer.viewport = viewport;
-        render_system::render(&mut app.world, root, &viewport, &mut renderer);
+        render_system::render(&mut app.world, root, &viewport, &mut renderer).unwrap();
     }
 
     let texture = app.backend.framebuffer();

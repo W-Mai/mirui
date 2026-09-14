@@ -41,7 +41,7 @@ fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
     let tex = app.backend.framebuffer();
     let mut renderer = SwRenderer::new(tex);
     renderer.viewport = viewport;
-    render_system::render(&app.world, parent, &viewport, &mut renderer);
+    render_system::render(&app.world, parent, &viewport, &mut renderer).unwrap();
 
     let tex = app.backend.framebuffer();
     let pixels = tex.buf.as_slice();
@@ -234,7 +234,7 @@ fn custom_view_renders() {
     let tex = app.backend.framebuffer();
     let mut renderer = SwRenderer::new(tex);
     renderer.viewport = viewport;
-    render_system::render(&app.world, parent, &viewport, &mut renderer);
+    render_system::render(&app.world, parent, &viewport, &mut renderer).unwrap();
 
     let tex = app.backend.framebuffer();
     let pixels = tex.buf.as_slice();

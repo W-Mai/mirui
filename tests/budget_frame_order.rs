@@ -50,7 +50,7 @@ fn budget_plugin_sees_current_frame_stats() {
     let mut stats = mirui::ecs::FrameStats::default();
     stats.push(50_000_000);
     app.world.insert_resource(stats);
-    app.render();
+    app.render().unwrap();
 
     let observed = LAST_AVG.with(Cell::get);
     assert_eq!(observed, 50_000_000);

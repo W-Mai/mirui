@@ -320,7 +320,7 @@ fn main() {
     // Initial full render so OffscreenRender entities allocate buffers
     // and DropShadow / TemporalMix have a previous-frame texture to
     // read on the second render pass.
-    app.render();
+    app.render().unwrap();
 
     // If the second arg is "anim", dump 60 sequential frames so we
     // can inspect for residual / smearing as the source moves.
@@ -329,7 +329,7 @@ fn main() {
         std::fs::create_dir_all(&dir).ok();
         for frame in 0..60 {
             app.systems.run_all(&mut app.world);
-            app.render_dirty();
+            app.render_dirty().unwrap();
             let path = dir.join(format!("frame-{frame:03}.ppm"));
             write_ppm(
                 path.to_str().unwrap(),
@@ -343,7 +343,7 @@ fn main() {
     } else {
         for _ in 0..8 {
             app.systems.run_all(&mut app.world);
-            app.render_dirty();
+            app.render_dirty().unwrap();
         }
         write_ppm(&out_path, &capture.borrow(), WIN_W as u32, WIN_H as u32).expect("write ppm");
         eprintln!("wrote {out_path}");

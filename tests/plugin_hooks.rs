@@ -83,9 +83,9 @@ fn pre_and_post_render_fire_per_render_call() {
     };
     app.set_root(root);
 
-    app.render();
-    app.render_dirty();
-    app.render_dirty();
+    app.render().unwrap();
+    app.render_dirty().unwrap();
+    app.render_dirty().unwrap();
 
     assert_eq!(counts.pre.get(), 3);
     assert_eq!(counts.post.get(), 3);

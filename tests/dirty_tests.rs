@@ -329,7 +329,7 @@ mod tests {
                     H as u16,
                     ColorFormat::RGBA8888,
                 ));
-                render_system::render(&world, root, &transform, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
             // Simulate 10-30 frames of movement
@@ -360,7 +360,8 @@ mod tests {
                         H as u16,
                         ColorFormat::RGBA8888,
                     ));
-                    render_system::render_region(&world, root, &transform, &area, &mut renderer);
+                    render_system::render_region(&world, root, &transform, &area, &mut renderer)
+                        .unwrap();
                 }
             }
 
@@ -373,7 +374,7 @@ mod tests {
                     H as u16,
                     ColorFormat::RGBA8888,
                 ));
-                render_system::render(&world, root, &transform, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
             // Compare entire framebuffer — no residue anywhere
@@ -467,7 +468,7 @@ mod tests {
                     H as u16,
                     ColorFormat::RGBA8888,
                 ));
-                render_system::render(&world, root, &transform, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
             let num_frames = 10 + (rng() % 20) as usize;
@@ -493,7 +494,8 @@ mod tests {
                         H as u16,
                         ColorFormat::RGBA8888,
                     ));
-                    render_system::render_region(&world, root, &transform, &area, &mut renderer);
+                    render_system::render_region(&world, root, &transform, &area, &mut renderer)
+                        .unwrap();
                 }
             }
 
@@ -505,7 +507,7 @@ mod tests {
                     H as u16,
                     ColorFormat::RGBA8888,
                 ));
-                render_system::render(&world, root, &transform, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
             for i in 0..BUF_SIZE {

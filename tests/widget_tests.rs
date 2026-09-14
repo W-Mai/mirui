@@ -55,7 +55,7 @@ mod tests {
 
         let mut recorder = RecordingRenderer::new();
         let transform = Viewport::new(200, 100, Fixed::ONE);
-        render_system::render(&world, root, &transform, &mut recorder);
+        render_system::render(&world, root, &transform, &mut recorder).unwrap();
 
         // Should have 2 draw commands: root bg + child bg
         assert_eq!(recorder.commands.len(), 2);
@@ -122,7 +122,7 @@ mod tests {
 
         let mut recorder = RecordingRenderer::new();
         let transform = Viewport::new(200, 100, Fixed::ONE);
-        render_system::render(&world, root, &transform, &mut recorder);
+        render_system::render(&world, root, &transform, &mut recorder).unwrap();
 
         // Root has no bg_color, so only 2 commands for children
         assert_eq!(recorder.commands.len(), 2);

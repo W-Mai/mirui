@@ -48,7 +48,7 @@ fn background_blur_silently_skips_when_backend_returns_none() {
 
     let mut renderer = GracefulSkipRenderer { draws: 0 };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
-    render_system::render(&world, root, &viewport, &mut renderer);
+    render_system::render(&world, root, &viewport, &mut renderer).unwrap();
     let _ = renderer.draws;
 }
 

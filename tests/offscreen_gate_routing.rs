@@ -78,7 +78,7 @@ fn gate_flip_routes_offscreen_to_blit_on_non_sw_outer() {
         counts: RefCell::new(Counts::default()),
     };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
-    render_system::render(&world, panel, &viewport, &mut outer);
+    render_system::render(&world, panel, &viewport, &mut outer).unwrap();
 
     let c = outer.counts.borrow();
     assert_eq!(c.blit, 1, "outer should receive exactly one blit-back");
@@ -93,7 +93,7 @@ fn gate_off_falls_through_to_inline_render() {
         counts: RefCell::new(Counts::default()),
     };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
-    render_system::render(&world, panel, &viewport, &mut outer);
+    render_system::render(&world, panel, &viewport, &mut outer).unwrap();
 
     let c = outer.counts.borrow();
     assert_eq!(c.blit, 0, "inline path emits no blit-back");
@@ -109,7 +109,7 @@ fn pool_resource_must_exist_when_gate_is_on() {
         counts: RefCell::new(Counts::default()),
     };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
-    render_system::render(&world, panel, &viewport, &mut outer);
+    render_system::render(&world, panel, &viewport, &mut outer).unwrap();
 
     let c = outer.counts.borrow();
     assert_eq!(c.blit, 1);

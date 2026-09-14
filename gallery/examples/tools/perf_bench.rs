@@ -201,7 +201,7 @@ fn run_scene_image_heavy(count: u32, label: &str) {
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = viewport;
         mirui::trace_span!("frame.render", {
-            render_system::render(&app.world, root, &viewport, &mut renderer);
+            render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
         });
     });
 }
@@ -223,7 +223,7 @@ fn run_scene_no_image(count: u32, label: &str) {
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = viewport;
         mirui::trace_span!("frame.render", {
-            render_system::render(&app.world, root, &viewport, &mut renderer);
+            render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
         });
     });
 }

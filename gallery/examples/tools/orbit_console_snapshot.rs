@@ -131,7 +131,7 @@ fn main() {
     let root = app.spawn_root().id();
     orbit_console::setup(&mut app, root, DemoRunMode::Capture);
     app.set_root(root);
-    app.render();
+    app.render().unwrap();
 
     let texture = app.backend.framebuffer();
     let stride = texture.stride;

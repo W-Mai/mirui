@@ -22,7 +22,7 @@ where
     render_system::update_layout(&mut app.world, root, &viewport);
     let full = Rect::new(0, 0, WIDTH, HEIGHT);
     let mut renderer = app.factory.make(&mut app.backend, &viewport);
-    render_system::render(&app.world, root, &viewport, &mut renderer);
+    render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
     renderer.prepare_readback(&full);
     renderer.sample_target_region(&full)
 }

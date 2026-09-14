@@ -52,7 +52,7 @@ pub fn run(output_name: &str, viewport: (u16, u16), setup: impl FnOnce(&mut Snap
     setup(&mut app, root);
     app.set_root(root);
     app.systems.run_all(&mut app.world);
-    app.render();
+    app.render().unwrap();
 
     let texture = app.backend.framebuffer();
     assert_eq!(texture.stride, usize::from(width) * 4);

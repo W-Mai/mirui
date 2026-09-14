@@ -111,7 +111,7 @@ mod tests {
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
         setup_app(&mut app, root);
-        app.render();
+        app.render().unwrap();
         crate::ui::render_system::collect_dirty_regions(
             &mut app.world,
             root,
@@ -125,9 +125,9 @@ mod tests {
             .collect();
         for entity in texts {
             app.world.insert(entity, crate::ui::dirty::Dirty);
-            app.render_dirty();
+            app.render_dirty().unwrap();
             let partial = app.backend.framebuffer().buf.as_slice().to_vec();
-            app.render();
+            app.render().unwrap();
             let full = app.backend.framebuffer().buf.as_slice().to_vec();
             let mismatches = partial.iter().zip(&full).filter(|(a, b)| a != b).count();
             assert_eq!(

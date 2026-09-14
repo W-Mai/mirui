@@ -52,7 +52,7 @@ fn report_sink_and_perfetto_line_sink_both_run() {
         mirui::trace_span!("test.builder_compose");
     }
 
-    app.render();
+    app.render().unwrap();
 
     assert_eq!(REPORT_CALLS_LINE.load(Ordering::Relaxed), 1);
     assert!(line_count.get() >= 1, "perfetto sink saw no events");
@@ -82,7 +82,7 @@ fn with_perfetto_writer_keeps_report_sink() {
     {
         mirui::trace_span!("test.writer_compose");
     }
-    app.render();
+    app.render().unwrap();
 
     assert_eq!(REPORT_CALLS_WRITER.load(Ordering::Relaxed), 1);
     let body = std::fs::read_to_string(&path).expect("writer must create file");
