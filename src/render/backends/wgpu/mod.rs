@@ -822,7 +822,7 @@ impl WgpuRenderer<'_> {
     fn blit_source_view(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
         let state = self.surface.state()?;
         let Some(key) = TextureKey::cacheable(src) else {
-            let rgba = texture_to_rgba8(src)?;
+            let rgba = src.rgba8_pixels()?;
             let texture = upload_blit_source(&state.device, &state.queue, src, &rgba);
             return Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         };
@@ -832,7 +832,7 @@ impl WgpuRenderer<'_> {
             .texture_pool
             .entry(key)
             .or_try_insert_with::<_, ()>(|| {
-                let rgba = texture_to_rgba8(src).ok_or(())?;
+                let rgba = src.rgba8_pixels().ok_or(())?;
                 Ok(CachedTexture(upload_blit_source(
                     &state.device,
                     &state.queue,
@@ -1044,62 +1044,9 @@ fn upload_blit_source(
     )
 }
 
-/// RGB565 formats return `None`; this upload path only handles
-/// byte-aligned RGB/RGBA.
 struct BlitMask {
     size: Point,
     radius: Fixed,
-}
-
-fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
-    use crate::render::texture::ColorFormat;
-    if !src.valid_storage() {
-        return None;
-    }
-    let buf = src.buf.as_slice();
-    let bpp = src.format.bytes_per_pixel();
-    let w = src.width as usize;
-    let h = src.height as usize;
-    match src.format {
-        ColorFormat::RGBA8888 => {
-            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
-            for y in 0..h {
-                let row = &buf[y * src.stride..y * src.stride + w * bpp];
-                out.extend_from_slice(row);
-            }
-            Some(out)
-        }
-        ColorFormat::BGRA8888 => {
-            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
-            for y in 0..h {
-                for x in 0..w {
-                    let i = y * src.stride + x * bpp;
-                    out.extend_from_slice(&[buf[i + 2], buf[i + 1], buf[i], buf[i + 3]]);
-                }
-            }
-            Some(out)
-        }
-        ColorFormat::RGB888 => {
-            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
-            for y in 0..h {
-                for x in 0..w {
-                    let i = y * src.stride + x * bpp;
-                    out.extend_from_slice(&[buf[i], buf[i + 1], buf[i + 2], 255]);
-                }
-            }
-            Some(out)
-        }
-        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
-            for y in 0..h {
-                for x in 0..w {
-                    let color = src.get_pixel(x as i32, y as i32);
-                    out.extend_from_slice(&[color.r, color.g, color.b, 255]);
-                }
-            }
-            Some(out)
-        }
-    }
 }
 
 fn offset_rect(r: &Rect, tx: Fixed, ty: Fixed) -> Rect {
@@ -2130,18 +2077,15 @@ mod route_tests {
             Texture::from_ref(&[0x00, 0xf8, 0, 0, 0xe0, 0x07], 1, 2, ColorFormat::RGB565);
         native.stride = 4;
         assert_eq!(
-            texture_to_rgba8(&native),
+            native.rgba8_pixels(),
             Some(alloc::vec![248, 0, 0, 255, 0, 252, 0, 255])
         );
 
         let swapped = Texture::from_ref(&[0xf8, 0x00], 1, 1, ColorFormat::RGB565Swapped);
-        assert_eq!(
-            texture_to_rgba8(&swapped),
-            Some(alloc::vec![248, 0, 0, 255])
-        );
+        assert_eq!(swapped.rgba8_pixels(), Some(alloc::vec![248, 0, 0, 255]));
 
         let short = Texture::from_ref(&[0xf8], 1, 1, ColorFormat::RGB565Swapped);
-        assert!(texture_to_rgba8(&short).is_none());
+        assert!(short.rgba8_pixels().is_none());
         let blit = DrawCommand::Blit {
             pos: Point::ZERO,
             size: Point::new(1, 1),

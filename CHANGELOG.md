@@ -70,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Transparent composite modes.** Software blits account for destination alpha in non-source-over color blending while retaining opaque-target output.
 - **Web Canvas glyph edges.** Cached software-rendered glyph pixels retain their straight RGBA colors when uploaded to Canvas image data.
 - **Web Canvas draw errors.** Checked glyph and image draws report failed uploads or Canvas image operations instead of silently omitting the command.
+- **Texture upload layout.** Web Canvas and WGPU share stride-aware RGBA conversion, including both RGB565 byte orders and rows with padding.
 - **Hybrid path fill rules.** Composed renderers forward the requested even-odd or non-zero fill rule instead of substituting even-odd for every path.
 - **Input feedback rendering.** Cursor and rotary overlays submit checked draw requests and retain backend failures in the UI render context.
 - **Flip demo entity traversal.** Flip Card, Image Flip, Book Flip, and Cover Flow update existing component IDs without allocating a temporary entity list each frame.

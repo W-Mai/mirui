@@ -75,7 +75,7 @@ pub fn new_glyph_pool() -> GlyphPool {
 }
 
 pub fn upload(src: &Texture) -> Option<CachedOffscreen> {
-    let rgba = texture_to_rgba8(src)?;
+    let rgba = src.rgba8_pixels()?;
     let canvas = OffscreenCanvas::new(src.width as u32, src.height as u32).ok()?;
     let ctx = canvas
         .get_context("2d")
@@ -94,31 +94,4 @@ pub fn upload(src: &Texture) -> Option<CachedOffscreen> {
         width: src.width,
         height: src.height,
     })
-}
-
-fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
-    let buf = src.buf.as_slice();
-    let bpp = src.format.bytes_per_pixel();
-    let w = src.width as usize;
-    let h = src.height as usize;
-    match src.format {
-        ColorFormat::RGBA8888 => Some(buf.to_vec()),
-        ColorFormat::BGRA8888 => {
-            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
-            for chunk in buf.chunks_exact(bpp) {
-                out.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]);
-            }
-            Some(out)
-        }
-        ColorFormat::RGB888 => {
-            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
-            for chunk in buf.chunks_exact(bpp) {
-                out.extend_from_slice(chunk);
-                out.push(0xff);
-            }
-            Some(out)
-        }
-        // RGB565 unpack not implemented.
-        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => None,
-    }
 }

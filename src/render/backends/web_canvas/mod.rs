@@ -689,14 +689,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }
-                if matches!(
-                    texture.format,
-                    ColorFormat::RGB565 | ColorFormat::RGB565Swapped
-                ) {
-                    return Err(RenderError::Unsupported(RenderFeature::TextureFormat(
-                        texture.format,
-                    )));
-                }
             }
             _ => {}
         }

@@ -296,6 +296,52 @@ impl<'a> Texture<'a> {
                 .is_some_and(|required| required <= self.buf.as_slice().len())
     }
 
+    #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
+    pub(crate) fn rgba8_pixels(&self) -> Option<Vec<u8>> {
+        if !self.valid_storage() {
+            return None;
+        }
+        let width = usize::from(self.width);
+        let height = usize::from(self.height);
+        let output_bytes = width.checked_mul(height)?.checked_mul(4)?;
+        let mut rgba = Vec::new();
+        rgba.try_reserve_exact(output_bytes).ok()?;
+        let bytes = self.buf.as_slice();
+        match self.format {
+            ColorFormat::RGBA8888 => {
+                for y in 0..height {
+                    let offset = y * self.stride;
+                    rgba.extend_from_slice(&bytes[offset..offset + width * 4]);
+                }
+            }
+            ColorFormat::BGRA8888 => {
+                for y in 0..height {
+                    let offset = y * self.stride;
+                    for pixel in bytes[offset..offset + width * 4].chunks_exact(4) {
+                        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+                    }
+                }
+            }
+            ColorFormat::RGB888 => {
+                for y in 0..height {
+                    let offset = y * self.stride;
+                    for pixel in bytes[offset..offset + width * 3].chunks_exact(3) {
+                        rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                    }
+                }
+            }
+            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
+                for y in 0..height {
+                    for x in 0..width {
+                        let color = self.get_pixel(x as i32, y as i32);
+                        rgba.extend_from_slice(&[color.r, color.g, color.b, 255]);
+                    }
+                }
+            }
+        }
+        Some(rgba)
+    }
+
     #[inline(always)]
     fn offset(&self, x: i32, y: i32) -> Option<usize> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
@@ -1154,6 +1200,40 @@ mod tests {
         assert_eq!(pixel.g, 0);
         assert!((pixel.b as i32 - 85).abs() <= 1);
         assert!((pixel.a as i32 - 192).abs() <= 1);
+    }
+
+    #[test]
+    fn rgba8_upload_conversion_ignores_stride_padding_in_each_format() {
+        let mut rgba = Texture::from_ref(
+            &[1, 2, 3, 4, 99, 99, 99, 99, 5, 6, 7, 8],
+            1,
+            2,
+            ColorFormat::RGBA8888,
+        );
+        rgba.stride = 8;
+        assert_eq!(
+            rgba.rgba8_pixels(),
+            Some(alloc::vec![1, 2, 3, 4, 5, 6, 7, 8])
+        );
+
+        let mut bgra = Texture::from_ref(
+            &[3, 2, 1, 4, 99, 99, 99, 99, 7, 6, 5, 8],
+            1,
+            2,
+            ColorFormat::BGRA8888,
+        );
+        bgra.stride = 8;
+        assert_eq!(bgra.rgba8_pixels(), rgba.rgba8_pixels());
+
+        let mut rgb = Texture::from_ref(&[1, 2, 3, 99, 5, 6, 7], 1, 2, ColorFormat::RGB888);
+        rgb.stride = 4;
+        assert_eq!(
+            rgb.rgba8_pixels(),
+            Some(alloc::vec![1, 2, 3, 255, 5, 6, 7, 255])
+        );
+
+        rgb.stride = 2;
+        assert!(rgb.rgba8_pixels().is_none());
     }
 
     #[test]
