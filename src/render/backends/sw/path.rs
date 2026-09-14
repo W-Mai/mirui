@@ -58,27 +58,31 @@ fn map_scalar(
 fn apply_spread(t: Fixed, spread: mirx::scene::SpreadMode) -> Fixed {
     match spread {
         mirx::scene::SpreadMode::Pad => t,
-        mirx::scene::SpreadMode::Repeat => {
-            if t < Fixed::ZERO {
-                let mut r = t;
-                while r < Fixed::ZERO {
-                    r += Fixed::ONE;
-                }
-                r
-            } else {
-                t - t.floor()
-            }
-        }
+        mirx::scene::SpreadMode::Repeat => t - t.floor(),
         mirx::scene::SpreadMode::Reflect => {
-            let mut r = t;
-            if r < Fixed::ZERO {
-                r = -r;
-            }
-            let floor = r.floor();
-            let frac = r - floor;
-            let period = floor.to_int() % 2;
+            let floor = t.floor();
+            let frac = t - floor;
+            let period = floor.to_int().rem_euclid(2);
             if period == 0 { frac } else { Fixed::ONE - frac }
         }
+    }
+}
+
+#[cfg(test)]
+mod spread_tests {
+    use super::*;
+    use mirx::scene::SpreadMode;
+
+    #[test]
+    fn repeat_and_reflect_handle_large_negative_coordinates_in_constant_time() {
+        let t = Fixed::from_int(-4096) - Fixed::from_ratio(1, 4);
+        assert_eq!(apply_spread(t, SpreadMode::Repeat), Fixed::from_ratio(3, 4));
+        assert_eq!(
+            apply_spread(t, SpreadMode::Reflect),
+            Fixed::from_ratio(1, 4)
+        );
+        assert_eq!(apply_spread(Fixed::MIN, SpreadMode::Repeat), Fixed::ZERO);
+        assert_eq!(apply_spread(Fixed::MIN, SpreadMode::Reflect), Fixed::ZERO);
     }
 }
 

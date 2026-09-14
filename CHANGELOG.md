@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gradient spread.** Software repeat and reflect wrapping use constant-time fixed-point arithmetic for large negative coordinates.
 - **Software render scratch.** The default renderer factory retains path geometry, scanline, stroke, and clip-mask buffers between frames.
 - **Projected quad validation.** WGPU rejects degenerate or near-plane-crossing fill, border, and image quads before checked submission.
 - **Web Canvas path dashes.** Dashed strokes retain their pattern alongside native cap, join, and miter styling.
