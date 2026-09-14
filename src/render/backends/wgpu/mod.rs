@@ -3266,12 +3266,17 @@ impl Renderer for WgpuRenderer<'_> {
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         request.validate_projection()?;
         Self::classify_request(request)?;
+        if !request.projective.is_identity() {
+            self.preflight_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from)?;
+        }
+        if !self.begin_frame() {
+            return Err(RenderError::BackendFailure);
+        }
         if request.projective.is_identity() {
             self.draw(request.command, &request.clip);
             return Ok(());
         }
-        self.preflight_projective(request.command, &request.clip, &request.projective)
-            .map_err(RenderError::from)?;
         self.draw_projective_validated(request.command, &request.clip, &request.projective)
             .map_err(RenderError::from)
     }
