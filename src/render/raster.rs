@@ -28,11 +28,11 @@ pub enum FillRule {
     NonZero,
 }
 
-/// One contiguous subpath produced by flatten_subpaths().
-/// `closed` is true when the subpath ended with a Close command.
-#[derive(Clone, Debug)]
+/// A range in the caller-owned flattened segment buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SubPath {
-    pub segs: Vec<LineSeg>,
+    pub start: usize,
+    pub end: usize,
     pub closed: bool,
 }
 
@@ -120,12 +120,14 @@ pub fn flatten_into(cmds: &[PathCmd], transform: Option<&Transform>, out: &mut V
 pub fn flatten_subpaths_into(
     cmds: &[PathCmd],
     transform: Option<&Transform>,
+    segments: &mut Vec<LineSeg>,
     out: &mut Vec<SubPath>,
 ) {
+    segments.clear();
     out.clear();
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
-    let mut current_segs: Vec<LineSeg> = Vec::new();
+    let mut start = 0;
     let mut has_moveto = false;
 
     let apply = |p: Point| -> Point {
@@ -135,10 +137,11 @@ pub fn flatten_subpaths_into(
         }
     };
 
-    let flush = |segs: &mut Vec<LineSeg>, out: &mut Vec<SubPath>, closed: bool| {
-        if !segs.is_empty() {
+    let flush = |segments: &[LineSeg], out: &mut Vec<SubPath>, start: usize, closed: bool| {
+        if segments.len() > start {
             out.push(SubPath {
-                segs: core::mem::take(segs),
+                start,
+                end: segments.len(),
                 closed,
             });
         }
@@ -147,7 +150,8 @@ pub fn flatten_subpaths_into(
     for cmd in cmds {
         match cmd {
             PathCmd::MoveTo(p) => {
-                flush(&mut current_segs, out, false);
+                flush(segments, out, start, false);
+                start = segments.len();
                 let p = apply(*p);
                 subpath_start = p;
                 current = p;
@@ -158,7 +162,7 @@ pub fn flatten_subpaths_into(
                     continue;
                 }
                 let p = apply(*p);
-                current_segs.push(LineSeg { p1: current, p2: p });
+                segments.push(LineSeg { p1: current, p2: p });
                 current = p;
             }
             PathCmd::QuadTo { ctrl, end } => {
@@ -171,7 +175,7 @@ pub fn flatten_subpaths_into(
                 for i in 1..=QUAD_STEPS {
                     let t = Fixed::from_int(i) / Fixed::from_int(QUAD_STEPS);
                     let next = quad_at(p0, ctrl, end, t);
-                    current_segs.push(LineSeg {
+                    segments.push(LineSeg {
                         p1: current,
                         p2: next,
                     });
@@ -189,7 +193,7 @@ pub fn flatten_subpaths_into(
                 for i in 1..=CUBIC_STEPS {
                     let t = Fixed::from_int(i) / Fixed::from_int(CUBIC_STEPS);
                     let next = cubic_at(p0, ctrl1, ctrl2, end, t);
-                    current_segs.push(LineSeg {
+                    segments.push(LineSeg {
                         p1: current,
                         p2: next,
                     });
@@ -198,18 +202,19 @@ pub fn flatten_subpaths_into(
             }
             PathCmd::Close => {
                 if current != subpath_start {
-                    current_segs.push(LineSeg {
+                    segments.push(LineSeg {
                         p1: current,
                         p2: subpath_start,
                     });
                 }
                 current = subpath_start;
-                flush(&mut current_segs, out, true);
+                flush(segments, out, start, true);
+                start = segments.len();
                 has_moveto = false;
             }
         }
     }
-    flush(&mut current_segs, out, false);
+    flush(segments, out, start, false);
 }
 
 /// Vertical supersampling count per pixel row. 4 sub-scanlines gives 5-level
@@ -439,39 +444,32 @@ fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
     dx * dx + dy * dy
 }
 
-fn apply_dash_pattern(segs: &[LineSeg], closed: bool, pattern: &[Fixed], out: &mut Vec<SubPath>) {
-    if pattern.is_empty() || segs.is_empty() {
-        out.push(SubPath {
-            segs: segs.to_vec(),
-            closed,
-        });
-        return;
-    }
-
-    let total: Fixed = pattern.iter().fold(Fixed::ZERO, |acc, &v| acc + v);
-    if total <= Fixed::ZERO {
-        out.push(SubPath {
-            segs: segs.to_vec(),
-            closed,
-        });
+fn apply_dash_pattern(
+    segs: &[LineSeg],
+    closed: bool,
+    pattern: &[Fixed],
+    segments: &mut Vec<LineSeg>,
+    out: &mut Vec<SubPath>,
+) {
+    let first_output = out.len();
+    let first_segment = segments.len();
+    if pattern.is_empty() || pattern.iter().any(|length| *length <= Fixed::ZERO) {
+        segments.extend_from_slice(segs);
+        if !segs.is_empty() {
+            out.push(SubPath {
+                start: first_segment,
+                end: segments.len(),
+                closed,
+            });
+        }
         return;
     }
 
     let mut remaining = pattern[0];
     let mut pattern_idx = 0;
     let mut on = true;
-    let mut current_segs: Vec<LineSeg> = Vec::new();
+    let mut start = segments.len();
 
-    let flush = |segs: &mut Vec<LineSeg>, out: &mut Vec<SubPath>| {
-        if !segs.is_empty() {
-            out.push(SubPath {
-                segs: core::mem::take(segs),
-                closed: false,
-            });
-        }
-    };
-
-    let first_output = out.len();
     for &seg in segs {
         let dx = seg.p2.x - seg.p1.x;
         let dy = seg.p2.y - seg.p1.y;
@@ -493,7 +491,7 @@ fn apply_dash_pattern(segs: &[LineSeg], closed: bool, pattern: &[Fixed], out: &m
                 y: p_start.y + uy * (walked + step),
             };
             if on {
-                current_segs.push(LineSeg {
+                segments.push(LineSeg {
                     p1: Point {
                         x: p_start.x + ux * walked,
                         y: p_start.y + uy * walked,
@@ -504,17 +502,28 @@ fn apply_dash_pattern(segs: &[LineSeg], closed: bool, pattern: &[Fixed], out: &m
             walked += step;
             remaining -= step;
             if remaining <= Fixed::ZERO {
-                if on {
-                    flush(&mut current_segs, out);
+                if on && segments.len() > start {
+                    out.push(SubPath {
+                        start,
+                        end: segments.len(),
+                        closed: false,
+                    });
                 }
+                start = segments.len();
                 pattern_idx = (pattern_idx + 1) % pattern.len();
                 on = !on;
                 remaining = pattern[pattern_idx];
             }
         }
     }
-    flush(&mut current_segs, out);
-    if closed && out.len() == first_output + 1 && out[first_output].segs == segs {
+    if segments.len() > start {
+        out.push(SubPath {
+            start,
+            end: segments.len(),
+            closed: false,
+        });
+    }
+    if closed && out.len() == first_output + 1 && segments[first_segment..] == *segs {
         out[first_output].closed = true;
     }
 }
@@ -529,11 +538,13 @@ pub(crate) fn offset_polygon_into(
     miter_limit: Fixed,
     dash: Option<&[Fixed]>,
     out: &mut Path,
+    flattened: &mut Vec<LineSeg>,
     subpath_scratch: &mut Vec<SubPath>,
     normals_scratch: &mut Vec<Point>,
     rail_scratch: &mut Vec<Point>,
     left_rail_scratch: &mut Vec<Point>,
     arc_scratch: &mut Vec<Point>,
+    dashed: &mut Vec<LineSeg>,
     dash_scratch: &mut Vec<SubPath>,
 ) {
     out.cmds.to_mut().clear();
@@ -542,27 +553,35 @@ pub(crate) fn offset_polygon_into(
     }
     let half = width / 2;
 
-    flatten_subpaths_into(cmds, transform, subpath_scratch);
+    flatten_subpaths_into(cmds, transform, flattened, subpath_scratch);
 
-    if let Some(pattern) = dash {
-        if !pattern.is_empty() {
+    let (segments, subpaths): (&[LineSeg], &[SubPath]) = if let Some(pattern) = dash {
+        if pattern.is_empty() {
+            (flattened, subpath_scratch)
+        } else {
+            dashed.clear();
             dash_scratch.clear();
-            for sub in subpath_scratch.drain(..) {
-                apply_dash_pattern(&sub.segs, sub.closed, pattern, dash_scratch);
+            for sub in subpath_scratch.iter() {
+                apply_dash_pattern(
+                    &flattened[sub.start..sub.end],
+                    sub.closed,
+                    pattern,
+                    dashed,
+                    dash_scratch,
+                );
             }
-            core::mem::swap(subpath_scratch, dash_scratch);
+            (dashed, dash_scratch)
         }
-    }
+    } else {
+        (flattened, subpath_scratch)
+    };
 
-    for sub in subpath_scratch.drain(..) {
-        if sub.segs.is_empty() {
-            continue;
-        }
-
-        compute_normals_into(&sub.segs, half, normals_scratch);
+    for sub in subpaths {
+        let segs = &segments[sub.start..sub.end];
+        compute_normals_into(segs, half, normals_scratch);
         if sub.closed {
             build_ring_into(
-                &sub.segs,
+                segs,
                 normals_scratch,
                 half,
                 join,
@@ -573,7 +592,7 @@ pub(crate) fn offset_polygon_into(
             );
             append_closed_polyline(out, rail_scratch);
             build_ring_into(
-                &sub.segs,
+                segs,
                 normals_scratch,
                 half,
                 join,
@@ -586,7 +605,7 @@ pub(crate) fn offset_polygon_into(
             append_closed_polyline(out, rail_scratch);
         } else {
             build_open_rail_into(
-                &sub.segs,
+                segs,
                 normals_scratch,
                 half,
                 join,
@@ -596,7 +615,7 @@ pub(crate) fn offset_polygon_into(
                 arc_scratch,
             );
             build_open_rail_into(
-                &sub.segs,
+                segs,
                 normals_scratch,
                 half,
                 join,
@@ -605,7 +624,7 @@ pub(crate) fn offset_polygon_into(
                 rail_scratch,
                 arc_scratch,
             );
-            append_open_ribbon(out, &sub.segs, left_rail_scratch, rail_scratch, cap, half);
+            append_open_ribbon(out, segs, left_rail_scratch, rail_scratch, cap, half);
         }
     }
 }
@@ -1006,10 +1025,11 @@ mod tests {
         out
     }
 
-    fn flatten_subpaths_path(p: &Path) -> Vec<SubPath> {
+    fn flatten_subpaths_path(p: &Path) -> (Vec<LineSeg>, Vec<SubPath>) {
+        let mut segments = Vec::new();
         let mut out = Vec::new();
-        flatten_subpaths_into(&p.cmds, None, &mut out);
-        out
+        flatten_subpaths_into(&p.cmds, None, &mut segments, &mut out);
+        (segments, out)
     }
 
     fn offset_polygon_path(p: &Path, width: Fixed) -> Path {
@@ -1018,11 +1038,13 @@ mod tests {
 
     fn offset_polygon_path_with_cap(p: &Path, width: Fixed, cap: LineCap) -> Path {
         let mut out = Path::new();
+        let mut flattened = Vec::new();
         let mut scratch = Vec::new();
         let mut normals = Vec::new();
         let mut rail = Vec::new();
         let mut left_rail = Vec::new();
         let mut arc = Vec::new();
+        let mut dashed = Vec::new();
         let mut dash_scratch = Vec::new();
         offset_polygon_into(
             &p.cmds,
@@ -1033,11 +1055,13 @@ mod tests {
             Fixed::from_int(4),
             None,
             &mut out,
+            &mut flattened,
             &mut scratch,
             &mut normals,
             &mut rail,
             &mut left_rail,
             &mut arc,
+            &mut dashed,
             &mut dash_scratch,
         );
         out
@@ -1224,7 +1248,7 @@ mod tests {
             .line_to(pt(0, 10))
             .close();
         p.move_to(pt(50, 50)).line_to(pt(60, 50));
-        let subs = flatten_subpaths_path(&p);
+        let (_, subs) = flatten_subpaths_path(&p);
         assert_eq!(subs.len(), 2);
         assert!(subs[0].closed);
         assert!(!subs[1].closed);
@@ -1326,16 +1350,18 @@ mod tests {
             .line_to(pt(10, 10))
             .line_to(pt(0, 10))
             .close();
-        let subpaths = flatten_subpaths_path(&path);
+        let (segments, subpaths) = flatten_subpaths_path(&path);
+        let mut dashed_segments = Vec::new();
         let mut dashed = Vec::new();
         apply_dash_pattern(
-            &subpaths[0].segs,
+            &segments[subpaths[0].start..subpaths[0].end],
             true,
             &[Fixed::from_int(100), Fixed::from_int(100)],
+            &mut dashed_segments,
             &mut dashed,
         );
         assert_eq!(dashed.len(), 1);
-        assert_eq!(dashed[0].segs, subpaths[0].segs);
+        assert_eq!(dashed_segments, segments);
         assert!(dashed[0].closed);
     }
 
@@ -1344,11 +1370,13 @@ mod tests {
         let mut path = Path::new();
         path.move_to(pt(0, 0)).line_to(pt(10, 0));
         let mut outline = Path::new();
+        let mut flattened = Vec::new();
         let mut subpaths = Vec::new();
         let mut normals = Vec::new();
         let mut right = Vec::new();
         let mut left = Vec::new();
         let mut arc = Vec::new();
+        let mut dashed_segments = Vec::new();
         let mut dashed = Vec::new();
         let mut first = None;
 
@@ -1362,16 +1390,73 @@ mod tests {
                 Fixed::from_int(4),
                 None,
                 &mut outline,
+                &mut flattened,
                 &mut subpaths,
                 &mut normals,
                 &mut right,
                 &mut left,
                 &mut arc,
+                &mut dashed_segments,
                 &mut dashed,
             );
             let buffers = [
                 (left.as_ptr(), left.capacity()),
                 (right.as_ptr(), right.capacity()),
+            ];
+            assert!(buffers.iter().all(|(_, capacity)| *capacity > 0));
+            if let Some(previous) = first {
+                assert_eq!(buffers, previous);
+            }
+            first = Some(buffers);
+        }
+    }
+
+    #[test]
+    fn dashed_subpaths_reuse_flat_segment_and_range_buffers() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).quad_to(pt(10, 12), pt(20, 0));
+        path.move_to(pt(0, 20)).line_to(pt(20, 20));
+        let mut outline = Path::new();
+        let mut flattened = Vec::new();
+        let mut subpaths = Vec::new();
+        let mut normals = Vec::new();
+        let mut right = Vec::new();
+        let mut left = Vec::new();
+        let mut arc = Vec::new();
+        let mut dashed_segments = Vec::new();
+        let mut dashed_subpaths = Vec::new();
+        let mut first = None;
+
+        for _ in 0..2 {
+            offset_polygon_into(
+                &path.cmds,
+                None,
+                Fixed::from_int(2),
+                LineCap::Butt,
+                LineJoin::Miter,
+                Fixed::from_int(4),
+                Some(&[Fixed::from_int(3), Fixed::from_int(2)]),
+                &mut outline,
+                &mut flattened,
+                &mut subpaths,
+                &mut normals,
+                &mut right,
+                &mut left,
+                &mut arc,
+                &mut dashed_segments,
+                &mut dashed_subpaths,
+            );
+            let buffers = [
+                (flattened.as_ptr().cast::<()>(), flattened.capacity()),
+                (subpaths.as_ptr().cast::<()>(), subpaths.capacity()),
+                (
+                    dashed_segments.as_ptr().cast::<()>(),
+                    dashed_segments.capacity(),
+                ),
+                (
+                    dashed_subpaths.as_ptr().cast::<()>(),
+                    dashed_subpaths.capacity(),
+                ),
             ];
             assert!(buffers.iter().all(|(_, capacity)| *capacity > 0));
             if let Some(previous) = first {

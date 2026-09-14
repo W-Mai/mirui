@@ -333,11 +333,13 @@ impl SwRenderer<'_> {
             miter_limit,
             if dash.is_empty() { None } else { Some(dash) },
             &mut self.stroke_outline,
+            &mut self.flatten_buf,
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
             &mut self.stroke_left_rail,
             &mut self.stroke_arc,
+            &mut self.dash_segments,
             &mut self.dash_scratch,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
@@ -372,11 +374,13 @@ impl SwRenderer<'_> {
             miter_limit,
             if dash.is_empty() { None } else { Some(dash) },
             &mut self.stroke_outline,
+            &mut self.flatten_buf,
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
             &mut self.stroke_left_rail,
             &mut self.stroke_arc,
+            &mut self.dash_segments,
             &mut self.dash_scratch,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
