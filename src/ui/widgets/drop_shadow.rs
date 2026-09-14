@@ -194,7 +194,8 @@ fn render_drop_effect(
     let blit_x = src_rect.x + offset.0 - Fixed::from_int(pad_i as i32);
     let blit_y = src_rect.y + offset.1 - Fixed::from_int(pad_i as i32);
 
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Blit {
             pos: Point::new(blit_x, blit_y),
             size: Point::new(Fixed::from_int(dst_w as i32), Fixed::from_int(dst_h as i32)),

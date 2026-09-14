@@ -129,7 +129,8 @@ fn checkbox_render(
     } else {
         cb.unchecked_color.resolve_in(theme, ctx.state)
     };
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,

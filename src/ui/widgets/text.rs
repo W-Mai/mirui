@@ -473,7 +473,7 @@ fn text_render(
         else {
             return;
         };
-        let _ = path_cache.with_glyph_frames(
+        let result = path_cache.with_glyph_frames(
             paths,
             path,
             crate::text::baseline::DEFAULT_TOLERANCE,
@@ -494,9 +494,10 @@ fn text_render(
                         ctx.clip,
                         color,
                     ),
-                );
+                )
             },
         );
+        ctx.record(result.unwrap_or(Err(crate::render::RenderError::InvalidGeometry)));
         return;
     }
     let offset_y = vertical_offset(
@@ -504,7 +505,7 @@ fn text_render(
         rect.h,
         crate::types::fixed::from_textflow(layout.measure().height),
     );
-    draw_text_layout(
+    ctx.record(draw_text_layout(
         renderer,
         &layout,
         |font_id| fonts.font(font_id),
@@ -517,7 +518,7 @@ fn text_render(
             ctx.clip,
             color,
         ),
-    );
+    ));
 }
 
 fn draw_posed_text_layout<'font>(
@@ -526,9 +527,13 @@ fn draw_posed_text_layout<'font>(
     frames: &[textflow::placement::GlyphFrame],
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
     paint: TextPaint<'_>,
-) {
+) -> Result<(), crate::render::RenderError> {
+    let mut result = Ok(());
     for_each_posed_run(layout, frames, font_for, |font, glyphs| {
-        renderer.draw(
+        if result.is_err() {
+            return;
+        }
+        result = renderer.submit(&crate::render::DrawRequest::new(
             &DrawCommand::PosedGlyphRun {
                 pos: paint.origin,
                 transform: paint.transform,
@@ -537,9 +542,10 @@ fn draw_posed_text_layout<'font>(
                 color: paint.color,
                 opa: 255,
             },
-            paint.clip,
-        );
+            *paint.clip,
+        ));
     });
+    result
 }
 
 fn for_each_posed_run<'font>(
@@ -1025,7 +1031,7 @@ pub(crate) fn draw_text_layout<'font>(
     layout: &crate::text::TextLayout<'_>,
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
     paint: TextPaint<'_>,
-) {
+) -> Result<(), crate::render::RenderError> {
     for line in layout.lines() {
         let Some(runs) = layout.runs_for(*line) else {
             continue;
@@ -1042,7 +1048,7 @@ pub(crate) fn draw_text_layout<'font>(
                 continue;
             };
             let metrics = font.metrics(font.size);
-            renderer.draw(
+            renderer.submit(&crate::render::DrawRequest::new(
                 &DrawCommand::GlyphRun {
                     pos: Point {
                         x: paint.origin.x + crate::types::fixed::from_textflow(glyph_origin.x),
@@ -1055,10 +1061,11 @@ pub(crate) fn draw_text_layout<'font>(
                     color: paint.color,
                     opa: 255,
                 },
-                paint.clip,
-            );
+                *paint.clip,
+            ))?;
         }
     }
+    Ok(())
 }
 
 /// Borrowed positioned glyphs for rendering without runtime shaping or allocation.
@@ -1122,7 +1129,8 @@ fn static_glyph_run_render(
     let mut font = font.as_ref().clone();
     font.size = ctx.style.font_size.unwrap_or(font.size).max(1);
     let metrics = font.metrics(font.size);
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::GlyphRun {
             pos: Point {
                 x: rect.x + crate::types::fixed::from_textflow(first.origin.x),
@@ -1163,6 +1171,13 @@ mod tests {
     }
 
     impl Renderer for RecordingRenderer {
+        fn route(
+            &self,
+            _: &crate::render::DrawRequest<'_, '_>,
+        ) -> Result<crate::render::RenderRoute, crate::render::RenderError> {
+            Ok(crate::render::RenderRoute::Native)
+        }
+
         fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
             if let DrawCommand::GlyphRun { pos, glyphs, .. } = command {
                 self.glyph_runs.push((*pos, glyphs.len()));
@@ -1205,6 +1220,7 @@ mod tests {
             clip: &rect,
             bg_handled: false,
             state: WidgetState::Enabled,
+            error: None,
         };
         let mut renderer = RecordingRenderer::default();
 

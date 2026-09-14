@@ -126,7 +126,8 @@ fn progress_bar_render(
     let theme = ctx.theme(world);
     let track_color = pb.track_color.resolve_in(theme, ctx.state);
     let fill_color = pb.fill_color.resolve_in(theme, ctx.state);
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
@@ -139,7 +140,8 @@ fn progress_bar_render(
     );
     let fill_w = Fixed::from_f32(rect.w.to_f32() * pb.value.clamp(0.0, 1.0));
     if fill_w > Fixed::ZERO {
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::Fill {
                 area: Rect {
                     x: rect.x,

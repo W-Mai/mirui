@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use mirui::ecs::World;
 use mirui::prelude::Dimension;
 use mirui::render::texture::{ColorFormat, Texture};
-use mirui::render::{DrawCommand, Renderer};
+use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
 use mirui::types::{Color, Fixed, Rect, Viewport};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
@@ -22,6 +22,10 @@ struct MockOuter {
 }
 
 impl Renderer for MockOuter {
+    fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        Ok(RenderRoute::Native)
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
         let mut c = self.counts.borrow_mut();
         match cmd {

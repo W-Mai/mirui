@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use mirui::render::{DrawCommand, Renderer};
+    use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
     use mirui::types::{Color, Dimension, Fixed, Rect, Viewport};
     use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::*;
@@ -19,6 +19,10 @@ mod tests {
     }
 
     impl Renderer for RecordingRenderer {
+        fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            Ok(RenderRoute::Native)
+        }
+
         fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
             if let DrawCommand::Fill { area, color, .. } = cmd {
                 self.commands.push((*area, *color));

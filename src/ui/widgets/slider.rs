@@ -167,7 +167,8 @@ fn slider_render(
     let cap_radius = rect.h / Fixed::from_int(2);
     let thumb_size = rect.h;
 
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
@@ -189,7 +190,8 @@ fn slider_render(
             h: rect.h,
         };
         if let Some(fill_clip) = ctx.clip.intersect(&ratio_box) {
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::Fill {
                     area: *rect,
                     transform: ctx.transform,
@@ -205,7 +207,8 @@ fn slider_render(
 
     let thumb_x =
         rect.x + knob_center_offset(ratio, rect.w, thumb_size) - thumb_size / Fixed::from_int(2);
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: Rect {
                 x: thumb_x,

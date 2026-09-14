@@ -64,7 +64,8 @@ fn background_blur_render(
     }
 
     // sample_rect already has ctx.transform baked in; passing it again would double-translate.
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Blit {
             pos: Point::new(sample_rect.x, sample_rect.y),
             size: Point::new(sample_rect.w, sample_rect.h),

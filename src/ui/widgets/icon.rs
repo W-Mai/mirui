@@ -83,7 +83,8 @@ fn icon_render(
         .compose(&Transform::scale(effective, effective));
     let paint = Paint::Color(color.into());
 
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::FillPath {
             path: &icon.path,
             transform: scaled,

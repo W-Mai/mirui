@@ -74,7 +74,8 @@ fn temporal_mix_render(
         }
     }
 
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Blit {
             pos: Point::new(rect.x, rect.y),
             size: Point::new(rect.w, rect.h),

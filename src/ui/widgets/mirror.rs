@@ -43,7 +43,14 @@ fn mirror_render(
         return;
     };
     let src = snap.borrow();
-    flip_into(&src, ctx.transform, rect, ctx.clip, mir.fade, renderer);
+    ctx.record(flip_into(
+        &src,
+        ctx.transform,
+        rect,
+        ctx.clip,
+        mir.fade,
+        renderer,
+    ));
 }
 
 /// Vertically flip `src` and blit it into `rect` on `renderer`. Fade
@@ -56,7 +63,7 @@ fn flip_into(
     clip: &Rect,
     fade: u8,
     renderer: &mut dyn Renderer,
-) {
+) -> Result<(), crate::render::RenderError> {
     use crate::render::command::{CompositeMode, DrawCommand};
 
     let w = src.width;
@@ -68,7 +75,7 @@ fn flip_into(
             ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
             ColorFormat::RGB565 => flip_rgb565(src, dst_buf, dst_stride, fade, false),
             ColorFormat::RGB565Swapped => flip_rgb565(src, dst_buf, dst_stride, fade, true),
-            ColorFormat::RGB888 | ColorFormat::BGRA8888 => return,
+            ColorFormat::RGB888 | ColorFormat::BGRA8888 => return Ok(()),
         }
     }
 
@@ -82,7 +89,7 @@ fn flip_into(
         radius: Fixed::ZERO,
         composite: CompositeMode::SourceOver,
     };
-    renderer.draw(&cmd, clip);
+    renderer.submit(&crate::render::DrawRequest::new(&cmd, *clip))
 }
 
 fn flip_rgba8888(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8) {

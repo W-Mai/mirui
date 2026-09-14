@@ -20,7 +20,8 @@ fn style_render(
     let theme = ctx.theme(world);
     if !ctx.bg_handled {
         if let Some(color) = style.bg_color {
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::Fill {
                     area: *rect,
                     transform: ctx.transform,
@@ -37,7 +38,8 @@ fn style_render(
 
     if let Some(border_color) = style.border_color {
         if style.border_width > Fixed::ZERO {
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::Border {
                     area: *rect,
                     transform: ctx.transform,

@@ -766,6 +766,7 @@ fn draw_tree_offset(
                 clip: &view_clip,
                 bg_handled: false,
                 state,
+                error: None,
             };
             if !tf_3d.is_identity() {
                 let mut scoped = ProjectiveRenderer {
@@ -773,12 +774,13 @@ fn draw_tree_offset(
                     transform: tf_3d,
                     error: None,
                 };
-                render_views(&mut scoped, world, entity, &shifted_rect, &mut ctx);
+                let result = render_views(&mut scoped, world, entity, &shifted_rect, &mut ctx);
                 if let Some(error) = scoped.error {
                     return Err(error);
                 }
+                result?;
             } else {
-                render_views(renderer, world, entity, &shifted_rect, &mut ctx);
+                render_views(renderer, world, entity, &shifted_rect, &mut ctx)?;
             }
         }
     }
@@ -830,9 +832,9 @@ fn render_views(
     entity: Entity,
     rect: &Rect,
     ctx: &mut ViewCtx<'_>,
-) {
+) -> Result<(), RenderError> {
     let Some(registry) = world.resource::<ViewRegistry>() else {
-        return;
+        return Ok(());
     };
     crate::trace_span!("draw.view_dispatch");
     for view in registry.iter() {
@@ -842,7 +844,11 @@ fn render_views(
             continue;
         }
         (view.render())(renderer, world, entity, rect, ctx);
+        if let Some(error) = ctx.error {
+            return Err(error);
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1046,6 +1052,40 @@ mod projective_transform_tests {
     }
 
     #[test]
+    fn affine_widget_failure_reaches_render_caller() {
+        let mut app = crate::app::App::headless(32, 24);
+        app.with_default_widgets();
+        let root = app.world.spawn_empty();
+        app.world.insert(root, Widget);
+        app.world.insert(
+            root,
+            Style {
+                bg_color: Some(crate::types::Color::rgb(20, 40, 60).into()),
+                layout: crate::ui::layout::LayoutStyle {
+                    width: crate::types::Dimension::px(32),
+                    height: crate::types::Dimension::px(24),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let mut renderer = AffineOnlyRenderer::default();
+        assert_eq!(
+            render(
+                &app.world,
+                root,
+                &Viewport::new(32, 24, Fixed::ONE),
+                &mut renderer
+            ),
+            Err(RenderError::Unsupported(
+                crate::render::RenderFeature::AffineGeometry
+            ))
+        );
+        assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
     fn child_clip_uses_the_effective_transform() {
         let rect = Rect::new(8, 6, 20, 12);
         let affine = Transform::translate(Fixed::from_int(4), Fixed::from_int(-2));
@@ -1212,6 +1252,7 @@ fn try_draw_offscreen(
                     clip: &inner_clip,
                     bg_handled: false,
                     state,
+                    error: None,
                 };
                 if let Some(registry) = world.resource::<ViewRegistry>() {
                     crate::trace_span!("draw.view_dispatch");
@@ -1228,6 +1269,9 @@ fn try_draw_offscreen(
                             &entity_rect,
                             &mut ctx,
                         );
+                        if let Some(error) = ctx.error {
+                            return Err(error);
+                        }
                     }
                 }
             }
@@ -2256,6 +2300,10 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, command: &DrawCommand, clip: &Rect) {
                 if matches!(command, DrawCommand::GlyphRun { .. }) {
                     self.clip = Some(*clip);
@@ -2319,6 +2367,10 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
                 if let DrawCommand::Fill { area, .. } = command {
                     self.fills.push(*area);
@@ -2725,6 +2777,10 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
                 if matches!(command, DrawCommand::PosedGlyphRun { .. }) {
                     self.posed_runs += 1;
@@ -2912,6 +2968,10 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, command: &DrawCommand, clip: &Rect) {
                 if matches!(command, DrawCommand::PosedGlyphRun { .. }) {
                     self.clip = Some(*clip);
@@ -6414,6 +6474,10 @@ mod scroll_plan_check {
 
         struct Recorder(std::vec::Vec<core::mem::Discriminant<DrawCommand<'static>>>);
         impl Renderer for Recorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
             fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
                 let static_cmd: &DrawCommand<'static> = unsafe { core::mem::transmute(cmd) };
                 self.0.push(core::mem::discriminant(static_cmd));

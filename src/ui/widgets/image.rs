@@ -103,7 +103,8 @@ fn image_render(
         let Some(mgr) = mgr else { return };
         let rc = crate::trace_span!("image.resolve", { mgr.resolve(&img.src) });
         crate::trace_span!("image.blit", {
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::Blit {
                     pos: Point {
                         x: rect.x,

@@ -231,7 +231,8 @@ fn switch_render(
         .map(|x| x.0)
         .unwrap_or_else(|| if s.on { Fixed::ONE } else { Fixed::ZERO });
     let track_color = Color::lerp(off_color, on_color, t);
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
@@ -257,7 +258,8 @@ fn switch_render(
     } else {
         off_thumb_x(rect)
     };
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: Rect {
                 x: rect.x + thumb_local_x,

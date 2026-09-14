@@ -268,7 +268,8 @@ fn text_input_render(
     let focus_border_color = ti.focus_border_color.resolve_in(theme, ctx.state);
 
     if ti.focused {
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::Border {
                 area: *rect,
                 transform: ctx.transform,
@@ -336,7 +337,7 @@ fn text_input_render(
     };
     let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
     let scroll = (caret - visible_width).max(Fixed::ZERO);
-    super::text::draw_text_layout(
+    ctx.record(super::text::draw_text_layout(
         renderer,
         &layout,
         |font_id| fonts.font(font_id),
@@ -349,7 +350,7 @@ fn text_input_render(
             &content_clip,
             color,
         ),
-    );
+    ));
 
     if ti.focused {
         let blink_on = world
@@ -357,7 +358,8 @@ fn text_input_render(
             .map(|p| p.0)
             .unwrap_or(true);
         if blink_on {
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::Fill {
                     area: Rect {
                         x: content_rect.x + caret - scroll,
@@ -557,6 +559,13 @@ mod tests {
     }
 
     impl Renderer for RecordingRenderer {
+        fn route(
+            &self,
+            _: &crate::render::DrawRequest<'_, '_>,
+        ) -> Result<crate::render::RenderRoute, crate::render::RenderError> {
+            Ok(crate::render::RenderRoute::Native)
+        }
+
         fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
             match command {
                 DrawCommand::GlyphRun { pos, glyphs, .. } => {
@@ -621,6 +630,7 @@ mod tests {
             clip: &clip,
             bg_handled: false,
             state: WidgetState::Enabled,
+            error: None,
         };
         let mut renderer = RecordingRenderer::default();
 

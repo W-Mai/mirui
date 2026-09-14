@@ -10,7 +10,8 @@ use core::any::TypeId;
 
 use crate::ecs::{Entity, World};
 use crate::input::event::gesture::GestureEvent;
-use crate::render::renderer::Renderer;
+use crate::render::command::DrawCommand;
+use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::types::{Point, Rect, Transform};
 use crate::ui::Style;
 use crate::ui::theme::WidgetState;
@@ -26,9 +27,23 @@ pub struct ViewCtx<'a> {
     /// generic Style stage skips its bg fill but still emits border.
     pub bg_handled: bool,
     pub state: WidgetState,
+    pub(crate) error: Option<RenderError>,
 }
 
 impl ViewCtx<'_> {
+    /// Submit a draw and retain its first failure for the render walker.
+    pub fn draw(&mut self, renderer: &mut dyn Renderer, command: &DrawCommand<'_>, clip: &Rect) {
+        if self.error.is_none() {
+            self.error = renderer.submit(&DrawRequest::new(command, *clip)).err();
+        }
+    }
+
+    pub(crate) fn record(&mut self, result: Result<(), RenderError>) {
+        if self.error.is_none() {
+            self.error = result.err();
+        }
+    }
+
     /// Active [`crate::ui::Theme`]. Lazy lookup so render fns
     /// that don't need fallback colors pay nothing. `App::new`
     /// guarantees the resource is present.
@@ -315,6 +330,7 @@ mod tests {
             clip: &rect,
             bg_handled: false,
             state: WidgetState::Enabled,
+            error: None,
         };
         let mut renderer = StubRenderer;
 
@@ -345,6 +361,7 @@ mod tests {
             clip: &rect,
             bg_handled: false,
             state: WidgetState::Enabled,
+            error: None,
         };
         let theme = ctx.theme(&world);
         // Theme isn't PartialEq (BTreeMap of extras); compare via resolve.
@@ -367,6 +384,7 @@ mod tests {
             clip: &rect,
             bg_handled: false,
             state: WidgetState::Enabled,
+            error: None,
         };
         let _ = ctx.theme(&world);
     }
