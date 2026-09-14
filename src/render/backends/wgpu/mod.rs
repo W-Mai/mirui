@@ -188,9 +188,7 @@ struct Frame {
     has_committed_pass: bool,
 }
 
-/// 1 MiB / 256 B = 4096 draws per frame before the arena overflows.
-/// Past that the overflowing draw is silently dropped — pick a size
-/// large enough that real workloads never hit the cap.
+/// A full arena starts another ordered pass before its offsets are reused.
 const UNIFORM_ARENA_SIZE: u64 = 1024 * 1024;
 
 /// Most desktop / mobile GPUs require 256-byte alignment for dynamic
@@ -199,6 +197,10 @@ const UNIFORM_ARENA_SIZE: u64 = 1024 * 1024;
 const UNIFORM_ALIGN: u32 = 256;
 const GLYPHS_PER_BATCH: usize = 2_048;
 const GLYPH_BUFFER_CAPACITY: usize = GLYPHS_PER_BATCH * 2;
+
+const fn uniform_arena_full(cursor: u32) -> bool {
+    cursor as u64 + UNIFORM_ALIGN as u64 > UNIFORM_ARENA_SIZE
+}
 
 struct GlyphBufferArena {
     instance: Option<wgpu::Buffer>,
@@ -656,15 +658,17 @@ impl WgpuRenderer<'_> {
         }
     }
 
-    /// Append a uniform to the frame's arena. Returns the dynamic
-    /// offset for `set_bind_group`, or `None` when the arena is full;
-    /// callers drop the draw on `None`.
+    /// Append a uniform to the frame's arena. Earlier draws are submitted
+    /// before their offsets are reused by a later pass.
     fn push_uniform<T: bytemuck::Pod>(&mut self, value: &T) -> Option<u32> {
+        if uniform_arena_full(self.frame.as_ref()?.uniform_cursor) {
+            if !self.frame.as_ref()?.ops.is_empty() {
+                self.flush_ops_to_swapchain(false);
+            }
+            self.frame.as_mut()?.uniform_cursor = 0;
+        }
         let frame = self.frame.as_mut()?;
         let offset = frame.uniform_cursor;
-        if (offset as u64) + UNIFORM_ALIGN as u64 > UNIFORM_ARENA_SIZE {
-            return None;
-        }
         let state = self.surface.state()?;
         state.queue.write_buffer(
             &frame.uniform_arena,
@@ -2146,6 +2150,14 @@ mod glyph_tests {
 
     static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    #[test]
+    fn uniform_arena_rollover_starts_after_the_last_slot() {
+        assert!(!uniform_arena_full(
+            UNIFORM_ARENA_SIZE as u32 - UNIFORM_ALIGN
+        ));
+        assert!(uniform_arena_full(UNIFORM_ARENA_SIZE as u32));
+    }
+
     fn render_scalar_field(
         shader: ShaderKind,
         spread: u16,
@@ -2335,7 +2347,7 @@ mod glyph_tests {
     }
 
     #[test]
-    fn projected_quad_stays_inside_its_bounds() {
+    fn projected_quad_and_reused_uniforms_stay_bounded() {
         let _gpu = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         const SIZE: u32 = 64;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -2436,7 +2448,7 @@ mod glyph_tests {
                 color: [1.0, 0.0, 0.0, 1.0],
                 radius_stroke: [0.0; 4],
             }),
-            usage: wgpu::BufferUsages::UNIFORM,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let mut pipelines = PipelineCache::new(&device);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2487,6 +2499,47 @@ mod glyph_tests {
             pass.set_bind_group(0, &bind_group, &[0]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.set_scissor_rect(0, 0, SIZE / 2, SIZE);
+            pass.draw_indexed(0..6, 0, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        queue.write_buffer(
+            &uniform_buffer,
+            0,
+            bytemuck::bytes_of(&QuadSdfUniform {
+                size: [32.0, 32.0],
+                _pad0: [0.0; 2],
+                color: [0.0, 0.0, 1.0, 1.0],
+                radius_stroke: [0.0; 4],
+            }),
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mirui-quad-reused-uniform-encoder"),
+        });
+        {
+            let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let msaa_view = msaa.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mirui-quad-reused-uniform-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &msaa_view,
+                    resolve_target: Some(&view),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[0]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.set_scissor_rect(SIZE / 2, 0, SIZE / 2, SIZE);
             pass.draw_indexed(0..6, 0, 0..1);
         }
         queue.submit(Some(encoder.finish()));
@@ -2502,6 +2555,12 @@ mod glyph_tests {
         )
         .unwrap();
         let alpha = |x: usize, y: usize| pixels[(y * SIZE as usize + x) * 4 + 3];
+        let color =
+            |x: usize, y: usize, channel: usize| pixels[(y * SIZE as usize + x) * 4 + channel];
+        assert!(color(24, 32, 0) > 220);
+        assert!(color(24, 32, 2) < 32);
+        assert!(color(40, 32, 2) > 220);
+        assert!(color(40, 32, 0) < 32);
         assert!(alpha(32, 32) > 220);
         assert_eq!(alpha(0, 0), 0);
         assert_eq!(alpha(63, 0), 0);

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGPU uniform arena rollover.** Completed render passes are submitted before dynamic uniform offsets are reused, preserving draws beyond the fixed arena capacity.
 - **WGPU projected fills.** Projective quad vertices use their own 20-byte layout, keeping animated Flip Card geometry within the card bounds.
 - **Software path strokes.** Open stroke contours join matching rail endpoints, square and round caps extend outward, and dashed closed paths do not repeat an edge at the seam.
 - **Text box overflow.** Explicitly sized text clips to its transformed bounds while intrinsic text retains glyph overhang; Typography Lab constrains card content and includes a U+2026 fallback for one-line mixed-script ellipsis.
