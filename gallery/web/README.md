@@ -22,6 +22,9 @@ trunk serve
 
 Opens a dev server at <http://127.0.0.1:8080/?demo=orbit_console>, rebuilds and reloads the browser on edits. Orbit Console is the default; pick another demo with `?demo=<slug>`.
 
+The watcher includes the gallery, mirui, mirx, and macro sources outside this
+directory, so backend and demo edits rebuild the running WebAssembly bundle.
+
 ## Gallery structure
 
 Layout Lab, Typography Lab and Interaction Lab group related framework capabilities into responsive, inspectable scenarios. Focused entries remain for subsystems with distinct runtime behavior, including scrolling, animation, effects, text input and specialized controls.

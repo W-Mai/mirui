@@ -8,4 +8,16 @@ port = 8080
 open = false
 
 [watch]
+watch = [
+    ".",
+    "../src",
+    "../Cargo.toml",
+    "../../src",
+    "../../Cargo.toml",
+    "../../Cargo.lock",
+    "../../mirx/src",
+    "../../mirx/Cargo.toml",
+    "../../mirui-macros/src",
+    "../../mirui-macros/Cargo.toml",
+]
 ignore = ["dist"]
