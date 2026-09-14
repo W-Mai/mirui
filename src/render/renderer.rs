@@ -135,6 +135,18 @@ pub trait Renderer {
         Err(RenderError::Unsupported(feature))
     }
 
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        request.validate_projection()?;
+        self.route(request)?;
+        if request.projective.is_identity() {
+            self.draw(request.command, &request.clip);
+            Ok(())
+        } else {
+            self.draw_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from)
+        }
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect);
 
     /// Draw one command after its affine transform under `transform`.
@@ -339,5 +351,30 @@ mod tests {
             ),
             Err(ProjectiveDrawError::Unsupported)
         );
+    }
+
+    #[test]
+    fn submit_refuses_unknown_route_before_draw() {
+        struct CountingRenderer(usize);
+
+        impl Renderer for CountingRenderer {
+            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+                self.0 += 1;
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let clip = Rect::new(0, 0, 1, 1);
+        let command = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE,
+            region: clip,
+        };
+        let mut renderer = CountingRenderer(0);
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&command, clip)),
+            Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        );
+        assert_eq!(renderer.0, 0);
     }
 }

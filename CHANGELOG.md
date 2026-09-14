@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Checked scene draws.** Scene replay submits draw requests through a result-bearing renderer entry, preserving typed execution errors after route preflight.
 - **Posed glyph run API.** Borrowed posed glyphs are available as `render::PosedGlyphs` and `render::glyph_run::PosedGlyphs`; the command module no longer defines the type.
 - **Open path stroke scratch.** Software stroke rendering retains separate left and right rail buffers within a renderer, avoiding a rail clone for each open path.
 - **Software stroke segment storage.** Flattened subpaths and dashed runs use reusable segment buffers with range records instead of allocating a vector for each subpath.

@@ -73,13 +73,7 @@ fn draw_in_frame(
             .map(|_| ())
             .map_err(ReplayError::Render);
     }
-    if let Some(projective) = frame.projective {
-        return renderer
-            .draw_projective(command, clip, &projective)
-            .map_err(|error| ReplayError::Render(error.into()));
-    }
-    renderer.draw(command, clip);
-    Ok(())
+    renderer.submit(&request).map_err(ReplayError::Render)
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -548,7 +542,9 @@ fn replay_scene_pass(
 mod tests {
     use super::*;
     use crate::render::command::DrawCommand;
-    use crate::render::renderer::{ProjectiveDrawError, RenderFeature, RenderRoute};
+    use crate::render::renderer::{
+        ProjectiveDrawError, RenderFeature, RenderResource, RenderRoute,
+    };
     use crate::render::scene::Paint;
     use crate::types::{Color, Fixed, Point, Rect};
     use alloc::vec;
@@ -834,6 +830,39 @@ mod tests {
             )))
         );
         assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
+    fn execution_failure_reaches_scene_caller() {
+        struct ExhaustedRenderer;
+
+        impl Renderer for ExhaustedRenderer {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Err(RenderError::ResourceLimit(RenderResource::Uniforms))
+            }
+
+            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+                panic!("unchecked draw after submit failure")
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        assert_eq!(
+            replay_scene(
+                &[fill(Transform::IDENTITY)],
+                &mut ExhaustedRenderer,
+                &rect(),
+                &NoResolver
+            ),
+            Err(ReplayError::Render(RenderError::ResourceLimit(
+                RenderResource::Uniforms
+            )))
+        );
     }
 
     #[test]
