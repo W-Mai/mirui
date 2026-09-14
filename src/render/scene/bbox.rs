@@ -65,12 +65,24 @@ pub fn op_bbox(op: &SceneOp) -> Result<Option<Rect>, BoundsError> {
             path,
             transform,
             width,
+            line_join,
+            miter_limit,
             ..
         } => path
             .bbox()
             .map(|r| {
                 let half = *width / Fixed::from_int(2);
-                Rect::new(r.x - half, r.y - half, r.w + half * 2, r.h + half * 2)
+                let extent = if *line_join == crate::render::raster::LineJoin::Miter {
+                    half * (*miter_limit).max(Fixed::ONE)
+                } else {
+                    half
+                };
+                Rect::new(
+                    r.x - extent,
+                    r.y - extent,
+                    r.w + extent * 2,
+                    r.h + extent * 2,
+                )
             })
             .map(|r| transform.apply_rect_bbox(r)),
         SceneOp::Line {
@@ -469,6 +481,39 @@ mod tests {
         let bbox = op_bbox(&op).unwrap().unwrap();
         assert_eq!(bbox.x, Fixed::ZERO);
         assert_eq!(bbox.w, Fixed::from_int(8));
+    }
+
+    #[test]
+    fn miter_stroke_bounds_include_the_outer_join() {
+        let path = crate::render::path::Path::from_owned(alloc::vec![
+            crate::render::path::PathCmd::MoveTo(Point::ZERO),
+            crate::render::path::PathCmd::LineTo(Point {
+                x: Fixed::from_int(10),
+                y: Fixed::ZERO,
+            }),
+            crate::render::path::PathCmd::LineTo(Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(10),
+            }),
+        ]);
+        let op = SceneOp::StrokePath {
+            path,
+            transform: Transform::IDENTITY,
+            paint: Paint::Color(mirx::types::Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            }),
+            width: Fixed::from_int(4),
+            opa: 255,
+            line_cap: crate::render::raster::LineCap::Butt,
+            line_join: crate::render::raster::LineJoin::Miter,
+            miter_limit: Fixed::from_int(4),
+            dash: alloc::borrow::Cow::Borrowed(&[]),
+        };
+        assert_eq!(op_bbox(&op).unwrap(), Some(Rect::new(-8, -8, 26, 26)));
+        assert!(!children_disjoint(&[op, rect_op(15, 5, 4, 4)]).unwrap());
     }
 
     #[test]
