@@ -506,6 +506,7 @@ fn compute_layout_snapshot(
                 logical_h,
                 layout_tree: build_layout_tree(world, root)?,
                 entities: Vec::new(),
+                out_of_scroll_prev: Vec::new(),
             }),
         }
     });
@@ -1730,6 +1731,7 @@ pub(crate) struct LayoutSnapshot {
     logical_h: u16,
     pub(crate) layout_tree: LayoutNode,
     pub(crate) entities: Vec<Entity>,
+    out_of_scroll_prev: Vec<Rect>,
 }
 
 impl LayoutSnapshot {
@@ -2109,7 +2111,7 @@ pub(crate) fn collect_dirty_regions_into(
         return;
     }
 
-    let Some(snapshot) = crate::trace_span!("dirty.layout", {
+    let Some(mut snapshot) = crate::trace_span!("dirty.layout", {
         compute_layout_snapshot(world, root, logical_w, logical_h)
     }) else {
         return;
@@ -2128,7 +2130,7 @@ pub(crate) fn collect_dirty_regions_into(
         max_y: Fixed::from_int(-1),
     };
 
-    let mut out_of_scroll_prev: alloc::vec::Vec<Rect> = alloc::vec::Vec::new();
+    snapshot.out_of_scroll_prev.clear();
     {
         crate::trace_span!("dirty.walk");
         idx = 0;
@@ -2145,12 +2147,12 @@ pub(crate) fn collect_dirty_regions_into(
             None,
             &mut bounds,
             plan,
-            &mut out_of_scroll_prev,
+            &mut snapshot.out_of_scroll_prev,
         );
     }
 
     // Cover the smear strip from ancestor-scroll self-blit dragging overlay prev pixels.
-    for prev in &out_of_scroll_prev {
+    for prev in &snapshot.out_of_scroll_prev {
         for sop in &plan.shifts {
             let Some(inter) = prev.intersect(&sop.area) else {
                 continue;
@@ -2202,36 +2204,34 @@ pub(crate) fn collect_dirty_regions_into(
     // rect (covers the residue). The shift itself stays so the bulk
     // of the area still self-blits.
     if !plan.shifts.is_empty() {
-        let overlay_rects = collect_overlay_rects(world);
-        for sop in &plan.shifts.clone() {
-            for or in &overlay_rects {
-                if or.intersect(&sop.area).is_none() {
-                    continue;
+        for sop in &plan.shifts {
+            visit_overlay_rects(world, |overlay| {
+                if overlay.intersect(&sop.area).is_none() {
+                    return;
                 }
                 let shifted = Rect {
-                    x: or.x + sop.dx,
-                    y: or.y + sop.dy,
-                    w: or.w,
-                    h: or.h,
+                    x: overlay.x + sop.dx,
+                    y: overlay.y + sop.dy,
+                    w: overlay.w,
+                    h: overlay.h,
                 };
-                plan.rects.push(*or);
+                plan.rects.push(overlay);
                 plan.rects.push(shifted);
-            }
+            });
         }
     }
 
     world.put_resource_box(snapshot);
 }
 
-fn collect_overlay_rects(world: &World) -> Vec<Rect> {
+fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
     use crate::input::feedback::{OverlayCursor, OverlayRotary};
     use crate::ui::ComputedRect;
-    let mut rects = Vec::new();
     if let Some(storage) = world.storage::<OverlayCursor>() {
         for (e, _) in storage.iter() {
             if let Some(r) = world.get::<ComputedRect>(e).map(|r| r.0) {
                 if r.w > Fixed::ZERO && r.h > Fixed::ZERO {
-                    rects.push(r);
+                    visit(r);
                 }
             }
         }
@@ -2240,12 +2240,11 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
         for (e, _) in storage.iter() {
             if let Some(r) = world.get::<ComputedRect>(e).map(|r| r.0) {
                 if r.w > Fixed::ZERO && r.h > Fixed::ZERO {
-                    rects.push(r);
+                    visit(r);
                 }
             }
         }
     }
-    rects
 }
 
 #[cfg(test)]
@@ -2364,6 +2363,27 @@ mod layout_snapshot_reuse_check {
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
         assert_eq!(plan.rects.len(), 1);
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
+    }
+
+    #[test]
+    fn previous_scroll_rect_scratch_reuses_capacity() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+        world.insert(root, super::super::dirty::PrevRect(Rect::new(0, 0, 64, 10)));
+
+        world.insert(root, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.out_of_scroll_prev.len(), 1);
+        let scratch_ptr = snapshot.out_of_scroll_prev.as_ptr();
+
+        world.insert(root, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.out_of_scroll_prev.len(), 1);
+        assert_eq!(snapshot.out_of_scroll_prev.as_ptr(), scratch_ptr);
     }
 }
 

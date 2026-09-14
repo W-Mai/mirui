@@ -90,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Scroll dirty planning.** Overlay repaint regions stream directly into the plan, and previous-frame rectangles reuse layout snapshot storage.
 - **Frame buffer reuse.** Layout snapshots, three-body entity scratch, and dirty-region plans retain their storage across frames; unchanged text metrics skip a redundant layout pass.
 - **Scene replay workspace.** Group state uses a fixed caller-owned frame slice instead of allocating a vector for each preflight and draw pass. The default replay path supports seven nested groups; deeper scenes can supply a larger slice and receive a typed capacity error before drawing.
 - **Scene child bounds.** Filter extents and sibling-overlap checks traverse direct child bounds without allocating a rectangle list during scene replay.
