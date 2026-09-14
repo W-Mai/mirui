@@ -19,6 +19,7 @@ pub mod blur;
 mod label;
 mod label_sdf;
 pub mod mix;
+mod paint;
 mod path;
 mod quad;
 mod quad_aa;
@@ -768,6 +769,42 @@ impl Renderer for SwRenderer<'_> {
             TransformClass::Identity | TransformClass::Translate
         );
         match request.command {
+            DrawCommand::FillPath {
+                path,
+                paint: Paint::LinearGradient(gradient),
+                transform,
+                ..
+            } => {
+                let Some(bbox) = path.bbox() else {
+                    return Err(RenderError::InvalidGeometry);
+                };
+                let draw = self.viewport.as_transform().compose(transform);
+                if paint::LinearPaint::new(gradient, draw, bbox).is_none() {
+                    return Err(RenderError::InvalidGeometry);
+                }
+            }
+            DrawCommand::StrokePath {
+                path,
+                paint: Paint::LinearGradient(gradient),
+                transform,
+                width,
+                ..
+            } => {
+                let Some(bbox) = path.bbox() else {
+                    return Err(RenderError::InvalidGeometry);
+                };
+                let half = *width / 2;
+                let bbox = Rect::new(
+                    bbox.x - half,
+                    bbox.y - half,
+                    bbox.w + *width,
+                    bbox.h + *width,
+                );
+                let draw = self.viewport.as_transform().compose(transform);
+                if paint::LinearPaint::new(gradient, draw, bbox).is_none() {
+                    return Err(RenderError::InvalidGeometry);
+                }
+            }
             DrawCommand::Fill {
                 quad: None, radius, ..
             } if affine && *radius != Fixed::ZERO && !projected => {
@@ -811,6 +848,16 @@ impl Renderer for SwRenderer<'_> {
                 TransformClass::Identity | TransformClass::Translate
             )
             && !matches!(request.command, DrawCommand::Blit { quad: Some(_), .. })
+            && !matches!(
+                request.command,
+                DrawCommand::FillPath {
+                    paint: Paint::LinearGradient(_),
+                    ..
+                } | DrawCommand::StrokePath {
+                    paint: Paint::LinearGradient(_),
+                    ..
+                }
+            )
         {
             self.draw(request.command, &request.clip);
             return Ok(());

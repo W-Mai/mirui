@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Software linear gradients.** Path fills and strokes apply object bounds, paint transforms, draw transforms, and stop alpha in one fixed-point sampler; checked draws reject invalid stops and degenerate axes.
 - **HiDPI stroke clipping.** Transformed software strokes apply the physical clip once instead of scaling it twice.
 - **Gradient spread.** Software repeat and reflect wrapping use constant-time fixed-point arithmetic for large negative coordinates.
 - **Software render scratch.** The default renderer factory retains path geometry, scanline, stroke, and clip-mask buffers between frames.
