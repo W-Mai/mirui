@@ -46,6 +46,23 @@ fn paint_color(paint: &Paint) -> Color {
     }
 }
 
+fn quad_projection_valid(width: Fixed, height: Fixed, quad: &[Point; 4]) -> bool {
+    if width <= Fixed::ZERO || height <= Fixed::ZERO {
+        return false;
+    }
+    let Some(forward) = Transform3D::from_quad(Rect::new(0, 0, width, height), quad) else {
+        return false;
+    };
+    let width = width.to_f32();
+    let height = height.to_f32();
+    [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+        .into_iter()
+        .all(|(x, y)| {
+            let w = forward.m20.to_f32() * x + forward.m21.to_f32() * y + forward.m22.to_f32();
+            w.is_finite() && w > 0.0
+        })
+}
+
 fn glyph_uniform(color: Color, opacity: u8, spread: u16, transform: Transform3D) -> GlyphUniform {
     GlyphUniform {
         color: [
@@ -468,6 +485,34 @@ impl WgpuRenderer<'_> {
                 }
             }
             _ => {}
+        }
+
+        let explicit_quad = match request.command {
+            DrawCommand::Fill {
+                area,
+                quad: Some(quad),
+                ..
+            }
+            | DrawCommand::Border {
+                area,
+                quad: Some(quad),
+                ..
+            } => Some((area.w, area.h, quad)),
+            DrawCommand::Blit {
+                texture,
+                quad: Some(quad),
+                ..
+            } => Some((
+                Fixed::from_int(i32::from(texture.width)),
+                Fixed::from_int(i32::from(texture.height)),
+                quad,
+            )),
+            _ => None,
+        };
+        if explicit_quad
+            .is_some_and(|(width, height, quad)| !quad_projection_valid(width, height, quad))
+        {
+            return Err(RenderError::InvalidGeometry);
         }
 
         if !request.projective.is_identity() {
@@ -1524,22 +1569,7 @@ impl WgpuRenderer<'_> {
 
         let src_rect = Rect::new(0, 0, src.width, src.height);
         let Some(forward) = crate::types::Transform3D::from_quad(src_rect, q) else {
-            // Degenerate quad — AABB fallback keeps the widget on screen.
-            return self.blit_inner(
-                src,
-                &src_rect,
-                Point {
-                    x: q[0].x,
-                    y: q[0].y,
-                },
-                Point {
-                    x: q[2].x - q[0].x,
-                    y: q[2].y - q[0].y,
-                },
-                clip,
-                opa,
-                composite,
-            );
+            return;
         };
 
         let corners = [(0.0_f32, 0.0_f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
@@ -2059,6 +2089,30 @@ mod route_tests {
     use super::*;
     use crate::render::texture::ColorFormat;
     use mirx::scene::{GradientUnits, LinearGradient, SpreadMode};
+
+    #[test]
+    fn projected_quads_are_checked_before_gpu_submission() {
+        let area = Rect::new(8, 8, 40, 24);
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(65), Fixed::from_int(320));
+        let quad = projection.apply_rect(area).expect("visible projected quad");
+        assert!(quad_projection_valid(area.w, area.h, &quad));
+
+        let collapsed = [Point::new(8, 8); 4];
+        assert!(!quad_projection_valid(area.w, area.h, &collapsed));
+        let fill = DrawCommand::Fill {
+            area,
+            transform: Transform::IDENTITY,
+            quad: Some(collapsed),
+            color: Color::rgb(20, 30, 40),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&fill, area)),
+            Err(RenderError::InvalidGeometry)
+        );
+    }
 
     #[test]
     fn solid_stroke_with_full_style_has_a_native_route() {
@@ -3167,12 +3221,20 @@ impl Renderer for WgpuRenderer<'_> {
             return Err(ProjectiveDrawError::Unsupported);
         }
         let valid_geometry = match command {
-            DrawCommand::Fill { area, .. } | DrawCommand::Border { area, .. } => {
-                logical.apply_rect(*area).is_some()
-            }
-            DrawCommand::Blit { pos, size, .. } => logical
+            DrawCommand::Fill { area, .. } | DrawCommand::Border { area, .. } => logical
+                .apply_rect(*area)
+                .is_some_and(|quad| quad_projection_valid(area.w, area.h, &quad)),
+            DrawCommand::Blit {
+                pos, size, texture, ..
+            } => logical
                 .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
-                .is_some(),
+                .is_some_and(|quad| {
+                    quad_projection_valid(
+                        Fixed::from_int(i32::from(texture.width)),
+                        Fixed::from_int(i32::from(texture.height)),
+                        &quad,
+                    )
+                }),
             DrawCommand::PosedGlyphRun {
                 pos,
                 glyphs,

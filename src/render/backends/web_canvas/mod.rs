@@ -602,9 +602,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             {
                 return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
             }
-            DrawCommand::StrokePath { dash, .. } if !projected && !dash.is_empty() => {
-                return Err(RenderError::Unsupported(RenderFeature::StrokeStyle));
-            }
             DrawCommand::Blit {
                 quad,
                 texture,
@@ -1258,11 +1255,18 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
-        _dash: &[Fixed],
+        dash: &[Fixed],
     ) {
         self.push_rect_clip(clip);
         let bbox = path.bbox();
         self.set_stroke_style(paint, width, opa, cap, join, miter_limit, bbox);
+        if !dash.is_empty() && dash.iter().all(|length| *length > Fixed::ZERO) {
+            let pattern = js_sys::Array::new();
+            for length in dash {
+                pattern.push(&wasm_bindgen::JsValue::from_f64(length.to_f32() as f64));
+            }
+            self.ctx().set_line_dash(&pattern).expect("valid line dash");
+        }
         self.build_path(path);
         self.ctx().stroke();
         self.pop_rect_clip();
