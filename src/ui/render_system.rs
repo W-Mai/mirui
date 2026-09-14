@@ -434,24 +434,27 @@ fn layout_text_tree(
     world: &mut World,
     entities: &[Entity],
     index: &mut usize,
-) {
+) -> bool {
     use crate::types::fixed::from_textflow;
 
     if *index >= entities.len() {
-        return;
+        return false;
     }
     let entity = entities[*index];
     *index += 1;
+    let mut intrinsic_changed = false;
     if let Some(layout) = layout_text(world, entity, node.rect.w) {
-        node.set_intrinsic_size(
-            from_textflow(layout.measure.width),
-            from_textflow(layout.measure.height),
-        );
+        let width = from_textflow(layout.measure.width);
+        let height = from_textflow(layout.measure.height);
+        intrinsic_changed =
+            node.intrinsic_width != Some(width) || node.intrinsic_height != Some(height);
+        node.set_intrinsic_size(width, height);
         world.insert(entity, layout.handle);
     }
     for child in &mut node.children {
-        layout_text_tree(child, world, entities, index);
+        intrinsic_changed |= layout_text_tree(child, world, entities, index);
     }
+    intrinsic_changed
 }
 
 fn compute_layout_snapshot(
@@ -460,16 +463,22 @@ fn compute_layout_snapshot(
     logical_w: u16,
     logical_h: u16,
 ) -> Option<LayoutSnapshot> {
-    let mut layout_tree = build_layout_tree(world, root)?;
-    compute_layout(
-        &mut layout_tree,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        logical_w.into(),
-        logical_h.into(),
-    );
-    let mut entities = Vec::new();
-    collect_entities_preorder(world, root, &mut entities);
+    let mut layout_tree =
+        crate::trace_span!("layout.build_tree", { build_layout_tree(world, root)? });
+    crate::trace_span!("layout.initial_compute", {
+        compute_layout(
+            &mut layout_tree,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            logical_w.into(),
+            logical_h.into(),
+        )
+    });
+    let entities = crate::trace_span!("layout.collect_entities", {
+        let mut entities = Vec::new();
+        collect_entities_preorder(world, root, &mut entities);
+        entities
+    });
     if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
         cache.borrow_mut().begin_frame();
     }
@@ -477,14 +486,20 @@ fn compute_layout_snapshot(
         cache.begin_frame();
     }
     let mut text_index = 0;
-    layout_text_tree(&mut layout_tree, world, &entities, &mut text_index);
-    compute_layout(
-        &mut layout_tree,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        logical_w.into(),
-        logical_h.into(),
-    );
+    let intrinsic_changed = crate::trace_span!("layout.text", {
+        layout_text_tree(&mut layout_tree, world, &entities, &mut text_index)
+    });
+    if intrinsic_changed {
+        crate::trace_span!("layout.final_compute", {
+            compute_layout(
+                &mut layout_tree,
+                Fixed::ZERO,
+                Fixed::ZERO,
+                logical_w.into(),
+                logical_h.into(),
+            )
+        });
+    }
     Some(LayoutSnapshot {
         root,
         logical_w,
@@ -1347,8 +1362,7 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
     }
     out.push(entity);
     if let Some(children) = world.get::<Children>(entity) {
-        let child_ids: Vec<Entity> = children.0.clone();
-        for child in child_ids {
+        for &child in &children.0 {
             collect_entities_preorder(world, child, out);
         }
     }
