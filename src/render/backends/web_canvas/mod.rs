@@ -464,7 +464,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let canvas_ref: &web_sys::OffscreenCanvas = if src.transient {
             transient_up = match texture_pool::upload(src) {
                 Some(up) => up,
-                None => return,
+                None => {
+                    self.draw_failed = true;
+                    return;
+                }
             };
             &transient_up.canvas
         } else {
@@ -476,9 +479,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
             {
                 Ok(h) => h,
-                Err(_) => return,
+                Err(_) => {
+                    self.draw_failed = true;
+                    return;
+                }
             };
             if pooled_handle.is_invalid() {
+                self.draw_failed = true;
                 return;
             }
             &pooled_handle.canvas
@@ -501,10 +508,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 m.5 * dpr,
             )
             .expect("setTransform");
-            let _ = ctx
-                .draw_image_with_offscreen_canvas_and_dw_and_dh(canvas_ref, 0.0, 0.0, src_w, src_h);
+            let failed = ctx
+                .draw_image_with_offscreen_canvas_and_dw_and_dh(canvas_ref, 0.0, 0.0, src_w, src_h)
+                .is_err();
             ctx.set_global_alpha(prev_alpha);
             self.pop_rect_clip();
+            self.draw_failed |= failed;
             return;
         }
         // Quad index order matches `apply_rect`: 0=TL, 1=TR, 2=BR, 3=BL.
@@ -524,7 +533,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             (top_x * (1.0 - v) + bot_x * v, top_y * (1.0 - v) + bot_y * v)
         };
 
-        for j in 0..MESH_N {
+        let mut failed = false;
+        'mesh: for j in 0..MESH_N {
             for i in 0..MESH_N {
                 let u0 = i as f64 / MESH_N as f64;
                 let v0 = j as f64 / MESH_N as f64;
@@ -538,12 +548,19 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 let d10 = interp(u1, v0);
                 let d11 = interp(u1, v1);
                 let d01 = interp(u0, v1);
-                draw_textured_triangle(ctx, canvas_ref, src_w, src_h, s00, s10, s11, d00, d10, d11);
-                draw_textured_triangle(ctx, canvas_ref, src_w, src_h, s00, s11, s01, d00, d11, d01);
+                if !draw_textured_triangle(
+                    ctx, canvas_ref, src_w, src_h, s00, s10, s11, d00, d10, d11,
+                ) || !draw_textured_triangle(
+                    ctx, canvas_ref, src_w, src_h, s00, s11, s01, d00, d11, d01,
+                ) {
+                    failed = true;
+                    break 'mesh;
+                }
             }
         }
         ctx.set_global_alpha(prev_alpha);
         self.pop_rect_clip();
+        self.draw_failed |= failed;
     }
 
     /// Walk a `Path` and translate it into Canvas 2D path operations.
@@ -1640,10 +1657,10 @@ fn draw_textured_triangle(
     d0: (f64, f64),
     d1: (f64, f64),
     d2: (f64, f64),
-) {
+) -> bool {
     let det = (s1.0 - s0.0) * (s2.1 - s0.1) - (s2.0 - s0.0) * (s1.1 - s0.1);
     if det.abs() < 1e-6 {
-        return;
+        return true;
     }
     let inv = 1.0 / det;
     let a = ((d1.0 - d0.0) * (s2.1 - s0.1) - (d2.0 - d0.0) * (s1.1 - s0.1)) * inv;
@@ -1655,13 +1672,19 @@ fn draw_textured_triangle(
 
     ctx.save();
     // Post-multiply onto the caller's `dpr × widget_tf` (don't replace).
-    ctx.transform(a, b, c, d, e, f).expect("transform");
+    if ctx.transform(a, b, c, d, e, f).is_err() {
+        ctx.restore();
+        return false;
+    }
     ctx.begin_path();
     ctx.move_to(s0.0, s0.1);
     ctx.line_to(s1.0, s1.1);
     ctx.line_to(s2.0, s2.1);
     ctx.close_path();
     ctx.clip();
-    let _ = ctx.draw_image_with_offscreen_canvas_and_dw_and_dh(src_canvas, 0.0, 0.0, src_w, src_h);
+    let drawn = ctx
+        .draw_image_with_offscreen_canvas_and_dw_and_dh(src_canvas, 0.0, 0.0, src_w, src_h)
+        .is_ok();
     ctx.restore();
+    drawn
 }

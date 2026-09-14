@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web Canvas quad image failures.** Texture upload, affine image draws, and triangle mesh draws report checked backend failures instead of leaving an incomplete frame without an error.
 - **Image texture filtering.** WGPU and Web Canvas blits use nearest-neighbor sampling like Software and SDL GPU; glyph coverage and SDF sampling remain interpolated.
 - **GPU texture upload invalidation.** Borrowed and mutable texture buffers bypass pointer-keyed upload caches by default; static storage and explicitly revised buffers retain cached uploads.
 - **RGB565 color expansion.** Normal and byte-swapped pixels expand their channel bits to the full 8-bit range; the Gallery parity view compares padded RGB565 rows with an RGBA reference.
