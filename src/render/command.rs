@@ -7,10 +7,9 @@ use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
 pub use mirx::scene::{LineCap, LineJoin, Paint};
 
-/// Non-premultiplied alpha: `src` channels are multiplied by `src.a / 255`
-/// before the per-variant formula and folded back onto `dst` via the
-/// standard `(1 - src.a)` weight, so `src.a == 0` leaves `dst` untouched
-/// for every variant.
+/// Straight-alpha blending. Opaque targets fold each mode into the destination
+/// with the source alpha; transparent targets also account for destination
+/// alpha. A zero-alpha source leaves the destination unchanged.
 ///
 /// | mode | SwRenderer | wgpu | sdl_gpu | web_canvas |
 /// |---|---|---|---|---|

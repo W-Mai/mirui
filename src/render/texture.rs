@@ -478,27 +478,37 @@ impl<'a> Texture<'a> {
         let dst = self.get_pixel(x, y);
         let aa = src_a as u32;
         let ia = 255 - aa;
-        // out_rgb = mode(src, dst) * src.a + dst * (1 - src.a),  per channel.
+        // Opaque-target RGB folds the blended channel over the destination.
         let fold = |src: u8, dst: u8| -> u8 {
             let m = mode.blend_channel(src, dst) as u32;
             let sum = m * aa + dst as u32 * ia + 127;
             ((sum + (sum >> 8)) >> 8) as u8
         };
-        let out_a = match self.alpha_mode {
-            AlphaMode::Opaque => 255,
+        let out = match self.alpha_mode {
+            AlphaMode::Opaque => Color {
+                r: fold(color.r, dst.r),
+                g: fold(color.g, dst.g),
+                b: fold(color.b, dst.b),
+                a: 255,
+            },
             AlphaMode::Blend => {
-                // Uniform SourceOver alpha accumulation across modes
-                // (sign-off: dst.a stays mode-agnostic).
-                let dst_a = dst.a as u32;
-                let sum = aa * 255 + dst_a * ia + 127;
-                ((sum + (sum >> 8)) >> 8) as u8
+                let dst_a = u32::from(dst.a);
+                let denominator = aa * 255 + dst_a * ia;
+                let channel = |src: u8, dst: u8| {
+                    let blend = u32::from(mode.blend_channel(src, dst));
+                    ((u32::from(src) * aa * (255 - dst_a)
+                        + blend * aa * dst_a
+                        + u32::from(dst) * dst_a * ia
+                        + denominator / 2)
+                        / denominator) as u8
+                };
+                Color {
+                    r: channel(color.r, dst.r),
+                    g: channel(color.g, dst.g),
+                    b: channel(color.b, dst.b),
+                    a: ((denominator + 127) / 255) as u8,
+                }
             }
-        };
-        let out = Color {
-            r: fold(color.r, dst.r),
-            g: fold(color.g, dst.g),
-            b: fold(color.b, dst.b),
-            a: out_a,
         };
         self.set_pixel(x, y, &out);
     }
@@ -1141,6 +1151,52 @@ mod tests {
         tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
         let pixel = tex.get_pixel(0, 0);
         assert!((pixel.r as i32 - 170).abs() <= 1);
+        assert_eq!(pixel.g, 0);
+        assert!((pixel.b as i32 - 85).abs() <= 1);
+        assert!((pixel.a as i32 - 192).abs() <= 1);
+    }
+
+    #[test]
+    fn composite_modes_keep_source_color_on_transparent_targets() {
+        use crate::render::command::CompositeMode;
+
+        for mode in [
+            CompositeMode::Add,
+            CompositeMode::Screen,
+            CompositeMode::Multiply,
+            CompositeMode::Darken,
+            CompositeMode::Lighten,
+            CompositeMode::Difference,
+        ] {
+            let mut buf = [0u8; 4];
+            let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+            tex.alpha_mode = AlphaMode::Blend;
+            tex.composite_pixel_int(0, 0, &Color::rgba(200, 80, 40, 128), 128, mode);
+            assert_eq!(
+                tex.get_pixel(0, 0),
+                Color::rgba(200, 80, 40, 128),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn composite_mode_uses_destination_alpha_in_blend_result() {
+        use crate::render::command::CompositeMode;
+
+        let mut buf = [0u8; 4];
+        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+        tex.alpha_mode = AlphaMode::Blend;
+        tex.set_pixel(0, 0, &Color::rgba(255, 0, 0, 128));
+        tex.composite_pixel_int(
+            0,
+            0,
+            &Color::rgba(0, 0, 255, 128),
+            128,
+            CompositeMode::Multiply,
+        );
+        let pixel = tex.get_pixel(0, 0);
+        assert!((pixel.r as i32 - 85).abs() <= 1);
         assert_eq!(pixel.g, 0);
         assert!((pixel.b as i32 - 85).abs() <= 1);
         assert!((pixel.a as i32 - 192).abs() <= 1);
