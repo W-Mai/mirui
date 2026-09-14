@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **SDL GPU image composites.** Axis-aligned blits with rounded corners or non-native composite modes use the configured bounded fallback; ordinary image uploads remain native.
+- **SDL GPU image composites.** Rounded, non-native composite, affine-transformed, and perspective-quad image blits use the configured bounded fallback; ordinary image uploads remain native.
 - **Software projective submission.** Checked projected draws perform one preflight; route inspection and submission report the same unsupported-geometry result.
 - **Software projected images.** Quad and projective image blits preserve rounded corners, opacity, and composite modes through direct inverse sampling without an offscreen allocation.
 - **Web Canvas quad image failures.** Texture upload, affine image draws, and triangle mesh draws report checked backend failures instead of leaving an incomplete frame without an error.

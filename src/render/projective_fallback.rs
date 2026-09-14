@@ -129,6 +129,22 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                     bounds
                 }
             }
+            DrawCommand::Blit {
+                quad: Some(quad),
+                texture,
+                ..
+            } => {
+                if !projective.is_identity() {
+                    return Err(ProjectiveDrawError::Unsupported);
+                }
+                let source = Rect::new(0, 0, texture.width, texture.height);
+                let projection = Transform3D::from_quad(source, quad)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
+                if projection.inverse().is_none() || projection.apply_rect(source).is_none() {
+                    return Err(ProjectiveDrawError::InvalidProjection);
+                }
+                Rect::bounding_quad(quad)
+            }
             DrawCommand::Blit { pos, size, .. } => {
                 let quad = logical
                     .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
@@ -210,7 +226,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             Fixed::from(plan.width()) / viewport.scale(),
             Fixed::from(plan.height()) / viewport.scale(),
         );
-        validator.preflight_projective(command, &local_clip, &local_projective)?;
+        if !matches!(command, DrawCommand::Blit { quad: Some(_), .. }) {
+            validator.preflight_projective(command, &local_clip, &local_projective)?;
+        }
         Ok(plan)
     }
 
@@ -261,7 +279,39 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let mut renderer = SwRenderer::new(texture);
         renderer.viewport = Viewport::new(plan.width(), plan.height(), scale);
-        renderer.draw_projective(command, &local_clip, &local_projective)
+        if let DrawCommand::Blit {
+            pos,
+            size,
+            transform,
+            quad: Some(quad),
+            texture,
+            opa,
+            radius,
+            composite,
+        } = command
+            && projective.is_identity()
+        {
+            let local_quad = quad.map(|point| crate::types::Point {
+                x: point.x - plan.logical_origin_x,
+                y: point.y - plan.logical_origin_y,
+            });
+            renderer.draw(
+                &DrawCommand::Blit {
+                    pos: *pos,
+                    size: *size,
+                    transform: *transform,
+                    quad: Some(local_quad),
+                    texture,
+                    opa: *opa,
+                    radius: *radius,
+                    composite: *composite,
+                },
+                &local_clip,
+            );
+            Ok(())
+        } else {
+            renderer.draw_projective(command, &local_clip, &local_projective)
+        }
     }
 }
 
@@ -310,6 +360,50 @@ mod tests {
         let data = fallback.target(plan);
         let center = (usize::try_from(6 - plan.y).unwrap() * usize::from(plan.width())
             + usize::try_from(6 - plan.x).unwrap())
+            * 4;
+        assert_eq!(&data[center..center + 4], &[255, 0, 255, 255]);
+    }
+
+    #[test]
+    fn explicit_quad_fallback_uses_its_projected_bounds_and_pixels() {
+        let source = [255u8, 0, 0, 255].repeat(16);
+        let texture = Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888);
+        let quad = [
+            Point::new(2, 2),
+            Point::new(18, 2),
+            Point::new(15, 18),
+            Point::new(4, 18),
+        ];
+        let command = DrawCommand::Blit {
+            pos: Point::new(0, 0),
+            size: Point::new(4, 4),
+            transform: Transform::IDENTITY,
+            quad: Some(quad),
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::from_int(3),
+            composite: CompositeMode::Screen,
+        };
+        let mut bytes = [0u8; 20 * 20 * 4];
+        for pixel in bytes.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[0, 0, 255, 255]);
+        }
+        let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
+        let viewport = Viewport::new(20, 20, Fixed::ONE);
+        let plan = fallback
+            .plan(
+                &command,
+                &Rect::new(0, 0, 20, 20),
+                &Transform3D::IDENTITY,
+                viewport,
+            )
+            .unwrap();
+        fallback
+            .render(plan, &command, &Transform3D::IDENTITY, viewport)
+            .unwrap();
+        let data = fallback.target(plan);
+        let center = (usize::try_from(10 - plan.y).unwrap() * usize::from(plan.width())
+            + usize::try_from(10 - plan.x).unwrap())
             * 4;
         assert_eq!(&data[center..center + 4], &[255, 0, 255, 255]);
     }

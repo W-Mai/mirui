@@ -36,7 +36,7 @@ use crate::render::renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
 };
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, Viewport};
 
 use crate::core::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
@@ -574,19 +574,41 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn needs_blit_fallback(request: &DrawRequest<'_, '_>) -> bool {
-        matches!(
-            request.command,
+        match request.command {
             DrawCommand::Blit {
-                quad: None,
+                quad,
                 radius,
                 composite,
+                transform,
                 ..
-            } if *radius > Fixed::ZERO
-                || !matches!(
-                    composite,
-                    CompositeMode::SourceOver | CompositeMode::Add | CompositeMode::Multiply
-                )
-        )
+            } => {
+                if *radius > Fixed::ZERO {
+                    return true;
+                }
+                match quad {
+                    Some(q) => {
+                        let x0 = Fixed64::from_fixed(q[0].x) + Fixed64::from_fixed(q[2].x);
+                        let x1 = Fixed64::from_fixed(q[1].x) + Fixed64::from_fixed(q[3].x);
+                        let y0 = Fixed64::from_fixed(q[0].y) + Fixed64::from_fixed(q[2].y);
+                        let y1 = Fixed64::from_fixed(q[1].y) + Fixed64::from_fixed(q[3].y);
+                        *composite != CompositeMode::SourceOver || x0 != x1 || y0 != y1
+                    }
+                    None => {
+                        !matches!(
+                            composite,
+                            CompositeMode::SourceOver
+                                | CompositeMode::Add
+                                | CompositeMode::Multiply
+                        ) || !matches!(
+                            transform.classify(),
+                            crate::types::TransformClass::Identity
+                                | crate::types::TransformClass::Translate
+                        )
+                    }
+                }
+            }
+            _ => false,
+        }
     }
 
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
@@ -603,30 +625,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
                 }
             }
-            DrawCommand::FillPath { paint, .. } if !projected => {
-                if !matches!(paint, Paint::Color(_)) {
-                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
-                }
-            }
-            DrawCommand::Blit {
-                quad,
-                radius,
-                composite,
-                ..
-            } if !projected => {
-                if *radius > Fixed::ZERO && quad.is_some() {
-                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
-                }
-                let supported = if quad.is_some() {
-                    *composite == CompositeMode::SourceOver
-                } else {
-                    true
-                };
-                if !supported {
-                    return Err(RenderError::Unsupported(RenderFeature::Composite(
-                        *composite,
-                    )));
-                }
+            DrawCommand::FillPath { paint, .. }
+                if !projected && !matches!(paint, Paint::Color(_)) =>
+            {
+                return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
             }
             _ => {}
         }
@@ -695,6 +697,47 @@ mod route_tests {
         assert!(!SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
             &DrawRequest::new(&ordinary, Rect::new(0, 0, 20, 20))
         ));
+        let rotated = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(12, 12),
+            transform: Transform::rotate_deg(Fixed::from_int(20)),
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+            &DrawRequest::new(&rotated, Rect::new(0, 0, 20, 20))
+        ));
+    }
+
+    #[test]
+    fn non_affine_explicit_quad_uses_exact_fallback() {
+        let pixels = [255u8; 4 * 4 * 4];
+        let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+        let quad = [
+            Point::new(2, 2),
+            Point::new(18, 2),
+            Point::new(15, 18),
+            Point::new(4, 18),
+        ];
+        let command = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(16, 16),
+            transform: Transform::IDENTITY,
+            quad: Some(quad),
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
+        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
+        assert_eq!(
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
+            Ok(())
+        );
     }
 
     #[test]
