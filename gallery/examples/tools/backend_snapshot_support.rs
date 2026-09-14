@@ -8,19 +8,17 @@ use mirui::render::{RenderError, Renderer};
 use mirui::types::Viewport;
 use mirui::ui::render_system;
 
-pub use gallery::backend_parity::{HEIGHT, WIDTH, build};
-
 pub fn capture<B, F>(
     app: &mut App<B, F>,
     root: Entity,
     viewport: Viewport,
+    full: Rect,
 ) -> Result<Option<Texture<'static>>, RenderError>
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     render_system::update_layout(&mut app.world, root, &viewport);
-    let full = Rect::new(0, 0, WIDTH, HEIGHT);
     let mut renderer = app.factory.make(&mut app.backend, &viewport);
     render_system::render(&app.world, root, &viewport, &mut renderer)?;
     renderer.prepare_readback(&full);

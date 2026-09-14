@@ -1,4 +1,4 @@
-mod text_backend_fixture;
+mod backend_snapshot_support;
 
 use std::env;
 use std::path::PathBuf;
@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 
-use text_backend_fixture::{HEIGHT, WIDTH, build, capture, write_png};
+use backend_snapshot_support::{capture, write_png};
+use gallery::backend_parity::{HEIGHT, WIDTH, build};
 
 fn main() {
     let path = env::args()
@@ -17,7 +18,7 @@ fn main() {
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
     let root = build(&mut app);
     let viewport = app.backend.display_info().viewport();
-    let texture = capture(&mut app, root, viewport)
+    let texture = capture(&mut app, root, viewport, Rect::new(0, 0, WIDTH, HEIGHT))
         .expect("SDL draw")
         .expect("SDL framebuffer readback");
     write_png(&path, &texture);

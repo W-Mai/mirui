@@ -1,4 +1,5 @@
 mod backend_snapshot_support;
+mod flip_card_fixture;
 
 use std::env;
 use std::path::PathBuf;
@@ -9,16 +10,21 @@ use mirui::render::{RenderError, wgpu::WgpuRendererFactory};
 use mirui::surface::wgpu_surface::WgpuSurface;
 
 use backend_snapshot_support::{capture, write_png};
-use gallery::backend_parity::{HEIGHT, WIDTH, build};
+use flip_card_fixture::build;
+use gallery::backend_parity::{HEIGHT, WIDTH};
 
 fn main() {
     let path = env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(".local/screenshots/text-parity-wgpu.png"));
-    let backend = WgpuSurface::new("mirui text parity", WIDTH, HEIGHT);
+        .unwrap_or_else(|| PathBuf::from(".local/screenshots/flip-card-wgpu.png"));
+    let frames = env::args()
+        .nth(2)
+        .map_or(45, |s| s.parse().expect("frame count"));
+    let backend = WgpuSurface::new("mirui flip card parity", WIDTH, HEIGHT);
     let mut app = App::with_factory(backend, WgpuRendererFactory::new());
-    let root = build(&mut app);
+    let root = build(&mut app, frames);
+
     let full = Rect::new(0, 0, WIDTH, HEIGHT);
     let mut texture = None;
     for _ in 0..16 {

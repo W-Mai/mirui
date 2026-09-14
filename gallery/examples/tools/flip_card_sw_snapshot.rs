@@ -1,4 +1,5 @@
 mod backend_snapshot_support;
+mod flip_card_fixture;
 
 use std::env;
 use std::path::PathBuf;
@@ -6,10 +7,10 @@ use std::path::PathBuf;
 use mirui::prelude::*;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::Viewport;
 
 use backend_snapshot_support::{capture, write_png};
-use gallery::backend_parity::{HEIGHT, WIDTH, build};
+use flip_card_fixture::build;
+use gallery::backend_parity::{HEIGHT, WIDTH};
 
 const SCALE: u16 = 2;
 
@@ -17,18 +18,21 @@ fn main() {
     let path = env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(".local/screenshots/text-parity-sw.png"));
-    let physical_width = WIDTH * SCALE;
-    let physical_height = HEIGHT * SCALE;
-    let backend = FramebufSurface::with_format(
-        physical_width,
-        physical_height,
+        .unwrap_or_else(|| PathBuf::from(".local/screenshots/flip-card-sw.png"));
+    let frames = env::args()
+        .nth(2)
+        .map_or(45, |s| s.parse().expect("frame count"));
+    let backend = FramebufSurface::with_scale_and_format(
+        WIDTH * SCALE,
+        HEIGHT * SCALE,
+        Fixed::from(SCALE),
         ColorFormat::RGBA8888,
         |_, _| {},
     );
     let mut app = App::new(backend);
-    let root = build(&mut app);
-    let viewport = Viewport::new(physical_width, physical_height, Fixed::from(SCALE));
+    let root = build(&mut app, frames);
+    let viewport = app.backend.display_info().viewport();
+
     let texture = capture(&mut app, root, viewport, Rect::new(0, 0, WIDTH, HEIGHT))
         .expect("software draw")
         .expect("software framebuffer readback");
