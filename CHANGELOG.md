@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Projective animation edge-on frames.** Image Flip, Flip Card, and Book Flip avoid singular zero-width projection frames during rotation.
+- **Web Canvas image quads.** Rounded, composited, and perspective image quads use the configured bounded fallback instead of being rejected by the affine Canvas path.
 - **SDL GPU image composites.** Rounded, non-native composite, affine-transformed, and perspective-quad image blits use the configured bounded fallback; ordinary image uploads remain native.
 - **Software projective submission.** Checked projected draws perform one preflight; route inspection and submission report the same unsupported-geometry result.
 - **Software projected images.** Quad and projective image blits preserve rounded corners, opacity, and composite modes through direct inverse sampling without an offscreen allocation.

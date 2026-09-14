@@ -171,6 +171,34 @@ fn map_gradient_points(
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
+    fn needs_blit_fallback(request: &DrawRequest<'_, '_>) -> bool {
+        match request.command {
+            DrawCommand::Blit {
+                quad: Some(quad),
+                texture,
+                radius,
+                composite,
+                ..
+            } => {
+                *radius > Fixed::ZERO
+                    || *composite != CompositeMode::SourceOver
+                    || !quad_is_parallelogram(quad)
+                    || quad_to_affine(quad, &Rect::new(0, 0, texture.width, texture.height))
+                        .is_none()
+            }
+            DrawCommand::Blit {
+                quad: None,
+                radius,
+                transform,
+                ..
+            } => {
+                *radius > Fixed::ZERO
+                    && transform.classify() != crate::types::TransformClass::Identity
+            }
+            _ => false,
+        }
+    }
+
     fn ctx(&self) -> &CanvasRenderingContext2d {
         self.surface.ctx()
     }
@@ -665,8 +693,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     }
 
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        use crate::types::TransformClass;
-
         request.validate_texture()?;
         let projected = !request.projective.is_identity();
         match request.command {
@@ -677,35 +703,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 if !projected && !matches!(paint, Paint::Color(_)) =>
             {
                 return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
-            }
-            DrawCommand::Blit {
-                quad,
-                texture,
-                radius,
-                composite,
-                ..
-            } if !projected => {
-                if let Some(q) = quad {
-                    if *radius != Fixed::ZERO {
-                        return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
-                    }
-                    if *composite != CompositeMode::SourceOver {
-                        return Err(RenderError::Unsupported(RenderFeature::Composite(
-                            *composite,
-                        )));
-                    }
-                    if !quad_is_parallelogram(q)
-                        || quad_to_affine(q, &Rect::new(0, 0, texture.width, texture.height))
-                            .is_none()
-                    {
-                        return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
-                    }
-                }
-                if *radius != Fixed::ZERO
-                    && request.command.transform().classify() != TransformClass::Identity
-                {
-                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
-                }
             }
             _ => {}
         }
@@ -732,7 +729,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
             );
         }
         Self::classify_request(request)?;
-        if request.projective.is_identity() {
+        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
             return Ok(RenderRoute::Native);
         }
         let fallback = self
@@ -760,7 +757,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
             return self.blur_target_region(*alpha, region);
         }
         Self::classify_request(request)?;
-        if request.projective.is_identity() {
+        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
             self.draw_failed = false;
             self.draw(request.command, &request.clip);
             return if self.draw_failed {

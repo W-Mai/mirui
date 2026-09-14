@@ -51,6 +51,8 @@ pub mod typography_lab;
 pub mod vector_mandala;
 pub mod widgets;
 
+pub(super) const PROJECTIVE_SPIN_PHASE: crate::types::Fixed = crate::types::Fixed::from_ratio(1, 4);
+
 /// Visit existing component IDs without retaining a heap buffer. Callers
 /// may edit component values but must not add or remove `T` during the visit.
 fn for_each_stable_component<T: 'static>(
@@ -89,5 +91,23 @@ mod tests {
         });
         assert_eq!(world.get::<u16>(first), Some(&11));
         assert_eq!(world.get::<u16>(second), Some(&12));
+    }
+
+    #[test]
+    fn projective_spin_phase_avoids_singular_edge_on_frames() {
+        use crate::types::Fixed;
+        use crate::types::Transform3D;
+
+        for half_step in 0..720 {
+            let angle = PROJECTIVE_SPIN_PHASE + Fixed::from_ratio(half_step, 2);
+            assert!(!Fixed::cos_deg(angle).is_zero(), "angle {angle:?}");
+            assert!(!Fixed::cos_deg(-angle).is_zero(), "angle -{angle:?}");
+            assert!(
+                Transform3D::rotate_y_perspective(angle, Fixed::from_int(400))
+                    .inverse()
+                    .is_some(),
+                "angle {angle:?}"
+            );
+        }
     }
 }

@@ -80,7 +80,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     world.insert(
         card,
         FlipCard {
-            angle_deg: Fixed::ZERO,
+            angle_deg: super::PROJECTIVE_SPIN_PHASE,
             speed_deg: Fixed::ONE,
             front_color: Color::rgb(88, 166, 255),
             back_color: Color::rgb(248, 81, 73),

@@ -67,7 +67,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     world.insert(
         img_widget,
         Spinner {
-            angle: Fixed::ZERO,
+            angle: super::PROJECTIVE_SPIN_PHASE,
             speed: Fixed::from_int(3),
             bounce_phase: Fixed::ZERO,
         },

@@ -73,7 +73,7 @@ pub fn build_widgets() {
                     y: Fixed::ONE / 2,
                 },
                 Page {
-                    angle_deg: Fixed::ZERO,
+                    angle_deg: super::PROJECTIVE_SPIN_PHASE,
                     speed_deg: Fixed::ONE / 2,
                 },
             ]
