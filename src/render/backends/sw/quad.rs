@@ -16,11 +16,12 @@ pub fn blit_quad(
     src: &Texture,
     q: &[Point; 4],
     phys_clip: Rect,
+    local_size: Point,
     radius: Fixed,
     opa: u8,
     composite: CompositeMode,
 ) {
-    if opa == 0 {
+    if opa == 0 || local_size.x <= Fixed::ZERO || local_size.y <= Fixed::ZERO {
         return;
     }
     use super::quad_aa::{
@@ -29,7 +30,10 @@ pub fn blit_quad(
     use crate::types::Transform3D;
     let cw = shoelace_is_cw(q);
     let edges = prepare_quad_edges(q, cw);
-    let corners = (radius > Fixed::ZERO).then(|| prepare_corners(q, radius));
+    let radius = radius
+        .max(Fixed::ZERO)
+        .min(local_size.x / 2)
+        .min(local_size.y / 2);
     let src_rect = Rect::new(0, 0, src.width, src.height);
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
         return;
@@ -48,6 +52,8 @@ pub fn blit_quad(
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
     let sw = src.width as i32;
     let sh = src.height as i32;
+    let local_scale_x = Fixed64::from_fixed(local_size.x) / Fixed64::from_int(i64::from(sw));
+    let local_scale_y = Fixed64::from_fixed(local_size.y) / Fixed64::from_int(i64::from(sh));
     let half = Fixed64::from_ratio(1, 2);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::HALF;
@@ -75,31 +81,46 @@ pub fn blit_quad(
             let edge_cx = cx;
             cx += one;
             if w.is_positive() {
-                let edge_cov =
-                    quad_pixel_coverage_row(&edges, corners.as_ref(), edge_cx, py_f, &row);
+                let edge_cov = quad_pixel_coverage_row(&edges, None, edge_cx, py_f, &row);
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
-                    let sx = (big_x * inv_w).to_fixed().to_int();
-                    let sy = (big_y * inv_w).to_fixed().to_int();
+                    let source_x = big_x * inv_w;
+                    let source_y = big_y * inv_w;
+                    let sx = source_x.to_fixed().to_int();
+                    let sy = source_y.to_fixed().to_int();
                     if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
-                        let c = src.get_pixel(sx, sy);
-                        if c.a != 0 {
-                            #[cfg(feature = "perf")]
-                            unsafe {
-                                quad_perf::BLIT_PIXELS_DRAWN += 1;
-                            }
-                            let alpha = if opa == 255 {
-                                c.a
-                            } else {
-                                ((u16::from(c.a) * u16::from(opa) + 127) / 255) as u8
-                            };
-                            let src_alpha = if edge_cov == Fixed::ONE {
-                                alpha
-                            } else {
-                                (Fixed::from_int(i32::from(alpha)) * edge_cov).to_int() as u8
-                            };
-                            if src_alpha > 0 {
-                                dst.composite_pixel_int(px, py, &c, src_alpha, composite);
+                        let corner_cov = if radius > Fixed::ZERO {
+                            super::rect_fill::rounded_rect_coverage(
+                                (source_x * local_scale_x).to_fixed() - Fixed::HALF,
+                                (source_y * local_scale_y).to_fixed() - Fixed::HALF,
+                                local_size.x,
+                                local_size.y,
+                                radius,
+                            )
+                        } else {
+                            Fixed::ONE
+                        };
+                        let coverage = edge_cov * corner_cov;
+                        if coverage != Fixed::ZERO {
+                            let c = src.get_pixel(sx, sy);
+                            if c.a != 0 {
+                                #[cfg(feature = "perf")]
+                                unsafe {
+                                    quad_perf::BLIT_PIXELS_DRAWN += 1;
+                                }
+                                let alpha = if opa == 255 {
+                                    c.a
+                                } else {
+                                    ((u16::from(c.a) * u16::from(opa) + 127) / 255) as u8
+                                };
+                                let src_alpha = if coverage == Fixed::ONE {
+                                    alpha
+                                } else {
+                                    (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8
+                                };
+                                if src_alpha > 0 {
+                                    dst.composite_pixel_int(px, py, &c, src_alpha, composite);
+                                }
                             }
                         }
                     }

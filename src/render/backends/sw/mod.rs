@@ -540,10 +540,12 @@ impl SwRenderer<'_> {
     }
 
     #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_blit_quad(
         &mut self,
         q: &[Point; 4],
         texture: &Texture,
+        size: Point,
         clip: &Rect,
         radius: Fixed,
         opa: u8,
@@ -558,12 +560,17 @@ impl SwRenderer<'_> {
             self.viewport.point_to_physical(q[2]),
             self.viewport.point_to_physical(q[3]),
         ];
+        let scale = self.viewport.scale();
         blit_quad(
             &mut self.target,
             texture,
             &phys_q,
             phys_clip,
-            radius * self.viewport.scale(),
+            Point {
+                x: size.x * scale,
+                y: size.y * scale,
+            },
+            radius * scale,
             opa,
             composite,
         );
@@ -897,6 +904,7 @@ impl Renderer for SwRenderer<'_> {
         if let DrawCommand::Blit {
             quad: Some(q),
             texture,
+            size,
             radius,
             opa,
             composite,
@@ -904,7 +912,7 @@ impl Renderer for SwRenderer<'_> {
         } = cmd
         {
             crate::trace_span!("sw.blit_quad");
-            self.dispatch_blit_quad(q, texture, clip, *radius, *opa, *composite);
+            self.dispatch_blit_quad(q, texture, *size, clip, *radius, *opa, *composite);
             return;
         }
         if let DrawCommand::Border {
@@ -1177,7 +1185,7 @@ impl Renderer for SwRenderer<'_> {
                         h: size.y,
                     })
                     .ok_or(ProjectiveDrawError::InvalidProjection)?;
-                self.dispatch_blit_quad(&quad, texture, clip, *radius, *opa, *composite);
+                self.dispatch_blit_quad(&quad, texture, *size, clip, *radius, *opa, *composite);
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -3243,6 +3251,44 @@ mod tests {
         );
         let center = renderer.target.get_pixel(6, 6);
         assert!(center.r > 0 && center.b > 0);
+    }
+
+    #[test]
+    fn projected_blit_corner_radius_tracks_local_geometry() {
+        let source = [255u8, 0, 0, 255].repeat(16);
+        let texture = Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888);
+        let quad = [
+            Point::new(2, 2),
+            Point::new(22, 2),
+            Point::new(16, 22),
+            Point::new(8, 22),
+        ];
+        let mut first = [0u8; 24 * 24 * 4];
+        let mut second = [0u8; 24 * 24 * 4];
+        for (pixels, size, radius) in [
+            (&mut first, Point::new(20, 20), Fixed::from_int(4)),
+            (&mut second, Point::new(40, 40), Fixed::from_int(8)),
+        ] {
+            let mut target = Texture::new(pixels, 24, 24, ColorFormat::RGBA8888);
+            target.alpha_mode = AlphaMode::Blend;
+            blit_quad(
+                &mut target,
+                &texture,
+                &quad,
+                Rect::new(0, 0, 24, 24),
+                size,
+                radius,
+                255,
+                CompositeMode::SourceOver,
+            );
+        }
+        for y in 7..22 {
+            for x in 2..22 {
+                let offset = (y * 24 + x) * 4;
+                assert_eq!(first[offset] > 0, second[offset] > 0, "pixel ({x}, {y})");
+            }
+        }
+        assert!(first[(20 * 24 + 9) * 4] > 0);
     }
 
     #[test]
