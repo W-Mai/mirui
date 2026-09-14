@@ -473,8 +473,12 @@ impl WgpuRenderer<'_> {
                 radius,
                 quad,
                 composite,
+                texture,
                 ..
             } => {
+                if !texture_upload_valid(texture) {
+                    return Err(RenderError::InvalidTexture);
+                }
                 if *radius != Fixed::ZERO && (quad.is_some() || !request.projective.is_identity()) {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }
@@ -1034,8 +1038,29 @@ fn upload_blit_source(
 
 /// RGB565 formats return `None`; this upload path only handles
 /// byte-aligned RGB/RGBA.
+fn texture_upload_valid(src: &Texture) -> bool {
+    let bpp = src.format.bytes_per_pixel();
+    let w = src.width as usize;
+    let h = src.height as usize;
+    if w == 0 || h == 0 {
+        return false;
+    }
+    let Some(row_bytes) = w.checked_mul(bpp) else {
+        return false;
+    };
+    src.stride >= row_bytes
+        && src
+            .stride
+            .checked_mul(h - 1)
+            .and_then(|start| start.checked_add(row_bytes))
+            .is_some_and(|required| required <= src.buf.as_slice().len())
+}
+
 fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
     use crate::render::texture::ColorFormat;
+    if !texture_upload_valid(src) {
+        return None;
+    }
     let buf = src.buf.as_slice();
     let bpp = src.format.bytes_per_pixel();
     let w = src.width as usize;
@@ -1069,7 +1094,16 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
             }
             Some(out)
         }
-        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => None,
+        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
+            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    let color = src.get_pixel(x as i32, y as i32);
+                    out.extend_from_slice(&[color.r, color.g, color.b, 255]);
+                }
+            }
+            Some(out)
+        }
     }
 }
 
@@ -2097,6 +2131,40 @@ mod route_tests {
     use mirx::scene::{GradientUnits, LinearGradient, SpreadMode};
 
     #[test]
+    fn texture_upload_accepts_both_rgb565_orders_and_row_padding() {
+        let mut native =
+            Texture::from_ref(&[0x00, 0xf8, 0, 0, 0xe0, 0x07], 1, 2, ColorFormat::RGB565);
+        native.stride = 4;
+        assert_eq!(
+            texture_to_rgba8(&native),
+            Some(alloc::vec![248, 0, 0, 255, 0, 252, 0, 255])
+        );
+
+        let swapped = Texture::from_ref(&[0xf8, 0x00], 1, 1, ColorFormat::RGB565Swapped);
+        assert_eq!(
+            texture_to_rgba8(&swapped),
+            Some(alloc::vec![248, 0, 0, 255])
+        );
+
+        let short = Texture::from_ref(&[0xf8], 1, 1, ColorFormat::RGB565Swapped);
+        assert!(texture_to_rgba8(&short).is_none());
+        let blit = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(1, 1),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &short,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&blit, Rect::new(0, 0, 1, 1))),
+            Err(RenderError::InvalidTexture)
+        );
+    }
+
+    #[test]
     fn projected_quads_are_checked_before_gpu_submission() {
         let area = Rect::new(8, 8, 40, 24);
         let projection =
@@ -2356,7 +2424,7 @@ mod blit_tests {
     use super::*;
 
     #[test]
-    fn rounded_blit_masks_corners_without_cropping_edges() {
+    fn blit_paths_mask_corners_and_premultiply_alpha() {
         const SIZE: u32 = 32;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) =
@@ -2398,7 +2466,7 @@ mod blit_tests {
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            &[255, 0, 0, 255],
+            &[255, 0, 0, 128],
         );
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("mirui-rounded-blit-test-target"),
@@ -2521,9 +2589,114 @@ mod blit_tests {
         };
         let alpha = |x: usize, y: usize| bytes[(y * SIZE as usize + x) * 4 + 3];
         assert_eq!(alpha(0, 0), 0);
-        assert!(alpha(16, 0) > 240);
-        assert!(alpha(0, 16) > 240);
-        assert!(alpha(16, 16) > 240);
+        assert!(alpha(16, 0) > 120);
+        assert!(alpha(0, 16) > 120);
+        assert!(alpha(16, 16) > 120);
+
+        let vertices = [
+            BlitQuadVertex {
+                pos: [0.0, 0.0],
+                uvw: [0.0, 0.0, 1.0],
+                alpha: 1.0,
+            },
+            BlitQuadVertex {
+                pos: [32.0, 0.0],
+                uvw: [1.0, 0.0, 1.0],
+                alpha: 1.0,
+            },
+            BlitQuadVertex {
+                pos: [32.0, 32.0],
+                uvw: [1.0, 1.0, 1.0],
+                alpha: 1.0,
+            },
+            BlitQuadVertex {
+                pos: [0.0, 32.0],
+                uvw: [0.0, 1.0, 1.0],
+                alpha: 1.0,
+            },
+        ];
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-translucent-quad-test-vertices"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let indices = [0u16, 1, 2, 0, 2, 3];
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-translucent-quad-test-indices"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let quad_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-translucent-quad-test-bind-group"),
+            layout: &cache.blit_quad_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &source.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let quad_pipeline = cache.get_or_build(
+            &device,
+            PipelineKey {
+                shader: ShaderKind::BlitQuad,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                composite: CompositeMode::SourceOver,
+            },
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mirui-translucent-quad-test-encoder"),
+        });
+        {
+            let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let msaa_view = msaa.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mirui-translucent-quad-test-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &msaa_view,
+                    resolve_target: Some(&view),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&quad_pipeline);
+            pass.set_bind_group(0, &quad_bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        let bytes = wgpu_readback_rgba8(
+            &device,
+            &queue,
+            &target,
+            wgpu::TextureFormat::Rgba8Unorm,
+            0,
+            0,
+            SIZE,
+            SIZE,
+        )
+        .expect("translucent quad target could not be read");
+        let center = &bytes[(16 * SIZE as usize + 16) * 4..][..4];
+        assert!((i16::from(center[0]) - i16::from(center[3])).abs() <= 1);
+        assert!((i16::from(center[3]) - 128).abs() <= 1);
     }
 }
 

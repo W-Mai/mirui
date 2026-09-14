@@ -43,5 +43,6 @@ fn vs_main(in: VertexIn) -> VertexOut {
 fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     let uv = v.uvw.xy / v.uvw.z;
     let c = textureSample(src_tex, src_samp, uv);
-    return vec4<f32>(c.rgb, c.a * v.alpha);
+    let alpha = c.a * v.alpha;
+    return vec4<f32>(c.rgb * alpha, alpha);
 }

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGPU image uploads.** RGB565 byte orders upload through the same checked texture path as RGBA; malformed row storage is rejected before a checked draw, and translucent projected images use premultiplied blending.
 - **WGPU rounded images.** Axis-aligned image blits apply a GPU corner mask with pixel-width antialiasing; projected rounded blits remain explicitly unsupported.
 - **Web Canvas Pad gradients.** Checked path fills preserve object-bounding-box geometry, focal circles, and paint transforms through the Canvas paint coordinate system.
 - **Scene capture errors.** Checked capture rejects blur and projective draws that cannot be represented, instead of recording blur as an unrelated group end.

@@ -79,6 +79,7 @@ pub enum RenderResource {
 pub enum RenderError {
     Unsupported(RenderFeature),
     InvalidGeometry,
+    InvalidTexture,
     MissingWorkspace,
     InsufficientWorkspace {
         required_bytes: usize,
