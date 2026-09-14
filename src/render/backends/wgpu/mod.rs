@@ -828,6 +828,35 @@ impl WgpuRenderer<'_> {
         });
     }
 
+    fn blit_source_view(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
+        let state = self.surface.state()?;
+        let Some(key) = TextureKey::cacheable(src) else {
+            let rgba = texture_to_rgba8(src)?;
+            let texture = upload_blit_source(&state.device, &state.queue, src, &rgba);
+            return Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        };
+
+        let handle = self
+            .factory
+            .texture_pool
+            .entry(key)
+            .or_try_insert_with::<_, ()>(|| {
+                let rgba = texture_to_rgba8(src).ok_or(())?;
+                Ok(CachedTexture(upload_blit_source(
+                    &state.device,
+                    &state.queue,
+                    src,
+                    &rgba,
+                )))
+            })
+            .ok()?;
+        Some(
+            handle
+                .0
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn blit_inner(
         &mut self,
@@ -851,39 +880,8 @@ impl WgpuRenderer<'_> {
             return;
         }
 
-        let tex_view = {
-            let state = self
-                .surface
-                .state()
-                .expect("WgpuSurface state missing in blit");
-            if src.transient {
-                let Some(rgba) = texture_to_rgba8(src) else {
-                    return;
-                };
-                let tex = upload_blit_source(&state.device, &state.queue, src, &rgba);
-                tex.create_view(&wgpu::TextureViewDescriptor::default())
-            } else {
-                let key = TextureKey::from(src);
-                let handle = match self
-                    .factory
-                    .texture_pool
-                    .entry(key)
-                    .or_try_insert_with::<_, ()>(|| {
-                        let rgba = texture_to_rgba8(src).ok_or(())?;
-                        Ok(CachedTexture(upload_blit_source(
-                            &state.device,
-                            &state.queue,
-                            src,
-                            &rgba,
-                        )))
-                    }) {
-                    Ok(h) => h,
-                    Err(_) => return,
-                };
-                handle
-                    .0
-                    .create_view(&wgpu::TextureViewDescriptor::default())
-            }
+        let Some(tex_view) = self.blit_source_view(src) else {
+            return;
         };
 
         self.blit_view_inner(
@@ -1665,42 +1663,8 @@ impl WgpuRenderer<'_> {
         }
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-        let key = TextureKey::from(src);
-        let tex_handle: crate::core::cache::Handle<CachedTexture> = {
-            let state = self
-                .surface
-                .state()
-                .expect("WgpuSurface state missing in blit_quad");
-            match self
-                .factory
-                .texture_pool
-                .entry(key)
-                .or_try_insert_with::<_, ()>(|| {
-                    let rgba = texture_to_rgba8(src).ok_or(())?;
-                    Ok(CachedTexture(state.device.create_texture_with_data(
-                        &state.queue,
-                        &wgpu::TextureDescriptor {
-                            label: Some("mirui-blit-quad-source"),
-                            size: wgpu::Extent3d {
-                                width: src.width as u32,
-                                height: src.height as u32,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                | wgpu::TextureUsages::COPY_DST,
-                            view_formats: &[],
-                        },
-                        wgpu::util::TextureDataOrder::LayerMajor,
-                        &rgba,
-                    )))
-                }) {
-                Ok(h) => h,
-                Err(_) => return,
-            }
+        let Some(tex_view) = self.blit_source_view(src) else {
+            return;
         };
 
         let frame = self.frame.as_mut().expect("frame just initialised");
@@ -1718,10 +1682,6 @@ impl WgpuRenderer<'_> {
             .linear_sampler
             .as_ref()
             .expect("linear sampler must be initialised before blit_quad");
-        let tex_view = tex_handle
-            .0
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
         let vertex_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {

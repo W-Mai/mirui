@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGPU transient images.** Axis-aligned and projected blits share the same texture upload path; transient buffers bypass pointer-keyed caching, while static cache keys include row stride.
 - **WGPU image uploads.** RGB565 byte orders upload through the same checked texture path as RGBA; malformed row storage is rejected before a checked draw, and translucent projected images use premultiplied blending.
 - **WGPU rounded images.** Axis-aligned and projected image blits apply destination-space corner masks with pixel-width antialiasing.
 - **Web Canvas Pad gradients.** Checked path fills preserve object-bounding-box geometry, focal circles, and paint transforms through the Canvas paint coordinate system.

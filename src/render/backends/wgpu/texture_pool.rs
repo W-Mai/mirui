@@ -1,8 +1,8 @@
 //! GPU side cache for `wgpu::Texture` uploads — keyed on the source
-//! buffer pointer + dimensions, evicted by mirui's LRU cache. Static
+//! buffer pointer + layout, evicted by mirui's LRU cache. Static
 //! assets (`IMG_THUMBS_UP` and friends) hit on every frame after the
-//! first upload; dynamic buffers naturally miss every frame and fall
-//! back to re-upload, same cost as the uncached path.
+//! first upload. Reused dynamic buffers are marked transient and bypass
+//! this pointer-based cache.
 
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::font::{FontFaceId, FontSurfaceId, GlyphSurface};
@@ -15,9 +15,14 @@ pub struct TextureKey {
     width: u16,
     height: u16,
     format: ColorFormat,
+    stride: usize,
 }
 
 impl TextureKey {
+    pub fn cacheable(src: &Texture) -> Option<Self> {
+        (!src.transient).then(|| Self::from(src))
+    }
+
     pub fn from(src: &Texture) -> Self {
         let buf = src.buf.as_slice();
         Self {
@@ -26,6 +31,7 @@ impl TextureKey {
             width: src.width,
             height: src.height,
             format: src.format,
+            stride: src.stride,
         }
     }
 }
@@ -110,12 +116,26 @@ mod tests {
     }
 
     #[test]
+    fn key_separates_strides_over_one_buffer() {
+        let buf = [0u8; 24];
+        let a = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        let mut b = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        b.stride = 12;
+        assert_ne!(TextureKey::from(&a), TextureKey::from(&b));
+    }
+
+    #[test]
     fn transient_flag_survives_texture_construction() {
         let buf = [0u8; 16];
         let t = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888).with_transient(true);
         assert!(t.transient);
+        assert!(TextureKey::cacheable(&t).is_none());
         let default = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
         assert!(!default.transient);
+        assert_eq!(
+            TextureKey::cacheable(&default),
+            Some(TextureKey::from(&default))
+        );
     }
 
     #[test]
