@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Blur Filter scene storage.** Both shape sets and the filter scope use one static borrowed scene; rendering no longer builds paths or a scene vector every frame.
 - **Software draw submission.** Unprojected identity and translated commands enter the direct raster path without an extra backend route call; exceptional transforms retain checked preflight.
 - **Projective fallback planning.** SDL GPU and Web Canvas reuse one checked ROI plan for each submitted projective draw instead of planning again during execution.
 - **Checked Gallery draws.** Gallery custom views and offscreen blits propagate backend failures to the frame caller; path-clip examples unwind their clip scope after a failed draw.

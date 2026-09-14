@@ -1,172 +1,43 @@
 #![allow(clippy::needless_update)]
 
-extern crate alloc;
-
-use alloc::vec::Vec;
-
 use crate::prelude::draw::*;
 use crate::prelude::*;
-use crate::render::raster::FillRule;
+use crate::render::scene::SceneOp;
 use crate::render::scene::resolver::SliceResolver;
-use crate::render::scene::{Paint, ResourceRef, SceneOp};
-use crate::types::Transform;
 use crate::ui::widgets::Text;
 
 #[derive(Default)]
 pub struct BlurFilter;
 
-fn circle_path(cx: Fixed, cy: Fixed, r: Fixed) -> Path {
-    let k = r * Fixed::from_f32(0.552_284_8);
-    let mut path = Path::new();
-    path.move_to(Point { x: cx + r, y: cy });
-    path.cubic_to(
-        Point {
-            x: cx + r,
-            y: cy + k,
-        },
-        Point {
-            x: cx + k,
-            y: cy + r,
-        },
-        Point { x: cx, y: cy + r },
-    );
-    path.cubic_to(
-        Point {
-            x: cx - k,
-            y: cy + r,
-        },
-        Point {
-            x: cx - r,
-            y: cy + k,
-        },
-        Point { x: cx - r, y: cy },
-    );
-    path.cubic_to(
-        Point {
-            x: cx - r,
-            y: cy - k,
-        },
-        Point {
-            x: cx - k,
-            y: cy - r,
-        },
-        Point { x: cx, y: cy - r },
-    );
-    path.cubic_to(
-        Point {
-            x: cx + k,
-            y: cy - r,
-        },
-        Point {
-            x: cx + r,
-            y: cy - k,
-        },
-        Point { x: cx + r, y: cy },
-    );
-    path.close();
-    path
-}
+const SCENE: &[SceneOp] = scene! {
+    rect 0 0 480 240 0 18 20 28 255 255;
 
-fn shape_set(renderer: &mut dyn Renderer, ctx: &mut ViewCtx, offset: i32) {
-    for (x, y, w, h, color) in [
-        (28, 58, 118, 58, Color::rgb(255, 80, 110)),
-        (82, 104, 92, 60, Color::rgb(90, 210, 255)),
-        (130, 44, 68, 100, Color::rgb(255, 200, 80)),
-    ] {
-        ctx.draw(
-            renderer,
-            &DrawCommand::Fill {
-                area: Rect::new(
-                    Fixed::from_int(offset + x),
-                    Fixed::from_int(y),
-                    Fixed::from_int(w),
-                    Fixed::from_int(h),
-                ),
-                transform: Transform::IDENTITY,
-                quad: None,
-                color,
-                radius: Fixed::from_int(14),
-                opa: 220,
-            },
-            ctx.clip,
-        );
-    }
-    let circle = circle_path(
-        Fixed::from_int(offset + 112),
-        Fixed::from_int(128),
-        Fixed::from_int(44),
-    );
-    let paint = Paint::Color(Color::rgb(145, 255, 120).into());
-    ctx.draw(
-        renderer,
-        &DrawCommand::FillPath {
-            path: &circle,
-            transform: Transform::IDENTITY,
-            paint: &paint,
-            opa: 230,
-            fill_rule: FillRule::EvenOdd,
-        },
-        ctx.clip,
-    );
-}
+    group filter "blur:3:3" disjoint;
+    rect 28 58 118 58 14 255 80 110 255 220;
+    rect 82 104 92 60 14 90 210 255 255 220;
+    rect 130 44 68 100 14 255 200 80 255 220;
+    fill_path {
+        M 156 128;
+        C 156 152 136 172 112 172;
+        C 88 172 68 152 68 128;
+        C 68 104 88 84 112 84;
+        C 136 84 156 104 156 128;
+        Z
+    } 145 255 120 255 230 fill_rule evenodd;
+    endgroup;
 
-fn shape_set_ops(offset: i32) -> [SceneOp; 4] {
-    let paint_green = Paint::Color(Color::rgb(145, 255, 120).into());
-    let of = Fixed::from_int(offset);
-    let circle = circle_path(
-        Fixed::from_int(offset + 112),
-        Fixed::from_int(128),
-        Fixed::from_int(44),
-    );
-    [
-        SceneOp::FillRect {
-            area: Rect::new(
-                of + Fixed::from_int(28),
-                Fixed::from_int(58),
-                Fixed::from_int(118),
-                Fixed::from_int(58),
-            ),
-            transform: Transform::IDENTITY,
-            quad: None,
-            color: Color::rgb(255, 80, 110),
-            radius: Fixed::from_int(14),
-            opa: 220,
-        },
-        SceneOp::FillRect {
-            area: Rect::new(
-                of + Fixed::from_int(82),
-                Fixed::from_int(104),
-                Fixed::from_int(92),
-                Fixed::from_int(60),
-            ),
-            transform: Transform::IDENTITY,
-            quad: None,
-            color: Color::rgb(90, 210, 255),
-            radius: Fixed::from_int(14),
-            opa: 220,
-        },
-        SceneOp::FillRect {
-            area: Rect::new(
-                of + Fixed::from_int(130),
-                Fixed::from_int(44),
-                Fixed::from_int(68),
-                Fixed::from_int(100),
-            ),
-            transform: Transform::IDENTITY,
-            quad: None,
-            color: Color::rgb(255, 200, 80),
-            radius: Fixed::from_int(14),
-            opa: 220,
-        },
-        SceneOp::FillPath {
-            path: circle,
-            transform: Transform::IDENTITY,
-            paint: paint_green,
-            opa: 230,
-            fill_rule: FillRule::EvenOdd,
-        },
-    ]
-}
+    rect 270 58 118 58 14 255 80 110 255 220;
+    rect 324 104 92 60 14 90 210 255 255 220;
+    rect 372 44 68 100 14 255 200 80 255 220;
+    fill_path {
+        M 398 128;
+        C 398 152 378 172 354 172;
+        C 330 172 310 152 310 128;
+        C 310 104 330 84 354 84;
+        C 378 84 398 104 398 128;
+        Z
+    } 145 255 120 255 230 fill_rule evenodd;
+};
 
 fn blur_filter_render(
     renderer: &mut dyn Renderer,
@@ -175,43 +46,7 @@ fn blur_filter_render(
     _rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: Rect::new(
-                Fixed::ZERO,
-                Fixed::ZERO,
-                Fixed::from_int(480),
-                Fixed::from_int(240),
-            ),
-            transform: Transform::IDENTITY,
-            quad: None,
-            color: Color::rgb(18, 20, 28),
-            radius: Fixed::ZERO,
-            opa: 255,
-        },
-        ctx.clip,
-    );
-    if ctx.error.is_some() {
-        return;
-    }
-
-    let mut ops: Vec<SceneOp> = Vec::new();
-    ops.push(SceneOp::GroupBegin {
-        transform: None,
-        projective: None,
-        opacity: Some(255),
-        clip: None,
-        mask: None,
-        filter: Some(ResourceRef::Token("blur:3:3".into())),
-        disjoint_hint: true,
-    });
-    ops.extend_from_slice(&shape_set_ops(0));
-    ops.push(SceneOp::GroupEnd);
-
-    ctx.replay(renderer, &ops, &SliceResolver::new(&[], &[]));
-
-    shape_set(renderer, ctx, 242);
+    ctx.replay(renderer, SCENE, &SliceResolver::new(&[], &[]));
 }
 
 pub fn blur_filter_view() -> View {
@@ -241,4 +76,30 @@ where
 {
     app.with_widget(blur_filter_view());
     app.compose(parent, build_widgets);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::scene::ResourceRef;
+    use alloc::borrow::Cow;
+
+    #[test]
+    fn scene_paths_borrow_static_commands() {
+        let mut paths = 0;
+        for op in SCENE {
+            match op {
+                SceneOp::FillPath { path, .. } => {
+                    assert!(path.is_borrowed());
+                    paths += 1;
+                }
+                SceneOp::GroupBegin {
+                    filter: Some(ResourceRef::Token(token)),
+                    ..
+                } => assert!(matches!(token, Cow::Borrowed(_))),
+                _ => {}
+            }
+        }
+        assert_eq!(paths, 2);
+    }
 }
