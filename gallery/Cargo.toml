@@ -147,17 +147,17 @@ path = "examples/tools/text_backend_wgpu_snapshot.rs"
 required-features = ["wgpu"]
 
 [[example]]
-name = "flip_card_wgpu_snapshot"
-path = "examples/tools/flip_card_wgpu_snapshot.rs"
+name = "projective_wgpu_snapshot"
+path = "examples/tools/projective_wgpu_snapshot.rs"
 required-features = ["wgpu"]
 
 [[example]]
-name = "flip_card_sw_snapshot"
-path = "examples/tools/flip_card_sw_snapshot.rs"
+name = "projective_sw_snapshot"
+path = "examples/tools/projective_sw_snapshot.rs"
 
 [[example]]
-name = "flip_card_sdl_snapshot"
-path = "examples/tools/flip_card_sdl_snapshot.rs"
+name = "projective_sdl_snapshot"
+path = "examples/tools/projective_sdl_snapshot.rs"
 required-features = ["sdl-gpu"]
 
 [[example]]
