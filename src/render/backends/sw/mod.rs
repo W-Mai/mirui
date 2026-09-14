@@ -546,16 +546,9 @@ impl SwRenderer<'_> {
         texture: &Texture,
         clip: &Rect,
         radius: Fixed,
+        opa: u8,
         composite: CompositeMode,
     ) {
-        if radius != Fixed::ZERO {
-            unimplemented!("sw backend: Blit.radius mask under quad path not yet implemented",);
-        }
-        if !matches!(composite, CompositeMode::SourceOver) {
-            unimplemented!(
-                "sw backend: composite {composite:?} under quad path not yet implemented",
-            );
-        }
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
         let phys_clip = self.viewport.rect_to_physical(*clip);
@@ -565,7 +558,15 @@ impl SwRenderer<'_> {
             self.viewport.point_to_physical(q[2]),
             self.viewport.point_to_physical(q[3]),
         ];
-        blit_quad(&mut self.target, texture, &phys_q, phys_clip);
+        blit_quad(
+            &mut self.target,
+            texture,
+            &phys_q,
+            phys_clip,
+            radius * self.viewport.scale(),
+            opa,
+            composite,
+        );
         #[cfg(feature = "perf")]
         quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
     }
@@ -816,7 +817,7 @@ impl Renderer for SwRenderer<'_> {
                 composite,
                 opa,
                 ..
-            } if projected || affine || quad.is_some() => {
+            } if affine && !projected && quad.is_none() => {
                 if *radius != Fixed::ZERO {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }
@@ -899,12 +900,13 @@ impl Renderer for SwRenderer<'_> {
             quad: Some(q),
             texture,
             radius,
+            opa,
             composite,
             ..
         } = cmd
         {
             crate::trace_span!("sw.blit_quad");
-            self.dispatch_blit_quad(q, texture, clip, *radius, *composite);
+            self.dispatch_blit_quad(q, texture, clip, *radius, *opa, *composite);
             return;
         }
         if let DrawCommand::Border {
@@ -1169,12 +1171,6 @@ impl Renderer for SwRenderer<'_> {
                 composite,
                 ..
             } => {
-                if *opa != 255
-                    || *radius != Fixed::ZERO
-                    || !matches!(composite, CompositeMode::SourceOver)
-                {
-                    return Err(ProjectiveDrawError::Unsupported);
-                }
                 let quad = logical
                     .apply_rect(Rect {
                         x: pos.x,
@@ -1183,7 +1179,7 @@ impl Renderer for SwRenderer<'_> {
                         h: size.y,
                     })
                     .ok_or(ProjectiveDrawError::InvalidProjection)?;
-                self.dispatch_blit_quad(&quad, texture, clip, *radius, *composite);
+                self.dispatch_blit_quad(&quad, texture, clip, *radius, *opa, *composite);
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -1258,16 +1254,7 @@ impl Renderer for SwRenderer<'_> {
             | DrawCommand::Border { .. }
             | DrawCommand::GlyphRun { .. }
             | DrawCommand::PosedGlyphRun { .. } => true,
-            DrawCommand::Blit {
-                opa,
-                radius,
-                composite,
-                ..
-            } => {
-                *opa == 255
-                    && *radius == Fixed::ZERO
-                    && matches!(composite, CompositeMode::SourceOver)
-            }
+            DrawCommand::Blit { .. } => true,
             DrawCommand::Line { .. }
             | DrawCommand::Arc { .. }
             | DrawCommand::FillPath { .. }
@@ -3193,6 +3180,67 @@ mod tests {
         }
 
         assert_eq!(dst_no_radius, dst_zero_radius);
+    }
+
+    #[test]
+    fn projected_quad_blit_preserves_radius_opacity_and_composite() {
+        let src = [255u8, 0, 0, 255].repeat(16);
+        let texture = Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888);
+        let mut pixels = [0u8, 0, 255, 255].repeat(12 * 12);
+        let mut renderer =
+            SwRenderer::new(Texture::new(&mut pixels, 12, 12, ColorFormat::RGBA8888));
+        let command = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(8, 8),
+            transform: Transform::IDENTITY,
+            quad: Some([
+                Point::new(2, 2),
+                Point::new(10, 2),
+                Point::new(10, 10),
+                Point::new(2, 10),
+            ]),
+            texture: &texture,
+            opa: 128,
+            radius: Fixed::from_int(2),
+            composite: CompositeMode::Difference,
+        };
+        let clip = Rect::new(0, 0, 12, 12);
+
+        assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        let corner = renderer.target.get_pixel(2, 2);
+        let center = renderer.target.get_pixel(6, 6);
+        assert!(center.r > 0 && center.b > 0);
+        assert!(corner.r < center.r);
+        assert_eq!(renderer.target.get_pixel(0, 0), Color::rgb(0, 0, 255));
+    }
+
+    #[test]
+    fn projective_blit_accepts_effects_without_intermediate_storage() {
+        let src = [255u8, 0, 0, 255].repeat(16);
+        let texture = Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888);
+        let mut pixels = [0u8, 0, 255, 255].repeat(12 * 12);
+        let mut renderer =
+            SwRenderer::new(Texture::new(&mut pixels, 12, 12, ColorFormat::RGBA8888));
+        let command = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 128,
+            radius: Fixed::from_int(2),
+            composite: CompositeMode::Difference,
+        };
+        let clip = Rect::new(0, 0, 12, 12);
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(10), Fixed::from_int(400));
+
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            Ok(())
+        );
+        let center = renderer.target.get_pixel(6, 6);
+        assert!(center.r > 0 && center.b > 0);
     }
 
     #[test]

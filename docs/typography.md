@@ -244,7 +244,8 @@ render commands, Canvas calls, and scene replay. Construction rejects mismatched
 slice lengths without allocating.
 
 SDL GPU and Web Canvas use a `ProjectiveFallback` supplied through their
-renderer factory for projective glyphs, fills, borders, and plain blits. Its
+renderer factory for projective glyphs, fills, borders, and image blits with
+rounded corners, opacity, and composite modes. Its
 fixed RGBA storage is both the target and scratch space.
 `ProjectiveFallback::borrowed(&mut bytes)` uses a caller-owned fixed buffer;
 `ProjectiveFallback::new(bytes)` owns its buffer. Shape and image requests use

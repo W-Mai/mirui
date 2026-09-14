@@ -1,5 +1,6 @@
 use crate::types::{Color, Fixed, Fixed64, Point, Rect};
 
+use crate::render::command::CompositeMode;
 use crate::render::texture::Texture;
 
 #[cfg(feature = "perf")]
@@ -9,13 +10,26 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
     Rect::bounding_quad(q)
 }
 
-pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
+#[allow(clippy::too_many_arguments)]
+pub fn blit_quad(
+    dst: &mut Texture,
+    src: &Texture,
+    q: &[Point; 4],
+    phys_clip: Rect,
+    radius: Fixed,
+    opa: u8,
+    composite: CompositeMode,
+) {
+    if opa == 0 {
+        return;
+    }
     use super::quad_aa::{
         EdgeRowState, prepare_quad_edges, quad_pixel_coverage_row, shoelace_is_cw,
     };
     use crate::types::Transform3D;
     let cw = shoelace_is_cw(q);
     let edges = prepare_quad_edges(q, cw);
+    let corners = (radius > Fixed::ZERO).then(|| prepare_corners(q, radius));
     let src_rect = Rect::new(0, 0, src.width, src.height);
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
         return;
@@ -61,7 +75,8 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
             let edge_cx = cx;
             cx += one;
             if w.is_positive() {
-                let edge_cov = quad_pixel_coverage_row(&edges, None, edge_cx, py_f, &row);
+                let edge_cov =
+                    quad_pixel_coverage_row(&edges, corners.as_ref(), edge_cx, py_f, &row);
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
                     let sx = (big_x * inv_w).to_fixed().to_int();
@@ -73,17 +88,18 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
                             unsafe {
                                 quad_perf::BLIT_PIXELS_DRAWN += 1;
                             }
-                            let src_alpha = if edge_cov == Fixed::ONE {
+                            let alpha = if opa == 255 {
                                 c.a
                             } else {
-                                (Fixed::from_int(c.a as i32) * edge_cov).to_int() as u8
+                                ((u16::from(c.a) * u16::from(opa) + 127) / 255) as u8
+                            };
+                            let src_alpha = if edge_cov == Fixed::ONE {
+                                alpha
+                            } else {
+                                (Fixed::from_int(i32::from(alpha)) * edge_cov).to_int() as u8
                             };
                             if src_alpha > 0 {
-                                if src_alpha == 255 {
-                                    dst.set_pixel(px, py, &c);
-                                } else {
-                                    dst.blend_pixel_int(px, py, &c, src_alpha);
-                                }
+                                dst.composite_pixel_int(px, py, &c, src_alpha, composite);
                             }
                         }
                     }
