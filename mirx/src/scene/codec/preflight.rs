@@ -376,21 +376,20 @@ fn add_path(budget: &mut Budget, path: &Path) -> Result<(), VectorReadError> {
 }
 
 fn add_paint(budget: &mut Budget, paint: &Paint) -> Result<(), VectorReadError> {
-    match paint {
-        Paint::Color(_) => Ok(()),
-        Paint::LinearGradient(gradient) => add_items(
-            budget,
-            ItemKind::GradientStop,
-            gradient.stops.len(),
-            size_of::<GradientStop>(),
-        ),
-        Paint::RadialGradient(gradient) => add_items(
-            budget,
-            ItemKind::GradientStop,
-            gradient.stops.len(),
-            size_of::<GradientStop>(),
-        ),
+    let stops = match paint {
+        Paint::Color(_) => return Ok(()),
+        Paint::LinearGradient(gradient) => &gradient.stops,
+        Paint::RadialGradient(gradient) => &gradient.stops,
+    };
+    if !GradientStop::sequence_is_valid(stops) {
+        return Err(CodecError::InvalidGradientStops.into());
     }
+    add_items(
+        budget,
+        ItemKind::GradientStop,
+        stops.len(),
+        size_of::<GradientStop>(),
+    )
 }
 
 fn add_items(
@@ -763,7 +762,18 @@ impl<'a> Scanner<'a> {
         let bytes = count_usize
             .checked_mul(8)
             .ok_or(VectorReadError::SizeOverflow)?;
-        let _ = self.cursor.take(bytes)?;
+        let encoded = self.cursor.take(bytes)?;
+        if count == 0 {
+            return Err(CodecError::InvalidGradientStops.into());
+        }
+        let mut previous = Fixed::ZERO;
+        for stop in encoded.chunks_exact(8) {
+            let offset = Fixed::from_le_bytes([stop[0], stop[1], stop[2], stop[3]]);
+            if !GradientStop::offset_follows(previous, offset) {
+                return Err(CodecError::InvalidGradientStops.into());
+            }
+            previous = offset;
+        }
         self.budget
             .add_items(ItemKind::GradientStop, count, size_of::<GradientStop>())
     }
@@ -1477,5 +1487,90 @@ mod tests {
         let nonminimal = payload_from_body(&[0x40, 0x80, 0, TAG_EOF]);
         assert_eq!(Scene::preflight(&nonminimal, &PayloadLimits::HOST), Ok(()));
         assert!(Scene::decode(&nonminimal).is_ok());
+    }
+
+    #[test]
+    fn gradient_stops_fail_before_allocating_or_writing_output() {
+        let mut scene = representative_scene();
+        let gradient = scene
+            .ops
+            .iter_mut()
+            .find_map(|op| match op {
+                SceneOp::FillPath {
+                    paint: Paint::LinearGradient(gradient),
+                    ..
+                } => Some(gradient),
+                _ => None,
+            })
+            .unwrap();
+        gradient.stops = Cow::Owned(vec![
+            GradientStop {
+                offset: Fixed::ONE,
+                color: color(1),
+            },
+            GradientStop {
+                offset: Fixed::ZERO,
+                color: color(2),
+            },
+        ]);
+
+        assert_eq!(scene.encode(), Err(CodecError::InvalidGradientStops));
+        assert_eq!(
+            scene.validate_limits(&PayloadLimits::HOST),
+            Err(VectorReadError::Codec(CodecError::InvalidGradientStops))
+        );
+        let mut output = [0xa5; 512];
+        assert!(scene.encode_payload_into(&mut output).is_err());
+        assert!(output.iter().all(|byte| *byte == 0xa5));
+
+        let stop_bytes = |offsets: &[Fixed]| {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(offsets.len() as u32).to_le_bytes());
+            for offset in offsets {
+                bytes.extend_from_slice(&offset.to_le_bytes());
+                bytes.extend_from_slice(&[1, 2, 3, 4]);
+            }
+            bytes
+        };
+        for offsets in [
+            &[][..],
+            &[Fixed::from_int(-1)][..],
+            &[Fixed::from_int(2)][..],
+            &[Fixed::ONE, Fixed::ZERO][..],
+        ] {
+            let bytes = stop_bytes(offsets);
+            assert_eq!(
+                Scanner::new(&bytes, PayloadLimits::HOST).scan_gradient_stops(),
+                Err(VectorReadError::Codec(CodecError::InvalidGradientStops))
+            );
+        }
+        let valid = stop_bytes(&[Fixed::ZERO, Fixed::ZERO, Fixed::ONE]);
+        assert_eq!(
+            Scanner::new(&valid, PayloadLimits::HOST).scan_gradient_stops(),
+            Ok(())
+        );
+
+        let mut payload = representative_scene().encode().unwrap();
+        let encoded_stops = [
+            2, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 255, 0, 1, 0, 0, 2, 3, 4, 255,
+        ];
+        let offset = payload
+            .windows(encoded_stops.len())
+            .position(|window| window == encoded_stops)
+            .unwrap();
+        payload[offset + 4..offset + 8].copy_from_slice(&Fixed::from_int(2).to_le_bytes());
+        refresh_payload_crc(&mut payload);
+        assert_eq!(
+            Scene::preflight(&payload, &PayloadLimits::HOST),
+            Err(VectorReadError::Codec(CodecError::InvalidGradientStops))
+        );
+        assert_eq!(
+            Scene::decode_with_limits(&payload, &PayloadLimits::HOST),
+            Err(VectorReadError::Codec(CodecError::InvalidGradientStops))
+        );
+        assert_eq!(
+            Scene::decode(&payload),
+            Err(CodecError::InvalidGradientStops)
+        );
     }
 }

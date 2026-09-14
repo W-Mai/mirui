@@ -2,59 +2,16 @@ use alloc::vec::Vec;
 
 use crate::render::scene::SceneOp;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CodecError {
-    UnexpectedEof,
-    BadMagic,
-    UnknownVersion(u8),
-    UnknownTag(u8),
-    CrcMismatch { expected: u32, actual: u32 },
-    BadFillRule(u8),
-    BadResourceKind(u8),
-    BadUtf8,
-    UnbalancedGroup,
-    BadSkipOffset,
-    UnsupportedScale(u8),
-    UnknownFlags(u8),
-    BadComposite(u8),
-    InvalidPpem,
-    InvalidGlyphDirection,
-}
-
-impl From<mirx::scene::CodecError> for CodecError {
-    fn from(e: mirx::scene::CodecError) -> Self {
-        match e {
-            mirx::scene::CodecError::UnexpectedEof => Self::UnexpectedEof,
-            mirx::scene::CodecError::BadMagic => Self::BadMagic,
-            mirx::scene::CodecError::UnknownVersion(v) => Self::UnknownVersion(v),
-            mirx::scene::CodecError::UnknownTag(t) => Self::UnknownTag(t),
-            mirx::scene::CodecError::CrcMismatch { expected, actual } => {
-                Self::CrcMismatch { expected, actual }
-            }
-            mirx::scene::CodecError::BadFillRule(b) => Self::BadFillRule(b),
-            mirx::scene::CodecError::BadResourceKind(b) => Self::BadResourceKind(b),
-            mirx::scene::CodecError::BadUtf8 => Self::BadUtf8,
-            mirx::scene::CodecError::UnbalancedGroup => Self::UnbalancedGroup,
-            mirx::scene::CodecError::BadSkipOffset => Self::BadSkipOffset,
-            mirx::scene::CodecError::UnsupportedScale(s) => Self::UnsupportedScale(s),
-            mirx::scene::CodecError::UnknownFlags(f) => Self::UnknownFlags(f),
-            mirx::scene::CodecError::BadComposite(b) => Self::BadComposite(b),
-            mirx::scene::CodecError::InvalidPpem => Self::InvalidPpem,
-            mirx::scene::CodecError::InvalidGlyphDirection => Self::InvalidGlyphDirection,
-        }
-    }
-}
+pub use mirx::scene::CodecError;
 
 pub fn encode_scene(ops: &[SceneOp]) -> Result<Vec<u8>, CodecError> {
     let mirx_ops: alloc::vec::Vec<mirx::scene::SceneOp> =
         ops.iter().cloned().map(Into::into).collect();
-    mirx::scene::Scene::from_ops(mirx_ops)
-        .encode()
-        .map_err(Into::into)
+    mirx::scene::Scene::from_ops(mirx_ops).encode()
 }
 
 pub fn decode_scene(payload: &[u8]) -> Result<Vec<SceneOp>, CodecError> {
-    let scene = mirx::scene::Scene::decode(payload).map_err(CodecError::from)?;
+    let scene = mirx::scene::Scene::decode(payload)?;
     Ok(scene.ops.into_iter().map(Into::into).collect())
 }
 

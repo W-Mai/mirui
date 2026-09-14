@@ -19,6 +19,8 @@ VECTOR payload
 
 All integers are little-endian. Operations are byte-packed and may begin at any address; readers assemble scalar values from bytes instead of performing aligned loads. Container-level chunk alignment controls the physical payload address when a target requires a stronger flash or DMA contract.
 
+Gradient paints carry a nonempty stop list with Q24.8 offsets in `0..=1`. Offsets are nondecreasing; equal offsets define a hard color boundary. VECTOR preflight checks the encoded sequence before allocating decoded scene data, and scene encoders reject invalid lists before returning bytes or modifying caller output.
+
 ## Text geometry
 
 Linear and posed text use separate operation tags and fixed record layouts. A run selects one layout for every glyph, so no per-glyph kind byte is stored.

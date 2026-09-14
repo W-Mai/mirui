@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **VECTOR gradient stops.** Encoding, preflight, and decoding reject empty, descending, or out-of-range stop sequences before publishing output; software sampling uses the same validity rule.
 - **Projective animation edge-on frames.** Image Flip, Flip Card, and Book Flip avoid singular zero-width projection frames during rotation.
 - **Web Canvas image quads.** Rounded, composited, and perspective image quads use the configured bounded fallback instead of being rejected by the affine Canvas path.
 - **SDL GPU image composites.** Rounded, non-native composite, affine-transformed, and perspective-quad image blits use the configured bounded fallback; ordinary image uploads remain native.

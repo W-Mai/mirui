@@ -977,7 +977,10 @@ mod tests {
                     paint: Paint::LinearGradient(LinearGradient {
                         start: Point::ZERO,
                         end: point(1, 1),
-                        stops: Cow::Borrowed(&[]),
+                        stops: Cow::Owned(vec![GradientStop {
+                            offset: Fixed::ZERO,
+                            color: color(1),
+                        }]),
                         spread,
                         units,
                         transform: Transform::IDENTITY,

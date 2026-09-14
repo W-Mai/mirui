@@ -123,6 +123,7 @@ pub enum CodecError {
     UnsupportedScale(u8),
     UnknownFlags(u8),
     BadComposite(u8),
+    InvalidGradientStops,
     InvalidPpem,
     InvalidGlyphDirection,
 }
@@ -393,23 +394,40 @@ fn read_gradient_stops_with<A: DecodeAllocator>(
     allocator: &mut A,
 ) -> Result<Vec<GradientStop>, A::Error> {
     let count = r.u32()? as usize;
+    if count == 0 {
+        return Err(CodecError::InvalidGradientStops.into());
+    }
+    let encoded_len = count.checked_mul(8).ok_or(CodecError::UnexpectedEof)?;
+    let encoded = r.take(encoded_len)?;
+    let mut previous = Fixed::ZERO;
+    for stop in encoded.chunks_exact(8) {
+        let offset = Fixed::from_le_bytes([stop[0], stop[1], stop[2], stop[3]]);
+        if !GradientStop::offset_follows(previous, offset) {
+            return Err(CodecError::InvalidGradientStops.into());
+        }
+        previous = offset;
+    }
     let mut stops = Vec::new();
     allocator.reserve(&mut stops, count)?;
-    for _ in 0..count {
-        let offset = r.fixed()?;
-        let color = r.color()?;
-        stops.push(GradientStop { offset, color });
+    for stop in encoded.chunks_exact(8) {
+        stops.push(GradientStop {
+            offset: Fixed::from_le_bytes([stop[0], stop[1], stop[2], stop[3]]),
+            color: Color::rgba(stop[4], stop[5], stop[6], stop[7]),
+        });
     }
     Ok(stops)
 }
 
-fn write_paint<W: ByteSink>(out: &mut W, paint: &Paint) {
+fn write_paint<W: ByteSink>(out: &mut W, paint: &Paint) -> Result<(), CodecError> {
     match paint {
         Paint::Color(c) => {
             out.push(PAINT_KIND_COLOR);
             write_color(out, *c);
         }
         Paint::LinearGradient(g) => {
+            if !GradientStop::sequence_is_valid(&g.stops) {
+                return Err(CodecError::InvalidGradientStops);
+            }
             out.push(PAINT_KIND_LINEAR);
             write_point(out, g.start);
             write_point(out, g.end);
@@ -419,6 +437,9 @@ fn write_paint<W: ByteSink>(out: &mut W, paint: &Paint) {
             write_transform(out, g.transform);
         }
         Paint::RadialGradient(g) => {
+            if !GradientStop::sequence_is_valid(&g.stops) {
+                return Err(CodecError::InvalidGradientStops);
+            }
             out.push(PAINT_KIND_RADIAL);
             write_point(out, g.center);
             write_fixed(out, g.radius);
@@ -430,6 +451,7 @@ fn write_paint<W: ByteSink>(out: &mut W, paint: &Paint) {
             write_transform(out, g.transform);
         }
     }
+    Ok(())
 }
 
 fn read_paint_with<A: DecodeAllocator>(
@@ -663,7 +685,7 @@ pub(super) fn write_op<W: ByteSink>(out: &mut W, op: &SceneOp) -> Result<(), Cod
             };
             out.push(bits);
             write_path(out, &path.cmds);
-            write_paint(out, paint);
+            write_paint(out, paint)?;
             out.push(*opa);
             out.push(fill_rule_to_u8(*fill_rule));
             if bits & FIELD_TRANSFORM != 0 {
@@ -690,7 +712,7 @@ pub(super) fn write_op<W: ByteSink>(out: &mut W, op: &SceneOp) -> Result<(), Cod
             };
             out.push(bits);
             write_path(out, &path.cmds);
-            write_paint(out, paint);
+            write_paint(out, paint)?;
             write_fixed(out, *width);
             out.push(*opa);
             out.push(line_cap_to_u8(*line_cap));

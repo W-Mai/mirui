@@ -129,7 +129,7 @@ pub(super) struct LinearPaint<'a> {
 
 impl<'a> LinearPaint<'a> {
     pub(super) fn new(gradient: &'a LinearGradient, draw: Transform, bbox: Rect) -> Option<Self> {
-        if !valid_stops(&gradient.stops) {
+        if !GradientStop::sequence_is_valid(&gradient.stops) {
             return None;
         }
         let inverse = Affine::for_paint(draw, bbox, gradient.units, gradient.transform)?;
@@ -178,7 +178,7 @@ pub(super) struct RadialPaint<'a> {
 
 impl<'a> RadialPaint<'a> {
     fn new(gradient: &'a RadialGradient, draw: Transform, bbox: Rect) -> Option<Self> {
-        if !valid_stops(&gradient.stops) {
+        if !GradientStop::sequence_is_valid(&gradient.stops) {
             return None;
         }
         let inverse = Affine::for_paint(draw, bbox, gradient.units, gradient.transform)?;
@@ -257,20 +257,6 @@ impl<'a> RadialPaint<'a> {
         };
         sample_stops(self.stops, spread(t, self.spread))
     }
-}
-
-pub(crate) fn valid_stops(stops: &[GradientStop]) -> bool {
-    let mut previous = mirx::types::Fixed::ZERO;
-    if stops.is_empty() {
-        return false;
-    }
-    for stop in stops {
-        if stop.offset < previous || stop.offset > mirx::types::Fixed::ONE {
-            return false;
-        }
-        previous = stop.offset;
-    }
-    true
 }
 
 fn spread(t: Fixed64, mode: SpreadMode) -> Fixed64 {
@@ -415,10 +401,12 @@ mod tests {
                 color: mirx::types::Color::rgb(255, 255, 255),
             },
         ];
-        assert!(valid_stops(&stops));
+        assert!(GradientStop::sequence_is_valid(&stops));
         assert_eq!(sample_stops(&stops, Fixed64::from_ratio(1, 2)).b, 255);
-        assert!(!valid_stops(&[]));
-        assert!(!valid_stops(&[stops[2], stops[1], stops[0]]));
+        assert!(!GradientStop::sequence_is_valid(&[]));
+        assert!(!GradientStop::sequence_is_valid(&[
+            stops[2], stops[1], stops[0]
+        ]));
     }
 
     #[test]
