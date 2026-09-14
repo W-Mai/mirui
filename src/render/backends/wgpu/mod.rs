@@ -12,7 +12,7 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::font::Font;
 use crate::render::path::Path;
-use crate::render::raster::FillRule;
+use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
 use crate::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
@@ -79,6 +79,7 @@ fn glyph_uniform(color: Color, opacity: u8, spread: u16, transform: Transform3D)
 pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
     tessellator: PathTessellator,
+    stroke_scratch: StrokeScratch,
     texture_pool: TexturePool,
     scalar_surface_pool: ScalarSurfacePool,
     scalar_samples: alloc::vec::Vec<u8>,
@@ -94,6 +95,7 @@ impl WgpuRendererFactory {
         Self {
             cache: None,
             tessellator: PathTessellator::new(),
+            stroke_scratch: StrokeScratch::new(),
             texture_pool: new_pool(),
             scalar_surface_pool: new_scalar_surface_pool(),
             scalar_samples: alloc::vec::Vec::new(),
@@ -435,8 +437,10 @@ impl WgpuRenderer<'_> {
             DrawCommand::ApplyBlur { .. } => {
                 return Err(RenderError::Unsupported(RenderFeature::Blur));
             }
-            DrawCommand::StrokePath { .. } => {
-                return Err(RenderError::Unsupported(RenderFeature::PathStroke));
+            DrawCommand::StrokePath { paint, .. } => {
+                if !matches!(paint, Paint::Color(_)) {
+                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
+                }
             }
             DrawCommand::FillPath {
                 paint, fill_rule, ..
@@ -483,7 +487,8 @@ impl WgpuRenderer<'_> {
             | DrawCommand::Blit { quad, .. } => quad.is_some(),
             DrawCommand::GlyphRun { .. }
             | DrawCommand::PosedGlyphRun { .. }
-            | DrawCommand::FillPath { .. } => true,
+            | DrawCommand::FillPath { .. }
+            | DrawCommand::StrokePath { .. } => true,
             _ => false,
         };
         if !supports_affine
@@ -1043,11 +1048,10 @@ impl WgpuRenderer<'_> {
         opa: u8,
     ) {
         let color = paint_color(paint);
-        let (verts, indices) = {
-            let (v, i) = self.factory.tessellator.fill(path, Some(cmd_tf));
-            (v.to_vec(), i.to_vec())
-        };
-        self.draw_path_mesh(&verts, &indices, clip, &color, opa);
+        self.factory.tessellator.fill(path, Some(cmd_tf));
+        let mesh = self.factory.tessellator.take_mesh();
+        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &color, opa);
+        self.factory.tessellator.restore_mesh(mesh);
     }
 }
 
@@ -1166,11 +1170,10 @@ fn wgpu_readback_rgba8(
 
 impl WgpuRenderer<'_> {
     fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        let (verts, indices) = {
-            let (v, i) = self.factory.tessellator.fill(path, None);
-            (v.to_vec(), i.to_vec())
-        };
-        self.draw_path_mesh(&verts, &indices, clip, color, opa);
+        self.factory.tessellator.fill(path, None);
+        let mesh = self.factory.tessellator.take_mesh();
+        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
+        self.factory.tessellator.restore_mesh(mesh);
     }
 
     fn stroke_path_inner(
@@ -1181,14 +1184,40 @@ impl WgpuRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        let (verts, indices) = {
-            let (v, i) = self
-                .factory
-                .tessellator
-                .stroke(path, None, width.to_f32().max(1.0));
-            (v.to_vec(), i.to_vec())
-        };
-        self.draw_path_mesh(&verts, &indices, clip, color, opa);
+        self.stroke_path_styled_inner(
+            path,
+            clip,
+            None,
+            StrokeSpec {
+                width,
+                cap: crate::render::raster::LineCap::Butt,
+                join: crate::render::raster::LineJoin::Miter,
+                miter_limit: Fixed::from_int(4),
+                dash: &[],
+                dash_scale: Fixed::ONE,
+            },
+            color,
+            opa,
+        );
+    }
+
+    fn stroke_path_styled_inner(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        transform: Option<&Transform>,
+        spec: StrokeSpec<'_>,
+        color: &Color,
+        opa: u8,
+    ) {
+        if spec.width <= Fixed::ZERO || opa == 0 {
+            return;
+        }
+        let outline = self.factory.stroke_scratch.outline(path, transform, spec);
+        self.factory.tessellator.fill(outline, None);
+        let mesh = self.factory.tessellator.take_mesh();
+        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
+        self.factory.tessellator.restore_mesh(mesh);
     }
 
     fn draw_path_mesh(
@@ -2032,6 +2061,105 @@ mod route_tests {
     use mirx::scene::{GradientUnits, LinearGradient, SpreadMode};
 
     #[test]
+    fn solid_stroke_with_full_style_has_a_native_route() {
+        let path = Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(16),
+            Fixed::from_int(12),
+        );
+        let paint = Paint::Color(Color::rgb(20, 30, 40).into());
+        let dash = [Fixed::from_int(3), Fixed::from_int(2)];
+        let stroke = DrawCommand::StrokePath {
+            path: &path,
+            transform: Transform::rotate_deg(Fixed::from_int(20)),
+            paint: &paint,
+            width: Fixed::from_int(2),
+            opa: 255,
+            line_cap: crate::render::raster::LineCap::Round,
+            line_join: crate::render::raster::LineJoin::Bevel,
+            miter_limit: Fixed::from_int(4),
+            dash: &dash,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&stroke, Rect::new(0, 0, 32, 32),)),
+            Ok(RenderRoute::Native)
+        );
+    }
+
+    #[test]
+    fn shared_stroke_mesh_keeps_round_caps_inside_local_bounds() {
+        let mut path = Path::new();
+        path.move_to(Point::new(0, 0)).line_to(Point::new(40, 0));
+        let mut scratch = StrokeScratch::new();
+        let outline = scratch.outline(
+            &path,
+            None,
+            StrokeSpec {
+                width: Fixed::from_int(8),
+                cap: crate::render::raster::LineCap::Round,
+                join: crate::render::raster::LineJoin::Round,
+                miter_limit: Fixed::from_int(4),
+                dash: &[],
+                dash_scale: Fixed::ONE,
+            },
+        );
+        let mut tessellator = PathTessellator::new();
+        let (vertices, indices) = tessellator.fill(outline, None);
+        assert!(!indices.is_empty());
+        assert!(
+            vertices.iter().all(|point| {
+                (-8.0..=48.0).contains(&point.x) && (-8.0..=8.0).contains(&point.y)
+            })
+        );
+    }
+
+    #[test]
+    fn shared_stroke_mesh_keeps_the_center_of_a_closed_path_empty() {
+        let path = Path::rect(
+            Fixed::from_int(10),
+            Fixed::from_int(10),
+            Fixed::from_int(30),
+            Fixed::from_int(20),
+        );
+        let mut scratch = StrokeScratch::new();
+        let outline = scratch.outline(
+            &path,
+            None,
+            StrokeSpec {
+                width: Fixed::from_int(4),
+                cap: crate::render::raster::LineCap::Butt,
+                join: crate::render::raster::LineJoin::Miter,
+                miter_limit: Fixed::from_int(4),
+                dash: &[],
+                dash_scale: Fixed::ONE,
+            },
+        );
+        let mut tessellator = PathTessellator::new();
+        let (vertices, indices) = tessellator.fill(outline, None);
+        let covers = |x: f32, y: f32| {
+            indices.chunks_exact(3).any(|triangle| {
+                let points = [
+                    vertices[triangle[0] as usize],
+                    vertices[triangle[1] as usize],
+                    vertices[triangle[2] as usize],
+                ];
+                let edge = |a: lyon::math::Point, b: lyon::math::Point| {
+                    (x - a.x) * (b.y - a.y) - (y - a.y) * (b.x - a.x)
+                };
+                let signs = [
+                    edge(points[0], points[1]),
+                    edge(points[1], points[2]),
+                    edge(points[2], points[0]),
+                ];
+                signs.iter().all(|value| *value >= 0.0) || signs.iter().all(|value| *value <= 0.0)
+            })
+        };
+        assert!(covers(10.0, 20.0));
+        assert!(!covers(25.0, 20.0));
+    }
+
+    #[test]
     fn rejects_commands_that_current_gpu_dispatch_ignores_or_reduces() {
         let clip = Rect::new(0, 0, 32, 32);
         let path = Path::new();
@@ -2817,8 +2945,34 @@ impl Renderer for WgpuRenderer<'_> {
                 self.fill_path_transformed_inner(path, clip, transform, paint, *opa);
                 return;
             }
-            DrawCommand::StrokePath { .. } => {
-                unimplemented!("wgpu backend: StrokePath not yet implemented");
+            DrawCommand::StrokePath {
+                path,
+                transform,
+                paint,
+                width,
+                opa,
+                line_cap,
+                line_join,
+                miter_limit,
+                dash,
+            } => {
+                let color = paint_color(paint);
+                self.stroke_path_styled_inner(
+                    path,
+                    clip,
+                    Some(transform),
+                    StrokeSpec {
+                        width: *width,
+                        cap: *line_cap,
+                        join: *line_join,
+                        miter_limit: *miter_limit,
+                        dash,
+                        dash_scale: Fixed::ONE,
+                    },
+                    &color,
+                    *opa,
+                );
+                return;
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -2962,20 +3116,7 @@ impl Renderer for WgpuRenderer<'_> {
                     self.fill_path_transformed_inner(path, clip, &translate, paint, *opa);
                 }
             }
-            DrawCommand::StrokePath {
-                path,
-                width,
-                paint,
-                opa,
-                ..
-            } => {
-                let color = paint_color(paint);
-                if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.stroke_path_inner(path, clip, *width, &color, *opa);
-                } else {
-                    unimplemented!("wgpu backend: StrokePath under translate not yet implemented");
-                }
-            }
+            DrawCommand::StrokePath { .. } => unreachable!("stroke path returns before dispatch"),
             DrawCommand::GlyphRun { .. } | DrawCommand::PosedGlyphRun { .. } => {
                 unreachable!("glyph runs return before transform dispatch")
             }
@@ -3235,13 +3376,27 @@ impl Canvas for WgpuRenderer<'_> {
         width: Fixed,
         paint: &Paint,
         opa: u8,
-        _cap: crate::render::raster::LineCap,
-        _join: crate::render::raster::LineJoin,
-        _miter_limit: Fixed,
-        _dash: &[Fixed],
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+        dash: &[Fixed],
     ) {
         let color = paint_color(paint);
-        self.stroke_path_inner(path, clip, width, &color, opa);
+        self.stroke_path_styled_inner(
+            path,
+            clip,
+            None,
+            StrokeSpec {
+                width,
+                cap,
+                join,
+                miter_limit,
+                dash,
+                dash_scale: Fixed::ONE,
+            },
+            &color,
+            opa,
+        );
     }
 
     fn blit(

@@ -9,15 +9,15 @@
 
 use alloc::vec::Vec;
 
-use lyon::math::{Point as LyonPoint, point as lyon_point};
-use lyon::path::Path as LyonPath;
+use lyon::math::Point as LyonPoint;
 use lyon::tessellation::{
     BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
     StrokeVertex, VertexBuffers,
 };
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
 
-use crate::render::path::{Path, PathCmd};
+use crate::render::backends::lyon_path::to_lyon_path;
+use crate::render::path::Path;
 use crate::types::{Color, Transform};
 
 /// Holds reusable tessellators and output buffers so path commands don't
@@ -102,63 +102,4 @@ impl Default for TessellationCache {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn to_lyon_path(path: &Path, transform: Option<&Transform>) -> LyonPath {
-    let mut builder = LyonPath::builder();
-    let mut subpath_open = false;
-
-    let p = |pt: crate::types::Point| -> LyonPoint {
-        let pt = match transform {
-            Some(tf) => tf.apply_point(pt),
-            None => pt,
-        };
-        lyon_point(pt.x.to_f32(), pt.y.to_f32())
-    };
-
-    for cmd in path.cmds.iter() {
-        match cmd {
-            PathCmd::MoveTo(pt) => {
-                if subpath_open {
-                    builder.end(false);
-                }
-                builder.begin(p(*pt));
-                subpath_open = true;
-            }
-            PathCmd::LineTo(pt) => {
-                if !subpath_open {
-                    builder.begin(p(*pt));
-                    subpath_open = true;
-                    continue;
-                }
-                builder.line_to(p(*pt));
-            }
-            PathCmd::QuadTo { ctrl, end } => {
-                if !subpath_open {
-                    builder.begin(p(*end));
-                    subpath_open = true;
-                    continue;
-                }
-                builder.quadratic_bezier_to(p(*ctrl), p(*end));
-            }
-            PathCmd::CubicTo { ctrl1, ctrl2, end } => {
-                if !subpath_open {
-                    builder.begin(p(*end));
-                    subpath_open = true;
-                    continue;
-                }
-                builder.cubic_bezier_to(p(*ctrl1), p(*ctrl2), p(*end));
-            }
-            PathCmd::Close => {
-                if subpath_open {
-                    builder.end(true);
-                    subpath_open = false;
-                }
-            }
-        }
-    }
-    if subpath_open {
-        builder.end(false);
-    }
-    builder.build()
 }

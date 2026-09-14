@@ -31,7 +31,7 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
-use crate::render::raster::FillRule;
+use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
 use crate::render::renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
 };
@@ -405,18 +405,21 @@ impl InspectCaches for SdlGpuSurface {
 
 pub struct SdlGpuFactory<S = Box<[u8]>> {
     projective_fallback: Option<ProjectiveFallback<S>>,
+    stroke_scratch: StrokeScratch,
 }
 
 impl SdlGpuFactory<Box<[u8]>> {
     pub fn new() -> Self {
         Self {
             projective_fallback: None,
+            stroke_scratch: StrokeScratch::new(),
         }
     }
 
     pub fn with_projective_fallback<S>(self, fallback: ProjectiveFallback<S>) -> SdlGpuFactory<S> {
         SdlGpuFactory {
             projective_fallback: Some(fallback),
+            stroke_scratch: self.stroke_scratch,
         }
     }
 }
@@ -445,6 +448,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             label_cache,
             tessellator,
             projective_fallback: self.projective_fallback.as_mut(),
+            stroke_scratch: &mut self.stroke_scratch,
             viewport,
         }
     }
@@ -455,6 +459,7 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
     projective_fallback: Option<&'a mut ProjectiveFallback<S>>,
+    stroke_scratch: &'a mut StrokeScratch,
     viewport: Viewport,
 }
 
@@ -584,8 +589,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             DrawCommand::ApplyBlur { .. } => {
                 return Err(RenderError::Unsupported(RenderFeature::Blur));
             }
-            DrawCommand::StrokePath { .. } => {
-                return Err(RenderError::Unsupported(RenderFeature::PathStroke));
+            DrawCommand::StrokePath { paint, .. } => {
+                if !matches!(paint, Paint::Color(_)) {
+                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
+                }
             }
             DrawCommand::FillPath {
                 paint, fill_rule, ..
@@ -636,6 +643,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             | DrawCommand::Border { quad, .. }
             | DrawCommand::Blit { quad, .. } => quad.is_some(),
             DrawCommand::FillPath { .. }
+            | DrawCommand::StrokePath { .. }
             | DrawCommand::GlyphRun { .. }
             | DrawCommand::PosedGlyphRun { .. } => true,
             _ => false,
@@ -655,6 +663,36 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 #[cfg(test)]
 mod route_tests {
     use super::*;
+
+    #[test]
+    fn solid_stroke_with_full_style_has_a_native_route() {
+        let path = Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(16),
+            Fixed::from_int(12),
+        );
+        let paint = Paint::Color(Color::rgb(20, 30, 40).into());
+        let dash = [Fixed::from_int(3), Fixed::from_int(2)];
+        let stroke = DrawCommand::StrokePath {
+            path: &path,
+            transform: Transform::rotate_deg(Fixed::from_int(20)),
+            paint: &paint,
+            width: Fixed::from_int(2),
+            opa: 255,
+            line_cap: crate::render::raster::LineCap::Round,
+            line_join: crate::render::raster::LineJoin::Bevel,
+            miter_limit: Fixed::from_int(4),
+            dash: &dash,
+        };
+        assert_eq!(
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(
+                &stroke,
+                Rect::new(0, 0, 32, 32),
+            )),
+            Ok(())
+        );
+    }
 
     #[test]
     fn borrowed_fallback_factory_keeps_the_caller_budget() {
@@ -876,8 +914,34 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                 });
                 return;
             }
-            DrawCommand::StrokePath { .. } => {
-                unimplemented!("sdl_gpu backend: StrokePath not yet implemented");
+            DrawCommand::StrokePath {
+                path,
+                transform,
+                paint,
+                width,
+                opa,
+                line_cap,
+                line_join,
+                miter_limit,
+                dash,
+            } => {
+                let color = paint_color(paint);
+                self.stroke_path_styled_inner(
+                    path,
+                    clip,
+                    transform,
+                    StrokeSpec {
+                        width: *width,
+                        cap: *line_cap,
+                        join: *line_join,
+                        miter_limit: *miter_limit,
+                        dash,
+                        dash_scale: Fixed::ONE,
+                    },
+                    &color,
+                    *opa,
+                );
+                return;
             }
             _ => {}
         }
@@ -990,9 +1054,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                     self.fill_path_transformed_inner(path, clip, &translate, &color, *opa);
                 }
             }
-            DrawCommand::StrokePath { .. } => {
-                unimplemented!("sdl_gpu backend: StrokePath not yet implemented");
-            }
+            DrawCommand::StrokePath { .. } => unreachable!("stroke path returns before dispatch"),
         }
     }
 
@@ -1233,13 +1295,27 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         width: Fixed,
         paint: &Paint,
         opa: u8,
-        _cap: crate::render::raster::LineCap,
-        _join: crate::render::raster::LineJoin,
-        _miter_limit: Fixed,
-        _dash: &[Fixed],
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+        dash: &[Fixed],
     ) {
         let color = paint_color(paint);
-        self.stroke_path_inner(path, clip, width, &color, opa);
+        self.stroke_path_styled_inner(
+            path,
+            clip,
+            &Transform::IDENTITY,
+            StrokeSpec {
+                width,
+                cap,
+                join,
+                miter_limit,
+                dash,
+                dash_scale: Fixed::ONE,
+            },
+            &color,
+            opa,
+        );
     }
 
     fn blit(

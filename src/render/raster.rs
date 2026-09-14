@@ -36,6 +36,83 @@ pub struct SubPath {
     pub closed: bool,
 }
 
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+pub(crate) struct StrokeSpec<'a> {
+    pub width: Fixed,
+    pub cap: LineCap,
+    pub join: LineJoin,
+    pub miter_limit: Fixed,
+    pub dash: &'a [Fixed],
+    pub dash_scale: Fixed,
+}
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+pub(crate) struct StrokeScratch {
+    outline: Path,
+    flattened: Vec<LineSeg>,
+    subpaths: Vec<SubPath>,
+    normals: Vec<Point>,
+    rail: Vec<Point>,
+    left_rail: Vec<Point>,
+    arc: Vec<Point>,
+    dashed: Vec<LineSeg>,
+    dash_subpaths: Vec<SubPath>,
+    dash_lengths: Vec<Fixed>,
+}
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+impl StrokeScratch {
+    pub fn new() -> Self {
+        Self {
+            outline: Path::new(),
+            flattened: Vec::new(),
+            subpaths: Vec::new(),
+            normals: Vec::new(),
+            rail: Vec::new(),
+            left_rail: Vec::new(),
+            arc: Vec::new(),
+            dashed: Vec::new(),
+            dash_subpaths: Vec::new(),
+            dash_lengths: Vec::new(),
+        }
+    }
+
+    pub fn outline(
+        &mut self,
+        path: &Path,
+        transform: Option<&Transform>,
+        spec: StrokeSpec<'_>,
+    ) -> &Path {
+        self.dash_lengths.clear();
+        let dash = if spec.dash_scale == Fixed::ONE {
+            spec.dash
+        } else {
+            self.dash_lengths
+                .extend(spec.dash.iter().map(|length| *length * spec.dash_scale));
+            &self.dash_lengths
+        };
+        offset_polygon_into(
+            &path.cmds,
+            transform,
+            spec.width,
+            spec.cap,
+            spec.join,
+            spec.miter_limit,
+            (!dash.is_empty()).then_some(dash),
+            &mut self.outline,
+            &mut self.flattened,
+            &mut self.subpaths,
+            &mut self.normals,
+            &mut self.rail,
+            &mut self.left_rail,
+            &mut self.arc,
+            &mut self.dashed,
+            &mut self.dash_subpaths,
+        );
+        &self.outline
+    }
+}
+
 /// Subdivision step counts. Chosen to keep a single control-point radius
 /// visually smooth on 128×128 screens; larger paths may show facets but UI
 /// radii are small.
@@ -1252,6 +1329,33 @@ mod tests {
         assert_eq!(subs.len(), 2);
         assert!(subs[0].closed);
         assert!(!subs[1].closed);
+    }
+
+    #[test]
+    fn shared_stroke_scratch_scales_dash_lengths_with_output_pixels() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).line_to(pt(40, 0));
+        let mut scratch = StrokeScratch::new();
+        let dash = [Fixed::from_int(5), Fixed::from_int(5)];
+        let spec = |dash_scale| StrokeSpec {
+            width: Fixed::from_int(2),
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            miter_limit: Fixed::from_int(4),
+            dash: &dash,
+            dash_scale,
+        };
+        let contours = |path: &Path| {
+            path.cmds
+                .iter()
+                .filter(|cmd| matches!(cmd, PathCmd::MoveTo(_)))
+                .count()
+        };
+        assert_eq!(contours(scratch.outline(&path, None, spec(Fixed::ONE))), 4);
+        assert_eq!(
+            contours(scratch.outline(&path, None, spec(Fixed::from_int(2)))),
+            2
+        );
     }
 
     #[test]

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GPU path strokes.** WGPU and SDL GPU use the shared fixed-point stroke outline for cap, join, miter and dash geometry; WGPU path meshes reuse tessellation storage.
 - **WGPU uniform arena rollover.** Completed render passes are submitted before dynamic uniform offsets are reused, preserving draws beyond the fixed arena capacity.
 - **WGPU projected fills.** Projective quad vertices use their own 20-byte layout, keeping animated Flip Card geometry within the card bounds.
 - **Software path strokes.** Open stroke contours join matching rail endpoints, square and round caps extend outward, and dashed closed paths do not repeat an edge at the seam.
