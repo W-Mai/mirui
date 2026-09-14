@@ -335,6 +335,94 @@ struct PosedGlyphRunDraw<'a> {
 }
 
 impl WgpuRenderer<'_> {
+    fn draw_projective_validated(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        projective: &Transform3D,
+    ) -> Result<(), crate::render::ProjectiveDrawError> {
+        use crate::render::ProjectiveDrawError;
+
+        let transform = projective.compose(&Transform3D::from_affine(cmd.transform()));
+        match cmd {
+            DrawCommand::Fill {
+                area,
+                color,
+                radius,
+                opa,
+                ..
+            } => {
+                let quad = transform
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
+                self.fill_quad_inner(area, &quad, *radius, clip, color, *opa);
+            }
+            DrawCommand::Border {
+                area,
+                width,
+                radius,
+                color,
+                opa,
+                ..
+            } => {
+                let quad = transform
+                    .apply_rect(*area)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
+                self.stroke_quad_inner(area, &quad, *width, *radius, clip, color, *opa);
+            }
+            DrawCommand::Blit {
+                pos,
+                size,
+                texture,
+                opa,
+                radius,
+                composite,
+                ..
+            } if *radius == Fixed::ZERO => {
+                let quad = transform
+                    .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
+                self.blit_quad_inner(texture, &quad, clip, *opa, *composite);
+            }
+            DrawCommand::GlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => self.draw_glyph_run_inner(GlyphRunDraw {
+                pos,
+                glyphs,
+                font,
+                transform,
+                clip,
+                color,
+                opacity: *opa,
+                projective: *projective,
+            }),
+            DrawCommand::PosedGlyphRun {
+                pos,
+                transform,
+                glyphs,
+                font,
+                color,
+                opa,
+            } => self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
+                pos,
+                glyphs: *glyphs,
+                font,
+                transform,
+                clip,
+                color,
+                opacity: *opa,
+                projective: *projective,
+            }),
+            _ => return Err(ProjectiveDrawError::Unsupported),
+        }
+        Ok(())
+    }
+
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         use crate::types::TransformClass;
 
@@ -2593,6 +2681,19 @@ impl Renderer for WgpuRenderer<'_> {
         Ok(route)
     }
 
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        request.validate_projection()?;
+        Self::classify_request(request)?;
+        if request.projective.is_identity() {
+            self.draw(request.command, &request.clip);
+            return Ok(());
+        }
+        self.preflight_projective(request.command, &request.clip, &request.projective)
+            .map_err(RenderError::from)?;
+        self.draw_projective_validated(request.command, &request.clip, &request.projective)
+            .map_err(RenderError::from)
+    }
+
     fn output_scale(&self) -> Fixed {
         self.viewport.scale()
     }
@@ -2828,91 +2929,12 @@ impl Renderer for WgpuRenderer<'_> {
         clip: &Rect,
         projective: &Transform3D,
     ) -> Result<(), crate::render::ProjectiveDrawError> {
-        use crate::render::ProjectiveDrawError;
-
         self.preflight_projective(cmd, clip, projective)?;
         if projective.is_identity() {
             self.draw(cmd, clip);
             return Ok(());
         }
-        let transform = projective.compose(&Transform3D::from_affine(cmd.transform()));
-        match cmd {
-            DrawCommand::Fill {
-                area,
-                color,
-                radius,
-                opa,
-                ..
-            } => {
-                let quad = transform
-                    .apply_rect(*area)
-                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
-                self.fill_quad_inner(area, &quad, *radius, clip, color, *opa);
-            }
-            DrawCommand::Border {
-                area,
-                width,
-                radius,
-                color,
-                opa,
-                ..
-            } => {
-                let quad = transform
-                    .apply_rect(*area)
-                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
-                self.stroke_quad_inner(area, &quad, *width, *radius, clip, color, *opa);
-            }
-            DrawCommand::Blit {
-                pos,
-                size,
-                texture,
-                opa,
-                radius,
-                composite,
-                ..
-            } if *radius == Fixed::ZERO => {
-                let quad = transform
-                    .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
-                    .ok_or(ProjectiveDrawError::InvalidProjection)?;
-                self.blit_quad_inner(texture, &quad, clip, *opa, *composite);
-            }
-            DrawCommand::GlyphRun {
-                pos,
-                transform,
-                glyphs,
-                font,
-                color,
-                opa,
-            } => self.draw_glyph_run_inner(GlyphRunDraw {
-                pos,
-                glyphs,
-                font,
-                transform,
-                clip,
-                color,
-                opacity: *opa,
-                projective: *projective,
-            }),
-            DrawCommand::PosedGlyphRun {
-                pos,
-                transform,
-                glyphs,
-                font,
-                color,
-                opa,
-            } => self.draw_posed_glyph_run_inner(PosedGlyphRunDraw {
-                pos,
-                glyphs: *glyphs,
-                font,
-                transform,
-                clip,
-                color,
-                opacity: *opa,
-                projective: *projective,
-            }),
-            _ => return Err(ProjectiveDrawError::Unsupported),
-        }
-        Ok(())
+        self.draw_projective_validated(cmd, clip, projective)
     }
 
     fn preflight_projective(
