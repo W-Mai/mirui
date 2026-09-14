@@ -1,4 +1,4 @@
-use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
+use mirx::scene::{GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode};
 
 use crate::types::{Color, Fixed, Fixed64, Rect, Transform};
 
@@ -79,6 +79,44 @@ impl Affine {
             ty: (self.m10.mul_wide(self.tx) - self.m00.mul_wide(self.ty)).div_wide(det),
         })
     }
+
+    fn for_paint(
+        draw: Transform,
+        bbox: Rect,
+        units: GradientUnits,
+        paint: mirx::types::Transform,
+    ) -> Option<Self> {
+        Self::from_draw(draw)
+            .compose(Self::from_bbox(bbox, units)?)
+            .compose(Self::from_paint(paint))
+            .inverse()
+    }
+}
+
+pub(super) enum GradientPaint<'a> {
+    Linear(LinearPaint<'a>),
+    Radial(RadialPaint<'a>),
+}
+
+impl<'a> GradientPaint<'a> {
+    pub(super) fn new(paint: &'a Paint, draw: Transform, bbox: Rect) -> Option<Self> {
+        match paint {
+            Paint::Color(_) => None,
+            Paint::LinearGradient(gradient) => {
+                Some(Self::Linear(LinearPaint::new(gradient, draw, bbox)?))
+            }
+            Paint::RadialGradient(gradient) => {
+                Some(Self::Radial(RadialPaint::new(gradient, draw, bbox)?))
+            }
+        }
+    }
+
+    pub(super) fn sample(&self, px: i32, py: i32) -> Color {
+        match self {
+            Self::Linear(paint) => paint.sample(px, py),
+            Self::Radial(paint) => paint.sample(px, py),
+        }
+    }
 }
 
 pub(super) struct LinearPaint<'a> {
@@ -94,11 +132,7 @@ impl<'a> LinearPaint<'a> {
         if !valid_stops(&gradient.stops) {
             return None;
         }
-        let units = Affine::from_bbox(bbox, gradient.units)?;
-        let forward = Affine::from_draw(draw)
-            .compose(units)
-            .compose(Affine::from_paint(gradient.transform));
-        let inverse = forward.inverse()?;
+        let inverse = Affine::for_paint(draw, bbox, gradient.units, gradient.transform)?;
         let sx: Fixed64 = Fixed::from(gradient.start.x).into();
         let sy: Fixed64 = Fixed::from(gradient.start.y).into();
         let dx = Fixed64::from_fixed(Fixed::from(gradient.end.x)) - sx;
@@ -125,6 +159,102 @@ impl<'a> LinearPaint<'a> {
         let t = self.x.mul_wide(Fixed64::from_int(i64::from(px)))
             + self.y.mul_wide(Fixed64::from_int(i64::from(py)))
             + self.bias;
+        sample_stops(self.stops, spread(t, self.spread))
+    }
+}
+
+pub(super) struct RadialPaint<'a> {
+    inverse: Affine,
+    fx: Fixed64,
+    fy: Fixed64,
+    dx: Fixed64,
+    dy: Fixed64,
+    inner_radius: Fixed64,
+    radius_delta: Fixed64,
+    quadratic: Fixed64,
+    spread: SpreadMode,
+    stops: &'a [GradientStop],
+}
+
+impl<'a> RadialPaint<'a> {
+    fn new(gradient: &'a RadialGradient, draw: Transform, bbox: Rect) -> Option<Self> {
+        if !valid_stops(&gradient.stops) {
+            return None;
+        }
+        let inverse = Affine::for_paint(draw, bbox, gradient.units, gradient.transform)?;
+        let fx: Fixed64 = Fixed::from(gradient.focal.x).into();
+        let fy: Fixed64 = Fixed::from(gradient.focal.y).into();
+        let cx: Fixed64 = Fixed::from(gradient.center.x).into();
+        let cy: Fixed64 = Fixed::from(gradient.center.y).into();
+        let outer_radius: Fixed64 = Fixed::from(gradient.radius).into();
+        let inner_radius: Fixed64 = Fixed::from(gradient.focal_radius).into();
+        if inner_radius < Fixed64::ZERO || outer_radius < Fixed64::ZERO {
+            return None;
+        }
+        let dx = cx - fx;
+        let dy = cy - fy;
+        let radius_delta = outer_radius - inner_radius;
+        if dx == Fixed64::ZERO && dy == Fixed64::ZERO && radius_delta == Fixed64::ZERO {
+            return None;
+        }
+        let quadratic = dx.mul_wide(dx) + dy.mul_wide(dy) - radius_delta.mul_wide(radius_delta);
+        Some(Self {
+            inverse,
+            fx,
+            fy,
+            dx,
+            dy,
+            inner_radius,
+            radius_delta,
+            quadratic,
+            spread: gradient.spread,
+            stops: &gradient.stops,
+        })
+    }
+
+    fn sample(&self, px: i32, py: i32) -> Color {
+        let x = Fixed64::from_int(i64::from(px));
+        let y = Fixed64::from_int(i64::from(py));
+        let qx =
+            self.inverse.m00.mul_wide(x) + self.inverse.m01.mul_wide(y) + self.inverse.tx - self.fx;
+        let qy =
+            self.inverse.m10.mul_wide(x) + self.inverse.m11.mul_wide(y) + self.inverse.ty - self.fy;
+        let linear = qx.mul_wide(self.dx)
+            + qy.mul_wide(self.dy)
+            + self.inner_radius.mul_wide(self.radius_delta);
+        let distance =
+            qx.mul_wide(qx) + qy.mul_wide(qy) - self.inner_radius.mul_wide(self.inner_radius);
+        let t = if self.quadratic == Fixed64::ZERO {
+            if linear == Fixed64::ZERO {
+                if distance == Fixed64::ZERO {
+                    Some(Fixed64::ZERO)
+                } else {
+                    None
+                }
+            } else {
+                Some(distance.div_wide(linear) / 2)
+            }
+        } else {
+            let discriminant = linear.mul_wide(linear) - self.quadratic.mul_wide(distance);
+            if discriminant < Fixed64::ZERO {
+                None
+            } else {
+                let root = discriminant.sqrt();
+                let first = (linear - root).div_wide(self.quadratic);
+                let second = (linear + root).div_wide(self.quadratic);
+                [first, second]
+                    .into_iter()
+                    .filter(|candidate| {
+                        self.inner_radius + self.radius_delta.mul_wide(*candidate) >= Fixed64::ZERO
+                    })
+                    .max()
+            }
+        };
+        let Some(t) = t.filter(|candidate| {
+            self.inner_radius + self.radius_delta.mul_wide(*candidate) >= Fixed64::ZERO
+        }) else {
+            return Color::rgba(0, 0, 0, 0);
+        };
         sample_stops(self.stops, spread(t, self.spread))
     }
 }
@@ -215,6 +345,35 @@ mod tests {
         }
     }
 
+    fn radial(
+        focal: mirx::types::Point,
+        focal_radius: mirx::types::Fixed,
+        transform: mirx::types::Transform,
+    ) -> RadialGradient {
+        RadialGradient {
+            center: mirx::types::Point::new(
+                mirx::types::Fixed::from_ratio(1, 2),
+                mirx::types::Fixed::from_ratio(1, 2),
+            ),
+            radius: mirx::types::Fixed::from_ratio(1, 2),
+            focal,
+            focal_radius,
+            stops: Cow::Owned(alloc::vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(0, 0, 0),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(255, 0, 0),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::ObjectBoundingBox,
+            transform,
+        }
+    }
+
     #[test]
     fn object_bbox_and_paint_transform_map_into_physical_pixels() {
         let gradient = gradient(
@@ -260,5 +419,88 @@ mod tests {
         assert_eq!(sample_stops(&stops, Fixed64::from_ratio(1, 2)).b, 255);
         assert!(!valid_stops(&[]));
         assert!(!valid_stops(&[stops[2], stops[1], stops[0]]));
+    }
+
+    #[test]
+    fn radial_focal_circle_and_object_bounds_map_as_an_ellipse() {
+        let gradient = radial(
+            mirx::types::Point::new(
+                mirx::types::Fixed::from_ratio(1, 4),
+                mirx::types::Fixed::from_ratio(1, 2),
+            ),
+            mirx::types::Fixed::ZERO,
+            mirx::types::Transform::IDENTITY,
+        );
+        let sampler =
+            RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 50)).unwrap();
+        assert_eq!(sampler.sample(25, 25).r, 0);
+        assert!((83..=87).contains(&sampler.sample(50, 25).r));
+        assert!(sampler.sample(100, 25).r >= 254);
+        assert!(sampler.sample(50, 50).r >= 254);
+    }
+
+    #[test]
+    fn radial_paint_transform_moves_the_focal_circle() {
+        let gradient = radial(
+            mirx::types::Point::new(
+                mirx::types::Fixed::from_ratio(1, 4),
+                mirx::types::Fixed::from_ratio(1, 2),
+            ),
+            mirx::types::Fixed::ZERO,
+            mirx::types::Transform::translate(
+                mirx::types::Fixed::from_ratio(1, 4),
+                mirx::types::Fixed::ZERO,
+            ),
+        );
+        let sampler =
+            RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 50)).unwrap();
+        assert_eq!(sampler.sample(50, 25).r, 0);
+        assert!((83..=87).contains(&sampler.sample(75, 25).r));
+    }
+
+    #[test]
+    fn radial_focal_radius_sets_the_inner_circle() {
+        let center = mirx::types::Point::new(
+            mirx::types::Fixed::from_ratio(1, 2),
+            mirx::types::Fixed::from_ratio(1, 2),
+        );
+        let gradient = radial(
+            center,
+            mirx::types::Fixed::from_ratio(1, 10),
+            mirx::types::Transform::IDENTITY,
+        );
+        let sampler =
+            RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 50)).unwrap();
+        assert_eq!(sampler.sample(59, 25).r, 0);
+        assert!((125..=130).contains(&sampler.sample(80, 25).r));
+    }
+
+    #[test]
+    fn radial_non_nested_circles_leave_uncovered_pixels_transparent() {
+        let mut gradient = radial(
+            mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO),
+            mirx::types::Fixed::ZERO,
+            mirx::types::Transform::IDENTITY,
+        );
+        let sampler =
+            RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 50)).unwrap();
+        assert_eq!(sampler.sample(0, 0).r, 0);
+        assert_eq!(sampler.sample(-100, 50).a, 0);
+        gradient.focal = gradient.center;
+        gradient.focal_radius = gradient.radius;
+        assert!(
+            RadialPaint::new(&gradient, Transform::IDENTITY, Rect::new(0, 0, 100, 50)).is_none()
+        );
+    }
+
+    #[test]
+    fn spread_handles_large_negative_values_without_looping() {
+        let t = Fixed64::from_int(-4096) - Fixed64::from_ratio(1, 4);
+        assert_eq!(spread(t, SpreadMode::Repeat), Fixed64::from_ratio(3, 4));
+        assert_eq!(spread(t, SpreadMode::Reflect), Fixed64::from_ratio(1, 4));
+        assert_eq!(
+            spread(Fixed64::from_fixed(Fixed::MIN), SpreadMode::Repeat),
+            Fixed64::ZERO
+        );
     }
 }

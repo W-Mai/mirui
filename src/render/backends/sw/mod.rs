@@ -771,7 +771,7 @@ impl Renderer for SwRenderer<'_> {
         match request.command {
             DrawCommand::FillPath {
                 path,
-                paint: Paint::LinearGradient(gradient),
+                paint: paint @ (Paint::LinearGradient(_) | Paint::RadialGradient(_)),
                 transform,
                 ..
             } => {
@@ -779,13 +779,13 @@ impl Renderer for SwRenderer<'_> {
                     return Err(RenderError::InvalidGeometry);
                 };
                 let draw = self.viewport.as_transform().compose(transform);
-                if paint::LinearPaint::new(gradient, draw, bbox).is_none() {
+                if paint::GradientPaint::new(paint, draw, bbox).is_none() {
                     return Err(RenderError::InvalidGeometry);
                 }
             }
             DrawCommand::StrokePath {
                 path,
-                paint: Paint::LinearGradient(gradient),
+                paint: paint @ (Paint::LinearGradient(_) | Paint::RadialGradient(_)),
                 transform,
                 width,
                 ..
@@ -801,7 +801,7 @@ impl Renderer for SwRenderer<'_> {
                     bbox.h + *width,
                 );
                 let draw = self.viewport.as_transform().compose(transform);
-                if paint::LinearPaint::new(gradient, draw, bbox).is_none() {
+                if paint::GradientPaint::new(paint, draw, bbox).is_none() {
                     return Err(RenderError::InvalidGeometry);
                 }
             }
@@ -851,10 +851,10 @@ impl Renderer for SwRenderer<'_> {
             && !matches!(
                 request.command,
                 DrawCommand::FillPath {
-                    paint: Paint::LinearGradient(_),
+                    paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
                     ..
                 } | DrawCommand::StrokePath {
-                    paint: Paint::LinearGradient(_),
+                    paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
                     ..
                 }
             )

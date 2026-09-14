@@ -1,5 +1,5 @@
 use super::SwRenderer;
-use super::paint::LinearPaint;
+use super::paint::GradientPaint;
 use crate::render::canvas::Paint;
 use crate::render::path::{self, Path};
 use crate::render::raster::{self, FillRule};
@@ -8,72 +8,6 @@ use crate::types::{Color, Fixed, Rect, Transform};
 fn stroked_paint_bbox(outline: &Path, physical: &Transform) -> Option<Rect> {
     let inverse = physical.inverse()?;
     path::bbox_of_cmds_transformed(&outline.cmds, Some(&inverse))
-}
-
-fn map_units(c: mirx::types::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
-    let cx: Fixed = c.x.into();
-    match units {
-        mirx::scene::GradientUnits::UserSpaceOnUse => cx,
-        mirx::scene::GradientUnits::ObjectBoundingBox => bbox.x + cx * bbox.w,
-    }
-}
-
-fn map_units_y(c: mirx::types::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
-    let cy: Fixed = c.y.into();
-    match units {
-        mirx::scene::GradientUnits::UserSpaceOnUse => cy,
-        mirx::scene::GradientUnits::ObjectBoundingBox => bbox.y + cy * bbox.h,
-    }
-}
-
-fn map_scalar(
-    v: mirx::types::Fixed,
-    units: mirx::scene::GradientUnits,
-    bbox: Rect,
-    axis_w: bool,
-) -> Fixed {
-    let v: Fixed = v.into();
-    match units {
-        mirx::scene::GradientUnits::UserSpaceOnUse => v,
-        mirx::scene::GradientUnits::ObjectBoundingBox => {
-            if axis_w {
-                v * bbox.w
-            } else {
-                v * bbox.h
-            }
-        }
-    }
-}
-
-fn apply_spread(t: Fixed, spread: mirx::scene::SpreadMode) -> Fixed {
-    match spread {
-        mirx::scene::SpreadMode::Pad => t,
-        mirx::scene::SpreadMode::Repeat => t - t.floor(),
-        mirx::scene::SpreadMode::Reflect => {
-            let floor = t.floor();
-            let frac = t - floor;
-            let period = floor.to_int().rem_euclid(2);
-            if period == 0 { frac } else { Fixed::ONE - frac }
-        }
-    }
-}
-
-#[cfg(test)]
-mod spread_tests {
-    use super::*;
-    use mirx::scene::SpreadMode;
-
-    #[test]
-    fn repeat_and_reflect_handle_large_negative_coordinates_in_constant_time() {
-        let t = Fixed::from_int(-4096) - Fixed::from_ratio(1, 4);
-        assert_eq!(apply_spread(t, SpreadMode::Repeat), Fixed::from_ratio(3, 4));
-        assert_eq!(
-            apply_spread(t, SpreadMode::Reflect),
-            Fixed::from_ratio(1, 4)
-        );
-        assert_eq!(apply_spread(Fixed::MIN, SpreadMode::Repeat), Fixed::ZERO);
-        assert_eq!(apply_spread(Fixed::MIN, SpreadMode::Reflect), Fixed::ZERO);
-    }
 }
 
 #[cfg(test)]
@@ -115,7 +49,7 @@ mod linear_transform_tests {
     use crate::render::renderer::{DrawRequest, RenderError, Renderer};
     use crate::render::texture::{ColorFormat, Texture};
     use alloc::borrow::Cow;
-    use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
+    use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
 
     #[test]
     fn transformed_linear_fill_tracks_path_and_paint_transforms() {
@@ -257,61 +191,48 @@ mod linear_transform_tests {
         assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
         assert!((100..=150).contains(&renderer.target.get_pixel(24, 12).r));
     }
-}
 
-fn sample_radial_gradient(g: &mirx::scene::RadialGradient, px: i32, py: i32, bbox: Rect) -> Color {
-    let cx = map_units(g.center, g.units, bbox);
-    let cy = map_units_y(g.center, g.units, bbox);
-    let r = map_scalar(g.radius, g.units, bbox, true);
-    let x = Fixed::from_int(px);
-    let y = Fixed::from_int(py);
-    let dx = x - cx;
-    let dy = y - cy;
-    let dist = (dx * dx + dy * dy).sqrt();
-    if r == Fixed::ZERO {
-        return g
-            .stops
-            .first()
-            .map(|s| s.color.into())
-            .unwrap_or(Color::rgba(0, 0, 0, 0));
+    #[test]
+    fn checked_radial_fill_renders_the_focal_circle() {
+        let mut renderer = SwRenderer::new(Texture::owned(104, 54, ColorFormat::RGBA8888));
+        let path = Path::rect(0.into(), 0.into(), 100.into(), 50.into());
+        let paint = Paint::RadialGradient(RadialGradient {
+            center: mirx::types::Point::new(
+                mirx::types::Fixed::from_ratio(1, 2),
+                mirx::types::Fixed::from_ratio(1, 2),
+            ),
+            radius: mirx::types::Fixed::from_ratio(1, 2),
+            focal: mirx::types::Point::new(
+                mirx::types::Fixed::from_ratio(1, 4),
+                mirx::types::Fixed::from_ratio(1, 2),
+            ),
+            focal_radius: mirx::types::Fixed::ZERO,
+            stops: Cow::Owned(alloc::vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(0, 0, 0),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(255, 0, 0),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::ObjectBoundingBox,
+            transform: mirx::types::Transform::IDENTITY,
+        });
+        let command = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            opa: 255,
+            fill_rule: FillRule::EvenOdd,
+        };
+        let clip = Rect::new(0, 0, 104, 54);
+        assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert!((83..=87).contains(&renderer.target.get_pixel(50, 25).r));
+        assert!(renderer.target.get_pixel(98, 25).r > 240);
     }
-    let t = apply_spread(dist / r, g.spread);
-    sample_stops(&g.stops, t)
-}
-
-fn sample_stops(stops: &[mirx::scene::GradientStop], t: Fixed) -> Color {
-    if stops.is_empty() {
-        return Color::rgba(0, 0, 0, 0);
-    }
-    let t_raw: Fixed = t;
-    let first_off: Fixed = stops[0].offset.into();
-    let last_off: Fixed = stops[stops.len() - 1].offset.into();
-    if t_raw <= first_off {
-        return stops[0].color.into();
-    }
-    if t_raw >= last_off {
-        return stops[stops.len() - 1].color.into();
-    }
-    for i in 0..stops.len() - 1 {
-        let s0 = &stops[i];
-        let s1 = &stops[i + 1];
-        let o0: Fixed = s0.offset.into();
-        let o1: Fixed = s1.offset.into();
-        if t_raw >= o0 && t_raw <= o1 {
-            let range = o1 - o0;
-            if range == Fixed::ZERO {
-                return s1.color.into();
-            }
-            let local_t = (t_raw - o0) / range;
-            let lt = local_t.to_f32();
-            let r = (s0.color.r as f32 + (s1.color.r as f32 - s0.color.r as f32) * lt) as u8;
-            let g = (s0.color.g as f32 + (s1.color.g as f32 - s0.color.g as f32) * lt) as u8;
-            let b = (s0.color.b as f32 + (s1.color.b as f32 - s0.color.b as f32) * lt) as u8;
-            let a = (s0.color.a as f32 + (s1.color.a as f32 - s0.color.a as f32) * lt) as u8;
-            return Color::rgba(r, g, b, a);
-        }
-    }
-    stops[stops.len() - 1].color.into()
 }
 
 impl SwRenderer<'_> {
@@ -406,10 +327,10 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-        let linear = match paint {
-            Paint::LinearGradient(gradient) => {
+        let gradient = match paint {
+            Paint::LinearGradient(_) | Paint::RadialGradient(_) => {
                 let Some(bbox) = path.bbox() else { return };
-                let Some(sampler) = LinearPaint::new(gradient, *phys_tf, bbox) else {
+                let Some(sampler) = GradientPaint::new(paint, *phys_tf, bbox) else {
                     return;
                 };
                 Some(sampler)
@@ -436,7 +357,6 @@ impl SwRenderer<'_> {
 
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let is_gradient = !matches!(paint, Paint::Color(_));
         let solid_color = match paint {
             Paint::Color(color) => (*color).into(),
             _ => Color::rgba(255, 255, 255, 255),
@@ -451,7 +371,6 @@ impl SwRenderer<'_> {
         let target = &mut self.target;
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
-        let grad_bbox = bbox;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -468,14 +387,8 @@ impl SwRenderer<'_> {
                     .unwrap_or(255);
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    if is_gradient {
-                        let c = if let Some(linear) = linear.as_ref() {
-                            linear.sample(px, py)
-                        } else if let Paint::RadialGradient(gradient) = paint {
-                            sample_radial_gradient(gradient, px, py, grad_bbox)
-                        } else {
-                            Color::rgba(0, 0, 0, 0)
-                        };
+                    if let Some(gradient) = gradient.as_ref() {
+                        let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
                         target.blend_pixel_int(px, py, &c, paint_alpha);
@@ -528,7 +441,7 @@ impl SwRenderer<'_> {
         }
         let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        let paint_bbox = if matches!(paint, Paint::LinearGradient(_)) {
+        let paint_bbox = if !matches!(paint, Paint::Color(_)) {
             stroked_paint_bbox(&outline_cmds, &phys_tf).unwrap_or(Rect::new(0, 0, 0, 0))
         } else {
             Rect::new(0, 0, 0, 0)
@@ -584,7 +497,7 @@ impl SwRenderer<'_> {
             );
         }
         let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
-        let paint_bbox = if matches!(paint, Paint::LinearGradient(_)) {
+        let paint_bbox = if !matches!(paint, Paint::Color(_)) {
             stroked_paint_bbox(&outline_cmds, phys_tf).unwrap_or(Rect::new(0, 0, 0, 0))
         } else {
             Rect::new(0, 0, 0, 0)
@@ -624,9 +537,9 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-        let linear = match paint {
-            Paint::LinearGradient(gradient) => {
-                let Some(sampler) = LinearPaint::new(gradient, *paint_tf, paint_bbox) else {
+        let gradient = match paint {
+            Paint::LinearGradient(_) | Paint::RadialGradient(_) => {
+                let Some(sampler) = GradientPaint::new(paint, *paint_tf, paint_bbox) else {
                     return;
                 };
                 Some(sampler)
@@ -646,7 +559,6 @@ impl SwRenderer<'_> {
 
         let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let is_gradient = !matches!(paint, Paint::Color(_));
         let solid_color = match paint {
             Paint::Color(color) => (*color).into(),
             _ => Color::rgba(255, 255, 255, 255),
@@ -661,7 +573,6 @@ impl SwRenderer<'_> {
         let target = &mut self.target;
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
-        let grad_bbox = bbox;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -678,14 +589,8 @@ impl SwRenderer<'_> {
                     .unwrap_or(255);
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    if is_gradient {
-                        let c = if let Some(linear) = linear.as_ref() {
-                            linear.sample(px, py)
-                        } else if let Paint::RadialGradient(gradient) = paint {
-                            sample_radial_gradient(gradient, px, py, grad_bbox)
-                        } else {
-                            Color::rgba(0, 0, 0, 0)
-                        };
+                    if let Some(gradient) = gradient.as_ref() {
+                        let c = gradient.sample(px, py);
                         let paint_alpha =
                             ((u16::from(final_alpha) * u16::from(c.a) + 127) / 255) as u8;
                         target.blend_pixel_int(px, py, &c, paint_alpha);
