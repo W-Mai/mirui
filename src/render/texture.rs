@@ -360,24 +360,22 @@ impl<'a> Texture<'a> {
             ColorFormat::RGBA8888 => Color::rgba(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]),
             ColorFormat::BGRA8888 => Color::rgba(buf[i + 2], buf[i + 1], buf[i], buf[i + 3]),
             ColorFormat::RGB888 => Color::rgb(buf[i], buf[i + 1], buf[i + 2]),
-            ColorFormat::RGB565 => {
-                let lo = buf[i] as u16;
-                let hi = buf[i + 1] as u16;
+            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
+                let (lo, hi) = if self.format == ColorFormat::RGB565 {
+                    (buf[i], buf[i + 1])
+                } else {
+                    (buf[i + 1], buf[i])
+                };
+                let lo = lo as u16;
+                let hi = hi as u16;
                 let px = lo | (hi << 8);
+                let r = (px >> 11) as u8;
+                let g = ((px >> 5) & 0x3f) as u8;
+                let b = (px & 0x1f) as u8;
                 Color::rgb(
-                    ((px >> 11) as u8) << 3,
-                    (((px >> 5) & 0x3F) as u8) << 2,
-                    ((px & 0x1F) as u8) << 3,
-                )
-            }
-            ColorFormat::RGB565Swapped => {
-                let hi = buf[i] as u16;
-                let lo = buf[i + 1] as u16;
-                let px = lo | (hi << 8);
-                Color::rgb(
-                    ((px >> 11) as u8) << 3,
-                    (((px >> 5) & 0x3F) as u8) << 2,
-                    ((px & 0x1F) as u8) << 3,
+                    (r << 3) | (r >> 2),
+                    (g << 2) | (g >> 4),
+                    (b << 3) | (b >> 2),
                 )
             }
         }
@@ -1167,7 +1165,7 @@ mod tests {
     fn rgb565_roundtrip() {
         let mut buf = [0u8; 2];
         let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGB565);
-        let c = Color::rgb(248, 252, 248); // values that survive 565 truncation
+        let c = Color::rgb(255, 255, 255);
         tex.set_pixel(0, 0, &c);
         let got = tex.get_pixel(0, 0);
         assert_eq!(got.r, c.r);
@@ -1289,9 +1287,9 @@ mod tests {
         tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
         tex.blend_pixel(Fixed::ZERO, Fixed::ZERO, &Color::rgb(255, 255, 255), 255);
         let got = tex.get_pixel(0, 0);
-        assert_eq!(got.r, 248);
-        assert_eq!(got.g, 252);
-        assert_eq!(got.b, 248);
+        assert_eq!(got.r, 255);
+        assert_eq!(got.g, 255);
+        assert_eq!(got.b, 255);
     }
 
     #[test]

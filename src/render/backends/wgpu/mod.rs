@@ -2078,11 +2078,11 @@ mod route_tests {
         native.stride = 4;
         assert_eq!(
             native.rgba8_pixels(),
-            Some(alloc::vec![248, 0, 0, 255, 0, 252, 0, 255])
+            Some(alloc::vec![255, 0, 0, 255, 0, 255, 0, 255])
         );
 
         let swapped = Texture::from_ref(&[0xf8, 0x00], 1, 1, ColorFormat::RGB565Swapped);
-        assert_eq!(swapped.rgba8_pixels(), Some(alloc::vec![248, 0, 0, 255]));
+        assert_eq!(swapped.rgba8_pixels(), Some(alloc::vec![255, 0, 0, 255]));
 
         let short = Texture::from_ref(&[0xf8], 1, 1, ColorFormat::RGB565Swapped);
         assert!(short.rgba8_pixels().is_none());

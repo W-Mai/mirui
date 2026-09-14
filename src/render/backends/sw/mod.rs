@@ -1714,7 +1714,7 @@ mod tests {
         for y in 8..40 {
             for x in 0..8 {
                 let p = backend.target.get_pixel(x, y);
-                assert_eq!(p.r, 248, "visible pixel ({},{}) should be red", x, y);
+                assert_eq!(p.r, 255, "visible pixel ({},{}) should be red", x, y);
             }
         }
         for y in 0..64 {
