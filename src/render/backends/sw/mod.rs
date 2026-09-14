@@ -19,7 +19,6 @@ pub mod blur;
 mod label;
 mod label_sdf;
 pub mod mix;
-mod paint;
 mod path;
 mod quad;
 mod quad_aa;
@@ -779,7 +778,7 @@ impl Renderer for SwRenderer<'_> {
                     return Err(RenderError::InvalidGeometry);
                 };
                 let draw = self.viewport.as_transform().compose(transform);
-                if paint::GradientPaint::new(paint, draw, bbox).is_none() {
+                if crate::render::paint::GradientPaint::new(paint, draw, bbox).is_none() {
                     return Err(RenderError::InvalidGeometry);
                 }
             }
@@ -801,7 +800,7 @@ impl Renderer for SwRenderer<'_> {
                     bbox.h + *width,
                 );
                 let draw = self.viewport.as_transform().compose(transform);
-                if paint::GradientPaint::new(paint, draw, bbox).is_none() {
+                if crate::render::paint::GradientPaint::new(paint, draw, bbox).is_none() {
                     return Err(RenderError::InvalidGeometry);
                 }
             }

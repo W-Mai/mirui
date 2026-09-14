@@ -259,7 +259,7 @@ impl<'a> RadialPaint<'a> {
     }
 }
 
-fn valid_stops(stops: &[GradientStop]) -> bool {
+pub(crate) fn valid_stops(stops: &[GradientStop]) -> bool {
     let mut previous = mirx::types::Fixed::ZERO;
     if stops.is_empty() {
         return false;

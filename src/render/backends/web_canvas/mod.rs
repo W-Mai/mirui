@@ -241,27 +241,63 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         ctx.set_line_width((width.to_f32() as f64).max(1.0));
     }
 
-    fn set_paint_style(&self, paint: &Paint, opa: u8, bbox: Option<Rect>) {
+    fn set_fill_paint_transform(&self, paint: &Paint, bbox: Rect) {
+        let (units, transform) = match paint {
+            Paint::Color(_) => return,
+            Paint::LinearGradient(gradient) => (gradient.units, gradient.transform),
+            Paint::RadialGradient(gradient) => (gradient.units, gradient.transform),
+        };
+        let ctx = self.ctx();
+        if units == mirx::scene::GradientUnits::ObjectBoundingBox {
+            ctx.transform(
+                bbox.w.to_f32() as f64,
+                0.0,
+                0.0,
+                bbox.h.to_f32() as f64,
+                bbox.x.to_f32() as f64,
+                bbox.y.to_f32() as f64,
+            )
+            .expect("valid gradient object bounds");
+        }
+        ctx.transform(
+            transform.m00.to_f32() as f64,
+            transform.m10.to_f32() as f64,
+            transform.m01.to_f32() as f64,
+            transform.m11.to_f32() as f64,
+            transform.tx.to_f32() as f64,
+            transform.ty.to_f32() as f64,
+        )
+        .expect("valid gradient transform");
+    }
+
+    fn set_paint_style(&self, paint: &Paint, opa: u8) {
         let ctx = self.ctx();
         match paint {
             Paint::Color(color) => self.set_fill(&(*color).into(), opa),
             Paint::LinearGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
-                let (sx, sy, ex, ey) =
-                    map_gradient_points(gradient.start, gradient.end, gradient.units, bbox);
+                let (sx, sy, ex, ey) = map_gradient_points(
+                    gradient.start,
+                    gradient.end,
+                    mirx::scene::GradientUnits::UserSpaceOnUse,
+                    None,
+                );
                 let grad = ctx.create_linear_gradient(sx, sy, ex, ey);
                 add_gradient_stops(&grad, &gradient.stops, opa);
                 ctx.set_fill_style_canvas_gradient(&grad);
             }
             Paint::RadialGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
-                let (cx, cy) = map_point(gradient.center, gradient.units, bbox);
-                let r = map_scalar_grad(gradient.radius, gradient.units, bbox);
-                if let Ok(grad) = ctx.create_radial_gradient(cx, cy, 0.0, cx, cy, r) {
+                let units = mirx::scene::GradientUnits::UserSpaceOnUse;
+                let (fx, fy) = map_point(gradient.focal, units, None);
+                let fr = map_scalar_grad(gradient.focal_radius, units, None);
+                let (cx, cy) = map_point(gradient.center, units, None);
+                let r = map_scalar_grad(gradient.radius, units, None);
+                if let Ok(grad) = ctx.create_radial_gradient(fx, fy, fr, cx, cy, r) {
                     add_gradient_stops(&grad, &gradient.stops, opa);
                     ctx.set_fill_style_canvas_gradient(&grad);
                 } else {
-                    self.set_fill(&paint_color(paint), opa);
+                    self.set_fill(&Color::rgba(0, 0, 0, 0), opa);
                 }
             }
         }
@@ -294,9 +330,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             }
             Paint::RadialGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
+                let (fx, fy) = map_point(gradient.focal, gradient.units, bbox);
+                let fr = map_scalar_grad(gradient.focal_radius, gradient.units, bbox);
                 let (cx, cy) = map_point(gradient.center, gradient.units, bbox);
                 let r = map_scalar_grad(gradient.radius, gradient.units, bbox);
-                if let Ok(grad) = ctx.create_radial_gradient(cx, cy, 0.0, cx, cy, r) {
+                if let Ok(grad) = ctx.create_radial_gradient(fx, fy, fr, cx, cy, r) {
                     add_gradient_stops(&grad, &gradient.stops, opa);
                     ctx.set_stroke_style_canvas_gradient(&grad);
                 } else {
@@ -589,6 +627,27 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             .map_err(|_| ProjectiveDrawError::Unsupported)
     }
 
+    fn classify_gradient_fill(paint: &Paint, bbox: Option<Rect>) -> Result<(), RenderError> {
+        use mirx::scene::SpreadMode;
+
+        let spread = match paint {
+            Paint::Color(_) => return Ok(()),
+            Paint::LinearGradient(gradient) => gradient.spread,
+            Paint::RadialGradient(gradient) => gradient.spread,
+        };
+        let Some(bbox) = bbox else {
+            return Err(RenderError::InvalidGeometry);
+        };
+        if crate::render::paint::GradientPaint::new(paint, Transform::IDENTITY, bbox).is_none() {
+            return Err(RenderError::InvalidGeometry);
+        }
+        if spread == SpreadMode::Pad {
+            Ok(())
+        } else {
+            Err(RenderError::Unsupported(RenderFeature::GradientPaint))
+        }
+    }
+
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
@@ -597,7 +656,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             DrawCommand::ApplyBlur { .. } => {
                 return Err(RenderError::Unsupported(RenderFeature::Blur));
             }
-            DrawCommand::FillPath { paint, .. } | DrawCommand::StrokePath { paint, .. }
+            DrawCommand::FillPath { path, paint, .. } if !projected => {
+                Self::classify_gradient_fill(paint, path.bbox())?;
+            }
+            DrawCommand::StrokePath { paint, .. }
                 if !projected && !matches!(paint, Paint::Color(_)) =>
             {
                 return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
@@ -1233,14 +1295,24 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         fill_rule: crate::render::raster::FillRule,
     ) {
         self.push_rect_clip(clip);
-        let bbox = path.bbox();
-        self.set_paint_style(paint, opa, bbox);
         self.build_path(path);
+        if !matches!(paint, Paint::Color(_)) {
+            let Some(bbox) = path.bbox() else {
+                self.pop_rect_clip();
+                return;
+            };
+            self.ctx().save();
+            self.set_fill_paint_transform(paint, bbox);
+        }
+        self.set_paint_style(paint, opa);
         match fill_rule {
             crate::render::raster::FillRule::EvenOdd => self
                 .ctx()
                 .fill_with_canvas_winding_rule(CanvasWindingRule::Evenodd),
             crate::render::raster::FillRule::NonZero => self.ctx().fill(),
+        }
+        if !matches!(paint, Paint::Color(_)) {
+            self.ctx().restore();
         }
         self.pop_rect_clip();
     }

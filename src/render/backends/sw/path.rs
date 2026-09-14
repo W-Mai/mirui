@@ -1,6 +1,6 @@
 use super::SwRenderer;
-use super::paint::GradientPaint;
 use crate::render::canvas::Paint;
+use crate::render::paint::GradientPaint;
 use crate::render::path::{self, Path};
 use crate::render::raster::{self, FillRule};
 use crate::types::{Color, Fixed, Rect, Transform};

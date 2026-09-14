@@ -7,6 +7,7 @@ pub mod glyph_run;
 pub mod membrane;
 pub mod mirx_convert;
 pub mod mirx_frames;
+pub(crate) mod paint;
 pub mod painter;
 pub mod partial;
 pub mod path;
