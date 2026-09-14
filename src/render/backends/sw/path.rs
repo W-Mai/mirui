@@ -86,6 +86,37 @@ mod spread_tests {
     }
 }
 
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+    use crate::render::raster::{LineCap, LineJoin};
+    use crate::render::texture::{ColorFormat, Texture};
+    use crate::types::{Point, Viewport};
+
+    #[test]
+    fn transformed_stroke_uses_physical_clip_once_at_hidpi_scale() {
+        let mut renderer = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+        renderer.viewport = Viewport::new(64, 64, Fixed::from_int(2));
+        let mut path = Path::new();
+        path.move_to(Point::new(0, 20)).line_to(Point::new(40, 20));
+        let paint = Paint::Color(Color::rgb(255, 0, 0).into());
+        renderer.stroke_path_transformed(
+            &path,
+            Rect::new(0, 0, 16, 64),
+            &Transform::IDENTITY,
+            Fixed::from_int(2),
+            &paint,
+            255,
+            LineCap::Butt,
+            LineJoin::Miter,
+            Fixed::from_int(4),
+            &[],
+        );
+        assert_eq!(renderer.target.get_pixel(10, 20).r, 255);
+        assert_eq!(renderer.target.get_pixel(24, 20).r, 0);
+    }
+}
+
 fn sample_gradient(paint: &Paint, px: i32, py: i32, bbox: Rect) -> Color {
     match paint {
         Paint::Color(c) => (*c).into(),
@@ -365,7 +396,8 @@ impl SwRenderer<'_> {
             );
         }
         let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
-        self.fill_physical_path_with_paint(&outline_cmds, clip, paint, opa);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        self.fill_physical_path_with_paint(&outline_cmds, &phys_clip, paint, opa);
         self.scratch.stroke_outline = outline_cmds;
     }
 
@@ -416,18 +448,18 @@ impl SwRenderer<'_> {
     pub(super) fn fill_physical_path_with_paint(
         &mut self,
         phys_path: &Path,
-        clip: &Rect,
+        phys_clip: &Rect,
         paint: &Paint,
         opa: u8,
     ) {
         let _ = paint_color(paint);
-        self.fill_physical_path(phys_path, clip, paint, opa);
+        self.fill_physical_path(phys_path, phys_clip, paint, opa);
     }
 
     pub(super) fn fill_physical_path(
         &mut self,
         phys_path: &Path,
-        clip: &Rect,
+        phys_clip: &Rect,
         paint: &Paint,
         opa: u8,
     ) {
@@ -435,17 +467,13 @@ impl SwRenderer<'_> {
             return;
         }
         let scratch = &mut *self.scratch;
-        let phys_clip = self.viewport.rect_to_physical(*clip);
         raster::flatten_into(&phys_path.cmds, None, &mut scratch.flatten_buf);
         if scratch.flatten_buf.is_empty() {
             return;
         }
         let Some(bbox) = phys_path.bbox() else { return };
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = bbox
-            .intersect(&phys_clip)
-            .and_then(|r| r.intersect(&screen))
-        else {
+        let Some(draw_area) = bbox.intersect(phys_clip).and_then(|r| r.intersect(&screen)) else {
             return;
         };
 
