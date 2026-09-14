@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web Canvas path text.** Posed glyph textures use the sampled baseline as their origin, matching caret geometry and the other renderers. Typography Lab draws baseline guides beneath the text with shorter unselected caret marks.
 - **Dirty-region text culling.** Zero-size layout wrappers retain visible child glyphs during partial repaint.
 - **Web Canvas frame persistence.** Stable backing stores use dirty-region repaint; the first frame and backing-store changes receive a full repaint.
 - **Projective glyph fallback bounds.** Linear and posed text size their bounded software target from projected glyph ink instead of the full clip, reducing readback and storage for small runs.

@@ -250,14 +250,14 @@ fn caret_overlay_render(
             return;
         };
         if let Ok(path) = paths.get(text_path.path()) {
-            let paint = Paint::Color(BORDER.into());
+            let paint = Paint::Color(BLUE.into());
             renderer.draw(
                 &DrawCommand::StrokePath {
                     path,
                     transform: ctx.transform.compose(&Transform::translate(rect.x, rect.y)),
                     paint: &paint,
                     width: Fixed::ONE,
-                    opa: 255,
+                    opa: 120,
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
                     miter_limit: Fixed::from_int(4),
@@ -274,6 +274,17 @@ fn caret_overlay_render(
             &layout,
             |frames| {
                 for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
+                    let selected = center_hit.is_some_and(|hit| hit.index() == index);
+                    let ascent = if selected {
+                        metrics.ascender
+                    } else {
+                        Fixed::from_int(4)
+                    };
+                    let descent = if selected {
+                        metrics.line_height - metrics.ascender
+                    } else {
+                        Fixed::from_int(4)
+                    };
                     let origin = Point {
                         x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
                         y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
@@ -290,14 +301,14 @@ fn caret_overlay_render(
                         renderer,
                         ctx,
                         Point {
-                            x: origin.x - normal.x * metrics.ascender,
-                            y: origin.y - normal.y * metrics.ascender,
+                            x: origin.x - normal.x * ascent,
+                            y: origin.y - normal.y * ascent,
                         },
                         Point {
-                            x: origin.x + normal.x * (metrics.line_height - metrics.ascender),
-                            y: origin.y + normal.y * (metrics.line_height - metrics.ascender),
+                            x: origin.x + normal.x * descent,
+                            y: origin.y + normal.y * descent,
                         },
-                        if center_hit.is_some_and(|hit| hit.index() == index) {
+                        if selected {
                             GOLD
                         } else if caret.bidi_level & 1 == 0 {
                             CYAN
@@ -805,6 +816,15 @@ pub fn build_widgets(wave_path: PathId) {
                 ) {
                     Text ("PATH + PROJECTIVE", font: UI, font_size: 12, text_color: CYAN)
                     View (height: 78) {
+                        CaretOverlay (
+                            id: "typography_path_carets",
+                            target: "typography_path_sample",
+                            position: Position::Absolute,
+                            left: 0,
+                            top: 0,
+                            width: 190,
+                            height: 78
+                        )
                         Text (
                             id: "typography_path_sample",
                             "mirui 42 · مرحبا",
@@ -818,15 +838,6 @@ pub fn build_widgets(wave_path: PathId) {
                             font_size: 17,
                             text_color: TEXT,
                             paragraph: paragraph(None, TextDirection::Auto)
-                        )
-                        CaretOverlay (
-                            id: "typography_path_carets",
-                            target: "typography_path_sample",
-                            position: Position::Absolute,
-                            left: 0,
-                            top: 0,
-                            width: 190,
-                            height: 78
                         )
                     }
                     View (id: "typography_projective_frame", height: 48, clip_children: true) [
