@@ -16,6 +16,7 @@ use mirui_macros::compose_backend;
 #[derive(Default)]
 struct Counts {
     fill_path: Cell<u32>,
+    fill_rule: Cell<Option<mirui::render::raster::FillRule>>,
     stroke_path: Cell<u32>,
     blit: Cell<u32>,
     clear: Cell<u32>,
@@ -47,9 +48,10 @@ impl Canvas for Dummy {
         _: &Rect,
         _: &Paint,
         _: u8,
-        _: ::mirui::render::raster::FillRule,
+        fill_rule: ::mirui::render::raster::FillRule,
     ) {
         self.counts.fill_path.set(self.counts.fill_path.get() + 1);
+        self.counts.fill_rule.set(Some(fill_rule));
     }
     fn stroke_path(
         &mut self,
@@ -158,6 +160,29 @@ fn fresh_hybrid() -> Hybrid<Dummy, Dummy> {
         sw: Dummy::new(),
         gpu: Dummy::new(),
     }
+}
+
+#[test]
+fn renderer_preserves_nonzero_path_fill_rule() {
+    use mirui::render::renderer::Renderer;
+
+    let mut hybrid = fresh_hybrid();
+    let path = Path::rect(0.into(), 0.into(), 4.into(), 4.into());
+    let paint = Paint::Color(Color::rgb(0, 0, 0).into());
+    hybrid.draw(
+        &mirui::render::DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            opa: 255,
+            fill_rule: mirui::render::raster::FillRule::NonZero,
+        },
+        &zero_rect(),
+    );
+    assert_eq!(
+        hybrid.sw.counts.fill_rule.get(),
+        Some(mirui::render::raster::FillRule::NonZero)
+    );
 }
 
 fn zero_rect() -> Rect {

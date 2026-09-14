@@ -293,9 +293,9 @@ impl ComposeInput {
                             self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
                         }
                         ::mirui::render::DrawCommand::FillPath {
-                            path, paint, opa, ..
+                            path, paint, opa, fill_rule, ..
                         } => {
-                            self.fill_path(path, clip, paint, *opa, ::mirui::render::raster::FillRule::EvenOdd);
+                            self.fill_path(path, clip, paint, *opa, *fill_rule);
                         }
                          ::mirui::render::DrawCommand::StrokePath {
                             path,
