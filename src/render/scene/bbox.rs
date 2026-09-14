@@ -133,34 +133,42 @@ fn points_bbox(p1: Point, p2: Point) -> Rect {
 /// inside a group) and collect each direct child's bbox. Nested groups
 /// collapse to the union of their subtree's leaf bboxes.
 pub fn direct_children_bboxes(ops: &[SceneOp]) -> Vec<Rect> {
-    let mut out = Vec::new();
+    direct_child_bounds(ops).collect()
+}
+
+/// Direct child bounds without retaining an intermediate collection.
+pub fn direct_child_bounds(ops: &[SceneOp]) -> impl Iterator<Item = Rect> + '_ {
     let mut i = 0;
-    while i < ops.len() {
-        match &ops[i] {
-            SceneOp::GroupBegin { .. } => {
-                let (sub_bbox, end) = subtree_bbox(ops, i);
-                if let Some(r) = sub_bbox {
-                    out.push(r);
+    core::iter::from_fn(move || {
+        while i < ops.len() {
+            match &ops[i] {
+                SceneOp::GroupBegin { .. } => {
+                    let (sub_bbox, end) = subtree_bbox(ops, i);
+                    i = end + 1;
+                    if let Some(bounds) = sub_bbox {
+                        return Some(bounds);
+                    }
                 }
-                i = end + 1;
-            }
-            SceneOp::GroupEnd => break,
-            other => {
-                if let Some(r) = op_bbox(other) {
-                    out.push(r);
+                SceneOp::GroupEnd => {
+                    i = ops.len();
+                    return None;
                 }
-                i += 1;
+                other => {
+                    i += 1;
+                    if let Some(bounds) = op_bbox(other) {
+                        return Some(bounds);
+                    }
+                }
             }
         }
-    }
-    out
+        None
+    })
 }
 
 pub fn union_of_children(ops: &[SceneOp], parent_tf: &Transform) -> Rect {
-    let boxes = direct_children_bboxes(ops);
     let mut acc = Rect::new(Fixed::ZERO, Fixed::ZERO, Fixed::ZERO, Fixed::ZERO);
     let mut started = false;
-    for b in boxes {
+    for b in direct_child_bounds(ops) {
         let transformed = parent_tf.apply_rect_bbox(b);
         if !started {
             acc = transformed;
@@ -170,6 +178,18 @@ pub fn union_of_children(ops: &[SceneOp], parent_tf: &Transform) -> Rect {
         }
     }
     acc
+}
+
+/// Check sibling bounds without allocating a list of rectangles.
+pub fn children_disjoint(ops: &[SceneOp]) -> bool {
+    for (index, bounds) in direct_child_bounds(ops).enumerate() {
+        for other in direct_child_bounds(ops).skip(index + 1) {
+            if bounds.intersect(&other).is_some() {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn subtree_bbox(ops: &[SceneOp], begin_idx: usize) -> (Option<Rect>, usize) {
@@ -281,6 +301,11 @@ mod tests {
         let bboxes = direct_children_bboxes(&ops);
         assert_eq!(bboxes.len(), 2);
         assert!(pairwise_disjoint(&bboxes));
+        assert!(children_disjoint(&ops));
+        assert_eq!(
+            union_of_children(&ops, &Transform::IDENTITY),
+            Rect::new(0, 0, 30, 10)
+        );
     }
 
     #[test]
@@ -303,6 +328,17 @@ mod tests {
         let bboxes = direct_children_bboxes(&ops);
         assert_eq!(bboxes.len(), 2);
         assert!(pairwise_disjoint(&bboxes));
+        assert!(children_disjoint(&ops));
+        assert_eq!(
+            union_of_children(&ops, &Transform::IDENTITY),
+            Rect::new(0, 0, 40, 15)
+        );
+    }
+
+    #[test]
+    fn streaming_child_bounds_detect_sibling_overlap() {
+        let ops = [rect_op(0, 0, 10, 10), rect_op(8, 0, 10, 10)];
+        assert!(!children_disjoint(&ops));
     }
 
     #[test]

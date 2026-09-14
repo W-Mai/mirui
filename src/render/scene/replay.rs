@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use super::bbox::{direct_children_bboxes, pairwise_disjoint, union_of_children};
+use super::bbox::{children_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
@@ -211,8 +211,7 @@ fn replay_scene_pass(
                             let end_idx =
                                 matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?;
                             let inner = &ops[i + 1..end_idx];
-                            let bboxes = direct_children_bboxes(inner);
-                            if !pairwise_disjoint(&bboxes) {
+                            if !children_disjoint(inner) {
                                 return Err(ReplayError::GroupOpacityNeedsOffscreen);
                             }
                         }
