@@ -180,6 +180,7 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
             surface: backend,
             viewport: *transform,
             frame: None,
+            draw_failed: false,
         }
     }
 }
@@ -189,6 +190,7 @@ pub struct WgpuRenderer<'a> {
     surface: &'a mut WgpuSurface,
     viewport: Viewport,
     frame: Option<Frame>,
+    draw_failed: bool,
 }
 
 struct Frame {
@@ -459,7 +461,11 @@ impl WgpuRenderer<'_> {
             }),
             _ => return Err(ProjectiveDrawError::Unsupported),
         }
-        Ok(())
+        if self.draw_failed {
+            Err(ProjectiveDrawError::BackendFailure)
+        } else {
+            Ok(())
+        }
     }
 
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
@@ -757,6 +763,7 @@ impl WgpuRenderer<'_> {
             radius_pad: [radius.to_f32(), 0.0, 0.0, 0.0],
         };
         let Some(offset) = self.push_uniform(&rect_uniform) else {
+            self.draw_failed = true;
             return;
         };
 
@@ -820,6 +827,12 @@ impl WgpuRenderer<'_> {
     }
 
     fn blit_source_view(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
+        let view = self.blit_source_view_checked(src);
+        self.draw_failed |= view.is_none();
+        view
+    }
+
+    fn blit_source_view_checked(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
         let state = self.surface.state()?;
         let Some(key) = TextureKey::cacheable(src) else {
             let rgba = src.rgba8_pixels()?;
@@ -1292,6 +1305,7 @@ impl WgpuRenderer<'_> {
             ],
         };
         let Some(offset) = self.push_uniform(&tint_uniform) else {
+            self.draw_failed = true;
             return;
         };
 
@@ -1469,6 +1483,7 @@ impl WgpuRenderer<'_> {
             radius_stroke: [radius.to_f32(), stroke_width.to_f32(), 0.0, 0.0],
         };
         let Some(offset) = self.push_uniform(&uniform) else {
+            self.draw_failed = true;
             return;
         };
 
@@ -1892,11 +1907,13 @@ impl WgpuRenderer<'_> {
         }
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
             self.factory.glyph_instances.clear();
+            self.draw_failed = true;
             return;
         }
         let uniform = glyph_uniform(*color, opa, batch.key.spread, projective);
         let Some(offset) = self.push_uniform(&uniform) else {
             self.factory.glyph_instances.clear();
+            self.draw_failed = true;
             return;
         };
         let texture_view = {
@@ -1936,6 +1953,7 @@ impl WgpuRenderer<'_> {
                 Ok(handle) => handle,
                 Err(_) => {
                     self.factory.glyph_instances.clear();
+                    self.draw_failed = true;
                     return;
                 }
             };
@@ -1953,6 +1971,7 @@ impl WgpuRenderer<'_> {
             &self.factory.glyph_instances,
         ) else {
             self.factory.glyph_instances.clear();
+            self.draw_failed = true;
             return;
         };
         let frame = self
@@ -3310,6 +3329,7 @@ impl Renderer for WgpuRenderer<'_> {
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.draw_failed = false;
         request.validate_projection()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             self.route(request)?;
@@ -3334,7 +3354,11 @@ impl Renderer for WgpuRenderer<'_> {
         }
         if request.projective.is_identity() {
             self.draw(request.command, &request.clip);
-            return Ok(());
+            return if self.draw_failed {
+                Err(RenderError::BackendFailure)
+            } else {
+                Ok(())
+            };
         }
         self.draw_projective_validated(request.command, &request.clip, &request.projective)
             .map_err(RenderError::from)
@@ -3600,9 +3624,15 @@ impl Renderer for WgpuRenderer<'_> {
     ) -> Result<(), crate::render::ProjectiveDrawError> {
         self.preflight_projective(cmd, clip, projective)?;
         if projective.is_identity() {
+            self.draw_failed = false;
             self.draw(cmd, clip);
-            return Ok(());
+            return if self.draw_failed {
+                Err(crate::render::ProjectiveDrawError::BackendFailure)
+            } else {
+                Ok(())
+            };
         }
+        self.draw_failed = false;
         self.draw_projective_validated(cmd, clip, projective)
     }
 

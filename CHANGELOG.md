@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SDL GPU checked draws.** Native shapes, images, path meshes, and glyph batches report failed SDL draw, texture creation, or upload operations through the checked renderer entry.
 - **Projective fallback I/O errors.** SDL GPU and Web Canvas report failed target readback or upload as backend failures rather than unsupported geometry; Web Canvas rejects a mismatched readback length before copying it.
 - **WGPU frame acquisition.** Checked draws report swapchain acquisition failure instead of succeeding without drawing; projective geometry is validated before acquiring the frame.
+- **WGPU deferred draw failures.** Checked image and glyph draws report source upload, atlas decoding, uniform, and instance-buffer failures instead of silently dropping the affected command.
 - **Offscreen pixel ownership.** SDL GPU, WGPU, and Web Canvas move readback bytes into textures without a second full-size allocation and copy; SDL GPU reports texture-upload and copy failures from target edits.
 - **GPU path fill rules.** WGPU and SDL GPU preserve even-odd and non-zero winding through path tessellation, including transformed fills.
 - **Checked texture storage.** Blit requests validate dimensions, row stride, and the final row's byte capacity before Software, WGPU, SDL GPU, Web Canvas, or scene capture reads the source.
