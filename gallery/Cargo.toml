@@ -54,6 +54,11 @@ path = "examples/backends/sdl_gpu_demo.rs"
 required-features = ["sdl-gpu"]
 
 [[example]]
+name = "image_composite_snapshot"
+path = "examples/tools/image_composite_snapshot.rs"
+required-features = ["sdl-gpu"]
+
+[[example]]
 name = "wgpu_smoke"
 path = "examples/backends/wgpu_smoke.rs"
 required-features = ["wgpu"]
