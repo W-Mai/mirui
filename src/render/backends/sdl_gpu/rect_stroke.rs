@@ -18,7 +18,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             let phys_clip = self.viewport.rect_to_physical(*clip);
             if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
                 apply_solid_color(self.canvas, color, opa);
-                let _ = self.canvas.draw_rect(sdl_rect);
+                if self.canvas.draw_rect(sdl_rect).is_err() {
+                    self.draw_failed = true;
+                }
             }
             return;
         }

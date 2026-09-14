@@ -450,6 +450,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             projective_fallback: self.projective_fallback.as_mut(),
             stroke_scratch: &mut self.stroke_scratch,
             viewport,
+            draw_failed: false,
         }
     }
 }
@@ -461,6 +462,7 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     projective_fallback: Option<&'a mut ProjectiveFallback<S>>,
     stroke_scratch: &'a mut StrokeScratch,
     viewport: Viewport,
+    draw_failed: bool,
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
@@ -496,7 +498,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
         let verts = &self.tessellator.verts;
         let indices = &self.tessellator.indices;
-        unsafe {
+        let result = unsafe {
             sdl2_sys::SDL_RenderGeometry(
                 self.canvas.raw(),
                 core::ptr::null_mut(),
@@ -504,7 +506,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 verts.len() as _,
                 indices.as_ptr(),
                 indices.len() as _,
-            );
+            )
+        };
+        if result != 0 {
+            self.draw_failed = true;
         }
         self.canvas.set_clip_rect(None);
     }
@@ -539,7 +544,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             )
         };
         if read_result != 0 {
-            return Err(ProjectiveDrawError::Unsupported);
+            return Err(ProjectiveDrawError::BackendFailure);
         }
 
         fallback.render(plan, command, projective, self.viewport)?;
@@ -572,7 +577,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if uploaded {
             Ok(())
         } else {
-            Err(ProjectiveDrawError::Unsupported)
+            Err(ProjectiveDrawError::BackendFailure)
         }
     }
 }
@@ -830,8 +835,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         request.validate_projection()?;
         Self::classify_request(request)?;
         if request.projective.is_identity() {
+            self.draw_failed = false;
             self.draw(request.command, &request.clip);
-            return Ok(());
+            return if self.draw_failed {
+                Err(RenderError::BackendFailure)
+            } else {
+                Ok(())
+            };
         }
         let plan = self
             .projective_fallback

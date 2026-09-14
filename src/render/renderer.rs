@@ -115,6 +115,8 @@ pub enum ProjectiveDrawError {
     },
     /// The effective transform is singular or crosses the near plane.
     InvalidProjection,
+    /// The target rejected a readback, upload, or composite operation.
+    BackendFailure,
 }
 
 impl From<ProjectiveDrawError> for RenderError {
@@ -132,6 +134,7 @@ impl From<ProjectiveDrawError> for RenderError {
                 capacity_bytes,
             },
             ProjectiveDrawError::InvalidProjection => Self::InvalidGeometry,
+            ProjectiveDrawError::BackendFailure => Self::BackendFailure,
         }
     }
 }
@@ -276,6 +279,14 @@ pub trait Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_io_failures_do_not_masquerade_as_unsupported_geometry() {
+        assert_eq!(
+            RenderError::from(ProjectiveDrawError::BackendFailure),
+            RenderError::BackendFailure
+        );
+    }
 
     #[test]
     fn request_keeps_command_data_borrow_independent_of_command_borrow() {

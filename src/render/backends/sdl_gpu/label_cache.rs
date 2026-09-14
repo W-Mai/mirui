@@ -26,6 +26,7 @@ use crate::render::canvas::Canvas as _;
 use crate::render::font::{
     Font, FontFaceId, FontSurfaceId, GlyphSurface, RasterRunBounds, RasterRunKey,
 };
+use crate::render::renderer::RenderError;
 use crate::render::texture::{ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
@@ -144,11 +145,11 @@ impl LabelCache {
         color: &Color,
         opa: u8,
         viewport: Viewport,
-    ) {
+    ) -> Result<(), RenderError> {
         let raster_scale = viewport.scale() * transform.raster_scale();
         let output_ppem = crate::render::font::output_ppem(font.size, raster_scale);
         let Some(bounds) = font.raster_run_bounds(glyphs, output_ppem, raster_scale) else {
-            return;
+            return Ok(());
         };
         let key = font.raster_run_key(glyphs, color, raster_scale);
         let rect = Rect {
@@ -177,7 +178,7 @@ impl LabelCache {
             &phys_clip,
             color,
             opa,
-        );
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -193,7 +194,7 @@ impl LabelCache {
         color: Color,
         opa: u8,
         viewport: Viewport,
-    ) {
+    ) -> Result<(), RenderError> {
         const GLYPHS_PER_BATCH: usize = 2_048;
 
         let requested_size = font.size.max(1);
@@ -224,7 +225,7 @@ impl LabelCache {
             };
             if !coverage {
                 if let Some((key, surface)) = active.take() {
-                    self.flush_scalar_batch(canvas, key, surface, clip, viewport);
+                    self.flush_scalar_batch(canvas, key, surface, clip, viewport)?;
                 }
                 let tangent = Point {
                     x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
@@ -252,7 +253,7 @@ impl LabelCache {
                     &color,
                     opa,
                     viewport,
-                );
+                )?;
                 continue;
             }
 
@@ -261,7 +262,7 @@ impl LabelCache {
                 || self.glyph_indices.len() / 6 >= GLYPHS_PER_BATCH
             {
                 if let Some((key, surface)) = active.take() {
-                    self.flush_scalar_batch(canvas, key, surface, clip, viewport);
+                    self.flush_scalar_batch(canvas, key, surface, clip, viewport)?;
                 }
                 active = Some((key, raster.surface));
             }
@@ -271,7 +272,9 @@ impl LabelCache {
             self.push_scalar_glyph(quad, region, raster.surface, color, opa, viewport);
         }
         if let Some((key, surface)) = active {
-            self.flush_scalar_batch(canvas, key, surface, clip, viewport);
+            self.flush_scalar_batch(canvas, key, surface, clip, viewport)
+        } else {
+            Ok(())
         }
     }
 
@@ -350,9 +353,9 @@ impl LabelCache {
         surface: GlyphSurface<'_>,
         clip: Rect,
         viewport: Viewport,
-    ) {
+    ) -> Result<(), RenderError> {
         if self.glyph_indices.is_empty() {
-            return;
+            return Ok(());
         }
         let creator = &self.creator;
         let raster_buf = &mut self.scalar_buf;
@@ -368,14 +371,14 @@ impl LabelCache {
         }) else {
             self.glyph_vertices.clear();
             self.glyph_indices.clear();
-            return;
+            return Err(RenderError::BackendFailure);
         };
         let (x0, y0, x1, y1) = viewport.rect_to_physical(clip).pixel_bounds();
         canvas.set_clip_rect(
             (x1 > x0 && y1 > y0)
                 .then(|| sdl2::rect::Rect::new(x0, y0, (x1 - x0) as u32, (y1 - y0) as u32)),
         );
-        unsafe {
+        let rendered = unsafe {
             sdl2_sys::SDL_RenderGeometry(
                 canvas.raw(),
                 handle.tex.raw(),
@@ -383,11 +386,12 @@ impl LabelCache {
                 self.glyph_vertices.len() as _,
                 self.glyph_indices.as_ptr(),
                 self.glyph_indices.len() as _,
-            );
-        }
+            ) == 0
+        };
         canvas.set_clip_rect(None);
         self.glyph_vertices.clear();
         self.glyph_indices.clear();
+        rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -403,7 +407,7 @@ impl LabelCache {
         clip: &Rect,
         color: &Color,
         opa: u8,
-    ) {
+    ) -> Result<(), RenderError> {
         let (cx0, cy0, cx1, cy1) = clip.pixel_bounds();
         let clip_rect = if cx1 > cx0 && cy1 > cy0 {
             Some(sdl2::rect::Rect::new(
@@ -431,7 +435,7 @@ impl LabelCache {
             };
             ctor(k, ctx)
         }) else {
-            return;
+            return Err(RenderError::BackendFailure);
         };
 
         if let Some(sdl_clip) = clip_rect {
@@ -460,7 +464,7 @@ impl LabelCache {
             vertex(quad[3], 0.0, 1.0),
         ];
         let indices: [i32; 6] = [0, 1, 2, 0, 2, 3];
-        unsafe {
+        let rendered = unsafe {
             sdl2_sys::SDL_RenderGeometry(
                 canvas.raw(),
                 handle.tex.raw(),
@@ -468,9 +472,10 @@ impl LabelCache {
                 vertices.len() as _,
                 indices.as_ptr(),
                 indices.len() as _,
-            );
-        }
+            ) == 0
+        };
         canvas.set_clip_rect(None);
+        rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
     #[allow(dead_code)]

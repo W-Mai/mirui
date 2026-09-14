@@ -75,6 +75,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let src_height = src.height as u32;
 
         let canvas = &mut *self.canvas;
+        let mut uploaded = false;
         self.label_cache.with_creator(|creator| {
             let mut tex = match creator.create_texture_streaming(sdl_fmt, src_width, src_height) {
                 Ok(t) => t,
@@ -90,8 +91,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             tex.set_alpha_mod(opa);
 
             canvas.set_clip_rect(sdl_clip);
-            let _ = canvas.copy(&tex, Some(src_sdl), Some(dst_sdl));
+            uploaded = canvas.copy(&tex, Some(src_sdl), Some(dst_sdl)).is_ok();
             canvas.set_clip_rect(None);
         });
+        if !uploaded {
+            self.draw_failed = true;
+        }
     }
 }

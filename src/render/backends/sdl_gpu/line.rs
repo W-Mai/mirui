@@ -22,10 +22,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             };
             self.canvas.set_clip_rect(clip_rect);
             apply_solid_color(self.canvas, color, opa);
-            let _ = self.canvas.draw_line(
-                sdl2::rect::Point::new(phys_p1.x.to_int(), phys_p1.y.to_int()),
-                sdl2::rect::Point::new(phys_p2.x.to_int(), phys_p2.y.to_int()),
-            );
+            if self
+                .canvas
+                .draw_line(
+                    sdl2::rect::Point::new(phys_p1.x.to_int(), phys_p1.y.to_int()),
+                    sdl2::rect::Point::new(phys_p2.x.to_int(), phys_p2.y.to_int()),
+                )
+                .is_err()
+            {
+                self.draw_failed = true;
+            }
             self.canvas.set_clip_rect(None);
             return;
         }

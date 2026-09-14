@@ -607,24 +607,28 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 f64::from(plan.width()),
                 f64::from(plan.height()),
             )
-            .map_err(|_| ProjectiveDrawError::Unsupported)?;
+            .map_err(|_| ProjectiveDrawError::BackendFailure)?;
         let source = image.data();
         let fallback = self
             .factory
             .projective_fallback
             .as_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        fallback.target_mut(plan).copy_from_slice(&source.0);
+        let target = fallback.target_mut(plan);
+        if target.len() != source.0.len() {
+            return Err(ProjectiveDrawError::BackendFailure);
+        }
+        target.copy_from_slice(&source.0);
         fallback.render(plan, command, projective, self.viewport)?;
         let output = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
             wasm_bindgen::Clamped(fallback.target_mut(plan)),
             u32::from(plan.width()),
             u32::from(plan.height()),
         )
-        .map_err(|_| ProjectiveDrawError::Unsupported)?;
+        .map_err(|_| ProjectiveDrawError::BackendFailure)?;
         self.ctx()
             .put_image_data(&output, f64::from(plan.x), f64::from(plan.y))
-            .map_err(|_| ProjectiveDrawError::Unsupported)
+            .map_err(|_| ProjectiveDrawError::BackendFailure)
     }
 
     fn classify_gradient_fill(paint: &Paint, bbox: Option<Rect>) -> Result<(), RenderError> {

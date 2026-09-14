@@ -143,6 +143,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let indices: [i32; 6] = [0, 1, 2, 0, 2, 3];
 
         let canvas = &mut *self.canvas;
+        let mut uploaded = false;
         self.label_cache.with_creator(|creator| {
             let mut tex = match creator.create_texture_streaming(sdl_fmt, src_width, src_height) {
                 Ok(t) => t,
@@ -153,7 +154,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             }
             tex.set_blend_mode(sdl2::render::BlendMode::Blend);
             canvas.set_clip_rect(sdl_clip);
-            unsafe {
+            uploaded = unsafe {
                 sdl2_sys::SDL_RenderGeometry(
                     canvas.raw(),
                     tex.raw(),
@@ -161,9 +162,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                     verts.len() as _,
                     indices.as_ptr(),
                     indices.len() as _,
-                );
-            }
+                ) == 0
+            };
             canvas.set_clip_rect(None);
         });
+        if !uploaded {
+            self.draw_failed = true;
+        }
     }
 }
