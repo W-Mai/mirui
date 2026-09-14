@@ -163,7 +163,7 @@ impl AlignedPlane<'_> {
             stride: layout.stride_bytes,
             alpha_mode: AlphaMode::Opaque,
             cache_revision: 0,
-            transient: false,
+            transient: true,
         }
     }
 }
@@ -183,6 +183,7 @@ mod tests {
         let texture = plane.texture();
         assert_eq!(texture.stride, 128);
         assert_eq!(texture.buf.as_slice().len(), 256);
+        assert!(texture.transient);
     }
 
     #[test]
