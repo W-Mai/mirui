@@ -92,6 +92,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             factory: self,
             surface: backend,
             viewport: *transform,
+            draw_failed: false,
         }
     }
 }
@@ -100,6 +101,7 @@ pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
     factory: &'a mut WebCanvasRendererFactory<S>,
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
+    draw_failed: bool,
 }
 
 struct GlyphRunDraw<'a> {
@@ -750,8 +752,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         }
         Self::classify_request(request)?;
         if request.projective.is_identity() {
+            self.draw_failed = false;
             self.draw(request.command, &request.clip);
-            return Ok(());
+            return if self.draw_failed {
+                Err(RenderError::BackendFailure)
+            } else {
+                Ok(())
+            };
         }
         let plan = self
             .factory
@@ -1215,12 +1222,15 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 texture_pool::upload(&texture).ok_or(())
             }) {
             Ok(handle) => handle,
-            Err(_) => return,
+            Err(_) => {
+                self.draw_failed = true;
+                return;
+            }
         };
         self.push_rect_clip(clip);
         self.ctx()
             .set_global_alpha((color.a as f64 * opacity as f64) / (255.0 * 255.0));
-        let _ = self
+        let result = self
             .ctx()
             .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
                 &handle.get().canvas,
@@ -1234,6 +1244,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 bounds.size.y.to_f32() as f64,
             );
         self.pop_rect_clip();
+        if result.is_err() {
+            self.draw_failed = true;
+        }
     }
 }
 
@@ -1344,7 +1357,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         let canvas_ref: &web_sys::OffscreenCanvas = if src.transient {
             transient_up = match texture_pool::upload(src) {
                 Some(up) => up,
-                None => return,
+                None => {
+                    self.draw_failed = true;
+                    return;
+                }
             };
             &transient_up.canvas
         } else {
@@ -1356,9 +1372,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
                 .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
             {
                 Ok(h) => h,
-                Err(_) => return,
+                Err(_) => {
+                    self.draw_failed = true;
+                    return;
+                }
             };
             if pooled_handle.is_invalid() {
+                self.draw_failed = true;
                 return;
             }
             &pooled_handle.canvas
@@ -1435,8 +1455,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
                 dst_size.x.to_f32() as f64,
                 dst_size.y.to_f32() as f64,
             );
-        let _ = result;
-
         if radius > Fixed::ZERO {
             ctx.restore();
         }
@@ -1444,6 +1462,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         ctx.set_global_alpha(prev_alpha);
         let _ = ctx.set_global_composite_operation(&prev_composite);
         self.pop_rect_clip();
+        if result.is_err() {
+            self.draw_failed = true;
+        }
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
