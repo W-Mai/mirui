@@ -12,9 +12,7 @@ pub struct Page {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn flip_system(world: &mut World) {
-    let mut pages = alloc::vec::Vec::new();
-    world.query::<Page>().collect_into(&mut pages);
-    for e in pages {
+    super::for_each_stable_component::<Page>(world, |world, e| {
         let angle = if let Some(p) = world.get_mut::<Page>(e) {
             p.angle_deg += p.speed_deg;
             // 0..120..0 keeps the right page from swinging past the spine and covering the left.
@@ -24,7 +22,7 @@ pub fn flip_system(world: &mut World) {
             }
             p.angle_deg
         } else {
-            continue;
+            return;
         };
         world.insert(
             e,
@@ -34,7 +32,7 @@ pub fn flip_system(world: &mut World) {
             )),
         );
         world.insert(e, Dirty);
-    }
+    });
 }
 
 #[compose]

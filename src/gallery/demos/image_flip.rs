@@ -15,9 +15,7 @@ pub struct Spinner {
 //~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spin_system(world: &mut World) {
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<Spinner>().collect_into(&mut entities);
-    for e in entities {
+    super::for_each_stable_component::<Spinner>(world, |world, e| {
         let (angle, bounce) = if let Some(s) = world.get_mut::<Spinner>(e) {
             s.angle += s.speed;
             if s.angle >= Fixed::from_int(360) {
@@ -29,7 +27,7 @@ pub fn spin_system(world: &mut World) {
             }
             (s.angle, s.bounce_phase)
         } else {
-            continue;
+            return;
         };
 
         let t_num = bounce.to_int() % 180;
@@ -49,7 +47,7 @@ pub fn spin_system(world: &mut World) {
             WidgetTransform3D(translate.compose(&rot).compose(&scale)),
         );
         world.insert(e, Dirty);
-    }
+    });
 }
 //~focus-end
 

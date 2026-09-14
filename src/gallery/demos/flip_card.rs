@@ -30,9 +30,7 @@ pub fn flip_system(world: &mut World) {
     let card_left = (vw - card_w) / 2;
     let card_top = (vh - card_h) / 2;
 
-    let mut cards = alloc::vec::Vec::new();
-    world.query::<FlipCard>().collect_into(&mut cards);
-    for e in cards {
+    super::for_each_stable_component::<FlipCard>(world, |world, e| {
         let (angle, front, back, root) = if let Some(c) = world.get_mut::<FlipCard>(e) {
             c.angle_deg += c.speed_deg;
             if c.angle_deg >= Fixed::from_int(360) {
@@ -40,7 +38,7 @@ pub fn flip_system(world: &mut World) {
             }
             (c.angle_deg, c.front_color, c.back_color, c.root)
         } else {
-            continue;
+            return;
         };
 
         let halfway = Fixed::from_int(90);
@@ -67,7 +65,7 @@ pub fn flip_system(world: &mut World) {
         );
         world.insert(e, Dirty);
         world.insert(root, Dirty);
-    }
+    });
 }
 //~focus-end
 

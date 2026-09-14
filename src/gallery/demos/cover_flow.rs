@@ -77,12 +77,15 @@ pub fn layout_system(world: &mut World) {
         perspective,
     } = bounds;
 
-    let mut carousels = alloc::vec::Vec::new();
-    world.query::<Carousel>().collect_into(&mut carousels);
-    let offset = match carousels
-        .first()
-        .and_then(|&e| world.get::<ScrollOffset>(e))
-    {
+    let Some(carousel) = world
+        .query::<Carousel>()
+        .iter()
+        .next()
+        .map(|(entity, _)| entity)
+    else {
+        return;
+    };
+    let offset = match world.get::<ScrollOffset>(carousel) {
         Some(s) => s.x,
         None => return,
     };
@@ -97,8 +100,6 @@ pub fn layout_system(world: &mut World) {
     }
     world.insert_resource(frame);
 
-    let carousel = carousels[0];
-
     if let Some(style) = world.get_mut::<Style>(carousel) {
         style.layout.width = Dimension::Px(Fixed::from_int(view_w));
         style.layout.height = Dimension::Px(Fixed::from_int(view_h));
@@ -107,19 +108,20 @@ pub fn layout_system(world: &mut World) {
         cfg.content_width = Fixed::from_int(view_w + (card_w + card_gap) * (CARD_COUNT - 1));
     }
 
-    let mut cards = alloc::vec::Vec::new();
-    world.query::<CarouselCard>().collect_into(&mut cards);
-    if cards.is_empty() {
+    if world
+        .storage::<CarouselCard>()
+        .is_none_or(|storage| storage.entities().is_empty())
+    {
         return;
     }
     let slot_stride = Fixed::from_int(card_w + card_gap);
     let container_center = Fixed::from_int(view_w / 2);
     let card_top = Fixed::from_int((view_h - card_h) / 2);
 
-    for e in cards {
+    super::for_each_stable_component::<CarouselCard>(world, |world, e| {
         let idx = match world.get::<CarouselCard>(e) {
             Some(c) => c.index as i32,
-            None => continue,
+            None => return,
         };
         let tx =
             container_center + Fixed::from_int(idx) * slot_stride - Fixed::from_int(card_w / 2);
@@ -133,7 +135,7 @@ pub fn layout_system(world: &mut World) {
         let tx3d = Transform3D::rotate_x_perspective(tilt_x, distance);
         world.insert(e, WidgetTransform3D(ty3d.compose(&tx3d)));
         world.insert(e, Dirty);
-    }
+    });
     world.insert(carousel, Dirty);
 }
 //~focus-end
