@@ -25,6 +25,18 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
         self
     }
 
+    pub(crate) fn validate_texture(&self) -> Result<(), RenderError> {
+        if let DrawCommand::Blit { size, texture, .. } = self.command {
+            if !texture.valid_storage() {
+                return Err(RenderError::InvalidTexture);
+            }
+            if size.x <= Fixed::ZERO || size.y <= Fixed::ZERO {
+                return Err(RenderError::InvalidGeometry);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn validate_projection(&self) -> Result<(), RenderError> {
         if !self.projective.is_identity()
             && matches!(

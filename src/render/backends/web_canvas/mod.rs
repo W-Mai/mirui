@@ -651,6 +651,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
+        request.validate_texture()?;
         let projected = !request.projective.is_identity();
         match request.command {
             DrawCommand::ApplyBlur { .. } => {

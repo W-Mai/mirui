@@ -581,6 +581,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
+        request.validate_texture()?;
         let projected = !request.projective.is_identity();
         match request.command {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
@@ -732,6 +733,22 @@ mod route_tests {
             Err(RenderError::Unsupported(RenderFeature::TextureFormat(
                 ColorFormat::RGB565Swapped
             )))
+        );
+
+        let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);
+        let invalid = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &short,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        assert_eq!(
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&invalid, clip)),
+            Err(RenderError::InvalidTexture)
         );
     }
 

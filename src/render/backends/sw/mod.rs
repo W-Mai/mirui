@@ -762,6 +762,7 @@ impl Renderer for SwRenderer<'_> {
         use crate::types::TransformClass;
 
         request.validate_projection()?;
+        request.validate_texture()?;
         let projected = !request.projective.is_identity();
         let affine = !matches!(
             request.command.transform().classify(),
@@ -841,6 +842,7 @@ impl Renderer for SwRenderer<'_> {
         use crate::types::TransformClass;
 
         request.validate_projection()?;
+        request.validate_texture()?;
         if request.projective.is_identity()
             && matches!(
                 request.command.transform().classify(),
@@ -1467,6 +1469,25 @@ mod tests {
     use super::*;
     use crate::render::texture::ColorFormat;
     use alloc::vec;
+
+    #[test]
+    fn checked_plain_blit_rejects_short_texture_before_fast_path() {
+        let mut renderer = SwRenderer::new(Texture::owned(4, 4, ColorFormat::RGBA8888));
+        let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);
+        let command = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &short,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        let request = DrawRequest::new(&command, Rect::new(0, 0, 4, 4));
+        assert_eq!(renderer.route(&request), Err(RenderError::InvalidTexture));
+        assert_eq!(renderer.submit(&request), Err(RenderError::InvalidTexture));
+    }
 
     #[test]
     fn route_rejects_software_draws_that_drop_requested_semantics() {

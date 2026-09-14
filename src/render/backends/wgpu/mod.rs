@@ -457,6 +457,8 @@ impl WgpuRenderer<'_> {
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         use crate::types::TransformClass;
 
+        request.validate_texture()?;
+
         match request.command {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
                 return Err(RenderError::Unsupported(RenderFeature::PathClip));
@@ -479,18 +481,7 @@ impl WgpuRenderer<'_> {
                     return Err(RenderError::Unsupported(RenderFeature::FillRule));
                 }
             }
-            DrawCommand::Blit {
-                composite,
-                texture,
-                size,
-                ..
-            } => {
-                if !texture_upload_valid(texture) {
-                    return Err(RenderError::InvalidTexture);
-                }
-                if size.x <= Fixed::ZERO || size.y <= Fixed::ZERO {
-                    return Err(RenderError::InvalidGeometry);
-                }
+            DrawCommand::Blit { composite, .. } => {
                 if matches!(
                     composite,
                     CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
@@ -1050,27 +1041,9 @@ struct BlitMask {
     radius: Fixed,
 }
 
-fn texture_upload_valid(src: &Texture) -> bool {
-    let bpp = src.format.bytes_per_pixel();
-    let w = src.width as usize;
-    let h = src.height as usize;
-    if w == 0 || h == 0 {
-        return false;
-    }
-    let Some(row_bytes) = w.checked_mul(bpp) else {
-        return false;
-    };
-    src.stride >= row_bytes
-        && src
-            .stride
-            .checked_mul(h - 1)
-            .and_then(|start| start.checked_add(row_bytes))
-            .is_some_and(|required| required <= src.buf.as_slice().len())
-}
-
 fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
     use crate::render::texture::ColorFormat;
-    if !texture_upload_valid(src) {
+    if !src.valid_storage() {
         return None;
     }
     let buf = src.buf.as_slice();

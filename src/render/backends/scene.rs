@@ -31,6 +31,7 @@ impl<'a> SceneRenderer<'a> {
 impl Renderer for SceneRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        request.validate_texture()?;
         if !request.projective.is_identity() {
             return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
         }
@@ -97,6 +98,34 @@ mod tests {
             b: 0,
             a: 255,
         }
+    }
+
+    #[test]
+    fn capture_rejects_short_texture_before_resolving_it() {
+        let texture = Texture::from_ref(
+            &[0u8; 1],
+            2,
+            2,
+            crate::render::texture::ColorFormat::RGBA8888,
+        );
+        let command = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: crate::render::command::CompositeMode::SourceOver,
+        };
+        let mut scene = Scene::new();
+        let mut resolver = PanicResolver;
+        let mut renderer = scene.renderer(&mut resolver);
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&command, Rect::new(0, 0, 2, 2))),
+            Err(RenderError::InvalidTexture)
+        );
+        assert!(renderer.scene.ops.is_empty());
     }
 
     #[test]

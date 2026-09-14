@@ -265,6 +265,23 @@ impl<'a> Texture<'a> {
         self
     }
 
+    pub(crate) fn valid_storage(&self) -> bool {
+        let width = usize::from(self.width);
+        let height = usize::from(self.height);
+        if width == 0 || height == 0 {
+            return false;
+        }
+        let Some(row_bytes) = width.checked_mul(self.format.bytes_per_pixel()) else {
+            return false;
+        };
+        self.stride >= row_bytes
+            && self
+                .stride
+                .checked_mul(height - 1)
+                .and_then(|start| start.checked_add(row_bytes))
+                .is_some_and(|required| required <= self.buf.as_slice().len())
+    }
+
     #[inline(always)]
     fn offset(&self, x: i32, y: i32) -> Option<usize> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
@@ -1025,6 +1042,16 @@ impl crate::core::resource::ResourceManager<Texture<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_validation_uses_the_last_pixel_of_padded_rows() {
+        let mut texture = Texture::from_ref(&[0u8; 12], 2, 2, ColorFormat::RGB565);
+        texture.stride = 8;
+        assert!(texture.valid_storage());
+        texture.stride = 9;
+        assert!(!texture.valid_storage());
+        assert!(!Texture::from_ref(&[], 0, 0, ColorFormat::RGBA8888).valid_storage());
+    }
 
     #[test]
     fn argb8888_roundtrip() {
