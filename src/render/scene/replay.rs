@@ -1,7 +1,5 @@
 //! Replay an owned `SceneOp` stream back through a live `Renderer`.
 
-use alloc::vec::Vec;
-
 use super::bbox::{children_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
@@ -13,6 +11,10 @@ use crate::types::{Fixed, Rect, Transform, Transform3D};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplayError {
     UnbalancedGroup,
+    InsufficientWorkspace {
+        required: usize,
+        available: usize,
+    },
     UnresolvedFont,
     UnresolvedTexture,
     UnresolvedClip,
@@ -42,14 +44,65 @@ fn parse_blur_filter(filter: &str) -> Option<Fixed> {
     None
 }
 
-#[derive(Clone)]
-struct GroupFrame<'a> {
+#[derive(Clone, Copy)]
+pub struct ReplayFrame {
     transform: Transform,
     projective: Option<Transform3D>,
     alpha: u8,
     has_clip: bool,
-    filter: Option<&'a str>,
     start_idx: usize,
+}
+
+impl ReplayFrame {
+    pub const EMPTY: Self = Self {
+        transform: Transform::IDENTITY,
+        projective: None,
+        alpha: 255,
+        has_clip: false,
+        start_idx: 0,
+    };
+}
+
+struct ReplayStack<'a> {
+    frames: &'a mut [ReplayFrame],
+    len: usize,
+}
+
+impl<'a> ReplayStack<'a> {
+    fn new(frames: &'a mut [ReplayFrame]) -> Result<Self, ReplayError> {
+        if frames.is_empty() {
+            return Err(ReplayError::InsufficientWorkspace {
+                required: 1,
+                available: 0,
+            });
+        }
+        frames[0] = ReplayFrame::EMPTY;
+        Ok(Self { frames, len: 1 })
+    }
+
+    fn top(&self) -> ReplayFrame {
+        self.frames[self.len - 1]
+    }
+
+    fn push(&mut self, frame: ReplayFrame) -> Result<(), ReplayError> {
+        if self.len == self.frames.len() {
+            return Err(ReplayError::InsufficientWorkspace {
+                required: self.len + 1,
+                available: self.frames.len(),
+            });
+        }
+        self.frames[self.len] = frame;
+        self.len += 1;
+        Ok(())
+    }
+
+    fn pop(&mut self) -> Result<ReplayFrame, ReplayError> {
+        if self.len <= 1 {
+            return Err(ReplayError::UnbalancedGroup);
+        }
+        self.len -= 1;
+        Ok(self.frames[self.len])
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -60,7 +113,7 @@ enum ReplayPass {
 
 fn draw_in_frame(
     renderer: &mut dyn Renderer,
-    frame: &GroupFrame<'_>,
+    frame: &ReplayFrame,
     command: &DrawCommand,
     clip: &Rect,
     pass: ReplayPass,
@@ -107,14 +160,29 @@ fn matching_group_end(ops: &[SceneOp], start: usize) -> Option<usize> {
     None
 }
 
+/// Replay with capacity for seven nested groups. Use
+/// [`replay_scene_with_workspace`] for deeper scenes.
 pub fn replay_scene(
     ops: &[SceneOp],
     renderer: &mut dyn Renderer,
     clip: &Rect,
     resolver: &dyn SceneResolver,
 ) -> Result<(), ReplayError> {
-    replay_scene_pass(ops, renderer, clip, resolver, ReplayPass::Preflight)?;
-    replay_scene_pass(ops, renderer, clip, resolver, ReplayPass::Draw)
+    let mut frames = [ReplayFrame::EMPTY; 8];
+    replay_scene_with_workspace(ops, renderer, clip, resolver, &mut frames)
+}
+
+/// Replay with caller-owned group frames. One frame is needed for the root
+/// and one more for each nested group.
+pub fn replay_scene_with_workspace(
+    ops: &[SceneOp],
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    resolver: &dyn SceneResolver,
+    frames: &mut [ReplayFrame],
+) -> Result<(), ReplayError> {
+    replay_scene_pass(ops, renderer, clip, resolver, frames, ReplayPass::Preflight)?;
+    replay_scene_pass(ops, renderer, clip, resolver, frames, ReplayPass::Draw)
 }
 
 fn replay_scene_pass(
@@ -122,43 +190,27 @@ fn replay_scene_pass(
     renderer: &mut dyn Renderer,
     clip: &Rect,
     resolver: &dyn SceneResolver,
+    frames: &mut [ReplayFrame],
     pass: ReplayPass,
 ) -> Result<(), ReplayError> {
-    let mut stack: Vec<GroupFrame> = alloc::vec![GroupFrame {
-        transform: Transform::IDENTITY,
-        projective: None,
-        alpha: 255,
-        has_clip: false,
-        filter: None,
-        start_idx: 0,
-    }];
-    let mut skip_until_depth: Option<usize> = None;
+    let mut stack = ReplayStack::new(frames)?;
+    let mut skip_depth = 0usize;
 
     let mut i = 0;
     while i < ops.len() {
         let op = &ops[i];
 
-        if let Some(target_depth) = skip_until_depth {
+        if skip_depth != 0 {
             match op {
-                SceneOp::GroupBegin { .. } => {
-                    stack.push(stack.last().unwrap().clone());
-                }
-                SceneOp::GroupEnd => {
-                    if stack.len() <= 1 {
-                        return Err(ReplayError::UnbalancedGroup);
-                    }
-                    stack.pop();
-                    if stack.len() == target_depth {
-                        skip_until_depth = None;
-                    }
-                }
+                SceneOp::GroupBegin { .. } => skip_depth += 1,
+                SceneOp::GroupEnd => skip_depth -= 1,
                 _ => {}
             }
             i += 1;
             continue;
         }
 
-        let top = stack.last().cloned().ok_or(ReplayError::UnbalancedGroup)?;
+        let top = stack.top();
         match op {
             SceneOp::GroupBegin {
                 transform,
@@ -166,7 +218,6 @@ fn replay_scene_pass(
                 opacity,
                 clip: group_clip,
                 disjoint_hint,
-                filter,
                 ..
             } => {
                 let local_affine = transform.unwrap_or(Transform::IDENTITY);
@@ -194,15 +245,7 @@ fn replay_scene_pass(
                     None => top.alpha,
                     Some(255) => top.alpha,
                     Some(0) => {
-                        skip_until_depth = Some(stack.len());
-                        stack.push(GroupFrame {
-                            transform: composed,
-                            projective: composed_projective,
-                            alpha: 0,
-                            has_clip: false,
-                            filter: None,
-                            start_idx: i,
-                        });
+                        skip_depth = 1;
                         i += 1;
                         continue;
                     }
@@ -221,12 +264,11 @@ fn replay_scene_pass(
                 let has_clip = if let Some(ResourceRef::Inline(path)) = group_clip {
                     draw_in_frame(
                         renderer,
-                        &GroupFrame {
+                        &ReplayFrame {
                             transform: composed,
                             projective: composed_projective,
                             alpha: next_alpha,
                             has_clip: false,
-                            filter: None,
                             start_idx: i,
                         },
                         &DrawCommand::PushClip {
@@ -243,27 +285,24 @@ fn replay_scene_pass(
                 } else {
                     false
                 };
-                stack.push(GroupFrame {
+                stack.push(ReplayFrame {
                     transform: composed,
                     projective: composed_projective,
                     alpha: next_alpha,
                     has_clip,
-                    filter: filter.as_ref().and_then(|r| match r {
-                        ResourceRef::Token(s) => Some(&**s),
-                        ResourceRef::Index(_) | ResourceRef::Inline(_) => None,
-                    }),
                     start_idx: i,
-                });
+                })?;
             }
             SceneOp::GroupEnd => {
-                if stack.len() <= 1 {
-                    return Err(ReplayError::UnbalancedGroup);
-                }
-                let frame = stack.pop().unwrap();
+                let frame = stack.pop()?;
                 if frame.has_clip {
                     draw_in_frame(renderer, &frame, &DrawCommand::PopClip, clip, pass)?;
                 }
-                if let Some(filter_str) = &frame.filter {
+                let filter = match &ops[frame.start_idx] {
+                    SceneOp::GroupBegin { filter, .. } => filter,
+                    _ => return Err(ReplayError::UnbalancedGroup),
+                };
+                if let Some(ResourceRef::Token(filter_str)) = filter {
                     if let Some(blur_alpha) = parse_blur_filter(filter_str) {
                         let children = &ops[frame.start_idx + 1..i];
                         let region = union_of_children(children, &frame.transform);
@@ -531,7 +570,7 @@ fn replay_scene_pass(
         }
         i += 1;
     }
-    if stack.len() != 1 {
+    if stack.len != 1 || skip_depth != 0 {
         return Err(ReplayError::UnbalancedGroup);
     }
     Ok(())
@@ -547,6 +586,7 @@ mod tests {
     use crate::render::scene::Paint;
     use crate::types::{Color, Fixed, Point, Rect};
     use alloc::vec;
+    use alloc::vec::Vec;
 
     struct CaptureRenderer {
         transforms: Vec<Transform>,
@@ -720,6 +760,79 @@ mod tests {
         };
         replay_scene(&ops, &mut r, &rect(), &NoResolver).unwrap();
         assert_eq!(r.transforms, vec![group_tf.compose(&child_tf)]);
+    }
+
+    #[test]
+    fn group_workspace_fails_before_the_first_draw() {
+        let group = SceneOp::GroupBegin {
+            transform: None,
+            projective: None,
+            opacity: None,
+            clip: None,
+            mask: None,
+            filter: None,
+            disjoint_hint: false,
+        };
+        let ops = [
+            fill(Transform::IDENTITY),
+            group.clone(),
+            group,
+            SceneOp::GroupEnd,
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = CaptureRenderer {
+            transforms: Vec::new(),
+            fill_opas: Vec::new(),
+        };
+        let mut short = [ReplayFrame::EMPTY; 2];
+        assert_eq!(
+            replay_scene_with_workspace(&ops, &mut renderer, &rect(), &NoResolver, &mut short),
+            Err(ReplayError::InsufficientWorkspace {
+                required: 3,
+                available: 2,
+            })
+        );
+        assert!(renderer.transforms.is_empty());
+
+        let mut enough = [ReplayFrame::EMPTY; 3];
+        replay_scene_with_workspace(&ops, &mut renderer, &rect(), &NoResolver, &mut enough)
+            .unwrap();
+        assert_eq!(renderer.transforms.len(), 1);
+    }
+
+    #[test]
+    fn invisible_groups_do_not_consume_workspace_frames() {
+        let ops = [
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: None,
+                opacity: Some(0),
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: None,
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            fill(Transform::IDENTITY),
+            SceneOp::GroupEnd,
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = CaptureRenderer {
+            transforms: Vec::new(),
+            fill_opas: Vec::new(),
+        };
+        let mut frames = [ReplayFrame::EMPTY; 1];
+        replay_scene_with_workspace(&ops, &mut renderer, &rect(), &NoResolver, &mut frames)
+            .unwrap();
+        assert!(renderer.transforms.is_empty());
     }
 
     #[test]

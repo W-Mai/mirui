@@ -311,6 +311,16 @@ impl Scene {
         replay::replay_scene(&self.ops, renderer, clip, resolver)
     }
 
+    pub fn replay_with_workspace(
+        &self,
+        renderer: &mut dyn crate::render::renderer::Renderer,
+        clip: &crate::types::Rect,
+        resolver: &dyn replay::SceneResolver,
+        frames: &mut [replay::ReplayFrame],
+    ) -> Result<(), replay::ReplayError> {
+        replay::replay_scene_with_workspace(&self.ops, renderer, clip, resolver, frames)
+    }
+
     pub fn record(
         &mut self,
         cmd: &crate::render::command::DrawCommand,

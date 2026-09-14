@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Scene replay workspace.** Group state uses a fixed caller-owned frame slice instead of allocating a vector for each preflight and draw pass. The default replay path supports seven nested groups; deeper scenes can supply a larger slice and receive a typed capacity error before drawing.
 - **Scene child bounds.** Filter extents and sibling-overlap checks traverse direct child bounds without allocating a rectangle list during scene replay.
 - **Blur Filter scene storage.** Both shape sets and the filter scope use one static borrowed scene; rendering no longer builds paths or a scene vector every frame.
 - **Software draw submission.** Unprojected identity and translated commands enter the direct raster path without an extra backend route call; exceptional transforms retain checked preflight.

@@ -45,22 +45,47 @@ impl ViewCtx<'_> {
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
     ) {
+        let mut frames = [crate::render::scene::replay::ReplayFrame::EMPTY; 8];
+        self.replay_with_workspace(renderer, ops, resolver, &mut frames);
+    }
+
+    /// Replay a scene using caller-owned group frames.
+    pub fn replay_with_workspace(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        ops: &[crate::render::scene::SceneOp],
+        resolver: &dyn crate::render::scene::replay::SceneResolver,
+        frames: &mut [crate::render::scene::replay::ReplayFrame],
+    ) {
         if self.error.is_some() {
             return;
         }
-        self.error = crate::render::scene::replay::replay_scene(ops, renderer, self.clip, resolver)
-            .err()
-            .map(|error| match error {
-                crate::render::scene::replay::ReplayError::Render(error) => error,
-                crate::render::scene::replay::ReplayError::GroupOpacityNeedsOffscreen => {
-                    RenderError::MissingWorkspace
-                }
-                crate::render::scene::replay::ReplayError::UnresolvedFont
-                | crate::render::scene::replay::ReplayError::UnresolvedTexture => {
-                    RenderError::InvalidTexture
-                }
-                _ => RenderError::InvalidGeometry,
-            });
+        self.error = crate::render::scene::replay::replay_scene_with_workspace(
+            ops, renderer, self.clip, resolver, frames,
+        )
+        .err()
+        .map(|error| match error {
+            crate::render::scene::replay::ReplayError::Render(error) => error,
+            crate::render::scene::replay::ReplayError::GroupOpacityNeedsOffscreen => {
+                RenderError::MissingWorkspace
+            }
+            crate::render::scene::replay::ReplayError::InsufficientWorkspace {
+                required,
+                available,
+            } => RenderError::InsufficientWorkspace {
+                required_bytes: required.saturating_mul(core::mem::size_of::<
+                    crate::render::scene::replay::ReplayFrame,
+                >()),
+                capacity_bytes: available.saturating_mul(core::mem::size_of::<
+                    crate::render::scene::replay::ReplayFrame,
+                >()),
+            },
+            crate::render::scene::replay::ReplayError::UnresolvedFont
+            | crate::render::scene::replay::ReplayError::UnresolvedTexture => {
+                RenderError::InvalidTexture
+            }
+            _ => RenderError::InvalidGeometry,
+        });
     }
 
     pub(crate) fn record(&mut self, result: Result<(), RenderError>) {
