@@ -107,6 +107,7 @@ pub enum RenderFeature {
     PathStroke,
     FillRule,
     GradientPaint,
+    TextInkBounds,
     StrokeStyle,
     Blur,
     RoundedFill,

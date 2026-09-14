@@ -64,13 +64,20 @@ impl ViewCtx<'_> {
             ops, renderer, self.clip, resolver, frames,
         )
         .err()
-        .map(|error| match error {
+        .map(Self::replay_error);
+    }
+
+    fn replay_error(error: crate::render::scene::replay::ReplayError) -> RenderError {
+        match error {
             crate::render::scene::replay::ReplayError::Render(error) => error,
             crate::render::scene::replay::ReplayError::Bounds(
                 crate::render::scene::bbox::BoundsError::ProjectiveGroup,
             ) => {
                 RenderError::Unsupported(crate::render::renderer::RenderFeature::ProjectiveGeometry)
             }
+            crate::render::scene::replay::ReplayError::Bounds(
+                crate::render::scene::bbox::BoundsError::GlyphInk,
+            ) => RenderError::Unsupported(crate::render::renderer::RenderFeature::TextInkBounds),
             crate::render::scene::replay::ReplayError::Bounds(
                 crate::render::scene::bbox::BoundsError::InsufficientWorkspace { .. },
             ) => RenderError::MissingWorkspace,
@@ -93,7 +100,7 @@ impl ViewCtx<'_> {
                 RenderError::InvalidTexture
             }
             _ => RenderError::InvalidGeometry,
-        });
+        }
     }
 
     pub(crate) fn record(&mut self, result: Result<(), RenderError>) {
@@ -298,6 +305,16 @@ mod tests {
     use super::*;
     use crate::render::command::DrawCommand;
     use crate::types::Fixed;
+
+    #[test]
+    fn unresolved_text_ink_is_a_capability_error() {
+        assert_eq!(
+            ViewCtx::replay_error(crate::render::scene::replay::ReplayError::Bounds(
+                crate::render::scene::bbox::BoundsError::GlyphInk,
+            )),
+            RenderError::Unsupported(crate::render::renderer::RenderFeature::TextInkBounds)
+        );
+    }
 
     fn dummy_render(
         _renderer: &mut dyn Renderer,
