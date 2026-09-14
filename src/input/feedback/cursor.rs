@@ -176,8 +176,10 @@ fn cursor_render(
     }
 }
 
-fn emit_fill(renderer: &mut dyn Renderer, ctx: &ViewCtx, rect: &Rect, radius: Fixed, opa: u8) {
-    renderer.draw(
+fn emit_fill(renderer: &mut dyn Renderer, ctx: &mut ViewCtx, rect: &Rect, radius: Fixed, opa: u8) {
+    let clip = *ctx.clip;
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
@@ -186,12 +188,20 @@ fn emit_fill(renderer: &mut dyn Renderer, ctx: &ViewCtx, rect: &Rect, radius: Fi
             radius,
             opa,
         },
-        ctx.clip,
+        &clip,
     );
 }
 
-fn emit_border(renderer: &mut dyn Renderer, ctx: &ViewCtx, rect: &Rect, radius: Fixed, opa: u8) {
-    renderer.draw(
+fn emit_border(
+    renderer: &mut dyn Renderer,
+    ctx: &mut ViewCtx,
+    rect: &Rect,
+    radius: Fixed,
+    opa: u8,
+) {
+    let clip = *ctx.clip;
+    ctx.draw(
+        renderer,
         &DrawCommand::Border {
             area: *rect,
             transform: ctx.transform,
@@ -201,7 +211,7 @@ fn emit_border(renderer: &mut dyn Renderer, ctx: &ViewCtx, rect: &Rect, radius: 
             radius,
             opa,
         },
-        ctx.clip,
+        &clip,
     );
 }
 
@@ -212,9 +222,10 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::renderer::{RenderError, RenderFeature};
     use crate::render::texture::ColorFormat;
     use crate::surface::DisplayInfo;
-    use crate::types::Dimension;
+    use crate::types::{Dimension, Transform};
     use crate::ui::Style;
     use crate::ui::layout::LayoutStyle;
 
@@ -222,6 +233,36 @@ mod tests {
         let mut app = crate::app::App::headless(128, 128);
         app.with_default_widgets();
         app.world
+    }
+
+    #[test]
+    fn cursor_draw_failure_reaches_view_context() {
+        struct RejectRenderer;
+        impl Renderer for RejectRenderer {
+            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+                panic!("unchecked cursor draw")
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 16, 16);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::IDENTITY,
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+            state: crate::ui::theme::WidgetState::Enabled,
+            error: None,
+        };
+        emit_fill(&mut RejectRenderer, &mut ctx, &rect, Fixed::ZERO, 255);
+        emit_border(&mut RejectRenderer, &mut ctx, &rect, Fixed::ZERO, 255);
+        assert_eq!(
+            ctx.error,
+            Some(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        );
     }
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {

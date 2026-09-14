@@ -180,7 +180,9 @@ fn rotary_render(
         rotary_membrane_state(&feedback.rotary, &membrane),
     );
     let paint = Paint::Color(PRIMARY.into());
-    renderer.draw(
+    let clip = *ctx.clip;
+    ctx.draw(
+        renderer,
         &DrawCommand::FillPath {
             path: &path,
             transform: ctx.transform,
@@ -188,7 +190,7 @@ fn rotary_render(
             opa,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
-        ctx.clip,
+        &clip,
     );
 }
 
@@ -200,6 +202,8 @@ pub fn view() -> View {
 mod tests {
     use super::*;
     use crate::ecs::DeltaTimeMs;
+    use crate::render::renderer::{RenderError, RenderFeature};
+    use crate::types::Transform;
     use crate::ui::WidgetRoot;
 
     fn make_world() -> World {
@@ -218,6 +222,40 @@ mod tests {
         spawn_overlay_rotary(&mut world, root);
         world.insert_resource(DeltaTimeMs(16));
         world
+    }
+
+    #[test]
+    fn rotary_draw_failure_reaches_view_context() {
+        struct RejectRenderer;
+        impl Renderer for RejectRenderer {
+            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+                panic!("unchecked rotary draw")
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut world = world_with_rotary_root();
+        let mut feedback = world.resource::<InputFeedback>().copied().unwrap();
+        feedback.rotary.opacity = Fixed::ONE;
+        let entity = feedback.rotary.entity.unwrap();
+        world.insert_resource(feedback);
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 64, 64);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::IDENTITY,
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+            state: crate::ui::theme::WidgetState::Enabled,
+            error: None,
+        };
+        rotary_render(&mut RejectRenderer, &world, entity, &rect, &mut ctx);
+        assert_eq!(
+            ctx.error,
+            Some(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        );
     }
 
     #[test]
