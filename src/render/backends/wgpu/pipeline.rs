@@ -318,23 +318,39 @@ fn build_pipeline(
         }],
     };
     let blit_quad_vertex_layout = wgpu::VertexBufferLayout {
-        array_stride: 24,
+        array_stride: core::mem::size_of::<BlitQuadVertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &[
             wgpu::VertexAttribute {
                 format: wgpu::VertexFormat::Float32x2,
-                offset: 0,
+                offset: core::mem::offset_of!(BlitQuadVertex, pos) as u64,
                 shader_location: 0,
             },
             wgpu::VertexAttribute {
                 format: wgpu::VertexFormat::Float32x3,
-                offset: 8,
+                offset: core::mem::offset_of!(BlitQuadVertex, uvw) as u64,
                 shader_location: 1,
             },
             wgpu::VertexAttribute {
                 format: wgpu::VertexFormat::Float32,
-                offset: 20,
+                offset: core::mem::offset_of!(BlitQuadVertex, alpha) as u64,
                 shader_location: 2,
+            },
+        ],
+    };
+    let quad_sdf_vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: core::mem::size_of::<QuadSdfVertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: core::mem::offset_of!(QuadSdfVertex, pos) as u64,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: core::mem::offset_of!(QuadSdfVertex, local_uvw) as u64,
+                shader_location: 1,
             },
         ],
     };
@@ -367,8 +383,12 @@ fn build_pipeline(
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
         ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
-        ShaderKind::BlitQuad | ShaderKind::QuadSdf => (
+        ShaderKind::BlitQuad => (
             core::slice::from_ref(&blit_quad_vertex_layout),
+            wgpu::PrimitiveTopology::TriangleList,
+        ),
+        ShaderKind::QuadSdf => (
+            core::slice::from_ref(&quad_sdf_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
         ),
         ShaderKind::GlyphCoverage | ShaderKind::GlyphSdf => (
