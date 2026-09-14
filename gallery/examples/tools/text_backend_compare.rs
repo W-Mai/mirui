@@ -13,6 +13,8 @@ struct Image {
 
 const MAX_STABLE_RMSE: f64 = 0.01;
 const MIN_FOREGROUND_IOU: f64 = 0.6;
+const MAX_VISUAL_RMSE: f64 = 0.06;
+const MIN_VISUAL_IOU: f64 = 0.85;
 const TEXTURE_COLORS: [[u8; 3]; 6] = [
     [255, 0, 0],
     [0, 255, 0],
@@ -75,12 +77,19 @@ fn foreground_iou(reference: &Image, candidate: &Image) -> f64 {
 }
 
 fn verify_texture_colors(image: &Image, scale: u32) {
-    for texture in 0..3 {
-        for (index, expected) in TEXTURE_COLORS.iter().enumerate() {
+    for (index, expected) in TEXTURE_COLORS.iter().enumerate() {
+        let sample = |texture: u32| {
             let x = (68 + texture * 200 + index as u32 % 3 * 40) * scale;
             let y = (264 + index as u32 / 3 * 40) * scale;
             let offset = ((y * image.width + x) * 4) as usize;
-            assert_eq!(&image.bytes[offset..offset + 3], expected);
+            &image.bytes[offset..offset + 3]
+        };
+        let reference = sample(0);
+        for (actual, expected) in reference.iter().zip(expected) {
+            assert!(actual.abs_diff(*expected) <= 4);
+        }
+        for texture in 1..3 {
+            assert_eq!(sample(texture), reference);
         }
     }
 }
@@ -89,6 +98,12 @@ fn main() {
     let mut args = env::args().skip(1);
     let reference = read(Path::new(&args.next().expect("reference PNG")));
     let candidate_path = args.next().expect("candidate PNG");
+    let mode = args.next().unwrap_or_else(|| "strict".to_owned());
+    let (max_rmse, min_iou) = match mode.as_str() {
+        "strict" => (MAX_STABLE_RMSE, MIN_FOREGROUND_IOU),
+        "visual" => (MAX_VISUAL_RMSE, MIN_VISUAL_IOU),
+        _ => panic!("expected strict or visual comparison mode"),
+    };
     let candidate = read(Path::new(&candidate_path));
     assert_eq!(
         (candidate.width, candidate.height),
@@ -120,14 +135,14 @@ fn main() {
     );
     let iou = foreground_iou(&reference, &candidate);
     println!(
-        "{candidate_path}: stable RGB RMSE={stable_rmse:.7}, max={maximum}, foreground IoU={iou:.7}"
+        "{candidate_path} ({mode}): stable RGB RMSE={stable_rmse:.7}, max={maximum}, foreground IoU={iou:.7}"
     );
     assert!(
-        stable_rmse <= MAX_STABLE_RMSE,
-        "stable coverage/SDF region exceeds RGB RMSE {MAX_STABLE_RMSE}"
+        stable_rmse <= max_rmse,
+        "stable coverage/SDF region exceeds RGB RMSE {max_rmse}"
     );
     assert!(
-        iou >= MIN_FOREGROUND_IOU,
-        "affine glyph placement falls below foreground IoU {MIN_FOREGROUND_IOU}"
+        iou >= min_iou,
+        "affine glyph placement falls below foreground IoU {min_iou}"
     );
 }

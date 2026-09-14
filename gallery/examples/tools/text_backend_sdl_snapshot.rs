@@ -17,7 +17,9 @@ fn main() {
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
     let root = build(&mut app);
     let viewport = app.backend.display_info().viewport();
-    let texture = capture(&mut app, root, viewport).expect("SDL framebuffer readback");
+    let texture = capture(&mut app, root, viewport)
+        .expect("SDL draw")
+        .expect("SDL framebuffer readback");
     write_png(&path, &texture);
     eprintln!("saved {}", path.display());
 }

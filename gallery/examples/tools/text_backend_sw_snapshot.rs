@@ -28,7 +28,9 @@ fn main() {
     let mut app = App::new(backend);
     let root = build(&mut app);
     let viewport = Viewport::new(physical_width, physical_height, Fixed::from(SCALE));
-    let texture = capture(&mut app, root, viewport).expect("software framebuffer readback");
+    let texture = capture(&mut app, root, viewport)
+        .expect("software draw")
+        .expect("software framebuffer readback");
     write_png(&path, &texture);
     eprintln!("saved {}", path.display());
 }

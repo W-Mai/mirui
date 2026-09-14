@@ -142,6 +142,11 @@ path = "examples/tools/text_backend_sdl_snapshot.rs"
 required-features = ["sdl-gpu"]
 
 [[example]]
+name = "text_backend_wgpu_snapshot"
+path = "examples/tools/text_backend_wgpu_snapshot.rs"
+required-features = ["wgpu"]
+
+[[example]]
 name = "text_backend_compare"
 path = "examples/tools/text_backend_compare.rs"
 

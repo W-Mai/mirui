@@ -3,8 +3,8 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use mirui::prelude::*;
-use mirui::render::Renderer;
 use mirui::render::texture::{ColorFormat, Texture};
+use mirui::render::{RenderError, Renderer};
 use mirui::types::Viewport;
 use mirui::ui::render_system;
 
@@ -14,7 +14,7 @@ pub fn capture<B, F>(
     app: &mut App<B, F>,
     root: Entity,
     viewport: Viewport,
-) -> Option<Texture<'static>>
+) -> Result<Option<Texture<'static>>, RenderError>
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -22,11 +22,9 @@ where
     render_system::update_layout(&mut app.world, root, &viewport);
     let full = Rect::new(0, 0, WIDTH, HEIGHT);
     let mut renderer = app.factory.make(&mut app.backend, &viewport);
-    render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+    render_system::render(&app.world, root, &viewport, &mut renderer)?;
     renderer.prepare_readback(&full);
-    renderer
-        .sample_target_region(&full)
-        .expect("target readback failed")
+    renderer.sample_target_region(&full)
 }
 
 pub fn write_png(path: &Path, texture: &Texture<'_>) {
