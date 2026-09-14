@@ -725,6 +725,31 @@ impl Renderer for SwRenderer<'_> {
         Ok(RenderRoute::Native)
     }
 
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        use crate::types::TransformClass;
+
+        request.validate_projection()?;
+        if request.projective.is_identity()
+            && matches!(
+                request.command.transform().classify(),
+                TransformClass::Identity | TransformClass::Translate
+            )
+            && !matches!(request.command, DrawCommand::Blit { quad: Some(_), .. })
+        {
+            self.draw(request.command, &request.clip);
+            return Ok(());
+        }
+
+        self.route(request)?;
+        if request.projective.is_identity() {
+            self.draw(request.command, &request.clip);
+            Ok(())
+        } else {
+            self.draw_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from)
+        }
+    }
+
     fn output_scale(&self) -> Fixed {
         self.viewport.scale()
     }
@@ -1368,6 +1393,36 @@ mod tests {
             renderer.route(&DrawRequest::new(&line, clip).with_projective(projective)),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
+    }
+
+    #[test]
+    fn submit_draws_plain_commands_and_checks_exceptional_semantics() {
+        let mut renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
+        let clip = Rect::new(0, 0, 16, 16);
+        let fill = DrawCommand::Fill {
+            area: Rect::new(2, 3, 4, 5),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(20, 30, 40),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        renderer.submit(&DrawRequest::new(&fill, clip)).unwrap();
+        assert_eq!(renderer.target.get_pixel(3, 4), Color::rgb(20, 30, 40));
+
+        let unsupported = DrawCommand::Fill {
+            area: clip,
+            transform: Transform::rotate_deg(Fixed::from_int(20)),
+            quad: None,
+            color: Color::rgb(200, 10, 10),
+            radius: Fixed::from_int(3),
+            opa: 255,
+        };
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&unsupported, clip)),
+            Err(RenderError::Unsupported(RenderFeature::RoundedFill))
+        );
+        assert_eq!(renderer.target.get_pixel(3, 4), Color::rgb(20, 30, 40));
     }
 
     /// Blit dst origin at a negative x — common when an OffscreenRender

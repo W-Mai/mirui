@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Software draw submission.** Unprojected identity and translated commands enter the direct raster path without an extra backend route call; exceptional transforms retain checked preflight.
 - **Projective fallback planning.** SDL GPU and Web Canvas reuse one checked ROI plan for each submitted projective draw instead of planning again during execution.
 - **Checked Gallery draws.** Gallery custom views and offscreen blits propagate backend failures to the frame caller; path-clip examples unwind their clip scope after a failed draw.
 - **Checked built-in views.** Widgets submit drawing through `ViewCtx::draw`, so affine and projective backend failures reach the frame caller without a second renderer wrapper around normal draws.
