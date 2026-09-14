@@ -38,6 +38,19 @@ pub struct PhysicsScratch {
     pub ay: Vec<Fixed>,
 }
 
+impl PhysicsScratch {
+    fn with_entities(world: &mut World, f: impl FnOnce(&mut World, &[Entity])) {
+        let Some(scratch) = world.resource_mut::<Self>() else {
+            return;
+        };
+        let scratch = core::mem::take(scratch);
+        f(world, &scratch.entities);
+        if let Some(slot) = world.resource_mut::<Self>() {
+            *slot = scratch;
+        }
+    }
+}
+
 pub struct KickPhase(pub u32);
 
 const PHYSICS_DT_MS: u32 = 11;
@@ -219,19 +232,20 @@ pub fn kick_system(world: &mut World) {
         p.0 = p.0.wrapping_add(1);
         p.0
     };
-    let mut buf = Vec::new();
-    world.query::<Velocity>().collect_into(&mut buf);
-    let entities = buf;
-    if phase % 40 == 0 && !entities.is_empty() {
-        let kick_idx = (phase / 40) as usize % entities.len();
-        let kick_dir = (phase / 120) as i32;
-        let e = entities[kick_idx];
-        let kx = (kick_dir * 7).rem_euclid(13) - 6;
-        let ky = (kick_dir * 11).rem_euclid(13) - 6;
-        if let Some(vel) = world.get_mut::<Velocity>(e) {
-            vel.vx += Fixed::from_int(kx) / Fixed::from_int(2);
-            vel.vy += Fixed::from_int(ky) / Fixed::from_int(2);
-        }
+    if phase % 40 == 0 {
+        PhysicsScratch::with_entities(world, |world, entities| {
+            if !entities.is_empty() {
+                let kick_idx = (phase / 40) as usize % entities.len();
+                let kick_dir = (phase / 120) as i32;
+                let e = entities[kick_idx];
+                let kx = (kick_dir * 7).rem_euclid(13) - 6;
+                let ky = (kick_dir * 11).rem_euclid(13) - 6;
+                if let Some(vel) = world.get_mut::<Velocity>(e) {
+                    vel.vx += Fixed::from_int(kx) / Fixed::from_int(2);
+                    vel.vy += Fixed::from_int(ky) / Fixed::from_int(2);
+                }
+            }
+        });
     }
 }
 
@@ -239,15 +253,13 @@ pub fn kick_system(world: &mut World) {
 pub fn sync_layout_system(world: &mut World) {
     let half_w = Fixed::from_int(IMG_THUMBS_UP.width as i32 / 2);
     let half_h = Fixed::from_int(IMG_THUMBS_UP.height as i32 / 2);
-    let mut buf = Vec::new();
-    world.query::<PhysicsBody>().collect_into(&mut buf);
-    for e in buf {
-        let (bx, by) = world
-            .get::<PhysicsBody>(e)
-            .map(|b| (b.x - half_w, b.y - half_h))
-            .unwrap_or((Fixed::ZERO, Fixed::ZERO));
-        ui::set_position(world, e, bx, by);
-    }
+    PhysicsScratch::with_entities(world, |world, entities| {
+        for &e in entities {
+            if let Some(body) = world.get::<PhysicsBody>(e) {
+                ui::set_position(world, e, body.x - half_w, body.y - half_h);
+            }
+        }
+    });
 }
 
 #[compose]
@@ -369,6 +381,57 @@ mod tests {
             world
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
+        );
+    }
+
+    #[test]
+    fn animation_systems_reuse_body_entities() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, 128, 128, 3, Fixed::from_int(30));
+        drop(cx);
+
+        let mut entities = Vec::new();
+        world
+            .query::<PhysicsBody>()
+            .and::<Velocity>()
+            .collect_into(&mut entities);
+        assert_eq!(entities.len(), 3);
+        let selected = entities[1];
+        let initial_velocity = world.get::<Velocity>(selected).unwrap().vx;
+        let scratch = world.resource_mut::<PhysicsScratch>().unwrap();
+        scratch.entities = entities;
+        let entities_ptr = scratch.entities.as_ptr();
+        world.resource_mut::<KickPhase>().unwrap().0 = 39;
+
+        kick_system(&mut world);
+        assert_ne!(
+            world.get::<Velocity>(selected).unwrap().vx,
+            initial_velocity
+        );
+        let body = world.get_mut::<PhysicsBody>(selected).unwrap();
+        body.x = Fixed::from_int(40);
+        body.y = Fixed::from_int(50);
+        sync_layout_system(&mut world);
+
+        let style = world.get::<Style>(selected).unwrap();
+        assert_eq!(
+            style.layout.left,
+            Dimension::Px(Fixed::from_int(40 - IMG_THUMBS_UP.width as i32 / 2))
+        );
+        assert_eq!(
+            style.layout.top,
+            Dimension::Px(Fixed::from_int(50 - IMG_THUMBS_UP.height as i32 / 2))
+        );
+        assert_eq!(
+            world
+                .resource::<PhysicsScratch>()
+                .unwrap()
+                .entities
+                .as_ptr(),
+            entities_ptr
         );
     }
 }
