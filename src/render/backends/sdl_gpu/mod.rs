@@ -1146,8 +1146,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         Some(crate::render::texture::ColorFormat::RGBA8888)
     }
 
-    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
-        let phys = self.physical_clip_rect(src)?;
+    fn sample_target_region(
+        &self,
+        src: &Rect,
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return Ok(None);
+        };
         let sdl_rect = sdl2::rect::Rect::new(
             phys.x.to_int(),
             phys.y.to_int(),
@@ -1157,15 +1162,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         let bytes = self
             .canvas
             .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
-            .ok()?;
-        let w = u16::try_from(phys.w.to_int()).ok()?;
-        let h = u16::try_from(phys.h.to_int()).ok()?;
+            .map_err(|_| RenderError::BackendFailure)?;
+        let w = u16::try_from(phys.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let h = u16::try_from(phys.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
         crate::render::texture::Texture::from_vec(
             bytes,
             w,
             h,
             crate::render::texture::ColorFormat::RGBA8888,
         )
+        .map(Some)
+        .ok_or(RenderError::BackendFailure)
     }
 
     fn read_target_region(
@@ -1195,7 +1202,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> bool {
-        let Some(mut tex) = self.sample_target_region(src) else {
+        let Ok(Some(mut tex)) = self.sample_target_region(src) else {
             return false;
         };
         f(&mut tex);

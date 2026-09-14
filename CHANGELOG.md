@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Background blur readback.** Empty target regions remain optional; unsupported or failed target sampling reaches the frame caller as a typed render error.
 - **Offscreen readback.** Failed target reads invalidate the unfinished buffer instead of reusing stale pixels; GPU readback copies clipped pixels by row and destination offset.
 - **SDL GPU checked draws.** Native shapes, images, path meshes, and glyph batches report failed SDL draw, texture creation, or upload operations through the checked renderer entry.
 - **Projective fallback I/O errors.** SDL GPU and Web Canvas report failed target readback or upload as backend failures rather than unsupported geometry; Web Canvas rejects a mismatched readback length before copying it.

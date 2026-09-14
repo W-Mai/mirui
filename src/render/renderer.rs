@@ -288,14 +288,13 @@ pub trait Renderer {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
-    /// Logical-pixel `src` in, physical-resolution texture out.
-    /// Backends that can't read their own target should return `None`;
-    /// the default panics so a missing override is loud, not silent.
+    /// Logical-pixel `src` in, physical-resolution texture out. An empty
+    /// target intersection returns `Ok(None)`; readback failure is distinct.
     fn sample_target_region(
         &self,
         _src: &Rect,
-    ) -> Option<crate::render::texture::Texture<'static>> {
-        unimplemented!("Renderer::sample_target_region not implemented for this backend")
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
     /// Hand the closure a mutable `Texture` view over physical-pixel

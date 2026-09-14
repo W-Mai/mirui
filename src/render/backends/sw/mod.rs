@@ -1337,13 +1337,23 @@ impl Renderer for SwRenderer<'_> {
         Some(self.target.format)
     }
 
-    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
+    fn sample_target_region(
+        &self,
+        src: &Rect,
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
         let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
-        let w = (sx1 - sx0).max(1) as u16;
-        let h = (sy1 - sy0).max(1) as u16;
+        if sx0 >= i32::from(self.target.width)
+            || sy0 >= i32::from(self.target.height)
+            || sx1 <= 0
+            || sy1 <= 0
+        {
+            return Ok(None);
+        }
+        let w = u16::try_from((sx1 - sx0).max(1)).map_err(|_| RenderError::InvalidGeometry)?;
+        let h = u16::try_from((sy1 - sy0).max(1)).map_err(|_| RenderError::InvalidGeometry)?;
         let mut tex = crate::render::texture::Texture::owned(w, h, self.target.format);
-        self.read_target_region(src, &mut tex).ok()?;
-        Some(tex)
+        self.read_target_region(src, &mut tex)?;
+        Ok(Some(tex))
     }
 
     fn modify_target_region(

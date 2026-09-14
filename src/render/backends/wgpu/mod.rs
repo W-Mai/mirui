@@ -3647,12 +3647,17 @@ impl Renderer for WgpuRenderer<'_> {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
-        let phys = self.physical_clip_rect(src)?;
-        let w = u16::try_from(phys.w.to_int()).ok()?;
-        let h = u16::try_from(phys.h.to_int()).ok()?;
-        let frame = self.frame.as_ref()?;
-        let state = self.surface.state()?;
+    fn sample_target_region(
+        &self,
+        src: &Rect,
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return Ok(None);
+        };
+        let w = u16::try_from(phys.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let h = u16::try_from(phys.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
         let bytes = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
@@ -3662,21 +3667,24 @@ impl Renderer for WgpuRenderer<'_> {
             phys.y.to_int() as u32,
             u32::from(w),
             u32::from(h),
-        )?;
+        )
+        .ok_or(RenderError::BackendFailure)?;
         crate::render::texture::Texture::from_vec(
             bytes,
             w,
             h,
             crate::render::texture::ColorFormat::RGBA8888,
         )
+        .map(Some)
+        .ok_or(RenderError::BackendFailure)
     }
 
     #[cfg(target_arch = "wasm32")]
     fn sample_target_region(
         &self,
         _src: &Rect,
-    ) -> Option<crate::render::texture::Texture<'static>> {
-        None
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3726,7 +3734,7 @@ impl Renderer for WgpuRenderer<'_> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> bool {
-        let Some(mut tex) = self.sample_target_region(src) else {
+        let Ok(Some(mut tex)) = self.sample_target_region(src) else {
             return false;
         };
         f(&mut tex);

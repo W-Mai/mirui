@@ -50,8 +50,13 @@ fn background_blur_render(
 
     renderer.prepare_readback(&sample_rect);
 
-    let Some(mut tmp) = renderer.sample_target_region(&sample_rect) else {
-        return;
+    let mut tmp = match renderer.sample_target_region(&sample_rect) {
+        Ok(Some(texture)) => texture,
+        Ok(None) => return,
+        Err(error) => {
+            ctx.record(Err(error));
+            return;
+        }
     };
     {
         let r = crate::types::Rect::new(

@@ -49,8 +49,8 @@ impl Renderer for MockOuter {
             None
         }
     }
-    fn sample_target_region(&self, _src: &Rect) -> Option<Texture<'static>> {
-        None
+    fn sample_target_region(&self, _src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
+        Ok(None)
     }
     fn read_target_region(&self, _src: &Rect, _dst: &mut Texture) -> Result<(), RenderError> {
         Ok(())

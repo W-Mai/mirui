@@ -772,8 +772,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         Some(ColorFormat::RGBA8888)
     }
 
-    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
-        let phys = self.physical_clip_rect(src)?;
+    fn sample_target_region(
+        &self,
+        src: &Rect,
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return Ok(None);
+        };
         let img = self
             .ctx()
             .get_image_data(
@@ -782,10 +787,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
                 phys.w.to_f32() as f64,
                 phys.h.to_f32() as f64,
             )
-            .ok()?;
-        let w = u16::try_from(phys.w.to_int()).ok()?;
-        let h = u16::try_from(phys.h.to_int()).ok()?;
+            .map_err(|_| RenderError::BackendFailure)?;
+        let w = u16::try_from(phys.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let h = u16::try_from(phys.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
         crate::render::texture::Texture::from_vec(img.data().0, w, h, ColorFormat::RGBA8888)
+            .map(Some)
+            .ok_or(RenderError::BackendFailure)
     }
 
     fn read_target_region(
@@ -814,7 +821,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> bool {
-        let Some(mut tex) = self.sample_target_region(src) else {
+        let Ok(Some(mut tex)) = self.sample_target_region(src) else {
             return false;
         };
         f(&mut tex);

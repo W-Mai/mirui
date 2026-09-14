@@ -24,7 +24,9 @@ where
     let mut renderer = app.factory.make(&mut app.backend, &viewport);
     render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
     renderer.prepare_readback(&full);
-    renderer.sample_target_region(&full)
+    renderer
+        .sample_target_region(&full)
+        .expect("target readback failed")
 }
 
 pub fn write_png(path: &Path, texture: &Texture<'_>) {
