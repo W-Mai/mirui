@@ -779,15 +779,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
                 phys.h.to_f32() as f64,
             )
             .ok()?;
-        let w = phys.w.to_int() as u16;
-        let h = phys.h.to_int() as u16;
-        let data = img.data();
-        let mut tex = crate::render::texture::Texture::owned(w, h, ColorFormat::RGBA8888)
-            .with_transient(true);
-        if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
-            dst.copy_from_slice(&data.0);
-        }
-        Some(tex)
+        let w = u16::try_from(phys.w.to_int()).ok()?;
+        let h = u16::try_from(phys.h.to_int()).ok()?;
+        crate::render::texture::Texture::from_vec(img.data().0, w, h, ColorFormat::RGBA8888)
     }
 
     fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {

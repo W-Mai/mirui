@@ -3644,8 +3644,8 @@ impl Renderer for WgpuRenderer<'_> {
     #[cfg(not(target_arch = "wasm32"))]
     fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
         let phys = self.physical_clip_rect(src)?;
-        let w = phys.w.to_int() as u32;
-        let h = phys.h.to_int() as u32;
+        let w = u16::try_from(phys.w.to_int()).ok()?;
+        let h = u16::try_from(phys.h.to_int()).ok()?;
         let frame = self.frame.as_ref()?;
         let state = self.surface.state()?;
         let bytes = wgpu_readback_rgba8(
@@ -3655,19 +3655,15 @@ impl Renderer for WgpuRenderer<'_> {
             state.config.format,
             phys.x.to_int() as u32,
             phys.y.to_int() as u32,
+            u32::from(w),
+            u32::from(h),
+        )?;
+        crate::render::texture::Texture::from_vec(
+            bytes,
             w,
             h,
-        )?;
-        let mut tex = crate::render::texture::Texture::owned(
-            w as u16,
-            h as u16,
             crate::render::texture::ColorFormat::RGBA8888,
-        );
-        if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
-            let copy = dst.len().min(bytes.len());
-            dst[..copy].copy_from_slice(&bytes[..copy]);
-        }
-        Some(tex.with_transient(true))
+        )
     }
 
     #[cfg(target_arch = "wasm32")]

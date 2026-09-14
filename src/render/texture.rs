@@ -255,6 +255,20 @@ impl<'a> Texture<'a> {
         }
     }
 
+    pub fn from_vec(buf: Vec<u8>, width: u16, height: u16, format: ColorFormat) -> Option<Self> {
+        let texture = Self {
+            buf: TexBuf::Owned(buf),
+            width,
+            height,
+            format,
+            stride: usize::from(width) * format.bytes_per_pixel(),
+            alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
+            transient: true,
+        };
+        texture.valid_storage().then_some(texture)
+    }
+
     pub fn with_transient(mut self, transient: bool) -> Self {
         self.transient = transient;
         self
@@ -1051,6 +1065,17 @@ mod tests {
         texture.stride = 9;
         assert!(!texture.valid_storage());
         assert!(!Texture::from_ref(&[], 0, 0, ColorFormat::RGBA8888).valid_storage());
+    }
+
+    #[test]
+    fn owned_pixel_bytes_move_into_texture_without_copying() {
+        let bytes = alloc::vec![7u8; 16];
+        let address = bytes.as_ptr();
+        let texture = Texture::from_vec(bytes, 2, 2, ColorFormat::RGBA8888).unwrap();
+        assert_eq!(texture.buf.as_slice().as_ptr(), address);
+        assert_eq!(texture.stride, 8);
+        assert!(texture.transient);
+        assert!(Texture::from_vec(alloc::vec![0u8; 15], 2, 2, ColorFormat::RGBA8888).is_none());
     }
 
     #[test]

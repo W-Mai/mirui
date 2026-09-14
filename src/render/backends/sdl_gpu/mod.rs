@@ -1148,18 +1148,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
             .canvas
             .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
             .ok()?;
-        let w = phys.w.to_int() as u16;
-        let h = phys.h.to_int() as u16;
-        let mut tex = crate::render::texture::Texture::owned(
+        let w = u16::try_from(phys.w.to_int()).ok()?;
+        let h = u16::try_from(phys.h.to_int()).ok()?;
+        crate::render::texture::Texture::from_vec(
+            bytes,
             w,
             h,
             crate::render::texture::ColorFormat::RGBA8888,
-        );
-        if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
-            let copy = dst.len().min(bytes.len());
-            dst[..copy].copy_from_slice(&bytes[..copy]);
-        }
-        Some(tex)
+        )
     }
 
     fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
@@ -1198,10 +1194,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         };
         let w = tex.width as u32;
         let h = tex.height as u32;
-        let bytes = match &tex.buf {
-            crate::render::texture::TexBuf::Owned(v) => v.clone(),
-            _ => return false,
-        };
+        if !tex.valid_storage() {
+            return false;
+        }
+        let bytes = tex.buf.as_slice();
         let stride = tex.stride;
         let canvas = &mut *self.canvas;
         let mut ok = true;
@@ -1215,13 +1211,15 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                         return;
                     }
                 };
-            if sdl_tex.update(None, &bytes, stride).is_err() {
+            if sdl_tex.update(None, bytes, stride).is_err() {
                 ok = false;
                 return;
             }
             sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
             let dst_rect = sdl2::rect::Rect::new(phys.x.to_int(), phys.y.to_int(), w, h);
-            let _ = canvas.copy(&sdl_tex, None, Some(dst_rect));
+            if canvas.copy(&sdl_tex, None, Some(dst_rect)).is_err() {
+                ok = false;
+            }
         });
         ok
     }
