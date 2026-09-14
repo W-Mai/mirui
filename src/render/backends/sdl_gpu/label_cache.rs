@@ -244,7 +244,7 @@ impl LabelCache {
                 )];
                 self.draw_glyph_run(
                     canvas,
-                    &Point::ZERO,
+                    &font.line_origin_for_baseline(Point::ZERO),
                     &glyph,
                     font,
                     &transform.compose(&pose),

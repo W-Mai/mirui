@@ -1056,10 +1056,7 @@ impl Renderer for WebCanvasRenderer<'_> {
 
 impl WebCanvasRenderer<'_> {
     fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
-        let line_origin = Point {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO - draw.font.metrics(draw.font.size).ascender,
-        };
+        let line_origin = draw.font.line_origin_for_baseline(Point::ZERO);
         for (positioned, frame) in draw.glyphs.iter().zip(draw.frames) {
             let tangent_x = crate::types::fixed::from_textflow(frame.unit_tangent.x);
             let tangent_y = crate::types::fixed::from_textflow(frame.unit_tangent.y);

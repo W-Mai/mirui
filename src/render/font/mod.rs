@@ -740,6 +740,17 @@ impl Font {
         }
     }
 
+    #[cfg(any(
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
+    pub(crate) fn line_origin_for_baseline(&self, baseline: Point) -> Point {
+        Point {
+            x: baseline.x,
+            y: baseline.y - self.metrics(self.size).ascender,
+        }
+    }
+
     pub fn covers(&self, cluster: &str) -> bool {
         match &self.backend {
             FontBackend::Bitmap8x8 => {
@@ -1154,6 +1165,19 @@ pub(crate) fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
+    #[test]
+    fn cached_run_origin_maps_a_baseline_to_a_line_top() {
+        let font = Font::bitmap_8x8();
+        let baseline = Point::new(11, 21);
+        let origin = font.line_origin_for_baseline(baseline);
+        assert_eq!(origin.x, baseline.x);
+        assert_eq!(origin.y + font.metrics(font.size).ascender, baseline.y);
+    }
 
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
     #[test]

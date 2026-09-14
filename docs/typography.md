@@ -2,6 +2,25 @@
 
 mirui shapes text into positioned glyphs, then optionally places those glyphs on a registered vector path. The same `Path` and `PathId` types drive drawing, clipping, hit testing, and text baselines.
 
+## Text box overflow
+
+Assign a finite width when text should wrap or show an ellipsis. `Ellipsis` also requires a font in the stack that maps U+2026. Explicitly sized axes clip ordinary `Text` to the transformed text box for both overflow policies; `Auto` and `Content` preserve glyph ink overhang within the ancestor clip. Path text uses its placed glyph geometry and ancestor clip because its ink can extend beyond the layout box.
+
+```rust
+ui! {
+    Text(
+        "A long status label",
+        width: Dimension::percent(100),
+        paragraph: ParagraphStyle {
+            wrap: TextWrap::NoWrap,
+            max_lines: Some(1),
+            overflow: TextOverflow::Ellipsis,
+            ..ParagraphStyle::default()
+        }
+    )
+};
+```
+
 ## Text on a static path
 
 `path!` stores its commands in the program image. Registering those commands with `insert_static` keeps the path borrowed and gives it a stable `PathId`.

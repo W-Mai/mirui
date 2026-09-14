@@ -713,11 +713,43 @@ fn draw_tree_offset(
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
             let state = resolve_widget_state(world, entity);
+            let clip_x = !matches!(
+                style.layout.width,
+                crate::types::Dimension::Auto | crate::types::Dimension::Content
+            );
+            let clip_y = !matches!(
+                style.layout.height,
+                crate::types::Dimension::Auto | crate::types::Dimension::Content
+            );
+            let view_clip = if (clip_x || clip_y)
+                && world.get::<crate::ui::widgets::Text>(entity).is_some()
+                && world.get::<crate::text::TextPath>(entity).is_none()
+            {
+                let mut bounds = transformed_clip_bounds(shifted_rect, tf, tf_3d)
+                    .map(|bounds| intersect_with_self(clip, &bounds))
+                    .unwrap_or(Rect {
+                        x: clip.x,
+                        y: clip.y,
+                        w: Fixed::ZERO,
+                        h: Fixed::ZERO,
+                    });
+                if !clip_x {
+                    bounds.x = clip.x;
+                    bounds.w = clip.w;
+                }
+                if !clip_y {
+                    bounds.y = clip.y;
+                    bounds.h = clip.h;
+                }
+                bounds
+            } else {
+                *clip
+            };
             let mut ctx = ViewCtx {
                 style,
                 transform: tf,
                 quad,
-                clip,
+                clip: &view_clip,
                 bg_handled: false,
                 state,
             };
@@ -2139,6 +2171,69 @@ mod text_layout_check {
             .unwrap()
             .borrow();
         assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
+    }
+
+    #[test]
+    fn clipped_text_uses_its_own_rect_as_draw_clip() {
+        #[derive(Default)]
+        struct Recorder {
+            clip: Option<Rect>,
+        }
+
+        impl Renderer for Recorder {
+            fn draw(&mut self, command: &DrawCommand, clip: &Rect) {
+                if matches!(command, DrawCommand::GlyphRun { .. }) {
+                    self.clip = Some(*clip);
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(16),
+                    height: Dimension::px(8),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(
+            label,
+            Text::from("ABCD").with_paragraph(crate::ui::widgets::ParagraphStyle {
+                wrap: crate::ui::widgets::TextWrap::NoWrap,
+                ..Default::default()
+            }),
+        );
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+
+        let mut recorder = Recorder::default();
+        render(&world, root, &viewport, &mut recorder);
+        assert_eq!(
+            recorder.clip,
+            Some(world.get::<super::super::ComputedRect>(label).unwrap().0)
+        );
     }
 
     #[test]

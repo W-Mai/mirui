@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text box overflow.** Explicitly sized text clips to its transformed bounds while intrinsic text retains glyph overhang; Typography Lab constrains card content and includes a U+2026 fallback for one-line mixed-script ellipsis.
+- **SDL GPU path text.** Cached non-coverage glyphs use the sampled baseline rather than the line top as their pose origin.
+- **Typography Lab caret input.** Tapping or dragging the path sample moves its highlighted caret using the path hit-test geometry.
 - **Web Canvas path text.** Posed glyph textures use the sampled baseline as their origin, matching caret geometry and the other renderers. Typography Lab draws baseline guides beneath the text with shorter unselected caret marks.
 - **Dirty-region text culling.** Zero-size layout wrappers retain visible child glyphs during partial repaint.
 - **Web Canvas frame persistence.** Stable backing stores use dirty-region repaint; the first frame and backing-store changes receive a full repaint.

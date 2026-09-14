@@ -22,13 +22,15 @@ const CJK_FONT: &[u8] = include_bytes!("assets/typography_cjk.mirx");
 const ARABIC_FONT: &[u8] = include_bytes!("assets/typography_arabic.mirx");
 const DEVANAGARI_FONT: &[u8] = include_bytes!("assets/typography_devanagari.mirx");
 const THAI_FONT: &[u8] = include_bytes!("assets/typography_thai.mirx");
+const ELLIPSIS_FONT: &[u8] = include_bytes!("assets/typography_ellipsis.mirx");
 
 const UI: FontToken = FontToken::Custom("typography_ui");
 const CJK: FontToken = FontToken::Custom("typography_cjk");
 const ARABIC: FontToken = FontToken::Custom("typography_arabic");
 const DEVANAGARI: FontToken = FontToken::Custom("typography_devanagari");
 const THAI: FontToken = FontToken::Custom("typography_thai");
-const FALLBACKS: [FontToken; 4] = [CJK, ARABIC, DEVANAGARI, THAI];
+const ELLIPSIS: FontToken = FontToken::Custom("typography_ellipsis");
+const FALLBACKS: [FontToken; 5] = [CJK, ARABIC, DEVANAGARI, THAI, ELLIPSIS];
 const FEATURES_OFF: [FontFeature; 2] =
     [FontFeature::new(*b"liga", 0), FontFeature::new(*b"kern", 0)];
 const LIVE_SAMPLE: &str = "office AVATAR · 中文字体排版 · مرحبا · किरण · ภาษาไทย";
@@ -38,6 +40,7 @@ static WAVE_BASELINE: Path = path!(M 4 68 C 38 16 92 14 126 50 C 148 74 170 68 1
 #[derive(Default, crate::Component)]
 struct CaretOverlay {
     target: &'static str,
+    probe: Option<Point>,
 }
 
 #[derive(crate::Component)]
@@ -205,10 +208,10 @@ fn caret_overlay_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(target) = world
-        .get::<CaretOverlay>(entity)
-        .and_then(|overlay| world.find_by_id(overlay.target))
-    else {
+    let Some(overlay) = world.get::<CaretOverlay>(entity) else {
+        return;
+    };
+    let Some(target) = world.find_by_id(overlay.target) else {
         return;
     };
     let (Some(style), Some(handle), Some(resource)) = (
@@ -230,19 +233,10 @@ fn caret_overlay_render(
         return;
     };
     if let Some(text_path) = world.get::<TextPath>(target).copied() {
-        let center_hit = crate::ui::widgets::text::PathTextGeometry::for_widget(world, target)
-            .and_then(|geometry| {
-                geometry
-                    .hit_test(
-                        ctx.transform.apply_point(Point {
-                            x: rect.x + rect.w / Fixed::from_int(2),
-                            y: rect.y + rect.h / Fixed::from_int(2),
-                        }),
-                        rect.w.max(rect.h),
-                    )
-                    .ok()
-                    .flatten()
-            });
+        let probe_hit = overlay.probe.and_then(|probe| {
+            crate::ui::widgets::text::PathTextGeometry::for_widget(world, target)
+                .and_then(|geometry| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten())
+        });
         let (Some(paths), Some(path_cache)) = (
             world.resource::<crate::render::path::PathStore>(),
             world.resource::<crate::text::baseline::PathBaselineResource>(),
@@ -274,7 +268,7 @@ fn caret_overlay_render(
             &layout,
             |frames| {
                 for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
-                    let selected = center_hit.is_some_and(|hit| hit.index() == index);
+                    let selected = probe_hit.is_some_and(|hit| hit.index() == index);
                     let ascent = if selected {
                         metrics.ascender
                     } else {
@@ -468,6 +462,7 @@ pub fn register_fonts(world: &mut World) {
         font(DEVANAGARI_FONT, "Noto Sans Devanagari"),
     );
     manager.add_static(THAI.cache_key(), font(THAI_FONT, "Noto Sans Thai"));
+    manager.add_static(ELLIPSIS.cache_key(), font(ELLIPSIS_FONT, "Noto Sans"));
 }
 
 pub fn register_path(world: &mut World) -> PathId {
@@ -476,6 +471,19 @@ pub fn register_path(world: &mut World) -> PathId {
         .expect("path store")
         .insert_static(WAVE_BASELINE.commands())
         .expect("static typography path")
+}
+
+fn set_path_probe(world: &mut World, point: Point) {
+    let Some(entity) = world.find_by_id("typography_path_carets") else {
+        return;
+    };
+    let Some(overlay) = world.get_mut::<CaretOverlay>(entity) else {
+        return;
+    };
+    if overlay.probe != Some(point) {
+        overlay.probe = Some(point);
+        world.insert(entity, crate::ui::dirty::Dirty);
+    }
 }
 
 fn mixed_stack() -> FontStack {
@@ -599,6 +607,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 8,
+                    clip_children: true,
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
@@ -608,6 +617,7 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_latin_shaped",
                         "office ffi · AVATAR To",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 27,
                         text_color: TEXT,
@@ -616,6 +626,7 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_latin_plain",
                         "office ffi · AVATAR To",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 17,
                         text_color: MUTED,
@@ -623,6 +634,7 @@ pub fn build_widgets(wave_path: PathId) {
                     )
                     Text (
                         "top liga kern · bottom disabled",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 12,
                         text_color: MUTED
@@ -635,6 +647,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
+                    clip_children: true,
                     bg_color: PANEL_ALT,
                     border_color: BORDER,
                     border_width: 1,
@@ -644,6 +657,7 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_cjk_sample",
                         "中文字体排版",
+                        width: Dimension::percent(100),
                         font: CJK,
                         font_size: 30,
                         text_color: TEXT,
@@ -651,6 +665,7 @@ pub fn build_widgets(wave_path: PathId) {
                     )
                     Text (
                         "真实 bearing · advance · atlas bounds",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 13,
                         text_color: MUTED
@@ -663,6 +678,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
+                    clip_children: true,
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
@@ -672,6 +688,7 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_arabic_sample",
                         "مَرْحَبًا بِالْعَالَمِ",
+                        width: Dimension::percent(100),
                         font: ARABIC,
                         font_size: 30,
                         text_color: TEXT,
@@ -679,6 +696,7 @@ pub fn build_widgets(wave_path: PathId) {
                     )
                     Text (
                         "joining · cursive · mark anchors",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 13,
                         text_color: MUTED
@@ -691,6 +709,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
+                    clip_children: true,
                     bg_color: PANEL_ALT,
                     border_color: BORDER,
                     border_width: 1,
@@ -700,6 +719,7 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_thai_sample",
                         "สวัสดีครับ · ตั้ง",
+                        width: Dimension::percent(100),
                         font: THAI,
                         font_size: 27,
                         text_color: TEXT,
@@ -707,6 +727,7 @@ pub fn build_widgets(wave_path: PathId) {
                     )
                     Text (
                         "decomposition · GDEF mark filtering",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 13,
                         text_color: MUTED
@@ -719,6 +740,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
+                    clip_children: true,
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
@@ -728,6 +750,7 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_devanagari_sample",
                         "किरण · क्षत्रिय",
+                        width: Dimension::percent(100),
                         font: DEVANAGARI,
                         font_size: 27,
                         text_color: TEXT,
@@ -735,6 +758,7 @@ pub fn build_widgets(wave_path: PathId) {
                     )
                     Text (
                         "pre-base matra · conjunct forms",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 13,
                         text_color: MUTED
@@ -747,6 +771,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 9,
+                    clip_children: true,
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
@@ -756,13 +781,19 @@ pub fn build_widgets(wave_path: PathId) {
                     Text (
                         id: "typography_bidi_sample",
                         "mirui 42 · 中文字体排版 · مرحبا",
+                        width: Dimension::percent(100),
                         font_stack: mixed_stack(),
                         font_size: 21,
                         text_color: TEXT,
-                        paragraph: paragraph(None, TextDirection::Auto)
+                        paragraph: ParagraphStyle {
+                            max_lines: Some(1),
+                            overflow: TextOverflow::Ellipsis,
+                            ..paragraph(None, TextDirection::Auto)
+                        }
                     )
                     Text (
                         "grapheme-safe face selection",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 13,
                         text_color: MUTED
@@ -775,6 +806,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 186,
                     padding: Padding::all(14),
                     row_gap: 7,
+                    clip_children: true,
                     bg_color: PANEL_ALT,
                     border_color: BORDER,
                     border_width: 1,
@@ -790,12 +822,14 @@ pub fn build_widgets(wave_path: PathId) {
                     )
                     Text (
                         "midpoint contour · actual packed A8 samples",
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 11,
                         text_color: MUTED
                     )
                     Text (
                         active_render_path(),
+                        width: Dimension::percent(100),
                         font: UI,
                         font_size: 10,
                         text_color: VIOLET,
@@ -809,6 +843,7 @@ pub fn build_widgets(wave_path: PathId) {
                     height: 212,
                     padding: Padding::all(14),
                     row_gap: 6,
+                    clip_children: true,
                     bg_color: PANEL,
                     border_color: BORDER,
                     border_width: 1,
@@ -838,7 +873,7 @@ pub fn build_widgets(wave_path: PathId) {
                             font_size: 17,
                             text_color: TEXT,
                             paragraph: paragraph(None, TextDirection::Auto)
-                        )
+                        ) on Tap { set_path_probe(ctx.world, Point { x: *x, y: *y }); } on DragMove { set_path_probe(ctx.world, Point { x: *x, y: *y }); }
                     }
                     View (id: "typography_projective_frame", height: 48, clip_children: true) [
                         WidgetTransform3D(
@@ -858,6 +893,7 @@ pub fn build_widgets(wave_path: PathId) {
                     }
                     Text (
                         text: geometry_cost_label(),
+                        width: Dimension::percent(100),
                         height: 24,
                         font: UI,
                         font_size: 9,
@@ -1117,6 +1153,89 @@ mod tests {
         let stack = mixed_stack();
         assert_eq!(stack.primary(), &UI);
         assert_eq!(stack.fallbacks(), &FALLBACKS);
+    }
+
+    #[test]
+    fn mixed_bidi_sample_ellipsizes_within_its_card() {
+        let mut world = fixture();
+        let mut root = world.find_by_id("typography_bidi").unwrap();
+        while let Some(parent) = world.get::<Parent>(root).map(|parent| parent.0) {
+            root = parent;
+        }
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
+        );
+
+        let card = world.find_by_id("typography_bidi").unwrap();
+        let sample = world.find_by_id("typography_bidi_sample").unwrap();
+        let card_rect = world.get::<crate::ui::ComputedRect>(card).unwrap().0;
+        let sample_rect = world.get::<crate::ui::ComputedRect>(sample).unwrap().0;
+        assert!(sample_rect.x + sample_rect.w <= card_rect.x + card_rect.w);
+
+        let handle = world.get::<crate::text::TextLayoutHandle>(sample).unwrap();
+        let layouts = world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .unwrap()
+            .borrow();
+        let layout = layouts.get(*handle).unwrap();
+        let text = world.get::<Text>(sample).unwrap().resolve(&world);
+        assert_eq!(layout.lines().len(), 1);
+        assert!(layout.lines()[0].text().end < text.len() as u32);
+        assert!(crate::types::fixed::from_textflow(layout.measure().width) <= sample_rect.w);
+        let manager = world.resource::<FontManager>().unwrap();
+        let ellipsis = [UI, CJK, ARABIC, DEVANAGARI, THAI, ELLIPSIS]
+            .iter()
+            .find_map(|token| manager.resolve(token.cache_key()).map_char('…'))
+            .expect("ellipsis glyph in the configured font stack");
+        assert!(
+            layout
+                .glyphs()
+                .iter()
+                .any(|glyph| glyph.glyph_id() == ellipsis)
+        );
+    }
+
+    #[test]
+    fn path_tap_updates_the_caret_probe() {
+        let mut world = fixture();
+        let sample = world.find_by_id("typography_path_sample").unwrap();
+        let overlay = world.find_by_id("typography_path_carets").unwrap();
+        assert_eq!(world.get::<CaretOverlay>(overlay).unwrap().probe, None);
+
+        GestureHandler::trigger(
+            &mut world,
+            sample,
+            &GestureEvent::Tap {
+                x: Fixed::from_int(42),
+                y: Fixed::from_int(55),
+                target: sample,
+            },
+        );
+        flush_signal_dirty(&mut world);
+
+        assert_eq!(
+            world.get::<CaretOverlay>(overlay).unwrap().probe,
+            Some(Point::new(42, 55))
+        );
+        assert!(world.get::<crate::ui::dirty::Dirty>(overlay).is_some());
+
+        GestureHandler::trigger(
+            &mut world,
+            sample,
+            &GestureEvent::DragMove {
+                x: Fixed::from_int(70),
+                y: Fixed::from_int(60),
+                dx: Fixed::from_int(28),
+                dy: Fixed::from_int(5),
+                target: sample,
+            },
+        );
+        assert_eq!(
+            world.get::<CaretOverlay>(overlay).unwrap().probe,
+            Some(Point::new(70, 60))
+        );
     }
 
     #[test]
