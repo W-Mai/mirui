@@ -257,7 +257,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             .layout
             .bind(&mut self.target.as_mut()[..plan.required_bytes()])
             .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
-        let texture = plane.texture();
+        let mut texture = plane.texture();
+        texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let mut renderer = SwRenderer::new(texture);
         renderer.viewport = Viewport::new(plan.width(), plan.height(), scale);
         renderer.draw_projective(command, &local_clip, &local_projective)
@@ -392,6 +393,32 @@ mod tests {
     }
 
     #[test]
+    fn projected_alpha_keeps_straight_color_on_a_transparent_target() {
+        let command = DrawCommand::Fill {
+            area: Rect::new(2, 2, 8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgba(255, 0, 0, 128),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let viewport = Viewport::new(16, 16, Fixed::ONE);
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(8), Fixed::from_int(400));
+        let mut fallback = ProjectiveFallback::new(alloc::vec![0; 16 * 16 * 4]);
+        let plan = fallback
+            .plan(&command, &Rect::new(0, 0, 16, 16), &projection, viewport)
+            .unwrap();
+        fallback.target_mut(plan).fill(0);
+        fallback
+            .render(plan, &command, &projection, viewport)
+            .unwrap();
+        assert!(fallback.target(plan).chunks_exact(4).any(|pixel| {
+            pixel[0] == 255 && pixel[1] == 0 && pixel[2] == 0 && (1..255).contains(&pixel[3])
+        }));
+    }
+
+    #[test]
     fn clipped_target_matches_the_same_region_of_the_software_backend() {
         const WIDTH: usize = 16;
         const HEIGHT: usize = 12;
@@ -410,12 +437,14 @@ mod tests {
         let mut expected = alloc::vec![19; WIDTH * HEIGHT * 4];
         let mut actual = expected.clone();
 
-        let mut direct = SwRenderer::new(Texture::new(
+        let mut expected_target = Texture::new(
             &mut expected,
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        ));
+        );
+        expected_target.alpha_mode = crate::render::texture::AlphaMode::Blend;
+        let mut direct = SwRenderer::new(expected_target);
         direct.viewport = viewport;
         direct.draw_projective(&command, &clip, &transform).unwrap();
 
@@ -457,12 +486,14 @@ mod tests {
             Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(400));
         let mut expected = alloc::vec![19; WIDTH * HEIGHT * 4];
         let mut actual = expected.clone();
-        let mut direct = SwRenderer::new(Texture::new(
+        let mut expected_target = Texture::new(
             &mut expected,
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        ));
+        );
+        expected_target.alpha_mode = crate::render::texture::AlphaMode::Blend;
+        let mut direct = SwRenderer::new(expected_target);
         direct.viewport = viewport;
         direct.draw_projective(command, &clip, &transform).unwrap();
 
@@ -488,7 +519,7 @@ mod tests {
             actual[dest..dest + width * 4].copy_from_slice(&target[offset..offset + width * 4]);
         }
         let mut max_inside = 0;
-        for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+        for (index, (actual_byte, expected_byte)) in actual.iter().zip(&expected).enumerate() {
             let pixel = index / 4;
             let x = pixel % WIDTH;
             let y = pixel / WIDTH;
@@ -496,16 +527,27 @@ mod tests {
                 && x < plan.x as usize + width
                 && y >= plan.y as usize
                 && y < plan.y as usize + height;
-            let difference = actual.abs_diff(*expected);
+            let difference = actual_byte.abs_diff(*expected_byte);
             if inside {
-                max_inside = max_inside.max(difference);
+                let composited_difference = if index % 4 == 3 {
+                    difference
+                } else {
+                    let pixel_offset = index / 4 * 4;
+                    let actual_premul =
+                        (u16::from(*actual_byte) * u16::from(actual[pixel_offset + 3]) + 127) / 255;
+                    let expected_premul =
+                        (u16::from(*expected_byte) * u16::from(expected[pixel_offset + 3]) + 127)
+                            / 255;
+                    actual_premul.abs_diff(expected_premul) as u8
+                };
+                max_inside = max_inside.max(composited_difference);
             } else {
                 assert_eq!(difference, 0, "outside plan at byte {index}: {plan:?}");
             }
         }
         assert!(
             max_inside <= tolerance,
-            "maximum pixel difference {max_inside}: {plan:?}"
+            "maximum composited pixel difference {max_inside}: {plan:?}"
         );
     }
 
@@ -562,7 +604,7 @@ mod tests {
             color: Color::rgb(255, 255, 255),
             opa: 255,
         };
-        matches_software_on_its_projected_region(&command, 4);
+        matches_software_on_its_projected_region(&command, 5);
     }
 
     #[test]

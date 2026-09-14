@@ -416,10 +416,8 @@ impl<'a> Texture<'a> {
             return;
         }
         if a == 255 {
-            // Fully opaque source: covers dst regardless of mode. The
-            // source-over identity (1·src + 0·dst) gives both `out.rgb
-            // = src.rgb` and `out.a = src.a` — `set_pixel` does both.
-            self.set_pixel(x, y, color);
+            // Fully opaque effective alpha covers the destination.
+            self.set_pixel(x, y, &Color { a: 255, ..*color });
             return;
         }
         // Alpha blend in plain u8 space: out = (src·a + dst·(255−a) + 127)/255.
@@ -432,26 +430,27 @@ impl<'a> Texture<'a> {
             let sum = src as u32 * aa + dst as u32 * ia + 127;
             ((sum + (sum >> 8)) >> 8) as u8
         };
-        // Blend mode accumulates dst.a via non-premultiplied source-over:
-        //   out.a = src.a + dst.a × (255 − src.a) / 255
-        // so a downstream sampler reading the buffer's alpha sees a
-        // correct silhouette. Opaque mode writes 255 — matches the
-        // pre-AlphaMode behaviour for the framebuffer path.
-        let out_a = match self.alpha_mode {
-            AlphaMode::Opaque => 255,
+        let out = match self.alpha_mode {
+            AlphaMode::Opaque => Color {
+                r: blend(color.r, dst.r),
+                g: blend(color.g, dst.g),
+                b: blend(color.b, dst.b),
+                a: 255,
+            },
             AlphaMode::Blend => {
-                let src_a = a as u32;
-                let dst_a = dst.a as u32;
-                let inv = 255 - src_a;
-                let sum = src_a * 255 + dst_a * inv + 127;
-                ((sum + (sum >> 8)) >> 8) as u8
+                let dst_a = u32::from(dst.a);
+                let denominator = aa * 255 + dst_a * ia;
+                let channel = |src: u8, dst: u8| {
+                    ((u32::from(src) * aa * 255 + u32::from(dst) * dst_a * ia + denominator / 2)
+                        / denominator) as u8
+                };
+                Color {
+                    r: channel(color.r, dst.r),
+                    g: channel(color.g, dst.g),
+                    b: channel(color.b, dst.b),
+                    a: ((denominator + 127) / 255) as u8,
+                }
             }
-        };
-        let out = Color {
-            r: blend(color.r, dst.r),
-            g: blend(color.g, dst.g),
-            b: blend(color.b, dst.b),
-            a: out_a,
         };
         self.set_pixel(x, y, &out);
     }
@@ -1130,6 +1129,21 @@ mod tests {
         assert!((got.r as i32 - 100).abs() <= 1);
         assert!((got.g as i32 - 50).abs() <= 1);
         assert!((got.b as i32 - 25).abs() <= 1);
+    }
+
+    #[test]
+    fn blend_mode_keeps_straight_rgb_over_a_transparent_target() {
+        let mut buf = [0u8; 4];
+        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+        tex.alpha_mode = AlphaMode::Blend;
+        tex.blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 128), 128);
+        assert_eq!(tex.get_pixel(0, 0), Color::rgba(0, 0, 255, 128));
+        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
+        let pixel = tex.get_pixel(0, 0);
+        assert!((pixel.r as i32 - 170).abs() <= 1);
+        assert_eq!(pixel.g, 0);
+        assert!((pixel.b as i32 - 85).abs() <= 1);
+        assert!((pixel.a as i32 - 192).abs() <= 1);
     }
 
     #[test]

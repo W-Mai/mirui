@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scene group bounds.** Nested affine transforms and miter stroke extents contribute to filter extents and sibling-overlap checks. Projective groups and unresolved glyph ink bounds report explicit errors where exact bounds are required instead of being treated as zero-size or disjoint.
 - **Text filter diagnostics.** A scene needing unresolved glyph ink bounds reports a missing rendering capability instead of blaming valid text geometry.
 - **Borrowed plane uploads.** Textures borrowed from mutable aligned planes bypass pointer-keyed GPU upload caches so changed bytes are not mistaken for unchanged content.
+- **Transparent projective fallback.** Software source-over keeps straight RGBA on transparent targets, and projected fallback preserves the target alpha instead of forcing modified pixels opaque.
 - **Hybrid path fill rules.** Composed renderers forward the requested even-odd or non-zero fill rule instead of substituting even-odd for every path.
 - **Input feedback rendering.** Cursor and rotary overlays submit checked draw requests and retain backend failures in the UI render context.
 - **Flip demo entity traversal.** Flip Card, Image Flip, Book Flip, and Cover Flow update existing component IDs without allocating a temporary entity list each frame.
