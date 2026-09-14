@@ -3,6 +3,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+use gallery::backend_parity::{HEIGHT, STABLE_TEXT_BOTTOM, WIDTH};
+
 struct Image {
     width: u32,
     height: u32,
@@ -11,6 +13,14 @@ struct Image {
 
 const MAX_STABLE_RMSE: f64 = 0.01;
 const MIN_FOREGROUND_IOU: f64 = 0.6;
+const TEXTURE_COLORS: [[u8; 3]; 6] = [
+    [255, 0, 0],
+    [0, 255, 0],
+    [0, 0, 255],
+    [255, 255, 0],
+    [0, 255, 255],
+    [255, 0, 255],
+];
 
 fn read(path: &Path) -> Image {
     let decoder = png::Decoder::new(BufReader::new(File::open(path).expect("open PNG")));
@@ -64,6 +74,17 @@ fn foreground_iou(reference: &Image, candidate: &Image) -> f64 {
     intersection as f64 / union as f64
 }
 
+fn verify_texture_colors(image: &Image, scale: u32) {
+    for texture in 0..3 {
+        for (index, expected) in TEXTURE_COLORS.iter().enumerate() {
+            let x = (68 + texture * 200 + index as u32 % 3 * 40) * scale;
+            let y = (264 + index as u32 / 3 * 40) * scale;
+            let offset = ((y * image.width + x) * 4) as usize;
+            assert_eq!(&image.bytes[offset..offset + 3], expected);
+        }
+    }
+}
+
 fn main() {
     let mut args = env::args().skip(1);
     let reference = read(Path::new(&args.next().expect("reference PNG")));
@@ -74,6 +95,12 @@ fn main() {
         (reference.width, reference.height),
         "image dimensions differ"
     );
+    let scale = reference.width / u32::from(WIDTH);
+    assert!(scale > 0);
+    assert_eq!(reference.width, u32::from(WIDTH) * scale);
+    assert_eq!(reference.height, u32::from(HEIGHT) * scale);
+    verify_texture_colors(&reference, scale);
+    verify_texture_colors(&candidate, scale);
 
     let mut maximum = 0u8;
     for (left, right) in reference
@@ -86,7 +113,11 @@ fn main() {
             maximum = maximum.max(delta);
         }
     }
-    let stable_rmse = rgb_rmse(&reference, &candidate, reference.height / 2);
+    let stable_rmse = rgb_rmse(
+        &reference,
+        &candidate,
+        u32::from(STABLE_TEXT_BOTTOM) * scale,
+    );
     let iou = foreground_iou(&reference, &candidate);
     println!(
         "{candidate_path}: stable RGB RMSE={stable_rmse:.7}, max={maximum}, foreground IoU={iou:.7}"

@@ -7,6 +7,7 @@ use mirui::ui::widgets::{Text, WidgetTransform};
 
 pub const WIDTH: u16 = 640;
 pub const HEIGHT: u16 = 390;
+pub const STABLE_TEXT_BOTTOM: u16 = 130;
 
 const FONT_BYTES: &[u8] = include_bytes!("../../src/gallery/demos/assets/misans_ui.mirx");
 const FONT: FontToken = FontToken::Custom("text_backend_parity");
