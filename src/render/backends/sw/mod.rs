@@ -764,7 +764,11 @@ impl Renderer for SwRenderer<'_> {
 
         request.validate_projection()?;
         request.validate_texture()?;
-        let projected = !request.projective.is_identity();
+        if !request.projective.is_identity() {
+            self.preflight_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from)?;
+            return Ok(RenderRoute::Native);
+        }
         let affine = !matches!(
             request.command.transform().classify(),
             TransformClass::Identity | TransformClass::Translate
@@ -808,7 +812,7 @@ impl Renderer for SwRenderer<'_> {
             }
             DrawCommand::Fill {
                 quad: None, radius, ..
-            } if affine && *radius != Fixed::ZERO && !projected => {
+            } if affine && *radius != Fixed::ZERO => {
                 return Err(RenderError::Unsupported(RenderFeature::RoundedFill));
             }
             DrawCommand::Blit {
@@ -817,7 +821,7 @@ impl Renderer for SwRenderer<'_> {
                 composite,
                 opa,
                 ..
-            } if affine && !projected && quad.is_none() => {
+            } if affine && quad.is_none() => {
                 if *radius != Fixed::ZERO {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }
@@ -832,10 +836,6 @@ impl Renderer for SwRenderer<'_> {
             }
             _ => {}
         }
-        if projected {
-            self.preflight_projective(request.command, &request.clip, &request.projective)
-                .map_err(RenderError::from)?;
-        }
         Ok(RenderRoute::Native)
     }
 
@@ -844,12 +844,15 @@ impl Renderer for SwRenderer<'_> {
 
         request.validate_projection()?;
         request.validate_texture()?;
-        if request.projective.is_identity()
-            && matches!(
-                request.command.transform().classify(),
-                TransformClass::Identity | TransformClass::Translate
-            )
-            && !matches!(request.command, DrawCommand::Blit { quad: Some(_), .. })
+        if !request.projective.is_identity() {
+            return self
+                .draw_projective(request.command, &request.clip, &request.projective)
+                .map_err(RenderError::from);
+        }
+        if matches!(
+            request.command.transform().classify(),
+            TransformClass::Identity | TransformClass::Translate
+        ) && !matches!(request.command, DrawCommand::Blit { quad: Some(_), .. })
             && !matches!(
                 request.command,
                 DrawCommand::FillPath {
@@ -866,13 +869,8 @@ impl Renderer for SwRenderer<'_> {
         }
 
         self.route(request)?;
-        if request.projective.is_identity() {
-            self.draw(request.command, &request.clip);
-            Ok(())
-        } else {
-            self.draw_projective(request.command, &request.clip, &request.projective)
-                .map_err(RenderError::from)
-        }
+        self.draw(request.command, &request.clip);
+        Ok(())
     }
 
     fn output_scale(&self) -> Fixed {
@@ -1507,7 +1505,7 @@ mod tests {
 
     #[test]
     fn route_rejects_software_draws_that_drop_requested_semantics() {
-        let renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
         let clip = Rect::new(0, 0, 16, 16);
         let affine = Transform::rotate_deg(Fixed::from_int(20));
         let fill = DrawCommand::Fill {
@@ -1551,6 +1549,10 @@ mod tests {
             Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400));
         assert_eq!(
             renderer.route(&DrawRequest::new(&line, clip).with_projective(projective)),
+            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+        );
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&line, clip).with_projective(projective)),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
     }
