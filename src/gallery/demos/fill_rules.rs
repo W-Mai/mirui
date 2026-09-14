@@ -52,7 +52,8 @@ fn fill_rules_render(
         (&star_left, FillRule::EvenOdd),
         (&star_right, FillRule::NonZero),
     ] {
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::FillPath {
                 path,
                 transform: Transform::IDENTITY,
@@ -62,7 +63,8 @@ fn fill_rules_render(
             },
             ctx.clip,
         );
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::StrokePath {
                 path,
                 transform: Transform::IDENTITY,

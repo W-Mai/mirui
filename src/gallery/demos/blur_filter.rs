@@ -7,6 +7,8 @@ use alloc::vec::Vec;
 use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::raster::FillRule;
+use crate::render::renderer::RenderError;
+use crate::render::scene::replay::ReplayError;
 use crate::render::scene::resolver::SliceResolver;
 use crate::render::scene::{Paint, ResourceRef, Scene, SceneOp};
 use crate::types::Transform;
@@ -67,13 +69,14 @@ fn circle_path(cx: Fixed, cy: Fixed, r: Fixed) -> Path {
     path
 }
 
-fn shape_set(renderer: &mut dyn Renderer, clip: &Rect, offset: i32) {
+fn shape_set(renderer: &mut dyn Renderer, ctx: &mut ViewCtx, offset: i32) {
     for (x, y, w, h, color) in [
         (28, 58, 118, 58, Color::rgb(255, 80, 110)),
         (82, 104, 92, 60, Color::rgb(90, 210, 255)),
         (130, 44, 68, 100, Color::rgb(255, 200, 80)),
     ] {
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::Fill {
                 area: Rect::new(
                     Fixed::from_int(offset + x),
@@ -87,7 +90,7 @@ fn shape_set(renderer: &mut dyn Renderer, clip: &Rect, offset: i32) {
                 radius: Fixed::from_int(14),
                 opa: 220,
             },
-            clip,
+            ctx.clip,
         );
     }
     let circle = circle_path(
@@ -96,7 +99,8 @@ fn shape_set(renderer: &mut dyn Renderer, clip: &Rect, offset: i32) {
         Fixed::from_int(44),
     );
     let paint = Paint::Color(Color::rgb(145, 255, 120).into());
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::FillPath {
             path: &circle,
             transform: Transform::IDENTITY,
@@ -104,7 +108,7 @@ fn shape_set(renderer: &mut dyn Renderer, clip: &Rect, offset: i32) {
             opa: 230,
             fill_rule: FillRule::EvenOdd,
         },
-        clip,
+        ctx.clip,
     );
 }
 
@@ -173,7 +177,8 @@ fn blur_filter_render(
     _rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Fill {
             area: Rect::new(
                 Fixed::ZERO,
@@ -189,6 +194,9 @@ fn blur_filter_render(
         },
         ctx.clip,
     );
+    if ctx.error.is_some() {
+        return;
+    }
 
     let mut ops: Vec<SceneOp> = Vec::new();
     ops.push(SceneOp::GroupBegin {
@@ -203,9 +211,17 @@ fn blur_filter_render(
     ops.extend_from_slice(&shape_set_ops(0));
     ops.push(SceneOp::GroupEnd);
 
-    let _ = Scene { ops }.replay(renderer, ctx.clip, &SliceResolver::new(&[], &[]));
+    ctx.record(
+        Scene { ops }
+            .replay(renderer, ctx.clip, &SliceResolver::new(&[], &[]))
+            .map_err(|error| match error {
+                ReplayError::Render(error) => error,
+                ReplayError::GroupOpacityNeedsOffscreen => RenderError::MissingWorkspace,
+                _ => RenderError::InvalidGeometry,
+            }),
+    );
 
-    shape_set(renderer, ctx.clip, 242);
+    shape_set(renderer, ctx, 242);
 }
 
 pub fn blur_filter_view() -> View {

@@ -187,8 +187,15 @@ fn active_render_path() -> &'static str {
     }
 }
 
-fn draw_line(renderer: &mut dyn Renderer, ctx: &ViewCtx<'_>, p1: Point, p2: Point, color: Color) {
-    renderer.draw(
+fn draw_line(
+    renderer: &mut dyn Renderer,
+    ctx: &mut ViewCtx<'_>,
+    p1: Point,
+    p2: Point,
+    color: Color,
+) {
+    ctx.draw(
+        renderer,
         &DrawCommand::Line {
             p1,
             p2,
@@ -245,7 +252,8 @@ fn caret_overlay_render(
         };
         if let Ok(path) = paths.get(text_path.path()) {
             let paint = Paint::Color(BLUE.into());
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::StrokePath {
                     path,
                     transform: ctx.transform.compose(&Transform::translate(rect.x, rect.y)),
@@ -417,7 +425,8 @@ fn raster_contour_render(
     let extent = Fixed::from_int((cell - 1).max(1));
     for y in 0..height {
         for x in 0..width {
-            renderer.draw(
+            ctx.draw(
+                renderer,
                 &DrawCommand::Fill {
                     area: Rect {
                         x: origin.x + Fixed::from_int(x * cell),

@@ -41,7 +41,7 @@ fn elbow_path(x: i32, y: i32) -> Path {
 #[allow(clippy::too_many_arguments)]
 fn stroke(
     renderer: &mut dyn Renderer,
-    clip: &Rect,
+    ctx: &mut ViewCtx,
     path: &Path,
     paint: &Paint,
     width: Fixed,
@@ -49,7 +49,8 @@ fn stroke(
     join: LineJoin,
     dash: &[Fixed],
 ) {
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::StrokePath {
             path,
             transform: Transform::IDENTITY,
@@ -61,7 +62,7 @@ fn stroke(
             miter_limit: Fixed::from_int(4),
             dash,
         },
-        clip,
+        ctx.clip,
     );
 }
 
@@ -86,7 +87,7 @@ fn stroke_styles_render(
         let path = line_path(x, 54, x + 92);
         stroke(
             renderer,
-            ctx.clip,
+            ctx,
             &path,
             &paint,
             Fixed::from_int(10),
@@ -103,7 +104,7 @@ fn stroke_styles_render(
         let path = elbow_path(38 + i as i32 * 146, 108);
         stroke(
             renderer,
-            ctx.clip,
+            ctx,
             &path,
             &hot,
             Fixed::from_int(11),
@@ -129,7 +130,7 @@ fn stroke_styles_render(
         let path = line_path(x, 214, x + 100);
         stroke(
             renderer,
-            ctx.clip,
+            ctx,
             &path,
             &green,
             Fixed::from_int(6),
@@ -147,7 +148,7 @@ fn stroke_styles_render(
         let path = line_path(x, 304, x + 98);
         stroke(
             renderer,
-            ctx.clip,
+            ctx,
             &path,
             &violet,
             width,
@@ -164,7 +165,8 @@ fn stroke_styles_render(
         Fixed::from_int(320),
     );
     let guide_paint = Paint::Color(Color::rgb(50, 55, 70).into());
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::StrokePath {
             path: &guide,
             transform: Transform::IDENTITY,

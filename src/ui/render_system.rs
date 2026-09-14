@@ -1334,7 +1334,7 @@ fn try_draw_offscreen(
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         };
-        renderer.draw(&blit_cmd, clip);
+        renderer.submit(&DrawRequest::new(&blit_cmd, *clip))?;
     }
 
     Ok(true)

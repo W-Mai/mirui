@@ -114,7 +114,8 @@ fn gradient_render(
         units: GradientUnits::ObjectBoundingBox,
         transform: Transform::IDENTITY.into(),
     });
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::FillPath {
             path: &left,
             transform: ctx.transform,
@@ -153,7 +154,8 @@ fn gradient_render(
         units: GradientUnits::ObjectBoundingBox,
         transform: Transform::IDENTITY.into(),
     });
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::FillPath {
             path: &circle,
             transform: ctx.transform,

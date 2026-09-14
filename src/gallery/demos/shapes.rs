@@ -36,7 +36,8 @@ fn shapes_render(
     let r = (rect.w.min(rect.h)) / Fixed::from_int(2) - Fixed::from_int(2);
     let center = Point { x: cx, y: cy };
 
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Arc {
             center,
             transform: ctx.transform,
@@ -56,7 +57,8 @@ fn shapes_render(
         x: cx + Fixed::cos_deg(angle_deg) * r,
         y: cy + Fixed::sin_deg(angle_deg) * r,
     };
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Line {
             p1: center,
             p2: end,
@@ -80,7 +82,8 @@ fn shapes_render(
             x: cx + Fixed::cos_deg(a) * outer,
             y: cy + Fixed::sin_deg(a) * outer,
         };
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::Line {
                 p1,
                 p2,

@@ -47,7 +47,8 @@ fn diamond_render(
 
     let segs = [(top, right), (right, bottom), (bottom, left), (left, top)];
     for (p1, p2) in segs {
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::Line {
                 p1,
                 p2,

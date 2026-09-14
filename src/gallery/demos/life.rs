@@ -185,7 +185,8 @@ fn life_render(
     let bw = rect.w.round().to_int();
     let bh = rect.h.round().to_int();
     let mut fill = |area: Rect, color: Color| {
-        renderer.draw(
+        ctx.draw(
+            renderer,
             &DrawCommand::Fill {
                 area,
                 transform: ctx.transform,

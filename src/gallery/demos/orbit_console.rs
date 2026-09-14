@@ -15,7 +15,7 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::font::{Font, FontManager};
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
+use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
@@ -263,6 +263,7 @@ struct DemoPainter<'a> {
     renderer: &'a mut dyn Renderer,
     clip: &'a Rect,
     transform: Transform,
+    error: Option<RenderError>,
 }
 
 struct ArcStroke {
@@ -281,66 +282,64 @@ impl<'a> DemoPainter<'a> {
             renderer,
             clip,
             transform,
+            error: None,
+        }
+    }
+
+    fn draw(&mut self, command: &DrawCommand<'_>) {
+        if self.error.is_none() {
+            self.error = self
+                .renderer
+                .submit(&DrawRequest::new(command, *self.clip))
+                .err();
         }
     }
 
     fn fill(&mut self, area: Rect, color: Color, radius: Fixed, opa: u8) {
-        self.renderer.draw(
-            &DrawCommand::Fill {
-                area,
-                transform: self.transform,
-                quad: None,
-                color,
-                radius,
-                opa,
-            },
-            self.clip,
-        );
+        self.draw(&DrawCommand::Fill {
+            area,
+            transform: self.transform,
+            quad: None,
+            color,
+            radius,
+            opa,
+        });
     }
 
     fn line(&mut self, p1: Point, p2: Point, color: Color, width: Fixed, opa: u8) {
-        self.renderer.draw(
-            &DrawCommand::Line {
-                p1,
-                p2,
-                transform: self.transform,
-                color,
-                width,
-                opa,
-            },
-            self.clip,
-        );
+        self.draw(&DrawCommand::Line {
+            p1,
+            p2,
+            transform: self.transform,
+            color,
+            width,
+            opa,
+        });
     }
 
     fn arc(&mut self, stroke: ArcStroke) {
-        self.renderer.draw(
-            &DrawCommand::Arc {
-                center: stroke.center,
-                transform: self.transform,
-                radius: stroke.radius,
-                start_angle: stroke.start,
-                end_angle: stroke.end,
-                color: stroke.color,
-                width: stroke.width,
-                opa: stroke.opacity,
-            },
-            self.clip,
-        );
+        self.draw(&DrawCommand::Arc {
+            center: stroke.center,
+            transform: self.transform,
+            radius: stroke.radius,
+            start_angle: stroke.start,
+            end_angle: stroke.end,
+            color: stroke.color,
+            width: stroke.width,
+            opa: stroke.opacity,
+        });
     }
 
     fn fill_path(&mut self, path: &Path, paint: &Paint, translate: Point, scale: Fixed, opa: u8) {
         let local =
             Transform::translate(translate.x, translate.y).compose(&Transform::scale(scale, scale));
-        self.renderer.draw(
-            &DrawCommand::FillPath {
-                path,
-                transform: self.transform.compose(&local),
-                paint,
-                opa,
-                fill_rule: crate::render::raster::FillRule::EvenOdd,
-            },
-            self.clip,
-        );
+        self.draw(&DrawCommand::FillPath {
+            path,
+            transform: self.transform.compose(&local),
+            paint,
+            opa,
+            fill_rule: crate::render::raster::FillRule::EvenOdd,
+        });
     }
 }
 
@@ -776,6 +775,7 @@ fn backdrop_render(
     };
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     backdrop.render(&mut painter, rect);
+    ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
 fn orbit_render(
@@ -793,6 +793,7 @@ fn orbit_render(
     };
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     instrument.render(&mut painter, rect, state);
+    ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
 fn signal_render(
@@ -810,6 +811,7 @@ fn signal_render(
     };
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     meter.render(&mut painter, rect, state);
+    ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
 fn activity_render(
@@ -827,6 +829,7 @@ fn activity_render(
     };
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     plot.render(&mut painter, rect, state);
+    ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
 pub fn backdrop_view() -> View {

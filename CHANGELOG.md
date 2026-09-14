@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Checked Gallery draws.** Gallery custom views and offscreen blits propagate backend failures to the frame caller; path-clip examples unwind their clip scope after a failed draw.
 - **Checked built-in views.** Widgets submit drawing through `ViewCtx::draw`, so affine and projective backend failures reach the frame caller without a second renderer wrapper around normal draws.
 - **UI render outcomes.** `App::render`, `render_dirty`, and `snapshot_widget` return typed render failures; projective widget errors stop the tree walk, and failed frames mark their subtree for repaint.
 - **Checked scene draws.** Scene replay submits draw requests through a result-bearing renderer entry, preserving typed execution errors after route preflight.

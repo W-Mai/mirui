@@ -90,8 +90,7 @@ fn wing_path(cx: Fixed, cy: Fixed, span: Fixed, tilt: Fixed, side: i32, inner: b
 
 fn fill_wing(
     renderer: &mut dyn Renderer,
-    clip: &Rect,
-    transform: crate::types::Transform,
+    ctx: &mut ViewCtx,
     cx: Fixed,
     cy: Fixed,
     span: Fixed,
@@ -113,15 +112,16 @@ fn fill_wing(
     };
     let opa = if inner { 210 } else { 240 };
     let paint = Paint::Color(color.into());
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::FillPath {
             path: &path,
-            transform,
+            transform: ctx.transform,
             paint: &paint,
             opa,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
-        clip,
+        ctx.clip,
     );
 }
 
@@ -160,50 +160,10 @@ fn butterfly_render(
     let span_left = (span_base * (Fixed::ONE + yaw)).max(min_span);
     let span_right = (span_base * (Fixed::ONE - yaw)).max(min_span);
 
-    fill_wing(
-        renderer,
-        ctx.clip,
-        ctx.transform,
-        cx,
-        cy,
-        span_left,
-        tilt,
-        -1,
-        false,
-    );
-    fill_wing(
-        renderer,
-        ctx.clip,
-        ctx.transform,
-        cx,
-        cy,
-        span_right,
-        tilt,
-        1,
-        false,
-    );
-    fill_wing(
-        renderer,
-        ctx.clip,
-        ctx.transform,
-        cx,
-        cy,
-        span_left,
-        tilt,
-        -1,
-        true,
-    );
-    fill_wing(
-        renderer,
-        ctx.clip,
-        ctx.transform,
-        cx,
-        cy,
-        span_right,
-        tilt,
-        1,
-        true,
-    );
+    fill_wing(renderer, ctx, cx, cy, span_left, tilt, -1, false);
+    fill_wing(renderer, ctx, cx, cy, span_right, tilt, 1, false);
+    fill_wing(renderer, ctx, cx, cy, span_left, tilt, -1, true);
+    fill_wing(renderer, ctx, cx, cy, span_right, tilt, 1, true);
 
     let body_head = Point {
         x: cx + tilt * Fixed::from_int(6),
@@ -213,7 +173,8 @@ fn butterfly_render(
         x: cx - tilt * Fixed::from_int(6),
         y: cy + Fixed::from_int(16),
     };
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Line {
             p1: body_head,
             p2: body_tail,
@@ -224,7 +185,8 @@ fn butterfly_render(
         },
         ctx.clip,
     );
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Line {
             p1: body_head,
             p2: Point {
@@ -238,7 +200,8 @@ fn butterfly_render(
         },
         ctx.clip,
     );
-    renderer.draw(
+    ctx.draw(
+        renderer,
         &DrawCommand::Line {
             p1: body_head,
             p2: Point {

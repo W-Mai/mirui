@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use mirui::ecs::World;
 use mirui::prelude::Dimension;
 use mirui::render::texture::{ColorFormat, Texture};
-use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
+use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderResource, RenderRoute, Renderer};
 use mirui::types::{Color, Fixed, Rect, Viewport};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
@@ -18,11 +18,15 @@ struct Counts {
 
 struct MockOuter {
     supports_offscreen: bool,
+    fail_blit: bool,
     counts: RefCell<Counts>,
 }
 
 impl Renderer for MockOuter {
-    fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        if self.fail_blit && matches!(request.command, DrawCommand::Blit { .. }) {
+            return Err(RenderError::ResourceLimit(RenderResource::Texture));
+        }
         Ok(RenderRoute::Native)
     }
 
@@ -79,6 +83,7 @@ fn gate_flip_routes_offscreen_to_blit_on_non_sw_outer() {
     let (world, panel) = make_world(true);
     let mut outer = MockOuter {
         supports_offscreen: true,
+        fail_blit: false,
         counts: RefCell::new(Counts::default()),
     };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
@@ -94,6 +99,7 @@ fn gate_off_falls_through_to_inline_render() {
     let (world, panel) = make_world(false);
     let mut outer = MockOuter {
         supports_offscreen: false,
+        fail_blit: false,
         counts: RefCell::new(Counts::default()),
     };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
@@ -110,6 +116,7 @@ fn pool_resource_must_exist_when_gate_is_on() {
     world.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
     let mut outer = MockOuter {
         supports_offscreen: true,
+        fail_blit: false,
         counts: RefCell::new(Counts::default()),
     };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
@@ -117,4 +124,21 @@ fn pool_resource_must_exist_when_gate_is_on() {
 
     let c = outer.counts.borrow();
     assert_eq!(c.blit, 1);
+}
+
+#[test]
+fn offscreen_blit_failure_reaches_render_caller() {
+    let (world, panel) = make_world(true);
+    let mut outer = MockOuter {
+        supports_offscreen: true,
+        fail_blit: true,
+        counts: RefCell::new(Counts::default()),
+    };
+    let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+    assert_eq!(
+        render_system::render(&world, panel, &viewport, &mut outer),
+        Err(RenderError::ResourceLimit(RenderResource::Texture))
+    );
+    assert_eq!(outer.counts.borrow().blit, 0);
 }
