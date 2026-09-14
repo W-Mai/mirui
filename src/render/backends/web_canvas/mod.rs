@@ -17,7 +17,7 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
-use crate::render::projective_fallback::ProjectiveFallback;
+use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
@@ -543,6 +543,43 @@ impl WebCanvasRenderer<'_> {
 }
 
 impl WebCanvasRenderer<'_> {
+    fn draw_projective_plan(
+        &mut self,
+        plan: ProjectiveFallbackPlan,
+        command: &DrawCommand,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if plan.width == 0 || plan.height == 0 {
+            return Ok(());
+        }
+        let image = self
+            .ctx()
+            .get_image_data(
+                f64::from(plan.x),
+                f64::from(plan.y),
+                f64::from(plan.width),
+                f64::from(plan.height),
+            )
+            .map_err(|_| ProjectiveDrawError::Unsupported)?;
+        let source = image.data();
+        let fallback = self
+            .factory
+            .projective_fallback
+            .as_mut()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
+        fallback.target_mut(plan).copy_from_slice(&source.0);
+        fallback.render(plan, command, projective, self.viewport)?;
+        let output = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+            wasm_bindgen::Clamped(fallback.target_mut(plan)),
+            u32::from(plan.width),
+            u32::from(plan.height),
+        )
+        .map_err(|_| ProjectiveDrawError::Unsupported)?;
+        self.ctx()
+            .put_image_data(&output, f64::from(plan.x), f64::from(plan.y))
+            .map_err(|_| ProjectiveDrawError::Unsupported)
+    }
+
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
@@ -625,6 +662,29 @@ impl Renderer for WebCanvasRenderer<'_> {
         Ok(RenderRoute::ExactFallback {
             required_bytes: plan.required_bytes(),
         })
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        request.validate_projection()?;
+        Self::classify_request(request)?;
+        if request.projective.is_identity() {
+            self.draw(request.command, &request.clip);
+            return Ok(());
+        }
+        let plan = self
+            .factory
+            .projective_fallback
+            .as_ref()
+            .ok_or(RenderError::MissingWorkspace)?
+            .plan(
+                request.command,
+                &request.clip,
+                &request.projective,
+                self.viewport,
+            )
+            .map_err(RenderError::from)?;
+        self.draw_projective_plan(plan, request.command, &request.projective)
+            .map_err(RenderError::from)
     }
 
     fn output_scale(&self) -> Fixed {
@@ -998,36 +1058,7 @@ impl Renderer for WebCanvasRenderer<'_> {
             .as_ref()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?
             .plan(command, clip, projective, self.viewport)?;
-        if plan.width == 0 || plan.height == 0 {
-            return Ok(());
-        }
-
-        let image = self
-            .ctx()
-            .get_image_data(
-                f64::from(plan.x),
-                f64::from(plan.y),
-                f64::from(plan.width),
-                f64::from(plan.height),
-            )
-            .map_err(|_| ProjectiveDrawError::Unsupported)?;
-        let source = image.data();
-        let fallback = self
-            .factory
-            .projective_fallback
-            .as_mut()
-            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        fallback.target_mut(plan).copy_from_slice(&source.0);
-        fallback.render(plan, command, projective, self.viewport)?;
-        let output = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
-            wasm_bindgen::Clamped(fallback.target_mut(plan)),
-            u32::from(plan.width),
-            u32::from(plan.height),
-        )
-        .map_err(|_| ProjectiveDrawError::Unsupported)?;
-        self.ctx()
-            .put_image_data(&output, f64::from(plan.x), f64::from(plan.y))
-            .map_err(|_| ProjectiveDrawError::Unsupported)
+        self.draw_projective_plan(plan, command, projective)
     }
 
     fn preflight_projective(

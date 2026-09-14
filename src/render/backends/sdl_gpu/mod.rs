@@ -30,7 +30,7 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
-use crate::render::projective_fallback::ProjectiveFallback;
+use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::FillRule;
 use crate::render::renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
@@ -502,6 +502,73 @@ impl SdlGpuRenderer<'_> {
         }
         self.canvas.set_clip_rect(None);
     }
+
+    fn draw_projective_plan(
+        &mut self,
+        plan: ProjectiveFallbackPlan,
+        command: &DrawCommand,
+        projective: &Transform3D,
+    ) -> Result<(), ProjectiveDrawError> {
+        if plan.width == 0 || plan.height == 0 {
+            return Ok(());
+        }
+        let fallback = self
+            .projective_fallback
+            .as_deref_mut()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
+        let read_rect = sdl2_sys::SDL_Rect {
+            x: plan.x,
+            y: plan.y,
+            w: i32::from(plan.width),
+            h: i32::from(plan.height),
+        };
+        let target = fallback.target_mut(plan);
+        let read_result = unsafe {
+            sdl2_sys::SDL_RenderReadPixels(
+                self.canvas.raw(),
+                &read_rect,
+                sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
+                target.as_mut_ptr().cast(),
+                i32::from(plan.width) * 4,
+            )
+        };
+        if read_result != 0 {
+            return Err(ProjectiveDrawError::Unsupported);
+        }
+
+        fallback.render(plan, command, projective, self.viewport)?;
+        let target = fallback.target(plan);
+        let canvas = &mut *self.canvas;
+        let mut uploaded = false;
+        self.label_cache.with_creator(|creator| {
+            let Ok(mut texture) = creator.create_texture_streaming(
+                sdl2::pixels::PixelFormatEnum::RGBA32,
+                u32::from(plan.width),
+                u32::from(plan.height),
+            ) else {
+                return;
+            };
+            if texture
+                .update(None, target, usize::from(plan.width) * 4)
+                .is_err()
+            {
+                return;
+            }
+            texture.set_blend_mode(sdl2::render::BlendMode::None);
+            let dst = sdl2::rect::Rect::new(
+                plan.x,
+                plan.y,
+                u32::from(plan.width),
+                u32::from(plan.height),
+            );
+            uploaded = canvas.copy(&texture, None, Some(dst)).is_ok();
+        });
+        if uploaded {
+            Ok(())
+        } else {
+            Err(ProjectiveDrawError::Unsupported)
+        }
+    }
 }
 
 impl SdlGpuRenderer<'_> {
@@ -685,6 +752,28 @@ impl Renderer for SdlGpuRenderer<'_> {
         Ok(RenderRoute::ExactFallback {
             required_bytes: plan.required_bytes(),
         })
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        request.validate_projection()?;
+        Self::classify_request(request)?;
+        if request.projective.is_identity() {
+            self.draw(request.command, &request.clip);
+            return Ok(());
+        }
+        let plan = self
+            .projective_fallback
+            .as_deref()
+            .ok_or(RenderError::MissingWorkspace)?
+            .plan(
+                request.command,
+                &request.clip,
+                &request.projective,
+                self.viewport,
+            )
+            .map_err(RenderError::from)?;
+        self.draw_projective_plan(plan, request.command, &request.projective)
+            .map_err(RenderError::from)
     }
 
     fn output_scale(&self) -> Fixed {
@@ -908,67 +997,12 @@ impl Renderer for SdlGpuRenderer<'_> {
             self.draw(command, clip);
             return Ok(());
         }
-        let fallback = self
+        let plan = self
             .projective_fallback
-            .as_deref_mut()
-            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        let plan = fallback.plan(command, clip, projective, self.viewport)?;
-        if plan.width == 0 || plan.height == 0 {
-            return Ok(());
-        }
-
-        let read_rect = sdl2_sys::SDL_Rect {
-            x: plan.x,
-            y: plan.y,
-            w: i32::from(plan.width),
-            h: i32::from(plan.height),
-        };
-        let target = fallback.target_mut(plan);
-        let read_result = unsafe {
-            sdl2_sys::SDL_RenderReadPixels(
-                self.canvas.raw(),
-                &read_rect,
-                sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
-                target.as_mut_ptr().cast(),
-                i32::from(plan.width) * 4,
-            )
-        };
-        if read_result != 0 {
-            return Err(ProjectiveDrawError::Unsupported);
-        }
-
-        fallback.render(plan, command, projective, self.viewport)?;
-        let target = fallback.target(plan);
-        let canvas = &mut *self.canvas;
-        let mut uploaded = false;
-        self.label_cache.with_creator(|creator| {
-            let Ok(mut texture) = creator.create_texture_streaming(
-                sdl2::pixels::PixelFormatEnum::RGBA32,
-                u32::from(plan.width),
-                u32::from(plan.height),
-            ) else {
-                return;
-            };
-            if texture
-                .update(None, target, usize::from(plan.width) * 4)
-                .is_err()
-            {
-                return;
-            }
-            texture.set_blend_mode(sdl2::render::BlendMode::None);
-            let dst = sdl2::rect::Rect::new(
-                plan.x,
-                plan.y,
-                u32::from(plan.width),
-                u32::from(plan.height),
-            );
-            uploaded = canvas.copy(&texture, None, Some(dst)).is_ok();
-        });
-        if uploaded {
-            Ok(())
-        } else {
-            Err(ProjectiveDrawError::Unsupported)
-        }
+            .as_deref()
+            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?
+            .plan(command, clip, projective, self.viewport)?;
+        self.draw_projective_plan(plan, command, projective)
     }
 
     fn preflight_projective(
