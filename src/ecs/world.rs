@@ -144,9 +144,16 @@ impl World {
     }
 
     pub fn remove_resource<T: 'static>(&mut self) -> Option<T> {
+        self.take_resource_box::<T>().map(|value| *value)
+    }
+
+    pub(crate) fn take_resource_box<T: 'static>(&mut self) -> Option<Box<T>> {
         self.resources
             .remove(&TypeId::of::<T>())
             .and_then(|v| v.downcast::<T>().ok())
-            .map(|b| *b)
+    }
+
+    pub(crate) fn put_resource_box<T: 'static>(&mut self, value: Box<T>) {
+        self.resources.insert(TypeId::of::<T>(), value);
     }
 }

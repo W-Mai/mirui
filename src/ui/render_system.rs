@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
@@ -295,7 +296,7 @@ fn seed_prev_rect_walk(
 /// them in its union (erasing any residue when widgets move/shrink).
 pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
-    if let Some(snapshot) = world.remove_resource::<LayoutSnapshot>() {
+    if let Some(snapshot) = world.take_resource_box::<LayoutSnapshot>() {
         if snapshot.matches(root, logical_w, logical_h) {
             let mut idx = 0;
             seed_prev_rect_walk(
@@ -307,10 +308,10 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
                 &Transform3D::IDENTITY,
                 transform.scale(),
             );
-            world.insert_resource(snapshot);
+            world.put_resource_box(snapshot);
             return;
         }
-        world.insert_resource(snapshot);
+        world.put_resource_box(snapshot);
     }
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -492,20 +493,20 @@ fn compute_layout_snapshot(
     root: Entity,
     logical_w: u16,
     logical_h: u16,
-) -> Option<LayoutSnapshot> {
-    let previous = world.remove_resource::<LayoutSnapshot>();
+) -> Option<Box<LayoutSnapshot>> {
+    let previous = world.take_resource_box::<LayoutSnapshot>();
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
                 refresh_layout_tree(world, root, &mut snapshot.layout_tree).then_some(snapshot)?
             }
-            _ => LayoutSnapshot {
+            _ => Box::new(LayoutSnapshot {
                 root,
                 logical_w,
                 logical_h,
                 layout_tree: build_layout_tree(world, root)?,
                 entities: Vec::new(),
-            },
+            }),
         }
     });
     crate::trace_span!("layout.initial_compute", {
@@ -1522,7 +1523,7 @@ pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
 
     let mut idx = 0;
     write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
-    world.insert_resource(snapshot);
+    world.put_resource_box(snapshot);
 }
 
 fn write_computed_rects(
@@ -2208,7 +2209,7 @@ pub fn collect_dirty_regions(
         }
     }
 
-    world.insert_resource(snapshot);
+    world.put_resource_box(snapshot);
 
     plan
 }
@@ -2272,11 +2273,13 @@ mod layout_snapshot_reuse_check {
 
         update_layout(&mut world, root, &viewport);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        let snapshot_ptr = snapshot as *const LayoutSnapshot;
         let tree_ptr = snapshot.layout_tree.children.as_ptr();
         let entities_ptr = snapshot.entities.as_ptr();
 
         update_layout(&mut world, root, &viewport);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot as *const LayoutSnapshot, snapshot_ptr);
         assert_eq!(snapshot.layout_tree.children.as_ptr(), tree_ptr);
         assert_eq!(snapshot.entities.as_ptr(), entities_ptr);
         assert_eq!(snapshot.entities, [root, first, second]);
