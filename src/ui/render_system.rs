@@ -357,6 +357,36 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     Some(node)
 }
 
+fn refresh_layout_tree(world: &World, entity: Entity, node: &mut LayoutNode) -> bool {
+    if world.get::<Widget>(entity).is_none() || world.get::<Hidden>(entity).is_some() {
+        return false;
+    }
+    let Some(style) = world.get::<Style>(entity) else {
+        return false;
+    };
+    node.style = style.layout;
+    node.intrinsic_width = None;
+    node.intrinsic_height = None;
+    apply_text_intrinsic(world, entity, node);
+    apply_static_glyph_intrinsic(world, entity, style, node);
+
+    let mut used = 0;
+    if let Some(children) = world.get::<Children>(entity) {
+        for &child in &children.0 {
+            if used < node.children.len() {
+                if refresh_layout_tree(world, child, &mut node.children[used]) {
+                    used += 1;
+                }
+            } else if let Some(child_node) = build_layout_tree(world, child) {
+                node.children.push(child_node);
+                used += 1;
+            }
+        }
+    }
+    node.children.truncate(used);
+    true
+}
+
 struct LaidOutText {
     handle: crate::text::TextLayoutHandle,
     measure: crate::text::TextMeasure,
@@ -463,21 +493,33 @@ fn compute_layout_snapshot(
     logical_w: u16,
     logical_h: u16,
 ) -> Option<LayoutSnapshot> {
-    let mut layout_tree =
-        crate::trace_span!("layout.build_tree", { build_layout_tree(world, root)? });
+    let previous = world.remove_resource::<LayoutSnapshot>();
+    let mut snapshot = crate::trace_span!("layout.build_tree", {
+        match previous {
+            Some(mut snapshot) if snapshot.root == root => {
+                refresh_layout_tree(world, root, &mut snapshot.layout_tree).then_some(snapshot)?
+            }
+            _ => LayoutSnapshot {
+                root,
+                logical_w,
+                logical_h,
+                layout_tree: build_layout_tree(world, root)?,
+                entities: Vec::new(),
+            },
+        }
+    });
     crate::trace_span!("layout.initial_compute", {
         compute_layout(
-            &mut layout_tree,
+            &mut snapshot.layout_tree,
             Fixed::ZERO,
             Fixed::ZERO,
             logical_w.into(),
             logical_h.into(),
         )
     });
-    let entities = crate::trace_span!("layout.collect_entities", {
-        let mut entities = Vec::new();
-        collect_entities_preorder(world, root, &mut entities);
-        entities
+    crate::trace_span!("layout.collect_entities", {
+        snapshot.entities.clear();
+        collect_entities_preorder(world, root, &mut snapshot.entities);
     });
     if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
         cache.borrow_mut().begin_frame();
@@ -487,12 +529,17 @@ fn compute_layout_snapshot(
     }
     let mut text_index = 0;
     let intrinsic_changed = crate::trace_span!("layout.text", {
-        layout_text_tree(&mut layout_tree, world, &entities, &mut text_index)
+        layout_text_tree(
+            &mut snapshot.layout_tree,
+            world,
+            &snapshot.entities,
+            &mut text_index,
+        )
     });
     if intrinsic_changed {
         crate::trace_span!("layout.final_compute", {
             compute_layout(
-                &mut layout_tree,
+                &mut snapshot.layout_tree,
                 Fixed::ZERO,
                 Fixed::ZERO,
                 logical_w.into(),
@@ -500,13 +547,9 @@ fn compute_layout_snapshot(
             )
         });
     }
-    Some(LayoutSnapshot {
-        root,
-        logical_w,
-        logical_h,
-        layout_tree,
-        entities,
-    })
+    snapshot.logical_w = logical_w;
+    snapshot.logical_h = logical_h;
+    Some(snapshot)
 }
 
 pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
@@ -2193,6 +2236,100 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
         }
     }
     rects
+}
+
+#[cfg(test)]
+mod layout_snapshot_reuse_check {
+    use super::*;
+    use crate::types::Dimension;
+    use crate::ui::layout::LayoutStyle;
+
+    fn widget(world: &mut World, width: i32) -> Entity {
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(
+            entity,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(width),
+                    height: Dimension::px(10),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        entity
+    }
+
+    #[test]
+    fn warm_layout_reuses_tree_and_entity_storage() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let first = widget(&mut world, 20);
+        let second = widget(&mut world, 20);
+        world.insert(root, Children(vec![first, second]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        let tree_ptr = snapshot.layout_tree.children.as_ptr();
+        let entities_ptr = snapshot.entities.as_ptr();
+
+        update_layout(&mut world, root, &viewport);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.layout_tree.children.as_ptr(), tree_ptr);
+        assert_eq!(snapshot.entities.as_ptr(), entities_ptr);
+        assert_eq!(snapshot.entities, [root, first, second]);
+    }
+
+    #[test]
+    fn refreshed_tree_tracks_reorder_visibility_and_style() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let first = widget(&mut world, 20);
+        let second = widget(&mut world, 20);
+        world.insert(root, Children(vec![first, second]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        world.get_mut::<Children>(root).unwrap().0.swap(0, 1);
+        world.get_mut::<Style>(second).unwrap().layout.width = Dimension::px(30);
+        update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<LayoutSnapshot>().unwrap().entities,
+            [root, second, first]
+        );
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(second).unwrap().0.x,
+            Fixed::ZERO
+        );
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(first).unwrap().0.x,
+            Fixed::from_int(30)
+        );
+
+        world.insert(second, Hidden);
+        update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<LayoutSnapshot>().unwrap().entities,
+            [root, first]
+        );
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(first).unwrap().0.x,
+            Fixed::ZERO
+        );
+
+        world.remove::<Hidden>(second);
+        update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<LayoutSnapshot>().unwrap().entities,
+            [root, second, first]
+        );
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(first).unwrap().0.x,
+            Fixed::from_int(30)
+        );
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
