@@ -470,9 +470,12 @@ impl WgpuRenderer<'_> {
                 }
             }
             DrawCommand::Blit {
-                radius, composite, ..
+                radius,
+                quad,
+                composite,
+                ..
             } => {
-                if *radius != Fixed::ZERO {
+                if *radius != Fixed::ZERO && (quad.is_some() || !request.projective.is_identity()) {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }
                 if matches!(
@@ -821,6 +824,7 @@ impl WgpuRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
         composite: CompositeMode,
     ) {
         if opa == 0 {
@@ -870,7 +874,8 @@ impl WgpuRenderer<'_> {
         };
 
         self.blit_view_inner(
-            tex_view, src.width, src.height, src_rect, dst_pos, dst_size, opa, composite, scissor,
+            tex_view, src.width, src.height, src_rect, dst_pos, dst_size, opa, radius, composite,
+            scissor,
         );
     }
 
@@ -884,6 +889,7 @@ impl WgpuRenderer<'_> {
         dst_pos: Point,
         dst_size: Point,
         opa: u8,
+        radius: Fixed,
         composite: CompositeMode,
         scissor: [u32; 4],
     ) {
@@ -914,7 +920,7 @@ impl WgpuRenderer<'_> {
                 (src_rect.x.to_f32() + src_rect.w.to_f32()) / tw,
                 (src_rect.y.to_f32() + src_rect.h.to_f32()) / th,
             ],
-            alpha: [opa as f32 / 255.0, 0.0, 0.0, 0.0],
+            alpha: [opa as f32 / 255.0, radius.to_f32().max(0.0), 0.0, 0.0],
         };
 
         let blit_buf = state
@@ -2273,6 +2279,26 @@ mod route_tests {
         };
         assert_eq!(
             WgpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            Ok(RenderRoute::Native)
+        );
+
+        let rounded_quad = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            quad: Some([
+                Point::new(0, 0),
+                Point::new(2, 0),
+                Point::new(2, 2),
+                Point::new(0, 2),
+            ]),
+            texture: &texture,
+            opa: 255,
+            radius: Fixed::ONE,
+            composite: CompositeMode::SourceOver,
+        };
+        assert_eq!(
+            WgpuRenderer::classify_request(&DrawRequest::new(&rounded_quad, clip)),
             Err(RenderError::Unsupported(RenderFeature::RoundedBlit))
         );
 
@@ -2322,6 +2348,182 @@ mod route_tests {
             WgpuRenderer::classify_request(&DrawRequest::new(&line, clip)),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
+    }
+}
+
+#[cfg(test)]
+mod blit_tests {
+    use super::*;
+
+    #[test]
+    fn rounded_blit_masks_corners_without_cropping_edges() {
+        const SIZE: u32 = 32;
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            }))
+        else {
+            return;
+        };
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("mirui-rounded-blit-test-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits:
+                    wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+                ..Default::default()
+            }))
+        else {
+            return;
+        };
+        let source = device.create_texture_with_data(
+            &queue,
+            &wgpu::TextureDescriptor {
+                label: Some("mirui-rounded-blit-test-source"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &[255, 0, 0, 255],
+        );
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-rounded-blit-test-target"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let msaa = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-rounded-blit-test-msaa"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLES,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let viewport = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-rounded-blit-test-viewport"),
+            contents: bytemuck::bytes_of(&ViewportUniform {
+                size: [SIZE as f32, SIZE as f32],
+                _pad: [0.0; 2],
+            }),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-rounded-blit-test-uniform"),
+            contents: bytemuck::bytes_of(&BlitUniform {
+                dst_pos: [0.0, 0.0],
+                dst_size: [SIZE as f32, SIZE as f32],
+                uv: [0.0, 0.0, 1.0, 1.0],
+                alpha: [1.0, 10.0, 0.0, 0.0],
+            }),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let mut cache = PipelineCache::new(&device);
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-rounded-blit-test-bind-group"),
+            layout: &cache.blit_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &source.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let pipeline = cache.get_or_build(
+            &device,
+            PipelineKey {
+                shader: ShaderKind::Blit,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                composite: CompositeMode::SourceOver,
+            },
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mirui-rounded-blit-test-encoder"),
+        });
+        {
+            let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let msaa_view = msaa.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mirui-rounded-blit-test-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &msaa_view,
+                    resolve_target: Some(&view),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        let Some(bytes) = wgpu_readback_rgba8(
+            &device,
+            &queue,
+            &target,
+            wgpu::TextureFormat::Rgba8Unorm,
+            0,
+            0,
+            SIZE,
+            SIZE,
+        ) else {
+            panic!("rounded blit target could not be read");
+        };
+        let alpha = |x: usize, y: usize| bytes[(y * SIZE as usize + x) * 4 + 3];
+        assert_eq!(alpha(0, 0), 0);
+        assert!(alpha(16, 0) > 240);
+        assert!(alpha(0, 16) > 240);
+        assert!(alpha(16, 16) > 240);
     }
 }
 
@@ -2978,9 +3180,7 @@ impl Renderer for WgpuRenderer<'_> {
                 ..
             } => {
                 if *radius != Fixed::ZERO {
-                    unimplemented!(
-                        "wgpu backend: Blit.radius mask not implemented; use SwRenderer",
-                    );
+                    unimplemented!("wgpu backend: projected rounded blit is unsupported");
                 }
                 self.blit_quad_inner(texture, q, clip, *opa, *composite);
                 return;
@@ -3103,14 +3303,11 @@ impl Renderer for WgpuRenderer<'_> {
                 composite,
                 ..
             } => {
-                if *radius != Fixed::ZERO {
-                    unimplemented!(
-                        "wgpu backend: Blit.radius mask not implemented; use SwRenderer",
-                    );
-                }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit_inner(texture, &src_rect, pos, *size, clip, *opa, *composite);
+                self.blit_inner(
+                    texture, &src_rect, pos, *size, clip, *opa, *radius, *composite,
+                );
             }
             DrawCommand::Border {
                 area,
@@ -3389,6 +3586,7 @@ impl Renderer for WgpuRenderer<'_> {
             dst_size,
             src,
             255,
+            Fixed::ZERO,
             CompositeMode::SourceOver,
         );
         true
@@ -3472,10 +3670,7 @@ impl Canvas for WgpuRenderer<'_> {
         radius: Fixed,
         composite: CompositeMode,
     ) {
-        if radius != Fixed::ZERO {
-            unimplemented!("wgpu backend: Blit.radius mask not implemented yet; use SwRenderer");
-        }
-        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, composite);
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, radius, composite);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {

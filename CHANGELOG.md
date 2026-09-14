@@ -12,11 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Borrowed projective fallback storage.** SDL GPU and Web Canvas renderer factories accept a `ProjectiveFallback` backed by a caller-owned fixed buffer.
 - **Borrowed render planes.** `PlaneLayout` and `AlignedPlane` validate address alignment, row stride, and checked byte capacity before a caller-owned buffer becomes a render target.
 - **Render request model.** `DrawRequest` carries a borrowed command, clip, and shared projection; `RenderRoute` and `RenderError` describe exact execution and bounded failure outcomes.
-- **WGPU route inspection.** `Renderer::route` classifies existing WGPU native paths and reports typed rejection for unsupported clip, blur, stroke, paint, rounded blit, composite, and transform semantics.
+- **WGPU route inspection.** `Renderer::route` classifies existing WGPU native paths and reports typed rejection for unsupported clip, blur, stroke, paint, projected rounded blit, composite, and transform semantics.
 - **Backend render routes.** Software, SDL GPU, and Web Canvas expose `Renderer::route` classification for native draws and bounded projective fallback. Unsupported opacity, stroke, texture format, gradient, and quad semantics return typed errors; affine Web quad images use a direct Canvas transform.
 
 ### Fixed
 
+- **WGPU rounded images.** Axis-aligned image blits apply a GPU corner mask with pixel-width antialiasing; projected rounded blits remain explicitly unsupported.
 - **Web Canvas Pad gradients.** Checked path fills preserve object-bounding-box geometry, focal circles, and paint transforms through the Canvas paint coordinate system.
 - **Scene capture errors.** Checked capture rejects blur and projective draws that cannot be represented, instead of recording blur as an unrelated group end.
 - **Software radial gradients.** Path fills and strokes evaluate focal position, focal radius, object bounds, and paint transforms; uncovered two-circle regions remain transparent.

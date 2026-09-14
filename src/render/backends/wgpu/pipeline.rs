@@ -54,7 +54,7 @@ pub struct BlitUniform {
     pub dst_pos: [f32; 2],
     pub dst_size: [f32; 2],
     pub uv: [f32; 4],
-    /// `.x` carries group opacity in [0..1]; `.yzw` reserved.
+    /// `.x` carries opacity in [0..1]; `.y` carries logical corner radius.
     /// Padded to vec4 because std140 rounds the struct end up to its
     /// largest member alignment (16), matching `RectUniform`'s trick.
     pub alpha: [f32; 4],
