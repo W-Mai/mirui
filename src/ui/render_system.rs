@@ -1719,6 +1719,9 @@ struct DirtyBounds {
     min_y: Fixed,
     max_x: Fixed,
     max_y: Fixed,
+    regions: [Rect; 4],
+    region_count: usize,
+    overflow: bool,
 }
 
 /// Resource exposing the last frame's plan. Read-only for probes /
@@ -2041,6 +2044,19 @@ fn push_entity_dirty(
     if y1 > bounds.max_y {
         bounds.max_y = y1;
     }
+    if x1 > x0 && y1 > y0 {
+        if let Some(region) = bounds.regions.get_mut(bounds.region_count) {
+            *region = Rect {
+                x: x0,
+                y: y0,
+                w: x1 - x0,
+                h: y1 - y0,
+            };
+            bounds.region_count += 1;
+        } else {
+            bounds.overflow = true;
+        }
+    }
     let (cx0, cy0, cx1, cy1) = curr.pixel_bounds();
     world.insert(
         entity,
@@ -2129,6 +2145,9 @@ pub(crate) fn collect_dirty_regions_into(
         min_y: Fixed::from(logical_h),
         max_x: Fixed::from_int(-1),
         max_y: Fixed::from_int(-1),
+        regions: [Rect::ZERO; 4],
+        region_count: 0,
+        overflow: false,
     };
 
     snapshot.out_of_scroll_prev.clear();
@@ -2188,7 +2207,10 @@ pub(crate) fn collect_dirty_regions_into(
     }
 
     let (min_x, min_y, max_x, max_y) = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
-    if max_x >= Fixed::ZERO {
+    if plan.shifts.is_empty() && !bounds.overflow {
+        plan.rects
+            .extend_from_slice(&bounds.regions[..bounds.region_count]);
+    } else if max_x >= Fixed::ZERO {
         plan.rects.push(Rect {
             x: min_x,
             y: min_y,
@@ -2364,6 +2386,31 @@ mod layout_snapshot_reuse_check {
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
         assert_eq!(plan.rects.len(), 1);
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
+    }
+
+    #[test]
+    fn sparse_dirty_regions_keep_bounded_flush_rects() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let children: Vec<_> = (0..5).map(|_| widget(&mut world, 10)).collect();
+        world.insert(root, Children(children.clone()));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+
+        world.insert(children[0], Dirty);
+        world.insert(children[2], Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert_eq!(
+            plan.rects,
+            [Rect::new(0, 0, 10, 10), Rect::new(20, 0, 10, 10)]
+        );
+        assert_eq!(plan.bounding_rect(), Some(Rect::new(0, 0, 30, 10)));
+
+        for child in children {
+            world.insert(child, Dirty);
+        }
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert_eq!(plan.rects, [Rect::new(0, 0, 50, 10)]);
     }
 
     #[test]
