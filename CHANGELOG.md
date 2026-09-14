@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Projective widget dispatch.** Widget homographies travel only through renderer scope; leaf commands no longer also carry a pre-projected quad, and descendant clips use transformed screen-space bounds.
 - **Web release builds.** `cargo xtask wasm-build` normalizes the inherited no-color setting for current Trunk releases.
 - **Atomic projective scene replay.** Renderers preflight command support, invertibility and near-plane geometry before drawing, so invalid projective groups fail without partially updating the target.
+- **Scene group bounds.** Nested affine transforms now contribute to filter extents and sibling-overlap checks. Projective groups and unresolved glyph ink bounds report explicit errors where exact bounds are required instead of being treated as zero-size or disjoint.
 - **Rotated bitmap glyph edges.** Software rendering bilinearly filters transformed 1-bit glyph coverage against a transparent atlas border while keeping untransformed pixel fonts on the exact raster path.
 - **Interactive Gallery input.** Interaction Lab no longer installs a looping simulated pointer and rotary timeline over live user input.
 - **Reactive text configuration.** Signal-driven content updates preserve the existing paragraph policy, including horizontal and vertical alignment.

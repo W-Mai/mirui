@@ -66,6 +66,14 @@ impl ViewCtx<'_> {
         .err()
         .map(|error| match error {
             crate::render::scene::replay::ReplayError::Render(error) => error,
+            crate::render::scene::replay::ReplayError::Bounds(
+                crate::render::scene::bbox::BoundsError::ProjectiveGroup,
+            ) => {
+                RenderError::Unsupported(crate::render::renderer::RenderFeature::ProjectiveGeometry)
+            }
+            crate::render::scene::replay::ReplayError::Bounds(
+                crate::render::scene::bbox::BoundsError::InsufficientWorkspace { .. },
+            ) => RenderError::MissingWorkspace,
             crate::render::scene::replay::ReplayError::GroupOpacityNeedsOffscreen => {
                 RenderError::MissingWorkspace
             }

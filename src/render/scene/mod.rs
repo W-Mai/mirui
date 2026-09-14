@@ -257,7 +257,7 @@ impl Scene {
         });
         body(self);
         let inner = &self.ops[header_idx + 1..];
-        let disjoint = bbox::children_disjoint(inner);
+        let disjoint = bbox::children_disjoint(inner).unwrap_or(false);
         if disjoint {
             if let Some(SceneOp::GroupBegin { disjoint_hint, .. }) = self.ops.get_mut(header_idx) {
                 *disjoint_hint = true;

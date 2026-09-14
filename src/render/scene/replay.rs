@@ -1,6 +1,6 @@
 //! Replay an owned `SceneOp` stream back through a live `Renderer`.
 
-use super::bbox::{children_disjoint, union_of_children};
+use super::bbox::{BoundsError, children_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
@@ -11,6 +11,7 @@ use crate::types::{Fixed, Rect, Transform, Transform3D};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplayError {
     UnbalancedGroup,
+    Bounds(BoundsError),
     InsufficientWorkspace {
         required: usize,
         available: usize,
@@ -254,7 +255,7 @@ fn replay_scene_pass(
                             let end_idx =
                                 matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?;
                             let inner = &ops[i + 1..end_idx];
-                            if !children_disjoint(inner) {
+                            if !children_disjoint(inner).map_err(ReplayError::Bounds)? {
                                 return Err(ReplayError::GroupOpacityNeedsOffscreen);
                             }
                         }
@@ -304,8 +305,12 @@ fn replay_scene_pass(
                 };
                 if let Some(ResourceRef::Token(filter_str)) = filter {
                     if let Some(blur_alpha) = parse_blur_filter(filter_str) {
+                        if frame.projective.is_some() {
+                            return Err(ReplayError::Bounds(BoundsError::ProjectiveGroup));
+                        }
                         let children = &ops[frame.start_idx + 1..i];
-                        let region = union_of_children(children, &frame.transform);
+                        let region = union_of_children(children, &frame.transform)
+                            .map_err(ReplayError::Bounds)?;
                         draw_in_frame(
                             renderer,
                             &frame,
@@ -1356,6 +1361,31 @@ mod tests {
             replay_scene(&ops, &mut r, &rect(), &NoResolver),
             Err(ReplayError::GroupOpacityNeedsOffscreen)
         );
+    }
+
+    #[test]
+    fn transformed_child_overlap_fails_before_any_draw() {
+        let mut nested = group(None, false);
+        if let SceneOp::GroupBegin { transform, .. } = &mut nested {
+            *transform = Some(Transform::translate(Fixed::from_int(20), Fixed::ZERO));
+        }
+        let ops = vec![
+            group(Some(128), false),
+            nested,
+            opaque_fill_at(0, 0),
+            SceneOp::GroupEnd,
+            opaque_fill_at(22, 0),
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = CaptureRenderer {
+            transforms: Vec::new(),
+            fill_opas: Vec::new(),
+        };
+        assert_eq!(
+            replay_scene(&ops, &mut renderer, &rect(), &NoResolver),
+            Err(ReplayError::GroupOpacityNeedsOffscreen)
+        );
+        assert!(renderer.fill_opas.is_empty());
     }
 
     #[test]
