@@ -871,7 +871,16 @@ impl WgpuRenderer<'_> {
         };
 
         self.blit_view_inner(
-            tex_view, src.width, src.height, src_rect, dst_pos, dst_size, opa, radius, composite,
+            tex_view,
+            src.width,
+            src.height,
+            src_rect,
+            dst_pos,
+            dst_size,
+            opa,
+            radius,
+            composite,
+            ShaderKind::Blit,
             scissor,
         );
     }
@@ -888,6 +897,7 @@ impl WgpuRenderer<'_> {
         opa: u8,
         radius: Fixed,
         composite: CompositeMode,
+        shader: ShaderKind,
         scissor: [u32; 4],
     ) {
         let frame = self.frame.as_mut().expect("frame just initialised");
@@ -954,7 +964,7 @@ impl WgpuRenderer<'_> {
         let pipeline = cache.get_or_build(
             &state.device,
             PipelineKey {
-                shader: ShaderKind::Blit,
+                shader,
                 format: state.config.format,
                 composite,
             },
@@ -1223,15 +1233,32 @@ fn wgpu_readback_rgba8(
         if swap_rb {
             let src = &data[start..end];
             for px in src.chunks_exact(4) {
-                out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+                out.extend_from_slice(&straight_rgba8([px[2], px[1], px[0], px[3]]));
             }
         } else {
-            out.extend_from_slice(&data[start..end]);
+            for px in data[start..end].chunks_exact(4) {
+                out.extend_from_slice(&straight_rgba8([px[0], px[1], px[2], px[3]]));
+            }
         }
     }
     drop(data);
     staging.unmap();
     Some(out)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn straight_rgba8(pixel: [u8; 4]) -> [u8; 4] {
+    let alpha = u32::from(pixel[3]);
+    if alpha == 0 {
+        return [0; 4];
+    }
+    let channel = |value: u8| ((u32::from(value) * 255 + alpha / 2) / alpha).min(255) as u8;
+    [
+        channel(pixel[0]),
+        channel(pixel[1]),
+        channel(pixel[2]),
+        pixel[3],
+    ]
 }
 
 impl WgpuRenderer<'_> {
@@ -2089,6 +2116,20 @@ mod route_tests {
     use mirx::scene::{GradientUnits, LinearGradient, SpreadMode};
 
     #[test]
+    fn readback_restores_straight_alpha_and_target_edits_replace_pixels() {
+        assert_eq!(straight_rgba8([64, 32, 0, 128]), [128, 64, 0, 128]);
+        assert_eq!(straight_rgba8([255, 20, 10, 0]), [0, 0, 0, 0]);
+        assert_eq!(straight_rgba8([12, 34, 56, 255]), [12, 34, 56, 255]);
+        assert_eq!(
+            crate::render::backends::wgpu::pipeline::blend_state_for(
+                ShaderKind::BlitReplace,
+                CompositeMode::SourceOver,
+            ),
+            wgpu::BlendState::REPLACE
+        );
+    }
+
+    #[test]
     fn texture_upload_accepts_both_rgb565_orders_and_row_padding() {
         let mut native =
             Texture::from_ref(&[0x00, 0xf8, 0, 0, 0xe0, 0x07], 1, 2, ColorFormat::RGB565);
@@ -2558,6 +2599,54 @@ mod blit_tests {
         assert!(alpha(0, 16) > 120);
         assert!(alpha(16, 16) > 120);
 
+        let replace_pipeline = cache.get_or_build(
+            &device,
+            PipelineKey {
+                shader: ShaderKind::BlitReplace,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                composite: CompositeMode::SourceOver,
+            },
+        );
+        let mut replace_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mirui-target-replace-test-encoder"),
+        });
+        {
+            let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let msaa_view = msaa.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = replace_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mirui-target-replace-test-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &msaa_view,
+                    resolve_target: Some(&view),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&replace_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+        queue.submit(Some(replace_encoder.finish()));
+        let replaced = wgpu_readback_rgba8(
+            &device,
+            &queue,
+            &target,
+            wgpu::TextureFormat::Rgba8Unorm,
+            16,
+            16,
+            1,
+            1,
+        )
+        .expect("replacement pixel should be readable");
+        assert!((125..=131).contains(&replaced[3]));
+
         let vertices = [
             BlitQuadVertex {
                 pos: [0.0, 0.0],
@@ -2661,7 +2750,7 @@ mod blit_tests {
         .expect("translucent quad target could not be read");
         let center = &bytes[(16 * SIZE as usize + 16) * 4..][..4];
         assert_eq!(bytes[3], 0);
-        assert!((i16::from(center[0]) - i16::from(center[3])).abs() <= 1);
+        assert!((i16::from(center[0]) - 255).abs() <= 1);
         assert!((i16::from(center[3]) - 128).abs() <= 1);
     }
 }
@@ -3734,21 +3823,43 @@ impl Renderer for WgpuRenderer<'_> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> Result<bool, RenderError> {
+        self.prepare_readback(src);
         let Some(mut tex) = self.sample_target_region(src)? else {
             return Ok(false);
         };
         f(&mut tex);
-        let command = DrawCommand::Blit {
-            pos: Point { x: src.x, y: src.y },
-            size: Point { x: src.w, y: src.h },
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &tex,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        self.submit(&DrawRequest::new(&command, *src))?;
+        let phys = self
+            .physical_clip_rect(src)
+            .ok_or(RenderError::InvalidGeometry)?;
+        let scissor = [
+            phys.x.to_int() as u32,
+            phys.y.to_int() as u32,
+            phys.w.to_int() as u32,
+            phys.h.to_int() as u32,
+        ];
+        let view = self
+            .blit_source_view(&tex)
+            .ok_or(RenderError::BackendFailure)?;
+        let scale = self.viewport.scale();
+        self.blit_view_inner(
+            view,
+            tex.width,
+            tex.height,
+            &Rect::new(0, 0, tex.width, tex.height),
+            Point {
+                x: phys.x / scale,
+                y: phys.y / scale,
+            },
+            Point {
+                x: phys.w / scale,
+                y: phys.h / scale,
+            },
+            255,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+            ShaderKind::BlitReplace,
+            scissor,
+        );
         Ok(true)
     }
 

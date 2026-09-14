@@ -276,7 +276,8 @@ pub trait Renderer {
         None
     }
 
-    /// Copy a logical-pixel rect from the current target into `dst`.
+    /// Copy a logical-pixel rect from the current target into `dst` as
+    /// straight-alpha color bytes.
     /// `dst` is sized in physical pixels by the caller. Pixels outside
     /// the target are left unchanged. A backend that returns `Some`
     /// from [`Self::offscreen_format`] must override this. Readback
@@ -289,8 +290,9 @@ pub trait Renderer {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
-    /// Logical-pixel `src` in, physical-resolution texture out. An empty
-    /// target intersection returns `Ok(None)`; readback failure is distinct.
+    /// Logical-pixel `src` in, physical-resolution straight-alpha texture
+    /// out. An empty target intersection returns `Ok(None)`; readback failure
+    /// is distinct.
     fn sample_target_region(
         &self,
         _src: &Rect,
@@ -298,9 +300,9 @@ pub trait Renderer {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
-    /// Hand the closure a mutable `Texture` view over physical-pixel
-    /// framebuffer bytes inside `src`, skipping the alloc-and-blit-back
-    /// round-trip that `sample_target_region` + `draw(Blit)` would do.
+    /// Hand the closure a mutable `Texture` over physical pixels inside
+    /// `src`. Software may borrow the target directly; other backends may
+    /// read and replace the region.
     /// Returns `Ok(true)` when the closure ran, `Ok(false)` when the
     /// target region is empty, or an error when reading or writing fails.
     fn modify_target_region(

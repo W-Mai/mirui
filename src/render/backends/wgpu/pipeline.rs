@@ -11,6 +11,7 @@ use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 pub enum ShaderKind {
     Fill,
     Blit,
+    BlitReplace,
     BlitQuad,
     GlyphCoverage,
     GlyphSdf,
@@ -242,7 +243,7 @@ impl PipelineCache {
         } = self;
         let bgl = match key.shader {
             ShaderKind::Fill | ShaderKind::QuadSdf => fill_bgl,
-            ShaderKind::Blit => blit_bgl,
+            ShaderKind::Blit | ShaderKind::BlitReplace => blit_bgl,
             ShaderKind::BlitQuad => blit_quad_bgl,
             ShaderKind::GlyphCoverage | ShaderKind::GlyphSdf => glyph_bgl,
             ShaderKind::Path => path_bgl,
@@ -287,7 +288,9 @@ fn build_pipeline(
 ) -> wgpu::RenderPipeline {
     let (label, src) = match key.shader {
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
-        ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
+        ShaderKind::Blit | ShaderKind::BlitReplace => {
+            ("mirui-blit", include_str!("shader/blit.wgsl"))
+        }
         ShaderKind::BlitQuad => ("mirui-blit-quad", include_str!("shader/blit_quad.wgsl")),
         ShaderKind::GlyphCoverage => (
             "mirui-glyph-coverage",
@@ -383,7 +386,9 @@ fn build_pipeline(
     };
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
-        ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
+        ShaderKind::Fill | ShaderKind::Blit | ShaderKind::BlitReplace => {
+            (&[], wgpu::PrimitiveTopology::TriangleStrip)
+        }
         ShaderKind::BlitQuad => (
             core::slice::from_ref(&blit_quad_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
@@ -467,6 +472,9 @@ pub fn blend_state_for(
     use crate::render::command::CompositeMode;
     use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
+    if shader == ShaderKind::BlitReplace {
+        return BlendState::REPLACE;
+    }
     if !matches!(shader, ShaderKind::Blit | ShaderKind::BlitQuad) {
         return BlendState::ALPHA_BLENDING;
     }

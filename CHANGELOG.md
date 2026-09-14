@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WGPU target pixels.** Readback returns straight RGBA from the premultiplied render target; target edits replace clipped pixels, including alpha, without blending them over the previous contents.
 - **Target edits.** Empty regions return `Ok(false)`; failed sampling or pixel writeback returns a typed error instead of being reported as an empty region.
 - **Software scrolling.** Framebuffer shifts traverse rows in memmove order without allocating a row index vector.
 - **Scroll target failures.** Unsupported target shifts return a render error and mark the affected subtree for repaint instead of panicking.
