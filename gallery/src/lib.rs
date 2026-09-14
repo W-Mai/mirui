@@ -194,12 +194,14 @@ mod backend {
     use mirui::render::wgpu::WgpuRendererFactory;
     use mirui::surface::wgpu_surface::WgpuSurface;
 
+    const DEMO_TARGET_EDIT_BYTES: usize = 2 * 1024 * 1024;
+
     pub type ActiveSurface = WgpuSurface;
     pub type ActiveFactory = WgpuRendererFactory;
 
     pub fn build_app(title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
         let backend = WgpuSurface::new(title, w, h);
-        let factory = WgpuRendererFactory::new();
+        let factory = WgpuRendererFactory::new().with_target_edit_budget(DEMO_TARGET_EDIT_BYTES);
         let mut app = App::with_factory(backend, factory);
         app.with_default_widgets().with_default_systems();
         app

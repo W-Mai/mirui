@@ -705,11 +705,20 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
-        if let DrawCommand::ApplyBlur { region, .. } = request.command {
+        if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
                 return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
             }
-            return RenderRoute::target_readback(self.physical_clip_rect(region));
+            if *alpha <= Fixed::ZERO || *alpha >= Fixed::ONE {
+                return Ok(RenderRoute::Native);
+            }
+            return RenderRoute::target_readback(
+                self.physical_clip_rect(region),
+                self.factory
+                    .projective_fallback
+                    .as_ref()
+                    .map(|f| f.capacity()),
+            );
         }
         Self::classify_request(request)?;
         if request.projective.is_identity() {

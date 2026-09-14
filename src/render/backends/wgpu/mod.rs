@@ -94,6 +94,7 @@ fn glyph_uniform(color: Color, opacity: u8, spread: u16, transform: Transform3D)
 }
 
 pub struct WgpuRendererFactory {
+    target_edit_budget_bytes: Option<usize>,
     cache: Option<PipelineCache>,
     tessellator: PathTessellator,
     stroke_scratch: StrokeScratch,
@@ -110,6 +111,7 @@ pub struct WgpuRendererFactory {
 impl WgpuRendererFactory {
     pub fn new() -> Self {
         Self {
+            target_edit_budget_bytes: None,
             cache: None,
             tessellator: PathTessellator::new(),
             stroke_scratch: StrokeScratch::new(),
@@ -121,6 +123,12 @@ impl WgpuRendererFactory {
             linear_sampler: None,
             nearest_sampler: None,
         }
+    }
+
+    /// Limit checked target edits to this many physical RGBA bytes.
+    pub fn with_target_edit_budget(mut self, bytes: usize) -> Self {
+        self.target_edit_budget_bytes = Some(bytes);
+        self
     }
 }
 
@@ -462,9 +470,6 @@ impl WgpuRenderer<'_> {
         match request.command {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
                 return Err(RenderError::Unsupported(RenderFeature::PathClip));
-            }
-            DrawCommand::ApplyBlur { .. } => {
-                return Err(RenderError::Unsupported(RenderFeature::Blur));
             }
             DrawCommand::StrokePath { paint, .. } => {
                 if !matches!(paint, Paint::Color(_)) {
@@ -3334,6 +3339,24 @@ mod glyph_tests {
 impl Renderer for WgpuRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        if let DrawCommand::ApplyBlur { alpha, region } = request.command {
+            if !request.projective.is_identity() {
+                return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+            }
+            if *alpha <= Fixed::ZERO || *alpha >= Fixed::ONE {
+                return Ok(RenderRoute::Native);
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let _ = region;
+                return Err(RenderError::Unsupported(RenderFeature::Readback));
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            return RenderRoute::target_readback(
+                self.physical_clip_rect(region),
+                self.factory.target_edit_budget_bytes,
+            );
+        }
         let route = Self::classify_request(request)?;
         if !request.projective.is_identity() {
             self.preflight_projective(request.command, &request.clip, &request.projective)
@@ -3344,6 +3367,19 @@ impl Renderer for WgpuRenderer<'_> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         request.validate_projection()?;
+        if let DrawCommand::ApplyBlur { alpha, region } = request.command {
+            self.route(request)?;
+            if *alpha <= Fixed::ZERO
+                || *alpha >= Fixed::ONE
+                || self.physical_clip_rect(region).is_none()
+            {
+                return Ok(());
+            }
+            if !self.begin_frame() {
+                return Err(RenderError::BackendFailure);
+            }
+            return self.blur_target_region(*alpha, region);
+        }
         Self::classify_request(request)?;
         if !request.projective.is_identity() {
             self.preflight_projective(request.command, &request.clip, &request.projective)

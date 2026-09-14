@@ -582,9 +582,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
                 return Err(RenderError::Unsupported(RenderFeature::PathClip));
             }
-            DrawCommand::ApplyBlur { .. } => {
-                return Err(RenderError::Unsupported(RenderFeature::Blur));
-            }
             DrawCommand::StrokePath { paint, .. } => {
                 if !matches!(paint, Paint::Color(_)) {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
@@ -800,6 +797,18 @@ mod route_tests {
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        if let DrawCommand::ApplyBlur { alpha, region } = request.command {
+            if !request.projective.is_identity() {
+                return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+            }
+            if *alpha <= Fixed::ZERO || *alpha >= Fixed::ONE {
+                return Ok(RenderRoute::Native);
+            }
+            return RenderRoute::target_readback(
+                self.physical_clip_rect(region),
+                self.projective_fallback.as_ref().map(|f| f.capacity()),
+            );
+        }
         Self::classify_request(request)?;
         if request.projective.is_identity() {
             return Ok(RenderRoute::Native);
@@ -823,6 +832,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         request.validate_projection()?;
+        if let DrawCommand::ApplyBlur { alpha, region } = request.command {
+            self.route(request)?;
+            return self.blur_target_region(*alpha, region);
+        }
         Self::classify_request(request)?;
         if request.projective.is_identity() {
             self.draw_failed = false;

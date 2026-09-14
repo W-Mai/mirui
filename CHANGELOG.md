@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Web scene blur.** Scene replay uses the shared IIR target edit for Web Canvas blur, so Render Showcase and Blur Filter draw under checked rendering; borrowed scene operations retain failures in the view context.
+- **SDL GPU and desktop WGPU scene blur.** Checked blur submissions read back the clipped target region, apply the shared IIR filter, and replace the edited pixels. A configured byte budget rejects oversized regions before readback.
+- **Web scene blur.** Scene replay uses the shared IIR target edit for Web Canvas blur with a configured fallback budget; Render Showcase and Blur Filter draw under checked rendering, and borrowed scene operations retain failures in the view context.
 - **Physical readback bounds.** Web Canvas, SDL GPU, and WGPU clip target reads to whole physical pixels at fractional display scales.
 - **WGPU target pixels.** Readback returns straight RGBA from the premultiplied render target; target edits replace clipped pixels, including alpha, without blending them over the previous contents.
 - **Target edits.** Empty regions return `Ok(false)`; failed sampling or pixel writeback returns a typed error instead of being reported as an empty region.

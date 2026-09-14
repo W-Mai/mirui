@@ -67,8 +67,16 @@ pub enum RenderRoute {
 }
 
 impl RenderRoute {
-    #[cfg(any(all(feature = "web-canvas", target_arch = "wasm32"), test))]
-    pub(crate) fn target_readback(region: Option<Rect>) -> Result<Self, RenderError> {
+    #[cfg(any(
+        feature = "wgpu",
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn target_readback(
+        region: Option<Rect>,
+        capacity_bytes: Option<usize>,
+    ) -> Result<Self, RenderError> {
         let Some(region) = region else {
             return Ok(Self::ExactFallback { required_bytes: 0 });
         };
@@ -79,6 +87,13 @@ impl RenderRoute {
             .checked_mul(height)
             .and_then(|pixels| pixels.checked_mul(4))
             .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
+        let capacity_bytes = capacity_bytes.ok_or(RenderError::MissingWorkspace)?;
+        if required_bytes > capacity_bytes {
+            return Err(RenderError::InsufficientWorkspace {
+                required_bytes,
+                capacity_bytes,
+            });
+        }
         Ok(Self::ExactFallback { required_bytes })
     }
 }
@@ -377,12 +392,23 @@ mod tests {
     #[test]
     fn target_fallback_budget_uses_physical_rgba_extent() {
         assert_eq!(
-            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4))),
+            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), Some(48)),
             Ok(RenderRoute::ExactFallback { required_bytes: 48 })
         );
         assert_eq!(
-            RenderRoute::target_readback(None),
+            RenderRoute::target_readback(None, None),
             Ok(RenderRoute::ExactFallback { required_bytes: 0 })
+        );
+        assert_eq!(
+            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), Some(47)),
+            Err(RenderError::InsufficientWorkspace {
+                required_bytes: 48,
+                capacity_bytes: 47,
+            })
+        );
+        assert_eq!(
+            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), None),
+            Err(RenderError::MissingWorkspace)
         );
     }
 
