@@ -3,8 +3,68 @@ use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Point, Rect};
 
 use crate::render::command::CompositeMode;
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::render::Texture as SdlTexture;
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
+    pub(super) fn texture_format(format: ColorFormat) -> PixelFormatEnum {
+        match format {
+            ColorFormat::RGBA8888 => PixelFormatEnum::RGBA32,
+            ColorFormat::BGRA8888 => PixelFormatEnum::BGRA32,
+            ColorFormat::RGB888 => PixelFormatEnum::RGB24,
+            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => PixelFormatEnum::RGB565,
+        }
+    }
+
+    pub(super) fn upload_texture(dst: &mut SdlTexture, src: &Texture) -> bool {
+        if !src.valid_storage() {
+            return false;
+        }
+        let swap = matches!(src.format, ColorFormat::RGB565 | ColorFormat::RGB565Swapped)
+            && (src.format == ColorFormat::RGB565Swapped) != cfg!(target_endian = "big");
+        let complete_pitch = src
+            .stride
+            .checked_mul(usize::from(src.height))
+            .is_some_and(|len| len <= src.buf.as_slice().len());
+        if swap || !complete_pitch {
+            dst.with_lock(None, |pixels, pitch| {
+                Self::write_rows(src, pixels, pitch, swap)
+            })
+            .unwrap_or(false)
+        } else {
+            dst.update(None, src.buf.as_slice(), src.stride).is_ok()
+        }
+    }
+
+    fn write_rows(src: &Texture, dst: &mut [u8], pitch: usize, swap: bool) -> bool {
+        if !src.valid_storage() {
+            return false;
+        }
+        let row_bytes = usize::from(src.width) * src.format.bytes_per_pixel();
+        let height = usize::from(src.height);
+        if pitch < row_bytes
+            || pitch
+                .checked_mul(height - 1)
+                .and_then(|start| start.checked_add(row_bytes))
+                .is_none_or(|required| required > dst.len())
+        {
+            return false;
+        }
+        let source = src.buf.as_slice();
+        for y in 0..height {
+            let input = &source[y * src.stride..][..row_bytes];
+            let output = &mut dst[y * pitch..][..row_bytes];
+            if swap {
+                for (input, output) in input.chunks_exact(2).zip(output.chunks_exact_mut(2)) {
+                    output.copy_from_slice(&[input[1], input[0]]);
+                }
+            } else {
+                output.copy_from_slice(input);
+            }
+        }
+        true
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn blit_inner(
         &mut self,
@@ -34,17 +94,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 "sdl_gpu backend: composite {composite:?} requires SDL_ComposeCustomBlendMode; use SwRenderer"
             ),
         };
-        let sdl_fmt = match src.format {
-            ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
-            ColorFormat::BGRA8888 => sdl2::pixels::PixelFormatEnum::BGRA32,
-            ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,
-            ColorFormat::RGB565 => sdl2::pixels::PixelFormatEnum::RGB565,
-            ColorFormat::RGB565Swapped => {
-                // SDL has no BGR565 variant; a RGB565 round-trip would
-                // swap channels. Punt until we need it in practice.
-                return;
-            }
-        };
+        let sdl_fmt = Self::texture_format(src.format);
 
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
@@ -69,8 +119,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let src_slice = src.buf.as_slice();
-        let stride = src.stride;
         let src_width = src.width as u32;
         let src_height = src.height as u32;
 
@@ -81,7 +129,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 Ok(t) => t,
                 Err(_) => return,
             };
-            if tex.update(None, src_slice, stride).is_err() {
+            if !Self::upload_texture(&mut tex, src) {
                 return;
             }
             tex.set_blend_mode(sdl_blend);
@@ -97,5 +145,42 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if !uploaded {
             self.draw_failed = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn texture_upload_skips_source_and_destination_padding() {
+        let bytes = [
+            0xf8, 0x00, 0x07, 0xe0, 0x00, 0x1f, 0xaa, 0xbb, 0xff, 0xe0, 0x07, 0xff, 0xf8, 0x1f,
+        ];
+        let mut src = Texture::from_ref(&bytes, 3, 2, ColorFormat::RGB565Swapped);
+        src.stride = 8;
+        let mut dst = [0xcc; 20];
+        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(
+            &src, &mut dst, 10, true
+        ));
+        assert_eq!(
+            &dst[..10],
+            &[0x00, 0xf8, 0xe0, 0x07, 0x1f, 0x00, 0xcc, 0xcc, 0xcc, 0xcc]
+        );
+        assert_eq!(
+            &dst[10..],
+            &[0xe0, 0xff, 0xff, 0x07, 0x1f, 0xf8, 0xcc, 0xcc, 0xcc, 0xcc]
+        );
+        assert!(!SdlGpuRenderer::<Box<[u8]>>::write_rows(
+            &src,
+            &mut dst[..15],
+            10,
+            true
+        ));
+        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(
+            &src, &mut dst, 10, false
+        ));
+        assert_eq!(&dst[..6], &bytes[..6]);
+        assert_eq!(&dst[10..16], &bytes[8..14]);
     }
 }

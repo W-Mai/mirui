@@ -594,7 +594,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             }
             DrawCommand::Blit {
                 quad,
-                texture,
                 radius,
                 composite,
                 ..
@@ -613,11 +612,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 if !supported {
                     return Err(RenderError::Unsupported(RenderFeature::Composite(
                         *composite,
-                    )));
-                }
-                if texture.format == ColorFormat::RGB565Swapped {
-                    return Err(RenderError::Unsupported(RenderFeature::TextureFormat(
-                        texture.format,
                     )));
                 }
             }
@@ -691,7 +685,7 @@ mod route_tests {
     }
 
     #[test]
-    fn rejects_ignored_sdl_gpu_commands_and_texture_format() {
+    fn classifies_sdl_gpu_commands_and_texture_storage() {
         let clip = Rect::new(0, 0, 16, 16);
         let path = Path::new();
         let push = DrawCommand::PushClip {
@@ -730,9 +724,7 @@ mod route_tests {
         };
         assert_eq!(
             SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
-            Err(RenderError::Unsupported(RenderFeature::TextureFormat(
-                ColorFormat::RGB565Swapped
-            )))
+            Ok(())
         );
 
         let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);

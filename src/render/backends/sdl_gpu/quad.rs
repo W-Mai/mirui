@@ -12,7 +12,7 @@
 
 use super::{SdlGpuRenderer, sdl_pixel_rect};
 use crate::render::path::Path;
-use crate::render::texture::{ColorFormat, Texture};
+use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Point, Rect};
 
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
@@ -74,13 +74,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if opa == 0 {
             return;
         }
-        let sdl_fmt = match src.format {
-            ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
-            ColorFormat::BGRA8888 => sdl2::pixels::PixelFormatEnum::BGRA32,
-            ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,
-            ColorFormat::RGB565 => sdl2::pixels::PixelFormatEnum::RGB565,
-            ColorFormat::RGB565Swapped => return,
-        };
+        let sdl_fmt = Self::texture_format(src.format);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
@@ -92,8 +86,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let src_slice = src.buf.as_slice();
-        let stride = src.stride;
         let src_width = src.width as u32;
         let src_height = src.height as u32;
 
@@ -149,7 +141,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 Ok(t) => t,
                 Err(_) => return,
             };
-            if tex.update(None, src_slice, stride).is_err() {
+            if !Self::upload_texture(&mut tex, src) {
                 return;
             }
             tex.set_blend_mode(sdl2::render::BlendMode::Blend);
