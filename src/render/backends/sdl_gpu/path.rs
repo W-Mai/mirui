@@ -1,13 +1,21 @@
 use super::SdlGpuRenderer;
 use crate::render::path::Path;
-use crate::render::raster::{LineCap, LineJoin, StrokeSpec};
+use crate::render::raster::{FillRule, LineCap, LineJoin, StrokeSpec};
 use crate::types::{Color, Fixed, Rect, Transform};
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
-    pub(super) fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+    pub(super) fn fill_path_inner(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: FillRule,
+    ) {
         let phys_tf = self.viewport.as_transform();
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.tessellator.fill(path, Some(&phys_tf), color, opa);
+        self.tessellator
+            .fill(path, Some(&phys_tf), color, opa, fill_rule);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
@@ -18,10 +26,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         cmd_tf: &Transform,
         color: &Color,
         opa: u8,
+        fill_rule: FillRule,
     ) {
         let phys_tf = self.viewport.as_transform().compose(cmd_tf);
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.tessellator.fill(path, Some(&phys_tf), color, opa);
+        self.tessellator
+            .fill(path, Some(&phys_tf), color, opa, fill_rule);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
@@ -73,7 +83,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 ..spec
             },
         );
-        self.tessellator.fill(outline, None, color, opa);
+        self.tessellator
+            .fill(outline, None, color, opa, FillRule::NonZero);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }

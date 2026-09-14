@@ -31,7 +31,7 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
-use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
+use crate::render::raster::{StrokeScratch, StrokeSpec};
 use crate::render::renderer::{
     DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
 };
@@ -595,14 +595,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
                 }
             }
-            DrawCommand::FillPath {
-                paint, fill_rule, ..
-            } if !projected => {
+            DrawCommand::FillPath { paint, .. } if !projected => {
                 if !matches!(paint, Paint::Color(_)) {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
-                }
-                if *fill_rule != FillRule::EvenOdd {
-                    return Err(RenderError::Unsupported(RenderFeature::FillRule));
                 }
             }
             DrawCommand::Blit {
@@ -710,11 +705,24 @@ mod route_tests {
         let push = DrawCommand::PushClip {
             path: &path,
             transform: Transform::IDENTITY,
-            fill_rule: FillRule::EvenOdd,
+            fill_rule: crate::render::raster::FillRule::EvenOdd,
         };
         assert_eq!(
             SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&push, clip)),
             Err(RenderError::Unsupported(RenderFeature::PathClip))
+        );
+
+        let paint = Paint::Color(Color::rgb(20, 30, 40).into());
+        let fill = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            opa: 255,
+            fill_rule: crate::render::raster::FillRule::NonZero,
+        };
+        assert_eq!(
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&fill, clip)),
+            Ok(())
         );
 
         let texture = Texture::owned(2, 2, ColorFormat::RGB565Swapped);
@@ -886,10 +894,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                 transform,
                 paint,
                 opa,
+                fill_rule,
                 ..
             } => {
                 let color = paint_color(paint);
-                self.fill_path_transformed_inner(path, clip, transform, &color, *opa);
+                self.fill_path_transformed_inner(path, clip, transform, &color, *opa, *fill_rule);
                 return;
             }
             DrawCommand::GlyphRun {
@@ -1061,14 +1070,20 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                 unreachable!("glyph runs return before dispatch")
             }
             DrawCommand::FillPath {
-                path, paint, opa, ..
+                path,
+                paint,
+                opa,
+                fill_rule,
+                ..
             } => {
                 let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, &color, *opa);
+                    self.fill_path_inner(path, clip, &color, *opa, *fill_rule);
                 } else {
                     let translate = Transform::translate(tx, ty);
-                    self.fill_path_transformed_inner(path, clip, &translate, &color, *opa);
+                    self.fill_path_transformed_inner(
+                        path, clip, &translate, &color, *opa, *fill_rule,
+                    );
                 }
             }
             DrawCommand::StrokePath { .. } => unreachable!("stroke path returns before dispatch"),
@@ -1299,10 +1314,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         clip: &Rect,
         paint: &Paint,
         opa: u8,
-        _fill_rule: crate::render::raster::FillRule,
+        fill_rule: crate::render::raster::FillRule,
     ) {
         let color = paint_color(paint);
-        self.fill_path_inner(path, clip, &color, opa);
+        self.fill_path_inner(path, clip, &color, opa, fill_rule);
     }
 
     fn stroke_path(

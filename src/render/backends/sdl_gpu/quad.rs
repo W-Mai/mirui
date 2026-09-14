@@ -37,7 +37,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         ];
         let phys_radius = radius * self.viewport.scale();
         let path = Path::rounded_quad(&phys_q, phys_radius);
-        self.tessellator.fill(&path, None, color, opa);
+        self.tessellator.fill(
+            &path,
+            None,
+            color,
+            opa,
+            crate::render::raster::FillRule::NonZero,
+        );
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 

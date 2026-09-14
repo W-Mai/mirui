@@ -471,14 +471,9 @@ impl WgpuRenderer<'_> {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
                 }
             }
-            DrawCommand::FillPath {
-                paint, fill_rule, ..
-            } => {
+            DrawCommand::FillPath { paint, .. } => {
                 if !matches!(paint, Paint::Color(_)) {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
-                }
-                if *fill_rule != FillRule::EvenOdd {
-                    return Err(RenderError::Unsupported(RenderFeature::FillRule));
                 }
             }
             DrawCommand::Blit { composite, .. } => {
@@ -1116,9 +1111,10 @@ impl WgpuRenderer<'_> {
         cmd_tf: &crate::types::Transform,
         paint: &Paint,
         opa: u8,
+        fill_rule: FillRule,
     ) {
         let color = paint_color(paint);
-        self.factory.tessellator.fill(path, Some(cmd_tf));
+        self.factory.tessellator.fill(path, Some(cmd_tf), fill_rule);
         let mesh = self.factory.tessellator.take_mesh();
         self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &color, opa);
         self.factory.tessellator.restore_mesh(mesh);
@@ -1239,8 +1235,15 @@ fn wgpu_readback_rgba8(
 }
 
 impl WgpuRenderer<'_> {
-    fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        self.factory.tessellator.fill(path, None);
+    fn fill_path_inner(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: FillRule,
+    ) {
+        self.factory.tessellator.fill(path, None, fill_rule);
         let mesh = self.factory.tessellator.take_mesh();
         self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
         self.factory.tessellator.restore_mesh(mesh);
@@ -1284,7 +1287,9 @@ impl WgpuRenderer<'_> {
             return;
         }
         let outline = self.factory.stroke_scratch.outline(path, transform, spec);
-        self.factory.tessellator.fill(outline, None);
+        self.factory
+            .tessellator
+            .fill(outline, None, FillRule::NonZero);
         let mesh = self.factory.tessellator.take_mesh();
         self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
         self.factory.tessellator.restore_mesh(mesh);
@@ -2186,7 +2191,7 @@ mod route_tests {
             },
         );
         let mut tessellator = PathTessellator::new();
-        let (vertices, indices) = tessellator.fill(outline, None);
+        let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero);
         assert!(!indices.is_empty());
         assert!(
             vertices.iter().all(|point| {
@@ -2217,7 +2222,7 @@ mod route_tests {
             },
         );
         let mut tessellator = PathTessellator::new();
-        let (vertices, indices) = tessellator.fill(outline, None);
+        let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero);
         let covers = |x: f32, y: f32| {
             indices.chunks_exact(3).any(|triangle| {
                 let points = [
@@ -2264,7 +2269,7 @@ mod route_tests {
         };
         assert_eq!(
             WgpuRenderer::classify_request(&DrawRequest::new(&fill, clip)),
-            Err(RenderError::Unsupported(RenderFeature::FillRule))
+            Ok(RenderRoute::Native)
         );
 
         let gradient = Paint::LinearGradient(LinearGradient {
@@ -3332,13 +3337,14 @@ impl Renderer for WgpuRenderer<'_> {
                 transform,
                 paint,
                 opa,
+                fill_rule,
                 ..
             } if !matches!(
                 transform.classify(),
                 TransformClass::Identity | TransformClass::Translate
             ) =>
             {
-                self.fill_path_transformed_inner(path, clip, transform, paint, *opa);
+                self.fill_path_transformed_inner(path, clip, transform, paint, *opa, *fill_rule);
                 return;
             }
             DrawCommand::StrokePath {
@@ -3499,14 +3505,20 @@ impl Renderer for WgpuRenderer<'_> {
                 self.stroke_path_inner(&path, clip, *width, color, *opa);
             }
             DrawCommand::FillPath {
-                path, paint, opa, ..
+                path,
+                paint,
+                opa,
+                fill_rule,
+                ..
             } => {
                 let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, &color, *opa);
+                    self.fill_path_inner(path, clip, &color, *opa, *fill_rule);
                 } else {
                     let translate = crate::types::Transform::translate(tx, ty);
-                    self.fill_path_transformed_inner(path, clip, &translate, paint, *opa);
+                    self.fill_path_transformed_inner(
+                        path, clip, &translate, paint, *opa, *fill_rule,
+                    );
                 }
             }
             DrawCommand::StrokePath { .. } => unreachable!("stroke path returns before dispatch"),
@@ -3762,10 +3774,10 @@ impl Canvas for WgpuRenderer<'_> {
         clip: &Rect,
         paint: &Paint,
         opa: u8,
-        _fill_rule: crate::render::raster::FillRule,
+        fill_rule: crate::render::raster::FillRule,
     ) {
         let color = paint_color(paint);
-        self.fill_path_inner(path, clip, &color, opa);
+        self.fill_path_inner(path, clip, &color, opa, fill_rule);
     }
 
     fn stroke_path(

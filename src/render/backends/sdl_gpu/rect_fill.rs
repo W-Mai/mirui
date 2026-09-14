@@ -23,6 +23,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         }
         let path = Path::rounded_rect(area.x, area.y, area.w, area.h, radius);
-        self.fill_path_inner(&path, clip, color, opa);
+        self.fill_path_inner(
+            &path,
+            clip,
+            color,
+            opa,
+            crate::render::raster::FillRule::NonZero,
+        );
     }
 }
