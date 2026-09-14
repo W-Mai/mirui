@@ -1211,7 +1211,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                     let raster_color = Color { a: 255, ..*color };
                     sw.draw_glyph_run(&origin, glyphs, font, &full, &raster_color, 255);
                 }
-                unpremultiply_rgba(&mut buf);
                 let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
                 texture_pool::upload(&texture).ok_or(())
             }) {
@@ -1527,17 +1526,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
 
 fn css_color(c: &Color) -> String {
     format!("rgb({}, {}, {})", c.r, c.g, c.b)
-}
-
-fn unpremultiply_rgba(bytes: &mut [u8]) {
-    for pixel in bytes.chunks_exact_mut(4) {
-        let alpha = u32::from(pixel[3]);
-        if alpha != 0 && alpha != 255 {
-            for channel in &mut pixel[..3] {
-                *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
-            }
-        }
-    }
 }
 
 fn css_color_with_opa(c: impl Into<Color>, opa: u8) -> String {
