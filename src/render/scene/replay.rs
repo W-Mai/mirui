@@ -36,9 +36,8 @@ fn parse_blur_filter(filter: &str) -> Option<Fixed> {
                 .next()
                 .and_then(|s| s.parse::<f32>().ok())
                 .unwrap_or(0.0);
-            if std_dev > 0.0 {
-                let alpha = (std_dev / 10.0).min(0.95);
-                return Some(Fixed::from_f32(alpha));
+            if std_dev.is_finite() && std_dev > 0.0 {
+                return Some(Fixed::from_f32(std_dev.min(64.0)));
             }
         }
     }
@@ -304,20 +303,21 @@ fn replay_scene_pass(
                     _ => return Err(ReplayError::UnbalancedGroup),
                 };
                 if let Some(ResourceRef::Token(filter_str)) = filter {
-                    if let Some(blur_alpha) = parse_blur_filter(filter_str) {
+                    if let Some(blur_radius) = parse_blur_filter(filter_str) {
                         if frame.projective.is_some() {
                             return Err(ReplayError::Bounds(BoundsError::ProjectiveGroup));
                         }
                         let children = &ops[frame.start_idx + 1..i];
                         let region = union_of_children(children, &frame.transform)
-                            .map_err(ReplayError::Bounds)?;
+                            .map_err(ReplayError::Bounds)?
+                            .inflate(blur_radius * Fixed::from_int(4));
+                        let alpha = crate::render::backends::sw::blur::alpha_for_radius(
+                            blur_radius * renderer.output_scale(),
+                        );
                         draw_in_frame(
                             renderer,
                             &frame,
-                            &DrawCommand::ApplyBlur {
-                                alpha: blur_alpha,
-                                region,
-                            },
+                            &DrawCommand::ApplyBlur { alpha, region },
                             clip,
                             pass,
                         )?;
@@ -592,6 +592,52 @@ mod tests {
     use crate::types::{Color, Fixed, Point, Rect};
     use alloc::vec;
     use alloc::vec::Vec;
+
+    #[test]
+    fn scene_blur_uses_physical_radius_and_includes_edge_bleed() {
+        struct BlurCapture(Option<(Fixed, Rect)>);
+
+        impl Renderer for BlurCapture {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
+            fn draw(&mut self, command: &DrawCommand, _: &Rect) {
+                if let DrawCommand::ApplyBlur { alpha, region } = command {
+                    self.0 = Some((*alpha, *region));
+                }
+            }
+
+            fn output_scale(&self) -> Fixed {
+                Fixed::from_int(2)
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let ops = [
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: None,
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: Some(ResourceRef::Token("blur:3:3".into())),
+                disjoint_hint: true,
+            },
+            fill(Transform::IDENTITY),
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = BlurCapture(None);
+        replay_scene(&ops, &mut renderer, &Rect::new(0, 0, 100, 100), &NoResolver).unwrap();
+        assert_eq!(
+            renderer.0,
+            Some((
+                crate::render::backends::sw::blur::alpha_for_radius(Fixed::from_int(6)),
+                Rect::new(-12, -12, 28, 28),
+            ))
+        );
+    }
 
     struct CaptureRenderer {
         transforms: Vec<Transform>,
