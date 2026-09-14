@@ -2,7 +2,7 @@ use super::SdlGpuRenderer;
 use crate::render::path::Path;
 use crate::types::{Color, Fixed, Rect, Transform};
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         let phys_tf = self.viewport.as_transform();
         let phys_clip = self.viewport.rect_to_physical(*clip);

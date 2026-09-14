@@ -23,7 +23,7 @@ pub(super) struct PosedGlyphRunDraw<'a> {
     pub opacity: u8,
 }
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn draw_glyph_run_inner(&mut self, draw: GlyphRunDraw<'_>) {
         let GlyphRunDraw {
             pos,

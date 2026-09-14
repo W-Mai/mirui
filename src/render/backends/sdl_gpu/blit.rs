@@ -4,7 +4,7 @@ use crate::types::{Point, Rect};
 
 use crate::render::command::CompositeMode;
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn blit_inner(
         &mut self,

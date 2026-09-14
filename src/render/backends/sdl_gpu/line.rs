@@ -2,7 +2,7 @@ use super::{SdlGpuRenderer, apply_solid_color, sdl_pixel_rect};
 use crate::render::path::Path;
 use crate::types::{Color, Fixed, Point, Rect};
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn draw_line_inner(
         &mut self,
         p1: Point,

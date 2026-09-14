@@ -245,8 +245,10 @@ slice lengths without allocating.
 
 SDL GPU and Web Canvas use a `ProjectiveFallback` supplied through their
 renderer factory for projective glyphs, fills, borders, and plain blits. Its
-fixed RGBA storage is both the target and scratch space. Shape and image
-requests use projected visual bounds to limit the required storage; glyph
+fixed RGBA storage is both the target and scratch space.
+`ProjectiveFallback::borrowed(&mut bytes)` uses a caller-owned fixed buffer;
+`ProjectiveFallback::new(bytes)` owns its buffer. Shape and image requests use
+projected visual bounds to limit the required storage; glyph
 requests use projected ink bounds. Preflight rejects missing or insufficient
 capacity before drawing. Unsupported projective commands remain errors.
 Gallery reserves 2 MiB for this target on Web Canvas and SDL GPU.

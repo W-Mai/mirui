@@ -4,6 +4,7 @@
 
 mod texture_pool;
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
@@ -42,13 +43,13 @@ fn paint_color(paint: &Paint) -> Color {
     }
 }
 
-pub struct WebCanvasRendererFactory {
+pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     texture_pool: TexturePool,
     glyph_pool: GlyphPool,
-    projective_fallback: Option<ProjectiveFallback>,
+    projective_fallback: Option<ProjectiveFallback<S>>,
 }
 
-impl WebCanvasRendererFactory {
+impl WebCanvasRendererFactory<Box<[u8]>> {
     pub fn new() -> Self {
         Self {
             texture_pool: new_pool(),
@@ -57,21 +58,29 @@ impl WebCanvasRendererFactory {
         }
     }
 
-    pub fn with_projective_fallback(mut self, fallback: ProjectiveFallback) -> Self {
-        self.projective_fallback = Some(fallback);
-        self
+    pub fn with_projective_fallback<S>(
+        self,
+        fallback: ProjectiveFallback<S>,
+    ) -> WebCanvasRendererFactory<S> {
+        WebCanvasRendererFactory {
+            texture_pool: self.texture_pool,
+            glyph_pool: self.glyph_pool,
+            projective_fallback: Some(fallback),
+        }
     }
 }
 
-impl Default for WebCanvasRendererFactory {
+impl Default for WebCanvasRendererFactory<Box<[u8]>> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RendererFactory<WebCanvasSurface> for WebCanvasRendererFactory {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
+    for WebCanvasRendererFactory<S>
+{
     type Renderer<'a>
-        = WebCanvasRenderer<'a>
+        = WebCanvasRenderer<'a, S>
     where
         Self: 'a;
 
@@ -79,7 +88,7 @@ impl RendererFactory<WebCanvasSurface> for WebCanvasRendererFactory {
         &'a mut self,
         backend: &'a mut WebCanvasSurface,
         transform: &Viewport,
-    ) -> WebCanvasRenderer<'a> {
+    ) -> WebCanvasRenderer<'a, S> {
         WebCanvasRenderer {
             factory: self,
             surface: backend,
@@ -88,8 +97,8 @@ impl RendererFactory<WebCanvasSurface> for WebCanvasRendererFactory {
     }
 }
 
-pub struct WebCanvasRenderer<'a> {
-    factory: &'a mut WebCanvasRendererFactory,
+pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
+    factory: &'a mut WebCanvasRendererFactory<S>,
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
 }
@@ -160,7 +169,7 @@ fn map_gradient_points(
     (sx, sy, ex, ey)
 }
 
-impl WebCanvasRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn ctx(&self) -> &CanvasRenderingContext2d {
         self.surface.ctx()
     }
@@ -542,7 +551,7 @@ impl WebCanvasRenderer<'_> {
     }
 }
 
-impl WebCanvasRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn draw_projective_plan(
         &mut self,
         plan: ProjectiveFallbackPlan,
@@ -639,7 +648,7 @@ impl WebCanvasRenderer<'_> {
     }
 }
 
-impl Renderer for WebCanvasRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         Self::classify_request(request)?;
@@ -1085,7 +1094,7 @@ impl Renderer for WebCanvasRenderer<'_> {
     }
 }
 
-impl WebCanvasRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
         let line_origin = draw.font.line_origin_for_baseline(Point::ZERO);
         for (positioned, frame) in draw.glyphs.iter().zip(draw.frames) {
@@ -1191,7 +1200,7 @@ impl WebCanvasRenderer<'_> {
     }
 }
 
-impl Canvas for WebCanvasRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         self.push_rect_clip(clip);
         self.set_fill(color, opa);

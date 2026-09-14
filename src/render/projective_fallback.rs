@@ -39,8 +39,8 @@ use crate::types::{Fixed, Rect, Transform3D, Viewport};
 
 /// Fixed-capacity target for software-rendered projective commands.
 /// The backing storage is supplied once and never grows.
-pub struct ProjectiveFallback {
-    target: Box<[u8]>,
+pub struct ProjectiveFallback<S = Box<[u8]>> {
+    target: S,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,7 +76,7 @@ impl ProjectiveFallbackPlan {
     }
 }
 
-impl ProjectiveFallback {
+impl ProjectiveFallback<Box<[u8]>> {
     /// Uses `target` as both the clipped RGBA8888 target and rendering
     /// workspace.
     pub fn new(target: impl Into<Box<[u8]>>) -> Self {
@@ -84,10 +84,19 @@ impl ProjectiveFallback {
             target: target.into(),
         }
     }
+}
 
+impl<'a> ProjectiveFallback<&'a mut [u8]> {
+    /// Use a caller-owned fixed-capacity target without allocating.
+    pub fn borrowed(target: &'a mut [u8]) -> Self {
+        Self { target }
+    }
+}
+
+impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
     /// Returns the hard byte budget available to projective rendering.
     pub fn capacity(&self) -> usize {
-        self.target.len()
+        self.target.as_ref().len()
     }
 
     #[cfg(any(
@@ -178,10 +187,10 @@ impl ProjectiveFallback {
         let layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
             .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
         let required_bytes = layout.required_bytes();
-        if required_bytes > self.target.len() {
+        if required_bytes > self.target.as_ref().len() {
             return Err(ProjectiveDrawError::InsufficientFallbackStorage {
                 required_bytes,
-                capacity_bytes: self.target.len(),
+                capacity_bytes: self.target.as_ref().len(),
             });
         }
 
@@ -211,12 +220,12 @@ impl ProjectiveFallback {
         test
     ))]
     pub(crate) fn target_mut(&mut self, plan: ProjectiveFallbackPlan) -> &mut [u8] {
-        &mut self.target[..plan.required_bytes()]
+        &mut self.target.as_mut()[..plan.required_bytes()]
     }
 
     #[cfg(any(feature = "sdl-gpu", test))]
     pub(crate) fn target(&self, plan: ProjectiveFallbackPlan) -> &[u8] {
-        &self.target[..plan.required_bytes()]
+        &self.target.as_ref()[..plan.required_bytes()]
     }
 
     #[cfg(any(
@@ -246,7 +255,7 @@ impl ProjectiveFallback {
         };
         let mut plane = plan
             .layout
-            .bind(&mut self.target[..plan.required_bytes()])
+            .bind(&mut self.target.as_mut()[..plan.required_bytes()])
             .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
         let texture = plane.texture();
         let mut renderer = SwRenderer::new(texture);
@@ -300,6 +309,30 @@ mod tests {
                 capacity_bytes: 15,
             })
         );
+    }
+
+    #[test]
+    fn borrowed_target_uses_caller_storage_without_growing() {
+        let mut bytes = [0u8; 256];
+        let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
+        let font = Font::bitmap_8x8();
+        let glyphs = [PositionedGlyph::new(
+            GlyphId::new(u16::from(b'A')),
+            FlowPoint { x: 0, y: 0 },
+        )];
+        let command = glyph_command(&glyphs, &font);
+        let clip = Rect::new(0, 0, 8, 8);
+        let transform =
+            Transform3D::rotate_y_perspective(Fixed::from_int(10), Fixed::from_int(400));
+        let viewport = Viewport::new(8, 8, Fixed::ONE);
+        let plan = fallback
+            .plan(&command, &clip, &transform, viewport)
+            .unwrap();
+        fallback
+            .render(plan, &command, &transform, viewport)
+            .unwrap();
+        assert_eq!(fallback.capacity(), 256);
+        assert!(bytes.iter().any(|byte| *byte != 0));
     }
 
     #[test]

@@ -17,7 +17,7 @@ use crate::types::{Color, Fixed, Point, Rect};
 
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn fill_quad_inner(
         &mut self,
         q: &[Point; 4],

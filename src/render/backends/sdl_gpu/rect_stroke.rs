@@ -2,7 +2,7 @@ use super::{SdlGpuRenderer, apply_solid_color, sdl_pixel_rect};
 use crate::render::path::Path;
 use crate::types::{Color, Fixed, Rect};
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn stroke_rect_inner(
         &mut self,
         area: &Rect,

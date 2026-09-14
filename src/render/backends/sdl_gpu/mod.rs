@@ -403,32 +403,33 @@ impl InspectCaches for SdlGpuSurface {
     }
 }
 
-pub struct SdlGpuFactory {
-    projective_fallback: Option<ProjectiveFallback>,
+pub struct SdlGpuFactory<S = Box<[u8]>> {
+    projective_fallback: Option<ProjectiveFallback<S>>,
 }
 
-impl SdlGpuFactory {
+impl SdlGpuFactory<Box<[u8]>> {
     pub fn new() -> Self {
         Self {
             projective_fallback: None,
         }
     }
 
-    pub fn with_projective_fallback(mut self, fallback: ProjectiveFallback) -> Self {
-        self.projective_fallback = Some(fallback);
-        self
+    pub fn with_projective_fallback<S>(self, fallback: ProjectiveFallback<S>) -> SdlGpuFactory<S> {
+        SdlGpuFactory {
+            projective_fallback: Some(fallback),
+        }
     }
 }
 
-impl Default for SdlGpuFactory {
+impl Default for SdlGpuFactory<Box<[u8]>> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RendererFactory<SdlGpuSurface> for SdlGpuFactory {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFactory<S> {
     type Renderer<'a>
-        = SdlGpuRenderer<'a>
+        = SdlGpuRenderer<'a, S>
     where
         Self: 'a;
 
@@ -436,7 +437,7 @@ impl RendererFactory<SdlGpuSurface> for SdlGpuFactory {
         &'a mut self,
         backend: &'a mut SdlGpuSurface,
         transform: &Viewport,
-    ) -> SdlGpuRenderer<'a> {
+    ) -> SdlGpuRenderer<'a, S> {
         let viewport = *transform;
         let (canvas, label_cache, tessellator) = backend.parts_mut();
         SdlGpuRenderer {
@@ -449,15 +450,15 @@ impl RendererFactory<SdlGpuSurface> for SdlGpuFactory {
     }
 }
 
-pub struct SdlGpuRenderer<'a> {
+pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     canvas: &'a mut SdlCanvas<Window>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
-    projective_fallback: Option<&'a mut ProjectiveFallback>,
+    projective_fallback: Option<&'a mut ProjectiveFallback<S>>,
     viewport: Viewport,
 }
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
         let phys = self.viewport.rect_to_physical(*src);
         let (pw, ph) = self.viewport.physical_size();
@@ -571,7 +572,7 @@ impl SdlGpuRenderer<'_> {
     }
 }
 
-impl SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
@@ -656,6 +657,14 @@ mod route_tests {
     use super::*;
 
     #[test]
+    fn borrowed_fallback_factory_keeps_the_caller_budget() {
+        let mut bytes = [0u8; 256];
+        let factory =
+            SdlGpuFactory::new().with_projective_fallback(ProjectiveFallback::borrowed(&mut bytes));
+        assert_eq!(factory.projective_fallback.unwrap().capacity(), 256);
+    }
+
+    #[test]
     fn rejects_ignored_sdl_gpu_commands_and_texture_format() {
         let clip = Rect::new(0, 0, 16, 16);
         let path = Path::new();
@@ -665,7 +674,7 @@ mod route_tests {
             fill_rule: FillRule::EvenOdd,
         };
         assert_eq!(
-            SdlGpuRenderer::classify_request(&DrawRequest::new(&push, clip)),
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&push, clip)),
             Err(RenderError::Unsupported(RenderFeature::PathClip))
         );
 
@@ -681,7 +690,7 @@ mod route_tests {
             composite: CompositeMode::SourceOver,
         };
         assert_eq!(
-            SdlGpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
             Err(RenderError::Unsupported(RenderFeature::TextureFormat(
                 ColorFormat::RGB565Swapped
             )))
@@ -709,7 +718,7 @@ mod route_tests {
             composite: CompositeMode::Add,
         };
         assert_eq!(
-            SdlGpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
             Err(RenderError::Unsupported(RenderFeature::Composite(
                 CompositeMode::Add
             )))
@@ -724,13 +733,13 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            SdlGpuRenderer::classify_request(&DrawRequest::new(&line, clip)),
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&line, clip)),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
     }
 }
 
-impl Renderer for SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         Self::classify_request(request)?;
@@ -1176,7 +1185,7 @@ pub(super) fn apply_solid_color(canvas: &mut SdlCanvas<Window>, color: &Color, o
     canvas.set_draw_color(sdl2::pixels::Color::RGBA(color.r, color.g, color.b, a));
 }
 
-impl Canvas for SdlGpuRenderer<'_> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         self.fill_rect_inner(area, clip, color, radius, opa);
     }
