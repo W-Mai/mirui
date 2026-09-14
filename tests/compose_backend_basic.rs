@@ -185,6 +185,55 @@ fn renderer_preserves_nonzero_path_fill_rule() {
     );
 }
 
+#[test]
+fn checked_renderer_rejects_commands_the_canvas_router_would_change() {
+    use mirui::render::renderer::{DrawRequest, RenderError, RenderFeature, Renderer};
+
+    let mut hybrid = fresh_hybrid();
+    let clip = zero_rect();
+    let command = mirui::render::DrawCommand::Fill {
+        area: clip,
+        transform: Transform::translate(Fixed::ONE, Fixed::ZERO),
+        quad: None,
+        color: Color::rgb(10, 20, 30),
+        radius: Fixed::ZERO,
+        opa: 255,
+    };
+    assert_eq!(
+        hybrid.submit(&DrawRequest::new(&command, clip)),
+        Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+    );
+
+    let command = mirui::render::DrawCommand::Fill {
+        area: clip,
+        transform: Transform::IDENTITY,
+        quad: Some([
+            Point::ZERO,
+            Point::new(4, 0),
+            Point::new(4, 4),
+            Point::new(0, 4),
+        ]),
+        color: Color::rgb(10, 20, 30),
+        radius: Fixed::ZERO,
+        opa: 255,
+    };
+    assert_eq!(
+        hybrid.submit(&DrawRequest::new(&command, clip)),
+        Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+    );
+
+    let command = mirui::render::DrawCommand::ApplyBlur {
+        alpha: Fixed::ONE,
+        region: clip,
+    };
+    assert_eq!(
+        hybrid.submit(&DrawRequest::new(&command, clip)),
+        Err(RenderError::Unsupported(RenderFeature::Blur))
+    );
+    assert_eq!(hybrid.sw.counts.fill_rule.get(), None);
+    assert_eq!(hybrid.gpu.counts.fill_rule.get(), None);
+}
+
 fn zero_rect() -> Rect {
     Rect::new(0, 0, 4, 4)
 }

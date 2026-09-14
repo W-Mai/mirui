@@ -32,6 +32,12 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
         self
     }
 
+    /// Validate command data shared by all renderer routes.
+    pub fn validate(&self) -> Result<(), RenderError> {
+        self.validate_projection()?;
+        self.validate_texture()
+    }
+
     pub(crate) fn validate_texture(&self) -> Result<(), RenderError> {
         if let DrawCommand::Blit { size, texture, .. } = self.command {
             if !texture.valid_storage() {

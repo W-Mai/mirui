@@ -261,6 +261,35 @@ impl ComposeInput {
             where
                 #(#generic_params: ::mirui::render::canvas::Canvas,)*
             {
+                fn route(
+                    &self,
+                    request: &::mirui::render::renderer::DrawRequest<'_, '_>,
+                ) -> Result<::mirui::render::renderer::RenderRoute, ::mirui::render::renderer::RenderError> {
+                    use ::mirui::render::renderer::{RenderError, RenderFeature, RenderRoute};
+                    request.validate()?;
+                    if !request.projective.is_identity() {
+                        return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+                    }
+                    if !request.command.transform().is_identity() {
+                        return Err(RenderError::Unsupported(RenderFeature::AffineGeometry));
+                    }
+                    match request.command {
+                        ::mirui::render::DrawCommand::Fill { quad: Some(_), .. }
+                        | ::mirui::render::DrawCommand::Border { quad: Some(_), .. }
+                        | ::mirui::render::DrawCommand::Blit { quad: Some(_), .. } => {
+                            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+                        }
+                        ::mirui::render::DrawCommand::PushClip { .. }
+                        | ::mirui::render::DrawCommand::PopClip => {
+                            Err(RenderError::Unsupported(RenderFeature::PathClip))
+                        }
+                        ::mirui::render::DrawCommand::ApplyBlur { .. } => {
+                            Err(RenderError::Unsupported(RenderFeature::Blur))
+                        }
+                        _ => Ok(RenderRoute::Native),
+                    }
+                }
+
                 fn draw(&mut self, cmd: &::mirui::render::DrawCommand, clip: &::mirui::types::Rect) {
                     use ::mirui::render::canvas::Canvas;
                     assert!(
