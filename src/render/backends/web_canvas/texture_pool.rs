@@ -17,6 +17,8 @@ pub struct TextureKey {
     width: u16,
     height: u16,
     format: ColorFormat,
+    stride: usize,
+    revision: u64,
 }
 
 impl TextureKey {
@@ -28,6 +30,8 @@ impl TextureKey {
             width: src.width,
             height: src.height,
             format: src.format,
+            stride: src.stride,
+            revision: src.cache_revision,
         }
     }
 }

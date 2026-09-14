@@ -180,6 +180,7 @@ pub struct OffscreenBufferPool {
     // for the duration of the subtree render.
     pub(crate) cache:
         RefCell<WithFactory<LruCache<BufferKey, RefCell<Texture<'static>>>, BufferCtor>>,
+    next_cache_revision: core::cell::Cell<u64>,
     // Format used by the most recent buffer write. `None` until the
     // first render. Effect widgets / `World::texture_of` read this to
     // reconstruct the BufferKey without holding a Renderer reference.
@@ -206,8 +207,15 @@ impl OffscreenBufferPool {
             .build();
         Self {
             cache: RefCell::new(WithFactory::new(cache, make_buffer as BufferCtor)),
+            next_cache_revision: core::cell::Cell::new(1),
             last_format: core::cell::Cell::new(None),
         }
+    }
+
+    pub(crate) fn allocate_cache_revision(&self) -> Option<u64> {
+        let revision = self.next_cache_revision.get();
+        self.next_cache_revision.set(revision.checked_add(1)?);
+        Some(revision)
     }
 }
 
@@ -406,6 +414,15 @@ mod tests {
 
     fn dummy_entity(id: u32) -> Entity {
         Entity { id, generation: 0 }
+    }
+
+    #[test]
+    fn content_revisions_advance_and_overflow_disables_caching() {
+        let pool = OffscreenBufferPool::with_budget(1024);
+        assert_eq!(pool.allocate_cache_revision(), Some(1));
+        assert_eq!(pool.allocate_cache_revision(), Some(2));
+        pool.next_cache_revision.set(u64::MAX);
+        assert_eq!(pool.allocate_cache_revision(), None);
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub struct TextureKey {
     height: u16,
     format: ColorFormat,
     stride: usize,
+    revision: u64,
 }
 
 impl TextureKey {
@@ -32,6 +33,7 @@ impl TextureKey {
             height: src.height,
             format: src.format,
             stride: src.stride,
+            revision: src.cache_revision,
         }
     }
 }
@@ -121,6 +123,14 @@ mod tests {
         let a = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
         let mut b = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
         b.stride = 12;
+        assert_ne!(TextureKey::from(&a), TextureKey::from(&b));
+    }
+
+    #[test]
+    fn key_separates_content_revisions_over_one_buffer() {
+        let buf = [0u8; 16];
+        let a = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        let b = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888).with_cache_revision(7);
         assert_ne!(TextureKey::from(&a), TextureKey::from(&b));
     }
 

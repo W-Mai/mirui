@@ -158,6 +158,9 @@ pub struct Texture<'a> {
     pub format: ColorFormat,
     pub stride: usize,
     pub alpha_mode: AlphaMode,
+    /// Increment when reusing a buffer with new pixels and retaining GPU upload caching.
+    /// Use `transient` when revisions are not tracked.
+    pub cache_revision: u64,
     /// Bypass GPU-side upload caches keyed by buffer pointer:
     /// `sample_target_region` drops its `Vec` each frame and the next
     /// allocation lands in the same slot, faking a cache hit on stale
@@ -188,6 +191,7 @@ impl Clone for Texture<'static> {
             format: self.format,
             stride: self.stride,
             alpha_mode: self.alpha_mode,
+            cache_revision: self.cache_revision,
             transient: self.transient,
         }
     }
@@ -203,6 +207,7 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
             transient: false,
         }
     }
@@ -216,6 +221,7 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
             transient: false,
         }
     }
@@ -229,6 +235,7 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
             transient: false,
         }
     }
@@ -243,12 +250,18 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
             transient: false,
         }
     }
 
     pub fn with_transient(mut self, transient: bool) -> Self {
         self.transient = transient;
+        self
+    }
+
+    pub fn with_cache_revision(mut self, revision: u64) -> Self {
+        self.cache_revision = revision;
         self
     }
 
@@ -774,6 +787,7 @@ pub(super) fn texture_from_surface(
         format,
         stride: plane.memory().stride() as usize,
         alpha_mode: AlphaMode::Opaque,
+        cache_revision: 0,
         transient: false,
     })
 }
@@ -893,6 +907,7 @@ impl Texture<'static> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
             transient: false,
         })
     }

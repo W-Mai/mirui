@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Texture content revisions.** `Texture::with_cache_revision` keeps GPU uploads cached for unchanged offscreen generations and invalidates them after a redraw; untracked mutable buffers can remain transient.
 - **Borrowed projective fallback storage.** SDL GPU and Web Canvas renderer factories accept a `ProjectiveFallback` backed by a caller-owned fixed buffer.
 - **Borrowed render planes.** `PlaneLayout` and `AlignedPlane` validate address alignment, row stride, and checked byte capacity before a caller-owned buffer becomes a render target.
 - **Render request model.** `DrawRequest` carries a borrowed command, clip, and shared projection; `RenderRoute` and `RenderError` describe exact execution and bounded failure outcomes.

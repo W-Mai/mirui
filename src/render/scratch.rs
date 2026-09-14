@@ -162,6 +162,7 @@ impl AlignedPlane<'_> {
             format: layout.format,
             stride: layout.stride_bytes,
             alpha_mode: AlphaMode::Opaque,
+            cache_revision: 0,
             transient: false,
         }
     }
