@@ -91,7 +91,8 @@ pub struct GlyphInstance {
 pub struct BlitQuadVertex {
     pub pos: [f32; 2],
     pub uvw: [f32; 3],
-    pub alpha: f32,
+    /// Opacity, logical radius, logical width, logical height.
+    pub params: [f32; 4],
 }
 
 /// `local_uvw = (lx/w, ly/w, 1/w)` where `(lx, ly)` are widget-local
@@ -332,8 +333,8 @@ fn build_pipeline(
                 shader_location: 1,
             },
             wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32,
-                offset: core::mem::offset_of!(BlitQuadVertex, alpha) as u64,
+                format: wgpu::VertexFormat::Float32x4,
+                offset: core::mem::offset_of!(BlitQuadVertex, params) as u64,
                 shader_location: 2,
             },
         ],
@@ -523,8 +524,8 @@ const _: () = {
     assert!(core::mem::size_of::<GlyphUniform>() == 80);
     assert!(core::mem::size_of::<GlyphInstance>() == 40);
     // Must match `VertexIn` in shader/blit_quad.wgsl
-    // (vec2 + vec3 + f32 = 24).
-    assert!(core::mem::size_of::<BlitQuadVertex>() == 24);
+    // (vec2 + vec3 + vec4 = 36).
+    assert!(core::mem::size_of::<BlitQuadVertex>() == 36);
     assert!(core::mem::size_of::<QuadSdfVertex>() == 20);
     // Must match `QuadSdf` in shader/quad_sdf.wgsl and stay 48 bytes
     // so the fill bind group's binding-1 binding-size covers it.

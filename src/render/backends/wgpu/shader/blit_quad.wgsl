@@ -15,7 +15,7 @@ struct Viewport {
 struct VertexIn {
     @location(0) pos: vec2<f32>,
     @location(1) uvw: vec3<f32>,
-    @location(2) alpha: f32,
+    @location(2) params: vec4<f32>,
 };
 
 struct VertexOut {
@@ -23,7 +23,7 @@ struct VertexOut {
     // `linear` opts out of clip-space perspective division; the host
     // already encoded the homography weight into `uvw`.
     @location(0) @interpolate(linear) uvw: vec3<f32>,
-    @location(1) alpha: f32,
+    @location(1) @interpolate(flat) params: vec4<f32>,
 };
 
 @vertex
@@ -35,7 +35,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     var out: VertexOut;
     out.clip = vec4<f32>(ndc, 0.0, 1.0);
     out.uvw = in.uvw;
-    out.alpha = in.alpha;
+    out.params = in.params;
     return out;
 }
 
@@ -43,6 +43,15 @@ fn vs_main(in: VertexIn) -> VertexOut {
 fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     let uv = v.uvw.xy / v.uvw.z;
     let c = textureSample(src_tex, src_samp, uv);
-    let alpha = c.a * v.alpha;
+    var coverage = 1.0;
+    if (v.params.y > 0.0) {
+        let size = v.params.zw;
+        let half = size * 0.5;
+        let radius = min(v.params.y, min(half.x, half.y));
+        let q = abs(uv * size - half) - (half - vec2<f32>(radius));
+        let distance = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+        coverage = clamp(0.5 - distance / max(fwidth(distance), 0.001), 0.0, 1.0);
+    }
+    let alpha = c.a * v.params.x * coverage;
     return vec4<f32>(c.rgb * alpha, alpha);
 }

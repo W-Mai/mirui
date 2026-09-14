@@ -399,11 +399,21 @@ impl WgpuRenderer<'_> {
                 radius,
                 composite,
                 ..
-            } if *radius == Fixed::ZERO => {
+            } => {
                 let quad = transform
                     .apply_rect(Rect::new(pos.x, pos.y, size.x, size.y))
                     .ok_or(ProjectiveDrawError::InvalidProjection)?;
-                self.blit_quad_inner(texture, &quad, clip, *opa, *composite);
+                self.blit_quad_inner(
+                    texture,
+                    &quad,
+                    BlitMask {
+                        size: *size,
+                        radius: *radius,
+                    },
+                    clip,
+                    *opa,
+                    *composite,
+                );
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -470,17 +480,16 @@ impl WgpuRenderer<'_> {
                 }
             }
             DrawCommand::Blit {
-                radius,
-                quad,
                 composite,
                 texture,
+                size,
                 ..
             } => {
                 if !texture_upload_valid(texture) {
                     return Err(RenderError::InvalidTexture);
                 }
-                if *radius != Fixed::ZERO && (quad.is_some() || !request.projective.is_identity()) {
-                    return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
+                if size.x <= Fixed::ZERO || size.y <= Fixed::ZERO {
+                    return Err(RenderError::InvalidGeometry);
                 }
                 if matches!(
                     composite,
@@ -1038,6 +1047,11 @@ fn upload_blit_source(
 
 /// RGB565 formats return `None`; this upload path only handles
 /// byte-aligned RGB/RGBA.
+struct BlitMask {
+    size: Point,
+    radius: Fixed,
+}
+
 fn texture_upload_valid(src: &Texture) -> bool {
     let bpp = src.format.bytes_per_pixel();
     let w = src.width as usize;
@@ -1592,6 +1606,7 @@ impl WgpuRenderer<'_> {
         &mut self,
         src: &Texture,
         q: &[Point; 4],
+        mask: BlitMask,
         clip: &Rect,
         opa: u8,
         composite: CompositeMode,
@@ -1621,7 +1636,12 @@ impl WgpuRenderer<'_> {
         let sw = src.width as f32;
         let sh = src.height as f32;
 
-        let alpha_f = opa as f32 / 255.0;
+        let params = [
+            opa as f32 / 255.0,
+            mask.radius.to_f32().max(0.0),
+            mask.size.x.to_f32(),
+            mask.size.y.to_f32(),
+        ];
         let mut verts = [BlitQuadVertex::default(); 4];
         for (i, (u, v)) in corners.iter().enumerate() {
             let pixel_u = u * sw;
@@ -1640,7 +1660,7 @@ impl WgpuRenderer<'_> {
             verts[i] = BlitQuadVertex {
                 pos: [q[i].x.to_f32(), q[i].y.to_f32()],
                 uvw: [u * inv_w, v * inv_w, inv_w],
-                alpha: alpha_f,
+                params,
             };
         }
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
@@ -2349,6 +2369,13 @@ mod route_tests {
             WgpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
             Ok(RenderRoute::Native)
         );
+        let projected = DrawRequest::new(&blit, clip).with_projective(
+            Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(120)),
+        );
+        assert_eq!(
+            WgpuRenderer::classify_request(&projected),
+            Ok(RenderRoute::Native)
+        );
 
         let rounded_quad = DrawCommand::Blit {
             pos: Point::ZERO,
@@ -2367,7 +2394,7 @@ mod route_tests {
         };
         assert_eq!(
             WgpuRenderer::classify_request(&DrawRequest::new(&rounded_quad, clip)),
-            Err(RenderError::Unsupported(RenderFeature::RoundedBlit))
+            Ok(RenderRoute::Native)
         );
 
         let difference = DrawCommand::Blit {
@@ -2597,22 +2624,22 @@ mod blit_tests {
             BlitQuadVertex {
                 pos: [0.0, 0.0],
                 uvw: [0.0, 0.0, 1.0],
-                alpha: 1.0,
+                params: [1.0, 10.0, 32.0, 32.0],
             },
             BlitQuadVertex {
                 pos: [32.0, 0.0],
-                uvw: [1.0, 0.0, 1.0],
-                alpha: 1.0,
+                uvw: [0.5, 0.0, 0.5],
+                params: [1.0, 10.0, 32.0, 32.0],
             },
             BlitQuadVertex {
                 pos: [32.0, 32.0],
-                uvw: [1.0, 1.0, 1.0],
-                alpha: 1.0,
+                uvw: [0.5, 0.5, 0.5],
+                params: [1.0, 10.0, 32.0, 32.0],
             },
             BlitQuadVertex {
                 pos: [0.0, 32.0],
                 uvw: [0.0, 1.0, 1.0],
-                alpha: 1.0,
+                params: [1.0, 10.0, 32.0, 32.0],
             },
         ];
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2695,6 +2722,7 @@ mod blit_tests {
         )
         .expect("translucent quad target could not be read");
         let center = &bytes[(16 * SIZE as usize + 16) * 4..][..4];
+        assert_eq!(bytes[3], 0);
         assert!((i16::from(center[0]) - i16::from(center[3])).abs() <= 1);
         assert!((i16::from(center[3]) - 128).abs() <= 1);
     }
@@ -3350,12 +3378,20 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 radius,
                 composite,
+                size,
                 ..
             } => {
-                if *radius != Fixed::ZERO {
-                    unimplemented!("wgpu backend: projected rounded blit is unsupported");
-                }
-                self.blit_quad_inner(texture, q, clip, *opa, *composite);
+                self.blit_quad_inner(
+                    texture,
+                    q,
+                    BlitMask {
+                        size: *size,
+                        radius: *radius,
+                    },
+                    clip,
+                    *opa,
+                    *composite,
+                );
                 return;
             }
             DrawCommand::FillPath {
@@ -3580,10 +3616,7 @@ impl Renderer for WgpuRenderer<'_> {
             command,
             DrawCommand::Fill { .. }
                 | DrawCommand::Border { .. }
-                | DrawCommand::Blit {
-                    radius: Fixed::ZERO,
-                    ..
-                }
+                | DrawCommand::Blit { .. }
                 | DrawCommand::GlyphRun { .. }
                 | DrawCommand::PosedGlyphRun { .. }
         );
