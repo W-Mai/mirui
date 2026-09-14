@@ -159,12 +159,9 @@ pub struct Texture<'a> {
     pub stride: usize,
     pub alpha_mode: AlphaMode,
     /// Increment when reusing a buffer with new pixels and retaining GPU upload caching.
-    /// Use `transient` when revisions are not tracked.
+    /// Borrowed and mutable constructors bypass the cache until a revision is supplied.
     pub cache_revision: u64,
-    /// Bypass GPU-side upload caches keyed by buffer pointer:
-    /// `sample_target_region` drops its `Vec` each frame and the next
-    /// allocation lands in the same slot, faking a cache hit on stale
-    /// pixels.
+    /// Bypass GPU-side upload caches keyed by buffer pointer.
     pub transient: bool,
 }
 
@@ -198,7 +195,13 @@ impl Clone for Texture<'static> {
 }
 
 impl<'a> Texture<'a> {
-    pub const fn from_static(buf: &'a [u8], width: u16, height: u16, format: ColorFormat) -> Self {
+    /// Cacheable pixels with static storage.
+    pub const fn from_static(
+        buf: &'static [u8],
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+    ) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
         Self {
             buf: TexBuf::Ref(buf),
@@ -212,6 +215,7 @@ impl<'a> Texture<'a> {
         }
     }
 
+    /// Mutable pixels; GPU uploads bypass pointer-keyed caches by default.
     pub fn new(buf: &'a mut [u8], width: u16, height: u16, format: ColorFormat) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
         Self {
@@ -222,10 +226,11 @@ impl<'a> Texture<'a> {
             stride,
             alpha_mode: AlphaMode::Opaque,
             cache_revision: 0,
-            transient: false,
+            transient: true,
         }
     }
 
+    /// Borrowed pixels; GPU uploads bypass pointer-keyed caches by default.
     pub fn from_ref(buf: &'a [u8], width: u16, height: u16, format: ColorFormat) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
         Self {
@@ -236,10 +241,11 @@ impl<'a> Texture<'a> {
             stride,
             alpha_mode: AlphaMode::Opaque,
             cache_revision: 0,
-            transient: false,
+            transient: true,
         }
     }
 
+    /// Owned mutable pixels; GPU uploads bypass pointer-keyed caches by default.
     pub fn owned(width: u16, height: u16, format: ColorFormat) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
         let buf = alloc::vec![0u8; stride * height as usize];
@@ -251,7 +257,7 @@ impl<'a> Texture<'a> {
             stride,
             alpha_mode: AlphaMode::Opaque,
             cache_revision: 0,
-            transient: false,
+            transient: true,
         }
     }
 
@@ -274,8 +280,10 @@ impl<'a> Texture<'a> {
         self
     }
 
+    /// Opt into GPU upload caching with an explicit content revision.
     pub fn with_cache_revision(mut self, revision: u64) -> Self {
         self.cache_revision = revision;
+        self.transient = false;
         self
     }
 

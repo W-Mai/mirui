@@ -1256,6 +1256,7 @@ fn try_draw_offscreen(
         let mut tex_ref = handle.get().borrow_mut();
         if let Some(revision) = pool.allocate_cache_revision() {
             tex_ref.cache_revision = revision;
+            tex_ref.transient = false;
         } else {
             tex_ref.transient = true;
         }
@@ -5426,6 +5427,7 @@ mod offscreen_render_check {
         );
         let first_revision = world.texture_of(panel).unwrap().borrow().cache_revision;
         assert_ne!(first_revision, 0);
+        assert!(!world.texture_of(panel).unwrap().borrow().transient);
         assert!(
             world.prev_texture_of(panel).is_none(),
             "frame 1 has no prev"
@@ -5439,6 +5441,7 @@ mod offscreen_render_check {
         );
         let second_revision = world.texture_of(panel).unwrap().borrow().cache_revision;
         assert!(second_revision > first_revision);
+        assert!(!world.texture_of(panel).unwrap().borrow().transient);
         assert!(
             world.prev_texture_of(panel).is_some(),
             "frame 2 should see frame 1"

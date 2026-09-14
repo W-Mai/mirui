@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **GPU texture upload invalidation.** Borrowed and mutable texture buffers bypass pointer-keyed upload caches by default; static storage and explicitly revised buffers retain cached uploads.
 - **RGB565 color expansion.** Normal and byte-swapped pixels expand their channel bits to the full 8-bit range; the Gallery parity view compares padded RGB565 rows with an RGBA reference.
 - **Scene blur strength and coverage.** The filter radius maps to the shared IIR decay at physical resolution, and the edited region includes edge bleed. Render Showcase displays blurred and crisp content side by side.
 - **SDL GPU and desktop WGPU scene blur.** Checked blur submissions read back the clipped target region, apply the shared IIR filter, and replace the edited pixels. A configured byte budget rejects oversized regions before readback.

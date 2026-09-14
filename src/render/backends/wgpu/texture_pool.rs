@@ -135,16 +135,29 @@ mod tests {
     }
 
     #[test]
-    fn transient_flag_survives_texture_construction() {
+    fn mutable_and_borrowed_storage_requires_explicit_cache_policy() {
         let buf = [0u8; 16];
-        let t = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888).with_transient(true);
-        assert!(t.transient);
-        assert!(TextureKey::cacheable(&t).is_none());
-        let default = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
-        assert!(!default.transient);
+        let borrowed = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        assert!(TextureKey::cacheable(&borrowed).is_none());
+
+        let revised = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888).with_cache_revision(7);
         assert_eq!(
-            TextureKey::cacheable(&default),
-            Some(TextureKey::from(&default))
+            TextureKey::cacheable(&revised),
+            Some(TextureKey::from(&revised))
+        );
+
+        let owned = Texture::owned(2, 2, ColorFormat::RGBA8888);
+        assert!(TextureKey::cacheable(&owned).is_none());
+
+        let mut pixels = [0u8; 16];
+        let mutable = Texture::new(&mut pixels, 2, 2, ColorFormat::RGBA8888);
+        assert!(TextureKey::cacheable(&mutable).is_none());
+
+        static STATIC_PIXELS: [u8; 16] = [0; 16];
+        let stable = Texture::from_static(&STATIC_PIXELS, 2, 2, ColorFormat::RGBA8888);
+        assert_eq!(
+            TextureKey::cacheable(&stable),
+            Some(TextureKey::from(&stable))
         );
     }
 
