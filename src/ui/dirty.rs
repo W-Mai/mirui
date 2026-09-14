@@ -82,10 +82,26 @@ pub struct RegionShift {
 
 /// Plan returned by the dirty walker: `rects` to redraw + `shifts`
 /// to memmove in place inside the framebuffer.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct DirtyRegions {
     pub rects: Vec<Rect>,
     pub shifts: Vec<RegionShift>,
+}
+
+impl Clone for DirtyRegions {
+    fn clone(&self) -> Self {
+        Self {
+            rects: self.rects.clone(),
+            shifts: self.shifts.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.rects.clear();
+        self.rects.extend_from_slice(&source.rects);
+        self.shifts.clear();
+        self.shifts.extend_from_slice(&source.shifts);
+    }
 }
 
 impl DirtyRegions {

@@ -15,6 +15,7 @@ use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::Rect;
 use crate::ui::Theme;
+use crate::ui::dirty::DirtyRegions;
 use crate::ui::offscreen::OffscreenBufferPool;
 use crate::ui::render_system;
 use crate::ui::view::{View, ViewRegistry};
@@ -35,6 +36,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     last_render_ns: u64,
     last_flush_ns: u64,
     last_seed_prev_ns: u64,
+    dirty_plan: DirtyRegions,
     pending_frame: Option<PendingFrame>,
     needs_full_first_frame: bool,
     suspended: bool,
@@ -152,6 +154,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_render_ns: 0,
             last_flush_ns: 0,
             last_seed_prev_ns: 0,
+            dirty_plan: DirtyRegions::default(),
             pending_frame: None,
             needs_full_first_frame: true,
             suspended: false,
@@ -775,17 +778,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let layout_start = self.clock_ns();
 
         let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
-        let plan = if force_full {
+        let mut plan = core::mem::take(&mut self.dirty_plan);
+        if force_full {
+            plan.clear();
             let (lw, lh) = transform.logical_size();
-            crate::ui::dirty::DirtyRegions {
-                rects: alloc::vec![Rect::new(0, 0, lw, lh)],
-                shifts: alloc::vec::Vec::new(),
-            }
+            plan.rects.push(Rect::new(0, 0, lw, lh));
         } else {
             crate::trace_span!("frame.collect_dirty", {
-                render_system::collect_dirty_regions(&mut self.world, root, &transform)
-            })
-        };
+                render_system::collect_dirty_regions_into(
+                    &mut self.world,
+                    root,
+                    &transform,
+                    &mut plan,
+                )
+            });
+        }
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
@@ -799,12 +806,20 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 plan
             };
 
-            self.world
-                .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
+            if let Some(last) = self
+                .world
+                .resource_mut::<crate::ui::render_system::LastDirtyRegions>()
+            {
+                last.0.clone_from(&plan);
+            } else {
+                self.world
+                    .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
+            }
             for sop in &plan.shifts {
                 if let Err(error) = renderer.scroll_target_region(&sop.area, sop.dx, sop.dy) {
                     drop(renderer);
                     crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+                    self.dirty_plan = plan;
                     return Err(error);
                 }
             }
@@ -839,6 +854,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             drop(renderer);
             if let Err(error) = render_result {
                 crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+                self.dirty_plan = plan;
                 return Err(error);
             }
 
@@ -874,14 +890,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     p.post_render(&mut self.world, render_ns);
                 }
             }
+            self.dirty_plan = plan;
             return Ok(());
         }
 
         // Idle frame: clear LastDirtyRegions so consumers (cursor
         // feedback, perf-plan-probe) can distinguish "this frame
         // produced no shift" from "stale plan from N frames ago".
-        self.world
-            .insert_resource(crate::ui::render_system::LastDirtyRegions::default());
+        if let Some(last) = self
+            .world
+            .resource_mut::<crate::ui::render_system::LastDirtyRegions>()
+        {
+            last.0.clear();
+        } else {
+            self.world
+                .insert_resource(crate::ui::render_system::LastDirtyRegions::default());
+        }
 
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
@@ -898,6 +922,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.post_render(&mut self.world, render_ns);
             }
         }
+        self.dirty_plan = plan;
         Ok(())
     }
 
@@ -1050,6 +1075,41 @@ fn clone_texture_owned(
         dst.copy_from_slice(src.buf.as_slice());
     }
     owned
+}
+
+#[cfg(test)]
+mod dirty_plan_reuse_check {
+    use super::*;
+    use crate::ui::dirty::Dirty;
+    use crate::ui::render_system::LastDirtyRegions;
+
+    #[test]
+    fn active_and_idle_frames_retain_plan_storage() {
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+
+        app.world.insert(root, Dirty);
+        app.render_dirty().unwrap();
+        let scratch_ptr = app.dirty_plan.rects.as_ptr();
+        let last = app.world.resource::<LastDirtyRegions>().unwrap();
+        let last_ptr = last as *const LastDirtyRegions;
+        let last_rects_ptr = last.0.rects.as_ptr();
+        assert_eq!(last.0.rects.len(), 1);
+
+        app.world.insert(root, Dirty);
+        app.render_dirty().unwrap();
+        let last = app.world.resource::<LastDirtyRegions>().unwrap();
+        assert_eq!(app.dirty_plan.rects.as_ptr(), scratch_ptr);
+        assert_eq!(last as *const LastDirtyRegions, last_ptr);
+        assert_eq!(last.0.rects.as_ptr(), last_rects_ptr);
+
+        app.render_dirty().unwrap();
+        let last = app.world.resource::<LastDirtyRegions>().unwrap();
+        assert!(last.0.is_empty());
+        assert_eq!(app.dirty_plan.rects.as_ptr(), scratch_ptr);
+        assert_eq!(last.0.rects.as_ptr(), last_rects_ptr);
+    }
 }
 
 #[cfg(test)]

@@ -2085,8 +2085,19 @@ pub fn collect_dirty_regions(
     root: Entity,
     transform: &Viewport,
 ) -> DirtyRegions {
-    let (logical_w, logical_h) = transform.logical_size();
     let mut plan = DirtyRegions::default();
+    collect_dirty_regions_into(world, root, transform, &mut plan);
+    plan
+}
+
+pub(crate) fn collect_dirty_regions_into(
+    world: &mut World,
+    root: Entity,
+    transform: &Viewport,
+    plan: &mut DirtyRegions,
+) {
+    let (logical_w, logical_h) = transform.logical_size();
+    plan.clear();
 
     // Idle skip: with zero Dirty markers the 5-step walk would just
     // re-derive last frame's outputs. Systems that mutate visible
@@ -2095,13 +2106,13 @@ pub fn collect_dirty_regions(
     use super::dirty::Dirty;
     let dirty_count = world.storage::<Dirty>().map(|s| s.len()).unwrap_or(0);
     if dirty_count == 0 {
-        return plan;
+        return;
     }
 
     let Some(snapshot) = crate::trace_span!("dirty.layout", {
         compute_layout_snapshot(world, root, logical_w, logical_h)
     }) else {
-        return plan;
+        return;
     };
 
     let mut idx = 0;
@@ -2133,7 +2144,7 @@ pub fn collect_dirty_regions(
             false,
             None,
             &mut bounds,
-            &mut plan,
+            plan,
             &mut out_of_scroll_prev,
         );
     }
@@ -2210,8 +2221,6 @@ pub fn collect_dirty_regions(
     }
 
     world.put_resource_box(snapshot);
-
-    plan
 }
 
 fn collect_overlay_rects(world: &World) -> Vec<Rect> {
@@ -2243,6 +2252,7 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
 mod layout_snapshot_reuse_check {
     use super::*;
     use crate::types::Dimension;
+    use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
 
     fn widget(world: &mut World, width: i32) -> Entity {
@@ -2332,6 +2342,28 @@ mod layout_snapshot_reuse_check {
             world.get::<super::super::ComputedRect>(first).unwrap().0.x,
             Fixed::from_int(30)
         );
+    }
+
+    #[test]
+    fn dirty_plan_reuses_capacity_across_active_and_idle_frames() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+
+        world.insert(root, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert_eq!(plan.rects.len(), 1);
+        let rects_ptr = plan.rects.as_ptr();
+
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert!(plan.is_empty());
+        assert_eq!(plan.rects.as_ptr(), rects_ptr);
+
+        world.insert(root, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert_eq!(plan.rects.len(), 1);
+        assert_eq!(plan.rects.as_ptr(), rects_ptr);
     }
 }
 
