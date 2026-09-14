@@ -78,6 +78,31 @@ impl Viewport {
         (x0, y0, x1, y1)
     }
 
+    #[cfg(any(
+        feature = "wgpu",
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn clipped_physical_pixel_rect(
+        &self,
+        logical: Rect,
+        target_width: u32,
+        target_height: u32,
+    ) -> Option<Rect> {
+        let (x0, y0, x1, y1) = self.rect_to_physical_pixel_bounds(logical);
+        let width = target_width.min(u32::from(self.physical_w)) as i32;
+        let height = target_height.min(u32::from(self.physical_h)) as i32;
+        let left = x0.clamp(0, width);
+        let top = y0.clamp(0, height);
+        let right = x1.clamp(0, width);
+        let bottom = y1.clamp(0, height);
+        if right <= left || bottom <= top {
+            return None;
+        }
+        Some(Rect::new(left, top, right - left, bottom - top))
+    }
+
     #[inline]
     pub fn point_to_logical(&self, p: Point) -> Point {
         Point {
@@ -135,5 +160,24 @@ mod tests {
         let (x0, y0, x1, y1) = t.rect_to_physical_pixel_bounds(r);
         assert_eq!((x0, y0), (0, 0));
         assert_eq!((x1, y1), (15, 15));
+    }
+
+    #[test]
+    fn clipped_readback_rect_uses_whole_physical_pixels() {
+        let viewport = Viewport::new(12, 12, Fixed::from_f32(1.5));
+        let logical = Rect::new(
+            Fixed::from_f32(1.25),
+            Fixed::ZERO,
+            Fixed::from_f32(2.5),
+            Fixed::ONE,
+        );
+        assert_eq!(
+            viewport.clipped_physical_pixel_rect(logical, 12, 12),
+            Some(Rect::new(1, 0, 5, 2))
+        );
+        assert_eq!(
+            viewport.clipped_physical_pixel_rect(Rect::new(-2, 6, 5, 4), 12, 8),
+            None
+        );
     }
 }

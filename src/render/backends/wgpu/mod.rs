@@ -1133,19 +1133,9 @@ impl WgpuRenderer<'_> {
 
 impl WgpuRenderer<'_> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
-        let phys = self.viewport.rect_to_physical(*src);
         let state = self.surface.state()?;
-        let target = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(state.config.width as i32),
-            h: Fixed::from_int(state.config.height as i32),
-        };
-        let clipped = phys.intersect(&target)?;
-        if clipped.w <= Fixed::ZERO || clipped.h <= Fixed::ZERO {
-            return None;
-        }
-        Some(clipped)
+        self.viewport
+            .clipped_physical_pixel_rect(*src, state.config.width, state.config.height)
     }
 }
 

@@ -7,10 +7,8 @@ use alloc::vec::Vec;
 use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::raster::FillRule;
-use crate::render::renderer::RenderError;
-use crate::render::scene::replay::ReplayError;
 use crate::render::scene::resolver::SliceResolver;
-use crate::render::scene::{Paint, ResourceRef, Scene, SceneOp};
+use crate::render::scene::{Paint, ResourceRef, SceneOp};
 use crate::types::Transform;
 use crate::ui::widgets::Text;
 
@@ -211,15 +209,7 @@ fn blur_filter_render(
     ops.extend_from_slice(&shape_set_ops(0));
     ops.push(SceneOp::GroupEnd);
 
-    ctx.record(
-        Scene { ops }
-            .replay(renderer, ctx.clip, &SliceResolver::new(&[], &[]))
-            .map_err(|error| match error {
-                ReplayError::Render(error) => error,
-                ReplayError::GroupOpacityNeedsOffscreen => RenderError::MissingWorkspace,
-                _ => RenderError::InvalidGeometry,
-            }),
-    );
+    ctx.replay(renderer, &ops, &SliceResolver::new(&[], &[]));
 
     shape_set(renderer, ctx, 242);
 }

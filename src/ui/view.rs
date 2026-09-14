@@ -38,6 +38,31 @@ impl ViewCtx<'_> {
         }
     }
 
+    /// Replay borrowed scene operations and retain the first failure.
+    pub fn replay(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        ops: &[crate::render::scene::SceneOp],
+        resolver: &dyn crate::render::scene::replay::SceneResolver,
+    ) {
+        if self.error.is_some() {
+            return;
+        }
+        self.error = crate::render::scene::replay::replay_scene(ops, renderer, self.clip, resolver)
+            .err()
+            .map(|error| match error {
+                crate::render::scene::replay::ReplayError::Render(error) => error,
+                crate::render::scene::replay::ReplayError::GroupOpacityNeedsOffscreen => {
+                    RenderError::MissingWorkspace
+                }
+                crate::render::scene::replay::ReplayError::UnresolvedFont
+                | crate::render::scene::replay::ReplayError::UnresolvedTexture => {
+                    RenderError::InvalidTexture
+                }
+                _ => RenderError::InvalidGeometry,
+            });
+    }
+
     pub(crate) fn record(&mut self, result: Result<(), RenderError>) {
         if self.error.is_none() {
             self.error = result.err();
@@ -344,6 +369,48 @@ mod tests {
         // breaks user-code views.
         let _: ViewRender = flip_bg_when_styled;
         let _ = Fixed::ZERO;
+    }
+
+    #[test]
+    fn borrowed_scene_replay_retains_render_failure() {
+        struct RejectingRenderer;
+
+        impl Renderer for RejectingRenderer {
+            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+
+            fn flush(&mut self) {}
+        }
+
+        let style = Style::default();
+        let clip = Rect::new(0, 0, 8, 8);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::default(),
+            quad: None,
+            clip: &clip,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+            error: None,
+        };
+        let ops = [crate::render::scene::SceneOp::FillRect {
+            area: clip,
+            transform: Transform::default(),
+            quad: None,
+            color: crate::types::Color::rgb(20, 30, 40),
+            radius: crate::types::Fixed::ZERO,
+            opa: 255,
+        }];
+        ctx.replay(
+            &mut RejectingRenderer,
+            &ops,
+            &crate::render::scene::resolver::SliceResolver::new(&[], &[]),
+        );
+        assert_eq!(
+            ctx.error,
+            Some(RenderError::Unsupported(
+                crate::render::renderer::RenderFeature::AffineGeometry
+            ))
+        );
     }
 
     #[test]

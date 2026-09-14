@@ -2,8 +2,8 @@
 
 use crate::prelude::draw::*;
 use crate::prelude::*;
+use crate::render::scene::SceneOp;
 use crate::render::scene::resolver::SliceResolver;
-use crate::render::scene::{Scene, SceneOp};
 use crate::ui::widgets::Text;
 
 #[derive(Default)]
@@ -185,11 +185,8 @@ fn showcase_render(
     _rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let scene = Scene {
-        ops: SCENE.to_vec(),
-    };
     let resolver = SliceResolver::new(&[], &[]);
-    let _ = scene.replay(renderer, ctx.clip, &resolver);
+    ctx.replay(renderer, SCENE, &resolver);
 }
 
 pub fn showcase_view() -> View {

@@ -8,7 +8,6 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
-use wasm_bindgen::JsCast;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
@@ -181,15 +180,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     /// `None` when OOB — `getImageData` would silently return transparent
     /// black for the out-of-canvas portion (W3C spec).
     fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
-        let phys = self.viewport.rect_to_physical(*src);
         let (pw, ph) = self.viewport.physical_size();
-        let target = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(pw as i32),
-            h: Fixed::from_int(ph as i32),
-        };
-        phys.intersect(&target)
+        self.viewport
+            .clipped_physical_pixel_rect(*src, u32::from(pw), u32::from(ph))
     }
 
     /// Push a clip rect onto the context state stack. The clip lives
@@ -658,9 +651,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         request.validate_texture()?;
         let projected = !request.projective.is_identity();
         match request.command {
-            DrawCommand::ApplyBlur { .. } => {
-                return Err(RenderError::Unsupported(RenderFeature::Blur));
-            }
             DrawCommand::FillPath { path, paint, .. } if !projected => {
                 Self::classify_gradient_fill(paint, path.bbox())?;
             }
@@ -715,6 +705,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        if let DrawCommand::ApplyBlur { region, .. } = request.command {
+            if !request.projective.is_identity() {
+                return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+            }
+            return RenderRoute::target_readback(self.physical_clip_rect(region));
+        }
         Self::classify_request(request)?;
         if request.projective.is_identity() {
             return Ok(RenderRoute::Native);
@@ -739,6 +735,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         request.validate_projection()?;
+        if let DrawCommand::ApplyBlur { alpha, region } = request.command {
+            self.route(request)?;
+            return self.blur_target_region(*alpha, region);
+        }
         Self::classify_request(request)?;
         if request.projective.is_identity() {
             self.draw(request.command, &request.clip);
@@ -878,39 +878,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
                 return;
             }
             DrawCommand::ApplyBlur { alpha, region } => {
-                let radius_f = (alpha.to_f32() * 10.0).max(0.0);
-                if radius_f > 0.0 {
-                    let dpr = self.dpr();
-                    let rx = region.x.to_f32() as f64 * dpr;
-                    let ry = region.y.to_f32() as f64 * dpr;
-                    let rw = region.w.to_f32() as f64 * dpr;
-                    let rh = region.h.to_f32() as f64 * dpr;
-                    let window = web_sys::window().unwrap();
-                    let doc = window.document().unwrap();
-                    let off = doc
-                        .create_element("canvas")
-                        .unwrap()
-                        .unchecked_into::<web_sys::HtmlCanvasElement>();
-                    off.set_width(rw.ceil() as u32);
-                    off.set_height(rh.ceil() as u32);
-                    let off_ctx = off
-                        .get_context("2d")
-                        .unwrap()
-                        .unwrap()
-                        .unchecked_into::<web_sys::CanvasRenderingContext2d>();
-                    off_ctx.set_filter(&alloc::format!("blur({}px)", radius_f as f64 * dpr));
-                    let src_canvas = self.surface.canvas();
-                    off_ctx
-                        .draw_image_with_html_canvas_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-                            src_canvas, rx, ry, rw, rh, 0.0, 0.0, rw, rh,
-                        )
-                        .unwrap();
-                    let ctx = self.ctx();
-                    ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0).unwrap();
-                    ctx.clear_rect(rx, ry, rw, rh);
-                    ctx.draw_image_with_html_canvas_element(&off, rx, ry)
-                        .unwrap();
-                }
+                let _ = self.blur_target_region(*alpha, region);
                 return;
             }
             _ => {}

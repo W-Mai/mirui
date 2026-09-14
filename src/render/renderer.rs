@@ -66,6 +66,23 @@ pub enum RenderRoute {
     ExactFallback { required_bytes: usize },
 }
 
+impl RenderRoute {
+    #[cfg(any(all(feature = "web-canvas", target_arch = "wasm32"), test))]
+    pub(crate) fn target_readback(region: Option<Rect>) -> Result<Self, RenderError> {
+        let Some(region) = region else {
+            return Ok(Self::ExactFallback { required_bytes: 0 });
+        };
+        let width = usize::try_from(region.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let height =
+            usize::try_from(region.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let required_bytes = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
+        Ok(Self::ExactFallback { required_bytes })
+    }
+}
+
 /// Semantic operation that a backend cannot execute exactly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderFeature {
@@ -313,6 +330,20 @@ pub trait Renderer {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
+    fn blur_target_region(&mut self, alpha: Fixed, region: &Rect) -> Result<(), RenderError> {
+        if alpha <= Fixed::ZERO || alpha >= Fixed::ONE {
+            return Ok(());
+        }
+        self.modify_target_region(region, &mut |texture| {
+            crate::render::backends::sw::blur::iir_blur_inplace(
+                texture,
+                alpha,
+                Rect::new(0, 0, texture.width, texture.height),
+            );
+        })?;
+        Ok(())
+    }
+
     /// Backends that defer draws (currently only `wgpu`) need to submit
     /// pending work before a `sample_target_region` / `read_target_region`
     /// call can see this frame's pixels. Eager backends keep the default
@@ -342,6 +373,18 @@ pub trait Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_fallback_budget_uses_physical_rgba_extent() {
+        assert_eq!(
+            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4))),
+            Ok(RenderRoute::ExactFallback { required_bytes: 48 })
+        );
+        assert_eq!(
+            RenderRoute::target_readback(None),
+            Ok(RenderRoute::ExactFallback { required_bytes: 0 })
+        );
+    }
 
     #[test]
     fn target_io_failures_do_not_masquerade_as_unsupported_geometry() {

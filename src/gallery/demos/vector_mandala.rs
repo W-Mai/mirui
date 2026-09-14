@@ -177,7 +177,7 @@ fn vector_mandala_render(
     let fonts: [(&str, &Font); 0] = [];
     let textures: [(&str, &Texture); 1] = [("thumbs_up", &IMG_THUMBS_UP)];
     let resolver = SliceResolver::new(&fonts, &textures);
-    let _ = scene.replay(renderer, ctx.clip, &resolver);
+    ctx.replay(renderer, &scene.ops, &resolver);
 }
 
 pub fn vector_mandala_view() -> View {

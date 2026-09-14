@@ -467,19 +467,9 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
-        let phys = self.viewport.rect_to_physical(*src);
         let (pw, ph) = self.viewport.physical_size();
-        let target = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(pw as i32),
-            h: Fixed::from_int(ph as i32),
-        };
-        let clipped = phys.intersect(&target)?;
-        if clipped.w <= Fixed::ZERO || clipped.h <= Fixed::ZERO {
-            return None;
-        }
-        Some(clipped)
+        self.viewport
+            .clipped_physical_pixel_rect(*src, u32::from(pw), u32::from(ph))
     }
 
     pub(super) fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
