@@ -573,14 +573,19 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
-    fn needs_rounded_blit_fallback(request: &DrawRequest<'_, '_>) -> bool {
+    fn needs_blit_fallback(request: &DrawRequest<'_, '_>) -> bool {
         matches!(
             request.command,
             DrawCommand::Blit {
                 quad: None,
                 radius,
+                composite,
                 ..
             } if *radius > Fixed::ZERO
+                || !matches!(
+                    composite,
+                    CompositeMode::SourceOver | CompositeMode::Add | CompositeMode::Multiply
+                )
         )
     }
 
@@ -612,15 +617,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 if *radius > Fixed::ZERO && quad.is_some() {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }
-                let supported = if *radius > Fixed::ZERO {
-                    true
-                } else if quad.is_some() {
+                let supported = if quad.is_some() {
                     *composite == CompositeMode::SourceOver
                 } else {
-                    matches!(
-                        composite,
-                        CompositeMode::SourceOver | CompositeMode::Add | CompositeMode::Multiply
-                    )
+                    true
                 };
                 if !supported {
                     return Err(RenderError::Unsupported(RenderFeature::Composite(
@@ -644,7 +644,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             _ => false,
         };
         if !supports_affine
-            && !Self::needs_rounded_blit_fallback(request)
+            && !Self::needs_blit_fallback(request)
             && !matches!(
                 request.command.transform().classify(),
                 TransformClass::Identity | TransformClass::Translate
@@ -661,27 +661,40 @@ mod route_tests {
     use super::*;
 
     #[test]
-    fn rounded_axis_blit_uses_fallback_without_restricting_composite() {
+    fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
         let pixels = [255u8; 4 * 4 * 4];
         let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
-        let command = DrawCommand::Blit {
+        for radius in [Fixed::ZERO, Fixed::from_int(3)] {
+            let command = DrawCommand::Blit {
+                pos: Point::new(2, 2),
+                size: Point::new(12, 12),
+                transform: Transform::IDENTITY,
+                quad: None,
+                texture: &texture,
+                opa: 200,
+                radius,
+                composite: CompositeMode::Screen,
+            };
+            let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
+            assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
+            assert_eq!(
+                SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
+                Ok(())
+            );
+        }
+        let ordinary = DrawCommand::Blit {
             pos: Point::new(2, 2),
             size: Point::new(12, 12),
             transform: Transform::IDENTITY,
             quad: None,
             texture: &texture,
-            opa: 200,
-            radius: Fixed::from_int(3),
-            composite: CompositeMode::Screen,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
         };
-        let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
-        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_rounded_blit_fallback(
-            &request
+        assert!(!SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+            &DrawRequest::new(&ordinary, Rect::new(0, 0, 20, 20))
         ));
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
-            Ok(())
-        );
     }
 
     #[test]
@@ -840,7 +853,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
             );
         }
         Self::classify_request(request)?;
-        if request.projective.is_identity() && !Self::needs_rounded_blit_fallback(request) {
+        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
             return Ok(RenderRoute::Native);
         }
         let fallback = self
@@ -867,7 +880,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
             return self.blur_target_region(*alpha, region);
         }
         Self::classify_request(request)?;
-        if request.projective.is_identity() && !Self::needs_rounded_blit_fallback(request) {
+        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
             self.draw_failed = false;
             self.draw(request.command, &request.clip);
             return if self.draw_failed {

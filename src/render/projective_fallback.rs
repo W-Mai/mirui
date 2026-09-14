@@ -273,6 +273,7 @@ mod tests {
     use crate::render::font::Font;
     use crate::types::{Color, Point, Transform};
     use textflow::placement::GlyphFrame;
+    use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
 
     #[test]
     fn identity_rounded_blit_uses_bounded_local_target() {
@@ -286,9 +287,12 @@ mod tests {
             texture: &texture,
             opa: 255,
             radius: Fixed::from_int(3),
-            composite: CompositeMode::SourceOver,
+            composite: CompositeMode::Screen,
         };
         let mut bytes = [0u8; 12 * 12 * 4];
+        for pixel in bytes.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[0, 0, 255, 255]);
+        }
         let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
         let viewport = Viewport::new(12, 12, Fixed::ONE);
         let plan = fallback
@@ -304,10 +308,11 @@ mod tests {
             .render(plan, &command, &Transform3D::IDENTITY, viewport)
             .unwrap();
         let data = fallback.target(plan);
-        assert!(data.iter().any(|&byte| byte == 255));
+        let center = (usize::try_from(6 - plan.y).unwrap() * usize::from(plan.width())
+            + usize::try_from(6 - plan.x).unwrap())
+            * 4;
+        assert_eq!(&data[center..center + 4], &[255, 0, 255, 255]);
     }
-    use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
-
     fn glyph_command<'a>(glyphs: &'a [PositionedGlyph], font: &'a Font) -> DrawCommand<'a> {
         DrawCommand::GlyphRun {
             pos: Point::ZERO,
