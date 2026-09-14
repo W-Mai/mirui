@@ -471,11 +471,8 @@ fn apply_dash_pattern(segs: &[LineSeg], closed: bool, pattern: &[Fixed], out: &m
         }
     };
 
-    let n = segs.len();
-    let limit = if closed { n + 1 } else { n };
-
-    for i in 0..limit {
-        let seg = if i < n { segs[i] } else { segs[0] };
+    let first_output = out.len();
+    for &seg in segs {
         let dx = seg.p2.x - seg.p1.x;
         let dy = seg.p2.y - seg.p1.y;
         let seg_len = (dx * dx + dy * dy).sqrt();
@@ -517,6 +514,9 @@ fn apply_dash_pattern(segs: &[LineSeg], closed: bool, pattern: &[Fixed], out: &m
         }
     }
     flush(&mut current_segs, out);
+    if closed && out.len() == first_output + 1 && out[first_output].segs == segs {
+        out[first_output].closed = true;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -605,7 +605,7 @@ pub(crate) fn offset_polygon_into(
                 rail_scratch,
                 arc_scratch,
             );
-            append_open_ribbon(out, left_rail_scratch, rail_scratch, cap, half);
+            append_open_ribbon(out, &sub.segs, left_rail_scratch, rail_scratch, cap, half);
         }
     }
 }
@@ -829,13 +829,23 @@ fn append_closed_polyline(out: &mut Path, pts: &[Point]) {
     out.close();
 }
 
-fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point], cap: LineCap, half: Fixed) {
+fn append_open_ribbon(
+    out: &mut Path,
+    segs: &[LineSeg],
+    left: &[Point],
+    right: &[Point],
+    cap: LineCap,
+    half: Fixed,
+) {
     if left.is_empty() || right.is_empty() {
         return;
     }
 
-    let (start_left, start_right) = (left[0], right.last().copied().unwrap_or(right[0]));
-    let (end_left, end_right) = (left.last().copied().unwrap_or(left[0]), right[0]);
+    let (start_left, start_right) = (left[0], right[0]);
+    let (end_left, end_right) = (
+        left.last().copied().unwrap_or(left[0]),
+        right.last().copied().unwrap_or(right[0]),
+    );
 
     match cap {
         LineCap::Butt => {
@@ -843,21 +853,15 @@ fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point], cap: Line
             for p in &left[1..] {
                 out.line_to(*p);
             }
-            out.line_to(end_left);
             for p in right.iter().rev() {
                 out.line_to(*p);
             }
-            out.line_to(start_right);
             out.close();
         }
         LineCap::Square => {
-            let start_dir = direction(start_left, left.get(1).copied().unwrap_or(start_left));
-            let end_dir = direction(
-                end_left,
-                left.get(left.len().wrapping_sub(2))
-                    .copied()
-                    .unwrap_or(end_left),
-            );
+            let start_dir = scaled(direction(segs[0].p2, segs[0].p1), half);
+            let last = segs[segs.len() - 1];
+            let end_dir = scaled(direction(last.p1, last.p2), half);
 
             let sl_ext = offset(start_left, start_dir);
             let sr_ext = offset(start_right, start_dir);
@@ -869,14 +873,11 @@ fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point], cap: Line
             for p in &left[1..] {
                 out.line_to(*p);
             }
-            out.line_to(end_left);
             out.line_to(el_ext);
             out.line_to(er_ext);
-            out.line_to(end_right);
             for p in right.iter().rev() {
                 out.line_to(*p);
             }
-            out.line_to(start_right);
             out.line_to(sr_ext);
             out.close();
         }
@@ -885,9 +886,8 @@ fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point], cap: Line
             for p in &left[1..] {
                 out.line_to(*p);
             }
-            out.line_to(end_left);
             append_arc_cap(out, end_left, end_right, half);
-            for p in right.iter().rev() {
+            for p in right.iter().rev().skip(1) {
                 out.line_to(*p);
             }
             append_arc_cap(out, start_right, start_left, half);
@@ -916,10 +916,9 @@ fn append_arc_cap(out: &mut Path, p1: Point, p2: Point, half: Fixed) {
         y: (p1.y + p2.y) / 2,
     };
     let steps = arc_steps(half);
-    out.line_to(p1);
     for i in 1..steps {
         let angle =
-            Fixed::from_int(i as i32) * Fixed::from_int(314) / Fixed::from_int(steps as i32 * 100);
+            -Fixed::from_int(i as i32) * Fixed::from_int(314) / Fixed::from_int(steps as i32 * 100);
         let (sin_v, cos_v) = sin_cos_approx(angle);
         let dx = p1.x - center.x;
         let dy = p1.y - center.y;
@@ -1014,6 +1013,10 @@ mod tests {
     }
 
     fn offset_polygon_path(p: &Path, width: Fixed) -> Path {
+        offset_polygon_path_with_cap(p, width, LineCap::Butt)
+    }
+
+    fn offset_polygon_path_with_cap(p: &Path, width: Fixed, cap: LineCap) -> Path {
         let mut out = Path::new();
         let mut scratch = Vec::new();
         let mut normals = Vec::new();
@@ -1025,7 +1028,7 @@ mod tests {
             &p.cmds,
             None,
             width,
-            LineCap::Butt,
+            cap,
             LineJoin::Miter,
             Fixed::from_int(4),
             None,
@@ -1258,6 +1261,82 @@ mod tests {
             .filter(|c| matches!(c, PathCmd::Close))
             .count();
         assert_eq!(closes, 1);
+    }
+
+    #[test]
+    fn open_butt_stroke_connects_matching_rail_ends() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).line_to(pt(10, 0));
+        let outline = offset_polygon_path(&path, Fixed::from_int(2));
+        assert_eq!(
+            &*outline.cmds,
+            &[
+                PathCmd::MoveTo(pt(0, 1)),
+                PathCmd::LineTo(pt(10, 1)),
+                PathCmd::LineTo(pt(10, -1)),
+                PathCmd::LineTo(pt(0, -1)),
+                PathCmd::Close,
+            ]
+        );
+        let edges = flatten_path(&outline);
+        for x in [1, 5, 9] {
+            assert!(point_in_segments(pt(x, 0), &edges));
+        }
+        assert!(!point_in_segments(pt(5, 2), &edges));
+    }
+
+    #[test]
+    fn open_curve_stroke_has_no_long_cross_rail_edge() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).quad_to(pt(12, 16), pt(24, 0));
+        let outline = offset_polygon_path(&path, Fixed::from_int(4));
+        let edges = flatten_path(&outline);
+        assert!(edges.iter().all(|edge| {
+            let dx = (edge.p2.x - edge.p1.x).to_f32();
+            let dy = (edge.p2.y - edge.p1.y).to_f32();
+            dx * dx + dy * dy <= 64.0
+        }));
+    }
+
+    #[test]
+    fn open_square_and_round_caps_extend_outward() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).line_to(pt(10, 0));
+        for cap in [LineCap::Square, LineCap::Round] {
+            let outline = offset_polygon_path_with_cap(&path, Fixed::from_int(4), cap);
+            let xs = outline.cmds.iter().filter_map(|command| match command {
+                PathCmd::MoveTo(point) | PathCmd::LineTo(point) => Some(point.x),
+                _ => None,
+            });
+            assert!(xs.clone().min().unwrap() <= Fixed::from_int(-1), "{cap:?}");
+            assert!(xs.max().unwrap() >= Fixed::from_int(11), "{cap:?}");
+            assert!(flatten_path(&outline).iter().all(|edge| {
+                let dx = (edge.p2.x - edge.p1.x).to_f32();
+                let dy = (edge.p2.y - edge.p1.y).to_f32();
+                dx * dx + dy * dy <= 100.0
+            }));
+        }
+    }
+
+    #[test]
+    fn closed_dash_does_not_repeat_the_closing_edge() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0))
+            .line_to(pt(10, 0))
+            .line_to(pt(10, 10))
+            .line_to(pt(0, 10))
+            .close();
+        let subpaths = flatten_subpaths_path(&path);
+        let mut dashed = Vec::new();
+        apply_dash_pattern(
+            &subpaths[0].segs,
+            true,
+            &[Fixed::from_int(100), Fixed::from_int(100)],
+            &mut dashed,
+        );
+        assert_eq!(dashed.len(), 1);
+        assert_eq!(dashed[0].segs, subpaths[0].segs);
+        assert!(dashed[0].closed);
     }
 
     #[test]

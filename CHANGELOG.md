@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Software path strokes.** Open stroke contours join matching rail endpoints, square and round caps extend outward, and dashed closed paths do not repeat an edge at the seam.
 - **Text box overflow.** Explicitly sized text clips to its transformed bounds while intrinsic text retains glyph overhang; Typography Lab constrains card content and includes a U+2026 fallback for one-line mixed-script ellipsis.
 - **SDL GPU path text.** Cached non-coverage glyphs use the sampled baseline rather than the line top as their pose origin.
 - **Typography Lab caret input.** Tapping or dragging the path sample moves its highlighted caret using the path hit-test geometry.
