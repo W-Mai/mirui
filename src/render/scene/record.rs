@@ -186,7 +186,7 @@ pub fn record_command(
             fill_rule: *fill_rule,
         },
         DrawCommand::PopClip => SceneOp::PopClip,
-        DrawCommand::ApplyBlur { .. } => SceneOp::GroupEnd,
+        DrawCommand::ApplyBlur { .. } => return Err(RecordError::UnsupportedCommand),
     })
 }
 

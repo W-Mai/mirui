@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scene capture errors.** Checked capture rejects blur and projective draws that cannot be represented, instead of recording blur as an unrelated group end.
 - **Software radial gradients.** Path fills and strokes evaluate focal position, focal radius, object bounds, and paint transforms; uncovered two-circle regions remain transparent.
 - **Software linear gradients.** Path fills and strokes apply object bounds, paint transforms, draw transforms, and stop alpha in one fixed-point sampler; checked draws reject invalid stops and degenerate axes.
 - **HiDPI stroke clipping.** Transformed software strokes apply the physical clip once instead of scaling it twice.

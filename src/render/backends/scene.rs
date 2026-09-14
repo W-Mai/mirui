@@ -5,14 +5,13 @@
 use alloc::vec::Vec;
 
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
+use crate::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use crate::render::scene::Scene;
 use crate::render::scene::record::{RecordError, ResourceResolver, record_command};
 use crate::types::Rect;
 
-/// Records draws into a Scene through the Renderer trait. Errors accumulate
-/// because Renderer::draw can't return Result without desyncing the caller's
-/// group stack.
+/// Records draws into a Scene through the Renderer trait. The legacy `draw`
+/// entry accumulates errors; checked submissions report them directly.
 pub struct SceneRenderer<'a> {
     pub scene: &'a mut Scene,
     pub resolver: &'a mut dyn ResourceResolver,
@@ -30,12 +29,37 @@ impl<'a> SceneRenderer<'a> {
 }
 
 impl Renderer for SceneRenderer<'_> {
-    fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-        match record_command(cmd, self.resolver) {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        request.validate_projection()?;
+        if !request.projective.is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        if matches!(request.command, DrawCommand::ApplyBlur { .. }) {
+            return Err(RenderError::Unsupported(RenderFeature::Blur));
+        }
+        Ok(RenderRoute::Native)
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.route(request)?;
+        match record_command(request.command, self.resolver) {
             Ok(op) => {
                 self.scene.push(op);
+                Ok(())
             }
-            Err(e) => self.errors.push(e),
+            Err(error) => {
+                self.errors.push(error);
+                Err(RenderError::BackendFailure)
+            }
+        }
+    }
+
+    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        if matches!(
+            self.submit(&DrawRequest::new(cmd, *clip)),
+            Err(RenderError::Unsupported(_))
+        ) {
+            self.errors.push(RecordError::UnsupportedCommand);
         }
     }
 
@@ -54,7 +78,7 @@ mod tests {
     use crate::render::font::Font;
     use crate::render::scene::{ResourceRef, SceneOp};
     use crate::render::texture::Texture;
-    use crate::types::{Color, Fixed, Point, Transform};
+    use crate::types::{Color, Fixed, Point, Transform, Transform3D};
 
     struct PanicResolver;
     impl ResourceResolver for PanicResolver {
@@ -147,5 +171,48 @@ mod tests {
         assert_eq!(back.ops, scene.ops);
         assert!(matches!(back.ops[0], SceneOp::Line { .. }));
         assert!(matches!(back.ops[1], SceneOp::FillRect { .. }));
+    }
+
+    #[test]
+    fn blur_capture_never_turns_into_a_group_end() {
+        let mut scene = Scene::new();
+        let mut resolver = PanicResolver;
+        let mut sink = scene.renderer(&mut resolver);
+        let clip = Rect::new(0, 0, 32, 32);
+        let blur = DrawCommand::ApplyBlur {
+            alpha: Fixed::from_ratio(1, 2),
+            region: clip,
+        };
+        assert_eq!(
+            sink.submit(&DrawRequest::new(&blur, clip)),
+            Err(RenderError::Unsupported(RenderFeature::Blur))
+        );
+        assert!(sink.scene.ops.is_empty());
+        sink.draw(&blur, &clip);
+        assert_eq!(sink.errors, [RecordError::UnsupportedCommand]);
+        assert!(sink.scene.ops.is_empty());
+    }
+
+    #[test]
+    fn projected_capture_rejects_the_draw_before_recording() {
+        let mut scene = Scene::new();
+        let mut resolver = PanicResolver;
+        let mut sink = scene.renderer(&mut resolver);
+        let clip = Rect::new(0, 0, 32, 32);
+        let command = DrawCommand::Fill {
+            area: clip,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: red(),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let request = DrawRequest::new(&command, clip)
+            .with_projective(Transform3D::translate(Fixed::from_int(4), Fixed::ZERO));
+        assert_eq!(
+            sink.submit(&request),
+            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+        );
+        assert!(sink.scene.ops.is_empty());
     }
 }
