@@ -6633,7 +6633,9 @@ mod scroll_blit_visual_check {
                 Fixed::from_int(32),
                 Fixed::from_int(32),
             );
-            backend.scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(-4));
+            backend
+                .scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(-4))
+                .unwrap();
             for y in 28..32 {
                 let post_shift_red = ((y + 4) * 8) as u8;
                 for x in 0..32 {
@@ -6700,7 +6702,9 @@ mod scroll_blit_visual_check {
                 Fixed::from_int(32),
                 Fixed::from_int(16),
             );
-            backend.scroll_target_region(&inner_area, Fixed::ZERO, Fixed::from_int(-2));
+            backend
+                .scroll_target_region(&inner_area, Fixed::ZERO, Fixed::from_int(-2))
+                .unwrap();
             // Inner strip exposed at rows 22..24 (bottom of inner).
             for y in 22..24 {
                 let post_inner_red = ((y + 2) * 4) as u8;
@@ -6716,7 +6720,9 @@ mod scroll_blit_visual_check {
                 Fixed::from_int(32),
                 Fixed::from_int(32),
             );
-            backend.scroll_target_region(&outer_area, Fixed::ZERO, Fixed::from_int(-4));
+            backend
+                .scroll_target_region(&outer_area, Fixed::ZERO, Fixed::from_int(-4))
+                .unwrap();
             // Outer strip exposed at rows 28..32.
             for y in 28..32 {
                 // After both shifts: row y on screen reads from

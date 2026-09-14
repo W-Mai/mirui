@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Software scrolling.** Framebuffer shifts traverse rows in memmove order without allocating a row index vector.
+- **Scroll target failures.** Unsupported target shifts return a render error and mark the affected subtree for repaint instead of panicking.
 - **Background blur readback.** Empty target regions remain optional; unsupported or failed target sampling reaches the frame caller as a typed render error.
 - **Offscreen readback.** Failed target reads invalidate the unfinished buffer instead of reusing stale pixels; GPU readback copies clipped pixels by row and destination offset.
 - **SDL GPU checked draws.** Native shapes, images, path meshes, and glyph batches report failed SDL draw, texture creation, or upload operations through the checked renderer entry.

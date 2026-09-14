@@ -802,7 +802,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.world
                 .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
             for sop in &plan.shifts {
-                renderer.scroll_target_region(&sop.area, sop.dx, sop.dy);
+                if let Err(error) = renderer.scroll_target_region(&sop.area, sop.dx, sop.dy) {
+                    drop(renderer);
+                    crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+                    return Err(error);
+                }
             }
 
             // Union into one bbox: a single tree walk is ~3x cheaper than

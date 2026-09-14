@@ -1401,7 +1401,12 @@ impl Renderer for SwRenderer<'_> {
         true
     }
 
-    fn scroll_target_region(&mut self, area: &Rect, dx: Fixed, dy: Fixed) {
+    fn scroll_target_region(
+        &mut self,
+        area: &Rect,
+        dx: Fixed,
+        dy: Fixed,
+    ) -> Result<(), RenderError> {
         // Truncate (not floor) so sub-pixel residue keeps the original sign.
         let (px0, py0, px1, py1) = self.viewport.rect_to_physical_pixel_bounds(*area);
         let scale = self.viewport.scale();
@@ -1416,6 +1421,7 @@ impl Renderer for SwRenderer<'_> {
             dx_phys,
             dy_phys,
         );
+        Ok(())
     }
 
     fn read_target_region(
@@ -2578,7 +2584,9 @@ mod tests {
             Fixed::from_int(8),
             Fixed::from_int(8),
         );
-        backend.scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(-2));
+        backend
+            .scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(-2))
+            .unwrap();
 
         // Rows 0..6 should now hold pre-scroll rows 2..8; rows 6, 7
         // are the bottom strip the caller is meant to repaint, so
@@ -2612,7 +2620,9 @@ mod tests {
             Fixed::from_int(8),
             Fixed::from_int(8),
         );
-        backend.scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(2));
+        backend
+            .scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(2))
+            .unwrap();
 
         for y in 2..8 {
             let src_y_before = y - 2;
@@ -2639,7 +2649,9 @@ mod tests {
             Fixed::from_int(4),
         );
         let half = Fixed::from_int(1) / Fixed::from_int(2);
-        backend.scroll_target_region(&area, Fixed::ZERO, half);
+        backend
+            .scroll_target_region(&area, Fixed::ZERO, half)
+            .unwrap();
         for px in backend.target.buf.as_slice() {
             assert_eq!(*px, 1);
         }
@@ -2671,7 +2683,9 @@ mod tests {
             Fixed::from_int(4),
         );
         let neg_half = Fixed::ZERO - (Fixed::from_int(1) / Fixed::from_int(2));
-        backend.scroll_target_region(&area, Fixed::ZERO, neg_half);
+        backend
+            .scroll_target_region(&area, Fixed::ZERO, neg_half)
+            .unwrap();
         assert_eq!(
             backend.target.buf.as_slice(),
             snapshot.as_slice(),
@@ -2697,7 +2711,9 @@ mod tests {
             Fixed::from_int(8),
             Fixed::from_int(8),
         );
-        backend.scroll_target_region(&area, Fixed::from_int(-2), Fixed::ZERO);
+        backend
+            .scroll_target_region(&area, Fixed::from_int(-2), Fixed::ZERO)
+            .unwrap();
 
         for x in 0..6 {
             let src_x_before = x + 2;
@@ -2728,7 +2744,9 @@ mod tests {
             Fixed::from_int(8),
             Fixed::from_int(8),
         );
-        backend.scroll_target_region(&area, Fixed::from_int(2), Fixed::ZERO);
+        backend
+            .scroll_target_region(&area, Fixed::from_int(2), Fixed::ZERO)
+            .unwrap();
 
         for x in 2..8 {
             let src_x_before = x - 2;

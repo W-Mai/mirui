@@ -53,33 +53,37 @@ pub(crate) fn texture_scroll_in_place(
     let stride = tex.stride;
     let buf = tex.buf.as_mut_slice();
 
-    let row_iter: alloc::vec::Vec<i32> = if dy_phys >= 0 {
-        (sy0..sy1).rev().collect()
-    } else {
-        (sy0..sy1).collect()
-    };
-
-    for src_y in row_iter {
+    let mut copy_row = |src_y: i32| {
         let dst_y = src_y + dy_phys;
         if dst_y < sy0 || dst_y >= sy1 {
-            continue;
+            return;
         }
         if dx_phys == 0 {
             let src_off = src_y as usize * stride + sx0 as usize * bpp;
             let dst_off = dst_y as usize * stride + sx0 as usize * bpp;
             let row_bytes = (sx1 - sx0) as usize * bpp;
             buf.copy_within(src_off..src_off + row_bytes, dst_off);
-            continue;
+            return;
         }
         let dst_x0 = (sx0 + dx_phys).max(sx0);
         let dst_x1 = (sx1 + dx_phys).min(sx1);
         if dst_x1 <= dst_x0 {
-            continue;
+            return;
         }
         let src_x0 = dst_x0 - dx_phys;
         let copy_w = (dst_x1 - dst_x0) as usize * bpp;
         let src_off = src_y as usize * stride + src_x0 as usize * bpp;
         let dst_off = dst_y as usize * stride + dst_x0 as usize * bpp;
         buf.copy_within(src_off..src_off + copy_w, dst_off);
+    };
+
+    if dy_phys >= 0 {
+        for src_y in (sy0..sy1).rev() {
+            copy_row(src_y);
+        }
+    } else {
+        for src_y in sy0..sy1 {
+            copy_row(src_y);
+        }
     }
 }

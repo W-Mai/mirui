@@ -83,6 +83,7 @@ pub enum RenderFeature {
     Composite(CompositeMode),
     TextureFormat(ColorFormat),
     Readback,
+    ScrollBlit,
 }
 
 /// Bounded backend resource exhausted while preparing a draw.
@@ -323,13 +324,16 @@ pub trait Renderer {
         false
     }
 
-    /// Shift `area`'s pixels by `(dx, dy)` *logical* pixels (memmove,
-    /// no draw, no flush). Pixels evicted from `area` are dropped; the
-    /// caller repaints the newly exposed strip(s). Default panics;
-    /// backends opt in by overriding both this and
-    /// `supports_scroll_blit()`.
-    fn scroll_target_region(&mut self, _area: &Rect, _dx: Fixed, _dy: Fixed) {
-        unimplemented!("Renderer::scroll_target_region not implemented for this backend")
+    /// Shift `area`'s pixels by `(dx, dy)` logical pixels. Pixels evicted
+    /// from `area` are repainted by the caller. Backends opt in by
+    /// overriding this and `supports_scroll_blit()`.
+    fn scroll_target_region(
+        &mut self,
+        _area: &Rect,
+        _dx: Fixed,
+        _dy: Fixed,
+    ) -> Result<(), RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::ScrollBlit))
     }
 }
 
@@ -366,6 +370,23 @@ mod tests {
             Err(RenderError::BackendFailure)
         );
         assert_eq!(pixels, [23; 16]);
+    }
+
+    #[test]
+    fn unsupported_scroll_returns_a_typed_error() {
+        struct NoScroll;
+
+        impl Renderer for NoScroll {
+            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+
+            fn flush(&mut self) {}
+        }
+
+        let mut renderer = NoScroll;
+        assert_eq!(
+            renderer.scroll_target_region(&Rect::new(0, 0, 8, 8), Fixed::ONE, Fixed::ZERO),
+            Err(RenderError::Unsupported(RenderFeature::ScrollBlit))
+        );
     }
 
     #[test]
