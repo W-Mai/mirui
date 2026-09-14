@@ -55,8 +55,12 @@ impl Renderer for MockOuter {
     fn read_target_region(&self, _src: &Rect, _dst: &mut Texture) -> Result<(), RenderError> {
         Ok(())
     }
-    fn modify_target_region(&mut self, _src: &Rect, _f: &mut dyn FnMut(&mut Texture)) -> bool {
-        false
+    fn modify_target_region(
+        &mut self,
+        _src: &Rect,
+        _f: &mut dyn FnMut(&mut Texture),
+    ) -> Result<bool, RenderError> {
+        Ok(false)
     }
 }
 

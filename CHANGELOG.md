@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Target edits.** Empty regions return `Ok(false)`; failed sampling or pixel writeback returns a typed error instead of being reported as an empty region.
 - **Software scrolling.** Framebuffer shifts traverse rows in memmove order without allocating a row index vector.
 - **Scroll target failures.** Unsupported target shifts return a render error and mark the affected subtree for repaint instead of panicking.
 - **Background blur readback.** Empty target regions remain optional; unsupported or failed target sampling reaches the frame caller as a typed render error.

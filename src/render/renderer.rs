@@ -301,14 +301,14 @@ pub trait Renderer {
     /// Hand the closure a mutable `Texture` view over physical-pixel
     /// framebuffer bytes inside `src`, skipping the alloc-and-blit-back
     /// round-trip that `sample_target_region` + `draw(Blit)` would do.
-    /// Returns `true` when the closure ran. Default panics so a missing
-    /// override is loud.
+    /// Returns `Ok(true)` when the closure ran, `Ok(false)` when the
+    /// target region is empty, or an error when reading or writing fails.
     fn modify_target_region(
         &mut self,
         _src: &Rect,
         _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
-    ) -> bool {
-        unimplemented!("Renderer::modify_target_region not implemented for this backend")
+    ) -> Result<bool, RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
     /// Backends that defer draws (currently only `wgpu`) need to submit
@@ -386,6 +386,25 @@ mod tests {
         assert_eq!(
             renderer.scroll_target_region(&Rect::new(0, 0, 8, 8), Fixed::ONE, Fixed::ZERO),
             Err(RenderError::Unsupported(RenderFeature::ScrollBlit))
+        );
+    }
+
+    #[test]
+    fn unsupported_target_edit_does_not_run_callback() {
+        struct NoTargetEdit;
+
+        impl Renderer for NoTargetEdit {
+            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+
+            fn flush(&mut self) {}
+        }
+
+        let mut renderer = NoTargetEdit;
+        assert_eq!(
+            renderer.modify_target_region(&Rect::new(0, 0, 8, 8), &mut |_| {
+                panic!("unsupported edit must not run its callback")
+            }),
+            Err(RenderError::Unsupported(RenderFeature::Readback))
         );
     }
 

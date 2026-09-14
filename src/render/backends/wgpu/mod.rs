@@ -3733,30 +3733,23 @@ impl Renderer for WgpuRenderer<'_> {
         &mut self,
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
-    ) -> bool {
-        let Ok(Some(mut tex)) = self.sample_target_region(src) else {
-            return false;
+    ) -> Result<bool, RenderError> {
+        let Some(mut tex) = self.sample_target_region(src)? else {
+            return Ok(false);
         };
         f(&mut tex);
-        let tw = tex.width;
-        let th = tex.height;
-        let src_rect = Rect::new(0, 0, tw, th);
-        let dst_pos = Point { x: src.x, y: src.y };
-        let dst_size = Point { x: src.w, y: src.h };
-        // Blit through the render pipeline, not queue.write_texture:
-        // the next pass's LoadOp::Load on the MSAA attachment would
-        // otherwise resolve stale multisample contents over these pixels.
-        self.blit_inner(
-            &tex,
-            &src_rect,
-            dst_pos,
-            dst_size,
-            src,
-            255,
-            Fixed::ZERO,
-            CompositeMode::SourceOver,
-        );
-        true
+        let command = DrawCommand::Blit {
+            pos: Point { x: src.x, y: src.y },
+            size: Point { x: src.w, y: src.h },
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &tex,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        self.submit(&DrawRequest::new(&command, *src))?;
+        Ok(true)
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -3764,8 +3757,8 @@ impl Renderer for WgpuRenderer<'_> {
         &mut self,
         _src: &Rect,
         _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
-    ) -> bool {
-        false
+    ) -> Result<bool, RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 }
 

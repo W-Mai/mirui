@@ -820,29 +820,25 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         &mut self,
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
-    ) -> bool {
-        let Ok(Some(mut tex)) = self.sample_target_region(src) else {
-            return false;
+    ) -> Result<bool, RenderError> {
+        let Some(mut tex) = self.sample_target_region(src)? else {
+            return Ok(false);
         };
         f(&mut tex);
         let Some(phys) = self.physical_clip_rect(src) else {
-            return false;
+            return Ok(false);
         };
-        let bytes = match &tex.buf {
-            crate::render::texture::TexBuf::Owned(v) => v.as_slice(),
-            _ => return false,
-        };
-        let mut buf: alloc::vec::Vec<u8> = bytes.into();
         let Ok(img) = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
-            wasm_bindgen::Clamped(&mut buf),
+            wasm_bindgen::Clamped(tex.buf.as_mut_slice()),
             tex.width as u32,
             tex.height as u32,
         ) else {
-            return false;
+            return Err(RenderError::BackendFailure);
         };
         self.ctx()
             .put_image_data(&img, phys.x.to_f32() as f64, phys.y.to_f32() as f64)
-            .is_ok()
+            .map_err(|_| RenderError::BackendFailure)?;
+        Ok(true)
     }
 
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {

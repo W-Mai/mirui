@@ -1360,8 +1360,13 @@ impl Renderer for SwRenderer<'_> {
         &mut self,
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
-    ) -> bool {
+    ) -> Result<bool, RenderError> {
         use crate::render::texture::{TexBuf, Texture};
+        if !self.target.valid_storage()
+            || matches!(&self.target.buf, crate::render::texture::TexBuf::Ref(_))
+        {
+            return Err(RenderError::InvalidTexture);
+        }
         let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
         let target_w = self.target.width as i32;
         let target_h = self.target.height as i32;
@@ -1370,7 +1375,7 @@ impl Renderer for SwRenderer<'_> {
         let cx1 = sx1.min(target_w);
         let cy1 = sy1.min(target_h);
         if cx1 <= cx0 || cy1 <= cy0 {
-            return false;
+            return Ok(false);
         }
         let bpp = self.target.format.bytes_per_pixel();
         let target_stride = self.target.stride;
@@ -1394,7 +1399,7 @@ impl Renderer for SwRenderer<'_> {
             transient: self.target.transient,
         };
         f(&mut view);
-        true
+        Ok(true)
     }
 
     fn supports_scroll_blit(&self) -> bool {
@@ -2549,7 +2554,7 @@ mod tests {
                 }
             }
         });
-        assert!(ran);
+        assert_eq!(ran, Ok(true));
 
         let target = &backend.target;
         for py in 0..16i32 {

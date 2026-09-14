@@ -19,8 +19,12 @@ impl Renderer for GracefulSkipRenderer {
     fn sample_target_region(&self, _src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
         Ok(None)
     }
-    fn modify_target_region(&mut self, _src: &Rect, _f: &mut dyn FnMut(&mut Texture)) -> bool {
-        false
+    fn modify_target_region(
+        &mut self,
+        _src: &Rect,
+        _f: &mut dyn FnMut(&mut Texture),
+    ) -> Result<bool, RenderError> {
+        Ok(false)
     }
 }
 
@@ -93,7 +97,7 @@ fn background_blur_modify_path_returns_false_without_panic() {
     let result = renderer.modify_target_region(&rect, &mut |_tex| {
         panic!("closure must not run when backend returns false");
     });
-    assert!(!result);
+    assert_eq!(result, Ok(false));
 }
 
 #[test]

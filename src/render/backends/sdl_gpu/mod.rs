@@ -1201,44 +1201,37 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         &mut self,
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
-    ) -> bool {
-        let Ok(Some(mut tex)) = self.sample_target_region(src) else {
-            return false;
+    ) -> Result<bool, RenderError> {
+        let Some(mut tex) = self.sample_target_region(src)? else {
+            return Ok(false);
         };
         f(&mut tex);
         let Some(phys) = self.physical_clip_rect(src) else {
-            return false;
+            return Ok(false);
         };
         let w = tex.width as u32;
         let h = tex.height as u32;
         if !tex.valid_storage() {
-            return false;
+            return Err(RenderError::InvalidTexture);
         }
         let bytes = tex.buf.as_slice();
         let stride = tex.stride;
         let canvas = &mut *self.canvas;
-        let mut ok = true;
-        self.label_cache.with_creator(|creator| {
-            let mut sdl_tex =
-                match creator.create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGBA32, w, h)
-                {
-                    Ok(t) => t,
-                    Err(_) => {
-                        ok = false;
-                        return;
-                    }
-                };
-            if sdl_tex.update(None, bytes, stride).is_err() {
-                ok = false;
-                return;
-            }
-            sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
-            let dst_rect = sdl2::rect::Rect::new(phys.x.to_int(), phys.y.to_int(), w, h);
-            if canvas.copy(&sdl_tex, None, Some(dst_rect)).is_err() {
-                ok = false;
-            }
-        });
-        ok
+        self.label_cache
+            .with_creator(|creator| -> Result<(), RenderError> {
+                let mut sdl_tex = creator
+                    .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGBA32, w, h)
+                    .map_err(|_| RenderError::BackendFailure)?;
+                sdl_tex
+                    .update(None, bytes, stride)
+                    .map_err(|_| RenderError::BackendFailure)?;
+                sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
+                let dst_rect = sdl2::rect::Rect::new(phys.x.to_int(), phys.y.to_int(), w, h);
+                canvas
+                    .copy(&sdl_tex, None, Some(dst_rect))
+                    .map_err(|_| RenderError::BackendFailure)
+            })?;
+        Ok(true)
     }
 }
 
