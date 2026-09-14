@@ -28,6 +28,7 @@ const SCALE: u16 = 2;
 fn draw_fixture(
     renderer: &mut impl Renderer,
     projected: bool,
+    blurred: bool,
 ) -> Result<Texture<'static>, RenderError> {
     let clip = Rect::new(0, 0, WIDTH, HEIGHT);
     let background = DrawCommand::Fill {
@@ -59,6 +60,13 @@ fn draw_fixture(
         composite: CompositeMode::Screen,
     };
     renderer.submit(&DrawRequest::new(&image, clip))?;
+    if blurred {
+        let blur = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE / Fixed::from_int(3),
+            region: Rect::new(68, 34, 184, 174),
+        };
+        renderer.submit(&DrawRequest::new(&blur, clip))?;
+    }
     renderer.prepare_readback(&clip);
     renderer
         .sample_target_region(&clip)
@@ -70,6 +78,7 @@ fn main() {
     let backend = args.next().expect("backend: sw, sdl, or wgpu");
     let path = PathBuf::from(args.next().expect("output PNG path"));
     let projected = args.next().as_deref() == Some("quad");
+    let blurred = args.next().as_deref() == Some("blur");
 
     let image = match backend.as_str() {
         "sw" => {
@@ -82,28 +91,36 @@ fn main() {
             );
             let mut factory = SwRendererFactory::new();
             let viewport = surface.display_info().viewport();
-            draw_fixture(&mut factory.make(&mut surface, &viewport), projected)
-                .expect("software composite draw")
+            draw_fixture(
+                &mut factory.make(&mut surface, &viewport),
+                projected,
+                blurred,
+            )
+            .expect("software composite draw")
         }
         "sdl" => {
             let mut surface = SdlGpuSurface::new("mirui image composite parity", WIDTH, HEIGHT);
             let mut factory = SdlGpuFactory::new()
                 .with_projective_fallback(ProjectiveFallback::new(vec![0; 512 * 1024]));
             let viewport = surface.display_info().viewport();
-            draw_fixture(&mut factory.make(&mut surface, &viewport), projected)
-                .expect("SDL composite draw")
+            draw_fixture(
+                &mut factory.make(&mut surface, &viewport),
+                projected,
+                blurred,
+            )
+            .expect("SDL composite draw")
         }
         #[cfg(feature = "wgpu")]
         "wgpu" => {
             let mut surface = WgpuSurface::new("mirui image composite parity", WIDTH, HEIGHT);
-            let mut factory = WgpuRendererFactory::new();
+            let mut factory = WgpuRendererFactory::new().with_target_edit_budget(512 * 1024);
             let mut image = None;
             for _ in 0..16 {
                 while surface.poll_event().is_some() {}
                 let viewport = surface.display_info().viewport();
                 let result = {
                     let mut renderer = factory.make(&mut surface, &viewport);
-                    draw_fixture(&mut renderer, projected)
+                    draw_fixture(&mut renderer, projected, blurred)
                 };
                 match result {
                     Ok(frame) => {
