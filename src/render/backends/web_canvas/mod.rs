@@ -1380,7 +1380,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         let ctx = self.ctx();
         let prev_alpha = ctx.global_alpha();
         let prev_composite = ctx.global_composite_operation().unwrap_or_default();
+        let prev_smoothing = ctx.image_smoothing_enabled();
         ctx.set_global_alpha(opa as f64 / 255.0);
+        ctx.set_image_smoothing_enabled(false);
         let op = match composite {
             CompositeMode::SourceOver => "source-over",
             CompositeMode::Add => "lighter",
@@ -1452,6 +1454,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         }
 
         ctx.set_global_alpha(prev_alpha);
+        ctx.set_image_smoothing_enabled(prev_smoothing);
         let _ = ctx.set_global_composite_operation(&prev_composite);
         self.pop_rect_clip();
         if result.is_err() {

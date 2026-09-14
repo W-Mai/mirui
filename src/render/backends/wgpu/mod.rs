@@ -917,9 +917,9 @@ impl WgpuRenderer<'_> {
             .expect("PipelineCache must be initialised before blit");
         let sampler = self
             .factory
-            .linear_sampler
+            .nearest_sampler
             .as_ref()
-            .expect("linear sampler must be initialised before blit");
+            .expect("nearest sampler must be initialised before blit");
 
         let tw = texture_width as f32;
         let th = texture_height as f32;
@@ -1626,9 +1626,9 @@ impl WgpuRenderer<'_> {
             .expect("PipelineCache must be initialised before blit_quad");
         let sampler = self
             .factory
-            .linear_sampler
+            .nearest_sampler
             .as_ref()
-            .expect("linear sampler must be initialised before blit_quad");
+            .expect("nearest sampler must be initialised before blit_quad");
         let vertex_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {

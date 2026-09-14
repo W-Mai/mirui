@@ -151,6 +151,8 @@ pub enum AlphaMode {
     Blend,
 }
 
+/// Pixel storage sampled with nearest-neighbor filtering when blitted.
+/// Glyph coverage and SDF atlases use their own interpolating samplers.
 pub struct Texture<'a> {
     pub buf: TexBuf<'a>,
     pub width: u16,
