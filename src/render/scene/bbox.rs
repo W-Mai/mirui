@@ -24,6 +24,12 @@ struct BoundsFrame {
     bounds: Option<Rect>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundsWalkError<E> {
+    Bounds(BoundsError),
+    Leaf(E),
+}
+
 impl BoundsFrame {
     const EMPTY: Self = Self {
         transform: Transform::IDENTITY,
@@ -242,6 +248,135 @@ pub fn children_disjoint(ops: &[SceneOp]) -> Result<bool, BoundsError> {
         }
     }
     Ok(true)
+}
+
+pub(crate) fn children_disjoint_with<E, F>(
+    ops: &[SceneOp],
+    parent: Transform,
+    leaf_bounds: &F,
+) -> Result<bool, BoundsWalkError<E>>
+where
+    F: Fn(&SceneOp, Transform) -> Result<Option<Rect>, E>,
+{
+    let mut first_index = 0usize;
+    while let Some(bounds) = next_child_bounds_with(ops, &mut first_index, parent, leaf_bounds)? {
+        let mut other_index = first_index;
+        while let Some(other) = next_child_bounds_with(ops, &mut other_index, parent, leaf_bounds)?
+        {
+            if bounds.intersect(&other).is_some() {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+pub(crate) fn union_of_children_with<E, F>(
+    ops: &[SceneOp],
+    parent: Transform,
+    leaf_bounds: &F,
+) -> Result<Rect, BoundsWalkError<E>>
+where
+    F: Fn(&SceneOp, Transform) -> Result<Option<Rect>, E>,
+{
+    let mut index = 0usize;
+    let mut bounds: Option<Rect> = None;
+    while let Some(child) = next_child_bounds_with(ops, &mut index, parent, leaf_bounds)? {
+        bounds = Some(match bounds {
+            Some(current) => current.union(&child),
+            None => child,
+        });
+    }
+    Ok(bounds.unwrap_or(Rect::ZERO))
+}
+
+fn next_child_bounds_with<E, F>(
+    ops: &[SceneOp],
+    index: &mut usize,
+    parent: Transform,
+    leaf_bounds: &F,
+) -> Result<Option<Rect>, BoundsWalkError<E>>
+where
+    F: Fn(&SceneOp, Transform) -> Result<Option<Rect>, E>,
+{
+    while *index < ops.len() {
+        match &ops[*index] {
+            SceneOp::GroupBegin { .. } => {
+                let (bounds, end) = subtree_bbox_with(ops, *index, parent, leaf_bounds)?;
+                *index = end + 1;
+                if bounds.is_some() {
+                    return Ok(bounds);
+                }
+            }
+            SceneOp::GroupEnd => {
+                *index = ops.len();
+                return Ok(None);
+            }
+            other => {
+                *index += 1;
+                if let Some(bounds) = leaf_bounds(other, parent).map_err(BoundsWalkError::Leaf)? {
+                    return Ok(Some(bounds));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn subtree_bbox_with<E, F>(
+    ops: &[SceneOp],
+    begin_idx: usize,
+    parent: Transform,
+    leaf_bounds: &F,
+) -> Result<(Option<Rect>, usize), BoundsWalkError<E>>
+where
+    F: Fn(&SceneOp, Transform) -> Result<Option<Rect>, E>,
+{
+    let mut frames = [BoundsFrame::EMPTY; MAX_GROUP_DEPTH];
+    frames[0].transform =
+        parent.compose(&group_transform(&ops[begin_idx]).map_err(BoundsWalkError::Bounds)?);
+    let mut depth = 1usize;
+    let mut i = begin_idx + 1;
+    while i < ops.len() {
+        match &ops[i] {
+            SceneOp::GroupBegin { .. } => {
+                if depth == frames.len() {
+                    return Err(BoundsWalkError::Bounds(
+                        BoundsError::InsufficientWorkspace {
+                            required: depth + 1,
+                            available: frames.len(),
+                        },
+                    ));
+                }
+                frames[depth] = BoundsFrame {
+                    transform: frames[depth - 1]
+                        .transform
+                        .compose(&group_transform(&ops[i]).map_err(BoundsWalkError::Bounds)?),
+                    bounds: None,
+                };
+                depth += 1;
+            }
+            SceneOp::GroupEnd => {
+                depth -= 1;
+                let bounds = frames[depth].bounds;
+                if depth == 0 {
+                    return Ok((bounds, i));
+                }
+                if let Some(bounds) = bounds {
+                    frames[depth - 1].include(bounds);
+                }
+            }
+            other => {
+                if let Some(bounds) = leaf_bounds(other, frames[depth - 1].transform)
+                    .map_err(BoundsWalkError::Leaf)?
+                {
+                    frames[depth - 1].include(bounds);
+                }
+            }
+        }
+        i += 1;
+    }
+    Err(BoundsWalkError::Bounds(BoundsError::UnbalancedGroup))
 }
 
 fn has_multiple_children(ops: &[SceneOp]) -> bool {

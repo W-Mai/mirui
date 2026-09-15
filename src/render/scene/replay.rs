@@ -1,6 +1,8 @@
 //! Replay an owned `SceneOp` stream back through a live `Renderer`.
 
-use super::bbox::{BoundsError, children_disjoint, union_of_children};
+use super::bbox::{
+    BoundsError, BoundsWalkError, children_disjoint_with, op_bbox, union_of_children_with,
+};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
@@ -185,6 +187,97 @@ fn mul_alpha(a: u8, b: u8) -> u8 {
     ((a as u16 * b as u16) / 255) as u8
 }
 
+fn resolved_leaf_bounds(
+    op: &SceneOp,
+    parent: Transform,
+    resolver: &dyn SceneResolver,
+    output_scale: Fixed,
+) -> Result<Option<Rect>, ReplayError> {
+    match op {
+        SceneOp::GlyphRun {
+            font,
+            ppem,
+            pos,
+            transform,
+            glyphs,
+            ..
+        } => {
+            if glyphs.is_empty() {
+                return Ok(None);
+            }
+            let mut font = resolver
+                .font(font)
+                .ok_or(ReplayError::UnresolvedFont)?
+                .clone();
+            font.size = *ppem;
+            let transform = parent.compose(transform);
+            let output_ppem = crate::render::font::output_ppem(
+                font.size.max(1),
+                output_scale * transform.raster_scale(),
+            );
+            font.glyph_run_ink_bounds(glyphs, *pos, transform, output_ppem)
+                .map(Some)
+                .ok_or(ReplayError::Bounds(BoundsError::GlyphInk))
+        }
+        SceneOp::PosedGlyphRun {
+            font,
+            ppem,
+            pos,
+            transform,
+            glyphs,
+            ..
+        } => {
+            if glyphs.glyphs().is_empty() {
+                return Ok(None);
+            }
+            let mut font = resolver
+                .font(font)
+                .ok_or(ReplayError::UnresolvedFont)?
+                .clone();
+            font.size = *ppem;
+            glyphs
+                .as_draw()
+                .ink_bounds(&font, *pos, parent.compose(transform), output_scale)
+                .map(Some)
+                .ok_or(ReplayError::Bounds(BoundsError::GlyphInk))
+        }
+        _ => op_bbox(op)
+            .map(|bounds| bounds.map(|bounds| parent.apply_rect_bbox(bounds)))
+            .map_err(ReplayError::Bounds),
+    }
+}
+
+fn map_bounds_walk(error: BoundsWalkError<ReplayError>) -> ReplayError {
+    match error {
+        BoundsWalkError::Bounds(error) => ReplayError::Bounds(error),
+        BoundsWalkError::Leaf(error) => error,
+    }
+}
+
+fn resolved_children_disjoint(
+    ops: &[SceneOp],
+    parent: Transform,
+    resolver: &dyn SceneResolver,
+    output_scale: Fixed,
+) -> Result<bool, ReplayError> {
+    children_disjoint_with(ops, parent, &|op, parent| {
+        resolved_leaf_bounds(op, parent, resolver, output_scale)
+    })
+    .map_err(map_bounds_walk)
+}
+
+fn resolved_children_union(
+    ops: &[SceneOp],
+    parent: Transform,
+    resolver: &dyn SceneResolver,
+    output_scale: Fixed,
+) -> Result<Rect, ReplayError> {
+    union_of_children_with(ops, parent, &|op, parent| {
+        resolved_leaf_bounds(op, parent, resolver, output_scale)
+    })
+    .map_err(map_bounds_walk)
+}
+
 /// Find the index of the matching `GroupEnd` for the `GroupBegin` at `start`.
 fn matching_group_end(ops: &[SceneOp], start: usize) -> Option<usize> {
     let mut depth = 1usize;
@@ -342,7 +435,12 @@ fn replay_scene_pass(
                             let end_idx =
                                 matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?;
                             let inner = &ops[i + 1..end_idx];
-                            if !children_disjoint(inner).map_err(ReplayError::Bounds)? {
+                            if !resolved_children_disjoint(
+                                inner,
+                                composed,
+                                resolver,
+                                renderer.output_scale(),
+                            )? {
                                 return Err(ReplayError::GroupOpacityNeedsOffscreen);
                             }
                         }
@@ -396,9 +494,13 @@ fn replay_scene_pass(
                             return Err(ReplayError::Bounds(BoundsError::ProjectiveGroup));
                         }
                         let children = &ops[frame.start_idx + 1..i];
-                        let region = union_of_children(children, &frame.transform)
-                            .map_err(ReplayError::Bounds)?
-                            .inflate(blur_radius * Fixed::from_int(4));
+                        let region = resolved_children_union(
+                            children,
+                            frame.transform,
+                            resolver,
+                            renderer.output_scale(),
+                        )?
+                        .inflate(blur_radius * Fixed::from_int(4));
                         let alpha = crate::render::backends::sw::blur::alpha_for_radius(
                             blur_radius * renderer.output_scale(),
                         );
@@ -795,6 +897,71 @@ mod tests {
         );
     }
 
+    #[test]
+    fn scene_blur_resolves_glyph_ink_instead_of_using_the_clip() {
+        struct BlurCapture(Option<Rect>);
+
+        impl Renderer for BlurCapture {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                if let DrawCommand::ApplyBlur { region, .. } = request.command {
+                    self.0 = Some(*region);
+                }
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let ops = [
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: None,
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: Some(ResourceRef::Token("blur:2".into())),
+                disjoint_hint: true,
+            },
+            glyph_at(30),
+            SceneOp::GroupEnd,
+        ];
+        let mut renderer = BlurCapture(None);
+
+        replay_scene(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 200, 100),
+            &BitmapResolver(Font::bitmap_8x8()),
+        )
+        .unwrap();
+
+        let region = renderer.0.expect("blur command");
+        assert!(region.x > Fixed::ZERO);
+        assert!(region.w < Fixed::from_int(100));
+        assert!(region.x <= Fixed::from_int(30));
+        assert!(region.y <= Fixed::from_int(20));
+        assert!(region.x + region.w >= Fixed::from_int(30));
+        assert!(region.y + region.h >= Fixed::from_int(20));
+    }
+
+    #[test]
+    fn group_overlap_uses_resolved_glyph_ink() {
+        let ops = [glyph_at(10), glyph_at(12)];
+        assert!(
+            !resolved_children_disjoint(
+                &ops,
+                Transform::IDENTITY,
+                &BitmapResolver(Font::bitmap_8x8()),
+                Fixed::ONE,
+            )
+            .unwrap()
+        );
+    }
+
     struct CaptureRenderer {
         transforms: Vec<Transform>,
         fill_opas: Vec<u8>,
@@ -876,6 +1043,36 @@ mod tests {
         }
         fn texture(&self, _: &ResourceRef) -> Option<&Texture<'_>> {
             None
+        }
+    }
+
+    struct BitmapResolver(Font);
+
+    impl SceneResolver for BitmapResolver {
+        fn font(&self, _: &ResourceRef) -> Option<&Font> {
+            Some(&self.0)
+        }
+
+        fn texture(&self, _: &ResourceRef) -> Option<&Texture<'_>> {
+            None
+        }
+    }
+
+    static BOUNDS_GLYPH: [textflow::shaping::PositionedGlyph; 1] =
+        [textflow::shaping::PositionedGlyph::new(
+            crate::render::font::GlyphId::new(65),
+            textflow::shaping::FlowPoint { x: 0, y: 0 },
+        )];
+
+    fn glyph_at(x: i32) -> SceneOp {
+        SceneOp::GlyphRun {
+            font: ResourceRef::Index(0),
+            ppem: 16,
+            pos: Point::new(x, 20),
+            transform: Transform::IDENTITY,
+            color: Color::rgb(255, 255, 255),
+            opa: 255,
+            glyphs: (&BOUNDS_GLYPH[..]).into(),
         }
     }
 
