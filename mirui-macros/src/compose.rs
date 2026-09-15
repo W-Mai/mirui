@@ -508,7 +508,9 @@ impl ComposeInput {
                 fn modify_target_region(
                     &mut self,
                     src: &::mirui::types::Rect,
-                    f: &mut dyn FnMut(&mut ::mirui::render::texture::Texture),
+                    f: &mut dyn FnMut(
+                        &mut ::mirui::render::texture::Texture,
+                    ) -> Result<(), ::mirui::render::renderer::RenderError>,
                 ) -> Result<bool, ::mirui::render::renderer::RenderError> {
                     ::mirui::render::renderer::Renderer::modify_target_region(
                         &mut self.#default_field,

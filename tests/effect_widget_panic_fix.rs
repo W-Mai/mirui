@@ -27,7 +27,7 @@ impl Renderer for GracefulSkipRenderer {
     fn modify_target_region(
         &mut self,
         _src: &Rect,
-        _f: &mut dyn FnMut(&mut Texture),
+        _f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         Ok(false)
     }

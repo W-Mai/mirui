@@ -214,7 +214,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
     fn modify_target_region(
         &mut self,
         src: &Rect,
-        f: &mut dyn FnMut(&mut Texture),
+        f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         WebCanvasRenderer::modify_target_region(self, src, f)
     }
@@ -939,12 +939,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn modify_target_region(
         &mut self,
         src: &Rect,
-        f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         let Some(mut tex) = self.sample_target_region(src)? else {
             return Ok(false);
         };
-        f(&mut tex);
+        f(&mut tex)?;
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(false);
         };

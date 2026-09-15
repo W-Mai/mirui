@@ -3964,13 +3964,13 @@ impl WgpuRenderer<'_> {
     fn modify_target_region(
         &mut self,
         src: &Rect,
-        f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         self.prepare_readback(src)?;
         let Some(mut tex) = self.sample_target_region(src)? else {
             return Ok(false);
         };
-        f(&mut tex);
+        f(&mut tex)?;
         let phys = self
             .physical_clip_rect(src)
             .ok_or(RenderError::InvalidGeometry)?;
@@ -4010,7 +4010,7 @@ impl WgpuRenderer<'_> {
     fn modify_target_region(
         &mut self,
         _src: &Rect,
-        _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        _f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
@@ -4064,7 +4064,7 @@ impl Renderer for WgpuRenderer<'_> {
     fn modify_target_region(
         &mut self,
         src: &Rect,
-        f: &mut dyn FnMut(&mut Texture),
+        f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         WgpuRenderer::modify_target_region(self, src, f)
     }

@@ -390,7 +390,7 @@ pub trait Renderer {
     fn modify_target_region(
         &mut self,
         _src: &Rect,
-        _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        _f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
@@ -405,6 +405,7 @@ pub trait Renderer {
                 alpha,
                 Rect::new(0, 0, texture.width, texture.height),
             );
+            Ok(())
         })?;
         Ok(())
     }

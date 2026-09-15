@@ -108,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Target edit callbacks.** `Renderer::modify_target_region` callbacks return `Result`, allowing software subtree and effect failures to reach the frame caller before GPU writeback.
 - **Hybrid renderer target ownership.** `compose_backend!` keeps one renderer as the output target and routes selected command classes through `RenderEngine<Target>` fields that borrow it sequentially. Routed submissions execute inside explicit begin/end barriers; Canvas helpers and renderer-wide target operations remain attached to the shared target.
 - **Renderer submission API.** `Renderer` exposes one result-bearing `submit` entry for affine and projective draws; native execution and projective validation remain backend-private, while `route` supports non-mutating scope planning.
 - **Visual-only transforms.** `set_transform` invalidates old and new paint bounds while reusing the existing flex and text layout snapshot; the three-body animation no longer rewrites absolute layout positions every frame.

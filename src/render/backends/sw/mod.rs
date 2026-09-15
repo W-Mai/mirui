@@ -1352,7 +1352,7 @@ impl SwRenderer<'_> {
     fn modify_target_region(
         &mut self,
         src: &Rect,
-        f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         use crate::render::texture::{TexBuf, Texture};
         if !self.target.valid_storage()
@@ -1391,7 +1391,7 @@ impl SwRenderer<'_> {
             cache_revision: self.target.cache_revision,
             transient: self.target.transient,
         };
-        f(&mut view);
+        f(&mut view)?;
         Ok(true)
     }
 
@@ -1517,7 +1517,7 @@ impl Renderer for SwRenderer<'_> {
     fn modify_target_region(
         &mut self,
         src: &Rect,
-        f: &mut dyn FnMut(&mut Texture),
+        f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         SwRenderer::modify_target_region(self, src, f)
     }
@@ -1544,6 +1544,7 @@ impl Renderer for SwRenderer<'_> {
 mod tests {
     use super::blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_dda, blit_generic_slow};
     use super::*;
+    use crate::render::RenderResource;
     use crate::render::texture::ColorFormat;
     use alloc::vec;
 
@@ -2603,6 +2604,7 @@ mod tests {
                     view.set_pixel(x, y, &Color::rgb(255, 128, 64));
                 }
             }
+            Ok(())
         });
         assert_eq!(ran, Ok(true));
 
@@ -2618,6 +2620,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn modify_target_region_propagates_callback_failure() {
+        let mut backend = SwRenderer::new(Texture::owned(8, 8, ColorFormat::RGBA8888));
+        let result = backend.modify_target_region(&Rect::new(0, 0, 4, 4), &mut |_| {
+            Err(RenderError::ResourceLimit(RenderResource::Geometry))
+        });
+        assert_eq!(
+            result,
+            Err(RenderError::ResourceLimit(RenderResource::Geometry))
+        );
     }
 
     #[test]
