@@ -43,6 +43,10 @@ impl Renderer for ProjectiveRenderer<'_> {
     fn output_scale(&self) -> Fixed {
         self.inner.output_scale()
     }
+
+    fn prepare_readback(&mut self, src: &Rect) -> Result<(), RenderError> {
+        self.inner.prepare_readback(src)
+    }
 }
 
 /// Disabled (subtree) > Errored (self) > Pressed > Hovered > Enabled.

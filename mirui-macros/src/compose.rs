@@ -456,11 +456,14 @@ impl ComposeInput {
                     )
                 }
 
-                fn prepare_readback(&mut self, src: &::mirui::types::Rect) {
+                fn prepare_readback(
+                    &mut self,
+                    src: &::mirui::types::Rect,
+                ) -> Result<(), ::mirui::render::renderer::RenderError> {
                     ::mirui::render::renderer::Renderer::prepare_readback(
                         &mut self.#default_field,
                         src,
-                    );
+                    )
                 }
 
                 fn supports_scroll_blit(&self) -> bool {

@@ -21,7 +21,7 @@ where
     render_system::update_layout(&mut app.world, root, &viewport);
     let mut renderer = app.factory.make(&mut app.backend, &viewport);
     render_system::render(&app.world, root, &viewport, &mut renderer)?;
-    renderer.prepare_readback(&full);
+    renderer.prepare_readback(&full)?;
     renderer.sample_target_region(&full)
 }
 

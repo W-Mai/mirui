@@ -330,7 +330,9 @@ pub trait Renderer {
     /// call can see this frame's pixels. Eager backends keep the default
     /// no-op. Callers running readback should invoke this immediately
     /// before the read; idempotent if no work is pending.
-    fn prepare_readback(&mut self, _src: &Rect) {}
+    fn prepare_readback(&mut self, _src: &Rect) -> Result<(), RenderError> {
+        Ok(())
+    }
 
     /// Whether this backend implements `scroll_target_region`. The
     /// dirty walker checks this before emitting a `RegionShift`.

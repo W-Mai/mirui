@@ -521,7 +521,7 @@ impl WgpuRenderer<'_> {
         if plan.required_bytes() == 0 {
             return Ok(());
         }
-        self.prepare_readback(&request.clip);
+        self.prepare_readback(&request.clip)?;
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
         let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
         let mut pixels = wgpu_readback_rgba8(
@@ -741,17 +741,14 @@ impl WgpuRenderer<'_> {
     /// `present=false` submits the recorded ops but keeps the swapchain
     /// texture so a follow-up `copy_texture_to_buffer` can read this
     /// frame's pixels mid-walk.
-    fn flush_ops_to_swapchain(&mut self, present: bool) {
+    fn flush_ops_to_swapchain(&mut self, present: bool) -> Result<(), RenderError> {
         let Some(frame) = self.frame.as_mut() else {
-            return;
+            return Ok(());
         };
         if frame.ops.is_empty() && !present && frame.has_committed_pass {
-            return;
+            return Ok(());
         }
-        let state = match self.surface.state() {
-            Some(s) => s,
-            None => return,
-        };
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
         let load = if frame.has_committed_pass {
             wgpu::LoadOp::Load
         } else {
@@ -833,14 +830,16 @@ impl WgpuRenderer<'_> {
             let frame = self.frame.take().expect("frame present taken");
             frame.surface_texture.present();
         }
+        Ok(())
     }
 
     /// Append a uniform to the frame's arena. Earlier draws are submitted
     /// before their offsets are reused by a later pass.
     fn push_uniform<T: bytemuck::Pod>(&mut self, value: &T) -> Option<u32> {
         if uniform_arena_full(self.frame.as_ref()?.uniform_cursor) {
-            if !self.frame.as_ref()?.ops.is_empty() {
-                self.flush_ops_to_swapchain(false);
+            if !self.frame.as_ref()?.ops.is_empty() && self.flush_ops_to_swapchain(false).is_err() {
+                self.draw_failed = true;
+                return None;
             }
             self.frame.as_mut()?.uniform_cursor = 0;
         }
@@ -2016,7 +2015,11 @@ impl WgpuRenderer<'_> {
         }
         let glyph_count = self.factory.glyph_instances.len();
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
-            self.flush_ops_to_swapchain(false);
+            if self.flush_ops_to_swapchain(false).is_err() {
+                self.factory.glyph_instances.clear();
+                self.draw_failed = true;
+                return;
+            }
             self.factory.glyph_buffers.reset();
         }
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
@@ -3831,7 +3834,9 @@ impl WgpuRenderer<'_> {
         if self.frame.is_none() {
             return;
         }
-        self.flush_ops_to_swapchain(true);
+        if self.flush_ops_to_swapchain(true).is_err() {
+            self.draw_failed = true;
+        }
     }
 
     fn supports_offscreen(&self) -> bool {
@@ -3842,10 +3847,11 @@ impl WgpuRenderer<'_> {
         Some(crate::render::texture::ColorFormat::RGBA8888)
     }
 
-    fn prepare_readback(&mut self, _src: &Rect) {
+    fn prepare_readback(&mut self, _src: &Rect) -> Result<(), RenderError> {
         if self.frame.is_some() {
-            self.flush_ops_to_swapchain(false);
+            self.flush_ops_to_swapchain(false)?;
         }
+        Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3936,7 +3942,7 @@ impl WgpuRenderer<'_> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> Result<bool, RenderError> {
-        self.prepare_readback(src);
+        self.prepare_readback(src)?;
         let Some(mut tex) = self.sample_target_region(src)? else {
             return Ok(false);
         };
@@ -4011,7 +4017,7 @@ impl Renderer for WgpuRenderer<'_> {
         WgpuRenderer::offscreen_format(self)
     }
 
-    fn prepare_readback(&mut self, src: &Rect) {
+    fn prepare_readback(&mut self, src: &Rect) -> Result<(), RenderError> {
         WgpuRenderer::prepare_readback(self, src)
     }
 

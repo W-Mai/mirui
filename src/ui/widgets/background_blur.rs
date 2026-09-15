@@ -48,7 +48,10 @@ fn background_blur_render(
         base_rect
     };
 
-    renderer.prepare_readback(&sample_rect);
+    if let Err(error) = renderer.prepare_readback(&sample_rect) {
+        ctx.record(Err(error));
+        return;
+    }
 
     let mut tmp = match renderer.sample_target_region(&sample_rect) {
         Ok(Some(texture)) => texture,
@@ -87,4 +90,61 @@ fn background_blur_render(
 
 pub fn view() -> View {
     View::new("BackgroundBlur", 60, background_blur_render).with_filter::<BackgroundBlur>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::renderer::{DrawRequest, RenderError};
+    use crate::ui::Style;
+    use crate::ui::theme::WidgetState;
+
+    struct FailingReadback;
+
+    impl Renderer for FailingReadback {
+        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            panic!("readback preparation failure must stop the draw")
+        }
+
+        fn flush(&mut self) {}
+
+        fn prepare_readback(&mut self, _: &Rect) -> Result<(), RenderError> {
+            Err(RenderError::BackendFailure)
+        }
+
+        fn sample_target_region(
+            &self,
+            _: &Rect,
+        ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+            panic!("failed preparation must stop before target sampling")
+        }
+    }
+
+    #[test]
+    fn readback_preparation_failure_stops_before_sampling() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, BackgroundBlur::new(4));
+        let style = Style::default();
+        let clip = Rect::new(0, 0, 32, 32);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::IDENTITY,
+            quad: None,
+            clip: &clip,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+            error: None,
+        };
+
+        background_blur_render(
+            &mut FailingReadback,
+            &world,
+            entity,
+            &Rect::new(4, 4, 12, 12),
+            &mut ctx,
+        );
+
+        assert_eq!(ctx.error, Some(RenderError::BackendFailure));
+    }
 }

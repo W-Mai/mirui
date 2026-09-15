@@ -116,7 +116,7 @@ fn draw_fixture(
         };
         renderer.submit(&DrawRequest::new(&blur, clip))?;
     }
-    renderer.prepare_readback(&clip);
+    renderer.prepare_readback(&clip)?;
     renderer
         .sample_target_region(&clip)
         .and_then(|image| image.ok_or(RenderError::BackendFailure))
