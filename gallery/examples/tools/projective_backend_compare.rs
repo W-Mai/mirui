@@ -45,7 +45,7 @@ fn near(mask: &[bool], width: usize, height: usize, x: usize, y: usize) -> bool 
     (y0..=y1).any(|row| (x0..=x1).any(|col| mask[row * width + col]))
 }
 
-fn compare(reference: &Image, candidate: &Image) -> (f64, f64, f64) {
+fn compare(reference: &Image, candidate: &Image) -> (f64, f64, f64, bool) {
     assert_eq!(
         (reference.width, reference.height),
         (candidate.width, candidate.height)
@@ -94,7 +94,19 @@ fn compare(reference: &Image, candidate: &Image) -> (f64, f64, f64) {
         }
     }
 
-    assert!(union > 0);
+    if union == 0 {
+        let squared: u64 = reference
+            .pixels
+            .chunks_exact(4)
+            .zip(candidate.pixels.chunks_exact(4))
+            .flat_map(|(a, b)| {
+                (0..3).map(move |channel| u64::from(a[channel].abs_diff(b[channel])))
+            })
+            .map(|delta| delta * delta)
+            .sum();
+        let samples = (reference.width * reference.height * 3) as f64;
+        return (1.0, 0.0, (squared as f64 / samples).sqrt() / 255.0, true);
+    }
     let iou = intersection as f64 / union as f64;
     let outliers = unmatched as f64 / (reference_count + candidate_count) as f64;
     let interior_rmse = if color_samples == 0 {
@@ -102,14 +114,14 @@ fn compare(reference: &Image, candidate: &Image) -> (f64, f64, f64) {
     } else {
         (squared as f64 / color_samples as f64).sqrt() / 255.0
     };
-    (iou, outliers, interior_rmse)
+    (iou, outliers, interior_rmse, false)
 }
 
 fn main() {
     let mut args = env::args().skip(1);
     let reference = Image::read(Path::new(&args.next().expect("reference PNG")));
     let candidate = Image::read(Path::new(&args.next().expect("candidate PNG")));
-    let (iou, outliers, interior_rmse) = compare(&reference, &candidate);
+    let (iou, outliers, interior_rmse, empty) = compare(&reference, &candidate);
     println!(
         "foreground IoU={iou:.6}, edge outliers beyond 2 px={outliers:.6}, interior RGB RMSE={interior_rmse:.6}"
     );
@@ -118,6 +130,9 @@ fn main() {
         outliers <= MAX_EDGE_OUTLIER_RATE,
         "projected geometry escapes its reference bounds"
     );
+    if empty {
+        assert!(interior_rmse <= 0.01, "uniform targets differ");
+    }
 }
 
 #[cfg(test)]
@@ -141,14 +156,30 @@ mod tests {
     #[test]
     fn matching_geometry_has_no_outliers() {
         let reference = sample(2);
-        let (iou, outliers, color) = compare(&reference, &sample(2));
-        assert_eq!((iou, outliers, color), (1.0, 0.0, 0.0));
+        let (iou, outliers, color, empty) = compare(&reference, &sample(2));
+        assert_eq!((iou, outliers, color, empty), (1.0, 0.0, 0.0, false));
     }
 
     #[test]
     fn distant_geometry_fails_the_silhouette_gate() {
-        let (iou, outliers, _) = compare(&sample(2), &sample(10));
+        let (iou, outliers, _, _) = compare(&sample(2), &sample(10));
         assert!(iou < MIN_FOREGROUND_IOU);
         assert!(outliers > MAX_EDGE_OUTLIER_RATE);
+    }
+
+    #[test]
+    fn uniform_targets_compare_all_pixels() {
+        let a = Image {
+            width: 1,
+            height: 1,
+            pixels: vec![20, 30, 40, 255],
+        };
+        assert_eq!(compare(&a, &a).3, true);
+        let b = Image {
+            width: 1,
+            height: 1,
+            pixels: vec![21, 30, 40, 255],
+        };
+        assert!(compare(&a, &b).2 > 0.0);
     }
 }

@@ -12,6 +12,7 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::font::Font;
 use crate::render::path::Path;
+use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
 use crate::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use crate::render::texture::Texture;
@@ -463,6 +464,109 @@ impl WgpuRenderer<'_> {
         }
         if self.draw_failed {
             Err(ProjectiveDrawError::BackendFailure)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn composite_fallback_plan(
+        &self,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<Option<ProjectiveFallbackPlan>, RenderError> {
+        let DrawCommand::Blit { composite, .. } = request.command else {
+            return Ok(None);
+        };
+        if !matches!(
+            composite,
+            CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
+        ) {
+            return Ok(None);
+        }
+        #[cfg(target_arch = "wasm32")]
+        return Err(RenderError::Unsupported(RenderFeature::Readback));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let capacity = self
+                .factory
+                .target_edit_budget_bytes
+                .ok_or(RenderError::MissingWorkspace)?;
+            ProjectiveFallback::<&mut [u8]>::measure(
+                capacity,
+                request.command,
+                &request.clip,
+                &request.projective,
+                self.viewport,
+            )
+            .map(Some)
+            .map_err(RenderError::from)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn draw_composite_fallback(
+        &mut self,
+        plan: ProjectiveFallbackPlan,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<(), RenderError> {
+        if plan.required_bytes() == 0 {
+            return Ok(());
+        }
+        self.prepare_readback(&request.clip);
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
+        let mut pixels = wgpu_readback_rgba8(
+            &state.device,
+            &state.queue,
+            &frame.surface_texture.texture,
+            state.config.format,
+            plan.x as u32,
+            plan.y as u32,
+            u32::from(plan.width()),
+            u32::from(plan.height()),
+        )
+        .ok_or(RenderError::BackendFailure)?;
+        if pixels.len() != plan.required_bytes() {
+            return Err(RenderError::BackendFailure);
+        }
+        ProjectiveFallback::borrowed(&mut pixels)
+            .render(plan, request.command, &request.projective, self.viewport)
+            .map_err(RenderError::from)?;
+        let texture = Texture::from_ref(
+            &pixels,
+            plan.width(),
+            plan.height(),
+            crate::render::texture::ColorFormat::RGBA8888,
+        );
+        let view = self
+            .blit_source_view(&texture)
+            .ok_or(RenderError::BackendFailure)?;
+        let scale = self.viewport.scale();
+        self.blit_view_inner(
+            view,
+            texture.width,
+            texture.height,
+            &Rect::new(0, 0, texture.width, texture.height),
+            Point::new(
+                Fixed::from_int(plan.x) / scale,
+                Fixed::from_int(plan.y) / scale,
+            ),
+            Point::new(
+                Fixed::from(plan.width()) / scale,
+                Fixed::from(plan.height()) / scale,
+            ),
+            255,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+            ShaderKind::BlitReplace,
+            [
+                plan.x as u32,
+                plan.y as u32,
+                u32::from(plan.width()),
+                u32::from(plan.height()),
+            ],
+        );
+        if self.draw_failed {
+            Err(RenderError::BackendFailure)
         } else {
             Ok(())
         }
@@ -3302,6 +3406,12 @@ mod glyph_tests {
 impl Renderer for WgpuRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        request.validate_texture()?;
+        if let Some(plan) = self.composite_fallback_plan(request)? {
+            return Ok(RenderRoute::ExactFallback {
+                required_bytes: plan.required_bytes(),
+            });
+        }
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
                 return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
@@ -3331,6 +3441,19 @@ impl Renderer for WgpuRenderer<'_> {
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         self.draw_failed = false;
         request.validate_projection()?;
+        request.validate_texture()?;
+        if let Some(plan) = self.composite_fallback_plan(request)? {
+            if plan.required_bytes() == 0 {
+                return Ok(());
+            }
+            if !self.begin_frame() {
+                return Err(RenderError::BackendFailure);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            return self.draw_composite_fallback(plan, request);
+            #[cfg(target_arch = "wasm32")]
+            return Err(RenderError::Unsupported(RenderFeature::Readback));
+        }
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             self.route(request)?;
             if *alpha <= Fixed::ZERO

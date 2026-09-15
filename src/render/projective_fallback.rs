@@ -2,36 +2,42 @@ use alloc::boxed::Box;
 
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
 use crate::render::backends::sw::SwRenderer;
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
 use crate::render::command::DrawCommand;
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
 use crate::render::renderer::{ProjectiveDrawError, Renderer};
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
 use crate::render::scratch::PlaneLayout;
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
 use crate::render::texture::{ColorFormat, Texture};
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
@@ -46,6 +52,7 @@ pub struct ProjectiveFallback<S = Box<[u8]>> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
@@ -59,6 +66,7 @@ pub(crate) struct ProjectiveFallbackPlan {
 
 #[cfg(any(
     feature = "sdl-gpu",
+    feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
@@ -106,6 +114,28 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
     ))]
     pub(crate) fn plan(
         &self,
+        command: &DrawCommand<'_>,
+        clip: &Rect,
+        projective: &Transform3D,
+        viewport: Viewport,
+    ) -> Result<ProjectiveFallbackPlan, ProjectiveDrawError> {
+        Self::measure(
+            self.target.as_ref().len(),
+            command,
+            clip,
+            projective,
+            viewport,
+        )
+    }
+
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn measure(
+        capacity_bytes: usize,
         command: &DrawCommand<'_>,
         clip: &Rect,
         projective: &Transform3D,
@@ -203,10 +233,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         let layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
             .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
         let required_bytes = layout.required_bytes();
-        if required_bytes > self.target.as_ref().len() {
+        if required_bytes > capacity_bytes {
             return Err(ProjectiveDrawError::InsufficientFallbackStorage {
                 required_bytes,
-                capacity_bytes: self.target.as_ref().len(),
+                capacity_bytes,
             });
         }
 
@@ -248,6 +278,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
 
     #[cfg(any(
         feature = "sdl-gpu",
+        feature = "wgpu",
         all(feature = "web-canvas", target_arch = "wasm32"),
         test
     ))]
@@ -362,6 +393,47 @@ mod tests {
             + usize::try_from(6 - plan.x).unwrap())
             * 4;
         assert_eq!(&data[center..center + 4], &[255, 0, 255, 255]);
+    }
+
+    #[test]
+    fn fallback_measure_rejects_insufficient_capacity_before_rendering() {
+        let pixels = [200u8, 62, 112, 190].repeat(4 * 4);
+        let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+        let command = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 216,
+            radius: Fixed::from_int(2),
+            composite: CompositeMode::Difference,
+        };
+        let viewport = Viewport::new(16, 16, Fixed::ONE);
+        let clip = Rect::new(0, 0, 16, 16);
+        let needed = match ProjectiveFallback::<&mut [u8]>::measure(
+            0,
+            &command,
+            &clip,
+            &Transform3D::IDENTITY,
+            viewport,
+        ) {
+            Err(ProjectiveDrawError::InsufficientFallbackStorage {
+                required_bytes,
+                capacity_bytes: 0,
+            }) => required_bytes,
+            other => panic!("unexpected fallback plan: {other:?}"),
+        };
+        assert!(needed > 0);
+        let plan = ProjectiveFallback::<&mut [u8]>::measure(
+            needed,
+            &command,
+            &clip,
+            &Transform3D::IDENTITY,
+            viewport,
+        )
+        .unwrap();
+        assert_eq!(plan.required_bytes(), needed);
     }
 
     #[test]

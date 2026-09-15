@@ -29,6 +29,7 @@ fn draw_fixture(
     renderer: &mut impl Renderer,
     projected: bool,
     blurred: bool,
+    composite: CompositeMode,
 ) -> Result<Texture<'static>, RenderError> {
     let clip = Rect::new(0, 0, WIDTH, HEIGHT);
     let background = DrawCommand::Fill {
@@ -57,7 +58,7 @@ fn draw_fixture(
         texture: &texture,
         opa: 216,
         radius: Fixed::from_int(18),
-        composite: CompositeMode::Screen,
+        composite,
     };
     renderer.submit(&DrawRequest::new(&image, clip))?;
     if blurred {
@@ -79,6 +80,13 @@ fn main() {
     let path = PathBuf::from(args.next().expect("output PNG path"));
     let projected = args.next().as_deref() == Some("quad");
     let blurred = args.next().as_deref() == Some("blur");
+    let composite = match args.next().as_deref() {
+        None | Some("screen") => CompositeMode::Screen,
+        Some("darken") => CompositeMode::Darken,
+        Some("lighten") => CompositeMode::Lighten,
+        Some("difference") => CompositeMode::Difference,
+        Some(mode) => panic!("unknown composite mode: {mode}"),
+    };
 
     let image = match backend.as_str() {
         "sw" => {
@@ -95,6 +103,7 @@ fn main() {
                 &mut factory.make(&mut surface, &viewport),
                 projected,
                 blurred,
+                composite,
             )
             .expect("software composite draw")
         }
@@ -107,6 +116,7 @@ fn main() {
                 &mut factory.make(&mut surface, &viewport),
                 projected,
                 blurred,
+                composite,
             )
             .expect("SDL composite draw")
         }
@@ -120,7 +130,7 @@ fn main() {
                 let viewport = surface.display_info().viewport();
                 let result = {
                     let mut renderer = factory.make(&mut surface, &viewport);
-                    draw_fixture(&mut renderer, projected, blurred)
+                    draw_fixture(&mut renderer, projected, blurred, composite)
                 };
                 match result {
                     Ok(frame) => {
