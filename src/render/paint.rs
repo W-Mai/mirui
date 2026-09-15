@@ -1,6 +1,6 @@
 use mirx::scene::{GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode};
 
-use crate::types::{Color, Fixed, Fixed64, Rect, Transform};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D};
 
 #[derive(Clone, Copy)]
 struct Affine {
@@ -112,10 +112,39 @@ impl<'a> GradientPaint<'a> {
     }
 
     pub(super) fn sample(&self, px: i32, py: i32) -> Color {
+        self.sample_point(Point::new(px, py))
+    }
+
+    fn sample_point(&self, point: Point) -> Color {
         match self {
-            Self::Linear(paint) => paint.sample(px, py),
-            Self::Radial(paint) => paint.sample(px, py),
+            Self::Linear(paint) => paint.sample_point(point),
+            Self::Radial(paint) => paint.sample_point(point),
         }
+    }
+}
+
+pub(super) struct ProjectiveGradientPaint<'a> {
+    inverse: Transform3D,
+    paint: GradientPaint<'a>,
+}
+
+impl<'a> ProjectiveGradientPaint<'a> {
+    pub(super) fn new(paint: &'a Paint, physical: Transform3D, bbox: Rect) -> Option<Self> {
+        Some(Self {
+            inverse: physical.inverse()?,
+            paint: GradientPaint::new(paint, Transform::IDENTITY, bbox)?,
+        })
+    }
+
+    pub(super) fn sample(&self, px: i32, py: i32) -> Color {
+        self.sample_point(Point::new(px, py))
+    }
+
+    fn sample_point(&self, point: Point) -> Color {
+        let Some(point) = self.inverse.apply_point(point) else {
+            return Color::rgba(0, 0, 0, 0);
+        };
+        self.paint.sample_point(point)
     }
 }
 
@@ -155,9 +184,14 @@ impl<'a> LinearPaint<'a> {
         })
     }
 
-    pub(super) fn sample(&self, px: i32, py: i32) -> Color {
-        let t = self.x.mul_wide(Fixed64::from_int(i64::from(px)))
-            + self.y.mul_wide(Fixed64::from_int(i64::from(py)))
+    #[cfg(test)]
+    fn sample(&self, px: i32, py: i32) -> Color {
+        self.sample_point(Point::new(px, py))
+    }
+
+    fn sample_point(&self, point: Point) -> Color {
+        let t = self.x.mul_wide(Fixed64::from_fixed(point.x))
+            + self.y.mul_wide(Fixed64::from_fixed(point.y))
             + self.bias;
         sample_stops(self.stops, spread(t, self.spread))
     }
@@ -212,9 +246,14 @@ impl<'a> RadialPaint<'a> {
         })
     }
 
+    #[cfg(test)]
     fn sample(&self, px: i32, py: i32) -> Color {
-        let x = Fixed64::from_int(i64::from(px));
-        let y = Fixed64::from_int(i64::from(py));
+        self.sample_point(Point::new(px, py))
+    }
+
+    fn sample_point(&self, point: Point) -> Color {
+        let x = Fixed64::from_fixed(point.x);
+        let y = Fixed64::from_fixed(point.y);
         let qx =
             self.inverse.m00.mul_wide(x) + self.inverse.m01.mul_wide(y) + self.inverse.tx - self.fx;
         let qy =
@@ -378,6 +417,27 @@ mod tests {
         assert!(sampler.sample(20, 40).r < 2);
         assert!((126..=130).contains(&sampler.sample(170, 40).r));
         assert!(sampler.sample(270, 40).r >= 254);
+    }
+
+    #[test]
+    fn projective_sampler_recovers_the_original_paint_coordinate() {
+        let paint = Paint::LinearGradient(gradient(
+            GradientUnits::ObjectBoundingBox,
+            mirx::types::Transform::IDENTITY,
+        ));
+        let bbox = Rect::new(10, 20, 100, 50);
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(24), Fixed::from_int(280)).compose(
+                &Transform3D::translate(Fixed::from_int(40), Fixed::from_int(12)),
+            );
+        let original = Point::new(60, 35);
+        let projected = projection.apply_point(original).unwrap();
+        let sampler = ProjectiveGradientPaint::new(&paint, projection, bbox).unwrap();
+        let color = sampler.sample_point(projected);
+
+        assert!((125..=130).contains(&color.r));
+        assert_eq!(color.g, 0);
+        assert_eq!(color.b, 0);
     }
 
     #[test]

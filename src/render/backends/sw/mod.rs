@@ -1370,6 +1370,45 @@ impl SwRenderer<'_> {
         if logical.inverse().is_none() {
             return Err(ProjectiveDrawError::InvalidProjection);
         }
+        match command {
+            DrawCommand::FillPath {
+                path,
+                paint: paint @ (Paint::LinearGradient(_) | Paint::RadialGradient(_)),
+                ..
+            } => {
+                let Some(bbox) = path.bbox() else {
+                    return Err(ProjectiveDrawError::InvalidProjection);
+                };
+                if crate::render::paint::ProjectiveGradientPaint::new(paint, logical, bbox)
+                    .is_none()
+                {
+                    return Err(ProjectiveDrawError::InvalidProjection);
+                }
+            }
+            DrawCommand::StrokePath {
+                path,
+                paint: paint @ (Paint::LinearGradient(_) | Paint::RadialGradient(_)),
+                width,
+                ..
+            } => {
+                let Some(bbox) = path.bbox() else {
+                    return Err(ProjectiveDrawError::InvalidProjection);
+                };
+                let half = *width / 2;
+                let bbox = Rect::new(
+                    bbox.x - half,
+                    bbox.y - half,
+                    bbox.w + *width,
+                    bbox.h + *width,
+                );
+                if crate::render::paint::ProjectiveGradientPaint::new(paint, logical, bbox)
+                    .is_none()
+                {
+                    return Err(ProjectiveDrawError::InvalidProjection);
+                }
+            }
+            _ => {}
+        }
         let supported = match command {
             DrawCommand::Fill { .. }
             | DrawCommand::Border { .. }
@@ -1378,10 +1417,10 @@ impl SwRenderer<'_> {
             | DrawCommand::PushClip { .. }
             | DrawCommand::PopClip => true,
             DrawCommand::Blit { .. } => true,
-            DrawCommand::FillPath { paint, .. } => matches!(paint, Paint::Color(_)),
+            DrawCommand::FillPath { .. } => true,
             DrawCommand::Line { .. } => true,
             DrawCommand::Arc { .. } => true,
-            DrawCommand::StrokePath { paint, .. } => matches!(paint, Paint::Color(_)),
+            DrawCommand::StrokePath { .. } => true,
             DrawCommand::ApplyBlur { .. } => false,
         };
         if !supported {
@@ -3687,6 +3726,60 @@ mod tests {
     }
 
     #[test]
+    fn projective_gradient_path_samples_back_in_paint_space() {
+        use alloc::borrow::Cow;
+        use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
+
+        let mut pixels = vec![0u8; 16 * 8 * 4];
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888));
+        let path = Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(8),
+            Fixed::from_int(4),
+        );
+        let paint = Paint::LinearGradient(LinearGradient {
+            start: mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO),
+            end: mirx::types::Point::new(mirx::types::Fixed::ONE, mirx::types::Fixed::ZERO),
+            stops: Cow::Owned(vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(0, 20, 240),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(240, 20, 0),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::ObjectBoundingBox,
+            transform: mirx::types::Transform::IDENTITY,
+        });
+        let command = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            opa: 255,
+            fill_rule: crate::render::raster::FillRule::NonZero,
+        };
+        let clip = Rect::new(0, 0, 16, 8);
+        let projection = Transform3D::translate(Fixed::from_int(3), Fixed::from_int(2));
+
+        assert_eq!(
+            renderer.route(&DrawRequest::new(&command, clip).with_projective(projection)),
+            Ok(RenderRoute::Native)
+        );
+        renderer
+            .submit(&DrawRequest::new(&command, clip).with_projective(projection))
+            .unwrap();
+        let left = renderer.target.get_pixel(4, 3);
+        let right = renderer.target.get_pixel(9, 3);
+        assert!(left.b > left.r);
+        assert!(right.r > right.b);
+        assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
     fn projective_solid_stroke_uses_the_retained_outline() {
         let mut pixels = vec![0u8; 12 * 8 * 4];
         let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888));
@@ -3712,6 +3805,55 @@ mod tests {
         );
         assert_eq!(renderer.target.get_pixel(5, 3), Color::rgb(240, 120, 40));
         assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn projective_gradient_stroke_preserves_its_color_axis() {
+        use alloc::borrow::Cow;
+        use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
+
+        let mut pixels = vec![0u8; 16 * 8 * 4];
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888));
+        let mut path = Path::new();
+        path.move_to(Point::new(1, 3)).line_to(Point::new(9, 3));
+        let paint = Paint::LinearGradient(LinearGradient {
+            start: mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO),
+            end: mirx::types::Point::new(mirx::types::Fixed::ONE, mirx::types::Fixed::ZERO),
+            stops: Cow::Owned(vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(10, 240, 40),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(240, 20, 180),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::ObjectBoundingBox,
+            transform: mirx::types::Transform::IDENTITY,
+        });
+        let command = DrawCommand::StrokePath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            width: Fixed::from_int(2),
+            opa: 255,
+            line_cap: crate::render::raster::LineCap::Butt,
+            line_join: crate::render::raster::LineJoin::Miter,
+            miter_limit: Fixed::from_int(4),
+            dash: &[],
+        };
+        let clip = Rect::new(0, 0, 16, 8);
+        let projection = Transform3D::translate(Fixed::from_int(3), Fixed::ONE);
+
+        renderer
+            .submit(&DrawRequest::new(&command, clip).with_projective(projection))
+            .unwrap();
+        let left = renderer.target.get_pixel(5, 4);
+        let right = renderer.target.get_pixel(10, 4);
+        assert!(left.g > left.r);
+        assert!(right.r > right.g);
     }
 
     #[test]

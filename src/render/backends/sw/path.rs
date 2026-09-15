@@ -1,6 +1,6 @@
 use super::SwRenderer;
 use crate::render::canvas::Paint;
-use crate::render::paint::GradientPaint;
+use crate::render::paint::{GradientPaint, ProjectiveGradientPaint};
 use crate::render::path::{self, Path, PathCmd};
 use crate::render::raster::{self, FillRule};
 use crate::render::renderer::ProjectiveDrawError;
@@ -29,6 +29,16 @@ fn segment_bounds(segments: &[raster::LineSeg]) -> Option<Rect> {
         w: max_x - min_x,
         h: max_y - min_y,
     })
+}
+
+struct ProjectivePathSpec<'a> {
+    geometry: &'a Transform3D,
+    paint_projection: Transform3D,
+    paint_bbox: Rect,
+    clip: Rect,
+    paint: &'a Paint,
+    opacity: u8,
+    fill_rule: FillRule,
 }
 
 #[cfg(test)]
@@ -388,27 +398,41 @@ impl SwRenderer<'_> {
         opa: u8,
         fill_rule: FillRule,
     ) -> Result<(), ProjectiveDrawError> {
-        self.fill_commands_projective(path.commands(), physical, clip, paint, opa, fill_rule)
+        self.fill_commands_projective(
+            path.commands(),
+            ProjectivePathSpec {
+                geometry: physical,
+                paint_projection: *physical,
+                paint_bbox: path.bbox().unwrap_or(Rect::ZERO),
+                clip,
+                paint,
+                opacity: opa,
+                fill_rule,
+            },
+        )
     }
 
     fn fill_commands_projective(
         &mut self,
         commands: &[PathCmd],
-        physical: &Transform3D,
-        clip: Rect,
-        paint: &Paint,
-        opa: u8,
-        fill_rule: FillRule,
+        spec: ProjectivePathSpec<'_>,
     ) -> Result<(), ProjectiveDrawError> {
-        if opa == 0 {
+        if spec.opacity == 0 {
             return Ok(());
         }
-        let Paint::Color(color) = paint else {
-            return Err(ProjectiveDrawError::Unsupported);
+        let gradient = match spec.paint {
+            Paint::LinearGradient(_) | Paint::RadialGradient(_) => Some(
+                ProjectiveGradientPaint::new(spec.paint, spec.paint_projection, spec.paint_bbox)
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?,
+            ),
+            Paint::Color(_) => None,
         };
-        let color: Color = (*color).into();
+        let solid_color = match spec.paint {
+            Paint::Color(color) => (*color).into(),
+            _ => Color::rgba(255, 255, 255, 255),
+        };
         let scratch = &mut *self.scratch;
-        raster::flatten_projective_into(commands, physical, &mut scratch.flatten_buf)
+        raster::flatten_projective_into(commands, spec.geometry, &mut scratch.flatten_buf)
             .map_err(|()| ProjectiveDrawError::InvalidProjection)?;
         let Some(bounds) = segment_bounds(&scratch.flatten_buf) else {
             return Ok(());
@@ -416,16 +440,14 @@ impl SwRenderer<'_> {
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
         let Some(draw_area) = bounds
             .inflate(Fixed::ONE)
-            .intersect(&clip)
+            .intersect(&spec.clip)
             .and_then(|bounds| bounds.intersect(&screen))
         else {
             return Ok(());
         };
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opacity = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let color_alpha =
-            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let alpha = opacity * color_alpha;
+        let opacity =
+            Fixed::from_int(spec.opacity as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let segments = &scratch.flatten_buf;
         let target_width = self.target.width as usize;
         let clip_mask = scratch.clip_stack.last().map(|mask| mask.alpha.as_slice());
@@ -438,15 +460,21 @@ impl SwRenderer<'_> {
             px_y0,
             px_x1,
             px_y1,
-            fill_rule,
+            spec.fill_rule,
             acc,
             crossings,
             |px, py, coverage| {
-                let coverage = (coverage * alpha).map01(255).to_int() as u8;
+                let coverage = (coverage * opacity).map01(255).to_int() as u8;
                 let clip_alpha = clip_mask
                     .map(|mask| mask[py as usize * target_width + px as usize])
                     .unwrap_or(255);
-                let final_alpha = ((u16::from(coverage) * u16::from(clip_alpha) + 127) / 255) as u8;
+                let color = gradient
+                    .as_ref()
+                    .map(|gradient| gradient.sample(px, py))
+                    .unwrap_or(solid_color);
+                let final_alpha =
+                    ((u32::from(coverage) * u32::from(clip_alpha) * u32::from(color.a) + 32_512)
+                        / 65_025) as u8;
                 if final_alpha != 0 {
                     target.blend_pixel_int(px, py, &color, final_alpha);
                 }
@@ -473,9 +501,6 @@ impl SwRenderer<'_> {
         if opa == 0 || width <= Fixed::ZERO {
             return Ok(());
         }
-        if !matches!(paint, Paint::Color(_)) {
-            return Err(ProjectiveDrawError::Unsupported);
-        }
         {
             let scratch = &mut *self.scratch;
             raster::offset_polygon_into(
@@ -498,13 +523,24 @@ impl SwRenderer<'_> {
             );
         }
         let outline = core::mem::take(&mut self.scratch.stroke_outline);
+        let paint_bbox = if !matches!(paint, Paint::Color(_)) {
+            stroked_paint_bbox(&outline, geometry_transform).unwrap_or(Rect::ZERO)
+        } else {
+            Rect::ZERO
+        };
+        let paint_projection =
+            physical_projective.compose(&Transform3D::from_affine(*geometry_transform));
         let result = self.fill_commands_projective(
             outline.commands(),
-            physical_projective,
-            clip,
-            paint,
-            opa,
-            FillRule::EvenOdd,
+            ProjectivePathSpec {
+                geometry: physical_projective,
+                paint_projection,
+                paint_bbox,
+                clip,
+                paint,
+                opacity: opa,
+                fill_rule: FillRule::EvenOdd,
+            },
         );
         self.scratch.stroke_outline = outline;
         result
