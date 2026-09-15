@@ -392,13 +392,15 @@ impl Surface for WgpuSurface {
     }
 
     fn flush(&mut self, _area: crate::types::PhysicalRect) {
-        // Frame boundary: re-arm `poll_event` to pump once next tick.
-        // Transient backends like wgpu hit `flush` every frame but
-        // never `begin_flush`, so the latch lives here.
-        //
         // wgpu present itself happens inside `WgpuRenderer::flush`
         // (the SurfaceTexture lives on the renderer's frame state)
-        // — this method only owns the per-frame latch reset.
+        // — this method only re-arms direct `App::render` callers.
+        self.pumped_this_frame = false;
+    }
+
+    fn frame_end(&mut self) {
+        // Failed draws do not reach `flush`, but the next tick must still
+        // pump winit so a temporarily unavailable drawable can recover.
         self.pumped_this_frame = false;
     }
 
