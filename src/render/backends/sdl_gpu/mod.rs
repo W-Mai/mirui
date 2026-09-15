@@ -922,9 +922,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 self.viewport,
             )
             .map_err(RenderError::from)?;
-        Ok(RenderRoute::ExactFallback {
-            required_bytes: plan.required_bytes(),
-        })
+        Ok(RenderRoute::ExactFallback(plan.region()))
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {

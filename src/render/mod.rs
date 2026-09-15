@@ -33,8 +33,8 @@ pub use factory::{RendererFactory, SwRendererFactory};
 pub use glyph_run::PosedGlyphs;
 pub use projective_fallback::ProjectiveFallback;
 pub use renderer::{
-    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderResource, RenderRoute,
-    Renderer,
+    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderResource,
+    RenderRoute, Renderer,
 };
 pub use scratch::{AlignedPlane, PlaneError, PlaneLayout, PlaneRequirements};
 pub use sw::SwRenderer;

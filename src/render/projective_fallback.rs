@@ -91,6 +91,21 @@ pub(crate) struct ProjectiveFallbackPlan {
     test
 ))]
 impl ProjectiveFallbackPlan {
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
+    pub(crate) const fn region(self) -> crate::render::renderer::FallbackRegion {
+        crate::render::renderer::FallbackRegion::from_parts(
+            self.x,
+            self.y,
+            self.layout.width(),
+            self.layout.height(),
+            self.layout.stride_bytes(),
+        )
+    }
+
     pub(crate) const fn width(self) -> u16 {
         self.layout.width()
     }

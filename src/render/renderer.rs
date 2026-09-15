@@ -69,7 +69,81 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderRoute {
     Native,
-    ExactFallback { required_bytes: usize },
+    ExactFallback(FallbackRegion),
+}
+
+/// A clipped physical RGBA region prepared for an exact fallback.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FallbackRegion {
+    x: i32,
+    y: i32,
+    width: u16,
+    height: u16,
+    stride_bytes: usize,
+}
+
+impl FallbackRegion {
+    #[cfg(any(
+        feature = "wgpu",
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) const fn from_parts(
+        x: i32,
+        y: i32,
+        width: u16,
+        height: u16,
+        stride_bytes: usize,
+    ) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            stride_bytes,
+        }
+    }
+
+    #[cfg(any(
+        feature = "wgpu",
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn rgba8(x: i32, y: i32, width: u16, height: u16) -> Result<Self, RenderError> {
+        let stride_bytes = usize::from(width)
+            .checked_mul(4)
+            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
+        stride_bytes
+            .checked_mul(usize::from(height))
+            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
+        Ok(Self::from_parts(x, y, width, height, stride_bytes))
+    }
+
+    pub const fn x(self) -> i32 {
+        self.x
+    }
+
+    pub const fn y(self) -> i32 {
+        self.y
+    }
+
+    pub const fn width(self) -> u16 {
+        self.width
+    }
+
+    pub const fn height(self) -> u16 {
+        self.height
+    }
+
+    pub const fn stride_bytes(self) -> usize {
+        self.stride_bytes
+    }
+
+    pub const fn required_bytes(self) -> usize {
+        self.stride_bytes * self.height as usize
+    }
 }
 
 impl RenderRoute {
@@ -84,23 +158,19 @@ impl RenderRoute {
         capacity_bytes: Option<usize>,
     ) -> Result<Self, RenderError> {
         let Some(region) = region else {
-            return Ok(Self::ExactFallback { required_bytes: 0 });
+            return Ok(Self::ExactFallback(FallbackRegion::rgba8(0, 0, 0, 0)?));
         };
-        let width = usize::try_from(region.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let height =
-            usize::try_from(region.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let required_bytes = width
-            .checked_mul(height)
-            .and_then(|pixels| pixels.checked_mul(4))
-            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
+        let width = u16::try_from(region.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let height = u16::try_from(region.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let plan = FallbackRegion::rgba8(region.x.to_int(), region.y.to_int(), width, height)?;
         let capacity_bytes = capacity_bytes.ok_or(RenderError::MissingWorkspace)?;
-        if required_bytes > capacity_bytes {
+        if plan.required_bytes() > capacity_bytes {
             return Err(RenderError::InsufficientWorkspace {
-                required_bytes,
+                required_bytes: plan.required_bytes(),
                 capacity_bytes,
             });
         }
-        Ok(Self::ExactFallback { required_bytes })
+        Ok(Self::ExactFallback(plan))
     }
 }
 
@@ -361,11 +431,15 @@ mod tests {
     fn target_fallback_budget_uses_physical_rgba_extent() {
         assert_eq!(
             RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), Some(48)),
-            Ok(RenderRoute::ExactFallback { required_bytes: 48 })
+            Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
+                1, 2, 3, 4, 12
+            )))
         );
         assert_eq!(
             RenderRoute::target_readback(None, None),
-            Ok(RenderRoute::ExactFallback { required_bytes: 0 })
+            Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
+                0, 0, 0, 0, 0
+            )))
         );
         assert_eq!(
             RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), Some(47)),

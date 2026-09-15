@@ -3421,9 +3421,7 @@ impl WgpuRenderer<'_> {
         request.validate_projection()?;
         request.validate_texture()?;
         if let Some(plan) = self.non_native_fallback_plan(request)? {
-            return Ok(RenderRoute::ExactFallback {
-                required_bytes: plan.required_bytes(),
-            });
+            return Ok(RenderRoute::ExactFallback(plan.region()));
         }
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
