@@ -11,6 +11,7 @@ use crate::render::renderer::{
 };
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect, Transform, Transform3D};
+use core::cell::Cell;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplayError {
@@ -147,6 +148,10 @@ impl<'a> ReplayStack<'a> {
         self.frames[..self.len].iter().any(|frame| frame.has_clip)
     }
 
+    fn workspace_from_top(&mut self) -> &mut [ReplayFrame] {
+        &mut self.frames[self.len - 1..]
+    }
+
     fn push(&mut self, frame: ReplayFrame) -> Result<(), ReplayError> {
         if self.len == self.frames.len() {
             return Err(ReplayError::InsufficientWorkspace {
@@ -168,6 +173,39 @@ impl<'a> ReplayStack<'a> {
     }
 }
 
+struct ScopeProbe<'a> {
+    renderer: &'a dyn Renderer,
+    needs_scope: Cell<bool>,
+    error: Cell<Option<RenderError>>,
+}
+
+impl Renderer for ScopeProbe<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        match self.renderer.route(request) {
+            Ok(RenderRoute::Native) => {}
+            Ok(RenderRoute::ExactFallback(_)) | Err(RenderError::Unsupported(_)) => {
+                self.needs_scope.set(true);
+            }
+            Err(error) => {
+                if self.error.get().is_none() {
+                    self.error.set(Some(error));
+                }
+            }
+        }
+        Ok(RenderRoute::Native)
+    }
+
+    fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        Err(RenderError::BackendFailure)
+    }
+
+    fn flush(&mut self) {}
+
+    fn output_scale(&self) -> Fixed {
+        self.renderer.output_scale()
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReplayPass {
     Preflight,
@@ -176,6 +214,7 @@ enum ReplayPass {
 
 struct ReplayPassState<'a> {
     pass: ReplayPass,
+    probe_only: bool,
     plans: &'a mut [ReplayPlan],
     plan_len: &'a mut usize,
     ordinal: usize,
@@ -366,6 +405,96 @@ fn resolved_children_union(
     .map_err(map_bounds_walk)
 }
 
+fn composed_frame(
+    parent: ReplayFrame,
+    local_affine: Transform,
+    local_projective: Option<Transform3D>,
+    alpha: u8,
+    start_idx: usize,
+) -> ReplayFrame {
+    let (transform, projective) = match (parent.projective, local_projective) {
+        (None, None) => (parent.transform.compose(&local_affine), None),
+        (Some(parent), local) => (
+            Transform::IDENTITY,
+            Some(
+                parent
+                    .compose(local.as_ref().unwrap_or(&Transform3D::IDENTITY))
+                    .compose(&Transform3D::from_affine(local_affine)),
+            ),
+        ),
+        (None, Some(local)) => (
+            Transform::IDENTITY,
+            Some(
+                Transform3D::from_affine(parent.transform)
+                    .compose(&local)
+                    .compose(&Transform3D::from_affine(local_affine)),
+            ),
+        ),
+    };
+    ReplayFrame {
+        transform,
+        projective,
+        alpha,
+        has_clip: false,
+        start_idx,
+    }
+}
+
+fn resolved_visual_union(
+    ops: &[SceneOp],
+    root: ReplayFrame,
+    frames: &mut [ReplayFrame],
+    resolver: &dyn SceneResolver,
+    output_scale: Fixed,
+) -> Result<Rect, ReplayError> {
+    let mut stack = ReplayStack::new(frames, root)?;
+    let mut bounds: Option<Rect> = None;
+    for (index, op) in ops.iter().enumerate() {
+        match op {
+            SceneOp::GroupBegin {
+                transform,
+                projective,
+                opacity,
+                ..
+            } => {
+                let parent = stack.top();
+                stack.push(composed_frame(
+                    parent,
+                    transform.unwrap_or(Transform::IDENTITY),
+                    projective.filter(|value| !value.is_identity()),
+                    opacity.map_or(parent.alpha, |value| mul_alpha(parent.alpha, value)),
+                    index,
+                ))?;
+            }
+            SceneOp::GroupEnd => {
+                stack.pop()?;
+            }
+            _ => {
+                let frame = stack.top();
+                let Some(mut leaf) =
+                    resolved_leaf_bounds(op, frame.transform, resolver, output_scale)?
+                else {
+                    continue;
+                };
+                if let Some(projective) = frame.projective {
+                    let quad = projective
+                        .apply_rect(leaf)
+                        .ok_or(ReplayError::Render(RenderError::InvalidGeometry))?;
+                    leaf = Rect::bounding_quad(&quad);
+                }
+                bounds = Some(match bounds {
+                    Some(current) => current.union(&leaf),
+                    None => leaf,
+                });
+            }
+        }
+    }
+    if stack.len != 1 {
+        return Err(ReplayError::UnbalancedGroup);
+    }
+    Ok(bounds.unwrap_or(Rect::ZERO))
+}
+
 /// Find the index of the matching `GroupEnd` for the `GroupBegin` at `start`.
 fn matching_group_end(ops: &[SceneOp], start: usize) -> Option<usize> {
     let mut depth = 1usize;
@@ -386,25 +515,22 @@ fn matching_group_end(ops: &[SceneOp], start: usize) -> Option<usize> {
     None
 }
 
-fn projected_scope_bounds(
+fn scope_bounds(
     ops: &[SceneOp],
-    affine: Transform,
-    projective: Transform3D,
+    root: ReplayFrame,
     clip: Rect,
     resolver: &dyn SceneResolver,
     output_scale: Fixed,
+    frames: &mut [ReplayFrame],
 ) -> Result<Rect, ReplayError> {
     if output_scale <= Fixed::ZERO {
         return Err(ReplayError::Render(RenderError::InvalidGeometry));
     }
-    let local = resolved_children_union(ops, affine, resolver, output_scale)?;
+    let local = resolved_visual_union(ops, root, frames, resolver, output_scale)?;
     if local.w <= Fixed::ZERO || local.h <= Fixed::ZERO {
         return Ok(Rect::ZERO);
     }
-    let quad = projective
-        .apply_rect(local)
-        .ok_or(ReplayError::Render(RenderError::InvalidGeometry))?;
-    Ok(Rect::bounding_quad(&quad)
+    Ok(local
         .inflate(Fixed::ONE / output_scale)
         .intersect(&clip)
         .unwrap_or(Rect::ZERO))
@@ -416,12 +542,12 @@ fn preflight_software_scope(
     resolver: &dyn SceneResolver,
     root: ReplayFrame,
     output_scale: Fixed,
+    frames: &mut [ReplayFrame],
 ) -> Result<(), ReplayError> {
     let mut pixel = [0u8; 4];
     let texture = Texture::new(&mut pixel, 1, 1, ColorFormat::RGBA8888);
     let mut software = crate::render::backends::sw::SwRenderer::new(texture);
     software.viewport = crate::types::Viewport::new(1, 1, output_scale);
-    let mut frames = [ReplayFrame::EMPTY; 8];
     let mut routes = [ReplayPlan::EMPTY; 8];
     let mut scopes = [ReplayScopePlan::EMPTY; 0];
     let mut route_len = 0;
@@ -431,10 +557,11 @@ fn preflight_software_scope(
         &mut software,
         clip,
         resolver,
-        &mut frames,
+        frames,
         root,
         &mut ReplayPassState {
             pass: ReplayPass::Preflight,
+            probe_only: false,
             plans: &mut routes,
             plan_len: &mut route_len,
             ordinal: 0,
@@ -446,6 +573,48 @@ fn preflight_software_scope(
     )
 }
 
+fn probe_scope(
+    ops: &[SceneOp],
+    renderer: &dyn Renderer,
+    clip: &Rect,
+    resolver: &dyn SceneResolver,
+    root: ReplayFrame,
+    frames: &mut [ReplayFrame],
+) -> Result<bool, ReplayError> {
+    let mut probe = ScopeProbe {
+        renderer,
+        needs_scope: Cell::new(false),
+        error: Cell::new(None),
+    };
+    let mut routes = [ReplayPlan::EMPTY; 0];
+    let mut scopes = [ReplayScopePlan::EMPTY; 0];
+    let mut route_len = 0;
+    let mut scope_len = 0;
+    replay_scene_pass(
+        ops,
+        &mut probe,
+        clip,
+        resolver,
+        frames,
+        root,
+        &mut ReplayPassState {
+            pass: ReplayPass::Preflight,
+            probe_only: true,
+            plans: &mut routes,
+            plan_len: &mut route_len,
+            ordinal: 0,
+            plan_cursor: 0,
+            scopes: &mut scopes,
+            scope_len: &mut scope_len,
+            scope_cursor: 0,
+        },
+    )?;
+    if let Some(error) = probe.error.get() {
+        return Err(ReplayError::Render(error));
+    }
+    Ok(probe.needs_scope.get())
+}
+
 fn draw_scope(
     ops: &[SceneOp],
     scope: ReplayScopePlan,
@@ -453,11 +622,11 @@ fn draw_scope(
     clip: &Rect,
     resolver: &dyn SceneResolver,
     root: ReplayFrame,
+    frames: &mut [ReplayFrame],
 ) -> Result<(), ReplayError> {
     let scoped_ops = &ops[scope.start_idx..=scope.end_idx];
     let mut nested_error = None;
     let result = renderer.render_scope(scope.region, &mut |local| {
-        let mut frames = [ReplayFrame::EMPTY; 8];
         let mut routes = [ReplayPlan::EMPTY; 0];
         let mut scopes = [ReplayScopePlan::EMPTY; 0];
         let mut route_len = 0;
@@ -467,10 +636,11 @@ fn draw_scope(
             local,
             clip,
             resolver,
-            &mut frames,
+            frames,
             root,
             &mut ReplayPassState {
                 pass: ReplayPass::Draw,
+                probe_only: false,
                 plans: &mut routes,
                 plan_len: &mut route_len,
                 ordinal: 0,
@@ -567,6 +737,7 @@ fn replay_scene_with_root(
         root,
         &mut ReplayPassState {
             pass: ReplayPass::Preflight,
+            probe_only: false,
             plans: &mut *scratch.routes,
             plan_len: &mut plan_len,
             ordinal: 0,
@@ -585,6 +756,7 @@ fn replay_scene_with_root(
         root,
         &mut ReplayPassState {
             pass: ReplayPass::Draw,
+            probe_only: false,
             plans: &mut *scratch.routes,
             plan_len: &mut plan_len,
             ordinal: 0,
@@ -625,7 +797,15 @@ fn replay_scene_pass(
         let top = stack.top();
         if state.pass == ReplayPass::Draw {
             if let Some(scope) = state.scope_at(i) {
-                draw_scope(ops, scope, renderer, clip, resolver, top)?;
+                draw_scope(
+                    ops,
+                    scope,
+                    renderer,
+                    clip,
+                    resolver,
+                    top,
+                    stack.workspace_from_top(),
+                )?;
                 i = scope.end_idx + 1;
                 continue;
             }
@@ -641,25 +821,9 @@ fn replay_scene_pass(
             } => {
                 let local_affine = transform.unwrap_or(Transform::IDENTITY);
                 let local_projective = projective.filter(|value| !value.is_identity());
-                let (composed, composed_projective) = match (top.projective, local_projective) {
-                    (None, None) => (top.transform.compose(&local_affine), None),
-                    (Some(parent), local) => (
-                        Transform::IDENTITY,
-                        Some(
-                            parent
-                                .compose(local.as_ref().unwrap_or(&Transform3D::IDENTITY))
-                                .compose(&Transform3D::from_affine(local_affine)),
-                        ),
-                    ),
-                    (None, Some(local)) => (
-                        Transform::IDENTITY,
-                        Some(
-                            Transform3D::from_affine(top.transform)
-                                .compose(&local)
-                                .compose(&Transform3D::from_affine(local_affine)),
-                        ),
-                    ),
-                };
+                let next = composed_frame(top, local_affine, local_projective, top.alpha, i);
+                let composed = next.transform;
+                let composed_projective = next.projective;
                 let next_alpha = match opacity {
                     None => top.alpha,
                     Some(255) => top.alpha,
@@ -685,8 +849,12 @@ fn replay_scene_pass(
                         mul_alpha(top.alpha, *n)
                     }
                 };
+                let next = ReplayFrame {
+                    alpha: next_alpha,
+                    ..next
+                };
                 if state.pass == ReplayPass::Preflight
-                    && composed_projective.is_some()
+                    && !state.probe_only
                     && !stack.has_active_clip()
                 {
                     if let Some(ResourceRef::Inline(path)) = group_clip {
@@ -695,9 +863,9 @@ fn replay_scene_pass(
                             transform: composed,
                             fill_rule: crate::render::raster::FillRule::EvenOdd,
                         };
-                        let request = DrawRequest::new(&command, *clip)
-                            .with_projective(composed_projective.unwrap_or(Transform3D::IDENTITY));
-                        let needs_scope = match renderer.route(&request) {
+                        let projection = composed_projective.unwrap_or(Transform3D::IDENTITY);
+                        let request = DrawRequest::new(&command, *clip).with_projective(projection);
+                        let mut needs_scope = match renderer.route(&request) {
                             Ok(RenderRoute::Native) => false,
                             Ok(RenderRoute::ExactFallback(_))
                             | Err(RenderError::Unsupported(RenderFeature::PathClip))
@@ -706,24 +874,39 @@ fn replay_scene_pass(
                             }
                             Err(error) => return Err(ReplayError::Render(error)),
                         };
+                        let end_idx =
+                            matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?;
+                        let scoped_ops = &ops[i..=end_idx];
+                        let scope_root = ReplayFrame {
+                            has_clip: true,
+                            ..next
+                        };
+                        if !needs_scope {
+                            needs_scope = probe_scope(
+                                &ops[i + 1..end_idx],
+                                renderer,
+                                clip,
+                                resolver,
+                                scope_root,
+                                stack.workspace_from_top(),
+                            )?;
+                        }
                         if needs_scope {
-                            let end_idx =
-                                matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?;
-                            let scoped_ops = &ops[i..=end_idx];
                             preflight_software_scope(
                                 scoped_ops,
                                 clip,
                                 resolver,
                                 top,
                                 renderer.output_scale(),
+                                stack.workspace_from_top(),
                             )?;
-                            let bounds = projected_scope_bounds(
+                            let bounds = scope_bounds(
                                 &ops[i + 1..end_idx],
-                                composed,
-                                composed_projective.unwrap_or(Transform3D::IDENTITY),
+                                scope_root,
                                 *clip,
                                 resolver,
                                 renderer.output_scale(),
+                                stack.workspace_from_top(),
                             )?;
                             let region =
                                 renderer.plan_scope(&bounds).map_err(ReplayError::Render)?;
@@ -757,13 +940,7 @@ fn replay_scene_pass(
                 } else {
                     false
                 };
-                stack.push(ReplayFrame {
-                    transform: composed,
-                    projective: composed_projective,
-                    alpha: next_alpha,
-                    has_clip,
-                    start_idx: i,
-                })?;
+                stack.push(ReplayFrame { has_clip, ..next })?;
             }
             SceneOp::GroupEnd => {
                 let frame = stack.pop()?;
@@ -1074,12 +1251,13 @@ mod tests {
         target: crate::render::backends::sw::SwRenderer<'a>,
         outer_submits: usize,
         scope_edits: usize,
+        projective_clip_only: bool,
     }
 
     impl Renderer for ScopeFallback<'_> {
         fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
-            if !request.projective.is_identity()
-                && matches!(request.command, DrawCommand::PushClip { .. })
+            if matches!(request.command, DrawCommand::PushClip { .. })
+                && (!self.projective_clip_only || !request.projective.is_identity())
             {
                 return Err(RenderError::Unsupported(RenderFeature::PathClip));
             }
@@ -1139,6 +1317,69 @@ mod tests {
                 radius: Fixed::ZERO,
                 opa: 255,
             },
+            SceneOp::GroupEnd,
+        ]
+    }
+
+    fn clipped_affine_group() -> [SceneOp; 3] {
+        let mut ops = clipped_projective_group();
+        let SceneOp::GroupBegin {
+            transform,
+            projective,
+            ..
+        } = &mut ops[0]
+        else {
+            unreachable!()
+        };
+        *transform = Some(Transform::translate(Fixed::from_int(5), Fixed::from_int(3)));
+        *projective = None;
+        ops
+    }
+
+    fn nested_clip_group() -> [SceneOp; 5] {
+        let outer_clip = crate::render::path::Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(15),
+            Fixed::from_int(15),
+        );
+        let inner_clip = crate::render::path::Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(10),
+            Fixed::from_int(10),
+        );
+        [
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: None,
+                opacity: None,
+                clip: Some(ResourceRef::Inline(outer_clip)),
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: Some(Transform3D::translate(
+                    Fixed::from_int(5),
+                    Fixed::from_int(3),
+                )),
+                opacity: None,
+                clip: Some(ResourceRef::Inline(inner_clip)),
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            SceneOp::FillRect {
+                area: Rect::new(0, 0, 20, 20),
+                transform: Transform::IDENTITY,
+                quad: None,
+                color: Color::rgb(210, 40, 30),
+                radius: Fixed::ZERO,
+                opa: 255,
+            },
+            SceneOp::GroupEnd,
             SceneOp::GroupEnd,
         ]
     }
@@ -1217,6 +1458,55 @@ mod tests {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
             scope_edits: 0,
+            projective_clip_only: false,
+        };
+
+        replay_scene(&ops, &mut renderer, &Rect::new(0, 0, 40, 30), &NoResolver).unwrap();
+
+        assert_eq!(renderer.scope_edits, 1);
+        assert_eq!(renderer.outer_submits, 0);
+        drop(renderer);
+        assert_eq!(
+            &pixels[(5 * 40 + 7) * 4..(5 * 40 + 7) * 4 + 4],
+            &[210, 40, 30, 255]
+        );
+        assert_eq!(&pixels[(5 * 40 + 16) * 4..(5 * 40 + 16) * 4 + 4], &[0; 4]);
+    }
+
+    #[test]
+    fn unsupported_affine_clip_group_uses_one_bounded_scope() {
+        let ops = clipped_affine_group();
+        let mut pixels = [0u8; 40 * 30 * 4];
+        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let mut renderer = ScopeFallback {
+            target: crate::render::backends::sw::SwRenderer::new(target),
+            outer_submits: 0,
+            scope_edits: 0,
+            projective_clip_only: false,
+        };
+
+        replay_scene(&ops, &mut renderer, &Rect::new(0, 0, 40, 30), &NoResolver).unwrap();
+
+        assert_eq!(renderer.scope_edits, 1);
+        assert_eq!(renderer.outer_submits, 0);
+        drop(renderer);
+        assert_eq!(
+            &pixels[(5 * 40 + 7) * 4..(5 * 40 + 7) * 4 + 4],
+            &[210, 40, 30, 255]
+        );
+        assert_eq!(&pixels[(5 * 40 + 16) * 4..(5 * 40 + 16) * 4 + 4], &[0; 4]);
+    }
+
+    #[test]
+    fn native_outer_clip_absorbs_a_nested_fallback_scope() {
+        let ops = nested_clip_group();
+        let mut pixels = [0u8; 40 * 30 * 4];
+        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let mut renderer = ScopeFallback {
+            target: crate::render::backends::sw::SwRenderer::new(target),
+            outer_submits: 0,
+            scope_edits: 0,
+            projective_clip_only: true,
         };
 
         replay_scene(&ops, &mut renderer, &Rect::new(0, 0, 40, 30), &NoResolver).unwrap();
@@ -1240,6 +1530,7 @@ mod tests {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
             scope_edits: 0,
+            projective_clip_only: false,
         };
         let mut frames = [ReplayFrame::EMPTY; 2];
         let mut routes = [ReplayPlan::EMPTY; 1];
