@@ -182,6 +182,10 @@ name = "typography_lab_snapshot"
 path = "examples/tools/typography_lab_snapshot.rs"
 
 [[example]]
+name = "curve_text_snapshot"
+path = "examples/tools/curve_text_snapshot.rs"
+
+[[example]]
 name = "mirx_frames_snapshot"
 path = "examples/tools/mirx_frames_snapshot.rs"
 

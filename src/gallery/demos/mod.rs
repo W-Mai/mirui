@@ -6,6 +6,7 @@ pub mod butterfly;
 pub mod clip_path;
 pub mod composite;
 pub mod cover_flow;
+pub mod curve_text;
 pub mod custom_view;
 pub mod effect_glass;
 pub mod effect_panels;

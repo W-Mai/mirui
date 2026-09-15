@@ -6,6 +6,7 @@ gallery::register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console,        1024, 640),
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab,           1024, 720),
     ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab,       1024, 720),
+    ("curve_text",           "Kinetic Type",         "Showcase",    curve_text,            960, 540),
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab,      1024, 720),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console,      128, 128),
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Kinetic Type gallery demo.** Three retained cubic baselines morph continuously through signal-bound path revisions, with mixed-script curved text and interactive amplitude, speed, direction, and braking controls.
 - **SDL GPU byte-swapped RGB565.** Axis-aligned and quad blits upload the format through a row-wise locked texture write; partial final-row padding is handled without an intermediate buffer.
 - **Texture content revisions.** `Texture::with_cache_revision` keeps GPU uploads cached for unchanged offscreen generations and invalidates them after a redraw; untracked mutable buffers can remain transient.
 - **Borrowed projective fallback storage.** SDL GPU and Web Canvas renderer factories accept a `ProjectiveFallback` backed by a caller-owned fixed buffer.
