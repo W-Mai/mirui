@@ -3,6 +3,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
+use crate::types::Transform;
 use crate::ui;
 use crate::ui::root_viewport;
 use crate::ui::widgets::{Image, assets::*};
@@ -16,6 +17,12 @@ pub struct Velocity {
 pub struct PhysicsBody {
     pub x: Fixed,
     pub y: Fixed,
+}
+
+#[derive(Clone, Copy)]
+struct LayoutOrigin {
+    x: Fixed,
+    y: Fixed,
 }
 
 pub struct PhysicsTime {
@@ -255,8 +262,12 @@ pub fn sync_layout_system(world: &mut World) {
     let half_h = Fixed::from_int(IMG_THUMBS_UP.height as i32 / 2);
     PhysicsScratch::with_entities(world, |world, entities| {
         for &e in entities {
-            if let Some(body) = world.get::<PhysicsBody>(e) {
-                ui::set_position(world, e, body.x - half_w, body.y - half_h);
+            if let (Some(body), Some(origin)) =
+                (world.get::<PhysicsBody>(e), world.get::<LayoutOrigin>(e))
+            {
+                let tx = body.x - half_w - origin.x;
+                let ty = body.y - half_h - origin.y;
+                crate::ui::widgets::set_transform(world, e, Transform::translate(tx, ty));
             }
         }
     });
@@ -339,6 +350,10 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
             ) [
                 PhysicsBody { x: pos.0, y: pos.1 },
                 Velocity { vx: pos.2, vy: pos.3 },
+                LayoutOrigin {
+                    x: pos.0 - Fixed::from_int(iw / 2),
+                    y: pos.1 - Fixed::from_int(ih / 2),
+                },
             ]
         }
     };
@@ -416,14 +431,22 @@ mod tests {
         body.y = Fixed::from_int(50);
         sync_layout_system(&mut world);
 
-        let style = world.get::<Style>(selected).unwrap();
+        let origin = *world.get::<LayoutOrigin>(selected).unwrap();
+        let transform = world
+            .get::<crate::ui::widgets::WidgetTransform>(selected)
+            .unwrap()
+            .0;
         assert_eq!(
-            style.layout.left,
-            Dimension::Px(Fixed::from_int(40 - IMG_THUMBS_UP.width as i32 / 2))
+            transform,
+            Transform::translate(
+                Fixed::from_int(40 - IMG_THUMBS_UP.width as i32 / 2) - origin.x,
+                Fixed::from_int(50 - IMG_THUMBS_UP.height as i32 / 2) - origin.y,
+            )
         );
-        assert_eq!(
-            style.layout.top,
-            Dimension::Px(Fixed::from_int(50 - IMG_THUMBS_UP.height as i32 / 2))
+        assert!(
+            world
+                .get::<crate::ui::dirty::VisualDirty>(selected)
+                .is_some()
         );
         assert_eq!(
             world

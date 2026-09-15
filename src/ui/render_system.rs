@@ -1778,7 +1778,8 @@ fn collect_dirty_walk(
     // here so the outer dirty bounds doesn't double-count them.
     let is_offscreen = world.get::<super::OffscreenRender>(entity).is_some();
     if is_offscreen {
-        let self_was_dirty = world.get::<Dirty>(entity).is_some();
+        let self_was_dirty = world.get::<Dirty>(entity).is_some()
+            || world.get::<super::dirty::VisualDirty>(entity).is_some();
         if self_was_dirty {
             push_entity_dirty(
                 world,
@@ -1872,13 +1873,16 @@ fn collect_dirty_walk(
         }
     }
 
-    if world.get::<Dirty>(entity).is_some() {
+    if world.get::<Dirty>(entity).is_some()
+        || world.get::<super::dirty::VisualDirty>(entity).is_some()
+    {
         // Container's own Dirty is already expressed by the RegionShift;
         // unioning its full rect would re-stretch bounds over the area
         // self-blit handles. Sub-pixel frames similarly skip the push
         // until the delta crosses a pixel boundary.
         if my_scroll_op.is_some() || sub_pixel_pending {
             world.remove::<Dirty>(entity);
+            world.remove::<super::dirty::VisualDirty>(entity);
         } else {
             push_entity_dirty(
                 world,
@@ -2063,6 +2067,7 @@ fn push_entity_dirty(
         super::dirty::PrevRect(Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0)),
     );
     world.remove::<Dirty>(entity);
+    world.remove::<super::dirty::VisualDirty>(entity);
 }
 
 /// Sweep the subtree rooted at `node` (children of an OffscreenRender
@@ -2080,9 +2085,12 @@ fn scan_subtree_dirty(
         return;
     }
     let entity = entities[*idx];
-    if world.get::<Dirty>(entity).is_some() {
+    if world.get::<Dirty>(entity).is_some()
+        || world.get::<super::dirty::VisualDirty>(entity).is_some()
+    {
         *had_dirty = true;
         world.remove::<Dirty>(entity);
+        world.remove::<super::dirty::VisualDirty>(entity);
     }
     *idx += 1;
     for child in &node.children {
@@ -2123,21 +2131,33 @@ pub(crate) fn collect_dirty_regions_into(
     // state without inserting Dirty (animation helpers, mainly) own
     // the responsibility to mark themselves.
     use super::dirty::Dirty;
-    let dirty_count = world.storage::<Dirty>().map(|s| s.len()).unwrap_or(0);
-    if dirty_count == 0 {
+    let layout_dirty_count = world.storage::<Dirty>().map(|s| s.len()).unwrap_or(0);
+    let visual_dirty_count = world
+        .storage::<super::dirty::VisualDirty>()
+        .map(|s| s.len())
+        .unwrap_or(0);
+    if layout_dirty_count == 0 && visual_dirty_count == 0 {
         return;
     }
 
-    let Some(mut snapshot) = crate::trace_span!("dirty.layout", {
-        compute_layout_snapshot(world, root, logical_w, logical_h)
+    let visual_only = layout_dirty_count == 0;
+    let existing = visual_only
+        .then(|| world.take_resource_box::<LayoutSnapshot>())
+        .flatten()
+        .filter(|snapshot| snapshot.matches(root, logical_w, logical_h));
+    let Some(mut snapshot) = existing.or_else(|| {
+        crate::trace_span!("dirty.layout", {
+            compute_layout_snapshot(world, root, logical_w, logical_h)
+        })
     }) else {
         return;
     };
 
     let mut idx = 0;
-    {
-        crate::trace_span!("dirty.write_computed");
-        write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
+    if !visual_only {
+        crate::trace_span!("dirty.write_computed", {
+            write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx)
+        });
     }
 
     let mut bounds = DirtyBounds {
@@ -2386,6 +2406,37 @@ mod layout_snapshot_reuse_check {
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
         assert_eq!(plan.rects.len(), 1);
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
+    }
+
+    #[test]
+    fn visual_transform_reuses_layout_snapshot_and_tracks_old_and_new_bounds() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let child = widget(&mut world, 10);
+        world.insert(root, Children(vec![child]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+
+        world.insert(child, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
+
+        crate::ui::widgets::set_transform(
+            &mut world,
+            child,
+            Transform::translate(Fixed::from_int(20), Fixed::ZERO),
+        );
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+
+        assert_eq!(plan.rects, [Rect::new(0, 0, 30, 10)]);
+        assert_eq!(
+            world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
+            snapshot
+        );
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(child).unwrap().0,
+            Rect::new(0, 0, 10, 10)
+        );
     }
 
     #[test]

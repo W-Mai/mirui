@@ -10,6 +10,9 @@ use alloc::vec::Vec;
 /// Dirty flag component — marks an entity as needing redraw.
 pub struct Dirty;
 
+/// Marks paint geometry dirty while preserving the existing layout snapshot.
+pub(crate) struct VisualDirty;
+
 pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
     use crate::ui::{Children, Hidden};
     let mut stack = alloc::vec![root];

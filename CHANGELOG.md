@@ -102,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Visual-only transforms.** `set_transform` invalidates old and new paint bounds while reusing the existing flex and text layout snapshot; the three-body animation no longer rewrites absolute layout positions every frame.
 - **Sparse dirty flushes.** Up to four changed regions retain separate display flush rectangles while drawing still uses their union; larger plans keep one bounded rectangle.
 - **Scroll dirty planning.** Overlay repaint regions stream directly into the plan, and previous-frame rectangles reuse layout snapshot storage.
 - **Frame buffer reuse.** Layout snapshots, three-body entity scratch, and dirty-region plans retain their storage across frames; unchanged text metrics skip a redundant layout pass.

@@ -38,5 +38,5 @@ pub use text::{
     TextWrap,
 };
 pub use text_input::{Placeholder, TextInput};
-pub use transform::WidgetTransform;
+pub use transform::{WidgetTransform, set_transform};
 pub use transform_3d::{TransformOrigin, WidgetTransform3D};
