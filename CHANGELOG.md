@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Animated curved text.** Fixed-range baselines invalidate visual geometry without rerunning intrinsic layout, stale path revisions replace their cache entries, curve tangents interpolate continuously, and MIRX font metrics avoid repeated representation selection.
+- **GPU curves and scaled Web effects.** WGPU and SDL GPU submit solid strokes as one joined mesh, while Web scene effects size reusable RGBA scratch storage for physical output pixels.
 - **Embedded performance tracing.** `no_std` span recording remains disabled until a performance reporter enables it, avoiding hardware-clock reads and critical-section writes in ordinary frames.
 - **Software projective paths.** Solid path fills and path clips project each flattened curve sample into the target, retain fill rules, and reuse the renderer's geometry and clip-mask storage.
 - **Scene text effect bounds.** Blur extents and group-overlap checks resolve linear and posed glyph ink at the active output scale instead of rejecting text or substituting the full clip.

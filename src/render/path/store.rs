@@ -185,6 +185,7 @@ impl PathStore {
         &mut self,
         id: PathId,
         entity: Entity,
+        visual_only: bool,
     ) -> Result<Option<PathSubscription>, PathStoreError> {
         match self.resolve_mut(id)? {
             PathSlot::Static { .. } => Ok(None),
@@ -193,7 +194,11 @@ impl PathStore {
             } => {
                 let signal = changed.get_or_insert_with(|| Signal::new(*revision));
                 Ok(Some(PathSubscription {
-                    _inner: signal.subscribe_widget(entity),
+                    _inner: if visual_only {
+                        signal.subscribe_visual_widget(entity)
+                    } else {
+                        signal.subscribe_widget(entity)
+                    },
                 }))
             }
             PathSlot::Vacant { .. } => Err(PathStoreError::Missing(id)),
@@ -381,7 +386,7 @@ mod tests {
         let widget = world.spawn_empty();
         let mut store = PathStore::new(1).unwrap();
         let id = store.insert(Path::new()).unwrap();
-        let subscription = store.subscribe(id, widget).unwrap().unwrap();
+        let subscription = store.subscribe(id, widget, false).unwrap().unwrap();
 
         store
             .edit(id, |path| {
@@ -408,6 +413,6 @@ mod tests {
         let mut store = PathStore::new(1).unwrap();
         let id = store.insert_static(STATIC_COMMANDS).unwrap();
 
-        assert!(store.subscribe(id, widget).unwrap().is_none());
+        assert!(store.subscribe(id, widget, false).unwrap().is_none());
     }
 }

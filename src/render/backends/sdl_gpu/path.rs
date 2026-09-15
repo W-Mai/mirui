@@ -74,6 +74,22 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
         let scale = self.viewport.scale();
         let phys_tf = self.viewport.as_transform().compose(cmd_tf);
+        if spec.dash.is_empty() {
+            self.tessellator.stroke(
+                path,
+                Some(&phys_tf),
+                StrokeSpec {
+                    width: spec.width * scale,
+                    dash_scale: scale,
+                    ..spec
+                },
+                color,
+                opa,
+            );
+            let phys_clip = self.viewport.rect_to_physical(*clip);
+            self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
+            return;
+        }
         let outline = self.stroke_scratch.outline(
             path,
             Some(&phys_tf),

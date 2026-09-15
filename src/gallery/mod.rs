@@ -18,8 +18,33 @@ impl SceneRgbaScratch {
         }
     }
 
-    pub(crate) fn with_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        f(self.0.borrow_mut().as_mut_slice())
+    pub(crate) fn with_surface_rgba<R>(
+        &self,
+        rect: crate::types::Rect,
+        scale: crate::types::Fixed,
+        f: impl FnOnce(&mut [u8]) -> R,
+    ) -> R {
+        let width = usize::try_from(
+            (rect.w.max(crate::types::Fixed::ZERO) * scale)
+                .ceil()
+                .to_int(),
+        )
+        .unwrap_or(0);
+        let height = usize::try_from(
+            (rect.h.max(crate::types::Fixed::ZERO) * scale)
+                .ceil()
+                .to_int(),
+        )
+        .unwrap_or(0);
+        let required = width
+            .checked_mul(height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .unwrap_or(0);
+        let mut rgba = self.0.borrow_mut();
+        if rgba.len() < required {
+            rgba.resize(required, 0);
+        }
+        f(rgba.as_mut_slice())
     }
 
     #[cfg(feature = "std")]
@@ -29,5 +54,29 @@ impl SceneRgbaScratch {
         } else {
             world.insert_resource(Self::new(bytes));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Fixed, Rect};
+
+    #[test]
+    fn surface_scratch_grows_for_physical_pixels_without_shrinking() {
+        let scratch = SceneRgbaScratch::new(16);
+        let rect = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(3),
+            h: Fixed::from_int(2),
+        };
+
+        scratch.with_surface_rgba(rect, Fixed::from_int(2), |rgba| {
+            assert_eq!(rgba.len(), 6 * 4 * 4);
+        });
+        scratch.with_surface_rgba(rect, Fixed::ONE, |rgba| {
+            assert_eq!(rgba.len(), 6 * 4 * 4);
+        });
     }
 }

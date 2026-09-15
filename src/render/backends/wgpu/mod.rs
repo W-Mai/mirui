@@ -29,7 +29,7 @@ use self::texture_pool::{
     CachedScalarSurface, CachedTexture, ScalarSurfaceKey, ScalarSurfacePool, TextureKey,
     TexturePool, new_pool, new_scalar_surface_pool,
 };
-use crate::render::backends::tessellation::FillTessellator;
+use crate::render::backends::tessellation::{FillTessellator, StrokeTessellator};
 
 pub use self::pipeline::MSAA_SAMPLES;
 
@@ -100,6 +100,7 @@ pub struct WgpuRendererFactory {
     target_edit_budget_bytes: Option<usize>,
     cache: Option<PipelineCache>,
     tessellator: FillTessellator,
+    stroke_tessellator: StrokeTessellator,
     stroke_scratch: StrokeScratch,
     texture_pool: TexturePool,
     scalar_surface_pool: ScalarSurfacePool,
@@ -117,6 +118,7 @@ impl WgpuRendererFactory {
             target_edit_budget_bytes: None,
             cache: None,
             tessellator: FillTessellator::new(),
+            stroke_tessellator: StrokeTessellator::new(),
             stroke_scratch: StrokeScratch::new(),
             texture_pool: new_pool(),
             scalar_surface_pool: new_scalar_surface_pool(),
@@ -1378,6 +1380,15 @@ impl WgpuRenderer<'_> {
         opa: u8,
     ) {
         if spec.width <= Fixed::ZERO || opa == 0 {
+            return;
+        }
+        if spec.dash.is_empty() {
+            self.factory
+                .stroke_tessellator
+                .stroke(path, transform, spec);
+            let mesh = self.factory.stroke_tessellator.take_mesh();
+            self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
+            self.factory.stroke_tessellator.restore_mesh(mesh);
             return;
         }
         let outline = self.factory.stroke_scratch.outline(path, transform, spec);

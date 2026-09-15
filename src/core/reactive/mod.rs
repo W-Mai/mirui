@@ -6,11 +6,12 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use crate::ecs::{Entity, World};
-use crate::ui::dirty::Dirty;
+use crate::ui::dirty::{Dirty, VisualDirty};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Subscriber {
     Widget(Entity),
+    VisualWidget(Entity),
     Effect(EffectId),
     Computed(ComputedId),
 }
@@ -26,6 +27,7 @@ struct Reactive {
     // non-null only while an effect runs; lets a Fn() closure reach the World
     world: *mut World,
     dirty_widgets: VecDeque<Entity>,
+    dirty_visual_widgets: VecDeque<Entity>,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
@@ -37,6 +39,7 @@ impl Reactive {
             scope: None,
             world: core::ptr::null_mut(),
             dirty_widgets: VecDeque::new(),
+            dirty_visual_widgets: VecDeque::new(),
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
             computeds: BTreeMap::new(),
@@ -104,6 +107,10 @@ pub(crate) fn with_scope<R>(scope: Subscriber, f: impl FnOnce() -> R) -> R {
 
 fn enqueue_widget(entity: Entity) {
     with_reactive(|r| r.dirty_widgets.push_back(entity));
+}
+
+fn enqueue_visual_widget(entity: Entity) {
+    with_reactive(|r| r.dirty_visual_widgets.push_back(entity));
 }
 
 fn enqueue_effect(id: EffectId) {
@@ -174,8 +181,19 @@ pub fn flush_signal_dirty(world: &mut World) {
                 world.insert(*entity, Dirty);
             }
         }
-        let settled = with_reactive(|r| r.dirty_effects.is_empty() && r.dirty_widgets.is_empty());
-        if effects.is_empty() && widgets.is_empty() && settled {
+        let visual_widgets: Vec<Entity> =
+            with_reactive(|r| r.dirty_visual_widgets.drain(..).collect());
+        for entity in &visual_widgets {
+            if world.is_alive(*entity) {
+                world.insert(*entity, VisualDirty);
+            }
+        }
+        let settled = with_reactive(|r| {
+            r.dirty_effects.is_empty()
+                && r.dirty_widgets.is_empty()
+                && r.dirty_visual_widgets.is_empty()
+        });
+        if effects.is_empty() && widgets.is_empty() && visual_widgets.is_empty() && settled {
             return;
         }
     }
@@ -284,6 +302,15 @@ impl<T: 'static> Signal<T> {
         }
     }
 
+    pub(crate) fn subscribe_visual_widget(&self, entity: Entity) -> SignalSubscription<T> {
+        let subscriber = Subscriber::VisualWidget(entity);
+        self.add_subscriber(subscriber);
+        SignalSubscription {
+            inner: Rc::downgrade(&self.inner),
+            subscriber,
+        }
+    }
+
     pub fn get(&self) -> T
     where
         T: Clone,
@@ -331,6 +358,7 @@ impl<T: 'static> Signal<T> {
 fn propagate(sub: Subscriber) {
     match sub {
         Subscriber::Widget(entity) => enqueue_widget(entity),
+        Subscriber::VisualWidget(entity) => enqueue_visual_widget(entity),
         Subscriber::Effect(id) => enqueue_effect(id),
         Subscriber::Computed(id) => mark_computed_dirty(id),
     }
@@ -530,6 +558,7 @@ mod tests {
         with_reactive(|r| {
             r.scope = None;
             r.dirty_widgets.clear();
+            r.dirty_visual_widgets.clear();
             r.dirty_effects.clear();
             r.effects.clear();
             r.computeds.clear();

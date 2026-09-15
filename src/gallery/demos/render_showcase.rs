@@ -185,14 +185,16 @@ fn showcase_render(
     renderer: &mut dyn Renderer,
     world: &World,
     _entity: Entity,
-    _rect: &Rect,
+    rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
     let resolver = SliceResolver::new(&[], &[]);
     let scratch = world
         .resource::<crate::gallery::SceneRgbaScratch>()
         .expect("Render Showcase setup installs scene RGBA storage");
-    scratch.with_mut(|rgba| ctx.replay_with_rgba(renderer, SCENE, &resolver, rgba));
+    scratch.with_surface_rgba(*rect, renderer.output_scale(), |rgba| {
+        ctx.replay_with_rgba(renderer, SCENE, &resolver, rgba)
+    });
 }
 
 pub fn showcase_view() -> View {

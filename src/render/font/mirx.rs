@@ -1,6 +1,7 @@
 //! One-face MIRX font provider with shared placement and representation-specific geometry.
 
 use alloc::rc::Rc;
+use core::cell::Cell;
 
 use super::{
     Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface,
@@ -90,11 +91,12 @@ impl<'scratch> MirxFontStorage<'scratch> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct MirxFontProvider {
     id: FontFaceId,
     face: FontView<'static>,
     decoded: &'static [Option<SurfaceView<'static>>],
+    selected: Cell<Option<(u16, mirx::font::FontRepresentationView<'static>)>>,
 }
 
 impl MirxFontProvider {
@@ -276,20 +278,33 @@ impl MirxFontProvider {
         id: FontFaceId,
         decoded: &'static [Option<SurfaceView<'static>>],
     ) -> Self {
-        Self { id, face, decoded }
+        Self {
+            id,
+            face,
+            decoded,
+            selected: Cell::new(None),
+        }
     }
 
-    pub const fn view(self) -> FontView<'static> {
+    pub const fn view(&self) -> FontView<'static> {
         self.face
     }
 
     fn selected(&self, size: u16) -> Option<mirx::font::FontRepresentationView<'static>> {
-        self.face
+        if let Some((cached_size, selected)) = self.selected.get()
+            && cached_size == size
+        {
+            return Some(selected);
+        }
+        let selected = self
+            .face
             .select(
                 FontRepresentationRequest::new(size)
                     .with_fallback(FontRepresentationFallback::Nearest),
             )
-            .ok()
+            .ok()?;
+        self.selected.set(Some((size, selected)));
+        Some(selected)
     }
 }
 
@@ -383,22 +398,14 @@ impl FontProvider for MirxFontProvider {
     }
 
     fn metrics(&self, requested_size: u16) -> FontMetrics {
-        self.selected(requested_size)
-            .map(|_| {
-                let face = self.face.face();
-                FontMetrics {
-                    ascender: scale(face.ascender(), requested_size, face.units_per_em()),
-                    descender: scale(face.descender(), requested_size, face.units_per_em()),
-                    line_height: scale(face.ascender(), requested_size, face.units_per_em())
-                        - scale(face.descender(), requested_size, face.units_per_em())
-                        + scale(face.line_gap(), requested_size, face.units_per_em()),
-                }
-            })
-            .unwrap_or(FontMetrics {
-                ascender: crate::types::Fixed::ZERO,
-                descender: crate::types::Fixed::ZERO,
-                line_height: crate::types::Fixed::ONE,
-            })
+        let face = self.face.face();
+        FontMetrics {
+            ascender: scale(face.ascender(), requested_size, face.units_per_em()),
+            descender: scale(face.descender(), requested_size, face.units_per_em()),
+            line_height: scale(face.ascender(), requested_size, face.units_per_em())
+                - scale(face.descender(), requested_size, face.units_per_em())
+                + scale(face.line_gap(), requested_size, face.units_per_em()),
+        }
     }
 
     fn notdef_glyph(&self) -> Option<GlyphId> {

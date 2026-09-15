@@ -118,7 +118,12 @@ pub(crate) fn set_text_path(world: &mut World, entity: Entity, path: impl Into<T
     let path = path.into();
     let subscription = world
         .resource_mut::<PathStore>()
-        .and_then(|store| store.subscribe(path.path(), entity).ok().flatten())
+        .and_then(|store| {
+            store
+                .subscribe(path.path(), entity, path.end().is_some())
+                .ok()
+                .flatten()
+        })
         .map(|inner| TextPathSubscription { _inner: inner });
 
     world.insert(entity, path);
@@ -272,6 +277,37 @@ mod tests {
         let path = TextPath::new(id).with_range(Fixed::from_int(20)..Fixed::from_int(80));
 
         assert_eq!(layout_width(&world, path), Ok(Fixed::from_int(60)));
+    }
+
+    #[test]
+    fn fixed_range_path_edits_only_invalidate_visual_geometry() {
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        let widget = world.spawn_empty();
+        let id = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(crate::types::Point::new(0, 0)),
+                PathCmd::LineTo(crate::types::Point::new(100, 0)),
+            ]))
+            .unwrap();
+        set_text_path(
+            &mut world,
+            widget,
+            TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(80)),
+        );
+        world.remove::<Dirty>(widget);
+
+        world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .edit(id, |_| {})
+            .unwrap();
+        crate::core::reactive::flush_signal_dirty(&mut world);
+
+        assert!(world.get::<Dirty>(widget).is_none());
+        assert!(world.get::<crate::ui::dirty::VisualDirty>(widget).is_some());
     }
 
     #[test]

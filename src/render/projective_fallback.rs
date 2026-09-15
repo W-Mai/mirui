@@ -140,10 +140,6 @@ impl ProjectiveFallbackPlan {
     pub(crate) const fn required_bytes(self) -> usize {
         self.region.required_bytes()
     }
-
-    pub(crate) const fn stride_bytes(self) -> usize {
-        self.region.stride_bytes()
-    }
 }
 
 impl ProjectiveFallback<Box<[u8]>> {
@@ -432,7 +428,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         if source.len() != packed_len {
             return Err(ProjectiveDrawError::BackendFailure);
         }
-        let stride = plan.stride_bytes();
+        let stride = plan.region().stride_bytes();
         let target = self.target_mut(plan);
         for row in 0..usize::from(plan.height()) {
             let source_start = row * packed_stride;
@@ -452,7 +448,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         let packed_len = packed_stride
             .checked_mul(usize::from(plan.height()))
             .ok_or(ProjectiveDrawError::InvalidProjection)?;
-        let stride = plan.stride_bytes();
+        let stride = plan.region().stride_bytes();
         let target = self.target_mut(plan);
         if stride != packed_stride {
             for row in 1..usize::from(plan.height()) {

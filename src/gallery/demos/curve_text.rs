@@ -572,7 +572,8 @@ fn build_widgets(paths: CurvePaths) {
                 Text (
                     id: "curve_text_primary",
                     "MIRUI · BEND SPACE, NOT GLYPHS",
-                    path: paths.ids[0],
+                    path: crate::text::TextPath::new(paths.ids[0])
+                        .with_range(Fixed::ZERO..Fixed::from_int(820)),
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -588,7 +589,8 @@ fn build_widgets(paths: CurvePaths) {
                 Text (
                     id: "curve_text_multiscript",
                     "中文曲线排版 · مرحبا · ตั้ง",
-                    path: paths.ids[1],
+                    path: crate::text::TextPath::new(paths.ids[1])
+                        .with_range(Fixed::ZERO..Fixed::from_int(820)),
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -604,7 +606,8 @@ fn build_widgets(paths: CurvePaths) {
                 Text (
                     id: "curve_text_caption",
                     "PATH REVISION → MEASURE → PLACE → FOUR BACKENDS",
-                    path: paths.ids[2],
+                    path: crate::text::TextPath::new(paths.ids[2])
+                        .with_range(Fixed::ZERO..Fixed::from_int(820)),
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -927,6 +930,25 @@ mod tests {
         install(&mut app, parent);
         app.set_root(parent);
         app
+    }
+
+    #[test]
+    fn animated_lanes_keep_a_bounded_flattened_shape() {
+        for lane in 0..3 {
+            let path = make_lane(lane, false);
+            let requirements = crate::text::baseline::PathMeasure::new(
+                &path,
+                0,
+                crate::text::baseline::DEFAULT_TOLERANCE,
+            )
+            .unwrap()
+            .requirements()
+            .unwrap();
+            assert!(
+                requirements.segments <= 128,
+                "lane {lane}: {requirements:?}"
+            );
+        }
     }
 
     fn tap(world: &mut World, id: &'static str) {

@@ -43,13 +43,13 @@ fn blur_filter_render(
     renderer: &mut dyn Renderer,
     world: &World,
     _entity: Entity,
-    _rect: &Rect,
+    rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
     let scratch = world
         .resource::<crate::gallery::SceneRgbaScratch>()
         .expect("Blur Filter setup installs scene RGBA storage");
-    scratch.with_mut(|rgba| {
+    scratch.with_surface_rgba(*rect, renderer.output_scale(), |rgba| {
         ctx.replay_with_rgba(renderer, SCENE, &SliceResolver::new(&[], &[]), rgba)
     });
 }

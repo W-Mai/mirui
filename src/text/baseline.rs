@@ -174,6 +174,7 @@ impl<'a> PathMeasure<'a> {
             segments: &sink.output[..sink.written],
             length,
             closed: self.closed,
+            smooth_tangents: self.has_curves,
         })
     }
 }
@@ -435,6 +436,7 @@ pub(crate) struct MeasuredBaseline<'a> {
     segments: &'a [MeasuredSegment],
     length: Fixed,
     closed: bool,
+    smooth_tangents: bool,
 }
 
 impl<'a> MeasuredBaseline<'a> {
@@ -452,6 +454,7 @@ impl<'a> MeasuredBaseline<'a> {
             segments: self.segments,
             segment: 0,
             last_query_raw: None,
+            smooth_tangents: self.smooth_tangents,
         }
     }
 
@@ -461,6 +464,7 @@ impl<'a> MeasuredBaseline<'a> {
             segments: self.segments,
             segment: self.segments.len(),
             last_query_raw: None,
+            smooth_tangents: self.smooth_tangents,
         }
     }
 }
@@ -470,6 +474,7 @@ pub(crate) struct MeasuredCursor<'a> {
     segments: &'a [MeasuredSegment],
     segment: usize,
     last_query_raw: Option<i32>,
+    smooth_tangents: bool,
 }
 
 impl MeasuredCursor<'_> {
@@ -492,11 +497,6 @@ impl MeasuredCursor<'_> {
         self.last_query_raw = Some(query_raw);
 
         while let Some(segment) = self.segments.get(self.segment) {
-            let start = if self.segment == 0 {
-                self.start
-            } else {
-                self.segments[self.segment - 1].end
-            };
             let start_distance_raw = if self.segment == 0 {
                 0
             } else {
@@ -505,15 +505,24 @@ impl MeasuredCursor<'_> {
             let end_distance_raw = to_textflow(segment.end_distance);
             let segment_raw = end_distance_raw - start_distance_raw;
             if query_raw < end_distance_raw {
-                return Ok(sample_segment(
-                    start,
-                    segment.end,
+                return Ok(sample_measured_segment(
+                    self.start,
+                    self.segments,
+                    self.segment,
                     segment_raw,
                     query_raw - start_distance_raw,
+                    self.smooth_tangents,
                 ));
             }
             if query_raw == end_distance_raw && self.segment + 1 == self.segments.len() {
-                return Ok(sample_segment(start, segment.end, segment_raw, segment_raw));
+                return Ok(sample_measured_segment(
+                    self.start,
+                    self.segments,
+                    self.segment,
+                    segment_raw,
+                    segment_raw,
+                    self.smooth_tangents,
+                ));
             }
             self.segment += 1;
         }
@@ -536,6 +545,7 @@ pub(crate) struct ReverseMeasuredCursor<'a> {
     segments: &'a [MeasuredSegment],
     segment: usize,
     last_query_raw: Option<i32>,
+    smooth_tangents: bool,
 }
 
 impl ReverseMeasuredCursor<'_> {
@@ -564,11 +574,6 @@ impl ReverseMeasuredCursor<'_> {
 
         while let Some(index) = self.segment.checked_sub(1) {
             let segment = self.segments[index];
-            let start = if index == 0 {
-                self.start
-            } else {
-                self.segments[index - 1].end
-            };
             let start_distance_raw = if index == 0 {
                 0
             } else {
@@ -576,11 +581,13 @@ impl ReverseMeasuredCursor<'_> {
             };
             let end_distance_raw = to_textflow(segment.end_distance);
             if query_raw > start_distance_raw {
-                return Ok(reverse_sample(sample_segment(
-                    start,
-                    segment.end,
+                return Ok(reverse_sample(sample_measured_segment(
+                    self.start,
+                    self.segments,
+                    index,
                     end_distance_raw - start_distance_raw,
                     query_raw - start_distance_raw,
+                    self.smooth_tangents,
                 )));
             }
             self.segment = index;
@@ -590,11 +597,13 @@ impl ReverseMeasuredCursor<'_> {
             let Some(first) = self.segments.first() else {
                 return Err(PathBaselineError::Empty);
             };
-            return Ok(reverse_sample(sample_segment(
+            return Ok(reverse_sample(sample_measured_segment(
                 self.start,
-                first.end,
+                self.segments,
+                0,
                 to_textflow(first.end_distance),
                 0,
+                self.smooth_tangents,
             )));
         }
 
@@ -1039,6 +1048,16 @@ impl PathBaselineCache {
             return Ok(PathBaseline::Measured(self.baseline(index)));
         }
 
+        if let Some(index) = self.entries.iter().position(|entry| {
+            entry.last_used != self.frame
+                && entry.key.path == key.path
+                && entry.key.subpath == key.subpath
+                && entry.key.tolerance == key.tolerance
+        }) {
+            self.entries.swap_remove(index);
+            self.compact();
+        }
+
         let requirements = measure.requirements()?;
         self.make_room(requirements.segments)?;
         self.reserve(requirements.segments)?;
@@ -1073,6 +1092,7 @@ impl PathBaselineCache {
             segments: &self.segments[entry.segments.clone()],
             length: entry.length,
             closed: entry.closed,
+            smooth_tangents: true,
         }
     }
 
@@ -1355,6 +1375,14 @@ impl<T: Copy + Default> FrameArena<T> {
             self.entries[index].last_used = self.frame;
             return Ok(&self.values[self.entries[index].values.clone()]);
         }
+        if let Some(index) = self.entries.iter().position(|entry| {
+            entry.last_used != self.frame
+                && entry.key.path.path() == key.path.path()
+                && entry.key.tolerance == key.tolerance
+        }) {
+            self.entries.swap_remove(index);
+            self.compact();
+        }
         self.make_room(count)?;
         self.reserve(count)?;
         let start = self.values.len();
@@ -1389,6 +1417,7 @@ impl<T: Copy + Default> FrameArena<T> {
                 .entries
                 .iter()
                 .enumerate()
+                .filter(|(_, entry)| entry.last_used != self.frame)
                 .min_by_key(|(_, entry)| entry.last_used)
                 .map(|(index, _)| index)
             else {
@@ -1920,6 +1949,93 @@ fn sample_segment(start: Point, end: Point, length_raw: i32, offset_raw: i32) ->
     }
 }
 
+fn sample_measured_segment(
+    path_start: Point,
+    segments: &[MeasuredSegment],
+    index: usize,
+    length_raw: i32,
+    offset_raw: i32,
+    smooth_tangents: bool,
+) -> BaselineSample {
+    let start = if index == 0 {
+        path_start
+    } else {
+        segments[index - 1].end
+    };
+    let end = segments[index].end;
+    let mut sample = sample_segment(start, end, length_raw, offset_raw);
+    if !smooth_tangents {
+        return sample;
+    }
+
+    let current = sample.unit_tangent;
+    let incoming = index.checked_sub(1).map_or(current, |previous| {
+        let previous_start = if previous == 0 {
+            path_start
+        } else {
+            segments[previous - 1].end
+        };
+        normalized_tangent(previous_start, start)
+    });
+    let outgoing = segments
+        .get(index + 1)
+        .map_or(current, |next| normalized_tangent(end, next.end));
+    let start_tangent = averaged_tangent(incoming, current, current);
+    let end_tangent = averaged_tangent(current, outgoing, current);
+    let remaining = i128::from(length_raw - offset_raw);
+    let offset = i128::from(offset_raw);
+    let length = i128::from(length_raw);
+    let interpolated = Point {
+        x: from_textflow(
+            ((i128::from(to_textflow(start_tangent.x)) * remaining
+                + i128::from(to_textflow(end_tangent.x)) * offset)
+                / length) as i32,
+        ),
+        y: from_textflow(
+            ((i128::from(to_textflow(start_tangent.y)) * remaining
+                + i128::from(to_textflow(end_tangent.y)) * offset)
+                / length) as i32,
+        ),
+    };
+    sample.unit_tangent = normalize_tangent(interpolated, current);
+    sample
+}
+
+fn normalized_tangent(start: Point, end: Point) -> Point {
+    normalize_tangent(
+        Point {
+            x: end.x - start.x,
+            y: end.y - start.y,
+        },
+        Point::new(Fixed::ONE, Fixed::ZERO),
+    )
+}
+
+fn averaged_tangent(a: Point, b: Point, fallback: Point) -> Point {
+    normalize_tangent(
+        Point {
+            x: a.x + b.x,
+            y: a.y + b.y,
+        },
+        fallback,
+    )
+}
+
+fn normalize_tangent(direction: Point, fallback: Point) -> Point {
+    let dx = i128::from(to_textflow(direction.x));
+    let dy = i128::from(to_textflow(direction.y));
+    let squared = (dx * dx + dy * dy) as u128;
+    if squared == 0 {
+        return fallback;
+    }
+    let scaled_length = rounded_sqrt(squared * 256 * 256);
+    let scaled_length = i128::try_from(scaled_length).unwrap_or(i128::MAX);
+    Point {
+        x: from_textflow((dx * 256 * 256 / scaled_length) as i32),
+        y: from_textflow((dy * 256 * 256 / scaled_length) as i32),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2262,6 +2378,33 @@ mod tests {
     }
 
     #[test]
+    fn measured_curve_interpolates_tangents_across_flattened_segments() {
+        let path = Path::from_owned(alloc::vec![
+            PathCmd::MoveTo(point(0, 0)),
+            PathCmd::CubicTo {
+                ctrl1: point(0, 100),
+                ctrl2: point(100, 100),
+                end: point(100, 0),
+            },
+        ]);
+        let measure = PathMeasure::new(&path, 0, Fixed::from_int(2)).unwrap();
+        let requirements = measure.requirements().unwrap();
+        let mut output = alloc::vec![EMPTY_SEGMENT; requirements.segments];
+        let baseline = measure.measure_into(&mut output).unwrap();
+        let boundary = baseline.segments[requirements.segments / 2 - 1].end_distance;
+        let epsilon = Fixed::from_ratio(1, 256);
+        let mut cursor = baseline.cursor();
+        let before = cursor.sample_forward(boundary - epsilon).unwrap();
+        let at = cursor.sample_forward(boundary).unwrap();
+        let after = cursor.sample_forward(boundary + epsilon).unwrap();
+
+        for adjacent in [(before, at), (at, after)] {
+            assert!((adjacent.0.unit_tangent.x - adjacent.1.unit_tangent.x).abs() <= epsilon);
+            assert!((adjacent.0.unit_tangent.y - adjacent.1.unit_tangent.y).abs() <= epsilon);
+        }
+    }
+
+    #[test]
     fn measured_cursor_uses_outgoing_tangent_at_segment_boundary() {
         let path = Path::from_owned(alloc::vec![
             PathCmd::MoveTo(point(0, 0)),
@@ -2421,6 +2564,75 @@ mod tests {
         assert_eq!(second_length, first_length);
         assert_eq!(cache.entries.len(), 1);
         assert_eq!(cache.segments.len(), segment_count);
+    }
+
+    #[test]
+    fn animated_path_revisions_replace_stale_measurement_and_placement_entries() {
+        let face = SimpleTypeface::new(&Mono);
+        let mut layouts = TextLayoutCache::default();
+        let handle = layouts
+            .layout(
+                TextLayoutRequest {
+                    text: "animated",
+                    max_width: 100 << 8,
+                    width: Some(100 << 8),
+                    max_lines: 1,
+                    line_height: 256,
+                    baseline: 192,
+                    direction: BaseDirection::LeftToRight,
+                    wrap: WrapMode::NoWrap,
+                    alignment: Alignment::Start,
+                    overflow: Overflow::Clip,
+                    spacing: TextSpacing::default(),
+                    features: &[],
+                    line_widths: None,
+                },
+                &[&face],
+            )
+            .unwrap();
+        let layout = layouts.get(handle).unwrap();
+        let mut store = PathStore::new(1).unwrap();
+        let path = store
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(point(0, 0)),
+                PathCmd::QuadTo {
+                    ctrl: point(50, 40),
+                    end: point(100, 0),
+                },
+            ]))
+            .unwrap();
+        let text_path = TextPath::new(path).with_range(Fixed::ZERO..Fixed::from_int(100));
+        let resource = PathBaselineResource::default();
+
+        for frame in 0..64 {
+            resource.begin_frame();
+            store
+                .edit(path, |path| {
+                    path.set_command(
+                        1,
+                        PathCmd::QuadTo {
+                            ctrl: point(50, 40 + frame),
+                            end: point(100, 0),
+                        },
+                    )
+                    .unwrap();
+                })
+                .unwrap();
+            resource
+                .with_glyph_frames(
+                    &store,
+                    text_path,
+                    DEFAULT_TOLERANCE,
+                    handle,
+                    &layout,
+                    |_| {},
+                )
+                .unwrap();
+        }
+
+        let runtime = resource.0.borrow();
+        assert_eq!(runtime.baselines.entries.len(), 1);
+        assert_eq!(runtime.placements.glyphs.entries.len(), 1);
     }
 
     #[test]

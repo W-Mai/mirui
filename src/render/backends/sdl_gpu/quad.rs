@@ -64,9 +64,22 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             self.viewport.point_to_physical(q[3]),
         ];
         let phys_radius = radius * self.viewport.scale();
-        let phys_width = (width * self.viewport.scale()).to_f32().max(1.0);
+        let phys_width = (width * self.viewport.scale()).max(Fixed::ONE);
         let path = Path::rounded_quad(&phys_q, phys_radius);
-        self.tessellator.stroke(&path, None, phys_width, color, opa);
+        self.tessellator.stroke(
+            &path,
+            None,
+            crate::render::raster::StrokeSpec {
+                width: phys_width,
+                cap: crate::render::raster::LineCap::Butt,
+                join: crate::render::raster::LineJoin::Miter,
+                miter_limit: Fixed::from_int(4),
+                dash: &[],
+                dash_scale: Fixed::ONE,
+            },
+            color,
+            opa,
+        );
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 

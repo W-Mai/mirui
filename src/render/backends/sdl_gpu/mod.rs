@@ -534,7 +534,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 &read_rect,
                 sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
                 target.as_mut_ptr().cast(),
-                i32::try_from(plan.stride_bytes())
+                i32::try_from(plan.region().stride_bytes())
                     .map_err(|_| ProjectiveDrawError::InvalidProjection)?,
             )
         };
@@ -554,7 +554,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             ) else {
                 return;
             };
-            if texture.update(None, target, plan.stride_bytes()).is_err() {
+            if texture
+                .update(None, target, plan.region().stride_bytes())
+                .is_err()
+            {
                 return;
             }
             texture.set_blend_mode(sdl2::render::BlendMode::None);
