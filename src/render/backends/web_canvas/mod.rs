@@ -199,6 +199,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         }
     }
 
+    fn needs_paint_fallback(request: &DrawRequest<'_, '_>) -> bool {
+        match request.command {
+            DrawCommand::FillPath {
+                paint: Paint::LinearGradient(gradient),
+                ..
+            } => gradient.spread != mirx::scene::SpreadMode::Pad,
+            DrawCommand::FillPath {
+                paint: Paint::RadialGradient(gradient),
+                ..
+            } => gradient.spread != mirx::scene::SpreadMode::Pad,
+            DrawCommand::StrokePath { paint, .. } => !matches!(paint, Paint::Color(_)),
+            _ => false,
+        }
+    }
+
     fn ctx(&self) -> &CanvasRenderingContext2d {
         self.surface.ctx()
     }
@@ -713,6 +728,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        request.validate_texture()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
                 return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
@@ -728,8 +744,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
                     .map(|f| f.capacity()),
             );
         }
-        Self::classify_request(request)?;
-        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
+        let paint_fallback = Self::needs_paint_fallback(request);
+        if paint_fallback && !request.projective.is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        if !paint_fallback {
+            Self::classify_request(request)?;
+        }
+        if request.projective.is_identity()
+            && !Self::needs_blit_fallback(request)
+            && !paint_fallback
+        {
             return Ok(RenderRoute::Native);
         }
         let fallback = self
@@ -752,12 +777,22 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         request.validate_projection()?;
+        request.validate_texture()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             self.route(request)?;
             return self.blur_target_region(*alpha, region);
         }
-        Self::classify_request(request)?;
-        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
+        let paint_fallback = Self::needs_paint_fallback(request);
+        if paint_fallback && !request.projective.is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        if !paint_fallback {
+            Self::classify_request(request)?;
+        }
+        if request.projective.is_identity()
+            && !Self::needs_blit_fallback(request)
+            && !paint_fallback
+        {
             self.draw_failed = false;
             self.draw(request.command, &request.clip);
             return if self.draw_failed {

@@ -469,17 +469,27 @@ impl WgpuRenderer<'_> {
         }
     }
 
-    fn composite_fallback_plan(
+    fn non_native_fallback_plan(
         &self,
         request: &DrawRequest<'_, '_>,
     ) -> Result<Option<ProjectiveFallbackPlan>, RenderError> {
-        let DrawCommand::Blit { composite, .. } = request.command else {
-            return Ok(None);
+        let needs_fallback = match request.command {
+            DrawCommand::Blit { composite, .. } => matches!(
+                composite,
+                CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
+            ),
+            DrawCommand::FillPath { paint, .. } | DrawCommand::StrokePath { paint, .. } => {
+                if !matches!(paint, Paint::LinearGradient(_) | Paint::RadialGradient(_)) {
+                    false
+                } else if !request.projective.is_identity() {
+                    return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+                } else {
+                    true
+                }
+            }
+            _ => false,
         };
-        if !matches!(
-            composite,
-            CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
-        ) {
+        if !needs_fallback {
             return Ok(None);
         }
         #[cfg(target_arch = "wasm32")]
@@ -3407,7 +3417,7 @@ impl Renderer for WgpuRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
-        if let Some(plan) = self.composite_fallback_plan(request)? {
+        if let Some(plan) = self.non_native_fallback_plan(request)? {
             return Ok(RenderRoute::ExactFallback {
                 required_bytes: plan.required_bytes(),
             });
@@ -3442,7 +3452,7 @@ impl Renderer for WgpuRenderer<'_> {
         self.draw_failed = false;
         request.validate_projection()?;
         request.validate_texture()?;
-        if let Some(plan) = self.composite_fallback_plan(request)? {
+        if let Some(plan) = self.non_native_fallback_plan(request)? {
             if plan.required_bytes() == 0 {
                 return Ok(());
             }

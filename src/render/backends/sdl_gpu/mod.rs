@@ -611,6 +611,19 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
     }
 
+    fn needs_paint_fallback(request: &DrawRequest<'_, '_>) -> bool {
+        matches!(
+            request.command,
+            DrawCommand::FillPath {
+                paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
+                ..
+            } | DrawCommand::StrokePath {
+                paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
+                ..
+            }
+        )
+    }
+
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
@@ -619,16 +632,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         match request.command {
             DrawCommand::PushClip { .. } | DrawCommand::PopClip => {
                 return Err(RenderError::Unsupported(RenderFeature::PathClip));
-            }
-            DrawCommand::StrokePath { paint, .. } => {
-                if !matches!(paint, Paint::Color(_)) {
-                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
-                }
-            }
-            DrawCommand::FillPath { paint, .. }
-                if !projected && !matches!(paint, Paint::Color(_)) =>
-            {
-                return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
             }
             _ => {}
         }
@@ -883,6 +886,7 @@ mod route_tests {
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
+        request.validate_texture()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
                 return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
@@ -896,7 +900,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
             );
         }
         Self::classify_request(request)?;
-        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
+        let paint_fallback = Self::needs_paint_fallback(request);
+        if paint_fallback && !request.projective.is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        if request.projective.is_identity()
+            && !Self::needs_blit_fallback(request)
+            && !paint_fallback
+        {
             return Ok(RenderRoute::Native);
         }
         let fallback = self
@@ -918,12 +929,20 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         request.validate_projection()?;
+        request.validate_texture()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             self.route(request)?;
             return self.blur_target_region(*alpha, region);
         }
         Self::classify_request(request)?;
-        if request.projective.is_identity() && !Self::needs_blit_fallback(request) {
+        let paint_fallback = Self::needs_paint_fallback(request);
+        if paint_fallback && !request.projective.is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        if request.projective.is_identity()
+            && !Self::needs_blit_fallback(request)
+            && !paint_fallback
+        {
             self.draw_failed = false;
             self.draw(request.command, &request.clip);
             return if self.draw_failed {

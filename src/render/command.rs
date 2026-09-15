@@ -14,11 +14,12 @@ pub use mirx::scene::{LineCap, LineJoin, Paint};
 /// | mode | SwRenderer | wgpu | sdl_gpu | web_canvas |
 /// |---|---|---|---|---|
 /// | SourceOver / Add | full | full | full (native) | full |
-/// | Screen / Multiply / Darken / Lighten / Difference | full | full | per-mode `unimplemented!()` when no `SDL_ComposeCustomBlendMode` factor combination matches | full |
+/// | Screen / Multiply | full | full | full | full |
+/// | Darken / Lighten / Difference | full | exact bounded fallback | exact bounded fallback | full |
 ///
-/// `radius > 0` on `Blit` is only implemented by `SwRenderer` and `wgpu`;
-/// `sdl_gpu` and `web_canvas` `unimplemented!()` and the panic message
-/// points at the supported backends.
+/// Unsupported native image semantics are resolved by the backend before draw
+/// submission. Backends with target readback use a clipped exact fallback when
+/// caller-provided workspace is available and otherwise return a typed error.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CompositeMode {
     /// `out = src*src.a + dst*(1 - src.a)`. Default; matches v0.36.0.
@@ -182,9 +183,9 @@ pub enum DrawCommand<'a> {
         opa: Opa,
     },
     /// Blit `texture` at `pos`, scaling (nearest) to `size` logical pixels.
-    /// `radius > 0` clips to a rounded rectangle via SDF coverage (only
-    /// supported by `SwRenderer` / `wgpu`). `composite` selects the blend
-    /// formula — see [`CompositeMode`] for per-mode backend support.
+    /// `radius > 0` clips to a rounded rectangle via SDF coverage. `composite`
+    /// selects the blend formula — see [`CompositeMode`] for per-mode backend
+    /// support.
     Blit {
         pos: Point,
         size: Point,
@@ -196,8 +197,8 @@ pub enum DrawCommand<'a> {
         composite: CompositeMode,
     },
     /// Fill the closed region described by `path`. Path vertices are in
-    /// logical pixels; under non-translate transforms the backend may
-    /// fall back to `unimplemented!` (same policy as `Arc`).
+    /// logical pixels. Unsupported native paint combinations may use a bounded
+    /// exact fallback and otherwise return a typed route error.
     FillPath {
         path: &'a Path,
         transform: Transform,
@@ -207,7 +208,7 @@ pub enum DrawCommand<'a> {
     },
     /// Stroke `path` with `width` logical pixels. Cap/join follow SVG
     /// semantics; `miter_limit` defaults to 4.0 when omitted by the
-    /// caller. Backends without a path stroker `unimplemented!()`.
+    /// caller. Unsupported paint combinations return a typed route error.
     StrokePath {
         path: &'a Path,
         transform: Transform,

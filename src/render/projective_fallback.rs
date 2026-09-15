@@ -43,6 +43,26 @@ use crate::render::texture::{ColorFormat, Texture};
 ))]
 use crate::types::{Fixed, Rect, Transform3D, Viewport};
 
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
+))]
+fn affine_from_homography(value: Transform3D) -> Option<crate::types::Transform> {
+    if !value.m20.is_zero() || !value.m21.is_zero() || value.m22 != crate::types::Fixed64::ONE {
+        return None;
+    }
+    Some(crate::types::Transform {
+        m00: value.m00.to_fixed(),
+        m01: value.m01.to_fixed(),
+        tx: value.m02.to_fixed(),
+        m10: value.m10.to_fixed(),
+        m11: value.m11.to_fixed(),
+        ty: value.m12.to_fixed(),
+    })
+}
+
 /// Fixed-capacity target for software-rendered projective commands.
 /// The backing storage is supplied once and never grows.
 pub struct ProjectiveFallback<S = Box<[u8]>> {
@@ -145,6 +165,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         let mut validator = SwRenderer::new(Texture::new(&mut empty, 0, 0, ColorFormat::RGBA8888));
         validator.viewport = viewport;
         validator.preflight_projective(command, clip, projective)?;
+        if projective.is_identity()
+            && matches!(
+                command,
+                DrawCommand::FillPath { .. } | DrawCommand::StrokePath { .. }
+            )
+        {
+            validator
+                .route(&crate::render::renderer::DrawRequest::new(command, *clip))
+                .map_err(|error| match error {
+                    crate::render::renderer::RenderError::InvalidGeometry => {
+                        ProjectiveDrawError::InvalidProjection
+                    }
+                    _ => ProjectiveDrawError::Unsupported,
+                })?;
+        }
 
         let logical = projective.compose(&Transform3D::from_affine(command.transform()));
         let visual_bounds = match command {
@@ -217,6 +252,26 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                     .map(|quad| Rect::bounding_quad(&quad))
                     .unwrap_or(*clip)
             }
+            DrawCommand::FillPath { path, .. } => {
+                let bounds = path.bbox().ok_or(ProjectiveDrawError::InvalidProjection)?;
+                logical
+                    .apply_rect(bounds)
+                    .map(|quad| Rect::bounding_quad(&quad))
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?
+            }
+            DrawCommand::StrokePath {
+                path,
+                width,
+                miter_limit,
+                ..
+            } => {
+                let bounds = path.bbox().ok_or(ProjectiveDrawError::InvalidProjection)?;
+                let extent = *width / 2 * (*miter_limit).max(Fixed::ONE);
+                logical
+                    .apply_rect(bounds.inflate(extent))
+                    .map(|quad| Rect::bounding_quad(&quad))
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?
+            }
             _ => return Err(ProjectiveDrawError::Unsupported),
         };
         let draw_bounds = clip
@@ -256,7 +311,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             Fixed::from(plan.width()) / viewport.scale(),
             Fixed::from(plan.height()) / viewport.scale(),
         );
-        if !matches!(command, DrawCommand::Blit { quad: Some(_), .. }) {
+        if !matches!(
+            command,
+            DrawCommand::Blit { quad: Some(_), .. }
+                | DrawCommand::FillPath { .. }
+                | DrawCommand::StrokePath { .. }
+        ) {
             validator.preflight_projective(command, &local_clip, &local_projective)?;
         }
         Ok(plan)
@@ -340,6 +400,72 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                 &local_clip,
             );
             Ok(())
+        } else if let DrawCommand::FillPath {
+            path,
+            transform,
+            paint,
+            opa,
+            fill_rule,
+        } = command
+        {
+            let local = Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+                .compose(projective)
+                .compose(&Transform3D::from_affine(*transform));
+            let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
+            renderer
+                .submit(&crate::render::renderer::DrawRequest::new(
+                    &DrawCommand::FillPath {
+                        path,
+                        transform: affine,
+                        paint,
+                        opa: *opa,
+                        fill_rule: *fill_rule,
+                    },
+                    local_clip,
+                ))
+                .map_err(|error| match error {
+                    crate::render::renderer::RenderError::InvalidGeometry => {
+                        ProjectiveDrawError::InvalidProjection
+                    }
+                    _ => ProjectiveDrawError::Unsupported,
+                })
+        } else if let DrawCommand::StrokePath {
+            path,
+            transform,
+            paint,
+            width,
+            opa,
+            line_cap,
+            line_join,
+            miter_limit,
+            dash,
+        } = command
+        {
+            let local = Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+                .compose(projective)
+                .compose(&Transform3D::from_affine(*transform));
+            let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
+            renderer
+                .submit(&crate::render::renderer::DrawRequest::new(
+                    &DrawCommand::StrokePath {
+                        path,
+                        transform: affine,
+                        paint,
+                        width: *width,
+                        opa: *opa,
+                        line_cap: *line_cap,
+                        line_join: *line_join,
+                        miter_limit: *miter_limit,
+                        dash,
+                    },
+                    local_clip,
+                ))
+                .map_err(|error| match error {
+                    crate::render::renderer::RenderError::InvalidGeometry => {
+                        ProjectiveDrawError::InvalidProjection
+                    }
+                    _ => ProjectiveDrawError::Unsupported,
+                })
         } else {
             renderer.draw_projective(command, &local_clip, &local_projective)
         }
@@ -350,9 +476,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
 mod tests {
     use super::*;
     use crate::render::PosedGlyphs;
+    use crate::render::canvas::Paint;
     use crate::render::command::CompositeMode;
     use crate::render::font::Font;
+    use crate::render::raster::{FillRule, LineCap, LineJoin};
     use crate::types::{Color, Point, Transform};
+    use alloc::borrow::Cow;
+    use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
     use textflow::placement::GlyphFrame;
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
 
@@ -434,6 +564,133 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plan.required_bytes(), needed);
+    }
+
+    #[test]
+    fn translated_gradient_path_renders_inside_local_fallback() {
+        let path = crate::render::path::Path::rect(
+            Fixed::from_int(10),
+            Fixed::from_int(6),
+            Fixed::from_int(20),
+            Fixed::from_int(8),
+        );
+        let gradient = Paint::LinearGradient(LinearGradient {
+            start: mirx::types::Point::new(
+                mirx::types::Fixed::from_int(10),
+                mirx::types::Fixed::from_int(6),
+            ),
+            end: mirx::types::Point::new(
+                mirx::types::Fixed::from_int(30),
+                mirx::types::Fixed::from_int(6),
+            ),
+            stops: Cow::Owned(alloc::vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(255, 0, 0),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(0, 0, 255),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::UserSpaceOnUse,
+            transform: mirx::types::Transform::IDENTITY,
+        });
+        let command = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &gradient,
+            opa: 255,
+            fill_rule: FillRule::NonZero,
+        };
+        let mut bytes = [0u8; 32 * 16 * 4];
+        let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
+        let viewport = Viewport::new(32, 16, Fixed::ONE);
+        let plan = fallback
+            .plan(
+                &command,
+                &Rect::new(0, 0, 32, 16),
+                &Transform3D::IDENTITY,
+                viewport,
+            )
+            .unwrap();
+        fallback
+            .render(plan, &command, &Transform3D::IDENTITY, viewport)
+            .unwrap();
+        let pixel = |x: i32| {
+            let offset = (usize::try_from(10 - plan.y).unwrap() * usize::from(plan.width())
+                + usize::try_from(x - plan.x).unwrap())
+                * 4;
+            &fallback.target(plan)[offset..offset + 4]
+        };
+        assert!(pixel(11)[0] > pixel(11)[2]);
+        assert!(pixel(28)[2] > pixel(28)[0]);
+    }
+
+    #[test]
+    fn gradient_stroke_uses_bounded_local_fallback() {
+        let path = crate::render::path::Path::rect(
+            Fixed::from_int(8),
+            Fixed::from_int(8),
+            Fixed::from_int(16),
+            Fixed::from_int(8),
+        );
+        let gradient = Paint::LinearGradient(LinearGradient {
+            start: mirx::types::Point::new(
+                mirx::types::Fixed::from_int(8),
+                mirx::types::Fixed::from_int(8),
+            ),
+            end: mirx::types::Point::new(
+                mirx::types::Fixed::from_int(24),
+                mirx::types::Fixed::from_int(8),
+            ),
+            stops: Cow::Owned(alloc::vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(255, 0, 0),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(0, 0, 255),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::UserSpaceOnUse,
+            transform: mirx::types::Transform::IDENTITY,
+        });
+        let command = DrawCommand::StrokePath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &gradient,
+            width: Fixed::from_int(3),
+            opa: 255,
+            line_cap: LineCap::Butt,
+            line_join: LineJoin::Miter,
+            miter_limit: Fixed::ONE,
+            dash: &[],
+        };
+        let mut bytes = [0u8; 32 * 24 * 4];
+        let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
+        let viewport = Viewport::new(32, 24, Fixed::ONE);
+        let plan = fallback
+            .plan(
+                &command,
+                &Rect::new(0, 0, 32, 24),
+                &Transform3D::IDENTITY,
+                viewport,
+            )
+            .unwrap();
+        fallback
+            .render(plan, &command, &Transform3D::IDENTITY, viewport)
+            .unwrap();
+        assert!(
+            fallback
+                .target(plan)
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] > 0)
+        );
+        assert!(plan.required_bytes() < fallback.capacity());
     }
 
     #[test]
