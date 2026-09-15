@@ -1,14 +1,7 @@
 use crate::types::{Fixed, Rect, Transform3D};
 
 use super::command::{CompositeMode, DrawCommand};
-use super::texture::ColorFormat;
-#[cfg(any(
-    feature = "sdl-gpu",
-    feature = "wgpu",
-    all(feature = "web-canvas", target_arch = "wasm32"),
-    test
-))]
-use super::texture::{TexBuf, Texture};
+use super::texture::{ColorFormat, TexBuf, Texture};
 
 /// One draw under its effective clip and shared projective transform.
 #[derive(Clone, Copy)]
@@ -171,6 +164,135 @@ impl RenderRoute {
             });
         }
         Ok(Self::ExactFallback(plan))
+    }
+}
+
+struct RegionRenderer<'a> {
+    inner: &'a mut dyn Renderer,
+    origin_x: Fixed,
+    origin_y: Fixed,
+}
+
+impl RegionRenderer<'_> {
+    fn clip(&self, clip: Rect) -> Rect {
+        Rect {
+            x: clip.x - self.origin_x,
+            y: clip.y - self.origin_y,
+            w: clip.w,
+            h: clip.h,
+        }
+    }
+
+    fn explicit_quad<'data>(&self, command: &DrawCommand<'data>) -> Option<DrawCommand<'data>> {
+        let translate = |point: crate::types::Point| crate::types::Point {
+            x: point.x - self.origin_x,
+            y: point.y - self.origin_y,
+        };
+        match command {
+            DrawCommand::Fill {
+                area,
+                transform,
+                quad: Some(quad),
+                color,
+                radius,
+                opa,
+            } => Some(DrawCommand::Fill {
+                area: *area,
+                transform: *transform,
+                quad: Some(quad.map(translate)),
+                color: *color,
+                radius: *radius,
+                opa: *opa,
+            }),
+            DrawCommand::Border {
+                area,
+                transform,
+                quad: Some(quad),
+                color,
+                width,
+                radius,
+                opa,
+            } => Some(DrawCommand::Border {
+                area: *area,
+                transform: *transform,
+                quad: Some(quad.map(translate)),
+                color: *color,
+                width: *width,
+                radius: *radius,
+                opa: *opa,
+            }),
+            DrawCommand::Blit {
+                pos,
+                size,
+                transform,
+                quad: Some(quad),
+                texture,
+                opa,
+                radius,
+                composite,
+            } => Some(DrawCommand::Blit {
+                pos: *pos,
+                size: *size,
+                transform: *transform,
+                quad: Some(quad.map(translate)),
+                texture,
+                opa: *opa,
+                radius: *radius,
+                composite: *composite,
+            }),
+            _ => None,
+        }
+    }
+
+    fn request<'cmd, 'data>(&self, request: &DrawRequest<'cmd, 'data>) -> DrawRequest<'cmd, 'data> {
+        DrawRequest::new(request.command, self.clip(request.clip)).with_projective(
+            Transform3D::translate(-self.origin_x, -self.origin_y).compose(&request.projective),
+        )
+    }
+}
+
+impl Renderer for RegionRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        if let Some(command) = self.explicit_quad(request.command) {
+            return self.inner.route(
+                &DrawRequest::new(&command, self.clip(request.clip))
+                    .with_projective(request.projective),
+            );
+        }
+        self.inner.route(&self.request(request))
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        if let Some(command) = self.explicit_quad(request.command) {
+            return self.inner.submit(
+                &DrawRequest::new(&command, self.clip(request.clip))
+                    .with_projective(request.projective),
+            );
+        }
+        self.inner.submit(&self.request(request))
+    }
+
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        if let Some(command) = self.explicit_quad(request.command) {
+            return self.inner.submit_with_route(
+                &DrawRequest::new(&command, self.clip(request.clip))
+                    .with_projective(request.projective),
+                route,
+            );
+        }
+        self.inner.submit_with_route(&self.request(request), route)
+    }
+
+    fn flush(&mut self) {
+        self.inner.flush();
+    }
+
+    fn output_scale(&self) -> Fixed {
+        self.inner.output_scale()
     }
 }
 
@@ -395,6 +517,57 @@ pub trait Renderer {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
+    /// Replay one ordered scope inside a prepared physical target region.
+    /// The nested renderer preserves global command coordinates while
+    /// rebasing the region to its local software target.
+    fn render_scope(
+        &mut self,
+        region: FallbackRegion,
+        draw: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
+    ) -> Result<bool, RenderError> {
+        if region.width == 0 || region.height == 0 {
+            return Ok(false);
+        }
+        let scale = self.output_scale();
+        if scale <= Fixed::ZERO {
+            return Err(RenderError::InvalidGeometry);
+        }
+        let logical = Rect {
+            x: Fixed::from_int(region.x) / scale,
+            y: Fixed::from_int(region.y) / scale,
+            w: Fixed::from(region.width) / scale,
+            h: Fixed::from(region.height) / scale,
+        };
+        self.modify_target_region(&logical, &mut |target| {
+            if target.width != region.width || target.height != region.height {
+                return Err(RenderError::InvalidGeometry);
+            }
+            let width = target.width;
+            let height = target.height;
+            let format = target.format;
+            let stride = target.stride;
+            let alpha_mode = target.alpha_mode;
+            let texture = Texture {
+                buf: TexBuf::Mut(target.buf.as_mut_slice()),
+                width,
+                height,
+                format,
+                stride,
+                alpha_mode,
+                cache_revision: 0,
+                transient: true,
+            };
+            let mut software = crate::render::backends::sw::SwRenderer::new(texture);
+            software.viewport = crate::types::Viewport::new(width, height, scale);
+            let mut local = RegionRenderer {
+                inner: &mut software,
+                origin_x: logical.x,
+                origin_y: logical.y,
+            };
+            draw(&mut local)
+        })
+    }
+
     fn blur_target_region(&mut self, alpha: Fixed, region: &Rect) -> Result<(), RenderError> {
         if alpha <= Fixed::ZERO || alpha >= Fixed::ONE {
             return Ok(());
@@ -538,6 +711,73 @@ mod tests {
             }),
             Err(RenderError::Unsupported(RenderFeature::Readback))
         );
+    }
+
+    #[test]
+    fn scope_replay_preserves_global_coordinates() {
+        let mut pixels = [0u8; 12 * 10 * 4];
+        let texture = Texture::new(&mut pixels, 12, 10, ColorFormat::RGBA8888);
+        let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
+        let region = FallbackRegion::from_parts(4, 3, 4, 3, 16);
+        let command = DrawCommand::Fill {
+            area: Rect::new(4, 3, 4, 3),
+            transform: crate::types::Transform::IDENTITY,
+            quad: None,
+            color: crate::types::Color::rgb(20, 80, 140),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+
+        let rendered = renderer
+            .render_scope(region, &mut |local| {
+                local.submit(&DrawRequest::new(&command, Rect::new(0, 0, 12, 10)))
+            })
+            .unwrap();
+
+        assert!(rendered);
+        assert_eq!(
+            &pixels[(3 * 12 + 4) * 4..(3 * 12 + 4) * 4 + 4],
+            &[20, 80, 140, 255]
+        );
+        assert_eq!(
+            &pixels[(5 * 12 + 7) * 4..(5 * 12 + 7) * 4 + 4],
+            &[20, 80, 140, 255]
+        );
+        assert_eq!(&pixels[(3 * 12 + 3) * 4..(3 * 12 + 3) * 4 + 4], &[0; 4]);
+        assert_eq!(&pixels[(6 * 12 + 4) * 4..(6 * 12 + 4) * 4 + 4], &[0; 4]);
+    }
+
+    #[test]
+    fn scope_replay_rebases_explicit_quads_once() {
+        let mut pixels = [0u8; 12 * 10 * 4];
+        let texture = Texture::new(&mut pixels, 12, 10, ColorFormat::RGBA8888);
+        let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
+        let region = FallbackRegion::from_parts(4, 3, 4, 3, 16);
+        let command = DrawCommand::Fill {
+            area: Rect::new(4, 3, 4, 3),
+            transform: crate::types::Transform::IDENTITY,
+            quad: Some([
+                crate::types::Point::new(4, 3),
+                crate::types::Point::new(8, 3),
+                crate::types::Point::new(8, 6),
+                crate::types::Point::new(4, 6),
+            ]),
+            color: crate::types::Color::rgb(200, 70, 30),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+
+        renderer
+            .render_scope(region, &mut |local| {
+                local.submit(&DrawRequest::new(&command, Rect::new(0, 0, 12, 10)))
+            })
+            .unwrap();
+
+        assert_eq!(
+            &pixels[(4 * 12 + 5) * 4..(4 * 12 + 5) * 4 + 4],
+            &[200, 70, 30, 255]
+        );
+        assert_eq!(&pixels[(4 * 12 + 3) * 4..(4 * 12 + 3) * 4 + 4], &[0; 4]);
     }
 
     #[test]
