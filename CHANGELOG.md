@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Nested clip fallback.** Scene replay absorbs descendant fallback work into the nearest path-clip scope and reuses caller-owned frame storage for planning and execution.
 - **Projective software strokes.** Solid paths, lines, and arcs retain full stroke geometry through homography; primitive arcs reuse renderer-owned command storage across frames.
 - **Projective gradient paint.** Software and exact fallback paths inverse-map covered pixels into linear or radial paint space under homography, including gradient strokes.
-- **Scene group isolation.** Blur and overlapping group opacity render into caller-owned RGBA storage, then composite once through the active backend; nested fallback scopes retain global coordinates and reuse the remaining storage.
+- **Scene group isolation.** Blur and overlapping group opacity render into caller-owned RGBA storage, then composite once through the active backend; nested scopes reuse caller-owned frame, route, and plan slices without a recursive fixed-depth limit.
 
 ### Fixed
 
