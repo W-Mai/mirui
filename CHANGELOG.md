@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Image resource leases.** Attached image widgets reuse resolved textures without touching the LRU on every frame; token, registration, removal, loader, and fallback changes invalidate the lease before its next draw.
 - **Gradient paths across pixel backends.** WGPU and SDL GPU preserve linear and radial path fills and strokes through clipped, budgeted exact fallback. Web Canvas keeps equivalent Pad fills native and uses the same fallback for repeat, reflect, and gradient strokes.
 - **Composed renderer admission.** Checked draws reject transformed geometry, projected quads, path clips, blur, and invalid texture storage before the Canvas router can discard those semantics.
 - **WGPU image composites.** Darken, Lighten, and Difference image draws use a clipped, budgeted target readback and exact software blend; ordinary native image draws remain unchanged.

@@ -1,6 +1,6 @@
 use alloc::borrow::Cow;
 use alloc::rc::{Rc, Weak};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use crate::core::cache::HasSize;
 use crate::core::resource::manager_inner::{self, ManagerInner, ResolveOutcome};
@@ -17,6 +17,8 @@ pub struct ResourceHandle<T: HasSize + Clone + 'static> {
     /// Held outside the manager so `get()` can answer with a stable value
     /// after `Weak::upgrade` returns `None` (manager has been dropped).
     fallback: Rc<T>,
+    revision: Rc<Cell<u64>>,
+    cached: RefCell<Option<(u64, Rc<T>)>>,
 }
 
 impl<T: HasSize + Clone + 'static> ResourceHandle<T> {
@@ -24,11 +26,14 @@ impl<T: HasSize + Clone + 'static> ResourceHandle<T> {
         token: Cow<'static, str>,
         manager: Weak<RefCell<ManagerInner<T>>>,
         fallback: Rc<T>,
+        revision: Rc<Cell<u64>>,
     ) -> Self {
         Self {
             token,
             manager,
             fallback,
+            revision,
+            cached: RefCell::new(None),
         }
     }
 
@@ -36,15 +41,30 @@ impl<T: HasSize + Clone + 'static> ResourceHandle<T> {
         &self.token
     }
 
+    pub(crate) fn get_cached(&self) -> Option<Rc<T>> {
+        let revision = self.revision.get();
+        self.cached
+            .borrow()
+            .as_ref()
+            .filter(|(cached_revision, _)| *cached_revision == revision)
+            .map(|(_, value)| value.clone())
+    }
+
     pub fn get(&self) -> Rc<T> {
         let Some(rc) = self.manager.upgrade() else {
             return self.fallback.clone();
         };
-        match manager_inner::resolve(&rc, &self.token) {
+        let revision = self.revision.get();
+        if let Some(value) = self.get_cached() {
+            return value;
+        }
+        let value = match manager_inner::resolve(&rc, &self.token) {
             ResolveOutcome::CacheHit(v) => v,
             ResolveOutcome::JustResolved { value, .. } => value,
             ResolveOutcome::Fallback(v) => v,
-        }
+        };
+        *self.cached.borrow_mut() = Some((revision, value.clone()));
+        value
     }
 }
 
@@ -66,6 +86,8 @@ impl<T: HasSize + Clone + 'static> Clone for ResourceHandle<T> {
             token: self.token.clone(),
             manager: self.manager.clone(),
             fallback: self.fallback.clone(),
+            revision: self.revision.clone(),
+            cached: RefCell::new(self.cached.borrow().clone()),
         }
     }
 }

@@ -3,7 +3,7 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::Any;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use hashbrown::{HashMap, HashSet};
 use rustc_hash::FxBuildHasher;
@@ -62,6 +62,7 @@ pub struct ManagerInner<T: HasSize + Clone + 'static> {
     failed_values: HashSet<Cow<'static, str>, FxBuildHasher>,
     signals: HashMap<Cow<'static, str>, Rc<Signal<()>>, FxBuildHasher>,
     refcounts: HashMap<Cow<'static, str>, u32, FxBuildHasher>,
+    revision: Rc<Cell<u64>>,
 }
 
 impl<T: HasSize + Clone + 'static> ManagerInner<T> {
@@ -74,6 +75,7 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
             failed_values: HashSet::default(),
             signals: HashMap::default(),
             refcounts: HashMap::default(),
+            revision: Rc::new(Cell::new(0)),
         }
     }
 
@@ -81,6 +83,7 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
 
     pub(crate) fn set_fallback(&mut self, value: T) {
         self.fallback = Rc::new(value);
+        self.advance_revision();
     }
 
     pub(crate) fn fallback_clone(&self) -> Rc<T> {
@@ -89,6 +92,15 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
 
     pub(crate) fn add_loader(&mut self, loader: Box<dyn Loader<T>>) {
         self.loaders.push(loader);
+        self.advance_revision();
+    }
+
+    pub(crate) fn revision_cell(&self) -> Rc<Cell<u64>> {
+        self.revision.clone()
+    }
+
+    fn advance_revision(&self) {
+        self.revision.set(self.revision.get().wrapping_add(1));
     }
 
     pub(crate) fn bump_refcount(&mut self, token: &str) {
@@ -120,7 +132,11 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     // ---- entry registration / removal ----
 
     pub(crate) fn insert_entry(&mut self, token: Cow<'static, str>, entry: Entry<T>) {
+        self.failed_values.remove(token.as_ref());
+        self.values.drop(token.as_ref());
+        self.notify(&token);
         self.by_token.insert(token, entry);
+        self.advance_revision();
     }
 
     pub(crate) fn take_entry(&mut self, token: &str) -> Option<Entry<T>> {
@@ -135,7 +151,9 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
         self.by_token.remove(token);
         self.failed_values.remove(token);
         self.values.drop(token);
+        self.notify(token);
         self.signals.remove(token);
+        self.advance_revision();
     }
 
     // ---- failed-set ----
@@ -145,11 +163,16 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     }
 
     pub(crate) fn clear_failed(&mut self, token: &str) {
-        self.failed_values.remove(token);
+        if self.failed_values.remove(token) {
+            self.advance_revision();
+        }
     }
 
     pub(crate) fn clear_all_failed(&mut self) {
-        self.failed_values.clear();
+        if !self.failed_values.is_empty() {
+            self.failed_values.clear();
+            self.advance_revision();
+        }
     }
 
     pub(crate) fn is_failed(&self, token: &str) -> bool {

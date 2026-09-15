@@ -203,6 +203,25 @@ mod tests {
     }
 
     #[test]
+    fn handle_refreshes_after_manager_changes() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        m.add_static("greeting", Note("first".into()));
+        let handle = m.load("greeting");
+
+        let first = handle.get();
+        let cached = handle.get();
+        assert!(Rc::ptr_eq(&first, &cached));
+        assert!(handle.get_cached().is_some());
+
+        m.remove_token("greeting");
+        assert!(handle.get_cached().is_none());
+        assert_eq!(*handle.get(), fb_note());
+
+        m.add_static("greeting", Note("second".into()));
+        assert_eq!(*handle.get(), Note("second".into()));
+    }
+
+    #[test]
     fn remove_token_drops_factory_but_existing_rcs_survive() {
         let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
         m.add_static("a", Note("alpha".into()));

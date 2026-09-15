@@ -89,6 +89,7 @@ impl<'a> WidgetBuilder<'a> {
 
     pub fn image(self, img: crate::ui::widgets::image::Image) -> Self {
         self.world.insert(self.entity, img);
+        crate::ui::widgets::image::attach_image_resource(self.world, self.entity);
         self
     }
 

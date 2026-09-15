@@ -99,7 +99,8 @@ impl<T: HasSize + Clone + 'static> ResourceManager<T> {
             inner.bump_refcount(&token);
             inner.fallback_clone()
         };
-        ResourceHandle::new(token, Rc::downgrade(&self.inner), fallback)
+        let revision = self.inner.borrow().revision_cell();
+        ResourceHandle::new(token, Rc::downgrade(&self.inner), fallback, revision)
     }
 
     pub fn resolve(&self, token: &str) -> Rc<T> {
