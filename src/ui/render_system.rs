@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::renderer::{DrawRequest, RenderError, RenderRoute, Renderer};
+use crate::render::renderer::{DrawRequest, FallbackRegion, RenderError, RenderRoute, Renderer};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use crate::ui::layout::{LayoutNode, compute_layout};
 use crate::ui::widgets::transform::WidgetTransform;
@@ -54,6 +54,26 @@ impl Renderer for ProjectiveRenderer<'_> {
 
     fn output_scale(&self) -> Fixed {
         self.inner.output_scale()
+    }
+
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        self.inner.plan_scope(bounds)
+    }
+
+    fn render_scope(
+        &mut self,
+        region: FallbackRegion,
+        draw: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
+    ) -> Result<bool, RenderError> {
+        let transform = self.transform;
+        self.inner.render_scope(region, &mut |local| {
+            let mut projected = ProjectiveRenderer {
+                inner: local,
+                transform,
+                error: None,
+            };
+            draw(&mut projected)
+        })
     }
 
     fn prepare_readback(&mut self, src: &Rect) -> Result<(), RenderError> {

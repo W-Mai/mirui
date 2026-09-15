@@ -14,7 +14,9 @@ use crate::render::font::Font;
 use crate::render::path::Path;
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
-use crate::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
+use crate::render::renderer::{
+    DrawRequest, FallbackRegion, RenderError, RenderFeature, RenderRoute, Renderer,
+};
 use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
@@ -4039,6 +4041,14 @@ impl Renderer for WgpuRenderer<'_> {
 
     fn output_scale(&self) -> Fixed {
         WgpuRenderer::output_scale(self)
+    }
+
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        FallbackRegion::from_logical_bounds(
+            *bounds,
+            self.viewport,
+            self.factory.target_edit_budget_bytes,
+        )
     }
 
     fn supports_offscreen(&self) -> bool {

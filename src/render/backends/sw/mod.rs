@@ -4,7 +4,8 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::path::Path;
 use crate::render::renderer::{
-    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
+    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
+    Renderer,
 };
 use crate::render::texture::Texture;
 
@@ -884,6 +885,10 @@ impl SwRenderer<'_> {
         self.viewport.scale()
     }
 
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        FallbackRegion::from_logical_bounds(*bounds, self.viewport, Some(usize::MAX))
+    }
+
     pub(crate) fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
@@ -1524,6 +1529,10 @@ impl Renderer for SwRenderer<'_> {
 
     fn output_scale(&self) -> Fixed {
         SwRenderer::output_scale(self)
+    }
+
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        SwRenderer::plan_scope(self, bounds)
     }
 
     fn supports_offscreen(&self) -> bool {

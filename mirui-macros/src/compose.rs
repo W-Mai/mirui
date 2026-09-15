@@ -472,6 +472,19 @@ impl ComposeInput {
                     ::mirui::render::renderer::Renderer::output_scale(&self.#default_field)
                 }
 
+                fn plan_scope(
+                    &self,
+                    bounds: &::mirui::types::Rect,
+                ) -> Result<
+                    ::mirui::render::renderer::FallbackRegion,
+                    ::mirui::render::renderer::RenderError,
+                > {
+                    ::mirui::render::renderer::Renderer::plan_scope(
+                        &self.#default_field,
+                        bounds,
+                    )
+                }
+
                 fn supports_offscreen(&self) -> bool {
                     ::mirui::render::renderer::Renderer::supports_offscreen(&self.#default_field)
                 }

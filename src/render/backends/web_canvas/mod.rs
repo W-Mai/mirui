@@ -20,7 +20,8 @@ use crate::render::path::{Path, PathCmd};
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::{
-    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
+    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
+    Renderer,
 };
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
@@ -193,6 +194,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
 
     fn output_scale(&self) -> Fixed {
         WebCanvasRenderer::output_scale(self)
+    }
+
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        FallbackRegion::from_logical_bounds(
+            *bounds,
+            self.viewport,
+            self.factory
+                .projective_fallback
+                .as_ref()
+                .map(|fallback| fallback.capacity()),
+        )
     }
 
     fn supports_offscreen(&self) -> bool {

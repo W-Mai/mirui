@@ -33,7 +33,8 @@ use crate::render::path::Path;
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{StrokeScratch, StrokeSpec};
 use crate::render::renderer::{
-    DrawRequest, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute, Renderer,
+    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
+    Renderer,
 };
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, Viewport};
@@ -1344,6 +1345,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
 
     fn output_scale(&self) -> Fixed {
         SdlGpuRenderer::output_scale(self)
+    }
+
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        FallbackRegion::from_logical_bounds(
+            *bounds,
+            self.viewport,
+            self.projective_fallback
+                .as_ref()
+                .map(|fallback| fallback.capacity()),
+        )
     }
 
     fn supports_offscreen(&self) -> bool {

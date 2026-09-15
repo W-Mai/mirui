@@ -1,4 +1,4 @@
-use crate::types::{Fixed, Rect, Transform3D};
+use crate::types::{Fixed, Rect, Transform3D, Viewport};
 
 use super::command::{CompositeMode, DrawCommand};
 use super::texture::{ColorFormat, TexBuf, Texture};
@@ -76,12 +76,6 @@ pub struct FallbackRegion {
 }
 
 impl FallbackRegion {
-    #[cfg(any(
-        feature = "wgpu",
-        feature = "sdl-gpu",
-        all(feature = "web-canvas", target_arch = "wasm32"),
-        test
-    ))]
     pub(crate) const fn from_parts(
         x: i32,
         y: i32,
@@ -98,12 +92,6 @@ impl FallbackRegion {
         }
     }
 
-    #[cfg(any(
-        feature = "wgpu",
-        feature = "sdl-gpu",
-        all(feature = "web-canvas", target_arch = "wasm32"),
-        test
-    ))]
     pub(crate) fn rgba8(x: i32, y: i32, width: u16, height: u16) -> Result<Self, RenderError> {
         let stride_bytes = usize::from(width)
             .checked_mul(4)
@@ -112,6 +100,33 @@ impl FallbackRegion {
             .checked_mul(usize::from(height))
             .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
         Ok(Self::from_parts(x, y, width, height, stride_bytes))
+    }
+
+    pub(crate) fn from_logical_bounds(
+        bounds: Rect,
+        viewport: Viewport,
+        capacity_bytes: Option<usize>,
+    ) -> Result<Self, RenderError> {
+        let (physical_width, physical_height) = viewport.physical_size();
+        let (x0, y0, x1, y1) = viewport.rect_to_physical_pixel_bounds(bounds);
+        let x0 = x0.clamp(0, i32::from(physical_width));
+        let y0 = y0.clamp(0, i32::from(physical_height));
+        let x1 = x1.clamp(x0, i32::from(physical_width));
+        let y1 = y1.clamp(y0, i32::from(physical_height));
+        let width = u16::try_from(x1 - x0).map_err(|_| RenderError::InvalidGeometry)?;
+        let height = u16::try_from(y1 - y0).map_err(|_| RenderError::InvalidGeometry)?;
+        let region = Self::rgba8(x0, y0, width, height)?;
+        if region.required_bytes() == 0 {
+            return Ok(region);
+        }
+        let capacity_bytes = capacity_bytes.ok_or(RenderError::MissingWorkspace)?;
+        if region.required_bytes() > capacity_bytes {
+            return Err(RenderError::InsufficientWorkspace {
+                required_bytes: region.required_bytes(),
+                capacity_bytes,
+            });
+        }
+        Ok(region)
     }
 
     pub const fn x(self) -> i32 {
@@ -294,6 +309,10 @@ impl Renderer for RegionRenderer<'_> {
     fn output_scale(&self) -> Fixed {
         self.inner.output_scale()
     }
+
+    fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        self.inner.plan_scope(&self.clip(*bounds))
+    }
 }
 
 /// Semantic operation that a backend cannot execute exactly.
@@ -314,6 +333,7 @@ pub enum RenderFeature {
     Composite(CompositeMode),
     TextureFormat(ColorFormat),
     Readback,
+    Scope,
     ScrollBlit,
 }
 
@@ -517,6 +537,11 @@ pub trait Renderer {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     }
 
+    /// Plan the clipped physical target needed by one ordered fallback scope.
+    fn plan_scope(&self, _bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Scope))
+    }
+
     /// Replay one ordered scope inside a prepared physical target region.
     /// The nested renderer preserves global command coordinates while
     /// rebasing the region to its local software target.
@@ -639,6 +664,30 @@ mod tests {
         assert_eq!(
             RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), None),
             Err(RenderError::MissingWorkspace)
+        );
+    }
+
+    #[test]
+    fn scope_plan_clips_hidpi_bounds_before_charging_capacity() {
+        let viewport = Viewport::new(20, 12, Fixed::from_int(2));
+        assert_eq!(
+            FallbackRegion::from_logical_bounds(
+                Rect::new(-2, 1, 8, 8),
+                viewport,
+                Some(12 * 10 * 4),
+            ),
+            Ok(FallbackRegion::from_parts(0, 2, 12, 10, 48))
+        );
+        assert_eq!(
+            FallbackRegion::from_logical_bounds(
+                Rect::new(-2, 1, 8, 8),
+                viewport,
+                Some(12 * 10 * 4 - 1),
+            ),
+            Err(RenderError::InsufficientWorkspace {
+                required_bytes: 12 * 10 * 4,
+                capacity_bytes: 12 * 10 * 4 - 1,
+            })
         );
     }
 
