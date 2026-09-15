@@ -12,13 +12,13 @@ use crate::render::font::{FontStack, FontToken};
 use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
-use crate::ui::IgnoreHitTest;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
     ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign, TextDirection, TextVerticalAlign,
     TextWrap,
 };
+use crate::ui::{IgnoreHitTest, OffscreenRender};
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
 
@@ -61,7 +61,10 @@ impl Default for CurveModel {
 }
 
 #[derive(Clone, Copy)]
-struct CurvePaths([PathId; 3]);
+struct CurvePaths {
+    ids: [PathId; 3],
+    compact: bool,
+}
 
 #[derive(Clone, Copy)]
 struct CurveMotion {
@@ -77,6 +80,8 @@ impl Default for CurveMotion {
 #[derive(Clone, Copy)]
 struct CurveNodes {
     stage: Entity,
+    compact: bool,
+    mover: Option<Entity>,
 }
 
 #[derive(Default, crate::Component)]
@@ -114,8 +119,10 @@ impl CurveAction {
             Self::ToggleDirection => model.reversed.update(|value| *value = !*value),
             Self::TogglePaused => model.paused.update(|value| *value = !*value),
         }
-        if let Some(stage) = world.resource::<CurveNodes>().map(|nodes| nodes.stage) {
-            world.insert(stage, VisualDirty);
+        if let Some(nodes) = world.resource::<CurveNodes>().copied() {
+            if !nodes.compact {
+                world.insert(nodes.stage, VisualDirty);
+            }
         }
     }
 }
@@ -144,7 +151,7 @@ fn centered_label() -> ParagraphStyle {
     }
 }
 
-fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
+fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) -> [PathCmd; 3] {
     let lane_scale = match lane {
         0 => Fixed::ONE,
         1 => Fixed::from_ratio(3, 4),
@@ -152,39 +159,45 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
     };
     let lane_phase = phase + Fixed::from_int(lane as i32 * 71);
     let wave = amplitude * lane_scale;
-    let base_y = Fixed::from_int(104 + lane as i32 * 106);
+    let (x0, x1, x2, x3, x4, base_y) = if compact {
+        (2, 12, 24, 39, 50, 15 + lane as i32 * 12)
+    } else {
+        (34, 168, 316, 596, 744, 104 + lane as i32 * 106)
+    };
+    let base_y = Fixed::from_int(base_y);
+    let end_x = if compact { 58 } else { 878 };
     let start = Point {
-        x: Fixed::from_int(34),
+        x: Fixed::from_int(x0),
         y: base_y + Fixed::sin_deg(lane_phase - Fixed::from_int(38)) * wave / 3,
     };
     let middle = Point {
-        x: Fixed::from_int(456),
+        x: Fixed::from_int(if compact { 30 } else { 456 }),
         y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(124)) * wave / 2,
     };
     let end = Point {
-        x: Fixed::from_int(878),
+        x: Fixed::from_int(end_x),
         y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(286)) * wave / 3,
     };
     [
         PathCmd::MoveTo(start),
         PathCmd::CubicTo {
             ctrl1: Point {
-                x: Fixed::from_int(168),
+                x: Fixed::from_int(x1),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(12)) * wave,
             },
             ctrl2: Point {
-                x: Fixed::from_int(316),
+                x: Fixed::from_int(x2),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(82)) * wave,
             },
             end: middle,
         },
         PathCmd::CubicTo {
             ctrl1: Point {
-                x: Fixed::from_int(596),
+                x: Fixed::from_int(x3),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(168)) * wave,
             },
             ctrl2: Point {
-                x: Fixed::from_int(744),
+                x: Fixed::from_int(x4),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(238)) * wave,
             },
             end,
@@ -192,8 +205,10 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
     ]
 }
 
-fn make_lane(lane: usize) -> Path {
-    let [start, first, second] = lane_commands(lane, Fixed::ZERO, Fixed::from_int(68));
+fn make_lane(lane: usize, compact: bool) -> Path {
+    let amplitude = if compact { 7 } else { 68 };
+    let [start, first, second] =
+        lane_commands(lane, Fixed::ZERO, Fixed::from_int(amplitude), compact);
     let mut path = Path::try_with_capacity(3).expect("curve path storage");
     let PathCmd::MoveTo(start) = start else {
         unreachable!();
@@ -209,8 +224,8 @@ fn make_lane(lane: usize) -> Path {
     path
 }
 
-fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed) {
-    for (index, command) in lane_commands(lane, phase, amplitude)
+fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) {
+    for (index, command) in lane_commands(lane, phase, amplitude, compact)
         .into_iter()
         .enumerate()
     {
@@ -219,13 +234,22 @@ fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed) {
     }
 }
 
-fn register_paths(world: &mut World) -> CurvePaths {
+fn register_paths(world: &mut World, compact: bool) -> CurvePaths {
     let store = world.resource_mut::<PathStore>().expect("path store");
-    CurvePaths([
-        store.insert(make_lane(0)).expect("first curve path"),
-        store.insert(make_lane(1)).expect("second curve path"),
-        store.insert(make_lane(2)).expect("third curve path"),
-    ])
+    CurvePaths {
+        ids: [
+            store
+                .insert(make_lane(0, compact))
+                .expect("first curve path"),
+            store
+                .insert(make_lane(1, compact))
+                .expect("second curve path"),
+            store
+                .insert(make_lane(2, compact))
+                .expect("third curve path"),
+        ],
+        compact,
+    }
 }
 
 fn fill(
@@ -286,14 +310,33 @@ fn curve_stage_render(
         );
     }
 
-    let phase = world
-        .resource::<CurveModel>()
-        .map_or(Fixed::ZERO, |model| model.phase.get_untracked());
+    let compact = rect.w < Fixed::from_int(200);
+    let phase = if compact {
+        Fixed::ZERO
+    } else {
+        world
+            .resource::<CurveModel>()
+            .map_or(Fixed::ZERO, |model| model.phase.get_untracked())
+    };
+    let orbit_x = if compact {
+        rect.w * Fixed::from_ratio(3, 8)
+    } else {
+        Fixed::from_int(300)
+    };
+    let orbit_y = if compact {
+        rect.h / 3
+    } else {
+        Fixed::from_int(126)
+    };
     for index in 0..5 {
         let angle = phase + Fixed::from_int(index * 72);
-        let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * Fixed::from_int(300);
-        let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * Fixed::from_int(126);
-        let radius = Fixed::from_int(10 + index % 3 * 4);
+        let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * orbit_x;
+        let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * orbit_y;
+        let radius = if compact {
+            Fixed::from_int(2 + index % 3)
+        } else {
+            Fixed::from_int(10 + index % 3 * 4)
+        };
         fill(
             renderer,
             ctx,
@@ -311,7 +354,8 @@ fn curve_stage_render(
         return;
     };
     let transform = ctx.transform.compose(&Transform::translate(rect.x, rect.y));
-    for (index, id) in paths.0.into_iter().enumerate() {
+    let path_count = if compact { 0 } else { paths.ids.len() };
+    for (index, id) in paths.ids.into_iter().take(path_count).enumerate() {
         let Ok(path) = store.get(id) else {
             continue;
         };
@@ -397,8 +441,21 @@ fn curve_text_animation_system(world: &mut World) {
         phase += Fixed::from_int(360);
     }
     model.phase.set(phase);
-    if let Some(stage) = world.resource::<CurveNodes>().map(|nodes| nodes.stage) {
-        world.insert(stage, VisualDirty);
+    if let Some(nodes) = world.resource::<CurveNodes>().copied() {
+        if nodes.compact {
+            if let Some(mover) = nodes.mover {
+                let x = Fixed::sin_deg(phase) * Fixed::from_int(12);
+                let y = Fixed::cos_deg(phase * 2) * Fixed::from_int(3);
+                let rotation = Fixed::sin_deg(phase + Fixed::from_int(40)) * Fixed::from_int(4);
+                crate::ui::widgets::set_transform(
+                    world,
+                    mover,
+                    Transform::translate(x, y).compose(&Transform::rotate_deg(rotation)),
+                );
+            }
+        } else {
+            world.insert(nodes.stage, VisualDirty);
+        }
     }
 }
 
@@ -414,14 +471,9 @@ fn route_label() -> &'static str {
     }
 }
 
-#[compose]
-fn build_widgets(paths: CurvePaths) {
-    let model = cx
-        .world_mut()
-        .resource::<CurveModel>()
-        .cloned()
-        .expect("Curve Text model");
-    for (lane, path) in paths.0.into_iter().enumerate() {
+fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &CurveModel) {
+    let path_count = if paths.compact { 0 } else { paths.ids.len() };
+    for (lane, path) in paths.ids.into_iter().take(path_count).enumerate() {
         let phase = model.phase.clone();
         let amplitude = model.amplitude.clone();
         cx.bind_path(path, move |geometry| {
@@ -429,10 +481,26 @@ fn build_widgets(paths: CurvePaths) {
             let envelope = Fixed::from_ratio(17, 20)
                 + Fixed::sin_deg(current_phase / 3 + Fixed::from_int(lane as i32 * 37))
                     * Fixed::from_ratio(3, 20);
-            update_lane(geometry, lane, current_phase, amplitude.get() * envelope);
+            update_lane(
+                geometry,
+                lane,
+                current_phase,
+                amplitude.get() * envelope,
+                paths.compact,
+            );
         })
         .expect("mutable curve path");
     }
+}
+
+#[compose]
+fn build_widgets(paths: CurvePaths) {
+    let model = cx
+        .world_mut()
+        .resource::<CurveModel>()
+        .cloned()
+        .expect("Curve Text model");
+    bind_curve_paths(cx, paths, &model);
 
     let amplitude_value = model.amplitude.clone();
     let speed_value = model.speed.clone();
@@ -504,7 +572,7 @@ fn build_widgets(paths: CurvePaths) {
                 Text (
                     id: "curve_text_primary",
                     "MIRUI · BEND SPACE, NOT GLYPHS",
-                    path: paths.0[0],
+                    path: paths.ids[0],
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -520,7 +588,7 @@ fn build_widgets(paths: CurvePaths) {
                 Text (
                     id: "curve_text_multiscript",
                     "中文曲线排版 · مرحبا · ตั้ง",
-                    path: paths.0[1],
+                    path: paths.ids[1],
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -536,7 +604,7 @@ fn build_widgets(paths: CurvePaths) {
                 Text (
                     id: "curve_text_caption",
                     "PATH REVISION → MEASURE → PLACE → FOUR BACKENDS",
-                    path: paths.0[2],
+                    path: paths.ids[2],
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -645,24 +713,186 @@ fn build_widgets(paths: CurvePaths) {
     //~focus-end
 }
 
-pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
+#[compose]
+fn build_compact_widgets(paths: CurvePaths) {
+    let model = cx
+        .world_mut()
+        .resource::<CurveModel>()
+        .cloned()
+        .expect("Curve Text model");
+    bind_curve_paths(cx, paths, &model);
+
+    ui! {
+        Column (
+            id: "curve_text_shell",
+            grow: 1.0,
+            padding: Padding::all(6),
+            row_gap: 4,
+            bg_color: BACKGROUND
+        ) {
+            Row (height: 14, align: AlignItems::Center, column_gap: 4) {
+                View (width: 4, height: 10, bg_color: CYAN, border_radius: 2)
+                Text (
+                    "KINETIC TYPE",
+                    grow: 1.0,
+                    height: 14,
+                    font: UI,
+                    font_size: 8,
+                    text_color: TEXT,
+                    paragraph: single_line(TextDirection::LeftToRight)
+                )
+                Text (
+                    "AUTO",
+                    width: 25,
+                    height: 12,
+                    bg_color: PANEL_ALT,
+                    border_color: CYAN,
+                    border_width: 1,
+                    border_radius: 6,
+                    font: UI,
+                    font_size: 6,
+                    text_color: CYAN,
+                    paragraph: centered_label()
+                )
+            }
+            View (
+                id: "curve_text_stage_shell",
+                grow: 1.0,
+                clip_children: true,
+                bg_color: PANEL,
+                border_color: BORDER,
+                border_width: 1,
+                border_radius: 8
+            ) {
+                View (
+                    id: "curve_text_stage",
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100)
+                ) [
+                    IgnoreHitTest,
+                ]
+                View (
+                    id: "curve_text_mover",
+                    position: Position::Absolute,
+                    left: 24,
+                    top: 27,
+                    width: 64,
+                    height: 30
+                ) [
+                    IgnoreHitTest,
+                ] {
+                    Text (
+                        id: "curve_text_primary",
+                        "MIRUI",
+                        path: paths.ids[0],
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 0,
+                        width: Dimension::percent(100),
+                        height: Dimension::percent(100),
+                        font: UI,
+                        font_size: 9,
+                        text_color: TEXT,
+                        paragraph: single_line(TextDirection::LeftToRight)
+                    ) [
+                        OffscreenRender::default(),
+                        IgnoreHitTest,
+                    ]
+                }
+                Text (
+                    "SIGNAL PATH",
+                    position: Position::Absolute,
+                    left: 0,
+                    bottom: 5,
+                    width: Dimension::percent(100),
+                    height: 10,
+                    font: UI,
+                    font_size: 6,
+                    text_color: GOLD,
+                    paragraph: centered_label()
+                ) [
+                    IgnoreHitTest,
+                ]
+            }
+            Text (
+                "RELATIVE TIME · NO INPUT",
+                height: 16,
+                bg_color: PANEL_ALT,
+                border_color: BORDER,
+                border_width: 1,
+                border_radius: 8,
+                font: UI,
+                font_size: 6,
+                text_color: MUTED,
+                paragraph: centered_label()
+            ) [
+                IgnoreHitTest,
+            ]
+        }
+    };
+}
+
+fn install_layout<B, F>(app: &mut App<B, F>, parent: Entity, compact: bool)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.with_widget(curve_stage_view());
+    if compact {
+        app.with_offscreen_pool_budget(8 * 1024);
+    }
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
-    app.world.insert_resource(CurveModel::default());
+    let model = if compact {
+        CurveModel {
+            amplitude: Signal::new(Fixed::from_int(7)),
+            ..CurveModel::default()
+        }
+    } else {
+        CurveModel::default()
+    };
+    app.world.insert_resource(model);
     app.world.insert_resource(CurveMotion::default());
-    let paths = register_paths(&mut app.world);
+    let paths = register_paths(&mut app.world, compact);
     app.world.insert_resource(paths);
     app.add_system(curve_text_animation_system::system());
-    app.compose(parent, |cx| build_widgets(cx, paths));
+    if compact {
+        app.compose(parent, |cx| build_compact_widgets(cx, paths));
+    } else {
+        app.compose(parent, |cx| build_widgets(cx, paths));
+    }
     let stage = app
         .world
         .find_by_id("curve_text_stage")
         .expect("Curve Text stage");
-    app.world.insert_resource(CurveNodes { stage });
+    let mover = compact.then(|| {
+        app.world
+            .find_by_id("curve_text_mover")
+            .expect("Curve Text mover")
+    });
+    app.world.insert_resource(CurveNodes {
+        stage,
+        compact,
+        mover,
+    });
+}
+
+pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    install_layout(app, parent, false);
+}
+
+pub fn install_compact<B, F>(app: &mut App<B, F>, parent: Entity)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    install_layout(app, parent, true);
 }
 
 #[cfg(feature = "std")]
@@ -745,7 +975,7 @@ mod tests {
     fn animation_reuses_fixed_path_topology_and_capacity() {
         let mut app = fixture();
         let paths = *app.world.resource::<CurvePaths>().unwrap();
-        let before = paths.0.map(|id| {
+        let before = paths.ids.map(|id| {
             let store = app.world.resource::<PathStore>().unwrap();
             let path = store.get(id).unwrap();
             (
@@ -759,7 +989,7 @@ mod tests {
             curve_text_animation_system(&mut app.world);
             flush_signal_dirty(&mut app.world);
         }
-        for (index, id) in paths.0.into_iter().enumerate() {
+        for (index, id) in paths.ids.into_iter().enumerate() {
             let store = app.world.resource::<PathStore>().unwrap();
             let path = store.get(id).unwrap();
             assert_eq!(path.commands().len(), before[index].0);
@@ -822,5 +1052,32 @@ mod tests {
             .filter(|pixel| pixel[..3] != [BACKGROUND.r, BACKGROUND.g, BACKGROUND.b])
             .count();
         assert!(non_background > 20_000);
+    }
+
+    #[test]
+    fn compact_layout_fits_embedded_viewport_and_animates() {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets().with_default_systems();
+        let parent = app.spawn_root().id();
+        install_compact(&mut app, parent);
+        app.set_root(parent);
+        app.world.insert_resource(DeltaTimeMs(16));
+        curve_text_animation_system(&mut app.world);
+        flush_signal_dirty(&mut app.world);
+        let mover = app.world.find_by_id("curve_text_mover").unwrap();
+        assert!(
+            app.world
+                .get::<crate::ui::widgets::WidgetTransform>(mover)
+                .is_some()
+        );
+        let text = app.world.find_by_id("curve_text_primary").unwrap();
+        assert!(app.world.get::<OffscreenRender>(text).is_some());
+        app.render().unwrap();
+
+        let stage = app.world.find_by_id("curve_text_stage").unwrap();
+        let rect = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+        assert!(rect.x >= Fixed::ZERO && rect.y >= Fixed::ZERO);
+        assert!(rect.x + rect.w <= Fixed::from_int(128));
+        assert!(rect.y + rect.h <= Fixed::from_int(128));
     }
 }
