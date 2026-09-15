@@ -368,7 +368,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     ///
     /// Defaults: `grow: Fixed::ONE` (fills the viewport), background
     /// [`ColorToken::Surface`][crate::ui::theme::ColorToken::Surface],
-    /// and [`FlexDirection::Column`][crate::ui::layout::FlexDirection::Column].
+    /// [`FlexDirection::Column`][crate::ui::layout::FlexDirection::Column],
+    /// and exclusion from pointer hit testing.
     /// Chain [`RootBuilder::bg_color`] / [`RootBuilder::layout`] to
     /// override, then [`RootBuilder::id`] to finish:
     ///
@@ -386,6 +387,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 ..Default::default()
             })
             .id();
+        self.world.insert(entity, crate::ui::IgnoreHitTest);
         RootBuilder { app: self, entity }
     }
 
@@ -1145,6 +1147,13 @@ mod swap_tests {
         let backend = app.into_backend();
         let app = App::new(backend);
         assert!(app.root.is_none());
+    }
+
+    #[test]
+    fn spawned_root_does_not_intercept_pointer_input() {
+        let mut app = App::headless(64, 64);
+        let root = app.spawn_root().id();
+        assert!(app.world.get::<crate::ui::IgnoreHitTest>(root).is_some());
     }
 
     #[test]

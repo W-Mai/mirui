@@ -3,7 +3,7 @@ use crate::input::event::hit_test::hit_test;
 use crate::surface::DisplayInfo;
 use crate::types::Fixed;
 use crate::ui::dirty::Dirty;
-use crate::ui::{Parent, WidgetRoot};
+use crate::ui::{IgnoreHitTest, Parent, WidgetRoot};
 
 /// Skip hover/press hit_test when PointerCursor hasn't moved since last
 /// frame. Without this, idle frames pay a full hit_test walk twice per
@@ -155,7 +155,10 @@ fn swap_markers(
             .query::<InteractionState>()
             .iter()
             .find_map(|(entity, current)| {
-                (is_state(current) && !on_hit_path(world, new_target, entity)).then_some(entity)
+                (is_state(current)
+                    && (!on_hit_path(world, new_target, entity)
+                        || world.get::<IgnoreHitTest>(entity).is_some()))
+                .then_some(entity)
             });
         let Some(entity) = stale else {
             break;
@@ -167,7 +170,9 @@ fn swap_markers(
     let mut current = new_target;
     while let Some(entity) = current {
         let parent = world.get::<Parent>(entity).map(|parent| parent.0);
-        if !world.get::<InteractionState>(entity).is_some_and(&is_state) {
+        if world.get::<IgnoreHitTest>(entity).is_none()
+            && !world.get::<InteractionState>(entity).is_some_and(&is_state)
+        {
             world.insert(entity, state);
             world.insert(entity, Dirty);
         }
@@ -387,6 +392,38 @@ mod hover_press_e2e {
             world.get::<InteractionState>(root),
             Some(&InteractionState::Hovered)
         );
+    }
+
+    #[test]
+    fn ignored_parent_does_not_receive_child_interaction_state() {
+        let (mut world, root, child) = make_world_with_text_child();
+        world.insert(root, IgnoreHitTest);
+        let probe = Fixed::from_int(16);
+        world.insert_resource(PointerCursor {
+            x: probe,
+            y: probe,
+            down: false,
+            event_seq: 1,
+        });
+        hover_system(&mut world);
+        assert_eq!(
+            world.get::<InteractionState>(child),
+            Some(&InteractionState::Hovered)
+        );
+        assert!(world.get::<InteractionState>(root).is_none());
+
+        world.insert_resource(PointerCursor {
+            x: probe,
+            y: probe,
+            down: true,
+            event_seq: 2,
+        });
+        press_system(&mut world);
+        assert_eq!(
+            world.get::<InteractionState>(child),
+            Some(&InteractionState::Pressed)
+        );
+        assert!(world.get::<InteractionState>(root).is_none());
     }
 
     #[test]

@@ -7,6 +7,7 @@ gallery::register_demos! {
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab,           1024, 720),
     ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab,       1024, 720),
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab,      1024, 720),
+    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console,      128, 128),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),

@@ -16,6 +16,7 @@ pub mod i18n;
 pub mod icon;
 pub mod image_flip;
 pub mod interaction_lab;
+pub mod kinetic_console;
 pub mod layout_lab;
 pub mod lazy_list;
 pub mod life;
