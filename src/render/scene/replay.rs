@@ -93,6 +93,55 @@ pub struct ReplayScopePlan {
     kind: ReplayScopeKind,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Allocation-free counters collected during scene replay.
+pub struct ReplayMetricsSnapshot {
+    /// Commands accepted directly by the target renderer.
+    pub native_commands: usize,
+    /// Commands routed through exact software fallback.
+    pub fallback_commands: usize,
+    /// Commands reclassified because no retained route slot was available.
+    pub reclassified_commands: usize,
+    /// Path-clip scopes replayed through exact software fallback.
+    pub fallback_scopes: usize,
+    /// Opacity or blur scopes rendered into temporary RGBA storage.
+    pub isolated_scopes: usize,
+    /// Total fallback workspace requested during preflight.
+    pub planned_fallback_bytes: usize,
+    /// Maximum group nesting observed during replay.
+    pub peak_frame_depth: usize,
+    /// Maximum retained command-route slots used.
+    pub peak_route_slots: usize,
+    /// Maximum retained scope-plan slots used.
+    pub peak_scope_slots: usize,
+    /// Maximum concurrent RGBA workspace used.
+    pub peak_rgba_bytes: usize,
+}
+
+#[derive(Default)]
+/// Caller-owned scene replay metrics with no heap storage.
+pub struct ReplayMetrics {
+    snapshot: Cell<ReplayMetricsSnapshot>,
+}
+
+impl ReplayMetrics {
+    /// Returns the current counters and high-water marks.
+    pub fn snapshot(&self) -> ReplayMetricsSnapshot {
+        self.snapshot.get()
+    }
+
+    /// Clears all counters and high-water marks.
+    pub fn reset(&self) {
+        self.snapshot.set(ReplayMetricsSnapshot::default());
+    }
+
+    fn update(&self, update: impl FnOnce(&mut ReplayMetricsSnapshot)) {
+        let mut snapshot = self.snapshot.get();
+        update(&mut snapshot);
+        self.snapshot.set(snapshot);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ReplayScopeKind {
     Fallback,
@@ -117,6 +166,8 @@ pub struct ReplayScratch<'a> {
     routes: &'a mut [ReplayPlan],
     scopes: &'a mut [ReplayScopePlan],
     rgba: &'a mut [u8],
+    metrics: Option<&'a ReplayMetrics>,
+    rgba_in_use: usize,
 }
 
 impl<'a> ReplayScratch<'a> {
@@ -130,12 +181,24 @@ impl<'a> ReplayScratch<'a> {
             routes,
             scopes,
             rgba: &mut [],
+            metrics: None,
+            rgba_in_use: 0,
         }
     }
 
     /// Supply fixed-capacity RGBA storage for isolated scene groups.
     pub fn with_rgba(mut self, rgba: &'a mut [u8]) -> Self {
         self.rgba = rgba;
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: &'a ReplayMetrics) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
+    fn with_rgba_usage(mut self, rgba_in_use: usize) -> Self {
+        self.rgba_in_use = rgba_in_use;
         self
     }
 }
@@ -253,6 +316,8 @@ struct ReplayPassState<'a> {
     scope_cursor: usize,
     rgba: Option<&'a mut [u8]>,
     rgba_capacity: usize,
+    metrics: Option<&'a ReplayMetrics>,
+    rgba_in_use: usize,
 }
 
 impl ReplayPassState<'_> {
@@ -265,9 +330,27 @@ impl ReplayPassState<'_> {
         self.ordinal += 1;
         if self.pass == ReplayPass::Preflight {
             let route = renderer.route(request)?;
+            if !self.probe_only {
+                if let Some(metrics) = self.metrics {
+                    metrics.update(|snapshot| match route {
+                        RenderRoute::Native => snapshot.native_commands += 1,
+                        RenderRoute::ExactFallback(region) => {
+                            snapshot.fallback_commands += 1;
+                            snapshot.planned_fallback_bytes = snapshot
+                                .planned_fallback_bytes
+                                .saturating_add(region.required_bytes());
+                        }
+                    });
+                }
+            }
             if matches!(route, RenderRoute::ExactFallback(_)) && *self.plan_len < self.plans.len() {
                 self.plans[*self.plan_len] = ReplayPlan { ordinal, route };
                 *self.plan_len += 1;
+                if let Some(metrics) = self.metrics {
+                    metrics.update(|snapshot| {
+                        snapshot.peak_route_slots = snapshot.peak_route_slots.max(*self.plan_len);
+                    });
+                }
             }
             return Ok(());
         }
@@ -279,6 +362,9 @@ impl ReplayPassState<'_> {
             self.plan_cursor += 1;
             renderer.submit_with_route(request, route)
         } else {
+            if let Some(metrics) = self.metrics {
+                metrics.update(|snapshot| snapshot.reclassified_commands += 1);
+            }
             renderer.submit(request)
         }
     }
@@ -303,6 +389,18 @@ impl ReplayPassState<'_> {
             kind,
         };
         *self.scope_len += 1;
+        if let Some(metrics) = self.metrics {
+            metrics.update(|snapshot| {
+                match kind {
+                    ReplayScopeKind::Fallback => snapshot.fallback_scopes += 1,
+                    ReplayScopeKind::Isolated { .. } => snapshot.isolated_scopes += 1,
+                }
+                snapshot.planned_fallback_bytes = snapshot
+                    .planned_fallback_bytes
+                    .saturating_add(region.required_bytes());
+                snapshot.peak_scope_slots = snapshot.peak_scope_slots.max(*self.scope_len);
+            });
+        }
         Ok(())
     }
 
@@ -693,6 +791,8 @@ fn preflight_software_scope(
             scope_cursor: 0,
             rgba: None,
             rgba_capacity: preflight.rgba_capacity,
+            metrics: None,
+            rgba_in_use: 0,
         },
     )?;
     let required = scope_len.checked_add(nested_scope_required).ok_or(
@@ -748,6 +848,8 @@ fn probe_scope(
             scope_cursor: 0,
             rgba: None,
             rgba_capacity: 0,
+            metrics: None,
+            rgba_in_use: 0,
         },
     )?;
     if let Some(error) = probe.error.get() {
@@ -765,6 +867,8 @@ struct ScopeDraw<'a> {
     routes: &'a mut [ReplayPlan],
     scopes: &'a mut [ReplayScopePlan],
     rgba: &'a mut [u8],
+    metrics: Option<&'a ReplayMetrics>,
+    rgba_in_use: usize,
 }
 
 fn draw_scope(
@@ -782,12 +886,19 @@ fn draw_scope(
     let scoped_ops = &ops[scope.start_idx..=scope.end_idx];
     let mut nested_error = None;
     let result = draw.renderer.render_scope(scope.region, &mut |local| {
+        let scratch = ReplayScratch::new(draw.frames, draw.routes, draw.scopes)
+            .with_rgba(draw.rgba)
+            .with_rgba_usage(draw.rgba_in_use);
+        let scratch = match draw.metrics {
+            Some(metrics) => scratch.with_metrics(metrics),
+            None => scratch,
+        };
         let result = replay_scene_with_root(
             scoped_ops,
             local,
             draw.clip,
             draw.resolver,
-            ReplayScratch::new(draw.frames, draw.routes, draw.scopes).with_rgba(draw.rgba),
+            scratch,
             draw.root,
         );
         match result {
@@ -829,6 +940,12 @@ fn draw_isolated_scope(
         }));
     }
     let (target, nested_rgba) = draw.rgba.split_at_mut(required);
+    let rgba_in_use = draw.rgba_in_use.saturating_add(required);
+    if let Some(metrics) = draw.metrics {
+        metrics.update(|snapshot| {
+            snapshot.peak_rgba_bytes = snapshot.peak_rgba_bytes.max(rgba_in_use);
+        });
+    }
     target.fill(0);
     let scale = draw.renderer.output_scale();
     let local_w = scope.region.width();
@@ -864,12 +981,19 @@ fn draw_isolated_scope(
             } else if group_clip.is_some() {
                 return Err(ReplayError::UnresolvedClip);
             }
+            let scratch = ReplayScratch::new(draw.frames, draw.routes, draw.scopes)
+                .with_rgba(nested_rgba)
+                .with_rgba_usage(rgba_in_use);
+            let scratch = match draw.metrics {
+                Some(metrics) => scratch.with_metrics(metrics),
+                None => scratch,
+            };
             replay_scene_with_root(
                 &ops[scope.start_idx + 1..scope.end_idx],
                 &mut local,
                 draw.clip,
                 draw.resolver,
-                ReplayScratch::new(draw.frames, draw.routes, draw.scopes).with_rgba(nested_rgba),
+                scratch,
                 group,
             )?;
             if group_clip.is_some() {
@@ -980,6 +1104,8 @@ fn replay_scene_with_root(
         routes,
         scopes,
         rgba,
+        metrics,
+        rgba_in_use,
     } = scratch;
     let mut plan_len = 0;
     let mut scope_len = 0;
@@ -1005,6 +1131,8 @@ fn replay_scene_with_root(
             scope_cursor: 0,
             rgba: None,
             rgba_capacity,
+            metrics,
+            rgba_in_use,
         },
     )?;
     let required_scopes = scope_len.checked_add(nested_scope_required).ok_or(
@@ -1039,6 +1167,8 @@ fn replay_scene_with_root(
             scope_cursor: 0,
             rgba: Some(&mut *rgba),
             rgba_capacity,
+            metrics,
+            rgba_in_use,
         },
     )
 }
@@ -1053,6 +1183,12 @@ fn replay_scene_pass(
     state: &mut ReplayPassState<'_>,
 ) -> Result<(), ReplayError> {
     let mut stack = ReplayStack::new(frames, root)?;
+    if state.pass == ReplayPass::Preflight
+        && !state.probe_only
+        && let Some(metrics) = state.metrics
+    {
+        metrics.update(|snapshot| snapshot.peak_frame_depth = snapshot.peak_frame_depth.max(1));
+    }
     let mut skip_depth = 0usize;
 
     let mut i = 0;
@@ -1087,6 +1223,8 @@ fn replay_scene_pass(
                         routes: &mut state.plans[route_len..],
                         scopes: &mut state.scopes[scope_len..],
                         rgba: &mut *rgba,
+                        metrics: state.metrics,
+                        rgba_in_use: state.rgba_in_use,
                     },
                 );
                 state.rgba = Some(rgba);
@@ -1325,6 +1463,14 @@ fn replay_scene_pass(
                     false
                 };
                 stack.push(ReplayFrame { has_clip, ..next })?;
+                if state.pass == ReplayPass::Preflight
+                    && !state.probe_only
+                    && let Some(metrics) = state.metrics
+                {
+                    metrics.update(|snapshot| {
+                        snapshot.peak_frame_depth = snapshot.peak_frame_depth.max(stack.len);
+                    });
+                }
             }
             SceneOp::GroupEnd => {
                 let frame = stack.pop()?;
@@ -1789,18 +1935,43 @@ mod tests {
         let mut frames = [ReplayFrame::EMPTY; 1];
         let mut plans = [ReplayPlan::EMPTY; 1];
         let mut scopes = [ReplayScopePlan::EMPTY; 1];
+        let metrics = ReplayMetrics::default();
         replay_scene_with_scratch(
             &ops,
             &mut renderer,
             &Rect::new(0, 0, 10, 10),
             &NoResolver,
-            ReplayScratch::new(&mut frames, &mut plans, &mut scopes),
+            ReplayScratch::new(&mut frames, &mut plans, &mut scopes).with_metrics(&metrics),
         )
         .unwrap();
 
         assert_eq!(renderer.route_calls.get(), 1);
         assert_eq!(renderer.plain_submits, 0);
         assert_eq!(renderer.routed_submits, 1);
+        assert_eq!(
+            metrics.snapshot(),
+            ReplayMetricsSnapshot {
+                fallback_commands: 1,
+                planned_fallback_bytes: 120,
+                peak_frame_depth: 1,
+                peak_route_slots: 1,
+                ..ReplayMetricsSnapshot::default()
+            }
+        );
+
+        metrics.reset();
+        let mut no_plans = [];
+        replay_scene_with_scratch(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 10, 10),
+            &NoResolver,
+            ReplayScratch::new(&mut frames, &mut no_plans, &mut scopes).with_metrics(&metrics),
+        )
+        .unwrap();
+        assert_eq!(metrics.snapshot().fallback_commands, 1);
+        assert_eq!(metrics.snapshot().reclassified_commands, 1);
+        assert_eq!(metrics.snapshot().peak_route_slots, 0);
         assert!(core::mem::size_of::<ReplayPlan>() <= 40);
     }
 
@@ -3080,17 +3251,26 @@ mod tests {
         let mut routes = [ReplayPlan::EMPTY; 8];
         let mut scopes = [ReplayScopePlan::EMPTY; 8];
         let mut rgba = [0u8; 8 * 8 * 4];
+        let metrics = ReplayMetrics::default();
         replay_scene_with_scratch(
             &ops,
             &mut renderer,
             &Rect::new(0, 0, 8, 8),
             &NoResolver,
-            ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
+            ReplayScratch::new(&mut frames, &mut routes, &mut scopes)
+                .with_rgba(&mut rgba)
+                .with_metrics(&metrics),
         )
         .unwrap();
 
         let overlap = (3 * 8 + 3) * 4;
         assert_eq!(&output[overlap..overlap + 4], &[128, 0, 0, 255]);
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.native_commands, 2);
+        assert_eq!(snapshot.isolated_scopes, 1);
+        assert_eq!(snapshot.peak_scope_slots, 1);
+        assert_eq!(snapshot.peak_rgba_bytes, snapshot.planned_fallback_bytes);
+        assert!(snapshot.peak_rgba_bytes <= rgba.len());
     }
 
     #[test]
