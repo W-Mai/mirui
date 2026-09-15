@@ -29,7 +29,7 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 - **Dirty-flag partial refresh** — only re-renders changed regions; per-entity `Dirty` + `PrevRect` machinery
 - **HiDPI** — automatic scale factor propagation
 - **Plugins** — bundle clock, perf, input feedback into objects `App` drives through five lifecycle hooks
-- **Pluggable backends** — SDL2 CPU, SDL2 GPU (hardware-accelerated), `FramebufSurface` (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped), `compose_backend!` for routing primitives across multiple backends
+- **Pluggable backends** — SDL2 CPU, SDL2 GPU (hardware-accelerated), `FramebufSurface` (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped), `compose_backend!` for routing commands through engines sharing one target
 - **Declarative DSL** — `ui!` macro for nested widget trees with attributes, enchants, walk loops, conditionals
 
 ## Quick Start
@@ -304,8 +304,8 @@ clamping.
 
 ## Hybrid Backends — `compose_backend!`
 
-Route different draw primitives to different backends, no runtime
-dispatch:
+Route selected command classes through accelerator engines while retaining one
+coherent output target:
 
 ```rust
 use mirui_macros::compose_backend;
@@ -313,19 +313,23 @@ use mirui_macros::compose_backend;
 compose_backend! {
     pub struct Hybrid {
         sw: SwRenderer,
-        gpu: MyGpuBackend,
+        blitter: DmaBlitEngine,
     }
     route {
         default => sw,
-        blit => gpu,
-        clear => gpu,
+        blit => blitter,
     }
 }
+
+let renderer = Hybrid::new(sw_renderer, dma_blitter);
 ```
 
-Generated `Hybrid<__B0, __B1>` is generic over each backend's lifetime
-parameters. See `gallery/examples/compose_backend_demo.rs` and
-`compose_backend_dsl.rs`.
+The default field owns the target. Every other field implements
+`RenderEngine<Target>` and receives a sequential mutable borrow for each routed
+request. Engine begin/end barriers surround submission, and target readback,
+scrolling, output scale, offscreen access, and flush remain target-owned. See
+`gallery/examples/backends/compose_backend_demo.rs` and
+`gallery/examples/backends/compose_backend_dsl.rs`.
 
 ## ECS
 

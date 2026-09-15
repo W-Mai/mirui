@@ -1,8 +1,7 @@
 //! End-to-end wiring of compose_backend!, App generics, and plugins:
 //!
 //! - the scene (banner + 8 drifting Images) is declared with `ui!`
-//! - `HybridFactory` routes blit/clear through a Logging wrapper via
-//!   `compose_backend!`, everything else through SwRenderer
+//! - `HybridFactory` routes blits through a logging engine on one target
 //! - `drift_system` moves each Image along a sine path
 //! - `StdInstantClockPlugin` + `FpsSummaryPlugin` print render timing
 
@@ -12,13 +11,11 @@ use std::rc::Rc;
 
 use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
-use mirui::render::canvas::{Canvas, Paint};
-use mirui::render::command::CompositeMode;
-use mirui::render::path::Path;
+use mirui::render::engine::RenderEngine;
+use mirui::render::renderer::{DrawRequest, RenderError, Renderer};
 use mirui::render::sw::SwRenderer;
-use mirui::render::texture::Texture;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed, Point, Rect, Viewport};
+use mirui::types::{Color, Dimension, Fixed, Viewport};
 use mirui::ui::widgets::Image;
 use mirui::ui::widgets::assets::*;
 use mirui_macros::{compose_backend, ui};
@@ -26,94 +23,14 @@ use mirui_macros::{compose_backend, ui};
 const W: u16 = 480;
 const H: u16 = 320;
 
-/// Wraps any Canvas and counts every method call on a shared
-/// Rc<RefCell<u32>>, so the counter stays readable after App takes
-/// ownership of this instance.
-struct Logging<B: Canvas> {
-    inner: B,
+struct Logging {
     calls: Rc<RefCell<u32>>,
 }
 
-impl<B: Canvas> Canvas for Logging<B> {
-    fn fill_path(
-        &mut self,
-        path: &Path,
-        clip: &Rect,
-        paint: &Paint,
-        opa: u8,
-        fill_rule: mirui::render::raster::FillRule,
-    ) {
-        self.inner.fill_path(path, clip, paint, opa, fill_rule);
-    }
-    fn stroke_path(
-        &mut self,
-        path: &Path,
-        clip: &Rect,
-        width: Fixed,
-        paint: &Paint,
-        opa: u8,
-        _: ::mirui::render::raster::LineCap,
-        _: ::mirui::render::raster::LineJoin,
-        _: ::mirui::types::Fixed,
-        dash: &[Fixed],
-    ) {
-        self.inner.stroke_path(
-            path,
-            clip,
-            width,
-            paint,
-            opa,
-            ::mirui::render::raster::LineCap::Butt,
-            ::mirui::render::raster::LineJoin::Miter,
-            ::mirui::types::Fixed::from_int(4),
-            dash,
-        );
-    }
-    fn blit(
-        &mut self,
-        src: &Texture,
-        src_rect: &Rect,
-        dst: Point,
-        dst_size: Point,
-        clip: &Rect,
-        opa: u8,
-        radius: Fixed,
-        composite: CompositeMode,
-    ) {
+impl<T: Renderer> RenderEngine<T> for Logging {
+    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         *self.calls.borrow_mut() += 1;
-        self.inner
-            .blit(src, src_rect, dst, dst_size, clip, opa, radius, composite);
-    }
-    fn clear(&mut self, area: &Rect, color: &Color) {
-        *self.calls.borrow_mut() += 1;
-        self.inner.clear(area, color);
-    }
-    fn draw_glyph_run(
-        &mut self,
-        pos: &Point,
-        glyphs: &[mirui::text::PositionedGlyph],
-        font: &mirui::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.inner
-            .draw_glyph_run(pos, glyphs, font, clip, color, opa);
-    }
-    fn draw_posed_glyph_run(
-        &mut self,
-        pos: &Point,
-        glyphs: mirui::render::PosedGlyphs<'_>,
-        font: &mirui::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.inner
-            .draw_posed_glyph_run(pos, glyphs, font, clip, color, opa);
-    }
-    fn flush(&mut self) {
-        self.inner.flush();
+        target.submit(request)
     }
 }
 
@@ -125,33 +42,22 @@ compose_backend! {
     route {
         default => sw,
         blit => gpu,
-        clear => gpu,
     }
 }
 
-/// Factory that builds a fresh Hybrid each frame. Holds a Vec for the gpu
-/// side's framebuffer + the shared counter Rc.
 struct HybridFactory {
-    gpu_fb: Vec<u8>,
-    width: u16,
-    height: u16,
     calls: Rc<RefCell<u32>>,
 }
 
 impl HybridFactory {
-    fn new(width: u16, height: u16, calls: Rc<RefCell<u32>>) -> Self {
-        Self {
-            gpu_fb: vec![0u8; width as usize * height as usize * 4],
-            width,
-            height,
-            calls,
-        }
+    fn new(calls: Rc<RefCell<u32>>) -> Self {
+        Self { calls }
     }
 }
 
 impl<B: mirui::surface::FramebufferAccess> RendererFactory<B> for HybridFactory {
     type Renderer<'a>
-        = Hybrid<SwRenderer<'a>, Logging<SwRenderer<'a>>>
+        = Hybrid<SwRenderer<'a>, Logging>
     where
         Self: 'a,
         B: 'a;
@@ -160,21 +66,11 @@ impl<B: mirui::surface::FramebufferAccess> RendererFactory<B> for HybridFactory 
         let tex = backend.framebuffer();
         let mut sw = SwRenderer::new(tex);
         sw.viewport = *transform;
-        let gpu_tex = Texture::new(&mut self.gpu_fb, self.width, self.height, tex_format(&sw));
-        let mut gpu_inner = SwRenderer::new(gpu_tex);
-        gpu_inner.viewport = *transform;
         let gpu = Logging {
-            inner: gpu_inner,
             calls: Rc::clone(&self.calls),
         };
-        Hybrid { sw, gpu }
+        Hybrid::new(sw, gpu)
     }
-}
-
-/// Read the ColorFormat from an already-constructed SwRenderer so the gpu
-/// side framebuffer matches the sw side byte layout without hard-coding.
-fn tex_format(sw: &SwRenderer<'_>) -> mirui::render::texture::ColorFormat {
-    sw.target.format
 }
 
 struct Drift {
@@ -208,11 +104,7 @@ fn main() {
     let backend = SdlSurface::new("mirui - compose_backend DSL demo", W, H);
 
     let calls = Rc::new(RefCell::new(0u32));
-    let factory = HybridFactory::new(
-        backend.scale_factor().to_int() as u16 * W,
-        backend.scale_factor().to_int() as u16 * H,
-        Rc::clone(&calls),
-    );
+    let factory = HybridFactory::new(Rc::clone(&calls));
 
     let mut app = App::with_factory(backend, factory);
     app.with_default_widgets();
@@ -290,8 +182,5 @@ fn main() {
 
     app.run();
 
-    eprintln!(
-        "[final] Logging (blit+clear) routed over full session: {}",
-        calls.borrow()
-    );
+    eprintln!("[final] routed blits: {}", calls.borrow());
 }

@@ -1,6 +1,7 @@
 pub mod backends;
 pub mod canvas;
 pub mod command;
+pub mod engine;
 pub mod factory;
 pub mod font;
 pub mod glyph_run;
@@ -27,6 +28,7 @@ pub use backends::web_canvas;
 pub use backends::wgpu;
 pub use canvas::{Canvas, Paint};
 pub use command::{CompositeMode, DrawCommand};
+pub use engine::RenderEngine;
 pub use factory::{RendererFactory, SwRendererFactory};
 pub use glyph_run::PosedGlyphs;
 pub use projective_fallback::ProjectiveFallback;

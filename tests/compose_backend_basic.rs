@@ -1,14 +1,12 @@
-//! Compose a hybrid backend out of two Dummy backends and verify every
-//! method routes to the intended side.
-//!
-//! Each Dummy counts method invocations. The `Hybrid` instance exposes both
-//! dummies as struct fields, so we can read the counters directly.
+//! Verify a composed renderer with one target and one routed engine.
 
 use std::cell::Cell;
 
 use mirui::render::canvas::{Canvas, Paint};
 use mirui::render::command::CompositeMode;
+use mirui::render::engine::RenderEngine;
 use mirui::render::path::Path;
+use mirui::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
 use mirui_macros::compose_backend;
@@ -142,24 +140,120 @@ impl Canvas for Dummy {
     }
 }
 
+impl Renderer for Dummy {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        request.validate()?;
+        if !request.projective.is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+        }
+        if !request.command.transform().is_identity() {
+            return Err(RenderError::Unsupported(RenderFeature::AffineGeometry));
+        }
+        match request.command {
+            mirui::render::DrawCommand::Fill { quad: Some(_), .. }
+            | mirui::render::DrawCommand::Border { quad: Some(_), .. }
+            | mirui::render::DrawCommand::Blit { quad: Some(_), .. } => {
+                Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
+            }
+            mirui::render::DrawCommand::PushClip { .. } | mirui::render::DrawCommand::PopClip => {
+                Err(RenderError::Unsupported(RenderFeature::PathClip))
+            }
+            mirui::render::DrawCommand::ApplyBlur { .. } => {
+                Err(RenderError::Unsupported(RenderFeature::Blur))
+            }
+            _ => Ok(RenderRoute::Native),
+        }
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.route(request)?;
+        match request.command {
+            mirui::render::DrawCommand::FillPath {
+                path,
+                paint,
+                opa,
+                fill_rule,
+                ..
+            } => self.fill_path(path, &request.clip, paint, *opa, *fill_rule),
+            mirui::render::DrawCommand::Blit {
+                pos,
+                size,
+                texture,
+                opa,
+                radius,
+                composite,
+                ..
+            } => self.blit(
+                texture,
+                &Rect::new(0, 0, texture.width, texture.height),
+                *pos,
+                *size,
+                &request.clip,
+                *opa,
+                *radius,
+                *composite,
+            ),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        Canvas::flush(self);
+    }
+}
+
+#[derive(Default)]
+struct EngineCounts {
+    begin: u32,
+    submit: u32,
+    end: u32,
+}
+
+#[derive(Default)]
+struct CountingEngine {
+    counts: EngineCounts,
+    reject_begin: bool,
+}
+
+impl<T: Renderer> RenderEngine<T> for CountingEngine {
+    fn route(&self, target: &T, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        target.route(request)
+    }
+
+    fn begin(&mut self, _: &mut T) -> Result<(), RenderError> {
+        self.counts.begin += 1;
+        if self.reject_begin {
+            Err(RenderError::BackendFailure)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.counts.submit += 1;
+        target.submit(request)
+    }
+
+    fn end(&mut self, _: &mut T) {
+        self.counts.end += 1;
+    }
+}
+
 compose_backend! {
     pub struct Hybrid {
         sw: Dummy,
-        gpu: Dummy,
+        gpu: CountingEngine,
     }
     route {
         default => sw,
         blit => gpu,
-        clear => gpu,
         fill_rect => gpu,
     }
 }
 
-fn fresh_hybrid() -> Hybrid<Dummy, Dummy> {
-    Hybrid {
-        sw: Dummy::new(),
-        gpu: Dummy::new(),
-    }
+fn fresh_hybrid() -> Hybrid<Dummy, CountingEngine> {
+    Hybrid::new(Dummy::new(), CountingEngine::default())
 }
 
 #[test]
@@ -231,7 +325,9 @@ fn checked_renderer_rejects_commands_the_canvas_router_would_change() {
         Err(RenderError::Unsupported(RenderFeature::Blur))
     );
     assert_eq!(hybrid.sw.counts.fill_rule.get(), None);
-    assert_eq!(hybrid.gpu.counts.fill_rule.get(), None);
+    assert_eq!(hybrid.gpu.counts.begin, 2);
+    assert_eq!(hybrid.gpu.counts.submit, 2);
+    assert_eq!(hybrid.gpu.counts.end, 2);
 }
 
 fn zero_rect() -> Rect {
@@ -287,18 +383,18 @@ fn default_methods_route_to_sw() {
         &color,
         255,
     );
-    h.flush();
+    Canvas::flush(&mut h);
 
     assert_eq!(h.sw.counts.fill_path.get(), 1);
     assert_eq!(h.sw.counts.stroke_path.get(), 1);
     assert_eq!(h.sw.counts.draw_glyph_run.get(), 1);
     assert_eq!(h.sw.counts.draw_posed_glyph_run.get(), 1);
     assert_eq!(h.sw.counts.flush.get(), 1);
-    assert_eq!(h.gpu.counts.fill_path.get(), 0);
+    assert_eq!(h.gpu.counts.submit, 0);
 }
 
 #[test]
-fn explicit_routes_go_to_gpu() {
+fn direct_canvas_calls_stay_on_the_shared_target() {
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();
     let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
@@ -318,19 +414,14 @@ fn explicit_routes_go_to_gpu() {
     h.clear(&rect, &color);
     h.fill_rect(&rect, &rect, &color, Fixed::ZERO, 255);
 
-    assert_eq!(h.gpu.counts.blit.get(), 1);
-    assert_eq!(h.gpu.counts.clear.get(), 1);
-    assert_eq!(h.gpu.counts.fill_rect.get(), 1);
-    assert_eq!(h.sw.counts.blit.get(), 0);
-    assert_eq!(h.sw.counts.clear.get(), 0);
-    assert_eq!(h.sw.counts.fill_rect.get(), 0);
+    assert_eq!(h.sw.counts.blit.get(), 1);
+    assert_eq!(h.sw.counts.clear.get(), 1);
+    assert_eq!(h.sw.counts.fill_rect.get(), 1);
+    assert_eq!(h.gpu.counts.submit, 0);
 }
 
 #[test]
-fn unrouted_default_impl_methods_fall_through_to_trait_default() {
-    // stroke_rect, draw_line, draw_arc were not routed. They should go
-    // through the Canvas trait default, which ultimately calls
-    // stroke_path on the default backend (sw).
+fn canvas_helpers_preserve_shared_target_overrides() {
     let mut h = fresh_hybrid();
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
@@ -348,14 +439,10 @@ fn unrouted_default_impl_methods_fall_through_to_trait_default() {
         255,
     );
 
-    // sw counters: each default-impl call funnels into stroke_path.
-    // Dummy overrides stroke_rect/draw_line/draw_arc so those are NOT called
-    // on sw — instead the Hybrid's trait default path took over (since we
-    // didn't route them) and invoked sw.stroke_path directly.
-    assert_eq!(h.sw.counts.stroke_path.get(), 3);
-    assert_eq!(h.sw.counts.stroke_rect.get(), 0);
-    assert_eq!(h.sw.counts.draw_line.get(), 0);
-    assert_eq!(h.sw.counts.draw_arc.get(), 0);
+    assert_eq!(h.sw.counts.stroke_path.get(), 0);
+    assert_eq!(h.sw.counts.stroke_rect.get(), 1);
+    assert_eq!(h.sw.counts.draw_line.get(), 1);
+    assert_eq!(h.sw.counts.draw_arc.get(), 1);
 }
 
 /// A backend that borrows a pixel buffer, giving it a real lifetime parameter
@@ -441,6 +528,32 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
     fn flush(&mut self) {}
 }
 
+impl Renderer for BorrowedDummy<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        request.validate()?;
+        Ok(RenderRoute::Native)
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.route(request)?;
+        if let mirui::render::DrawCommand::FillPath {
+            path,
+            paint,
+            opa,
+            fill_rule,
+            ..
+        } = request.command
+        {
+            self.fill_path(path, &request.clip, paint, *opa, *fill_rule);
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        Canvas::flush(self);
+    }
+}
+
 struct PlainDummy;
 impl Canvas for PlainDummy {
     fn fill_path(
@@ -501,6 +614,24 @@ impl Canvas for PlainDummy {
     fn flush(&mut self) {}
 }
 
+impl<'a> RenderEngine<BorrowedDummy<'a>> for PlainDummy {
+    fn route(
+        &self,
+        target: &BorrowedDummy<'_>,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<RenderRoute, RenderError> {
+        target.route(request)
+    }
+
+    fn submit(
+        &mut self,
+        target: &mut BorrowedDummy<'_>,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<(), RenderError> {
+        target.submit(request)
+    }
+}
+
 compose_backend! {
     pub struct HybridWithLifetime {
         borrowed: BorrowedDummy,
@@ -537,7 +668,37 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
     };
     h.submit(&DrawRequest::new(&command, rect)).unwrap();
 
-    assert_eq!(h.gpu.counts.blit.get(), 1);
+    assert_eq!(h.sw.counts.blit.get(), 1);
+    assert_eq!(h.gpu.counts.begin, 1);
+    assert_eq!(h.gpu.counts.submit, 1);
+    assert_eq!(h.gpu.counts.end, 1);
+}
+
+#[test]
+fn engine_begin_failure_refuses_before_target_submission() {
+    let mut h = fresh_hybrid();
+    h.gpu.reject_begin = true;
+    let mut buf = dummy_texture_buf();
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+    let rect = zero_rect();
+    let command = mirui::render::DrawCommand::Blit {
+        pos: Point::ZERO,
+        size: Point::new(4, 4),
+        transform: Transform::IDENTITY,
+        quad: None,
+        texture: &tex,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+
+    assert_eq!(
+        h.submit(&DrawRequest::new(&command, rect)),
+        Err(RenderError::BackendFailure)
+    );
+    assert_eq!(h.gpu.counts.begin, 1);
+    assert_eq!(h.gpu.counts.submit, 0);
+    assert_eq!(h.gpu.counts.end, 0);
     assert_eq!(h.sw.counts.blit.get(), 0);
 }
 
@@ -551,7 +712,7 @@ fn hybrid_accepts_backend_with_lifetime_parameter() {
     // Hybrid, the borrow in BorrowedDummy<'_> gets threaded through the
     // generic slot.
     let mut h: HybridWithLifetime<BorrowedDummy<'_>, PlainDummy> =
-        HybridWithLifetime { borrowed, plain };
+        HybridWithLifetime::new(borrowed, plain);
 
     let rect = Rect::new(0, 0, 4, 4);
     let path = Path::new();

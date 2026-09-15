@@ -3,13 +3,9 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::{Ident, Result, Token, Visibility, braced};
 
-/// Canvas method table. Each entry = `(name, param_list, is_default_impl)`.
-/// `is_default_impl = true` means the trait has a default impl, so the macro
-/// only emits a forwarder when the user explicitly routes it.
-///
-/// Signatures must stay in sync with `src/draw/backend.rs` — the integration
-/// test `compose_backend_dispatch` covers every entry, so a mismatch shows up
-/// as a test failure rather than silent drift.
+/// Canvas method table. Each entry is `(name, parameters, has_default)`.
+/// Required methods forward to the shared target. Canvas helpers with default
+/// implementations reach that same target through the required primitives.
 const METHODS: &[(&str, &str, bool)] = &[
     (
         "fill_path",
@@ -70,6 +66,19 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
 ];
 
+const ROUTES: &[&str] = &[
+    "fill_path",
+    "stroke_path",
+    "blit",
+    "draw_glyph_run",
+    "draw_posed_glyph_run",
+    "fill_rect",
+    "stroke_rect",
+    "draw_line",
+    "draw_arc",
+    "blur",
+];
+
 pub(crate) fn expand(input: TokenStream) -> TokenStream {
     match syn::parse2::<ComposeInput>(input) {
         Ok(parsed) => parsed.emit(),
@@ -91,7 +100,7 @@ struct FieldDecl {
 }
 
 struct Route {
-    /// `default` or a method name from Canvas.
+    /// `default` or a command class handled by a render engine.
     method: Ident,
     field: Ident,
 }
@@ -99,7 +108,7 @@ struct Route {
 /// Best-match hint for an unknown method name. Returns `Some(name)` only
 /// when the Levenshtein distance is ≤ 2, to avoid suggesting random methods.
 fn closest_known_method(query: &str) -> Option<&'static str> {
-    crate::diag::closest(query, METHODS.iter().map(|(name, _, _)| *name), 2)
+    crate::diag::closest(query, ROUTES.iter().copied(), 2)
 }
 
 fn closest_field(query: &str, fields: &[FieldDecl]) -> Option<String> {
@@ -114,10 +123,7 @@ fn closest_field(query: &str, fields: &[FieldDecl]) -> Option<String> {
     best.map(|(_, n)| n)
 }
 
-/// Build one `fn name(&mut self, <params>) { self.<field>.name(<args>) }`.
-/// `params_src` is a raw parameter list like `"x: i32, y: i32"` (or empty).
-/// Parameter names are extracted via syn::parse so we don't hand-roll parsing.
-fn gen_forwarder(method: &str, params_src: &str, field: &Ident) -> TokenStream {
+fn gen_forwarder(method: &str, params_src: &str, target: &Ident) -> TokenStream {
     let method_ident = format_ident!("{method}");
     let params_ts: TokenStream = params_src
         .parse()
@@ -145,14 +151,17 @@ fn gen_forwarder(method: &str, params_src: &str, field: &Ident) -> TokenStream {
     if params_src.is_empty() {
         quote! {
             fn #method_ident(&mut self) {
-                self.#field.#method_ident()
+                ::mirui::render::canvas::Canvas::#method_ident(&mut self.#target)
             }
         }
     } else {
         quote! {
             #[allow(clippy::too_many_arguments)]
             fn #method_ident(&mut self, #params_ts) {
-                self.#field.#method_ident(#(#arg_names),*)
+                ::mirui::render::canvas::Canvas::#method_ident(
+                    &mut self.#target,
+                    #(#arg_names),*
+                )
             }
         }
     }
@@ -212,81 +221,165 @@ impl ComposeInput {
             return e.to_compile_error();
         }
 
-        // __B prefix to avoid colliding with user type names.
         let generic_params: Vec<Ident> = (0..self.fields.len())
             .map(|i| format_ident!("__B{i}"))
             .collect();
-
         let struct_fields = self.fields.iter().zip(&generic_params).map(|(f, g)| {
             let name = &f.name;
             quote! { pub #name: #g }
         });
-
         let vis = &self.vis;
         let name = &self.name;
-
         let default_field = self
             .routes
             .iter()
             .find(|r| r.method == "default")
             .map(|r| &r.field)
             .expect("validate() guarantees a default route");
-
+        let target_index = self
+            .fields
+            .iter()
+            .position(|field| field.name == *default_field)
+            .expect("validate() guarantees the default field exists");
+        let target_generic = &generic_params[target_index];
+        let engine_fields: Vec<(&Ident, &Ident)> = self
+            .fields
+            .iter()
+            .zip(&generic_params)
+            .filter(|(field, _)| field.name != *default_field)
+            .map(|(field, generic)| (&field.name, generic))
+            .collect();
+        let engine_generics: Vec<&Ident> =
+            engine_fields.iter().map(|(_, generic)| *generic).collect();
         let method_impls = METHODS
             .iter()
-            .filter_map(|(mname, params, is_default_impl)| {
-                let explicit = self.routes.iter().find(|r| r.method == *mname);
-                let target_field: &Ident = match (explicit, is_default_impl) {
-                    (Some(r), _) => &r.field,
-                    (None, false) => default_field,
-                    // Unrouted default-impl method → skip, trait default handles it.
-                    (None, true) => return None,
-                };
-                Some(gen_forwarder(mname, params, target_field))
+            .map(|(method, params, _)| gen_forwarder(method, params, default_field));
+        let constructor_params = self
+            .fields
+            .iter()
+            .zip(&generic_params)
+            .map(|(field, generic)| {
+                let field = &field.name;
+                quote! { #field: #generic }
             });
+        let constructor_fields = self.fields.iter().map(|field| &field.name);
+
+        let routed_field = |method: &str| {
+            self.routes
+                .iter()
+                .find(|route| route.method == method)
+                .map_or(default_field, |route| &route.field)
+        };
+        let route_call = |field: &Ident| {
+            if field == default_field {
+                quote! {
+                    ::mirui::render::renderer::Renderer::route(&self.#default_field, request)
+                }
+            } else {
+                quote! {
+                    ::mirui::render::engine::RenderEngine::route(
+                        &self.#field,
+                        &self.#default_field,
+                        request,
+                    )
+                }
+            }
+        };
+        let submit_call = |field: &Ident| {
+            if field == default_field {
+                quote! {
+                    ::mirui::render::renderer::Renderer::submit(
+                        &mut self.#default_field,
+                        request,
+                    )
+                }
+            } else {
+                quote! {{
+                    ::mirui::render::engine::RenderEngine::begin(
+                        &mut self.#field,
+                        &mut self.#default_field,
+                    )?;
+                    let result = ::mirui::render::engine::RenderEngine::submit(
+                        &mut self.#field,
+                        &mut self.#default_field,
+                        request,
+                    );
+                    ::mirui::render::engine::RenderEngine::end(
+                        &mut self.#field,
+                        &mut self.#default_field,
+                    );
+                    result
+                }}
+            }
+        };
+
+        let fill_route = route_call(routed_field("fill_rect"));
+        let border_route = route_call(routed_field("stroke_rect"));
+        let blit_route = route_call(routed_field("blit"));
+        let glyph_route = route_call(routed_field("draw_glyph_run"));
+        let posed_route = route_call(routed_field("draw_posed_glyph_run"));
+        let line_route = route_call(routed_field("draw_line"));
+        let arc_route = route_call(routed_field("draw_arc"));
+        let fill_path_route = route_call(routed_field("fill_path"));
+        let stroke_path_route = route_call(routed_field("stroke_path"));
+        let scope_route = route_call(default_field);
+        let blur_route = route_call(routed_field("blur"));
+
+        let fill_submit = submit_call(routed_field("fill_rect"));
+        let border_submit = submit_call(routed_field("stroke_rect"));
+        let blit_submit = submit_call(routed_field("blit"));
+        let glyph_submit = submit_call(routed_field("draw_glyph_run"));
+        let posed_submit = submit_call(routed_field("draw_posed_glyph_run"));
+        let line_submit = submit_call(routed_field("draw_line"));
+        let arc_submit = submit_call(routed_field("draw_arc"));
+        let fill_path_submit = submit_call(routed_field("fill_path"));
+        let stroke_path_submit = submit_call(routed_field("stroke_path"));
+        let scope_submit = submit_call(default_field);
+        let blur_submit = submit_call(routed_field("blur"));
 
         quote! {
             #vis struct #name<#(#generic_params),*> {
                 #(#struct_fields,)*
             }
 
+            impl<#(#generic_params),*> #name<#(#generic_params),*> {
+                pub fn new(#(#constructor_params),*) -> Self {
+                    Self { #(#constructor_fields,)* }
+                }
+            }
+
             impl<#(#generic_params),*> ::mirui::render::canvas::Canvas for #name<#(#generic_params),*>
             where
-                #(#generic_params: ::mirui::render::canvas::Canvas,)*
+                #target_generic: ::mirui::render::canvas::Canvas
+                    + ::mirui::render::renderer::Renderer,
+                #(#engine_generics: ::mirui::render::engine::RenderEngine<#target_generic>,)*
             {
                 #(#method_impls)*
             }
 
             impl<#(#generic_params),*> ::mirui::render::renderer::Renderer for #name<#(#generic_params),*>
             where
-                #(#generic_params: ::mirui::render::canvas::Canvas,)*
+                #target_generic: ::mirui::render::canvas::Canvas
+                    + ::mirui::render::renderer::Renderer,
+                #(#engine_generics: ::mirui::render::engine::RenderEngine<#target_generic>,)*
             {
                 fn route(
                     &self,
                     request: &::mirui::render::renderer::DrawRequest<'_, '_>,
                 ) -> Result<::mirui::render::renderer::RenderRoute, ::mirui::render::renderer::RenderError> {
-                    use ::mirui::render::renderer::{RenderError, RenderFeature, RenderRoute};
-                    request.validate()?;
-                    if !request.projective.is_identity() {
-                        return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
-                    }
-                    if !request.command.transform().is_identity() {
-                        return Err(RenderError::Unsupported(RenderFeature::AffineGeometry));
-                    }
                     match request.command {
-                        ::mirui::render::DrawCommand::Fill { quad: Some(_), .. }
-                        | ::mirui::render::DrawCommand::Border { quad: Some(_), .. }
-                        | ::mirui::render::DrawCommand::Blit { quad: Some(_), .. } => {
-                            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
-                        }
+                        ::mirui::render::DrawCommand::Fill { .. } => #fill_route,
+                        ::mirui::render::DrawCommand::Border { .. } => #border_route,
+                        ::mirui::render::DrawCommand::Blit { .. } => #blit_route,
+                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_route,
+                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_route,
+                        ::mirui::render::DrawCommand::Line { .. } => #line_route,
+                        ::mirui::render::DrawCommand::Arc { .. } => #arc_route,
+                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_route,
+                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_route,
                         ::mirui::render::DrawCommand::PushClip { .. }
-                        | ::mirui::render::DrawCommand::PopClip => {
-                            Err(RenderError::Unsupported(RenderFeature::PathClip))
-                        }
-                        ::mirui::render::DrawCommand::ApplyBlur { .. } => {
-                            Err(RenderError::Unsupported(RenderFeature::Blur))
-                        }
-                        _ => Ok(RenderRoute::Native),
+                        | ::mirui::render::DrawCommand::PopClip => #scope_route,
+                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_route,
                     }
                 }
 
@@ -294,66 +387,98 @@ impl ComposeInput {
                     &mut self,
                     request: &::mirui::render::renderer::DrawRequest<'_, '_>,
                 ) -> Result<(), ::mirui::render::renderer::RenderError> {
-                    use ::mirui::render::canvas::Canvas;
-                    self.route(request)?;
-                    let cmd = request.command;
-                    let clip = &request.clip;
-                    match cmd {
-                        ::mirui::render::DrawCommand::Fill { area, color, radius, opa, .. } => {
-                            self.fill_rect(area, clip, color, *radius, *opa);
-                        }
-                        ::mirui::render::DrawCommand::Border { area, color, width, radius, opa, .. } => {
-                            self.stroke_rect(area, clip, *width, color, *radius, *opa);
-                        }
-                        ::mirui::render::DrawCommand::Blit { pos, size, texture, opa, radius, composite, .. } => {
-                            let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
-                            self.blit(texture, &src_rect, *pos, *size, clip, *opa, *radius, *composite);
-                        }
-                        ::mirui::render::DrawCommand::GlyphRun { pos, glyphs, font, color, opa, .. } => {
-                            self.draw_glyph_run(pos, glyphs, font, clip, color, *opa);
-                        }
-                        ::mirui::render::DrawCommand::PosedGlyphRun { pos, glyphs, font, color, opa, .. } => {
-                            self.draw_posed_glyph_run(pos, *glyphs, font, clip, color, *opa);
-                        }
-                        ::mirui::render::DrawCommand::Line { p1, p2, color, width, opa, .. } => {
-                            self.draw_line(*p1, *p2, clip, *width, color, *opa);
-                        }
-                        ::mirui::render::DrawCommand::Arc {
-                            center, radius, start_angle, end_angle, color, width, opa, ..
-                        } => {
-                            self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
-                        }
-                        ::mirui::render::DrawCommand::FillPath {
-                            path, paint, opa, fill_rule, ..
-                        } => {
-                            self.fill_path(path, clip, paint, *opa, *fill_rule);
-                        }
-                         ::mirui::render::DrawCommand::StrokePath {
-                            path,
-                            width,
-                            paint,
-                            opa,
-                            line_cap,
-                            line_join,
-                            miter_limit,
-                            dash,
-                            ..
-                        } => {
-                            self.stroke_path(path, clip, *width, paint, *opa, *line_cap, *line_join, *miter_limit, dash);
-                        }
-                        ::mirui::render::DrawCommand::PushClip { path, transform, fill_rule } => {
-                            self.push_clip(path, transform, *fill_rule);
-                        }
-                        ::mirui::render::DrawCommand::PopClip => {
-                            self.pop_clip();
-                        }
-                        ::mirui::render::DrawCommand::ApplyBlur { .. } => {}
+                    match request.command {
+                        ::mirui::render::DrawCommand::Fill { .. } => #fill_submit,
+                        ::mirui::render::DrawCommand::Border { .. } => #border_submit,
+                        ::mirui::render::DrawCommand::Blit { .. } => #blit_submit,
+                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_submit,
+                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_submit,
+                        ::mirui::render::DrawCommand::Line { .. } => #line_submit,
+                        ::mirui::render::DrawCommand::Arc { .. } => #arc_submit,
+                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_submit,
+                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_submit,
+                        ::mirui::render::DrawCommand::PushClip { .. }
+                        | ::mirui::render::DrawCommand::PopClip => #scope_submit,
+                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_submit,
                     }
-                    Ok(())
                 }
 
                 fn flush(&mut self) {
-                    ::mirui::render::canvas::Canvas::flush(self);
+                    ::mirui::render::renderer::Renderer::flush(&mut self.#default_field);
+                }
+
+                fn output_scale(&self) -> ::mirui::types::Fixed {
+                    ::mirui::render::renderer::Renderer::output_scale(&self.#default_field)
+                }
+
+                fn supports_offscreen(&self) -> bool {
+                    ::mirui::render::renderer::Renderer::supports_offscreen(&self.#default_field)
+                }
+
+                fn offscreen_format(&self) -> Option<::mirui::render::texture::ColorFormat> {
+                    ::mirui::render::renderer::Renderer::offscreen_format(&self.#default_field)
+                }
+
+                fn read_target_region(
+                    &self,
+                    src: &::mirui::types::Rect,
+                    dst: &mut ::mirui::render::texture::Texture,
+                ) -> Result<(), ::mirui::render::renderer::RenderError> {
+                    ::mirui::render::renderer::Renderer::read_target_region(
+                        &self.#default_field,
+                        src,
+                        dst,
+                    )
+                }
+
+                fn sample_target_region(
+                    &self,
+                    src: &::mirui::types::Rect,
+                ) -> Result<
+                    Option<::mirui::render::texture::Texture<'static>>,
+                    ::mirui::render::renderer::RenderError,
+                > {
+                    ::mirui::render::renderer::Renderer::sample_target_region(
+                        &self.#default_field,
+                        src,
+                    )
+                }
+
+                fn modify_target_region(
+                    &mut self,
+                    src: &::mirui::types::Rect,
+                    f: &mut dyn FnMut(&mut ::mirui::render::texture::Texture),
+                ) -> Result<bool, ::mirui::render::renderer::RenderError> {
+                    ::mirui::render::renderer::Renderer::modify_target_region(
+                        &mut self.#default_field,
+                        src,
+                        f,
+                    )
+                }
+
+                fn prepare_readback(&mut self, src: &::mirui::types::Rect) {
+                    ::mirui::render::renderer::Renderer::prepare_readback(
+                        &mut self.#default_field,
+                        src,
+                    );
+                }
+
+                fn supports_scroll_blit(&self) -> bool {
+                    ::mirui::render::renderer::Renderer::supports_scroll_blit(&self.#default_field)
+                }
+
+                fn scroll_target_region(
+                    &mut self,
+                    area: &::mirui::types::Rect,
+                    dx: ::mirui::types::Fixed,
+                    dy: ::mirui::types::Fixed,
+                ) -> Result<(), ::mirui::render::renderer::RenderError> {
+                    ::mirui::render::renderer::Renderer::scroll_target_region(
+                        &mut self.#default_field,
+                        area,
+                        dx,
+                        dy,
+                    )
                 }
             }
         }
@@ -377,14 +502,14 @@ impl ComposeInput {
             }
         }
         for r in &self.routes {
-            if r.method != "default" && !METHODS.iter().any(|(n, _, _)| r.method == *n) {
+            if r.method != "default" && !ROUTES.iter().any(|name| r.method == *name) {
                 let suggestion = closest_known_method(&r.method.to_string());
                 let msg = match suggestion {
                     Some(name) => format!(
-                        "unknown Canvas method `{}` — did you mean `{name}`?",
+                        "unknown render route `{}` — did you mean `{name}`?",
                         r.method
                     ),
-                    None => format!("unknown Canvas method `{}`", r.method),
+                    None => format!("unknown render route `{}`", r.method),
                 };
                 return Err(syn::Error::new(r.method.span(), msg));
             }

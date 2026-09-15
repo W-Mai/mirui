@@ -1,15 +1,13 @@
-//! compose_backend! demo. A LoggingBackend wraps a second SwRenderer and
-//! counts every method call. Hybrid routes blit + clear through Logging, and
-//! everything else (fill_path / stroke_path / draw_line / draw_arc) through
-//! the plain sw backend. Every second the counter is printed to stderr so the
-//! routing stays visible without flooding the trace per-call.
+//! `compose_backend!` demo with one software target and a routed blit engine.
 
 use mirui::prelude::*;
 use std::cell::RefCell;
 
 use mirui::render::canvas::{Canvas, Paint};
 use mirui::render::command::CompositeMode;
+use mirui::render::engine::RenderEngine;
 use mirui::render::path::Path;
+use mirui::render::renderer::{DrawRequest, RenderError, Renderer};
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui_macros::compose_backend;
@@ -20,110 +18,22 @@ use sdl2::pixels::PixelFormatEnum;
 const W: u32 = 480;
 const H: u32 = 320;
 
-/// Any Canvas wrapped in log lines. Uses RefCell for the counter so the
-/// example doesn't need `&mut self` on the outer wrapper just to bump it.
-struct Logging<B: Canvas> {
-    inner: B,
+struct Logging {
     calls: RefCell<u32>,
 }
 
-impl<B: Canvas> Logging<B> {
-    fn new(inner: B) -> Self {
+impl Logging {
+    fn new() -> Self {
         Self {
-            inner,
             calls: RefCell::new(0),
         }
     }
-    fn log(&self, _what: &str) {
-        *self.calls.borrow_mut() += 1;
-    }
 }
 
-impl<B: Canvas> Canvas for Logging<B> {
-    fn fill_path(
-        &mut self,
-        path: &Path,
-        clip: &Rect,
-        paint: &Paint,
-        opa: u8,
-        fill_rule: mirui::render::raster::FillRule,
-    ) {
-        self.log("fill_path");
-        self.inner.fill_path(path, clip, paint, opa, fill_rule);
-    }
-    fn stroke_path(
-        &mut self,
-        path: &Path,
-        clip: &Rect,
-        width: Fixed,
-        paint: &Paint,
-        opa: u8,
-        _: ::mirui::render::raster::LineCap,
-        _: ::mirui::render::raster::LineJoin,
-        _: ::mirui::types::Fixed,
-        dash: &[Fixed],
-    ) {
-        self.log("stroke_path");
-        self.inner.stroke_path(
-            path,
-            clip,
-            width,
-            paint,
-            opa,
-            ::mirui::render::raster::LineCap::Butt,
-            ::mirui::render::raster::LineJoin::Miter,
-            ::mirui::types::Fixed::from_int(4),
-            dash,
-        );
-    }
-    fn blit(
-        &mut self,
-        src: &Texture,
-        src_rect: &Rect,
-        dst: Point,
-        dst_size: Point,
-        clip: &Rect,
-        opa: u8,
-        radius: Fixed,
-        composite: CompositeMode,
-    ) {
-        self.log("blit");
-        self.inner
-            .blit(src, src_rect, dst, dst_size, clip, opa, radius, composite);
-    }
-    fn clear(&mut self, area: &Rect, color: &Color) {
-        self.log("clear");
-        self.inner.clear(area, color);
-    }
-    fn draw_glyph_run(
-        &mut self,
-        pos: &Point,
-        glyphs: &[mirui::text::PositionedGlyph],
-        font: &mirui::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.log("draw_glyph_run");
-        self.inner
-            .draw_glyph_run(pos, glyphs, font, clip, color, opa);
-    }
-    fn draw_posed_glyph_run(
-        &mut self,
-        pos: &Point,
-        glyphs: mirui::render::PosedGlyphs<'_>,
-        font: &mirui::render::font::Font,
-        clip: &Rect,
-        color: &Color,
-        opa: u8,
-    ) {
-        self.log("draw_posed_glyph_run");
-        self.inner
-            .draw_posed_glyph_run(pos, glyphs, font, clip, color, opa);
-    }
-    fn flush(&mut self) {
-        self.log("flush");
-        self.inner.flush();
+impl<T: Renderer> RenderEngine<T> for Logging {
+    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        *self.calls.borrow_mut() += 1;
+        target.submit(request)
     }
 }
 
@@ -135,7 +45,6 @@ compose_backend! {
     route {
         default => sw,
         blit => gpu,
-        clear => gpu,
     }
 }
 
@@ -153,11 +62,7 @@ fn main() {
         .create_texture_streaming(PixelFormatEnum::RGBA32, W, H)
         .unwrap();
 
-    // Each backend owns a separate framebuffer. `clear` routes through the
-    // logging backend onto a throwaway buffer so the trace is visible; all
-    // the path drawing routes through sw onto `fb`, which is what SDL shows.
     let mut fb = vec![0u8; (W * H * 4) as usize];
-    let mut gpu_fb = vec![0u8; (W * H * 4) as usize];
 
     let sw = SwRenderer::new(Texture::new(
         &mut fb,
@@ -165,15 +70,8 @@ fn main() {
         H as u16,
         ColorFormat::RGBA8888,
     ));
-    let gpu_inner = SwRenderer::new(Texture::new(
-        &mut gpu_fb,
-        W as u16,
-        H as u16,
-        ColorFormat::RGBA8888,
-    ));
-    let gpu = Logging::new(gpu_inner);
-
-    let mut hybrid = Hybrid { sw, gpu };
+    let gpu = Logging::new();
+    let mut hybrid = Hybrid::new(sw, gpu);
 
     let clip = Rect::new(0, 0, W as u16, H as u16);
 
@@ -207,9 +105,7 @@ fn main() {
 
         let t = start.elapsed().as_secs_f32();
 
-        // Every frame: clear routes through Logging; path + line go sw.
         hybrid.clear(&clip, &Color::rgb(30, 30, 46));
-        hybrid.sw.clear(&clip, &Color::rgb(30, 30, 46));
 
         let x = 40.0 + (t * 1.2).sin() * 160.0 + 160.0;
         let path = Path::rounded_rect(
