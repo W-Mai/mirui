@@ -36,6 +36,18 @@ impl Renderer for ProjectiveRenderer<'_> {
         )
     }
 
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        self.inner.submit_with_route(
+            &DrawRequest::new(request.command, request.clip)
+                .with_projective(self.transform.compose(&request.projective)),
+            route,
+        )
+    }
+
     fn flush(&mut self) {
         self.inner.flush();
     }

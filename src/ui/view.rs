@@ -67,6 +67,25 @@ impl ViewCtx<'_> {
         .map(Self::replay_error);
     }
 
+    /// Replay a scene using caller-owned group frames and exact-route slots.
+    pub fn replay_with_scratch(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        ops: &[crate::render::scene::SceneOp],
+        resolver: &dyn crate::render::scene::replay::SceneResolver,
+        frames: &mut [crate::render::scene::replay::ReplayFrame],
+        plans: &mut [crate::render::scene::replay::ReplayPlan],
+    ) {
+        if self.error.is_some() {
+            return;
+        }
+        self.error = crate::render::scene::replay::replay_scene_with_scratch(
+            ops, renderer, self.clip, resolver, frames, plans,
+        )
+        .err()
+        .map(Self::replay_error);
+    }
+
     fn replay_error(error: crate::render::scene::replay::ReplayError) -> RenderError {
         match error {
             crate::render::scene::replay::ReplayError::Render(error) => error,

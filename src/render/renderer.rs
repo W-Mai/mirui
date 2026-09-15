@@ -321,6 +321,20 @@ pub trait Renderer {
     /// semantics.
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError>;
 
+    /// Execute a request with the exact route returned by an earlier
+    /// [`Self::route`] call for the same request.
+    ///
+    /// The default keeps custom renderers correct by submitting normally.
+    /// Backends with measurable fallback work can override this to reuse the
+    /// prepared physical region.
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        _route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        self.submit(request)
+    }
+
     fn flush(&mut self);
 
     fn output_scale(&self) -> Fixed {

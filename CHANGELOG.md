@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WGPU route inspection.** `Renderer::route` classifies existing WGPU native paths and reports typed rejection for unsupported clip, blur, stroke, paint, composite, and transform semantics.
 - **Backend render routes.** Software, SDL GPU, and Web Canvas expose `Renderer::route` classification for native draws and bounded projective fallback. Unsupported opacity, stroke, texture format, gradient, and quad semantics return typed errors; affine Web quad images use a direct Canvas transform.
 - **Exact fallback regions.** `RenderRoute` carries the clipped physical origin, dimensions, and row stride needed to execute a bounded fallback without reconstructing its target layout.
+- **Scene replay scratch.** `replay_scene_with_scratch` accepts caller-owned group and route slots; retained exact fallback routes are executed directly while overflow remains allocation-free and recomputes only the excess routes.
 
 ### Fixed
 

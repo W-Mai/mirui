@@ -473,23 +473,7 @@ impl WgpuRenderer<'_> {
         &self,
         request: &DrawRequest<'_, '_>,
     ) -> Result<Option<ProjectiveFallbackPlan>, RenderError> {
-        let needs_fallback = match request.command {
-            DrawCommand::Blit { composite, .. } => matches!(
-                composite,
-                CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
-            ),
-            DrawCommand::FillPath { paint, .. } | DrawCommand::StrokePath { paint, .. } => {
-                if !matches!(paint, Paint::LinearGradient(_) | Paint::RadialGradient(_)) {
-                    false
-                } else if !request.projective.is_identity() {
-                    return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
-                } else {
-                    true
-                }
-            }
-            _ => false,
-        };
-        if !needs_fallback {
+        if !Self::needs_non_native_fallback(request)? {
             return Ok(None);
         }
         #[cfg(target_arch = "wasm32")]
@@ -510,6 +494,26 @@ impl WgpuRenderer<'_> {
             .map(Some)
             .map_err(RenderError::from)
         }
+    }
+
+    fn needs_non_native_fallback(request: &DrawRequest<'_, '_>) -> Result<bool, RenderError> {
+        let needs_fallback = match request.command {
+            DrawCommand::Blit { composite, .. } => matches!(
+                composite,
+                CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
+            ),
+            DrawCommand::FillPath { paint, .. } | DrawCommand::StrokePath { paint, .. } => {
+                if !matches!(paint, Paint::LinearGradient(_) | Paint::RadialGradient(_)) {
+                    false
+                } else if !request.projective.is_identity() {
+                    return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+                } else {
+                    true
+                }
+            }
+            _ => false,
+        };
+        Ok(needs_fallback)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3450,10 +3454,34 @@ impl WgpuRenderer<'_> {
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        let route = self.route(request)?;
+        self.submit_with_route(request, route)
+    }
+
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
         self.draw_failed = false;
         request.validate_projection()?;
         request.validate_texture()?;
-        if let Some(plan) = self.non_native_fallback_plan(request)? {
+        if Self::needs_non_native_fallback(request)? {
+            let RenderRoute::ExactFallback(region) = route else {
+                return Err(RenderError::InvalidGeometry);
+            };
+            let capacity_bytes = self
+                .factory
+                .target_edit_budget_bytes
+                .ok_or(RenderError::MissingWorkspace)?;
+            if region.required_bytes() > capacity_bytes {
+                return Err(RenderError::InsufficientWorkspace {
+                    required_bytes: region.required_bytes(),
+                    capacity_bytes,
+                });
+            }
+            let plan = ProjectiveFallbackPlan::from_region(region, self.viewport)
+                .map_err(RenderError::from)?;
             if plan.required_bytes() == 0 {
                 return Ok(());
             }
@@ -3466,7 +3494,6 @@ impl WgpuRenderer<'_> {
             return Err(RenderError::Unsupported(RenderFeature::Readback));
         }
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
-            self.route(request)?;
             if *alpha <= Fixed::ZERO
                 || *alpha >= Fixed::ONE
                 || self.physical_clip_rect(region).is_none()
@@ -3478,11 +3505,10 @@ impl WgpuRenderer<'_> {
             }
             return self.blur_target_region(*alpha, region);
         }
-        Self::classify_request(request)?;
-        if !request.projective.is_identity() {
-            self.preflight_projective(request.command, &request.clip, &request.projective)
-                .map_err(RenderError::from)?;
+        if route != RenderRoute::Native {
+            return Err(RenderError::InvalidGeometry);
         }
+        Self::classify_request(request)?;
         if !self.begin_frame() {
             return Err(RenderError::BackendFailure);
         }
@@ -3997,6 +4023,14 @@ impl Renderer for WgpuRenderer<'_> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         WgpuRenderer::submit(self, request)
+    }
+
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        WgpuRenderer::submit_with_route(self, request, route)
     }
 
     fn flush(&mut self) {

@@ -4,7 +4,7 @@ use super::bbox::{BoundsError, children_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
-use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+use crate::render::renderer::{DrawRequest, RenderError, RenderRoute, Renderer};
 use crate::render::texture::Texture;
 use crate::types::{Fixed, Rect, Transform, Transform3D};
 
@@ -63,6 +63,20 @@ impl ReplayFrame {
     };
 }
 
+/// One reusable exact route captured during scene preflight.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReplayPlan {
+    ordinal: usize,
+    route: RenderRoute,
+}
+
+impl ReplayPlan {
+    pub const EMPTY: Self = Self {
+        ordinal: usize::MAX,
+        route: RenderRoute::Native,
+    };
+}
+
 struct ReplayStack<'a> {
     frames: &'a mut [ReplayFrame],
     len: usize,
@@ -111,22 +125,53 @@ enum ReplayPass {
     Draw,
 }
 
+struct ReplayPassState<'a> {
+    pass: ReplayPass,
+    plans: &'a mut [ReplayPlan],
+    plan_len: &'a mut usize,
+    ordinal: usize,
+    plan_cursor: usize,
+}
+
+impl ReplayPassState<'_> {
+    fn route(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<(), RenderError> {
+        let ordinal = self.ordinal;
+        self.ordinal += 1;
+        if self.pass == ReplayPass::Preflight {
+            let route = renderer.route(request)?;
+            if matches!(route, RenderRoute::ExactFallback(_)) && *self.plan_len < self.plans.len() {
+                self.plans[*self.plan_len] = ReplayPlan { ordinal, route };
+                *self.plan_len += 1;
+            }
+            return Ok(());
+        }
+        while self.plan_cursor < *self.plan_len && self.plans[self.plan_cursor].ordinal < ordinal {
+            self.plan_cursor += 1;
+        }
+        if self.plan_cursor < *self.plan_len && self.plans[self.plan_cursor].ordinal == ordinal {
+            let route = self.plans[self.plan_cursor].route;
+            self.plan_cursor += 1;
+            renderer.submit_with_route(request, route)
+        } else {
+            renderer.submit(request)
+        }
+    }
+}
+
 fn draw_in_frame(
     renderer: &mut dyn Renderer,
     frame: &ReplayFrame,
     command: &DrawCommand,
     clip: &Rect,
-    pass: ReplayPass,
+    state: &mut ReplayPassState<'_>,
 ) -> Result<(), ReplayError> {
     let request = DrawRequest::new(command, *clip)
         .with_projective(frame.projective.unwrap_or(Transform3D::IDENTITY));
-    if pass == ReplayPass::Preflight {
-        return renderer
-            .route(&request)
-            .map(|_| ())
-            .map_err(ReplayError::Render);
-    }
-    renderer.submit(&request).map_err(ReplayError::Render)
+    state.route(renderer, &request).map_err(ReplayError::Render)
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -169,7 +214,8 @@ pub fn replay_scene(
     resolver: &dyn SceneResolver,
 ) -> Result<(), ReplayError> {
     let mut frames = [ReplayFrame::EMPTY; 8];
-    replay_scene_with_workspace(ops, renderer, clip, resolver, &mut frames)
+    let mut plans = [ReplayPlan::EMPTY; 8];
+    replay_scene_with_scratch(ops, renderer, clip, resolver, &mut frames, &mut plans)
 }
 
 /// Replay with caller-owned group frames. One frame is needed for the root
@@ -181,8 +227,50 @@ pub fn replay_scene_with_workspace(
     resolver: &dyn SceneResolver,
     frames: &mut [ReplayFrame],
 ) -> Result<(), ReplayError> {
-    replay_scene_pass(ops, renderer, clip, resolver, frames, ReplayPass::Preflight)?;
-    replay_scene_pass(ops, renderer, clip, resolver, frames, ReplayPass::Draw)
+    let mut plans = [ReplayPlan::EMPTY; 8];
+    replay_scene_with_scratch(ops, renderer, clip, resolver, frames, &mut plans)
+}
+
+/// Replay with caller-owned group frames and exact-route slots. Exact routes
+/// beyond `plans` are still validated before drawing and are recomputed only
+/// when executed.
+pub fn replay_scene_with_scratch(
+    ops: &[SceneOp],
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    resolver: &dyn SceneResolver,
+    frames: &mut [ReplayFrame],
+    plans: &mut [ReplayPlan],
+) -> Result<(), ReplayError> {
+    let mut plan_len = 0;
+    replay_scene_pass(
+        ops,
+        renderer,
+        clip,
+        resolver,
+        frames,
+        &mut ReplayPassState {
+            pass: ReplayPass::Preflight,
+            plans,
+            plan_len: &mut plan_len,
+            ordinal: 0,
+            plan_cursor: 0,
+        },
+    )?;
+    replay_scene_pass(
+        ops,
+        renderer,
+        clip,
+        resolver,
+        frames,
+        &mut ReplayPassState {
+            pass: ReplayPass::Draw,
+            plans,
+            plan_len: &mut plan_len,
+            ordinal: 0,
+            plan_cursor: 0,
+        },
+    )
 }
 
 fn replay_scene_pass(
@@ -191,7 +279,7 @@ fn replay_scene_pass(
     clip: &Rect,
     resolver: &dyn SceneResolver,
     frames: &mut [ReplayFrame],
-    pass: ReplayPass,
+    state: &mut ReplayPassState<'_>,
 ) -> Result<(), ReplayError> {
     let mut stack = ReplayStack::new(frames)?;
     let mut skip_depth = 0usize;
@@ -277,7 +365,7 @@ fn replay_scene_pass(
                             fill_rule: crate::render::raster::FillRule::EvenOdd,
                         },
                         clip,
-                        pass,
+                        state,
                     )?;
                     true
                 } else if group_clip.is_some() {
@@ -296,7 +384,7 @@ fn replay_scene_pass(
             SceneOp::GroupEnd => {
                 let frame = stack.pop()?;
                 if frame.has_clip {
-                    draw_in_frame(renderer, &frame, &DrawCommand::PopClip, clip, pass)?;
+                    draw_in_frame(renderer, &frame, &DrawCommand::PopClip, clip, state)?;
                 }
                 let filter = match &ops[frame.start_idx] {
                     SceneOp::GroupBegin { filter, .. } => filter,
@@ -319,7 +407,7 @@ fn replay_scene_pass(
                             &frame,
                             &DrawCommand::ApplyBlur { alpha, region },
                             clip,
-                            pass,
+                            state,
                         )?;
                     }
                 }
@@ -338,11 +426,11 @@ fn replay_scene_pass(
                         fill_rule: *fill_rule,
                     },
                     clip,
-                    pass,
+                    state,
                 )?;
             }
             SceneOp::PopClip => {
-                draw_in_frame(renderer, &top, &DrawCommand::PopClip, clip, pass)?;
+                draw_in_frame(renderer, &top, &DrawCommand::PopClip, clip, state)?;
             }
             SceneOp::FillRect {
                 area,
@@ -363,7 +451,7 @@ fn replay_scene_pass(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-                pass,
+                state,
             )?,
             SceneOp::Border {
                 area,
@@ -386,7 +474,7 @@ fn replay_scene_pass(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-                pass,
+                state,
             )?,
             SceneOp::GlyphRun {
                 font,
@@ -414,7 +502,7 @@ fn replay_scene_pass(
                         opa: mul_alpha(*opa, top.alpha),
                     },
                     clip,
-                    pass,
+                    state,
                 )?;
             }
             SceneOp::PosedGlyphRun {
@@ -443,7 +531,7 @@ fn replay_scene_pass(
                         opa: mul_alpha(*opa, top.alpha),
                     },
                     clip,
-                    pass,
+                    state,
                 )?;
             }
             SceneOp::Line {
@@ -465,7 +553,7 @@ fn replay_scene_pass(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-                pass,
+                state,
             )?,
             SceneOp::Arc {
                 center,
@@ -490,7 +578,7 @@ fn replay_scene_pass(
                     opa: mul_alpha(*opa, top.alpha),
                 },
                 clip,
-                pass,
+                state,
             )?,
             SceneOp::Blit {
                 texture,
@@ -519,7 +607,7 @@ fn replay_scene_pass(
                         composite: *composite,
                     },
                     clip,
-                    pass,
+                    state,
                 )?;
             }
             SceneOp::FillPath {
@@ -540,7 +628,7 @@ fn replay_scene_pass(
                         fill_rule: *fill_rule,
                     },
                     clip,
-                    pass,
+                    state,
                 )?;
             }
             SceneOp::StrokePath {
@@ -569,7 +657,7 @@ fn replay_scene_pass(
                         dash,
                     },
                     clip,
-                    pass,
+                    state,
                 )?;
             }
         }
@@ -586,12 +674,78 @@ mod tests {
     use super::*;
     use crate::render::command::DrawCommand;
     use crate::render::renderer::{
-        ProjectiveDrawError, RenderFeature, RenderResource, RenderRoute,
+        FallbackRegion, ProjectiveDrawError, RenderFeature, RenderResource, RenderRoute,
     };
     use crate::render::scene::Paint;
     use crate::types::{Color, Fixed, Point, Rect};
     use alloc::vec;
     use alloc::vec::Vec;
+    use core::cell::Cell;
+
+    #[test]
+    fn replay_reuses_exact_routes_from_caller_scratch() {
+        struct RoutedCapture {
+            route_calls: Cell<usize>,
+            plain_submits: usize,
+            routed_submits: usize,
+        }
+
+        impl Renderer for RoutedCapture {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                self.route_calls.set(self.route_calls.get() + 1);
+                Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
+                    3, 4, 5, 6, 20,
+                )))
+            }
+
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.plain_submits += 1;
+                Ok(())
+            }
+
+            fn submit_with_route(
+                &mut self,
+                _: &DrawRequest<'_, '_>,
+                route: RenderRoute,
+            ) -> Result<(), RenderError> {
+                assert!(matches!(route, RenderRoute::ExactFallback(_)));
+                self.routed_submits += 1;
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let ops = [SceneOp::FillRect {
+            area: Rect::new(0, 0, 5, 6),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(1, 2, 3),
+            radius: Fixed::ZERO,
+            opa: 255,
+        }];
+        let mut renderer = RoutedCapture {
+            route_calls: Cell::new(0),
+            plain_submits: 0,
+            routed_submits: 0,
+        };
+        let mut frames = [ReplayFrame::EMPTY; 1];
+        let mut plans = [ReplayPlan::EMPTY; 1];
+        replay_scene_with_scratch(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 10, 10),
+            &NoResolver,
+            &mut frames,
+            &mut plans,
+        )
+        .unwrap();
+
+        assert_eq!(renderer.route_calls.get(), 1);
+        assert_eq!(renderer.plain_submits, 0);
+        assert_eq!(renderer.routed_submits, 1);
+        assert!(core::mem::size_of::<ReplayPlan>() <= 40);
+    }
 
     #[test]
     fn scene_blur_uses_physical_radius_and_includes_edge_bleed() {

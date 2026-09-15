@@ -94,7 +94,8 @@ impl ProjectiveFallbackPlan {
     #[cfg(any(
         feature = "sdl-gpu",
         feature = "wgpu",
-        all(feature = "web-canvas", target_arch = "wasm32")
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
     ))]
     pub(crate) const fn region(self) -> crate::render::renderer::FallbackRegion {
         crate::render::renderer::FallbackRegion::from_parts(
@@ -104,6 +105,52 @@ impl ProjectiveFallbackPlan {
             self.layout.height(),
             self.layout.stride_bytes(),
         )
+    }
+
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn from_region(
+        region: crate::render::renderer::FallbackRegion,
+        viewport: Viewport,
+    ) -> Result<Self, ProjectiveDrawError> {
+        let (physical_width, physical_height) = viewport.physical_size();
+        let x1 = region
+            .x()
+            .checked_add(i32::from(region.width()))
+            .ok_or(ProjectiveDrawError::InvalidProjection)?;
+        let y1 = region
+            .y()
+            .checked_add(i32::from(region.height()))
+            .ok_or(ProjectiveDrawError::InvalidProjection)?;
+        if region.x() < 0
+            || region.y() < 0
+            || x1 > i32::from(physical_width)
+            || y1 > i32::from(physical_height)
+        {
+            return Err(ProjectiveDrawError::InvalidProjection);
+        }
+        let layout = PlaneLayout::new(
+            region.width(),
+            region.height(),
+            ColorFormat::RGBA8888,
+            region.stride_bytes(),
+            crate::render::scratch::PlaneRequirements::CPU,
+        )
+        .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
+        if layout.required_bytes() != region.required_bytes() {
+            return Err(ProjectiveDrawError::InvalidProjection);
+        }
+        Ok(Self {
+            x: region.x(),
+            y: region.y(),
+            layout,
+            logical_origin_x: Fixed::from_int(region.x()) / viewport.scale(),
+            logical_origin_y: Fixed::from_int(region.y()) / viewport.scale(),
+        })
     }
 
     pub(crate) const fn width(self) -> u16 {
@@ -500,6 +547,18 @@ mod tests {
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
     use textflow::placement::GlyphFrame;
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
+
+    #[test]
+    fn fallback_region_reconstructs_the_same_plane() {
+        let region = crate::render::renderer::FallbackRegion::from_parts(3, 5, 7, 11, 32);
+        let plan =
+            ProjectiveFallbackPlan::from_region(region, Viewport::new(20, 20, Fixed::from_int(2)))
+                .unwrap();
+        assert_eq!(plan.region(), region);
+        assert_eq!(plan.required_bytes(), 352);
+        assert_eq!(plan.logical_origin_x, Fixed::from_f32(1.5));
+        assert_eq!(plan.logical_origin_y, Fixed::from_f32(2.5));
+    }
 
     #[test]
     fn identity_rounded_blit_uses_bounded_local_target() {

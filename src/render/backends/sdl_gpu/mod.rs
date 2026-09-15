@@ -863,10 +863,11 @@ mod route_tests {
         };
         assert_eq!(
             SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
-            Err(RenderError::Unsupported(RenderFeature::Composite(
-                CompositeMode::Add
-            )))
+            Ok(())
         );
+        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+            &DrawRequest::new(&blit, clip)
+        ));
 
         let line = DrawCommand::Line {
             p1: Point::ZERO,
@@ -926,10 +927,18 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        let route = self.route(request)?;
+        self.submit_with_route(request, route)
+    }
+
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
-            self.route(request)?;
             return self.blur_target_region(*alpha, region);
         }
         Self::classify_request(request)?;
@@ -937,10 +946,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if paint_fallback && !request.projective.is_identity() {
             return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
         }
-        if request.projective.is_identity()
-            && !Self::needs_blit_fallback(request)
-            && !paint_fallback
-        {
+        let needs_fallback = !request.projective.is_identity()
+            || Self::needs_blit_fallback(request)
+            || paint_fallback;
+        if !needs_fallback {
+            if route != RenderRoute::Native {
+                return Err(RenderError::InvalidGeometry);
+            }
             self.draw_failed = false;
             self.draw(request.command, &request.clip);
             return if self.draw_failed {
@@ -949,16 +961,20 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 Ok(())
             };
         }
-        let plan = self
+        let RenderRoute::ExactFallback(region) = route else {
+            return Err(RenderError::InvalidGeometry);
+        };
+        let fallback = self
             .projective_fallback
             .as_deref()
-            .ok_or(RenderError::MissingWorkspace)?
-            .plan(
-                request.command,
-                &request.clip,
-                &request.projective,
-                self.viewport,
-            )
+            .ok_or(RenderError::MissingWorkspace)?;
+        if region.required_bytes() > fallback.capacity() {
+            return Err(RenderError::InsufficientWorkspace {
+                required_bytes: region.required_bytes(),
+                capacity_bytes: fallback.capacity(),
+            });
+        }
+        let plan = ProjectiveFallbackPlan::from_region(region, self.viewport)
             .map_err(RenderError::from)?;
         self.draw_projective_plan(plan, request.command, &request.projective)
             .map_err(RenderError::from)
@@ -1312,6 +1328,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         SdlGpuRenderer::submit(self, request)
+    }
+
+    fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        SdlGpuRenderer::submit_with_route(self, request, route)
     }
 
     fn flush(&mut self) {

@@ -24,6 +24,17 @@ pub trait RenderEngine<T: Renderer> {
         target.submit(request)
     }
 
+    /// Execute a request using a route previously returned by this engine for
+    /// the same target and request.
+    fn submit_with_route(
+        &mut self,
+        target: &mut T,
+        request: &DrawRequest<'_, '_>,
+        _route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        self.submit(target, request)
+    }
+
     /// Finish pending work before another engine accesses the target. This is
     /// also called after a failed `submit`.
     fn end(&mut self, _target: &mut T) {}

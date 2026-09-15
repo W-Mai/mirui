@@ -312,6 +312,35 @@ impl ComposeInput {
                 }}
             }
         };
+        let routed_submit_call = |field: &Ident| {
+            if field == default_field {
+                quote! {
+                    ::mirui::render::renderer::Renderer::submit_with_route(
+                        &mut self.#default_field,
+                        request,
+                        route,
+                    )
+                }
+            } else {
+                quote! {{
+                    ::mirui::render::engine::RenderEngine::begin(
+                        &mut self.#field,
+                        &mut self.#default_field,
+                    )?;
+                    let result = ::mirui::render::engine::RenderEngine::submit_with_route(
+                        &mut self.#field,
+                        &mut self.#default_field,
+                        request,
+                        route,
+                    );
+                    ::mirui::render::engine::RenderEngine::end(
+                        &mut self.#field,
+                        &mut self.#default_field,
+                    );
+                    result
+                }}
+            }
+        };
 
         let fill_route = route_call(routed_field("fill_rect"));
         let border_route = route_call(routed_field("stroke_rect"));
@@ -336,6 +365,17 @@ impl ComposeInput {
         let stroke_path_submit = submit_call(routed_field("stroke_path"));
         let scope_submit = submit_call(default_field);
         let blur_submit = submit_call(routed_field("blur"));
+        let fill_routed_submit = routed_submit_call(routed_field("fill_rect"));
+        let border_routed_submit = routed_submit_call(routed_field("stroke_rect"));
+        let blit_routed_submit = routed_submit_call(routed_field("blit"));
+        let glyph_routed_submit = routed_submit_call(routed_field("draw_glyph_run"));
+        let posed_routed_submit = routed_submit_call(routed_field("draw_posed_glyph_run"));
+        let line_routed_submit = routed_submit_call(routed_field("draw_line"));
+        let arc_routed_submit = routed_submit_call(routed_field("draw_arc"));
+        let fill_path_routed_submit = routed_submit_call(routed_field("fill_path"));
+        let stroke_path_routed_submit = routed_submit_call(routed_field("stroke_path"));
+        let scope_routed_submit = routed_submit_call(default_field);
+        let blur_routed_submit = routed_submit_call(routed_field("blur"));
 
         quote! {
             #vis struct #name<#(#generic_params),*> {
@@ -400,6 +440,27 @@ impl ComposeInput {
                         ::mirui::render::DrawCommand::PushClip { .. }
                         | ::mirui::render::DrawCommand::PopClip => #scope_submit,
                         ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_submit,
+                    }
+                }
+
+                fn submit_with_route(
+                    &mut self,
+                    request: &::mirui::render::renderer::DrawRequest<'_, '_>,
+                    route: ::mirui::render::renderer::RenderRoute,
+                ) -> Result<(), ::mirui::render::renderer::RenderError> {
+                    match request.command {
+                        ::mirui::render::DrawCommand::Fill { .. } => #fill_routed_submit,
+                        ::mirui::render::DrawCommand::Border { .. } => #border_routed_submit,
+                        ::mirui::render::DrawCommand::Blit { .. } => #blit_routed_submit,
+                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_routed_submit,
+                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_routed_submit,
+                        ::mirui::render::DrawCommand::Line { .. } => #line_routed_submit,
+                        ::mirui::render::DrawCommand::Arc { .. } => #arc_routed_submit,
+                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_routed_submit,
+                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_routed_submit,
+                        ::mirui::render::DrawCommand::PushClip { .. }
+                        | ::mirui::render::DrawCommand::PopClip => #scope_routed_submit,
+                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_routed_submit,
                     }
                 }
 

@@ -321,6 +321,17 @@ impl Scene {
         replay::replay_scene_with_workspace(&self.ops, renderer, clip, resolver, frames)
     }
 
+    pub fn replay_with_scratch(
+        &self,
+        renderer: &mut dyn crate::render::renderer::Renderer,
+        clip: &crate::types::Rect,
+        resolver: &dyn replay::SceneResolver,
+        frames: &mut [replay::ReplayFrame],
+        plans: &mut [replay::ReplayPlan],
+    ) -> Result<(), replay::ReplayError> {
+        replay::replay_scene_with_scratch(&self.ops, renderer, clip, resolver, frames, plans)
+    }
+
     pub fn record(
         &mut self,
         cmd: &crate::render::command::DrawCommand,
