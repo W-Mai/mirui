@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scene replay metrics.** Optional caller-owned metrics report native and fallback commands, route reclassification, fallback scopes, planned bytes, and frame/route/scope/RGBA workspace high-water marks without heap storage.
 - **Kinetic Console demo.** A 128 × 128 signal-driven instrument uses ID-addressed simulated input, flexible layout, and bounded primitive drawing for embedded targets.
 - **Non-interactive roots.** App-owned roots no longer receive direct pointer hits or inherited hover and press state; interactive descendants retain bubbling and visual feedback.
+- **Slider invalidation.** Value changes reuse the current layout snapshot, and unchanged pointer positions skip repaint.
+- **Kinetic Console motion.** Intensity changes keep orbit and wave animation live; pause and resume use relative-time deceleration and acceleration while retaining phase across an extended hold interval.
 - **Nested clip fallback.** Scene replay absorbs descendant fallback work into the nearest path-clip scope and reuses caller-owned frame storage for planning and execution.
 - **Projective software strokes.** Solid paths, lines, and arcs retain full stroke geometry through homography; primitive arcs reuse renderer-owned command storage across frames.
 - **Projective gradient paint.** Software and exact fallback paths inverse-map covered pixels into linear or radial paint space under homography, including gradient strokes.
@@ -124,7 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hybrid renderer target ownership.** `compose_backend!` keeps one renderer as the output target and routes selected command classes through `RenderEngine<Target>` fields that borrow it sequentially. Routed submissions execute inside explicit begin/end barriers; Canvas helpers and renderer-wide target operations remain attached to the shared target.
 - **Renderer submission API.** `Renderer` exposes one result-bearing `submit` entry for affine and projective draws; native execution and projective validation remain backend-private, while `route` supports non-mutating scope planning.
 - **Visual-only transforms.** `set_transform` invalidates old and new paint bounds while reusing the existing flex and text layout snapshot; the three-body animation no longer rewrites absolute layout positions every frame.
-- **Sparse dirty flushes.** Up to four changed regions retain separate display flush rectangles while drawing still uses their union; larger plans keep one bounded rectangle.
+- **Sparse dirty redraws.** Changed regions retain separate display flush rectangles; overlapping physical pixels coalesce, dense regions use one tree walk, and sparse regions avoid redrawing the gaps between them.
 - **Scroll dirty planning.** Overlay repaint regions stream directly into the plan, and previous-frame rectangles reuse layout snapshot storage.
 - **Frame buffer reuse.** Layout snapshots, three-body entity scratch, and dirty-region plans retain their storage across frames; unchanged text metrics skip a redundant layout pass.
 - **Scene replay workspace.** Group state uses a fixed caller-owned frame slice instead of allocating a vector for each preflight and draw pass. The default replay path supports seven nested groups; deeper scenes can supply a larger slice and receive a typed capacity error before drawing.

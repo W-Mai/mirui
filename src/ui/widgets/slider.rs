@@ -5,7 +5,7 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
-use crate::ui::dirty::Dirty;
+use crate::ui::dirty::VisualDirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
@@ -261,17 +261,18 @@ pub(crate) fn slider_handler(world: &mut World, entity: Entity, event: &GestureE
         s.set_ratio(ratio);
         (old, s.value)
     };
-    if old_value != new_value {
-        emit_slider_event(
-            world,
-            entity,
-            &SliderEvent::ValueChanged {
-                new: new_value,
-                old: old_value,
-            },
-        );
+    if old_value == new_value {
+        return true;
     }
-    world.insert(entity, Dirty);
+    emit_slider_event(
+        world,
+        entity,
+        &SliderEvent::ValueChanged {
+            new: new_value,
+            old: old_value,
+        },
+    );
+    world.insert(entity, VisualDirty);
     true
 }
 
@@ -379,6 +380,8 @@ mod tests {
         slider_handler(&mut world, e, &event);
         assert_eq!(drain_events(), &["ValueChanged"]);
         assert_eq!(LAST_NEW.load(Ordering::SeqCst), 75);
+        assert!(world.get::<VisualDirty>(e).is_some());
+        assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
     }
 
     #[test]
@@ -398,6 +401,8 @@ mod tests {
             drain_events().is_empty(),
             "tapping at the current value must not emit",
         );
+        assert!(world.get::<VisualDirty>(e).is_none());
+        assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
     }
 
     #[test]

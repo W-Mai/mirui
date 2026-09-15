@@ -807,6 +807,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             } else {
                 plan
             };
+            let mut plan = plan;
+            plan.coalesce_overlaps();
 
             if let Some(last) = self
                 .world
@@ -826,18 +828,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
 
-            // Union into one bbox: a single tree walk is ~3x cheaper than
-            // N walks even when the union over-paints the gaps.
-            let render_result =
-                if let Some(union_rect) = plan.rects.iter().copied().reduce(|a, b| a.union(&b)) {
-                    if let Some(snapshot) = self
-                        .world
-                        .resource::<crate::ui::render_system::LayoutSnapshot>()
-                    {
+            let snapshot = self
+                .world
+                .resource::<crate::ui::render_system::LayoutSnapshot>();
+            let render_result = if plan.prefers_split_redraw()
+                && self
+                    .world
+                    .storage::<crate::ui::offscreen::WidgetTextureRef>()
+                    .is_none()
+            {
+                let mut result = Ok(());
+                for rect in &plan.rects {
+                    result = if let Some(snapshot) = snapshot {
                         render_system::render_region_cached(
                             &self.world,
                             snapshot,
-                            &union_rect,
+                            rect,
                             &mut renderer,
                         )
                     } else {
@@ -845,13 +851,40 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             &self.world,
                             root,
                             &transform,
-                            &union_rect,
+                            rect,
                             &mut renderer,
                         )
+                    };
+                    if result.is_err() {
+                        break;
                     }
+                }
+                result
+            } else if let Some(union_rect) = plan
+                .rects
+                .iter()
+                .copied()
+                .reduce(|left, right| left.union(&right))
+            {
+                if let Some(snapshot) = snapshot {
+                    render_system::render_region_cached(
+                        &self.world,
+                        snapshot,
+                        &union_rect,
+                        &mut renderer,
+                    )
                 } else {
-                    Ok(())
-                };
+                    render_system::render_region(
+                        &self.world,
+                        root,
+                        &transform,
+                        &union_rect,
+                        &mut renderer,
+                    )
+                }
+            } else {
+                Ok(())
+            };
 
             drop(renderer);
             if let Err(error) = render_result {

@@ -108,6 +108,19 @@ impl Clone for DirtyRegions {
 }
 
 impl DirtyRegions {
+    fn rect_pixel_area(rect: Rect) -> u64 {
+        let (x0, y0, x1, y1) = rect.pixel_bounds();
+        let width = i64::from(x1).saturating_sub(i64::from(x0)).max(0) as u64;
+        let height = i64::from(y1).saturating_sub(i64::from(y0)).max(0) as u64;
+        width.saturating_mul(height)
+    }
+
+    fn pixels_overlap(a: Rect, b: Rect) -> bool {
+        let (ax0, ay0, ax1, ay1) = a.pixel_bounds();
+        let (bx0, by0, bx1, by1) = b.pixel_bounds();
+        ax0 < bx1 && bx0 < ax1 && ay0 < by1 && by0 < ay1
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,6 +136,43 @@ impl DirtyRegions {
 
     pub fn is_empty(&self) -> bool {
         self.rects.is_empty() && self.shifts.is_empty()
+    }
+
+    pub(crate) fn coalesce_overlaps(&mut self) {
+        self.rects.retain(|rect| Self::rect_pixel_area(*rect) != 0);
+        'coalesce: loop {
+            for left in 0..self.rects.len() {
+                for right in left + 1..self.rects.len() {
+                    if Self::pixels_overlap(self.rects[left], self.rects[right]) {
+                        let other = self.rects.swap_remove(right);
+                        self.rects[left] = self.rects[left].union(&other);
+                        continue 'coalesce;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    pub(crate) fn prefers_split_redraw(&self) -> bool {
+        let Some(union) = self
+            .rects
+            .iter()
+            .copied()
+            .reduce(|left, right| left.union(&right))
+        else {
+            return false;
+        };
+        if self.rects.len() < 2 {
+            return false;
+        }
+        let covered = self
+            .rects
+            .iter()
+            .copied()
+            .map(Self::rect_pixel_area)
+            .fold(0_u64, u64::saturating_add);
+        Self::rect_pixel_area(union).saturating_mul(2) > covered.saturating_mul(3)
     }
 
     /// Fold every shift's area into a redraw rect; the resulting plan
@@ -214,5 +264,36 @@ mod tests {
         let only = world.spawn_empty();
         mark_subtree_dirty(&mut world, only);
         assert!(world.get::<Dirty>(only).is_some());
+    }
+
+    #[test]
+    fn coalescing_uses_physical_pixel_overlap_and_closes_transitively() {
+        let mut plan = DirtyRegions {
+            rects: alloc::vec![
+                Rect::new(0, 0, 4, 4),
+                Rect::new(7, 0, 4, 4),
+                Rect::new(3, 0, 5, 4),
+            ],
+            shifts: Vec::new(),
+        };
+
+        plan.coalesce_overlaps();
+
+        assert_eq!(plan.rects, alloc::vec![Rect::new(0, 0, 11, 4)]);
+    }
+
+    #[test]
+    fn sparse_regions_prefer_split_redraw_but_dense_regions_do_not() {
+        let sparse = DirtyRegions {
+            rects: alloc::vec![Rect::new(0, 0, 8, 8), Rect::new(96, 96, 8, 8)],
+            shifts: Vec::new(),
+        };
+        let dense = DirtyRegions {
+            rects: alloc::vec![Rect::new(0, 0, 8, 8), Rect::new(9, 0, 8, 8)],
+            shifts: Vec::new(),
+        };
+
+        assert!(sparse.prefers_split_redraw());
+        assert!(!dense.prefers_split_redraw());
     }
 }

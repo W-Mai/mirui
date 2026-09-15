@@ -116,20 +116,18 @@ impl ConsoleModel {
 #[derive(Clone, Copy)]
 struct ConsoleMotion {
     phase: Fixed,
+    rate: Fixed,
     state: ConsoleState,
     wave_elapsed_ms: u16,
-    orbit_pending: bool,
-    wave_pending: bool,
 }
 
 impl Default for ConsoleMotion {
     fn default() -> Self {
         Self {
             phase: Fixed::ZERO,
+            rate: Fixed::ONE,
             state: ConsoleState::default(),
             wave_elapsed_ms: 0,
-            orbit_pending: false,
-            wave_pending: false,
         }
     }
 }
@@ -390,19 +388,34 @@ fn wave_view() -> View {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn kinetic_animation_system(world: &mut World) {
+    const MAX_STEP_MS: u16 = 50;
+    const RATE_RAMP_MS: i32 = 450;
+
     let Some(state) = world.resource::<ConsoleModel>().map(ConsoleModel::snapshot) else {
         return;
     };
-    let dt = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
+    let dt = world
+        .resource::<DeltaTimeMs>()
+        .map_or(16, |delta| delta.0)
+        .min(MAX_STEP_MS);
     let Some(motion) = world.resource_mut::<ConsoleMotion>() else {
         return;
     };
     let controls_changed = motion.state.mode != state.mode || motion.state.focused != state.focused;
     let intensity_changed = motion.state.intensity != state.intensity;
     motion.state = state;
-    if !state.paused {
+    let previous_rate = motion.rate;
+    let rate_step = Fixed::from_ratio(i32::from(dt), RATE_RAMP_MS);
+    motion.rate = if state.paused {
+        (motion.rate - rate_step).max(Fixed::ZERO)
+    } else {
+        (motion.rate + rate_step).min(Fixed::ONE)
+    };
+    let moving = previous_rate > Fixed::ZERO || motion.rate > Fixed::ZERO;
+    if moving {
         let speed = Fixed::from_int(state.mode.speed()) + state.intensity * Fixed::from_ratio(3, 5);
-        let delta = speed * Fixed::from_int(i32::from(dt)) / Fixed::from_int(1000);
+        let average_rate = (previous_rate + motion.rate) / Fixed::from_int(2);
+        let delta = speed * average_rate * Fixed::from_int(i32::from(dt)) / Fixed::from_int(1000);
         if delta > Fixed::ZERO {
             motion.phase += delta;
             while motion.phase >= Fixed::from_int(360) {
@@ -411,31 +424,21 @@ pub fn kinetic_animation_system(world: &mut World) {
             motion.wave_elapsed_ms = motion.wave_elapsed_ms.saturating_add(dt);
         }
     }
-    let layer = if controls_changed {
-        motion.orbit_pending = true;
-        motion.wave_pending = true;
-        None
-    } else if motion.orbit_pending {
-        motion.orbit_pending = false;
-        Some(false)
-    } else if intensity_changed
-        || motion.wave_pending
-        || (!state.paused && motion.wave_elapsed_ms >= 64)
-    {
+    let orbit_dirty = controls_changed || moving;
+    let wave_dirty = controls_changed || intensity_changed || motion.wave_elapsed_ms >= 64;
+    if wave_dirty {
         motion.wave_elapsed_ms = 0;
-        motion.wave_pending = false;
-        Some(true)
-    } else if !state.paused {
-        Some(false)
-    } else {
-        None
-    };
-    if let Some(wave) = layer
-        && let Some(nodes) = world
-            .resource::<ConsoleNodes>()
-            .map(|nodes| (nodes.orbit, nodes.wave))
+    }
+    if let Some(nodes) = world
+        .resource::<ConsoleNodes>()
+        .map(|nodes| (nodes.orbit, nodes.wave))
     {
-        world.insert(if wave { nodes.1 } else { nodes.0 }, VisualDirty);
+        if orbit_dirty {
+            world.insert(nodes.0, VisualDirty);
+        }
+        if wave_dirty {
+            world.insert(nodes.1, VisualDirty);
+        }
     }
 }
 
@@ -686,7 +689,7 @@ pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
             SimAction::tap(DimPoint::CENTER).on(pulse),
             SimAction::wait(900),
             SimAction::tap(DimPoint::CENTER).on(status),
-            SimAction::wait(900),
+            SimAction::wait(2_800),
             SimAction::tap(DimPoint::CENTER).on(status),
             SimAction::wait(500),
             SimAction::tap(DimPoint::CENTER).on(orbit_layer),
@@ -795,29 +798,65 @@ mod tests {
         kinetic_animation_system(&mut world);
         let phase = world.resource::<ConsoleMotion>().unwrap().phase;
         assert!(phase > Fixed::ZERO);
-        assert!(world.get::<VisualDirty>(orbit).is_none());
-        assert!(world.get::<VisualDirty>(wave).is_some());
-        world.remove::<VisualDirty>(wave);
-
-        let model = world.resource::<ConsoleModel>().unwrap().clone();
-        ConsoleAction::TogglePaused.publish(&model);
-        kinetic_animation_system(&mut world);
-        assert_eq!(world.resource::<ConsoleMotion>().unwrap().phase, phase);
-        assert!(world.get::<VisualDirty>(orbit).is_none());
-        assert!(world.get::<VisualDirty>(wave).is_none());
-
-        ConsoleAction::CycleFocus.publish(&model);
-        kinetic_animation_system(&mut world);
-        assert!(world.get::<VisualDirty>(orbit).is_none());
-        assert!(world.get::<VisualDirty>(wave).is_none());
-
-        kinetic_animation_system(&mut world);
         assert!(world.get::<VisualDirty>(orbit).is_some());
         assert!(world.get::<VisualDirty>(wave).is_none());
         world.remove::<VisualDirty>(orbit);
 
         kinetic_animation_system(&mut world);
+        assert!(world.get::<VisualDirty>(orbit).is_some());
+        assert!(world.get::<VisualDirty>(wave).is_some());
+        world.remove::<VisualDirty>(orbit);
+        world.remove::<VisualDirty>(wave);
+
+        let model = world.resource::<ConsoleModel>().unwrap().clone();
+        ConsoleAction::TogglePaused.publish(&model);
+        kinetic_animation_system(&mut world);
+        let braking = *world.resource::<ConsoleMotion>().unwrap();
+        assert!(braking.phase > phase);
+        assert!(braking.rate > Fixed::ZERO && braking.rate < Fixed::ONE);
+        assert!(world.get::<VisualDirty>(orbit).is_some());
+        world.remove::<VisualDirty>(orbit);
+
+        for _ in 0..9 {
+            kinetic_animation_system(&mut world);
+            world.remove::<VisualDirty>(orbit);
+            world.remove::<VisualDirty>(wave);
+        }
+        let stopped = *world.resource::<ConsoleMotion>().unwrap();
+        assert_eq!(stopped.rate, Fixed::ZERO);
+
+        world.insert_resource(DeltaTimeMs(5_000));
+        kinetic_animation_system(&mut world);
+        assert_eq!(
+            world.resource::<ConsoleMotion>().unwrap().phase,
+            stopped.phase
+        );
+        assert!(world.get::<VisualDirty>(wave).is_none());
         assert!(world.get::<VisualDirty>(orbit).is_none());
+
+        ConsoleAction::TogglePaused.publish(&model);
+        kinetic_animation_system(&mut world);
+        let resuming = *world.resource::<ConsoleMotion>().unwrap();
+        assert!(resuming.rate > Fixed::ZERO && resuming.rate < Fixed::ONE);
+        assert!(resuming.phase > stopped.phase);
+        assert!(world.get::<VisualDirty>(orbit).is_some());
+    }
+
+    #[test]
+    fn intensity_changes_do_not_starve_orbit_animation() {
+        let mut world = World::new();
+        world.insert_resource(ConsoleModel::default());
+        world.insert_resource(ConsoleMotion::default());
+        world.insert_resource(DeltaTimeMs(16));
+        let orbit = world.spawn_empty();
+        let wave = world.spawn_empty();
+        world.insert_resource(ConsoleNodes { orbit, wave });
+        let model = world.resource::<ConsoleModel>().unwrap().clone();
+
+        ConsoleAction::SetIntensity(Fixed::from_int(82)).publish(&model);
+        kinetic_animation_system(&mut world);
+
+        assert!(world.get::<VisualDirty>(orbit).is_some());
         assert!(world.get::<VisualDirty>(wave).is_some());
     }
 
