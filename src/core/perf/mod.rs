@@ -108,9 +108,13 @@ mod imp {
 
 #[cfg(not(feature = "std"))]
 mod imp {
+    use core::sync::atomic::{AtomicBool, Ordering};
+
     /// Ring buffer capacity. 256 × 32B ≈ 8 KB; fits ESP-C3 with room
     /// to spare. Tunable if a target gets memory-tight.
     const CAP: usize = 256;
+
+    static ENABLED: AtomicBool = AtomicBool::new(false);
 
     #[derive(Clone, Copy)]
     pub struct PerfEvent {
@@ -158,15 +162,15 @@ mod imp {
         })
     }
 
-    /// No-op on `no_std`: the ring buffer already drops oldest, and
-    /// clock readback is skipped when no clock is installed via
-    /// `core::time::set_clock`.
-    pub fn set_enabled(_on: bool) {}
+    pub fn set_enabled(on: bool) {
+        ENABLED.store(on, Ordering::Relaxed);
+    }
 
     pub struct Guard {
         name: &'static str,
         start_ns: u64,
         depth: u8,
+        active: bool,
     }
 
     impl Guard {
@@ -182,12 +186,16 @@ mod imp {
                 name,
                 start_ns,
                 depth,
+                active: true,
             }
         }
     }
 
     impl Drop for Guard {
         fn drop(&mut self) {
+            if !self.active {
+                return;
+            }
             let end_ns = crate::core::time::clock_now_ns();
             let clock_installed = crate::core::time::is_clock_installed();
             with_state(|s| {
@@ -219,6 +227,14 @@ mod imp {
     }
 
     pub fn enter(name: &'static str) -> Guard {
+        if !ENABLED.load(Ordering::Relaxed) {
+            return Guard {
+                name,
+                start_ns: 0,
+                depth: 0,
+                active: false,
+            };
+        }
         Guard::new(name)
     }
 

@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Embedded performance tracing.** `no_std` span recording remains disabled until a performance reporter enables it, avoiding hardware-clock reads and critical-section writes in ordinary frames.
 - **Software projective paths.** Solid path fills and path clips project each flattened curve sample into the target, retain fill rules, and reuse the renderer's geometry and clip-mask storage.
 - **Scene text effect bounds.** Blur extents and group-overlap checks resolve linear and posed glyph ink at the active output scale instead of rejecting text or substituting the full clip.
 - **Readback preparation failures.** Deferred WGPU submission errors now stop target sampling, target edits, background blur, and capture before stale pixels can be consumed.
