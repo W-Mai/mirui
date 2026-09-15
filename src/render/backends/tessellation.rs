@@ -1,9 +1,7 @@
-//! lyon tessellation bridge for wgpu path draws.
-
 use lyon::math::Point as LyonPoint;
 use lyon::tessellation::{
-    BuffersBuilder, FillOptions, FillRule as LyonFillRule, FillTessellator, FillVertex,
-    VertexBuffers,
+    BuffersBuilder, FillOptions, FillRule as LyonFillRule, FillTessellator as LyonFillTessellator,
+    FillVertex, VertexBuffers,
 };
 
 use crate::render::backends::lyon_path::to_lyon_path;
@@ -11,20 +9,20 @@ use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::types::Transform;
 
-pub struct PathTessellator {
-    fill_tess: FillTessellator,
+pub(super) struct FillTessellator {
+    tessellator: LyonFillTessellator,
     buffers: VertexBuffers<LyonPoint, u32>,
 }
 
-impl PathTessellator {
-    pub fn new() -> Self {
+impl FillTessellator {
+    pub(super) fn new() -> Self {
         Self {
-            fill_tess: FillTessellator::new(),
+            tessellator: LyonFillTessellator::new(),
             buffers: VertexBuffers::new(),
         }
     }
 
-    pub fn fill(
+    pub(super) fn fill(
         &mut self,
         path: &Path,
         transform: Option<&Transform>,
@@ -32,37 +30,36 @@ impl PathTessellator {
     ) -> (&[LyonPoint], &[u32]) {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
-        let lyon_path = to_lyon_path(path, transform);
-        let _ = self.fill_tess.tessellate_path(
-            &lyon_path,
+        let path = to_lyon_path(path, transform);
+        let _ = self.tessellator.tessellate_path(
+            &path,
             &FillOptions::tolerance(TOLERANCE).with_fill_rule(match fill_rule {
                 FillRule::EvenOdd => LyonFillRule::EvenOdd,
                 FillRule::NonZero => LyonFillRule::NonZero,
             }),
-            &mut BuffersBuilder::new(&mut self.buffers, |v: FillVertex<'_>| v.position()),
+            &mut BuffersBuilder::new(&mut self.buffers, |vertex: FillVertex<'_>| {
+                vertex.position()
+            }),
         );
         (&self.buffers.vertices, &self.buffers.indices)
     }
 
-    pub fn take_mesh(&mut self) -> VertexBuffers<LyonPoint, u32> {
+    pub(super) fn take_mesh(&mut self) -> VertexBuffers<LyonPoint, u32> {
         core::mem::replace(&mut self.buffers, VertexBuffers::new())
     }
 
-    pub fn restore_mesh(&mut self, mesh: VertexBuffers<LyonPoint, u32>) {
+    pub(super) fn restore_mesh(&mut self, mesh: VertexBuffers<LyonPoint, u32>) {
         self.buffers = mesh;
     }
 }
 
-/// Curve flattening tolerance in physical pixels. 0.1 keeps small
-/// (≤8 px) corners visibly smooth at 1× DPI; bumping it makes 8-radius
-/// corners look hexagonal.
-const TOLERANCE: f32 = 0.1;
-
-impl Default for PathTessellator {
+impl Default for FillTessellator {
     fn default() -> Self {
         Self::new()
     }
 }
+
+const TOLERANCE: f32 = 0.1;
 
 #[cfg(test)]
 mod tests {
@@ -79,7 +76,7 @@ mod tests {
                 .line_to(Point::new(lo, hi))
                 .close();
         }
-        let mut tessellator = PathTessellator::new();
+        let mut tessellator = FillTessellator::new();
         let mut area = |rule| {
             let (vertices, indices) = tessellator.fill(&path, None, rule);
             indices

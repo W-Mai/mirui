@@ -9,6 +9,9 @@ pub mod sw;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
 mod lyon_path;
 
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+mod tessellation;
+
 #[cfg(feature = "sdl-gpu")]
 pub mod sdl_gpu;
 

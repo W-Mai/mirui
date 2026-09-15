@@ -1,6 +1,5 @@
 //! wgpu-backed Renderer + Canvas.
 
-mod path;
 mod pipeline;
 mod texture_pool;
 
@@ -21,7 +20,6 @@ use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
-use self::path::PathTessellator;
 use self::pipeline::{
     BlitQuadVertex, BlitUniform, GlyphInstance, GlyphUniform, PathTintUniform, PipelineCache,
     PipelineKey, QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
@@ -30,6 +28,7 @@ use self::texture_pool::{
     CachedScalarSurface, CachedTexture, ScalarSurfaceKey, ScalarSurfacePool, TextureKey,
     TexturePool, new_pool, new_scalar_surface_pool,
 };
+use crate::render::backends::tessellation::FillTessellator;
 
 pub use self::pipeline::MSAA_SAMPLES;
 
@@ -99,7 +98,7 @@ fn glyph_uniform(color: Color, opacity: u8, spread: u16, transform: Transform3D)
 pub struct WgpuRendererFactory {
     target_edit_budget_bytes: Option<usize>,
     cache: Option<PipelineCache>,
-    tessellator: PathTessellator,
+    tessellator: FillTessellator,
     stroke_scratch: StrokeScratch,
     texture_pool: TexturePool,
     scalar_surface_pool: ScalarSurfacePool,
@@ -116,7 +115,7 @@ impl WgpuRendererFactory {
         Self {
             target_edit_budget_bytes: None,
             cache: None,
-            tessellator: PathTessellator::new(),
+            tessellator: FillTessellator::new(),
             stroke_scratch: StrokeScratch::new(),
             texture_pool: new_pool(),
             scalar_surface_pool: new_scalar_surface_pool(),
@@ -2312,7 +2311,7 @@ mod route_tests {
                 dash_scale: Fixed::ONE,
             },
         );
-        let mut tessellator = PathTessellator::new();
+        let mut tessellator = FillTessellator::new();
         let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero);
         assert!(!indices.is_empty());
         assert!(
@@ -2343,7 +2342,7 @@ mod route_tests {
                 dash_scale: Fixed::ONE,
             },
         );
-        let mut tessellator = PathTessellator::new();
+        let mut tessellator = FillTessellator::new();
         let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero);
         let covers = |x: f32, y: f32| {
             indices.chunks_exact(3).any(|triangle| {
