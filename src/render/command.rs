@@ -122,13 +122,13 @@ mod composite_mode_tests {
     }
 }
 
-/// Draw operation produced by `render_system` and consumed by `Renderer::draw`.
+/// Draw operation submitted to a renderer through a checked draw request.
 ///
 /// All coordinate fields (`area`, `pos`, path points, `radius`, `width`) are
 /// in **logical pixels**. Each drawable variant carries its local [`Transform`].
 /// An optional `quad` is explicit leaf geometry, not inherited projective
 /// state. Widget and scene homographies are supplied through
-/// [`crate::render::renderer::Renderer::draw_projective`].
+/// [`crate::render::renderer::Renderer::submit`].
 pub enum DrawCommand<'a> {
     Fill {
         area: Rect,

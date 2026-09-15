@@ -17,6 +17,7 @@ use mirui::core::perf::{self, PerfEvent};
 use mirui::core::resource::ResourceManager;
 use mirui::ecs::Entity;
 use mirui::prelude::*;
+use mirui::render::DrawRequest;
 use mirui::render::command::{CompositeMode, DrawCommand};
 use mirui::render::renderer::Renderer;
 use mirui::render::sw::SwRenderer;
@@ -302,7 +303,7 @@ fn run_micro_blit() {
                     radius: Fixed::ZERO,
                     composite: CompositeMode::SourceOver,
                 };
-                renderer.draw(&cmd, &clip);
+                renderer.submit(&DrawRequest::new(&cmd, clip)).unwrap();
             }
         });
     });

@@ -566,14 +566,19 @@ mod tests {
             Ok(crate::render::RenderRoute::Native)
         }
 
-        fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
-            match command {
+        fn submit(
+            &mut self,
+            request: &crate::render::DrawRequest<'_, '_>,
+        ) -> Result<(), crate::render::RenderError> {
+            self.route(request)?;
+            match request.command {
                 DrawCommand::GlyphRun { pos, glyphs, .. } => {
                     self.glyph_runs.push((*pos, glyphs.len()));
                 }
                 DrawCommand::Fill { area, .. } => self.fills.push(*area),
                 _ => {}
             }
+            Ok(())
         }
 
         fn flush(&mut self) {}

@@ -46,7 +46,7 @@ mod linear_transform_tests {
     use super::*;
     use crate::render::command::DrawCommand;
     use crate::render::raster::{LineCap, LineJoin};
-    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::renderer::{DrawRequest, RenderError};
     use crate::render::texture::{ColorFormat, Texture};
     use alloc::borrow::Cow;
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};

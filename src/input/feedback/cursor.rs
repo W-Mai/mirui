@@ -239,8 +239,11 @@ mod tests {
     fn cursor_draw_failure_reaches_view_context() {
         struct RejectRenderer;
         impl Renderer for RejectRenderer {
-            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
-                panic!("unchecked cursor draw")
+            fn submit(
+                &mut self,
+                _: &crate::render::renderer::DrawRequest<'_, '_>,
+            ) -> Result<(), RenderError> {
+                Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
             }
 
             fn flush(&mut self) {}

@@ -303,7 +303,6 @@ impl IntoIterator for ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::command::DrawCommand;
     use crate::types::Fixed;
 
     #[test]
@@ -376,7 +375,9 @@ mod tests {
     fn render_fn_can_mutate_ctx_while_reading_world() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
-            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
             fn flush(&mut self) {}
         }
 
@@ -426,7 +427,9 @@ mod tests {
         struct RejectingRenderer;
 
         impl Renderer for RejectingRenderer {
-            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request).map(|_| ())
+            }
 
             fn flush(&mut self) {}
         }

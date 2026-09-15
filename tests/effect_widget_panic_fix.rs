@@ -1,6 +1,6 @@
 use mirui::prelude::Dimension;
 use mirui::render::texture::Texture;
-use mirui::render::{DrawCommand, RenderError, RenderFeature, Renderer};
+use mirui::render::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use mirui::types::{Fixed, Rect, Viewport};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
@@ -12,8 +12,13 @@ struct GracefulSkipRenderer {
 }
 
 impl Renderer for GracefulSkipRenderer {
-    fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {
+    fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        Ok(RenderRoute::Native)
+    }
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.route(request)?;
         self.draws += 1;
+        Ok(())
     }
     fn flush(&mut self) {}
     fn sample_target_region(&self, _src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
@@ -62,7 +67,9 @@ fn background_blur_reports_unsupported_readback() {
     struct NoReadback;
 
     impl Renderer for NoReadback {
-        fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            Ok(())
+        }
 
         fn flush(&mut self) {}
     }

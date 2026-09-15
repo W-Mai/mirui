@@ -23,10 +23,12 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-            if let DrawCommand::Fill { area, color, .. } = cmd {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request)?;
+            if let DrawCommand::Fill { area, color, .. } = request.command {
                 self.commands.push((*area, *color));
             }
+            Ok(())
         }
         fn flush(&mut self) {}
     }

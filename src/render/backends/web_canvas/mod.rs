@@ -170,6 +170,48 @@ fn map_gradient_points(
     (sx, sy, ex, ey)
 }
 
+impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        WebCanvasRenderer::route(self, request)
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        WebCanvasRenderer::submit(self, request)
+    }
+
+    fn flush(&mut self) {
+        WebCanvasRenderer::flush(self)
+    }
+
+    fn output_scale(&self) -> Fixed {
+        WebCanvasRenderer::output_scale(self)
+    }
+
+    fn supports_offscreen(&self) -> bool {
+        WebCanvasRenderer::supports_offscreen(self)
+    }
+
+    fn offscreen_format(&self) -> Option<ColorFormat> {
+        WebCanvasRenderer::offscreen_format(self)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
+        WebCanvasRenderer::sample_target_region(self, src)
+    }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut Texture) -> Result<(), RenderError> {
+        WebCanvasRenderer::read_target_region(self, src, dst)
+    }
+
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        f: &mut dyn FnMut(&mut Texture),
+    ) -> Result<bool, RenderError> {
+        WebCanvasRenderer::modify_target_region(self, src, f)
+    }
+}
+
 impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn needs_blit_fallback(request: &DrawRequest<'_, '_>) -> bool {
         match request.command {
@@ -725,7 +767,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     }
 }
 
-impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
@@ -1135,44 +1177,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         }
 
         self.ctx().restore();
-    }
-
-    fn draw_projective(
-        &mut self,
-        command: &DrawCommand,
-        clip: &Rect,
-        projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
-        if projective.is_identity() {
-            self.draw(command, clip);
-            return Ok(());
-        }
-        let plan = self
-            .factory
-            .projective_fallback
-            .as_ref()
-            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?
-            .plan(command, clip, projective, self.viewport)?;
-        self.draw_projective_plan(plan, command, projective)
-    }
-
-    fn preflight_projective(
-        &self,
-        command: &DrawCommand,
-        clip: &Rect,
-        projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
-        if projective.is_identity() {
-            return Ok(());
-        }
-        let fallback = self
-            .factory
-            .projective_fallback
-            .as_ref()
-            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        fallback
-            .plan(command, clip, projective, self.viewport)
-            .map(|_| ())
     }
 
     fn flush(&mut self) {

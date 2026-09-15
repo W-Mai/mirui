@@ -46,17 +46,17 @@ const COLORS: &[Color] = &[
 fn draw_node(renderer: &mut SwRenderer, node: &LayoutNode, clip: &Rect, depth: usize) {
     if depth > 0 {
         let color = COLORS[(depth - 1) % COLORS.len()];
-        renderer.draw(
-            &DrawCommand::Fill {
-                area: node.rect,
-                transform: Transform::IDENTITY,
-                quad: None,
-                color,
-                radius: Fixed::ZERO,
-                opa: 220,
-            },
-            clip,
-        );
+        let command = DrawCommand::Fill {
+            area: node.rect,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color,
+            radius: Fixed::ZERO,
+            opa: 220,
+        };
+        renderer
+            .submit(&mirui::render::DrawRequest::new(&command, *clip))
+            .unwrap();
     }
     for child in &node.children {
         draw_node(renderer, child, clip, depth + 1);
@@ -139,17 +139,17 @@ fn main() {
     ));
 
     // Background
-    renderer.draw(
-        &DrawCommand::Fill {
-            area: clip,
-            transform: Transform::IDENTITY,
-            quad: None,
-            color: Color::rgb(30, 30, 46),
-            radius: Fixed::ZERO,
-            opa: 255,
-        },
-        &clip,
-    );
+    let background = DrawCommand::Fill {
+        area: clip,
+        transform: Transform::IDENTITY,
+        quad: None,
+        color: Color::rgb(30, 30, 46),
+        radius: Fixed::ZERO,
+        opa: 255,
+    };
+    renderer
+        .submit(&mirui::render::DrawRequest::new(&background, clip))
+        .unwrap();
 
     draw_node(&mut renderer, &root, &clip, 0);
     renderer.flush();

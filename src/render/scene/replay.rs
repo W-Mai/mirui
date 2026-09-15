@@ -602,10 +602,12 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, _: &Rect) {
-                if let DrawCommand::ApplyBlur { alpha, region } = command {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if let DrawCommand::ApplyBlur { alpha, region } = request.command {
                     self.0 = Some((*alpha, *region));
                 }
+                Ok(())
             }
 
             fn output_scale(&self) -> Fixed {
@@ -648,11 +650,13 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-            if let DrawCommand::Fill { transform, opa, .. } = cmd {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request)?;
+            if let DrawCommand::Fill { transform, opa, .. } = request.command {
                 self.transforms.push(*transform);
                 self.fill_opas.push(*opa);
             }
+            Ok(())
         }
         fn flush(&mut self) {}
     }
@@ -668,25 +672,10 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn draw(&mut self, _: &DrawCommand, _: &Rect) {}
-
-        fn draw_projective(
-            &mut self,
-            command: &DrawCommand,
-            _: &Rect,
-            transform: &Transform3D,
-        ) -> Result<(), ProjectiveDrawError> {
-            self.command_transform = Some(command.transform());
-            self.scope = Some(*transform);
-            Ok(())
-        }
-
-        fn preflight_projective(
-            &self,
-            _: &DrawCommand,
-            _: &Rect,
-            _: &Transform3D,
-        ) -> Result<(), ProjectiveDrawError> {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request)?;
+            self.command_transform = Some(request.command.transform());
+            self.scope = Some(request.projective);
             Ok(())
         }
 
@@ -709,45 +698,18 @@ mod tests {
 
     impl Renderer for FillOnlyProjectiveRenderer {
         fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
-            if !request.projective.is_identity() {
-                self.preflight_projective(request.command, &request.clip, &request.projective)
-                    .map_err(RenderError::from)?;
+            if !request.projective.is_identity()
+                && !matches!(request.command, DrawCommand::Fill { .. })
+            {
+                return Err(RenderError::from(self.line_error));
             }
             Ok(RenderRoute::Native)
         }
 
-        fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request)?;
             self.draws += 1;
-        }
-
-        fn draw_projective(
-            &mut self,
-            command: &DrawCommand,
-            clip: &Rect,
-            _: &Transform3D,
-        ) -> Result<(), ProjectiveDrawError> {
-            if self
-                .preflight_projective(command, clip, &Transform3D::IDENTITY)
-                .is_ok()
-            {
-                self.draws += 1;
-                Ok(())
-            } else {
-                Err(ProjectiveDrawError::Unsupported)
-            }
-        }
-
-        fn preflight_projective(
-            &self,
-            command: &DrawCommand,
-            _: &Rect,
-            _: &Transform3D,
-        ) -> Result<(), ProjectiveDrawError> {
-            if matches!(command, DrawCommand::Fill { .. }) {
-                Ok(())
-            } else {
-                Err(self.line_error)
-            }
+            Ok(())
         }
 
         fn flush(&mut self) {}
@@ -967,8 +929,10 @@ mod tests {
                 }
             }
 
-            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
                 self.draws += 1;
+                Ok(())
             }
 
             fn flush(&mut self) {}
@@ -1006,10 +970,6 @@ mod tests {
 
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Err(RenderError::ResourceLimit(RenderResource::Uniforms))
-            }
-
-            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
-                panic!("unchecked draw after submit failure")
             }
 
             fn flush(&mut self) {}
@@ -1187,11 +1147,13 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
-                if let DrawCommand::GlyphRun { glyphs, font, .. } = command {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if let DrawCommand::GlyphRun { glyphs, font, .. } = request.command {
                     self.glyphs = glyphs.len();
                     self.ppem = font.size;
                 }
+                Ok(())
             }
 
             fn flush(&mut self) {}
@@ -1247,11 +1209,13 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, _: &Rect) {
-                if let DrawCommand::PosedGlyphRun { glyphs, .. } = command {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if let DrawCommand::PosedGlyphRun { glyphs, .. } = request.command {
                     self.origin = glyphs.frames().first().map(|frame| frame.local_origin);
                     self.tangent = glyphs.frames().first().map(|frame| frame.unit_tangent);
                 }
+                Ok(())
             }
 
             fn flush(&mut self) {}

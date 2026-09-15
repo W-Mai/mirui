@@ -104,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renderer submission API.** `Renderer` exposes one result-bearing `submit` entry for affine and projective draws; native execution and projective validation remain backend-private, while `route` supports non-mutating scope planning.
 - **Visual-only transforms.** `set_transform` invalidates old and new paint bounds while reusing the existing flex and text layout snapshot; the three-body animation no longer rewrites absolute layout positions every frame.
 - **Sparse dirty flushes.** Up to four changed regions retain separate display flush rectangles while drawing still uses their union; larger plans keep one bounded rectangle.
 - **Scroll dirty planning.** Overlay repaint regions stream directly into the plan, and previous-frame rectangles reuse layout snapshot storage.

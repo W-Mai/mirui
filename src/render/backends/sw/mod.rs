@@ -166,7 +166,7 @@ impl<'a> SwRenderer<'a> {
 }
 
 impl<'a> SwRenderer<'a> {
-    /// Each `DrawCommand` arm is `#[inline(never)]` so `Renderer::draw`
+    /// Each `DrawCommand` arm is `#[inline(never)]` so native submission
     /// stays small enough to fit ESP32-C3's 16 KiB ICache. Letting LLVM
     /// inline the full dispatch chain produced a 20 KiB monolith that
     /// guaranteed cache miss every frame.
@@ -765,7 +765,7 @@ impl SwRenderer<'_> {
     }
 }
 
-impl Renderer for SwRenderer<'_> {
+impl SwRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         use crate::types::TransformClass;
 
@@ -884,7 +884,7 @@ impl Renderer for SwRenderer<'_> {
         self.viewport.scale()
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+    pub(crate) fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
         // Quad fast paths short-circuit before the translate/transform branch.
@@ -1130,7 +1130,7 @@ impl Renderer for SwRenderer<'_> {
         }
     }
 
-    fn draw_projective(
+    pub(crate) fn draw_projective(
         &mut self,
         cmd: &DrawCommand,
         clip: &Rect,
@@ -1242,7 +1242,7 @@ impl Renderer for SwRenderer<'_> {
         Ok(())
     }
 
-    fn preflight_projective(
+    pub(crate) fn preflight_projective(
         &self,
         command: &DrawCommand,
         _clip: &Rect,
@@ -1482,6 +1482,61 @@ impl Renderer for SwRenderer<'_> {
             }
         }
         Ok(())
+    }
+}
+
+impl Renderer for SwRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        SwRenderer::route(self, request)
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        SwRenderer::submit(self, request)
+    }
+
+    fn flush(&mut self) {
+        SwRenderer::flush(self)
+    }
+
+    fn output_scale(&self) -> Fixed {
+        SwRenderer::output_scale(self)
+    }
+
+    fn supports_offscreen(&self) -> bool {
+        SwRenderer::supports_offscreen(self)
+    }
+
+    fn offscreen_format(&self) -> Option<crate::render::texture::ColorFormat> {
+        SwRenderer::offscreen_format(self)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
+        SwRenderer::sample_target_region(self, src)
+    }
+
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        f: &mut dyn FnMut(&mut Texture),
+    ) -> Result<bool, RenderError> {
+        SwRenderer::modify_target_region(self, src, f)
+    }
+
+    fn supports_scroll_blit(&self) -> bool {
+        SwRenderer::supports_scroll_blit(self)
+    }
+
+    fn scroll_target_region(
+        &mut self,
+        area: &Rect,
+        dx: Fixed,
+        dy: Fixed,
+    ) -> Result<(), RenderError> {
+        SwRenderer::scroll_target_region(self, area, dx, dy)
+    }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut Texture) -> Result<(), RenderError> {
+        SwRenderer::read_target_region(self, src, dst)
     }
 }
 
@@ -1989,7 +2044,6 @@ mod tests {
 
     #[test]
     fn renderer_dispatches_line_command() {
-        use crate::render::renderer::Renderer;
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
@@ -2009,14 +2063,13 @@ mod tests {
             opa: 255,
         };
         let clip = Rect::new(0, 0, 16, 16);
-        Renderer::draw(&mut backend, &cmd, &clip);
+        backend.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
         assert!(backend.target.get_pixel(8, 8).r > 0);
     }
 
     #[test]
     fn renderer_dispatches_arc_command() {
-        use crate::render::renderer::Renderer;
         let mut buf = vec![0u8; 32 * 32 * 4];
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
@@ -2035,7 +2088,7 @@ mod tests {
             opa: 255,
         };
         let clip = Rect::new(0, 0, 32, 32);
-        Renderer::draw(&mut backend, &cmd, &clip);
+        backend.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
         let hit = backend.target.get_pixel(26, 16).g > 0 || backend.target.get_pixel(25, 16).g > 0;
         assert!(hit);
@@ -2970,7 +3023,6 @@ mod tests {
     #[test]
     fn fill_path_scale_transform_renders_without_panic() {
         use crate::render::command::DrawCommand;
-        use crate::render::renderer::Renderer;
         use crate::types::Transform;
 
         let mut buf = vec![0u8; 32 * 32 * 4];

@@ -290,12 +290,14 @@ impl ComposeInput {
                     }
                 }
 
-                fn draw(&mut self, cmd: &::mirui::render::DrawCommand, clip: &::mirui::types::Rect) {
+                fn submit(
+                    &mut self,
+                    request: &::mirui::render::renderer::DrawRequest<'_, '_>,
+                ) -> Result<(), ::mirui::render::renderer::RenderError> {
                     use ::mirui::render::canvas::Canvas;
-                    assert!(
-                        cmd.transform().is_identity(),
-                        "widget transform not yet supported"
-                    );
+                    self.route(request)?;
+                    let cmd = request.command;
+                    let clip = &request.clip;
                     match cmd {
                         ::mirui::render::DrawCommand::Fill { area, color, radius, opa, .. } => {
                             self.fill_rect(area, clip, color, *radius, *opa);
@@ -347,6 +349,7 @@ impl ComposeInput {
                         }
                         ::mirui::render::DrawCommand::ApplyBlur { .. } => {}
                     }
+                    Ok(())
                 }
 
                 fn flush(&mut self) {

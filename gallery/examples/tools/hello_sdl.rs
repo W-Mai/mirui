@@ -1,5 +1,5 @@
 use mirui::render::texture::{ColorFormat, Texture};
-use mirui::render::{DrawCommand, Renderer, SwRenderer};
+use mirui::render::{DrawCommand, DrawRequest, Renderer, SwRenderer};
 use mirui::types::{Color, Fixed, Rect, Transform};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -7,6 +7,10 @@ use sdl2::pixels::PixelFormatEnum;
 
 const W: u32 = 480;
 const H: u32 = 320;
+
+fn submit(renderer: &mut SwRenderer<'_>, command: &DrawCommand<'_>, clip: &Rect) {
+    renderer.submit(&DrawRequest::new(command, *clip)).unwrap();
+}
 
 fn main() {
     let sdl = sdl2::init().unwrap();
@@ -39,7 +43,8 @@ fn main() {
     ));
 
     // Background
-    renderer.draw(
+    submit(
+        &mut renderer,
         &DrawCommand::Fill {
             area: Rect {
                 x: Fixed::ZERO,
@@ -57,7 +62,8 @@ fn main() {
     );
 
     // Blue rectangle
-    renderer.draw(
+    submit(
+        &mut renderer,
         &DrawCommand::Fill {
             area: Rect {
                 x: Fixed::from_int(40),
@@ -75,7 +81,8 @@ fn main() {
     );
 
     // Green rectangle
-    renderer.draw(
+    submit(
+        &mut renderer,
         &DrawCommand::Fill {
             area: Rect {
                 x: Fixed::from_int(140),
@@ -93,7 +100,8 @@ fn main() {
     );
 
     // Red rectangle
-    renderer.draw(
+    submit(
+        &mut renderer,
         &DrawCommand::Fill {
             area: Rect {
                 x: Fixed::from_int(240),

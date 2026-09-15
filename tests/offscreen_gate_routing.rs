@@ -30,13 +30,15 @@ impl Renderer for MockOuter {
         Ok(RenderRoute::Native)
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        self.route(request)?;
         let mut c = self.counts.borrow_mut();
-        match cmd {
+        match request.command {
             DrawCommand::Blit { .. } => c.blit += 1,
             DrawCommand::Fill { .. } => c.fill += 1,
             _ => {}
         }
+        Ok(())
     }
     fn flush(&mut self) {}
     fn supports_offscreen(&self) -> bool {

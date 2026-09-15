@@ -3413,7 +3413,7 @@ mod glyph_tests {
     }
 }
 
-impl Renderer for WgpuRenderer<'_> {
+impl WgpuRenderer<'_> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
@@ -3749,26 +3749,6 @@ impl Renderer for WgpuRenderer<'_> {
         }
     }
 
-    fn draw_projective(
-        &mut self,
-        cmd: &DrawCommand,
-        clip: &Rect,
-        projective: &Transform3D,
-    ) -> Result<(), crate::render::ProjectiveDrawError> {
-        self.preflight_projective(cmd, clip, projective)?;
-        if projective.is_identity() {
-            self.draw_failed = false;
-            self.draw(cmd, clip);
-            return if self.draw_failed {
-                Err(crate::render::ProjectiveDrawError::BackendFailure)
-            } else {
-                Ok(())
-            };
-        }
-        self.draw_failed = false;
-        self.draw_projective_validated(cmd, clip, projective)
-    }
-
     fn preflight_projective(
         &self,
         command: &DrawCommand,
@@ -4003,6 +3983,52 @@ impl Renderer for WgpuRenderer<'_> {
         _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> Result<bool, RenderError> {
         Err(RenderError::Unsupported(RenderFeature::Readback))
+    }
+}
+
+impl Renderer for WgpuRenderer<'_> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        WgpuRenderer::route(self, request)
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        WgpuRenderer::submit(self, request)
+    }
+
+    fn flush(&mut self) {
+        WgpuRenderer::flush(self)
+    }
+
+    fn output_scale(&self) -> Fixed {
+        WgpuRenderer::output_scale(self)
+    }
+
+    fn supports_offscreen(&self) -> bool {
+        WgpuRenderer::supports_offscreen(self)
+    }
+
+    fn offscreen_format(&self) -> Option<crate::render::texture::ColorFormat> {
+        WgpuRenderer::offscreen_format(self)
+    }
+
+    fn prepare_readback(&mut self, src: &Rect) {
+        WgpuRenderer::prepare_readback(self, src)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
+        WgpuRenderer::sample_target_region(self, src)
+    }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut Texture) -> Result<(), RenderError> {
+        WgpuRenderer::read_target_region(self, src, dst)
+    }
+
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        f: &mut dyn FnMut(&mut Texture),
+    ) -> Result<bool, RenderError> {
+        WgpuRenderer::modify_target_region(self, src, f)
     }
 }
 

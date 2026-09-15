@@ -883,7 +883,7 @@ mod route_tests {
     }
 }
 
-impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
+impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
@@ -1208,42 +1208,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         }
     }
 
-    fn draw_projective(
-        &mut self,
-        command: &DrawCommand,
-        clip: &Rect,
-        projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
-        if projective.is_identity() {
-            self.draw(command, clip);
-            return Ok(());
-        }
-        let plan = self
-            .projective_fallback
-            .as_deref()
-            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?
-            .plan(command, clip, projective, self.viewport)?;
-        self.draw_projective_plan(plan, command, projective)
-    }
-
-    fn preflight_projective(
-        &self,
-        command: &DrawCommand,
-        clip: &Rect,
-        projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
-        if projective.is_identity() {
-            return Ok(());
-        }
-        let fallback = self
-            .projective_fallback
-            .as_deref()
-            .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        fallback
-            .plan(command, clip, projective, self.viewport)
-            .map(|_| ())
-    }
-
     fn flush(&mut self) {}
 
     fn supports_offscreen(&self) -> bool {
@@ -1340,6 +1304,48 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                     .map_err(|_| RenderError::BackendFailure)
             })?;
         Ok(true)
+    }
+}
+
+impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
+    fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        SdlGpuRenderer::route(self, request)
+    }
+
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        SdlGpuRenderer::submit(self, request)
+    }
+
+    fn flush(&mut self) {
+        SdlGpuRenderer::flush(self)
+    }
+
+    fn output_scale(&self) -> Fixed {
+        SdlGpuRenderer::output_scale(self)
+    }
+
+    fn supports_offscreen(&self) -> bool {
+        SdlGpuRenderer::supports_offscreen(self)
+    }
+
+    fn offscreen_format(&self) -> Option<ColorFormat> {
+        SdlGpuRenderer::offscreen_format(self)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
+        SdlGpuRenderer::sample_target_region(self, src)
+    }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut Texture) -> Result<(), RenderError> {
+        SdlGpuRenderer::read_target_region(self, src, dst)
+    }
+
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        f: &mut dyn FnMut(&mut Texture),
+    ) -> Result<bool, RenderError> {
+        SdlGpuRenderer::modify_target_region(self, src, f)
     }
 }
 

@@ -8,10 +8,8 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use crate::render::scene::Scene;
 use crate::render::scene::record::{RecordError, ResourceResolver, record_command};
-use crate::types::Rect;
 
-/// Records draws into a Scene through the Renderer trait. The legacy `draw`
-/// entry accumulates errors; checked submissions report them directly.
+/// Records checked draw requests into a scene.
 pub struct SceneRenderer<'a> {
     pub scene: &'a mut Scene,
     pub resolver: &'a mut dyn ResourceResolver,
@@ -55,15 +53,6 @@ impl Renderer for SceneRenderer<'_> {
         }
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        if matches!(
-            self.submit(&DrawRequest::new(cmd, *clip)),
-            Err(RenderError::Unsupported(_))
-        ) {
-            self.errors.push(RecordError::UnsupportedCommand);
-        }
-    }
-
     fn flush(&mut self) {}
 }
 
@@ -79,7 +68,7 @@ mod tests {
     use crate::render::font::Font;
     use crate::render::scene::{ResourceRef, SceneOp};
     use crate::render::texture::Texture;
-    use crate::types::{Color, Fixed, Point, Transform, Transform3D};
+    use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D};
 
     struct PanicResolver;
     impl ResourceResolver for PanicResolver {
@@ -131,36 +120,32 @@ mod tests {
     #[test]
     fn scene_renderer_captures_a_full_pipeline_to_mirx_and_back() {
         fn driver(r: &mut dyn Renderer, clip: &Rect) {
-            r.draw(
-                &DrawCommand::Line {
-                    p1: Point::ZERO,
-                    p2: Point {
-                        x: Fixed::from_int(10),
-                        y: Fixed::from_int(10),
-                    },
-                    transform: Transform::IDENTITY,
-                    color: red(),
-                    width: Fixed::from_int(1),
-                    opa: 255,
+            let line = DrawCommand::Line {
+                p1: Point::ZERO,
+                p2: Point {
+                    x: Fixed::from_int(10),
+                    y: Fixed::from_int(10),
                 },
-                clip,
-            );
-            r.draw(
-                &DrawCommand::Fill {
-                    area: Rect {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                        w: Fixed::from_int(8),
-                        h: Fixed::from_int(8),
-                    },
-                    transform: Transform::IDENTITY,
-                    quad: None,
-                    color: red(),
-                    radius: Fixed::ZERO,
-                    opa: 200,
+                transform: Transform::IDENTITY,
+                color: red(),
+                width: Fixed::from_int(1),
+                opa: 255,
+            };
+            r.submit(&DrawRequest::new(&line, *clip)).unwrap();
+            let fill = DrawCommand::Fill {
+                area: Rect {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    w: Fixed::from_int(8),
+                    h: Fixed::from_int(8),
                 },
-                clip,
-            );
+                transform: Transform::IDENTITY,
+                quad: None,
+                color: red(),
+                radius: Fixed::ZERO,
+                opa: 200,
+            };
+            r.submit(&DrawRequest::new(&fill, *clip)).unwrap();
             r.flush();
         }
 
@@ -217,8 +202,7 @@ mod tests {
             Err(RenderError::Unsupported(RenderFeature::Blur))
         );
         assert!(sink.scene.ops.is_empty());
-        sink.draw(&blur, &clip);
-        assert_eq!(sink.errors, [RecordError::UnsupportedCommand]);
+        assert_eq!(sink.errors, []);
         assert!(sink.scene.ops.is_empty());
     }
 

@@ -164,21 +164,21 @@ fn fresh_hybrid() -> Hybrid<Dummy, Dummy> {
 
 #[test]
 fn renderer_preserves_nonzero_path_fill_rule() {
-    use mirui::render::renderer::Renderer;
+    use mirui::render::renderer::{DrawRequest, Renderer};
 
     let mut hybrid = fresh_hybrid();
     let path = Path::rect(0.into(), 0.into(), 4.into(), 4.into());
     let paint = Paint::Color(Color::rgb(0, 0, 0).into());
-    hybrid.draw(
-        &mirui::render::DrawCommand::FillPath {
-            path: &path,
-            transform: Transform::IDENTITY,
-            paint: &paint,
-            opa: 255,
-            fill_rule: mirui::render::raster::FillRule::NonZero,
-        },
-        &zero_rect(),
-    );
+    let command = mirui::render::DrawCommand::FillPath {
+        path: &path,
+        transform: Transform::IDENTITY,
+        paint: &paint,
+        opa: 255,
+        fill_rule: mirui::render::raster::FillRule::NonZero,
+    };
+    hybrid
+        .submit(&DrawRequest::new(&command, zero_rect()))
+        .unwrap();
     assert_eq!(
         hybrid.sw.counts.fill_rule.get(),
         Some(mirui::render::raster::FillRule::NonZero)
@@ -518,27 +518,24 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
     // Sending a DrawCommand::Blit should reach the field that owns `blit`
     // in the route table.
     use mirui::render::DrawCommand;
-    use mirui::render::renderer::Renderer;
+    use mirui::render::renderer::{DrawRequest, Renderer};
 
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();
     let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
     let rect = zero_rect();
 
-    Renderer::draw(
-        &mut h,
-        &DrawCommand::Blit {
-            pos: Point::ZERO,
-            size: Point::ZERO,
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &tex,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: mirui::render::CompositeMode::SourceOver,
-        },
-        &rect,
-    );
+    let command = DrawCommand::Blit {
+        pos: Point::ZERO,
+        size: Point::new(Fixed::from_int(4), Fixed::from_int(4)),
+        transform: Transform::IDENTITY,
+        quad: None,
+        texture: &tex,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: mirui::render::CompositeMode::SourceOver,
+    };
+    h.submit(&DrawRequest::new(&command, rect)).unwrap();
 
     assert_eq!(h.gpu.counts.blit.get(), 1);
     assert_eq!(h.sw.counts.blit.get(), 0);

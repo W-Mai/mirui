@@ -182,12 +182,7 @@ mod tests {
             if self.pushed && matches!(request.command, DrawCommand::Fill { .. }) {
                 return Err(RenderError::BackendFailure);
             }
-            self.draw(request.command, &request.clip);
-            Ok(())
-        }
-
-        fn draw(&mut self, command: &DrawCommand, _: &Rect) {
-            match command {
+            match request.command {
                 DrawCommand::PushClip { .. } => self.pushed = true,
                 DrawCommand::PopClip => {
                     self.pushed = false;
@@ -195,6 +190,7 @@ mod tests {
                 }
                 _ => {}
             }
+            Ok(())
         }
 
         fn flush(&mut self) {}

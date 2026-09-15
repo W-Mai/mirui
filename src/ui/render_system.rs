@@ -36,32 +36,6 @@ impl Renderer for ProjectiveRenderer<'_> {
         )
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        if self.error.is_none() {
-            self.error = self.submit(&DrawRequest::new(cmd, *clip)).err();
-        }
-    }
-
-    fn draw_projective(
-        &mut self,
-        cmd: &DrawCommand,
-        clip: &Rect,
-        transform: &Transform3D,
-    ) -> Result<(), crate::render::ProjectiveDrawError> {
-        self.inner
-            .draw_projective(cmd, clip, &self.transform.compose(transform))
-    }
-
-    fn preflight_projective(
-        &self,
-        command: &DrawCommand,
-        clip: &Rect,
-        transform: &Transform3D,
-    ) -> Result<(), crate::render::ProjectiveDrawError> {
-        self.inner
-            .preflight_projective(command, clip, &self.transform.compose(transform))
-    }
-
     fn flush(&mut self) {
         self.inner.flush();
     }
@@ -927,8 +901,10 @@ mod projective_transform_tests {
     }
 
     impl Renderer for AffineOnlyRenderer {
-        fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request)?;
             self.draws += 1;
+            Ok(())
         }
 
         fn flush(&mut self) {}
@@ -942,17 +918,11 @@ mod projective_transform_tests {
             Ok(crate::render::RenderRoute::Native)
         }
 
-        fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
-
-        fn draw_projective(
-            &mut self,
-            command: &DrawCommand,
-            _clip: &Rect,
-            transform: &Transform3D,
-        ) -> Result<(), crate::render::ProjectiveDrawError> {
-            if let DrawCommand::Fill { quad, .. } = command {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request)?;
+            if let DrawCommand::Fill { quad, .. } = request.command {
                 self.quad_was_none = Some(quad.is_none());
-                self.transform = Some(*transform);
+                self.transform = Some(request.projective);
             }
             Ok(())
         }
@@ -1013,17 +983,17 @@ mod projective_transform_tests {
             transform: Transform3D::translate(Fixed::from_int(4), Fixed::ZERO),
             error: None,
         };
-        scoped.draw(
-            &DrawCommand::Fill {
-                area: Rect::new(0, 0, 8, 8),
-                transform: Transform::IDENTITY,
-                quad: None,
-                color: crate::types::Color::rgb(255, 255, 255),
-                radius: Fixed::ZERO,
-                opa: u8::MAX,
-            },
-            &Rect::new(0, 0, 16, 16),
-        );
+        let command = DrawCommand::Fill {
+            area: Rect::new(0, 0, 8, 8),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: crate::types::Color::rgb(255, 255, 255),
+            radius: Fixed::ZERO,
+            opa: u8::MAX,
+        };
+        scoped.error = scoped
+            .submit(&DrawRequest::new(&command, Rect::new(0, 0, 16, 16)))
+            .err();
 
         assert_eq!(
             scoped.error,
@@ -2610,10 +2580,12 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, clip: &Rect) {
-                if matches!(command, DrawCommand::GlyphRun { .. }) {
-                    self.clip = Some(*clip);
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if matches!(request.command, DrawCommand::GlyphRun { .. }) {
+                    self.clip = Some(request.clip);
                 }
+                Ok(())
             }
 
             fn flush(&mut self) {}
@@ -2677,10 +2649,12 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
-                if let DrawCommand::Fill { area, .. } = command {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if let DrawCommand::Fill { area, .. } = request.command {
                     self.fills.push(*area);
                 }
+                Ok(())
             }
 
             fn flush(&mut self) {}
@@ -3087,10 +3061,12 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, _clip: &Rect) {
-                if matches!(command, DrawCommand::PosedGlyphRun { .. }) {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if matches!(request.command, DrawCommand::PosedGlyphRun { .. }) {
                     self.posed_runs += 1;
                 }
+                Ok(())
             }
 
             fn flush(&mut self) {}
@@ -3278,10 +3254,12 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, command: &DrawCommand, clip: &Rect) {
-                if matches!(command, DrawCommand::PosedGlyphRun { .. }) {
-                    self.clip = Some(*clip);
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if matches!(request.command, DrawCommand::PosedGlyphRun { .. }) {
+                    self.clip = Some(request.clip);
                 }
+                Ok(())
             }
 
             fn flush(&mut self) {}
@@ -4147,7 +4125,9 @@ mod offscreen_render_check {
         struct FailingRead;
 
         impl Renderer for FailingRead {
-            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
 
             fn flush(&mut self) {}
 
@@ -6846,9 +6826,12 @@ mod scroll_plan_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-                let static_cmd: &DrawCommand<'static> = unsafe { core::mem::transmute(cmd) };
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                let static_cmd: &DrawCommand<'static> =
+                    unsafe { core::mem::transmute(request.command) };
                 self.0.push(core::mem::discriminant(static_cmd));
+                Ok(())
             }
             fn flush(&mut self) {}
         }

@@ -105,10 +105,15 @@ mod tests {
             Ok(crate::render::renderer::RenderRoute::Native)
         }
 
-        fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-            if let DrawCommand::Blit { texture, .. } = cmd {
+        fn submit(
+            &mut self,
+            request: &crate::render::renderer::DrawRequest<'_, '_>,
+        ) -> Result<(), crate::render::renderer::RenderError> {
+            self.route(request)?;
+            if let DrawCommand::Blit { texture, .. } = request.command {
                 self.sizes.push((texture.width, texture.height));
             }
+            Ok(())
         }
         fn flush(&mut self) {}
     }

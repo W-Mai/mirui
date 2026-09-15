@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use mirui::render::texture::{ColorFormat, Texture};
-    use mirui::render::{DrawCommand, Renderer, SwRenderer};
+    use mirui::render::{DrawCommand, DrawRequest, Renderer, SwRenderer};
     use mirui::types::{Color, Fixed, Rect, Transform};
 
     #[test]
@@ -32,7 +32,7 @@ mod tests {
             w: Fixed::from_int(10),
             h: Fixed::from_int(10),
         };
-        r.draw(&cmd, &clip);
+        r.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
         // pixel at (2,2) should be red
         let idx = (2 * 10 + 2) * 4;
@@ -77,7 +77,7 @@ mod tests {
             w: Fixed::from_int(5),
             h: Fixed::from_int(5),
         };
-        r.draw(&cmd, &clip);
+        r.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
         // (3,3) inside clip → green
         let idx = (3 * 10 + 3) * 4;
@@ -125,7 +125,7 @@ mod tests {
             w: Fixed::from_int(4),
             h: Fixed::from_int(4),
         };
-        r.draw(&cmd, &clip);
+        r.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
         // should be roughly half: (0*128 + 255*127)/255 ≈ 127
         let idx = 0;

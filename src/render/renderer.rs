@@ -247,50 +247,9 @@ pub trait Renderer {
         Err(RenderError::Unsupported(feature))
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        request.validate_projection()?;
-        self.route(request)?;
-        if request.projective.is_identity() {
-            self.draw(request.command, &request.clip);
-            Ok(())
-        } else {
-            self.draw_projective(request.command, &request.clip, &request.projective)
-                .map_err(RenderError::from)
-        }
-    }
-
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect);
-
-    /// Draw one command after its affine transform under `transform`.
-    fn draw_projective(
-        &mut self,
-        cmd: &DrawCommand,
-        clip: &Rect,
-        transform: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
-        if transform.is_identity() {
-            self.draw(cmd, clip);
-            Ok(())
-        } else {
-            Err(ProjectiveDrawError::Unsupported)
-        }
-    }
-
-    /// Validate one clipped command under a homography without drawing it.
-    /// Backends with a bounded software path use `clip` to report the exact
-    /// target capacity required before any command is drawn.
-    fn preflight_projective(
-        &self,
-        _command: &DrawCommand,
-        _clip: &Rect,
-        transform: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
-        if transform.is_identity() {
-            Ok(())
-        } else {
-            Err(ProjectiveDrawError::Unsupported)
-        }
-    }
+    /// Execute one validated draw request without silently changing its
+    /// semantics.
+    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError>;
 
     fn flush(&mut self);
 
@@ -301,7 +260,7 @@ pub trait Renderer {
     /// Whether this backend serves
     /// [`crate::ui::OffscreenRender`] entities through the SW
     /// pipeline: an inner `SwRenderer` over an owned buffer, blit'd
-    /// back via [`Self::draw`] with `DrawCommand::Blit`. Returning
+    /// back through [`Self::submit`] with `DrawCommand::Blit`. Returning
     /// `false` makes the render walker skip the offscreen path
     /// entirely and inline-render the subtree.
     fn supports_offscreen(&self) -> bool {
@@ -455,7 +414,9 @@ mod tests {
         struct NoScroll;
 
         impl Renderer for NoScroll {
-            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request).map(|_| ())
+            }
 
             fn flush(&mut self) {}
         }
@@ -472,7 +433,9 @@ mod tests {
         struct NoTargetEdit;
 
         impl Renderer for NoTargetEdit {
-            fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request).map(|_| ())
+            }
 
             fn flush(&mut self) {}
         }
@@ -528,7 +491,9 @@ mod tests {
 
     struct NoopRenderer;
     impl Renderer for NoopRenderer {
-        fn draw(&mut self, _cmd: &DrawCommand, _clip: &Rect) {}
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.route(request).map(|_| ())
+        }
         fn flush(&mut self) {}
     }
 
@@ -544,34 +509,25 @@ mod tests {
             r.route(&DrawRequest::new(&command, Rect::new(0, 0, 1, 1))),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
-        assert_eq!(
-            r.preflight_projective(
-                &command,
-                &Rect::new(0, 0, 1, 1),
-                &Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400),),
-            ),
-            Err(ProjectiveDrawError::Unsupported)
-        );
     }
 
     #[test]
-    fn default_projective_path_accepts_only_identity() {
+    fn default_route_rejects_affine_and_projective_requests() {
         let mut renderer = NoopRenderer;
+        let clip = Rect::new(0, 0, 1, 1);
         let command = DrawCommand::ApplyBlur {
             alpha: Fixed::ONE,
-            region: Rect::new(0, 0, 1, 1),
+            region: clip,
         };
         assert_eq!(
-            renderer.draw_projective(&command, &Rect::new(0, 0, 1, 1), &Transform3D::IDENTITY),
-            Ok(())
+            renderer.submit(&DrawRequest::new(&command, clip)),
+            Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
         assert_eq!(
-            renderer.draw_projective(
-                &command,
-                &Rect::new(0, 0, 1, 1),
-                &Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400),),
-            ),
-            Err(ProjectiveDrawError::Unsupported)
+            renderer.submit(&DrawRequest::new(&command, clip).with_projective(
+                Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400)),
+            )),
+            Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
     }
 
@@ -580,8 +536,10 @@ mod tests {
         struct CountingRenderer(usize);
 
         impl Renderer for CountingRenderer {
-            fn draw(&mut self, _: &DrawCommand, _: &Rect) {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
                 self.0 += 1;
+                Ok(())
             }
 
             fn flush(&mut self) {}
