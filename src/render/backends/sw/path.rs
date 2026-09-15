@@ -1,7 +1,7 @@
 use super::SwRenderer;
 use crate::render::canvas::Paint;
 use crate::render::paint::GradientPaint;
-use crate::render::path::{self, Path};
+use crate::render::path::{self, Path, PathCmd};
 use crate::render::raster::{self, FillRule};
 use crate::render::renderer::ProjectiveDrawError;
 use crate::types::{Color, Fixed, Rect, Transform, Transform3D};
@@ -388,6 +388,18 @@ impl SwRenderer<'_> {
         opa: u8,
         fill_rule: FillRule,
     ) -> Result<(), ProjectiveDrawError> {
+        self.fill_commands_projective(path.commands(), physical, clip, paint, opa, fill_rule)
+    }
+
+    fn fill_commands_projective(
+        &mut self,
+        commands: &[PathCmd],
+        physical: &Transform3D,
+        clip: Rect,
+        paint: &Paint,
+        opa: u8,
+        fill_rule: FillRule,
+    ) -> Result<(), ProjectiveDrawError> {
         if opa == 0 {
             return Ok(());
         }
@@ -396,7 +408,7 @@ impl SwRenderer<'_> {
         };
         let color: Color = (*color).into();
         let scratch = &mut *self.scratch;
-        raster::flatten_projective_into(&path.cmds, physical, &mut scratch.flatten_buf)
+        raster::flatten_projective_into(commands, physical, &mut scratch.flatten_buf)
             .map_err(|()| ProjectiveDrawError::InvalidProjection)?;
         let Some(bounds) = segment_bounds(&scratch.flatten_buf) else {
             return Ok(());
@@ -441,6 +453,61 @@ impl SwRenderer<'_> {
             },
         );
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn stroke_commands_projective(
+        &mut self,
+        commands: &[PathCmd],
+        geometry_transform: &Transform,
+        physical_projective: &Transform3D,
+        clip: Rect,
+        width: Fixed,
+        paint: &Paint,
+        opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+        dash: &[Fixed],
+    ) -> Result<(), ProjectiveDrawError> {
+        if opa == 0 || width <= Fixed::ZERO {
+            return Ok(());
+        }
+        if !matches!(paint, Paint::Color(_)) {
+            return Err(ProjectiveDrawError::Unsupported);
+        }
+        {
+            let scratch = &mut *self.scratch;
+            raster::offset_polygon_into(
+                commands,
+                Some(geometry_transform),
+                width,
+                cap,
+                join,
+                miter_limit,
+                if dash.is_empty() { None } else { Some(dash) },
+                &mut scratch.stroke_outline,
+                &mut scratch.flatten_buf,
+                &mut scratch.subpath_scratch,
+                &mut scratch.stroke_normals,
+                &mut scratch.stroke_rail,
+                &mut scratch.stroke_left_rail,
+                &mut scratch.stroke_arc,
+                &mut scratch.dash_segments,
+                &mut scratch.dash_scratch,
+            );
+        }
+        let outline = core::mem::take(&mut self.scratch.stroke_outline);
+        let result = self.fill_commands_projective(
+            outline.commands(),
+            physical_projective,
+            clip,
+            paint,
+            opa,
+            FillRule::EvenOdd,
+        );
+        self.scratch.stroke_outline = outline;
+        result
     }
 
     pub(super) fn fill_path_inner(

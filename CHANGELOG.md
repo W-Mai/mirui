@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fallback scope planning.** Pixel backends convert logical scope bounds into clipped physical RGBA regions and reject missing or undersized workspace before target access.
 - **Scene fallback scopes.** Projective path-clip groups retain one caller-bounded plan and replay their ordered children through a single target edit.
 - **Nested clip fallback.** Scene replay absorbs descendant fallback work into the nearest path-clip scope and reuses caller-owned frame storage for planning and execution.
+- **Projective software strokes.** Solid paths, lines, and arcs retain full stroke geometry through homography; primitive arcs reuse renderer-owned command storage across frames.
 
 ### Fixed
 

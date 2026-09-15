@@ -389,13 +389,25 @@ impl Path {
     /// Emits one cubic Bezier per ≤90° segment using k = 4/3 · tan(θ/4).
     pub fn arc(center: Point, radius: Fixed, start_angle: Fixed, end_angle: Fixed) -> Self {
         let mut p = Self::new();
+        p.set_arc(center, radius, start_angle, end_angle);
+        p
+    }
+
+    pub(crate) fn set_arc(
+        &mut self,
+        center: Point,
+        radius: Fixed,
+        start_angle: Fixed,
+        end_angle: Fixed,
+    ) {
+        self.clear();
         if radius <= Fixed::ZERO {
-            return p;
+            return;
         }
 
         let sweep = end_angle - start_angle;
         if sweep == Fixed::ZERO {
-            return p;
+            return;
         }
 
         let on_circle = |angle_deg: Fixed| -> Point {
@@ -405,7 +417,7 @@ impl Path {
             }
         };
 
-        p.move_to(on_circle(start_angle));
+        self.move_to(on_circle(start_angle));
 
         let ninety = Fixed::from_int(90);
         let dir = if sweep > Fixed::ZERO {
@@ -440,13 +452,11 @@ impl Path {
                 y: p3.y - t1.y * k * radius,
             };
 
-            p.cubic_to(p1, p2, p3);
+            self.cubic_to(p1, p2, p3);
 
             a = a_next;
             remaining -= ninety;
         }
-
-        p
     }
 }
 

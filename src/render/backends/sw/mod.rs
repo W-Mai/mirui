@@ -2,7 +2,7 @@ use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::path::Path;
+use crate::render::path::{Path, PathCmd};
 use crate::render::renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
     Renderer,
@@ -41,6 +41,7 @@ pub struct SwRenderer<'a> {
 
 pub(crate) struct SwScratch {
     pub(super) flatten_buf: alloc::vec::Vec<crate::render::raster::LineSeg>,
+    pub(super) primitive_path: crate::render::path::Path,
     pub(super) stroke_outline: crate::render::path::Path,
     pub(super) subpath_scratch: alloc::vec::Vec<crate::render::raster::SubPath>,
     pub(super) dash_segments: alloc::vec::Vec<crate::render::raster::LineSeg>,
@@ -93,6 +94,7 @@ impl SwScratch {
     pub(crate) fn new() -> Self {
         Self {
             flatten_buf: alloc::vec::Vec::new(),
+            primitive_path: crate::render::path::Path::new(),
             stroke_outline: crate::render::path::Path::new(),
             subpath_scratch: alloc::vec::Vec::new(),
             dash_segments: alloc::vec::Vec::new(),
@@ -1258,6 +1260,90 @@ impl SwRenderer<'_> {
                     *fill_rule,
                 )?;
             }
+            DrawCommand::StrokePath {
+                path,
+                transform,
+                paint,
+                width,
+                opa,
+                line_cap,
+                line_join,
+                miter_limit,
+                dash,
+            } => {
+                let physical_projective =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(projective);
+                self.stroke_commands_projective(
+                    path.commands(),
+                    transform,
+                    &physical_projective,
+                    self.viewport.rect_to_physical(*clip),
+                    *width,
+                    paint,
+                    *opa,
+                    *line_cap,
+                    *line_join,
+                    *miter_limit,
+                    dash,
+                )?;
+            }
+            DrawCommand::Line {
+                p1,
+                p2,
+                transform,
+                color,
+                width,
+                opa,
+            } => {
+                let commands = [PathCmd::MoveTo(*p1), PathCmd::LineTo(*p2)];
+                let paint = Paint::Color((*color).into());
+                let physical_projective =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(projective);
+                self.stroke_commands_projective(
+                    &commands,
+                    transform,
+                    &physical_projective,
+                    self.viewport.rect_to_physical(*clip),
+                    *width,
+                    &paint,
+                    *opa,
+                    crate::render::raster::LineCap::Butt,
+                    crate::render::raster::LineJoin::Miter,
+                    Fixed::from_int(4),
+                    &[],
+                )?;
+            }
+            DrawCommand::Arc {
+                center,
+                transform,
+                radius,
+                start_angle,
+                end_angle,
+                color,
+                width,
+                opa,
+            } => {
+                let mut path = core::mem::take(&mut self.scratch.primitive_path);
+                path.set_arc(*center, *radius, *start_angle, *end_angle);
+                let paint = Paint::Color((*color).into());
+                let physical_projective =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(projective);
+                let result = self.stroke_commands_projective(
+                    path.commands(),
+                    transform,
+                    &physical_projective,
+                    self.viewport.rect_to_physical(*clip),
+                    *width,
+                    &paint,
+                    *opa,
+                    crate::render::raster::LineCap::Butt,
+                    crate::render::raster::LineJoin::Miter,
+                    Fixed::from_int(4),
+                    &[],
+                );
+                self.scratch.primitive_path = path;
+                result?;
+            }
             DrawCommand::PushClip {
                 path, fill_rule, ..
             } => {
@@ -1266,12 +1352,7 @@ impl SwRenderer<'_> {
                 self.push_clip_projective(path, &physical, *fill_rule)?;
             }
             DrawCommand::PopClip => self.pop_clip(),
-            DrawCommand::Line { .. }
-            | DrawCommand::Arc { .. }
-            | DrawCommand::StrokePath { .. }
-            | DrawCommand::ApplyBlur { .. } => {
-                return Err(ProjectiveDrawError::Unsupported);
-            }
+            DrawCommand::ApplyBlur { .. } => return Err(ProjectiveDrawError::Unsupported),
         }
         Ok(())
     }
@@ -1298,10 +1379,10 @@ impl SwRenderer<'_> {
             | DrawCommand::PopClip => true,
             DrawCommand::Blit { .. } => true,
             DrawCommand::FillPath { paint, .. } => matches!(paint, Paint::Color(_)),
-            DrawCommand::Line { .. }
-            | DrawCommand::Arc { .. }
-            | DrawCommand::StrokePath { .. }
-            | DrawCommand::ApplyBlur { .. } => false,
+            DrawCommand::Line { .. } => true,
+            DrawCommand::Arc { .. } => true,
+            DrawCommand::StrokePath { paint, .. } => matches!(paint, Paint::Color(_)),
+            DrawCommand::ApplyBlur { .. } => false,
         };
         if !supported {
             return Err(ProjectiveDrawError::Unsupported);
@@ -1338,14 +1419,24 @@ impl SwRenderer<'_> {
                 font.glyph_run_ink_bounds(glyphs, *pos, *transform, output_ppem)
                     .is_none_or(|bounds| projective.apply_rect(bounds).is_some())
             }
-            DrawCommand::FillPath { path, .. } | DrawCommand::PushClip { path, .. } => path
+            DrawCommand::FillPath { path, .. }
+            | DrawCommand::StrokePath { path, .. }
+            | DrawCommand::PushClip { path, .. } => path
                 .bbox()
                 .is_none_or(|bounds| logical.apply_rect(bounds).is_some()),
+            DrawCommand::Line { p1, p2, .. } => {
+                logical.apply_point(*p1).is_some() && logical.apply_point(*p2).is_some()
+            }
+            DrawCommand::Arc { center, radius, .. } => logical
+                .apply_rect(Rect::new(
+                    center.x - *radius,
+                    center.y - *radius,
+                    *radius * 2,
+                    *radius * 2,
+                ))
+                .is_some(),
             DrawCommand::PopClip => true,
-            DrawCommand::Line { .. }
-            | DrawCommand::Arc { .. }
-            | DrawCommand::StrokePath { .. }
-            | DrawCommand::ApplyBlur { .. } => true,
+            DrawCommand::ApplyBlur { .. } => true,
         };
         if !valid_geometry {
             return Err(ProjectiveDrawError::InvalidProjection);
@@ -1640,22 +1731,18 @@ mod tests {
             Err(RenderError::Unsupported(RenderFeature::BlitOpacity))
         );
 
-        let line = DrawCommand::Line {
-            p1: Point::ZERO,
-            p2: Point::new(10, 10),
-            transform: Transform::IDENTITY,
-            color: Color::rgb(20, 30, 40),
-            width: Fixed::ONE,
-            opa: 255,
+        let blur = DrawCommand::ApplyBlur {
+            alpha: Fixed::from_ratio(1, 2),
+            region: clip,
         };
         let projective =
             Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400));
         assert_eq!(
-            renderer.route(&DrawRequest::new(&line, clip).with_projective(projective)),
+            renderer.route(&DrawRequest::new(&blur, clip).with_projective(projective)),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&line, clip).with_projective(projective)),
+            renderer.submit(&DrawRequest::new(&blur, clip).with_projective(projective)),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
     }
@@ -3597,6 +3684,102 @@ mod tests {
         );
         assert_eq!(renderer.target.get_pixel(3, 2), Color::rgb(255, 255, 255));
         assert_eq!(renderer.target.get_pixel(1, 2), Color::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn projective_solid_stroke_uses_the_retained_outline() {
+        let mut pixels = vec![0u8; 12 * 8 * 4];
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888));
+        let mut path = Path::new();
+        path.move_to(Point::new(1, 2)).line_to(Point::new(7, 2));
+        let paint = Paint::Color(Color::rgb(240, 120, 40).into());
+        let command = DrawCommand::StrokePath {
+            path: &path,
+            transform: Transform::IDENTITY,
+            paint: &paint,
+            width: Fixed::from_int(2),
+            opa: 255,
+            line_cap: crate::render::raster::LineCap::Butt,
+            line_join: crate::render::raster::LineJoin::Miter,
+            miter_limit: Fixed::from_int(4),
+            dash: &[],
+        };
+        let projection = Transform3D::translate(Fixed::from_int(2), Fixed::ONE);
+
+        assert_eq!(
+            renderer.draw_projective(&command, &Rect::new(0, 0, 12, 8), &projection),
+            Ok(())
+        );
+        assert_eq!(renderer.target.get_pixel(5, 3), Color::rgb(240, 120, 40));
+        assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn projective_line_uses_stroke_geometry_without_a_path_allocation() {
+        let mut pixels = vec![0u8; 12 * 8 * 4];
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888));
+        let command = DrawCommand::Line {
+            p1: Point::new(1, 2),
+            p2: Point::new(7, 2),
+            transform: Transform::IDENTITY,
+            color: Color::rgb(80, 180, 250),
+            width: Fixed::from_int(2),
+            opa: 255,
+        };
+        let clip = Rect::new(0, 0, 12, 8);
+        let projection = Transform3D::translate(Fixed::from_int(2), Fixed::ONE);
+
+        assert_eq!(
+            renderer.route(&DrawRequest::new(&command, clip).with_projective(projection)),
+            Ok(RenderRoute::Native)
+        );
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            Ok(())
+        );
+        assert_eq!(renderer.target.get_pixel(5, 3), Color::rgb(80, 180, 250));
+        assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn projective_arc_reuses_primitive_path_storage() {
+        let mut pixels = vec![0u8; 16 * 16 * 4];
+        let mut renderer =
+            SwRenderer::new(Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888));
+        let command = DrawCommand::Arc {
+            center: Point::new(6, 6),
+            transform: Transform::IDENTITY,
+            radius: Fixed::from_int(4),
+            start_angle: Fixed::ZERO,
+            end_angle: Fixed::from_int(180),
+            color: Color::rgb(250, 190, 70),
+            width: Fixed::from_int(2),
+            opa: 255,
+        };
+        let clip = Rect::new(0, 0, 16, 16);
+        let projection = Transform3D::translate(Fixed::ONE, Fixed::from_int(2));
+
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            Ok(())
+        );
+        let capacity = renderer.scratch.primitive_path.command_capacity();
+        assert!(capacity >= 3);
+        assert!(
+            renderer
+                .target
+                .buf
+                .as_slice()
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] != 0)
+        );
+
+        renderer.target.buf.as_mut_slice().fill(0);
+        assert_eq!(
+            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            Ok(())
+        );
+        assert_eq!(renderer.scratch.primitive_path.command_capacity(), capacity);
     }
 
     #[test]
