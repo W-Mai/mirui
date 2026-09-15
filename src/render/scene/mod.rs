@@ -326,10 +326,9 @@ impl Scene {
         renderer: &mut dyn crate::render::renderer::Renderer,
         clip: &crate::types::Rect,
         resolver: &dyn replay::SceneResolver,
-        frames: &mut [replay::ReplayFrame],
-        plans: &mut [replay::ReplayPlan],
+        scratch: replay::ReplayScratch<'_>,
     ) -> Result<(), replay::ReplayError> {
-        replay::replay_scene_with_scratch(&self.ops, renderer, clip, resolver, frames, plans)
+        replay::replay_scene_with_scratch(&self.ops, renderer, clip, resolver, scratch)
     }
 
     pub fn record(

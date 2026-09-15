@@ -20,6 +20,7 @@ pub fn blit_quad(
     radius: Fixed,
     opa: u8,
     composite: CompositeMode,
+    clip_mask: Option<&[u8]>,
 ) {
     if opa == 0 || local_size.x <= Fixed::ZERO || local_size.y <= Fixed::ZERO {
         return;
@@ -118,6 +119,8 @@ pub fn blit_quad(
                                 } else {
                                     (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8
                                 };
+                                let src_alpha =
+                                    masked_opacity(src_alpha, clip_mask, dst.width, px, py);
                                 if src_alpha > 0 {
                                     dst.composite_pixel_int(px, py, &c, src_alpha, composite);
                                 }
@@ -144,6 +147,7 @@ pub fn fill_rect_quad(
     local_w: Fixed,
     local_h: Fixed,
     opa: u8,
+    clip_mask: Option<&[u8]>,
 ) {
     let bbox = quad_bbox(q);
     let Some(area) = bbox.intersect(&phys_clip) else {
@@ -156,7 +160,7 @@ pub fn fill_rect_quad(
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
     if radius == Fixed::ZERO {
-        fill_rect_quad_no_corner(dst, q, px_x0, px_y0, px_x1, px_y1, color, opa);
+        fill_rect_quad_no_corner(dst, px_x0, px_y0, px_x1, px_y1, q, color, opa, clip_mask);
         return;
     }
 
@@ -191,7 +195,7 @@ pub fn fill_rect_quad(
             if cov == Fixed::ZERO {
                 continue;
             }
-            let final_opa = if cov == Fixed::ONE {
+            let base_opa = if cov == Fixed::ONE {
                 opa
             } else {
                 let c = (cov * Fixed::from_int(opa as i32)).to_int() as u8;
@@ -200,6 +204,10 @@ pub fn fill_rect_quad(
                 }
                 c
             };
+            let final_opa = masked_opacity(base_opa, clip_mask, dst.width, px, py);
+            if final_opa == 0 {
+                continue;
+            }
             #[cfg(feature = "perf")]
             unsafe {
                 quad_perf::FILL_PIXELS_DRAWN += 1;
@@ -213,6 +221,7 @@ pub fn fill_rect_quad(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn stroke_rect_quad(
     dst: &mut Texture,
     q: &[Point; 4],
@@ -221,6 +230,7 @@ pub fn stroke_rect_quad(
     width: Fixed,
     radius: Fixed,
     opa: u8,
+    clip_mask: Option<&[u8]>,
 ) {
     if width <= Fixed::ZERO {
         return;
@@ -311,7 +321,7 @@ pub fn stroke_rect_quad(
             if stroke_cov == Fixed::ZERO {
                 continue;
             }
-            let final_opa = if stroke_cov == Fixed::ONE {
+            let base_opa = if stroke_cov == Fixed::ONE {
                 opa
             } else {
                 let c = (stroke_cov * Fixed::from_int(opa as i32)).to_int() as u8;
@@ -320,6 +330,10 @@ pub fn stroke_rect_quad(
                 }
                 c
             };
+            let final_opa = masked_opacity(base_opa, clip_mask, dst.width, px, py);
+            if final_opa == 0 {
+                continue;
+            }
             if final_opa == 255 {
                 dst.set_pixel(px, py, color);
             } else {
@@ -407,13 +421,14 @@ fn prepare_corners(q: &[Point; 4], radius: Fixed) -> [super::quad_aa::PreparedCo
 #[allow(clippy::too_many_arguments)]
 fn fill_rect_quad_no_corner(
     dst: &mut Texture,
-    q: &[Point; 4],
     px_x0: i32,
     px_y0: i32,
     px_x1: i32,
     px_y1: i32,
+    q: &[Point; 4],
     color: &Color,
     opa: u8,
+    clip_mask: Option<&[u8]>,
 ) {
     use super::quad_aa::{
         EdgeRowState, prepare_quad_edges, quad_pixel_coverage_row, shoelace_is_cw,
@@ -445,7 +460,7 @@ fn fill_rect_quad_no_corner(
             if cov == Fixed::ZERO {
                 continue;
             }
-            let final_opa = if cov == Fixed::ONE {
+            let base_opa = if cov == Fixed::ONE {
                 opa
             } else {
                 // cov is in [0, 1] Q24.8; map to 0..=255 and combine with opa.
@@ -455,6 +470,10 @@ fn fill_rect_quad_no_corner(
                 }
                 c
             };
+            let final_opa = masked_opacity(base_opa, clip_mask, dst.width, px, py);
+            if final_opa == 0 {
+                continue;
+            }
             if final_opa == 255 {
                 dst.set_pixel(px, py, color);
             } else {
@@ -462,6 +481,15 @@ fn fill_rect_quad_no_corner(
             }
         }
     }
+}
+
+#[inline]
+fn masked_opacity(opacity: u8, clip_mask: Option<&[u8]>, target_width: u16, x: i32, y: i32) -> u8 {
+    let Some(mask) = clip_mask else {
+        return opacity;
+    };
+    let alpha = mask[y as usize * target_width as usize + x as usize];
+    ((u16::from(opacity) * u16::from(alpha) + 127) / 255) as u8
 }
 
 /// Intersect horizontal line y=py with convex quad q; return leftmost and

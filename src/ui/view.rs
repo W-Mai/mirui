@@ -46,7 +46,14 @@ impl ViewCtx<'_> {
         resolver: &dyn crate::render::scene::replay::SceneResolver,
     ) {
         let mut frames = [crate::render::scene::replay::ReplayFrame::EMPTY; 8];
-        self.replay_with_workspace(renderer, ops, resolver, &mut frames);
+        let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
+        let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
+        self.replay_with_scratch(
+            renderer,
+            ops,
+            resolver,
+            crate::render::scene::replay::ReplayScratch::new(&mut frames, &mut routes, &mut scopes),
+        );
     }
 
     /// Replay a scene using caller-owned group frames.
@@ -67,20 +74,19 @@ impl ViewCtx<'_> {
         .map(Self::replay_error);
     }
 
-    /// Replay a scene using caller-owned group frames and exact-route slots.
+    /// Replay a scene using caller-owned group, route, and scope storage.
     pub fn replay_with_scratch(
         &mut self,
         renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
-        frames: &mut [crate::render::scene::replay::ReplayFrame],
-        plans: &mut [crate::render::scene::replay::ReplayPlan],
+        scratch: crate::render::scene::replay::ReplayScratch<'_>,
     ) {
         if self.error.is_some() {
             return;
         }
         self.error = crate::render::scene::replay::replay_scene_with_scratch(
-            ops, renderer, self.clip, resolver, frames, plans,
+            ops, renderer, self.clip, resolver, scratch,
         )
         .err()
         .map(Self::replay_error);
@@ -112,6 +118,17 @@ impl ViewCtx<'_> {
                 >()),
                 capacity_bytes: available.saturating_mul(core::mem::size_of::<
                     crate::render::scene::replay::ReplayFrame,
+                >()),
+            },
+            crate::render::scene::replay::ReplayError::InsufficientScopePlans {
+                required,
+                available,
+            } => RenderError::InsufficientWorkspace {
+                required_bytes: required.saturating_mul(core::mem::size_of::<
+                    crate::render::scene::replay::ReplayScopePlan,
+                >()),
+                capacity_bytes: available.saturating_mul(core::mem::size_of::<
+                    crate::render::scene::replay::ReplayScopePlan,
                 >()),
             },
             crate::render::scene::replay::ReplayError::UnresolvedFont

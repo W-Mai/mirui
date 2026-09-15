@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scene replay scratch.** `replay_scene_with_scratch` accepts caller-owned group and route slots; retained exact fallback routes are executed directly while overflow remains allocation-free and recomputes only the excess routes.
 - **Scoped fallback replay.** `Renderer::render_scope` replays ordered commands through a region-local software renderer while callers keep global coordinates; explicit quads and nested render errors retain their original semantics.
 - **Fallback scope planning.** Pixel backends convert logical scope bounds into clipped physical RGBA regions and reject missing or undersized workspace before target access.
+- **Scene fallback scopes.** Projective path-clip groups retain one caller-bounded plan and replay their ordered children through a single target edit.
 
 ### Fixed
 

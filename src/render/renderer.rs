@@ -76,6 +76,14 @@ pub struct FallbackRegion {
 }
 
 impl FallbackRegion {
+    pub const EMPTY: Self = Self {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        stride_bytes: 0,
+    };
+
     pub(crate) const fn from_parts(
         x: i32,
         y: i32,

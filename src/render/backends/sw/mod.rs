@@ -526,6 +526,7 @@ impl SwRenderer<'_> {
             self.viewport.point_to_physical(q[3]),
         ];
         let s = self.viewport.scale();
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         fill_rect_quad(
             &mut self.target,
             &phys_q,
@@ -535,6 +536,7 @@ impl SwRenderer<'_> {
             area.w * s,
             area.h * s,
             opa,
+            clip_mask,
         );
         #[cfg(feature = "perf")]
         quad_perf::add_fill(quad_perf::now().wrapping_sub(t0));
@@ -562,6 +564,7 @@ impl SwRenderer<'_> {
             self.viewport.point_to_physical(q[3]),
         ];
         let scale = self.viewport.scale();
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         blit_quad(
             &mut self.target,
             texture,
@@ -574,6 +577,7 @@ impl SwRenderer<'_> {
             radius * scale,
             opa,
             composite,
+            clip_mask,
         );
         #[cfg(feature = "perf")]
         quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
@@ -597,6 +601,7 @@ impl SwRenderer<'_> {
             self.viewport.point_to_physical(q[3]),
         ];
         let s = self.viewport.scale();
+        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         stroke_rect_quad(
             &mut self.target,
             &phys_q,
@@ -605,6 +610,7 @@ impl SwRenderer<'_> {
             width * s,
             radius * s,
             opa,
+            clip_mask,
         );
     }
 
@@ -3379,6 +3385,7 @@ mod tests {
                 radius,
                 255,
                 CompositeMode::SourceOver,
+                None,
             );
         }
         for y in 7..22 {
@@ -3388,6 +3395,92 @@ mod tests {
             }
         }
         assert!(first[(20 * 24 + 9) * 4] > 0);
+    }
+
+    #[test]
+    fn projected_quads_combine_the_active_path_clip() {
+        const WIDTH: usize = 16;
+        const HEIGHT: usize = 8;
+        let quad = [
+            Point::new(0, 0),
+            Point::new(WIDTH as i32, 0),
+            Point::new(WIDTH as i32, HEIGHT as i32),
+            Point::new(0, HEIGHT as i32),
+        ];
+        let clip = Rect::new(0, 0, WIDTH as i32, HEIGHT as i32);
+        let mut mask = [0u8; WIDTH * HEIGHT];
+        for row in mask.chunks_exact_mut(WIDTH) {
+            row[..WIDTH / 2].fill(255);
+        }
+
+        let mut fill_pixels = [0u8; WIDTH * HEIGHT * 4];
+        let mut fill_target = Texture::new(
+            &mut fill_pixels,
+            WIDTH as u16,
+            HEIGHT as u16,
+            ColorFormat::RGBA8888,
+        );
+        fill_rect_quad(
+            &mut fill_target,
+            &quad,
+            clip,
+            &Color::rgb(220, 20, 30),
+            Fixed::ZERO,
+            Fixed::from_int(WIDTH as i32),
+            Fixed::from_int(HEIGHT as i32),
+            255,
+            Some(&mask),
+        );
+        assert_eq!(fill_target.get_pixel(4, 4).r, 220);
+        assert_eq!(fill_target.get_pixel(12, 4).a, 0);
+
+        let source_pixels = [255u8; WIDTH * HEIGHT * 4];
+        let source = Texture::from_ref(
+            &source_pixels,
+            WIDTH as u16,
+            HEIGHT as u16,
+            ColorFormat::RGBA8888,
+        );
+        let mut blit_pixels = [0u8; WIDTH * HEIGHT * 4];
+        let mut blit_target = Texture::new(
+            &mut blit_pixels,
+            WIDTH as u16,
+            HEIGHT as u16,
+            ColorFormat::RGBA8888,
+        );
+        blit_quad(
+            &mut blit_target,
+            &source,
+            &quad,
+            clip,
+            Point::new(WIDTH as i32, HEIGHT as i32),
+            Fixed::ZERO,
+            255,
+            CompositeMode::SourceOver,
+            Some(&mask),
+        );
+        assert_eq!(blit_target.get_pixel(4, 4).a, 255);
+        assert_eq!(blit_target.get_pixel(12, 4).a, 0);
+
+        let mut stroke_pixels = [0u8; WIDTH * HEIGHT * 4];
+        let mut stroke_target = Texture::new(
+            &mut stroke_pixels,
+            WIDTH as u16,
+            HEIGHT as u16,
+            ColorFormat::RGBA8888,
+        );
+        stroke_rect_quad(
+            &mut stroke_target,
+            &quad,
+            clip,
+            &Color::rgb(20, 220, 30),
+            Fixed::from_int(2),
+            Fixed::ZERO,
+            255,
+            Some(&mask),
+        );
+        assert!(stroke_target.get_pixel(4, 0).g > 0);
+        assert_eq!(stroke_target.get_pixel(12, 0).a, 0);
     }
 
     #[test]
