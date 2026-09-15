@@ -9,7 +9,7 @@ use mirui::app::{App, RendererFactory};
 use mirui::ecs::World;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::surface::{InputEvent, Surface};
-use mirui::types::Rect;
+use mirui::types::PhysicalRect;
 
 #[derive(Default)]
 struct Counts {
@@ -48,7 +48,7 @@ where
     }
 }
 
-fn noop_flush(_: &[u8], _: &Rect) {}
+fn noop_flush(_: &[u8], _: PhysicalRect) {}
 
 #[test]
 fn build_fires_once_on_add_plugin() {

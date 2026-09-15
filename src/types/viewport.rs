@@ -1,4 +1,4 @@
-use super::{Fixed, Point, Rect, Transform};
+use super::{Fixed, PhysicalRect, Point, Rect, Transform};
 
 /// Mapping from a widget's logical coordinate space to the physical
 /// pixels of the backing surface — DPI scale today, with rotation and
@@ -43,8 +43,12 @@ impl Viewport {
 
     #[inline]
     pub fn logical_size(&self) -> (u16, u16) {
-        let w = (Fixed::from(self.physical_w) / self.scale).to_int() as u16;
-        let h = (Fixed::from(self.physical_h) / self.scale).to_int() as u16;
+        let w = (Fixed::from(self.physical_w) / self.scale)
+            .to_int()
+            .clamp(0, i32::from(u16::MAX)) as u16;
+        let h = (Fixed::from(self.physical_h) / self.scale)
+            .to_int()
+            .clamp(0, i32::from(u16::MAX)) as u16;
         (w, h)
     }
 
@@ -78,18 +82,17 @@ impl Viewport {
         (x0, y0, x1, y1)
     }
 
-    #[cfg(any(
-        feature = "wgpu",
-        feature = "sdl-gpu",
-        all(feature = "web-canvas", target_arch = "wasm32"),
-        test
-    ))]
-    pub(crate) fn clipped_physical_pixel_rect(
+    pub fn physical_rect(&self, logical: Rect) -> Option<PhysicalRect> {
+        let (width, height) = self.physical_size();
+        self.physical_rect_in(logical, u32::from(width), u32::from(height))
+    }
+
+    pub(crate) fn physical_rect_in(
         &self,
         logical: Rect,
         target_width: u32,
         target_height: u32,
-    ) -> Option<Rect> {
+    ) -> Option<PhysicalRect> {
         let (x0, y0, x1, y1) = self.rect_to_physical_pixel_bounds(logical);
         let width = target_width.min(u32::from(self.physical_w)) as i32;
         let height = target_height.min(u32::from(self.physical_h)) as i32;
@@ -100,7 +103,12 @@ impl Viewport {
         if right <= left || bottom <= top {
             return None;
         }
-        Some(Rect::new(left, top, right - left, bottom - top))
+        PhysicalRect::new(
+            u16::try_from(left).ok()?,
+            u16::try_from(top).ok()?,
+            u16::try_from(right - left).ok()?,
+            u16::try_from(bottom - top).ok()?,
+        )
     }
 
     #[inline]
@@ -132,6 +140,12 @@ mod tests {
     fn logical_size_divides_physical() {
         let t = Viewport::new(200, 100, Fixed::from_int(2));
         assert_eq!(t.logical_size(), (100, 50));
+    }
+
+    #[test]
+    fn logical_size_saturates_instead_of_wrapping() {
+        let t = Viewport::new(u16::MAX, u16::MAX, Fixed::from_ratio(1, 2));
+        assert_eq!(t.logical_size(), (u16::MAX, u16::MAX));
     }
 
     #[test]
@@ -172,12 +186,48 @@ mod tests {
             Fixed::ONE,
         );
         assert_eq!(
-            viewport.clipped_physical_pixel_rect(logical, 12, 12),
-            Some(Rect::new(1, 0, 5, 2))
+            viewport.physical_rect_in(logical, 12, 12),
+            PhysicalRect::new(1, 0, 5, 2)
         );
         assert_eq!(
-            viewport.clipped_physical_pixel_rect(Rect::new(-2, 6, 5, 4), 12, 8),
+            viewport.physical_rect_in(Rect::new(-2, 6, 5, 4), 12, 8),
             None
         );
+    }
+
+    #[test]
+    fn physical_rect_clips_negative_fractional_edges_once() {
+        let viewport = Viewport::new(20, 12, Fixed::from_f32(1.5));
+        assert_eq!(
+            viewport.physical_rect(Rect::new(-1.25, 1.25, 4.0, 2.5)),
+            PhysicalRect::new(0, 1, 5, 5)
+        );
+    }
+
+    #[test]
+    fn physical_rect_quantization_is_stable_across_scales() {
+        let logical = Rect::new(
+            Fixed::from_ratio(-1, 4),
+            Fixed::from_ratio(5, 4),
+            Fixed::from_ratio(7, 2),
+            Fixed::from_ratio(9, 4),
+        );
+        let cases = [
+            (
+                Viewport::new(20, 20, Fixed::ONE),
+                PhysicalRect::new(0, 1, 4, 3),
+            ),
+            (
+                Viewport::new(30, 30, Fixed::from_ratio(3, 2)),
+                PhysicalRect::new(0, 1, 5, 5),
+            ),
+            (
+                Viewport::new(40, 40, Fixed::from_int(2)),
+                PhysicalRect::new(0, 2, 7, 5),
+            ),
+        ];
+        for (viewport, expected) in cases {
+            assert_eq!(viewport.physical_rect(logical), expected);
+        }
     }
 }

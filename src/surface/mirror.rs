@@ -1,19 +1,16 @@
 use crate::render::texture::Texture;
+use crate::types::PhysicalRect;
 
 /// Same-position physical-pixel copy between two framebuffer slots.
-/// Bounds must come from `Viewport::rect_to_physical_pixel_bounds`.
-pub(crate) fn blit_region(dst: &mut Texture, src: &Texture, x0: i32, y0: i32, x1: i32, y1: i32) {
+pub(crate) fn blit_region(dst: &mut Texture, src: &Texture, area: PhysicalRect) {
     assert_eq!(src.format, dst.format, "mirror src/dst format mismatch");
     assert_eq!(src.stride, dst.stride, "mirror src/dst stride mismatch");
     assert_eq!(src.width, dst.width, "mirror src/dst width mismatch");
     assert_eq!(src.height, dst.height, "mirror src/dst height mismatch");
-    let x0 = x0.max(0) as usize;
-    let y0 = y0.max(0) as usize;
-    let x1 = (x1.max(0) as usize).min(src.width as usize);
-    let y1 = (y1.max(0) as usize).min(src.height as usize);
-    if x1 <= x0 || y1 <= y0 {
-        return;
-    }
+    let x0 = usize::from(area.x());
+    let y0 = usize::from(area.y());
+    let x1 = usize::from(area.right());
+    let y1 = usize::from(area.bottom());
     let bpp = src.format.bytes_per_pixel();
     let row = (x1 - x0) * bpp;
     let stride = src.stride;
@@ -30,25 +27,17 @@ pub(crate) fn blit_region(dst: &mut Texture, src: &Texture, x0: i32, y0: i32, x1
 /// Row order picked so source rows are never clobbered before read.
 pub(crate) fn texture_scroll_in_place(
     tex: &mut Texture,
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
+    area: PhysicalRect,
     dx_phys: i32,
     dy_phys: i32,
 ) {
     if dx_phys == 0 && dy_phys == 0 {
         return;
     }
-    let target_w = tex.width as i32;
-    let target_h = tex.height as i32;
-    let sx0 = x0.max(0);
-    let sy0 = y0.max(0);
-    let sx1 = x1.min(target_w);
-    let sy1 = y1.min(target_h);
-    if sx1 <= sx0 || sy1 <= sy0 {
-        return;
-    }
+    let sx0 = i32::from(area.x());
+    let sy0 = i32::from(area.y());
+    let sx1 = i32::from(area.right());
+    let sy1 = i32::from(area.bottom());
     let bpp = tex.format.bytes_per_pixel();
     let stride = tex.stride;
     let buf = tex.buf.as_mut_slice();

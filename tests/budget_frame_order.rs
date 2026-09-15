@@ -12,9 +12,9 @@ use mirui::app::App;
 use mirui::app::plugins::{BudgetReportPlugin, BudgetViolation};
 use mirui::ecs::Entity;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::Rect;
+use mirui::types::PhysicalRect;
 
-fn noop_flush(_: &[u8], _: &Rect) {}
+fn noop_flush(_: &[u8], _: PhysicalRect) {}
 
 thread_local! {
     static LAST_AVG: Cell<u64> = const { Cell::new(0) };

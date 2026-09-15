@@ -26,6 +26,7 @@ use sdl2::video::Window;
 
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
+use crate::render::PlaneRequirements;
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
@@ -37,7 +38,9 @@ use crate::render::renderer::{
     Renderer,
 };
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, Viewport};
+use crate::types::{
+    Color, Fixed, Fixed64, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport,
+};
 
 use crate::core::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
@@ -274,7 +277,7 @@ impl Surface for SdlGpuSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, _area: &Rect) {
+    fn flush(&mut self, _area: PhysicalRect) {
         self.canvas.present();
     }
 
@@ -467,10 +470,10 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
-    fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
+    fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let (pw, ph) = self.viewport.physical_size();
         self.viewport
-            .clipped_physical_pixel_rect(*src, u32::from(pw), u32::from(ph))
+            .physical_rect_in(*src, u32::from(pw), u32::from(ph))
     }
 
     pub(super) fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
@@ -519,8 +522,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .as_deref_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
         let read_rect = sdl2_sys::SDL_Rect {
-            x: plan.x,
-            y: plan.y,
+            x: i32::from(plan.x()),
+            y: i32::from(plan.y()),
             w: i32::from(plan.width()),
             h: i32::from(plan.height()),
         };
@@ -531,7 +534,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 &read_rect,
                 sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
                 target.as_mut_ptr().cast(),
-                i32::from(plan.width()) * 4,
+                i32::try_from(plan.stride_bytes())
+                    .map_err(|_| ProjectiveDrawError::InvalidProjection)?,
             )
         };
         if read_result != 0 {
@@ -550,16 +554,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             ) else {
                 return;
             };
-            if texture
-                .update(None, target, usize::from(plan.width()) * 4)
-                .is_err()
-            {
+            if texture.update(None, target, plan.stride_bytes()).is_err() {
                 return;
             }
             texture.set_blend_mode(sdl2::render::BlendMode::None);
             let dst = sdl2::rect::Rect::new(
-                plan.x,
-                plan.y,
+                i32::from(plan.x()),
+                i32::from(plan.y()),
                 u32::from(plan.width()),
                 u32::from(plan.height()),
             );
@@ -896,9 +897,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             if *alpha <= Fixed::ZERO || *alpha >= Fixed::ONE {
                 return Ok(RenderRoute::Native);
             }
+            let fallback = self.projective_fallback.as_ref();
             return RenderRoute::target_readback(
                 self.physical_clip_rect(region),
-                self.projective_fallback.as_ref().map(|f| f.capacity()),
+                fallback.as_ref().map(|f| f.capacity()),
+                PlaneRequirements::CPU,
             );
         }
         Self::classify_request(request)?;
@@ -975,7 +978,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 capacity_bytes: fallback.capacity(),
             });
         }
-        let plan = ProjectiveFallbackPlan::from_region(region, self.viewport)
+        let requirements = self
+            .projective_fallback
+            .as_ref()
+            .map(|fallback| fallback.requirements())
+            .ok_or(RenderError::MissingWorkspace)?;
+        let plan = ProjectiveFallbackPlan::from_region(region, self.viewport, requirements)
             .map_err(RenderError::from)?;
         self.draw_projective_plan(plan, request.command, &request.projective)
             .map_err(RenderError::from)
@@ -1241,17 +1249,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return Ok(None);
         };
         let sdl_rect = sdl2::rect::Rect::new(
-            phys.x.to_int(),
-            phys.y.to_int(),
-            phys.w.to_int() as u32,
-            phys.h.to_int() as u32,
+            i32::from(phys.x()),
+            i32::from(phys.y()),
+            u32::from(phys.width()),
+            u32::from(phys.height()),
         );
         let bytes = self
             .canvas
             .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
             .map_err(|_| RenderError::BackendFailure)?;
-        let w = u16::try_from(phys.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let h = u16::try_from(phys.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let w = phys.width();
+        let h = phys.height();
         crate::render::texture::Texture::from_vec(
             bytes,
             w,
@@ -1271,10 +1279,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return Ok(());
         };
         let sdl_rect = sdl2::rect::Rect::new(
-            phys.x.to_int(),
-            phys.y.to_int(),
-            phys.w.to_int() as u32,
-            phys.h.to_int() as u32,
+            i32::from(phys.x()),
+            i32::from(phys.y()),
+            u32::from(phys.width()),
+            u32::from(phys.height()),
         );
         let bytes = self
             .canvas
@@ -1313,7 +1321,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                     .update(None, bytes, stride)
                     .map_err(|_| RenderError::BackendFailure)?;
                 sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
-                let dst_rect = sdl2::rect::Rect::new(phys.x.to_int(), phys.y.to_int(), w, h);
+                let dst_rect =
+                    sdl2::rect::Rect::new(i32::from(phys.x()), i32::from(phys.y()), w, h);
                 canvas
                     .copy(&sdl_tex, None, Some(dst_rect))
                     .map_err(|_| RenderError::BackendFailure)
@@ -1410,15 +1419,13 @@ fn offset_point(p: &crate::types::Point, tx: Fixed, ty: Fixed) -> crate::types::
 pub(super) fn sdl_pixel_rect(area: &Rect, clip: &Rect) -> Option<sdl2::rect::Rect> {
     let inter = area.intersect(clip)?;
     let (x0, y0, x1, y1) = inter.pixel_bounds();
-    if x1 <= x0 || y1 <= y0 {
+    let (Ok(width), Ok(height)) = (u32::try_from(x1 - x0), u32::try_from(y1 - y0)) else {
+        return None;
+    };
+    if width == 0 || height == 0 {
         return None;
     }
-    Some(sdl2::rect::Rect::new(
-        x0,
-        y0,
-        (x1 - x0) as u32,
-        (y1 - y0) as u32,
-    ))
+    Some(sdl2::rect::Rect::new(x0, y0, width, height))
 }
 
 /// Configure the canvas draw colour + blend mode for a solid primitive

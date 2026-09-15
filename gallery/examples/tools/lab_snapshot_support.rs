@@ -8,7 +8,7 @@ use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
 use mirui::surface::framebuf::FramebufSurface;
 
-type SnapshotSurface = FramebufSurface<fn(&[u8], &Rect)>;
+type SnapshotSurface = FramebufSurface<fn(&[u8], PhysicalRect)>;
 pub type SnapshotApp = App<SnapshotSurface>;
 
 fn default_output(name: &str) -> PathBuf {
@@ -43,7 +43,7 @@ pub fn run(output_name: &str, viewport: (u16, u16), setup: impl FnOnce(&mut Snap
         .next()
         .map(|value| value.parse().expect("viewport height"))
         .unwrap_or(viewport.1);
-    let flush: fn(&[u8], &Rect) = |_, _| {};
+    let flush: fn(&[u8], PhysicalRect) = |_, _| {};
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, flush);
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();

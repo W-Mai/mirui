@@ -13,7 +13,7 @@ use sdl2::video::{Window, WindowContext};
 
 use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Fixed, Rect};
+use crate::types::Fixed;
 
 /// macOS trackpad pinch / rotate is delivered by SDL as `MultiGesture`,
 /// which has no "end" sentinel; if no `MultiGesture` arrives within
@@ -248,14 +248,13 @@ impl Surface for SdlSurface {
         self.pending_present = false;
     }
 
-    fn flush(&mut self, area: &Rect) {
+    fn flush(&mut self, area: crate::types::PhysicalRect) {
         // SDL `Texture::update` requires the rect to be inside the
         // texture, so clip first.
-        let (x0, y0, x1, y1) = area.pixel_bounds();
-        let fx0 = x0.max(0);
-        let fy0 = y0.max(0);
-        let fx1 = x1.min(self.width as i32);
-        let fy1 = y1.min(self.height as i32);
+        let fx0 = i32::from(area.x());
+        let fy0 = i32::from(area.y());
+        let fx1 = i32::from(area.right().min(self.width));
+        let fy1 = i32::from(area.bottom().min(self.height));
         if fx1 <= fx0 || fy1 <= fy0 {
             return;
         }

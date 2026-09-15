@@ -14,7 +14,7 @@ pub struct AlignedBytes {
 }
 
 impl AlignedBytes {
-    fn zeroed(len: usize, alignment: usize) -> Option<Self> {
+    pub(crate) fn zeroed(len: usize, alignment: usize) -> Option<Self> {
         if alignment == 0 || !alignment.is_power_of_two() {
             return None;
         }
@@ -49,6 +49,18 @@ impl Clone for AlignedBytes {
             .expect("an existing aligned allocation has valid dimensions");
         cloned.as_mut_slice().copy_from_slice(self.as_slice());
         cloned
+    }
+}
+
+impl AsRef<[u8]> for AlignedBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl AsMut<[u8]> for AlignedBytes {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_mut_slice()
     }
 }
 

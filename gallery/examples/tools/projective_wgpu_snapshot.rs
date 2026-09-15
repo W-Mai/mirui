@@ -37,7 +37,7 @@ fn main() {
                 break;
             }
             Err(RenderError::BackendFailure) => {
-                app.backend.flush(&full);
+                app.backend.flush(PhysicalRect::from_size(WIDTH, HEIGHT));
                 std::thread::sleep(Duration::from_millis(16));
             }
             Ok(None) => panic!("WGPU framebuffer readback was empty"),

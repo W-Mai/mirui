@@ -11,6 +11,7 @@ use alloc::string::String;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
+use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
 use crate::render::backends::sw::SwRenderer;
 use crate::render::canvas::{Canvas, Paint};
@@ -25,7 +26,7 @@ use crate::render::renderer::{
 };
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
-use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
+use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport};
 
 fn paint_color(paint: &Paint) -> Color {
     match paint {
@@ -286,10 +287,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 
     /// `None` when OOB — `getImageData` would silently return transparent
     /// black for the out-of-canvas portion (W3C spec).
-    fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
+    fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let (pw, ph) = self.viewport.physical_size();
         self.viewport
-            .clipped_physical_pixel_rect(*src, u32::from(pw), u32::from(ph))
+            .physical_rect_in(*src, u32::from(pw), u32::from(ph))
     }
 
     /// Push a clip rect onto the context state stack. The clip lives
@@ -719,8 +720,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let image = self
             .ctx()
             .get_image_data(
-                f64::from(plan.x),
-                f64::from(plan.y),
+                f64::from(plan.x()),
+                f64::from(plan.y()),
                 f64::from(plan.width()),
                 f64::from(plan.height()),
             )
@@ -731,20 +732,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             .projective_fallback
             .as_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        let target = fallback.target_mut(plan);
-        if target.len() != source.0.len() {
-            return Err(ProjectiveDrawError::BackendFailure);
-        }
-        target.copy_from_slice(&source.0);
+        fallback.copy_from_packed_rgba8(plan, &source.0)?;
         fallback.render(plan, command, projective, self.viewport)?;
         let output = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
-            wasm_bindgen::Clamped(fallback.target_mut(plan)),
+            wasm_bindgen::Clamped(fallback.packed_rgba8_mut(plan)?),
             u32::from(plan.width()),
             u32::from(plan.height()),
         )
         .map_err(|_| ProjectiveDrawError::BackendFailure)?;
         self.ctx()
-            .put_image_data(&output, f64::from(plan.x), f64::from(plan.y))
+            .put_image_data(&output, f64::from(plan.x()), f64::from(plan.y()))
             .map_err(|_| ProjectiveDrawError::BackendFailure)
     }
 
@@ -798,12 +795,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             if *alpha <= Fixed::ZERO || *alpha >= Fixed::ONE {
                 return Ok(RenderRoute::Native);
             }
+            let fallback = self.factory.projective_fallback.as_ref();
             return RenderRoute::target_readback(
                 self.physical_clip_rect(region),
-                self.factory
-                    .projective_fallback
-                    .as_ref()
-                    .map(|f| f.capacity()),
+                fallback.as_ref().map(|f| f.capacity()),
+                PlaneRequirements::CPU,
             );
         }
         let paint_fallback = Self::needs_paint_fallback(request);
@@ -886,7 +882,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 capacity_bytes: fallback.capacity(),
             });
         }
-        let plan = ProjectiveFallbackPlan::from_region(region, self.viewport)
+        let requirements = self
+            .factory
+            .projective_fallback
+            .as_ref()
+            .map(|fallback| fallback.requirements())
+            .ok_or(RenderError::MissingWorkspace)?;
+        let plan = ProjectiveFallbackPlan::from_region(region, self.viewport, requirements)
             .map_err(RenderError::from)?;
         self.draw_projective_plan(plan, request.command, &request.projective)
             .map_err(RenderError::from)
@@ -914,14 +916,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let img = self
             .ctx()
             .get_image_data(
-                phys.x.to_f32() as f64,
-                phys.y.to_f32() as f64,
-                phys.w.to_f32() as f64,
-                phys.h.to_f32() as f64,
+                f64::from(phys.x()),
+                f64::from(phys.y()),
+                f64::from(phys.width()),
+                f64::from(phys.height()),
             )
             .map_err(|_| RenderError::BackendFailure)?;
-        let w = u16::try_from(phys.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let h = u16::try_from(phys.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let w = phys.width();
+        let h = phys.height();
         crate::render::texture::Texture::from_vec(img.data().0, w, h, ColorFormat::RGBA8888)
             .map(Some)
             .ok_or(RenderError::BackendFailure)
@@ -938,10 +940,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let img = self
             .ctx()
             .get_image_data(
-                phys.x.to_f32() as f64,
-                phys.y.to_f32() as f64,
-                phys.w.to_f32() as f64,
-                phys.h.to_f32() as f64,
+                f64::from(phys.x()),
+                f64::from(phys.y()),
+                f64::from(phys.width()),
+                f64::from(phys.height()),
             )
             .map_err(|_| RenderError::BackendFailure)?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
@@ -968,7 +970,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             return Err(RenderError::BackendFailure);
         };
         self.ctx()
-            .put_image_data(&img, phys.x.to_f32() as f64, phys.y.to_f32() as f64)
+            .put_image_data(&img, f64::from(phys.x()), f64::from(phys.y()))
             .map_err(|_| RenderError::BackendFailure)?;
         Ok(true)
     }

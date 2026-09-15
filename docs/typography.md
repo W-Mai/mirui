@@ -232,6 +232,8 @@ when capacity or projection validation fails.
 
 ## Backend behavior
 
+![Backend fallback routing and bounded execution](backend-fallback.svg)
+
 | Geometry | Software | WGPU | SDL GPU | Web Canvas |
 |---|---|---|---|---|
 | Linear and affine | native | native | native run cache | native canvas path |
@@ -253,6 +255,8 @@ projected visual bounds to limit the required storage; glyph
 requests use projected ink bounds. Preflight rejects missing or insufficient
 capacity before drawing. Unsupported projective commands remain errors.
 Gallery reserves 2 MiB for this target on Web Canvas and SDL GPU.
+The complete routing, numeric-domain, and aligned-memory contract is described
+in [Exact backend fallback](backend-fallback.md).
 
 ## Storage and invalidation
 

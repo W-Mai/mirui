@@ -10,12 +10,12 @@ use mirui::render::texture::{ColorFormat, Texture};
 use mirui::render::{PosedGlyphs, RendererFactory, SwRendererFactory};
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::text::{FlowPoint, GlyphId, PositionedGlyph};
-use mirui::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use mirui::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Viewport};
 use textflow::placement::GlyphFrame;
 use tracking_allocator::tracked_allocations;
 
 #[allow(clippy::too_many_arguments)]
-fn render_frame<F: FnMut(&[u8], &Rect)>(
+fn render_frame<F: FnMut(&[u8], PhysicalRect)>(
     factory: &mut SwRendererFactory,
     surface: &mut FramebufSurface<F>,
     viewport: &Viewport,

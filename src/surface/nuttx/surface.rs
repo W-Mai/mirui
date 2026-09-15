@@ -146,12 +146,11 @@ impl Surface for NuttxFbSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, area: &Rect) {
-        let (x0, y0, x1, y1) = area.pixel_bounds();
-        let x = x0.clamp(0, self.width as i32) as u16;
-        let y = y0.clamp(0, self.height as i32) as u16;
-        let xe = x1.clamp(0, self.width as i32) as u16;
-        let ye = y1.clamp(0, self.height as i32) as u16;
+    fn flush(&mut self, area: crate::types::PhysicalRect) {
+        let x = area.x().min(self.width);
+        let y = area.y().min(self.height);
+        let xe = area.right().min(self.width);
+        let ye = area.bottom().min(self.height);
         let w = xe.saturating_sub(x);
         let h = ye.saturating_sub(y);
         if w == 0 || h == 0 {

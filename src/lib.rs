@@ -21,11 +21,11 @@
 //! use mirui::prelude::*;
 //! use mirui::surface::framebuf::FramebufSurface;
 //! use mirui::render::texture::ColorFormat;
-//! use mirui::types::Rect;
+//! use mirui::types::PhysicalRect;
 //!
 //! let backend = FramebufSurface::with_format(
 //!     480, 320, ColorFormat::RGBA8888,
-//!     |_bytes: &[u8], _area: &Rect| { /* push to your display */ },
+//!     |_bytes: &[u8], _area: PhysicalRect| { /* push to your display */ },
 //! );
 //! let mut app = App::new(backend);
 //! app.with_default_widgets().with_default_systems();
@@ -138,7 +138,7 @@ pub mod prelude {
         PathCaretHit, PathDirection, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
         TextPath,
     };
-    pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
+    pub use crate::types::{Color, Dimension, Fixed, PhysicalRect, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::layout::{
         AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutStyle, Padding, Position,

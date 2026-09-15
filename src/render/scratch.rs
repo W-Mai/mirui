@@ -42,6 +42,15 @@ impl PlaneRequirements {
     pub const fn stride_alignment(self) -> usize {
         self.stride_alignment
     }
+
+    pub fn validate_address(self, bytes: &[u8]) -> Result<(), PlaneError> {
+        if !bytes.is_empty() && (bytes.as_ptr() as usize) % self.address_alignment != 0 {
+            return Err(PlaneError::MisalignedAddress {
+                alignment: self.address_alignment,
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Checked dimensions, format, row stride and byte requirement.
@@ -58,10 +67,21 @@ pub struct PlaneLayout {
 impl PlaneLayout {
     /// Use the minimum packed row stride with no extra alignment.
     pub fn packed(width: u16, height: u16, format: ColorFormat) -> Result<Self, PlaneError> {
-        let stride_bytes = usize::from(width)
+        Self::aligned(width, height, format, PlaneRequirements::CPU)
+    }
+
+    pub fn aligned(
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+        requirements: PlaneRequirements,
+    ) -> Result<Self, PlaneError> {
+        let minimum = usize::from(width)
             .checked_mul(format.bytes_per_pixel())
             .ok_or(PlaneError::Overflow)?;
-        Self::new(width, height, format, stride_bytes, PlaneRequirements::CPU)
+        let mask = requirements.stride_alignment - 1;
+        let stride_bytes = minimum.checked_add(mask).ok_or(PlaneError::Overflow)? & !mask;
+        Self::new(width, height, format, stride_bytes, requirements)
     }
 
     pub fn new(
@@ -110,6 +130,14 @@ impl PlaneLayout {
         self.stride_bytes
     }
 
+    pub const fn format(self) -> ColorFormat {
+        self.format
+    }
+
+    pub const fn requirements(self) -> PlaneRequirements {
+        self.requirements
+    }
+
     pub const fn required_bytes(self) -> usize {
         self.required_bytes
     }
@@ -122,13 +150,8 @@ impl PlaneLayout {
                 available: bytes.len(),
             });
         }
-        if self.required_bytes != 0
-            && (bytes.as_ptr() as usize) % self.requirements.address_alignment != 0
-        {
-            return Err(PlaneError::MisalignedAddress {
-                alignment: self.requirements.address_alignment,
-            });
-        }
+        self.requirements
+            .validate_address(&bytes[..self.required_bytes])?;
         Ok(AlignedPlane {
             bytes,
             layout: self,
@@ -231,5 +254,14 @@ mod tests {
             PlaneLayout::new(1, 2, ColorFormat::RGBA8888, usize::MAX, requirements),
             Err(PlaneError::Overflow)
         );
+    }
+
+    #[test]
+    fn aligned_layout_rounds_stride_before_capacity() {
+        let requirements = PlaneRequirements::new(64, 64).unwrap();
+        let layout = PlaneLayout::aligned(17, 3, ColorFormat::RGBA8888, requirements).unwrap();
+        assert_eq!(layout.stride_bytes(), 128);
+        assert_eq!(layout.required_bytes(), 384);
+        assert_eq!(layout.requirements(), requirements);
     }
 }

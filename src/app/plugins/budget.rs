@@ -120,7 +120,7 @@ mod tests {
     fn run(plugin: &mut BudgetReportPlugin, world: &mut World, frames: u32) {
         for _ in 0..frames {
             <BudgetReportPlugin as Plugin<
-                crate::surface::framebuf::FramebufSurface<fn(&[u8], &crate::types::Rect)>,
+                crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
                 crate::app::SwRendererFactory,
             >>::post_render(plugin, world, 0);
         }

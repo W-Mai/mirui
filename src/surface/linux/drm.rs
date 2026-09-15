@@ -20,7 +20,7 @@ use crate::input::event::input::InputEvent;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::surface::scale::{ScaleMode, compute_scale};
 use crate::surface::{BackbufferPersistence, DisplayInfo, FramebufferAccess, Surface};
-use crate::types::{Fixed, Rect};
+use crate::types::Fixed;
 
 #[derive(Debug, Clone)]
 pub struct LinuxDrmConfig<'a> {
@@ -367,19 +367,18 @@ impl Surface for LinuxDrmSurface {
         }
     }
 
-    fn flush(&mut self, area: &Rect) {
+    fn flush(&mut self, area: crate::types::PhysicalRect) {
         // N>1: page-flip in `advance` is the sync path; skip dirty_framebuffer.
         // N=1: dirty_framebuffer is paravirtual's only RESOURCE_FLUSH path.
         if self.buffers.len() > 1 {
             let _ = area;
             return;
         }
-        let (x0, y0, x1, y1) = area.pixel_bounds();
         let clip = ClipRect::new(
-            x0.max(0) as u16,
-            y0.max(0) as u16,
-            (x1.max(0) as u16).min(self.width),
-            (y1.max(0) as u16).min(self.height),
+            area.x().min(self.width),
+            area.y().min(self.height),
+            area.right().min(self.width),
+            area.bottom().min(self.height),
         );
         let _ = self
             .card

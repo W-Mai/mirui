@@ -18,7 +18,7 @@ use winit::window::{Window, WindowId};
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface, logical_from_physical};
 use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
-use crate::types::{Fixed, Rect};
+use crate::types::Fixed;
 
 /// Live wgpu state — only present after the first `pump_app_events`
 /// has driven `ApplicationHandler::resumed`, which is where winit
@@ -374,9 +374,15 @@ impl Surface for WgpuSurface {
             .as_ref()
             .expect("WgpuSurface state must be initialised by new()");
         let size = state.window.inner_size();
-        let scale_int = state.window.scale_factor().round().max(1.0) as u16;
+        let scale_int = state
+            .window
+            .scale_factor()
+            .round()
+            .clamp(1.0, u16::MAX as f64) as u16;
         let scale = Fixed::from(scale_int);
-        let (lw, lh) = logical_from_physical(size.width as u16, size.height as u16, scale);
+        let physical_width = u16::try_from(size.width).unwrap_or(u16::MAX);
+        let physical_height = u16::try_from(size.height).unwrap_or(u16::MAX);
+        let (lw, lh) = logical_from_physical(physical_width, physical_height, scale);
         DisplayInfo {
             width: lw,
             height: lh,
@@ -385,7 +391,7 @@ impl Surface for WgpuSurface {
         }
     }
 
-    fn flush(&mut self, _area: &Rect) {
+    fn flush(&mut self, _area: crate::types::PhysicalRect) {
         // Frame boundary: re-arm `poll_event` to pump once next tick.
         // Transient backends like wgpu hit `flush` every frame but
         // never `begin_flush`, so the latch lives here.
@@ -394,6 +400,16 @@ impl Surface for WgpuSurface {
         // (the SurfaceTexture lives on the renderer's frame state)
         // — this method only owns the per-frame latch reset.
         self.pumped_this_frame = false;
+    }
+
+    fn physical_size(&self) -> (u32, u32) {
+        let state = self
+            .handler
+            .state
+            .as_ref()
+            .expect("WgpuSurface state must be initialised by new()");
+        let size = state.window.inner_size();
+        (size.width, size.height)
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

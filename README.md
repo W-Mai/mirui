@@ -324,12 +324,7 @@ compose_backend! {
 let renderer = Hybrid::new(sw_renderer, dma_blitter);
 ```
 
-The default field owns the target. Every other field implements
-`RenderEngine<Target>` and receives a sequential mutable borrow for each routed
-request. Engine begin/end barriers surround submission, and target readback,
-scrolling, output scale, offscreen access, and flush remain target-owned. See
-`gallery/examples/backends/compose_backend_demo.rs` and
-`gallery/examples/backends/compose_backend_dsl.rs`.
+The default field owns the target. Every other field implements `RenderEngine<Target>` and receives a sequential mutable borrow for each routed request. Engine begin/end barriers surround submission, and target readback, scrolling, output scale, offscreen access, and flush remain target-owned. See `gallery/examples/backends/compose_backend_demo.rs`, `gallery/examples/backends/compose_backend_dsl.rs`, and the [exact backend fallback flow](docs/backend-fallback.md).
 
 ## ECS
 

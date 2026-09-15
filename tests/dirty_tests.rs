@@ -46,7 +46,7 @@ mod tests {
             "PrevRect should be stored when pixels change"
         );
         let pr = prev.unwrap().0;
-        assert_eq!(pr.to_px(), (10, 20, 16, 16));
+        assert_eq!(pr.pixel_bounds(), (10, 20, 26, 36));
     }
 
     #[test]
@@ -79,7 +79,7 @@ mod tests {
         let prev = world.get::<PrevRect>(child).unwrap().0;
         // Old was (10, 20, 16, 16), new is (10.78, 20) -> pixel (10, 20, 17, 16)
         // They differ in width (16 vs 17), so PrevRect stored
-        assert_eq!(prev.to_px(), (10, 20, 16, 16));
+        assert_eq!(prev.pixel_bounds(), (10, 20, 26, 36));
 
         // Clear PrevRect, update style manually for next test
         world.remove::<PrevRect>(child);
@@ -97,7 +97,7 @@ mod tests {
 
         let prev = world.get::<PrevRect>(child).unwrap().0;
         // Old was (10.78, 20, 16, 16) -> pixel (10, 20, 17, 16)
-        assert_eq!(prev.to_px(), (10, 20, 17, 16));
+        assert_eq!(prev.pixel_bounds(), (10, 20, 27, 36));
     }
 
     #[test]
@@ -115,17 +115,14 @@ mod tests {
         let dirty = mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
 
         let area = dirty.expect("should have dirty region");
-        let (dx, dy, dw, dh) = area.to_px();
+        let (dx, dy, dr, db) = area.pixel_bounds();
 
         // Must cover old position (10, 20) and new position (50, 60)
         assert!(dx <= 10, "dirty x={dx} should be <= 10 (old pos)");
         assert!(dy <= 20, "dirty y={dy} should be <= 20 (old pos)");
+        assert!(dr >= 50 + 16, "dirty right should cover new pos right edge");
         assert!(
-            dx + dw as i32 >= 50 + 16,
-            "dirty right should cover new pos right edge"
-        );
-        assert!(
-            dy + dh as i32 >= 60 + 16,
+            db >= 60 + 16,
             "dirty bottom should cover new pos bottom edge"
         );
     }
@@ -146,18 +143,18 @@ mod tests {
         let dirty = mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
 
         let area = dirty.expect("should have dirty region");
-        let (dx, dy, dw, dh) = area.to_px();
+        let (dx, dy, dr, db) = area.pixel_bounds();
 
         // Old: (10, 20, 16, 16) -> pixels 10..26, 20..36
         // New: (30.78, 40.39, 16, 16) -> pixels 30..47, 40..57
         assert!(dx <= 10, "dirty must cover old left edge");
         assert!(dy <= 20, "dirty must cover old top edge");
         assert!(
-            dx + dw as i32 >= 47,
+            dr >= 47,
             "dirty must cover new right edge (ceil of 30.78+16)"
         );
         assert!(
-            dy + dh as i32 >= 57,
+            db >= 57,
             "dirty must cover new bottom edge (ceil of 40.39+16)"
         );
     }
@@ -217,9 +214,7 @@ mod tests {
                 mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
 
             let Some(area) = dirty else { continue };
-            let (dx, dy, dw, dh) = area.to_px();
-            let dr = dx + dw as i32;
-            let db = dy + dh as i32;
+            let (dx, dy, dr, db) = area.pixel_bounds();
 
             let old_rect = Rect {
                 x: old_x,
@@ -227,7 +222,7 @@ mod tests {
                 w,
                 h,
             };
-            let (ox, oy, ow, oh) = old_rect.to_px();
+            let (ox, oy, or, ob) = old_rect.pixel_bounds();
 
             let new_rect = Rect {
                 x: new_x,
@@ -235,35 +230,19 @@ mod tests {
                 w,
                 h,
             };
-            let (nx, ny, nw, nh) = new_rect.to_px();
+            let (nx, ny, nr, nb) = new_rect.pixel_bounds();
 
             // Dirty must contain old footprint
             assert!(dx <= ox, "dirty x={dx} > old x={ox}");
             assert!(dy <= oy, "dirty y={dy} > old y={oy}");
-            assert!(
-                dr >= ox + ow as i32,
-                "dirty right={dr} < old right={}",
-                ox + ow as i32
-            );
-            assert!(
-                db >= oy + oh as i32,
-                "dirty bottom={db} < old bottom={}",
-                oy + oh as i32
-            );
+            assert!(dr >= or, "dirty right={dr} < old right={}", or);
+            assert!(db >= ob, "dirty bottom={db} < old bottom={}", ob);
 
             // Dirty must contain new footprint
             assert!(dx <= nx, "dirty x={dx} > new x={nx}");
             assert!(dy <= ny, "dirty y={dy} > new y={ny}");
-            assert!(
-                dr >= nx + nw as i32,
-                "dirty right={dr} < new right={}",
-                nx + nw as i32
-            );
-            assert!(
-                db >= ny + nh as i32,
-                "dirty bottom={db} < new bottom={}",
-                ny + nh as i32
-            );
+            assert!(dr >= nr, "dirty right={dr} < new right={}", nr);
+            assert!(db >= nb, "dirty bottom={db} < new bottom={}", nb);
         }
     }
 

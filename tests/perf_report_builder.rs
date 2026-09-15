@@ -9,9 +9,9 @@ use mirui::app::App;
 use mirui::app::plugins::{PerfReport, PerfReportPlugin};
 use mirui::ecs::Entity;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::Rect;
+use mirui::types::PhysicalRect;
 
-fn noop_flush(_: &[u8], _: &Rect) {}
+fn noop_flush(_: &[u8], _: PhysicalRect) {}
 
 static REPORT_CALLS_LINE: AtomicU32 = AtomicU32::new(0);
 static REPORT_CALLS_WRITER: AtomicU32 = AtomicU32::new(0);

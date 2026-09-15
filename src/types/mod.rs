@@ -1,11 +1,13 @@
 pub mod dimension;
 pub mod fixed;
+mod physical_rect;
 pub mod transform;
 pub mod transform_3d;
 pub mod viewport;
 
 pub use dimension::{DimPoint, Dimension};
 pub use fixed::{Fixed, Fixed64};
+pub use physical_rect::PhysicalRect;
 pub use transform::{Transform, TransformClass};
 pub use transform_3d::Transform3D;
 pub use viewport::Viewport;
@@ -140,12 +142,6 @@ impl Rect {
             (self.x + self.w).ceil().to_int(),
             (self.y + self.h).ceil().to_int(),
         )
-    }
-
-    /// Convert to integer pixel rect that fully contains this rect
-    pub fn to_px(&self) -> (i32, i32, u16, u16) {
-        let (x0, y0, x1, y1) = self.pixel_bounds();
-        (x0, y0, (x1 - x0) as u16, (y1 - y0) as u16)
     }
 
     /// Construct from integer values

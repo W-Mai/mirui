@@ -107,12 +107,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         }
         let (sx0, sy0, sx1, sy1) = src_rect.pixel_bounds();
-        let src_sdl = sdl2::rect::Rect::new(
-            sx0.max(0),
-            sy0.max(0),
-            (sx1 - sx0) as u32,
-            (sy1 - sy0) as u32,
-        );
+        let (Ok(sw), Ok(sh)) = (u32::try_from(sx1 - sx0), u32::try_from(sy1 - sy0)) else {
+            return;
+        };
+        let src_sdl = sdl2::rect::Rect::new(sx0.max(0), sy0.max(0), sw, sh);
         let dst_sdl = sdl2::rect::Rect::new(dx, dy, dw, dh);
 
         let Some(sdl_clip) = sdl_pixel_rect(&phys_clip, &phys_clip) else {

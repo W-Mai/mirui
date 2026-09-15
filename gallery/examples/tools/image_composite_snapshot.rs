@@ -189,7 +189,7 @@ fn main() {
                         break;
                     }
                     Err(RenderError::BackendFailure) => {
-                        surface.flush(&Rect::new(0, 0, WIDTH, HEIGHT));
+                        surface.flush(PhysicalRect::from_size(WIDTH, HEIGHT));
                         std::thread::sleep(Duration::from_millis(16));
                     }
                     Err(error) => panic!("WGPU composite draw failed: {error:?}"),

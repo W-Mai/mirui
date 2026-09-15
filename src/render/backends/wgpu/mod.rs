@@ -5,6 +5,7 @@ mod texture_pool;
 
 use wgpu::util::DeviceExt;
 
+use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
@@ -18,7 +19,7 @@ use crate::render::renderer::{
 };
 use crate::render::texture::Texture;
 use crate::surface::wgpu_surface::WgpuSurface;
-use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
+use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport};
 
 use self::pipeline::{
     BlitQuadVertex, BlitUniform, GlyphInstance, GlyphUniform, PathTintUniform, PipelineCache,
@@ -491,6 +492,7 @@ impl WgpuRenderer<'_> {
                 &request.clip,
                 &request.projective,
                 self.viewport,
+                PlaneRequirements::CPU,
             )
             .map(Some)
             .map_err(RenderError::from)
@@ -534,8 +536,8 @@ impl WgpuRenderer<'_> {
             &state.queue,
             &frame.surface_texture.texture,
             state.config.format,
-            plan.x as u32,
-            plan.y as u32,
+            u32::from(plan.x()),
+            u32::from(plan.y()),
             u32::from(plan.width()),
             u32::from(plan.height()),
         )
@@ -561,10 +563,7 @@ impl WgpuRenderer<'_> {
             texture.width,
             texture.height,
             &Rect::new(0, 0, texture.width, texture.height),
-            Point::new(
-                Fixed::from_int(plan.x) / scale,
-                Fixed::from_int(plan.y) / scale,
-            ),
+            Point::new(Fixed::from(plan.x()) / scale, Fixed::from(plan.y()) / scale),
             Point::new(
                 Fixed::from(plan.width()) / scale,
                 Fixed::from(plan.height()) / scale,
@@ -574,8 +573,8 @@ impl WgpuRenderer<'_> {
             CompositeMode::SourceOver,
             ShaderKind::BlitReplace,
             [
-                plan.x as u32,
-                plan.y as u32,
+                u32::from(plan.x()),
+                u32::from(plan.y()),
                 u32::from(plan.width()),
                 u32::from(plan.height()),
             ],
@@ -1122,29 +1121,24 @@ impl WgpuRenderer<'_> {
     }
 }
 
-/// Logical clip → physical scissor, clamped to the swapchain extent.
-/// wgpu validates `x + w <= extent` and `y + h <= extent` so any clip
-/// extending past the surface must be cropped before reaching the pass.
-fn clip_to_scissor(clip: &Rect, scale: f32, surface_w: u32, surface_h: u32) -> [u32; 4] {
-    let x0 = (clip.x.to_f32() * scale).max(0.0).min(surface_w as f32) as u32;
-    let y0 = (clip.y.to_f32() * scale).max(0.0).min(surface_h as f32) as u32;
-    let x1 = ((clip.x.to_f32() + clip.w.to_f32()) * scale)
-        .max(0.0)
-        .min(surface_w as f32) as u32;
-    let y1 = ((clip.y.to_f32() + clip.h.to_f32()) * scale)
-        .max(0.0)
-        .min(surface_h as f32) as u32;
-    [x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)]
-}
-
 impl WgpuRenderer<'_> {
     fn scissor_from_clip(&self, clip: &Rect) -> [u32; 4] {
         let state = self
             .surface
             .state()
             .expect("WgpuSurface state missing for scissor");
-        let scale = self.viewport.scale().to_f32().max(1.0);
-        clip_to_scissor(clip, scale, state.config.width, state.config.height)
+        let Some(rect) =
+            self.viewport
+                .physical_rect_in(*clip, state.config.width, state.config.height)
+        else {
+            return [0, 0, 0, 0];
+        };
+        [
+            u32::from(rect.x()),
+            u32::from(rect.y()),
+            u32::from(rect.width()),
+            u32::from(rect.height()),
+        ]
     }
 }
 
@@ -1215,10 +1209,10 @@ impl WgpuRenderer<'_> {
 }
 
 impl WgpuRenderer<'_> {
-    fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
+    fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let state = self.surface.state()?;
         self.viewport
-            .clipped_physical_pixel_rect(*src, state.config.width, state.config.height)
+            .physical_rect_in(*src, state.config.width, state.config.height)
     }
 }
 
@@ -3444,6 +3438,7 @@ impl WgpuRenderer<'_> {
             return RenderRoute::target_readback(
                 self.physical_clip_rect(region),
                 self.factory.target_edit_budget_bytes,
+                PlaneRequirements::CPU,
             );
         }
         let route = Self::classify_request(request)?;
@@ -3481,8 +3476,9 @@ impl WgpuRenderer<'_> {
                     capacity_bytes,
                 });
             }
-            let plan = ProjectiveFallbackPlan::from_region(region, self.viewport)
-                .map_err(RenderError::from)?;
+            let plan =
+                ProjectiveFallbackPlan::from_region(region, self.viewport, PlaneRequirements::CPU)
+                    .map_err(RenderError::from)?;
             if plan.required_bytes() == 0 {
                 return Ok(());
             }
@@ -3887,8 +3883,8 @@ impl WgpuRenderer<'_> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(None);
         };
-        let w = u16::try_from(phys.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let h = u16::try_from(phys.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+        let w = phys.width();
+        let h = phys.height();
         let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
         let bytes = wgpu_readback_rgba8(
@@ -3896,8 +3892,8 @@ impl WgpuRenderer<'_> {
             &state.queue,
             &frame.surface_texture.texture,
             state.config.format,
-            phys.x.to_int() as u32,
-            phys.y.to_int() as u32,
+            u32::from(phys.x()),
+            u32::from(phys.y()),
             u32::from(w),
             u32::from(h),
         )
@@ -3929,8 +3925,8 @@ impl WgpuRenderer<'_> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(());
         };
-        let w = phys.w.to_int() as u32;
-        let h = phys.h.to_int() as u32;
+        let w = u32::from(phys.width());
+        let h = u32::from(phys.height());
         let Some(frame) = self.frame.as_ref() else {
             return Err(RenderError::BackendFailure);
         };
@@ -3942,8 +3938,8 @@ impl WgpuRenderer<'_> {
             &state.queue,
             &frame.surface_texture.texture,
             state.config.format,
-            phys.x.to_int() as u32,
-            phys.y.to_int() as u32,
+            u32::from(phys.x()),
+            u32::from(phys.y()),
             w,
             h,
         )
@@ -3976,10 +3972,10 @@ impl WgpuRenderer<'_> {
             .physical_clip_rect(src)
             .ok_or(RenderError::InvalidGeometry)?;
         let scissor = [
-            phys.x.to_int() as u32,
-            phys.y.to_int() as u32,
-            phys.w.to_int() as u32,
-            phys.h.to_int() as u32,
+            u32::from(phys.x()),
+            u32::from(phys.y()),
+            u32::from(phys.width()),
+            u32::from(phys.height()),
         ];
         let view = self
             .blit_source_view(&tex)
@@ -3991,12 +3987,12 @@ impl WgpuRenderer<'_> {
             tex.height,
             &Rect::new(0, 0, tex.width, tex.height),
             Point {
-                x: phys.x / scale,
-                y: phys.y / scale,
+                x: Fixed::from(phys.x()) / scale,
+                y: Fixed::from(phys.y()) / scale,
             },
             Point {
-                x: phys.w / scale,
-                y: phys.h / scale,
+                x: Fixed::from(phys.width()) / scale,
+                y: Fixed::from(phys.height()) / scale,
             },
             255,
             Fixed::ZERO,

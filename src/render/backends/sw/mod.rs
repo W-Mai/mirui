@@ -1571,19 +1571,13 @@ impl SwRenderer<'_> {
         dy: Fixed,
     ) -> Result<(), RenderError> {
         // Truncate (not floor) so sub-pixel residue keeps the original sign.
-        let (px0, py0, px1, py1) = self.viewport.rect_to_physical_pixel_bounds(*area);
+        let Some(area) = self.viewport.physical_rect(*area) else {
+            return Ok(());
+        };
         let scale = self.viewport.scale();
         let dx_phys = (dx * scale).trunc_to_int();
         let dy_phys = (dy * scale).trunc_to_int();
-        crate::surface::mirror::texture_scroll_in_place(
-            &mut self.target,
-            px0,
-            py0,
-            px1,
-            py1,
-            dx_phys,
-            dy_phys,
-        );
+        crate::surface::mirror::texture_scroll_in_place(&mut self.target, area, dx_phys, dy_phys);
         Ok(())
     }
 

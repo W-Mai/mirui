@@ -155,7 +155,7 @@ The piece that's universal across boards is the mirui side:
 let backend = FramebufSurface::with_format(
     W, H,
     mirui::render::texture::ColorFormat::RGB565Swapped,  // or RGB565
-    |bytes: &[u8], area: &Rect| {
+    |bytes: &[u8], area: mirui::types::PhysicalRect| {
         // Push `bytes` to your LCD over SPI for the window described by `area`.
     },
 );

@@ -24,7 +24,7 @@ use crate::input::event::input::{
     KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
 };
 use crate::render::texture::ColorFormat;
-use crate::types::{Fixed, Rect};
+use crate::types::Fixed;
 
 type EventQueue = Rc<RefCell<VecDeque<InputEvent>>>;
 
@@ -107,7 +107,7 @@ impl Surface for WebCanvasSurface {
         }
     }
 
-    fn flush(&mut self, _area: &Rect) {}
+    fn flush(&mut self, _area: crate::types::PhysicalRect) {}
 
     fn poll_event(&mut self) -> Option<InputEvent> {
         self.event_queue.borrow_mut().pop_front()
@@ -117,6 +117,10 @@ impl Surface for WebCanvasSurface {
         self.display_info();
         self.backbuffer.take_persistence()
     }
+
+    fn physical_size(&self) -> (u32, u32) {
+        (self.canvas.width(), self.canvas.height())
+    }
 }
 
 /// `set_width` / `set_height` blank the backing store on every
@@ -125,8 +129,8 @@ impl Surface for WebCanvasSurface {
 fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed, bool) {
     let window = web_sys::window().expect("no global `window`");
     let dpr = window.device_pixel_ratio().max(1.0);
-    let css_w = canvas.client_width().max(1) as u16;
-    let css_h = canvas.client_height().max(1) as u16;
+    let css_w = crate::surface::saturating_u16(canvas.client_width().max(1));
+    let css_h = crate::surface::saturating_u16(canvas.client_height().max(1));
     let phys_w = (css_w as f64 * dpr).round() as u32;
     let phys_h = (css_h as f64 * dpr).round() as u32;
     let reset = canvas.width() != phys_w || canvas.height() != phys_h;

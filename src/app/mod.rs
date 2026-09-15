@@ -13,7 +13,7 @@ use crate::input::event::gesture::GestureSystem;
 use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
-use crate::types::Rect;
+use crate::types::{PhysicalRect, Rect};
 use crate::ui::Theme;
 use crate::ui::dirty::DirtyRegions;
 use crate::ui::offscreen::OffscreenBufferPool;
@@ -55,7 +55,7 @@ impl<B: FramebufferAccess> App<B, SwRendererFactory> {
     }
 }
 
-type HeadlessFlush = fn(&[u8], &crate::types::Rect);
+type HeadlessFlush = fn(&[u8], PhysicalRect);
 
 impl App<crate::surface::framebuf::FramebufSurface<HeadlessFlush>, SwRendererFactory> {
     /// In-memory `App` for tests and snapshots. No-op flush, no
@@ -417,8 +417,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
         let Some(root) = self.root else { return Ok(()) };
-        let info = self.backend.display_info();
-        let transform = info.viewport();
+        let transform = self.backend.viewport();
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
@@ -446,11 +445,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.last_render_ns = render_end.saturating_sub(layout_end);
         let render_ns = render_end.saturating_sub(layout_start);
 
-        let (pw, ph) = self.backend.physical_size();
+        let (pw, ph) = transform.physical_size();
         {
             crate::trace_span!("frame.flush");
             self.backend.begin_flush();
-            self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
+            self.backend.flush(PhysicalRect::from_size(pw, ph));
             self.backend.end_flush();
         }
         let flush_end = self.clock_ns();
@@ -520,12 +519,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Get the dirty region in **logical pixels** after event processing,
-    /// clearing dirty flags in the process. Multiply by `display_info().scale`
-    /// (or use `Viewport::rect_to_physical`) for physical coordinates.
+    /// clearing dirty flags in the process. Use the backend's `viewport()`
+    /// to obtain a clipped physical region.
     pub fn dirty_region(&mut self) -> Option<Rect> {
         let root = self.root?;
-        let info = self.backend.display_info();
-        let transform = info.viewport();
+        let transform = self.backend.viewport();
         render_system::collect_dirty_region(&mut self.world, root, &transform)
     }
 
@@ -770,8 +768,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     #[mirui::trace_fn("frame.dirty")]
     pub fn render_dirty(&mut self) -> Result<(), crate::render::RenderError> {
         let Some(root) = self.root else { return Ok(()) };
-        let info = self.backend.display_info();
-        let transform = info.viewport();
+        let transform = self.backend.viewport();
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
@@ -900,12 +897,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 crate::trace_span!("frame.flush");
                 self.backend.begin_flush();
                 for rect in &plan.rects {
-                    let phys = transform.rect_to_physical(*rect);
-                    self.backend.flush(&phys);
+                    if let Some(physical) = transform.physical_rect(*rect) {
+                        self.backend.flush(physical);
+                    }
                 }
                 for sop in &plan.shifts {
-                    let phys = transform.rect_to_physical(sop.area);
-                    self.backend.flush(&phys);
+                    if let Some(physical) = transform.physical_rect(sop.area) {
+                        self.backend.flush(physical);
+                    }
                 }
                 self.backend.end_flush();
             }

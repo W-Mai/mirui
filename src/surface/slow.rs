@@ -4,7 +4,7 @@
 
 use super::{BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, Surface};
 use crate::render::texture::Texture;
-use crate::types::Rect;
+use crate::types::{PhysicalRect, Rect};
 use core::time::Duration;
 
 /// Approximate cost of a 16-bit pixel pushed over 80 MHz SPI:
@@ -55,12 +55,12 @@ impl<S: Surface> Surface for SlowSurface<S> {
         self.inner.display_info()
     }
 
-    fn flush(&mut self, area: &Rect) {
+    fn flush(&mut self, area: PhysicalRect) {
         // `area` is in physical pixels (`App::render_dirty` did the
         // logical→physical conversion), so w*h matches the byte
         // stream size the real backend would push.
-        let w = area.w.to_int().max(0) as u64;
-        let h = area.h.to_int().max(0) as u64;
+        let w = u64::from(area.width());
+        let h = u64::from(area.height());
         let pixel_count = w.saturating_mul(h);
         let sleep_ns = pixel_count.saturating_mul(self.ns_per_pixel as u64);
         if sleep_ns > 0 {

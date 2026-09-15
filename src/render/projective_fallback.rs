@@ -1,3 +1,4 @@
+use crate::render::scratch::{PlaneError, PlaneRequirements};
 use alloc::boxed::Box;
 
 #[cfg(any(
@@ -21,13 +22,7 @@ use crate::render::command::DrawCommand;
     test
 ))]
 use crate::render::renderer::{ProjectiveDrawError, Renderer};
-#[cfg(any(
-    feature = "sdl-gpu",
-    feature = "wgpu",
-    all(feature = "web-canvas", target_arch = "wasm32"),
-    test
-))]
-use crate::render::scratch::PlaneLayout;
+use crate::render::texture::AlignedBytes;
 #[cfg(any(
     feature = "sdl-gpu",
     feature = "wgpu",
@@ -41,7 +36,7 @@ use crate::render::texture::{ColorFormat, Texture};
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
-use crate::types::{Fixed, Rect, Transform3D, Viewport};
+use crate::types::{Fixed, PhysicalRect, Point, Rect, Transform3D, Viewport};
 
 #[cfg(any(
     feature = "sdl-gpu",
@@ -67,6 +62,7 @@ fn affine_from_homography(value: Transform3D) -> Option<crate::types::Transform>
 /// The backing storage is supplied once and never grows.
 pub struct ProjectiveFallback<S = Box<[u8]>> {
     target: S,
+    requirements: PlaneRequirements,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,11 +73,8 @@ pub struct ProjectiveFallback<S = Box<[u8]>> {
     test
 ))]
 pub(crate) struct ProjectiveFallbackPlan {
-    pub x: i32,
-    pub y: i32,
-    layout: PlaneLayout,
-    logical_origin_x: Fixed,
-    logical_origin_y: Fixed,
+    region: crate::render::renderer::FallbackRegion,
+    logical_origin: Point,
 }
 
 #[cfg(any(
@@ -98,13 +91,7 @@ impl ProjectiveFallbackPlan {
         test
     ))]
     pub(crate) const fn region(self) -> crate::render::renderer::FallbackRegion {
-        crate::render::renderer::FallbackRegion::from_parts(
-            self.x,
-            self.y,
-            self.layout.width(),
-            self.layout.height(),
-            self.layout.stride_bytes(),
-        )
+        self.region
     }
 
     #[cfg(any(
@@ -116,53 +103,46 @@ impl ProjectiveFallbackPlan {
     pub(crate) fn from_region(
         region: crate::render::renderer::FallbackRegion,
         viewport: Viewport,
+        requirements: PlaneRequirements,
     ) -> Result<Self, ProjectiveDrawError> {
         let (physical_width, physical_height) = viewport.physical_size();
-        let x1 = region
-            .x()
-            .checked_add(i32::from(region.width()))
-            .ok_or(ProjectiveDrawError::InvalidProjection)?;
-        let y1 = region
-            .y()
-            .checked_add(i32::from(region.height()))
-            .ok_or(ProjectiveDrawError::InvalidProjection)?;
-        if region.x() < 0
-            || region.y() < 0
-            || x1 > i32::from(physical_width)
-            || y1 > i32::from(physical_height)
-        {
+        if region.rect().right() > physical_width || region.rect().bottom() > physical_height {
             return Err(ProjectiveDrawError::InvalidProjection);
         }
-        let layout = PlaneLayout::new(
-            region.width(),
-            region.height(),
-            ColorFormat::RGBA8888,
-            region.stride_bytes(),
-            crate::render::scratch::PlaneRequirements::CPU,
-        )
-        .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
-        if layout.required_bytes() != region.required_bytes() {
-            return Err(ProjectiveDrawError::InvalidProjection);
-        }
+        region
+            .plane_layout(requirements)
+            .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
         Ok(Self {
-            x: region.x(),
-            y: region.y(),
-            layout,
-            logical_origin_x: Fixed::from_int(region.x()) / viewport.scale(),
-            logical_origin_y: Fixed::from_int(region.y()) / viewport.scale(),
+            region,
+            logical_origin: Point {
+                x: Fixed::from(region.x()) / viewport.scale(),
+                y: Fixed::from(region.y()) / viewport.scale(),
+            },
         })
     }
 
+    pub(crate) const fn x(self) -> u16 {
+        self.region.x()
+    }
+
+    pub(crate) const fn y(self) -> u16 {
+        self.region.y()
+    }
+
     pub(crate) const fn width(self) -> u16 {
-        self.layout.width()
+        self.region.width()
     }
 
     pub(crate) const fn height(self) -> u16 {
-        self.layout.height()
+        self.region.height()
     }
 
     pub(crate) const fn required_bytes(self) -> usize {
-        self.layout.required_bytes()
+        self.region.required_bytes()
+    }
+
+    pub(crate) const fn stride_bytes(self) -> usize {
+        self.region.stride_bytes()
     }
 }
 
@@ -172,21 +152,65 @@ impl ProjectiveFallback<Box<[u8]>> {
     pub fn new(target: impl Into<Box<[u8]>>) -> Self {
         Self {
             target: target.into(),
+            requirements: PlaneRequirements::CPU,
         }
+    }
+}
+
+impl ProjectiveFallback<AlignedBytes> {
+    pub fn aligned(
+        capacity_bytes: usize,
+        requirements: PlaneRequirements,
+    ) -> Result<Self, PlaneError> {
+        let target = AlignedBytes::zeroed(capacity_bytes, requirements.address_alignment())
+            .ok_or(PlaneError::Overflow)?;
+        Ok(Self {
+            target,
+            requirements,
+        })
     }
 }
 
 impl<'a> ProjectiveFallback<&'a mut [u8]> {
     /// Use a caller-owned fixed-capacity target without allocating.
     pub fn borrowed(target: &'a mut [u8]) -> Self {
-        Self { target }
+        Self {
+            target,
+            requirements: PlaneRequirements::CPU,
+        }
+    }
+
+    pub fn borrowed_with(
+        target: &'a mut [u8],
+        requirements: PlaneRequirements,
+    ) -> Result<Self, PlaneError> {
+        requirements.validate_address(target)?;
+        Ok(Self {
+            target,
+            requirements,
+        })
     }
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
+    pub fn with_requirements(
+        target: S,
+        requirements: PlaneRequirements,
+    ) -> Result<Self, PlaneError> {
+        requirements.validate_address(target.as_ref())?;
+        Ok(Self {
+            target,
+            requirements,
+        })
+    }
+
     /// Returns the hard byte budget available to projective rendering.
     pub fn capacity(&self) -> usize {
         self.target.as_ref().len()
+    }
+
+    pub const fn requirements(&self) -> PlaneRequirements {
+        self.requirements
     }
 
     #[cfg(any(
@@ -207,6 +231,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             clip,
             projective,
             viewport,
+            self.requirements,
         )
     }
 
@@ -222,6 +247,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         clip: &Rect,
         projective: &Transform3D,
         viewport: Viewport,
+        requirements: PlaneRequirements,
     ) -> Result<ProjectiveFallbackPlan, ProjectiveDrawError> {
         let mut empty = [];
         let mut validator = SwRenderer::new(Texture::new(&mut empty, 0, 0, ColorFormat::RGBA8888));
@@ -339,17 +365,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         let draw_bounds = clip
             .intersect(&visual_bounds.inflate(Fixed::from_int(2) / viewport.scale()))
             .unwrap_or(Rect::ZERO);
-        let (physical_width, physical_height) = viewport.physical_size();
-        let (x0, y0, x1, y1) = viewport.rect_to_physical_pixel_bounds(draw_bounds);
-        let x0 = x0.clamp(0, i32::from(physical_width));
-        let y0 = y0.clamp(0, i32::from(physical_height));
-        let x1 = x1.clamp(x0, i32::from(physical_width));
-        let y1 = y1.clamp(y0, i32::from(physical_height));
-        let width = u16::try_from(x1 - x0).map_err(|_| ProjectiveDrawError::InvalidProjection)?;
-        let height = u16::try_from(y1 - y0).map_err(|_| ProjectiveDrawError::InvalidProjection)?;
-        let layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
+        let rect = viewport
+            .physical_rect(draw_bounds)
+            .unwrap_or(PhysicalRect::EMPTY);
+        let region = crate::render::renderer::FallbackRegion::rgba8(rect, requirements)
             .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
-        let required_bytes = layout.required_bytes();
+        let required_bytes = region.required_bytes();
         if required_bytes > capacity_bytes {
             return Err(ProjectiveDrawError::InsufficientFallbackStorage {
                 required_bytes,
@@ -358,14 +379,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         }
 
         let plan = ProjectiveFallbackPlan {
-            x: x0,
-            y: y0,
-            layout,
-            logical_origin_x: Fixed::from_int(x0) / viewport.scale(),
-            logical_origin_y: Fixed::from_int(y0) / viewport.scale(),
+            region,
+            logical_origin: Point {
+                x: Fixed::from(region.x()) / viewport.scale(),
+                y: Fixed::from(region.y()) / viewport.scale(),
+            },
         };
         let local_projective =
-            Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+            Transform3D::translate(-plan.logical_origin.x, -plan.logical_origin.y)
                 .compose(projective);
         let local_clip = Rect::new(
             Fixed::ZERO,
@@ -398,6 +419,51 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         &self.target.as_ref()[..plan.required_bytes()]
     }
 
+    #[cfg(any(all(feature = "web-canvas", target_arch = "wasm32"), test))]
+    pub(crate) fn copy_from_packed_rgba8(
+        &mut self,
+        plan: ProjectiveFallbackPlan,
+        source: &[u8],
+    ) -> Result<(), ProjectiveDrawError> {
+        let packed_stride = usize::from(plan.width()) * 4;
+        let packed_len = packed_stride
+            .checked_mul(usize::from(plan.height()))
+            .ok_or(ProjectiveDrawError::InvalidProjection)?;
+        if source.len() != packed_len {
+            return Err(ProjectiveDrawError::BackendFailure);
+        }
+        let stride = plan.stride_bytes();
+        let target = self.target_mut(plan);
+        for row in 0..usize::from(plan.height()) {
+            let source_start = row * packed_stride;
+            let target_start = row * stride;
+            target[target_start..target_start + packed_stride]
+                .copy_from_slice(&source[source_start..source_start + packed_stride]);
+        }
+        Ok(())
+    }
+
+    #[cfg(any(all(feature = "web-canvas", target_arch = "wasm32"), test))]
+    pub(crate) fn packed_rgba8_mut(
+        &mut self,
+        plan: ProjectiveFallbackPlan,
+    ) -> Result<&mut [u8], ProjectiveDrawError> {
+        let packed_stride = usize::from(plan.width()) * 4;
+        let packed_len = packed_stride
+            .checked_mul(usize::from(plan.height()))
+            .ok_or(ProjectiveDrawError::InvalidProjection)?;
+        let stride = plan.stride_bytes();
+        let target = self.target_mut(plan);
+        if stride != packed_stride {
+            for row in 1..usize::from(plan.height()) {
+                let source_start = row * stride;
+                let target_start = row * packed_stride;
+                target.copy_within(source_start..source_start + packed_stride, target_start);
+            }
+        }
+        Ok(&mut target[..packed_len])
+    }
+
     #[cfg(any(
         feature = "sdl-gpu",
         feature = "wgpu",
@@ -416,7 +482,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         }
         let scale = viewport.scale();
         let local_projective =
-            Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+            Transform3D::translate(-plan.logical_origin.x, -plan.logical_origin.y)
                 .compose(projective);
         let local_clip = Rect {
             x: Fixed::ZERO,
@@ -424,8 +490,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             w: Fixed::from(plan.width()) / scale,
             h: Fixed::from(plan.height()) / scale,
         };
-        let mut plane = plan
-            .layout
+        let layout = plan
+            .region
+            .plane_layout(self.requirements)
+            .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
+        let mut plane = layout
             .bind(&mut self.target.as_mut()[..plan.required_bytes()])
             .map_err(|_| ProjectiveDrawError::InvalidProjection)?;
         let mut texture = plane.texture();
@@ -445,8 +514,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             && projective.is_identity()
         {
             let local_quad = quad.map(|point| crate::types::Point {
-                x: point.x - plan.logical_origin_x,
-                y: point.y - plan.logical_origin_y,
+                x: point.x - plan.logical_origin.x,
+                y: point.y - plan.logical_origin.y,
             });
             renderer.draw(
                 &DrawCommand::Blit {
@@ -470,7 +539,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             fill_rule,
         } = command
         {
-            let local = Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+            let local = Transform3D::translate(-plan.logical_origin.x, -plan.logical_origin.y)
                 .compose(projective)
                 .compose(&Transform3D::from_affine(*transform));
             let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
@@ -503,7 +572,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             dash,
         } = command
         {
-            let local = Transform3D::translate(-plan.logical_origin_x, -plan.logical_origin_y)
+            let local = Transform3D::translate(-plan.logical_origin.x, -plan.logical_origin.y)
                 .compose(projective)
                 .compose(&Transform3D::from_affine(*transform));
             let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
@@ -551,13 +620,68 @@ mod tests {
     #[test]
     fn fallback_region_reconstructs_the_same_plane() {
         let region = crate::render::renderer::FallbackRegion::from_parts(3, 5, 7, 11, 32);
-        let plan =
-            ProjectiveFallbackPlan::from_region(region, Viewport::new(20, 20, Fixed::from_int(2)))
-                .unwrap();
+        let plan = ProjectiveFallbackPlan::from_region(
+            region,
+            Viewport::new(20, 20, Fixed::from_int(2)),
+            PlaneRequirements::CPU,
+        )
+        .unwrap();
         assert_eq!(plan.region(), region);
         assert_eq!(plan.required_bytes(), 352);
-        assert_eq!(plan.logical_origin_x, Fixed::from_f32(1.5));
-        assert_eq!(plan.logical_origin_y, Fixed::from_f32(2.5));
+        assert_eq!(plan.logical_origin.x, Fixed::from_f32(1.5));
+        assert_eq!(plan.logical_origin.y, Fixed::from_f32(2.5));
+    }
+
+    #[test]
+    fn aligned_fallback_preserves_padded_rows_and_compacts_for_web_upload() {
+        let requirements = PlaneRequirements::new(64, 64).unwrap();
+        let region = crate::render::renderer::FallbackRegion::rgba8(
+            PhysicalRect::new(2, 3, 17, 2).unwrap(),
+            requirements,
+        )
+        .unwrap();
+        assert_eq!(region.stride_bytes(), 128);
+        assert_eq!(region.required_bytes(), 256);
+
+        let mut storage = [0u8; 320];
+        let offset = (64 - (storage.as_ptr() as usize % 64)) % 64;
+        let mut fallback = ProjectiveFallback::borrowed_with(
+            &mut storage[offset..offset + region.required_bytes()],
+            requirements,
+        )
+        .unwrap();
+        let plan = ProjectiveFallbackPlan::from_region(
+            region,
+            Viewport::new(40, 20, Fixed::ONE),
+            requirements,
+        )
+        .unwrap();
+        let packed = alloc::vec![9u8; 17 * 2 * 4];
+        fallback.copy_from_packed_rgba8(plan, &packed).unwrap();
+        assert_eq!(&fallback.target(plan)[..68], &packed[..68]);
+        assert_eq!(&fallback.target(plan)[128..196], &packed[68..]);
+        assert_eq!(fallback.packed_rgba8_mut(plan).unwrap(), packed);
+    }
+
+    #[test]
+    fn aligned_fallback_rejects_a_misaligned_caller_slice() {
+        let requirements = PlaneRequirements::new(64, 64).unwrap();
+        let mut storage = [0u8; 128];
+        let offset = (64 - (storage.as_ptr() as usize % 64)) % 64;
+        let misaligned = &mut storage[offset + 1..];
+        assert!(matches!(
+            ProjectiveFallback::borrowed_with(misaligned, requirements),
+            Err(PlaneError::MisalignedAddress { alignment: 64 })
+        ));
+    }
+
+    #[test]
+    fn owned_aligned_fallback_keeps_a_stable_aligned_view() {
+        let requirements = PlaneRequirements::new(64, 64).unwrap();
+        let fallback = ProjectiveFallback::aligned(1024, requirements).unwrap();
+        assert_eq!(fallback.target.as_ref().as_ptr() as usize % 64, 0);
+        assert_eq!(fallback.capacity(), 1024);
+        assert_eq!(fallback.requirements(), requirements);
     }
 
     #[test]
@@ -593,9 +717,8 @@ mod tests {
             .render(plan, &command, &Transform3D::IDENTITY, viewport)
             .unwrap();
         let data = fallback.target(plan);
-        let center = (usize::try_from(6 - plan.y).unwrap() * usize::from(plan.width())
-            + usize::try_from(6 - plan.x).unwrap())
-            * 4;
+        let center =
+            (usize::from(6 - plan.y()) * usize::from(plan.width()) + usize::from(6 - plan.x())) * 4;
         assert_eq!(&data[center..center + 4], &[255, 0, 255, 255]);
     }
 
@@ -621,6 +744,7 @@ mod tests {
             &clip,
             &Transform3D::IDENTITY,
             viewport,
+            PlaneRequirements::CPU,
         ) {
             Err(ProjectiveDrawError::InsufficientFallbackStorage {
                 required_bytes,
@@ -635,6 +759,7 @@ mod tests {
             &clip,
             &Transform3D::IDENTITY,
             viewport,
+            PlaneRequirements::CPU,
         )
         .unwrap();
         assert_eq!(plan.required_bytes(), needed);
@@ -693,8 +818,8 @@ mod tests {
             .render(plan, &command, &Transform3D::IDENTITY, viewport)
             .unwrap();
         let pixel = |x: i32| {
-            let offset = (usize::try_from(10 - plan.y).unwrap() * usize::from(plan.width())
-                + usize::try_from(x - plan.x).unwrap())
+            let offset = (usize::from(10 - plan.y()) * usize::from(plan.width())
+                + usize::try_from(x - i32::from(plan.x())).unwrap())
                 * 4;
             &fallback.target(plan)[offset..offset + 4]
         };
@@ -805,8 +930,8 @@ mod tests {
             .render(plan, &command, &Transform3D::IDENTITY, viewport)
             .unwrap();
         let data = fallback.target(plan);
-        let center = (usize::try_from(10 - plan.y).unwrap() * usize::from(plan.width())
-            + usize::try_from(10 - plan.x).unwrap())
+        let center = (usize::from(10 - plan.y()) * usize::from(plan.width())
+            + usize::from(10 - plan.x()))
             * 4;
         assert_eq!(&data[center..center + 4], &[255, 0, 255, 255]);
     }
@@ -991,7 +1116,7 @@ mod tests {
         let height = usize::from(plan.height());
         let target = fallback.target_mut(plan);
         for row in 0..height {
-            let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let source = ((usize::from(plan.y()) + row) * WIDTH + usize::from(plan.x())) * 4;
             let offset = row * width * 4;
             target[offset..offset + width * 4].copy_from_slice(&actual[source..source + width * 4]);
         }
@@ -1000,7 +1125,7 @@ mod tests {
             .unwrap();
         let target = fallback.target(plan);
         for row in 0..height {
-            let dest = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let dest = ((usize::from(plan.y()) + row) * WIDTH + usize::from(plan.x())) * 4;
             let offset = row * width * 4;
             actual[dest..dest + width * 4].copy_from_slice(&target[offset..offset + width * 4]);
         }
@@ -1040,7 +1165,7 @@ mod tests {
         let height = usize::from(plan.height());
         let target = fallback.target_mut(plan);
         for row in 0..height {
-            let source = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let source = ((usize::from(plan.y()) + row) * WIDTH + usize::from(plan.x())) * 4;
             let offset = row * width * 4;
             target[offset..offset + width * 4].copy_from_slice(&actual[source..source + width * 4]);
         }
@@ -1049,7 +1174,7 @@ mod tests {
             .unwrap();
         let target = fallback.target(plan);
         for row in 0..height {
-            let dest = ((plan.y as usize + row) * WIDTH + plan.x as usize) * 4;
+            let dest = ((usize::from(plan.y()) + row) * WIDTH + usize::from(plan.x())) * 4;
             let offset = row * width * 4;
             actual[dest..dest + width * 4].copy_from_slice(&target[offset..offset + width * 4]);
         }
@@ -1058,10 +1183,10 @@ mod tests {
             let pixel = index / 4;
             let x = pixel % WIDTH;
             let y = pixel / WIDTH;
-            let inside = x >= plan.x as usize
-                && x < plan.x as usize + width
-                && y >= plan.y as usize
-                && y < plan.y as usize + height;
+            let inside = x >= usize::from(plan.x())
+                && x < usize::from(plan.x()) + width
+                && y >= usize::from(plan.y())
+                && y < usize::from(plan.y()) + height;
             let difference = actual_byte.abs_diff(*expected_byte);
             if inside {
                 let composited_difference = if index % 4 == 3 {

@@ -64,7 +64,10 @@ pub fn blit_transformed(
     };
     let (dx0, dy0, dx1, dy1) = draw_area.pixel_bounds();
 
-    let (sx0, sy0, sw, sh) = src_rect.to_px();
+    let (sx0, sy0, sx1, sy1) = src_rect.pixel_bounds();
+    let (Ok(sw), Ok(sh)) = (u16::try_from(sx1 - sx0), u16::try_from(sy1 - sy0)) else {
+        return;
+    };
     let dst_x0 = phys_dst_rect.x;
     let dst_y0 = phys_dst_rect.y;
     let dst_w = phys_dst_rect.w;

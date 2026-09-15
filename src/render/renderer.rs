@@ -1,6 +1,7 @@
-use crate::types::{Fixed, Rect, Transform3D, Viewport};
+use crate::types::{Fixed, PhysicalRect, Rect, Transform3D, Viewport};
 
 use super::command::{CompositeMode, DrawCommand};
+use super::scratch::{PlaneLayout, PlaneRequirements};
 use super::texture::{ColorFormat, TexBuf, Texture};
 
 /// One draw under its effective clip and shared projective transform.
@@ -68,46 +69,52 @@ pub enum RenderRoute {
 /// A clipped physical RGBA region prepared for an exact fallback.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FallbackRegion {
-    x: i32,
-    y: i32,
-    width: u16,
-    height: u16,
+    rect: PhysicalRect,
     stride_bytes: usize,
 }
 
 impl FallbackRegion {
     pub const EMPTY: Self = Self {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
+        rect: PhysicalRect::EMPTY,
         stride_bytes: 0,
     };
 
-    pub(crate) const fn from_parts(
-        x: i32,
-        y: i32,
-        width: u16,
-        height: u16,
-        stride_bytes: usize,
-    ) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
+    pub(crate) fn new(rect: PhysicalRect, stride_bytes: usize) -> Result<Self, RenderError> {
+        PlaneLayout::new(
+            rect.width(),
+            rect.height(),
+            ColorFormat::RGBA8888,
             stride_bytes,
-        }
+            PlaneRequirements::CPU,
+        )
+        .map_err(|_| RenderError::InvalidGeometry)?;
+        Ok(Self { rect, stride_bytes })
     }
 
-    pub(crate) fn rgba8(x: i32, y: i32, width: u16, height: u16) -> Result<Self, RenderError> {
-        let stride_bytes = usize::from(width)
-            .checked_mul(4)
-            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
-        stride_bytes
-            .checked_mul(usize::from(height))
-            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
-        Ok(Self::from_parts(x, y, width, height, stride_bytes))
+    #[cfg(test)]
+    pub(crate) fn from_parts(x: u16, y: u16, width: u16, height: u16, stride_bytes: usize) -> Self {
+        Self::new(
+            PhysicalRect::new(x, y, width, height).expect("test region fits"),
+            stride_bytes,
+        )
+        .expect("test fallback layout is valid")
+    }
+
+    pub(crate) fn rgba8(
+        rect: PhysicalRect,
+        requirements: PlaneRequirements,
+    ) -> Result<Self, RenderError> {
+        let layout = PlaneLayout::aligned(
+            rect.width(),
+            rect.height(),
+            ColorFormat::RGBA8888,
+            requirements,
+        )
+        .map_err(|_| RenderError::ResourceLimit(RenderResource::Target))?;
+        Ok(Self {
+            rect,
+            stride_bytes: layout.stride_bytes(),
+        })
     }
 
     pub(crate) fn from_logical_bounds(
@@ -115,15 +122,19 @@ impl FallbackRegion {
         viewport: Viewport,
         capacity_bytes: Option<usize>,
     ) -> Result<Self, RenderError> {
-        let (physical_width, physical_height) = viewport.physical_size();
-        let (x0, y0, x1, y1) = viewport.rect_to_physical_pixel_bounds(bounds);
-        let x0 = x0.clamp(0, i32::from(physical_width));
-        let y0 = y0.clamp(0, i32::from(physical_height));
-        let x1 = x1.clamp(x0, i32::from(physical_width));
-        let y1 = y1.clamp(y0, i32::from(physical_height));
-        let width = u16::try_from(x1 - x0).map_err(|_| RenderError::InvalidGeometry)?;
-        let height = u16::try_from(y1 - y0).map_err(|_| RenderError::InvalidGeometry)?;
-        let region = Self::rgba8(x0, y0, width, height)?;
+        Self::from_logical_bounds_with(bounds, viewport, capacity_bytes, PlaneRequirements::CPU)
+    }
+
+    pub(crate) fn from_logical_bounds_with(
+        bounds: Rect,
+        viewport: Viewport,
+        capacity_bytes: Option<usize>,
+        requirements: PlaneRequirements,
+    ) -> Result<Self, RenderError> {
+        let rect = viewport
+            .physical_rect(bounds)
+            .unwrap_or(PhysicalRect::EMPTY);
+        let region = Self::rgba8(rect, requirements)?;
         if region.required_bytes() == 0 {
             return Ok(region);
         }
@@ -137,20 +148,24 @@ impl FallbackRegion {
         Ok(region)
     }
 
-    pub const fn x(self) -> i32 {
-        self.x
+    pub const fn rect(self) -> PhysicalRect {
+        self.rect
     }
 
-    pub const fn y(self) -> i32 {
-        self.y
+    pub const fn x(self) -> u16 {
+        self.rect.x()
+    }
+
+    pub const fn y(self) -> u16 {
+        self.rect.y()
     }
 
     pub const fn width(self) -> u16 {
-        self.width
+        self.rect.width()
     }
 
     pub const fn height(self) -> u16 {
-        self.height
+        self.rect.height()
     }
 
     pub const fn stride_bytes(self) -> usize {
@@ -158,7 +173,27 @@ impl FallbackRegion {
     }
 
     pub const fn required_bytes(self) -> usize {
-        self.stride_bytes * self.height as usize
+        self.stride_bytes * self.rect.height() as usize
+    }
+
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn plane_layout(
+        self,
+        requirements: PlaneRequirements,
+    ) -> Result<PlaneLayout, RenderError> {
+        PlaneLayout::new(
+            self.width(),
+            self.height(),
+            ColorFormat::RGBA8888,
+            self.stride_bytes,
+            requirements,
+        )
+        .map_err(|_| RenderError::InvalidGeometry)
     }
 }
 
@@ -170,15 +205,17 @@ impl RenderRoute {
         test
     ))]
     pub(crate) fn target_readback(
-        region: Option<Rect>,
+        region: Option<PhysicalRect>,
         capacity_bytes: Option<usize>,
+        requirements: PlaneRequirements,
     ) -> Result<Self, RenderError> {
         let Some(region) = region else {
-            return Ok(Self::ExactFallback(FallbackRegion::rgba8(0, 0, 0, 0)?));
+            return Ok(Self::ExactFallback(FallbackRegion::rgba8(
+                PhysicalRect::EMPTY,
+                requirements,
+            )?));
         };
-        let width = u16::try_from(region.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let height = u16::try_from(region.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-        let plan = FallbackRegion::rgba8(region.x.to_int(), region.y.to_int(), width, height)?;
+        let plan = FallbackRegion::rgba8(region, requirements)?;
         let capacity_bytes = capacity_bytes.ok_or(RenderError::MissingWorkspace)?;
         if plan.required_bytes() > capacity_bytes {
             return Err(RenderError::InsufficientWorkspace {
@@ -338,21 +375,20 @@ impl Renderer for RegionRenderer<'_> {
         }
         let origin_x = (self.origin_x * scale).to_int();
         let origin_y = (self.origin_y * scale).to_int();
-        let x = local
-            .x()
+        let x = i32::from(local.x())
             .checked_add(origin_x)
             .ok_or(RenderError::InvalidGeometry)?;
-        let y = local
-            .y()
+        let y = i32::from(local.y())
             .checked_add(origin_y)
             .ok_or(RenderError::InvalidGeometry)?;
-        Ok(FallbackRegion::from_parts(
-            x,
-            y,
+        let rect = PhysicalRect::new(
+            u16::try_from(x).map_err(|_| RenderError::InvalidGeometry)?,
+            u16::try_from(y).map_err(|_| RenderError::InvalidGeometry)?,
             local.width(),
             local.height(),
-            local.stride_bytes(),
-        ))
+        )
+        .ok_or(RenderError::InvalidGeometry)?;
+        FallbackRegion::new(rect, local.stride_bytes())
     }
 
     fn modify_target_region(
@@ -419,7 +455,7 @@ pub enum RenderError {
 ))]
 pub(crate) fn copy_packed_rgba8(
     bytes: &[u8],
-    clipped: Rect,
+    clipped: PhysicalRect,
     source_origin: (i32, i32),
     dst: &mut Texture<'_>,
 ) -> Result<(), RenderError> {
@@ -429,8 +465,8 @@ pub(crate) fn copy_packed_rgba8(
     {
         return Err(RenderError::InvalidTexture);
     }
-    let width = usize::try_from(clipped.w.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
-    let height = usize::try_from(clipped.h.to_int()).map_err(|_| RenderError::InvalidGeometry)?;
+    let width = usize::from(clipped.width());
+    let height = usize::from(clipped.height());
     let row_bytes = width.checked_mul(4).ok_or(RenderError::InvalidGeometry)?;
     let required = row_bytes
         .checked_mul(height)
@@ -438,9 +474,9 @@ pub(crate) fn copy_packed_rgba8(
     if bytes.len() < required {
         return Err(RenderError::BackendFailure);
     }
-    let x = usize::try_from(clipped.x.to_int() - source_origin.0)
+    let x = usize::try_from(i32::from(clipped.x()) - source_origin.0)
         .map_err(|_| RenderError::InvalidGeometry)?;
-    let y = usize::try_from(clipped.y.to_int() - source_origin.1)
+    let y = usize::try_from(i32::from(clipped.y()) - source_origin.1)
         .map_err(|_| RenderError::InvalidGeometry)?;
     let copy_width = width.min(usize::from(dst.width).saturating_sub(x));
     let copy_height = height.min(usize::from(dst.height).saturating_sub(y));
@@ -600,7 +636,7 @@ pub trait Renderer {
         region: FallbackRegion,
         draw: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
-        if region.width == 0 || region.height == 0 {
+        if region.rect.is_empty() {
             return Ok(false);
         }
         let scale = self.output_scale();
@@ -608,13 +644,13 @@ pub trait Renderer {
             return Err(RenderError::InvalidGeometry);
         }
         let logical = Rect {
-            x: Fixed::from_int(region.x) / scale,
-            y: Fixed::from_int(region.y) / scale,
-            w: Fixed::from(region.width) / scale,
-            h: Fixed::from(region.height) / scale,
+            x: Fixed::from(region.x()) / scale,
+            y: Fixed::from(region.y()) / scale,
+            w: Fixed::from(region.width()) / scale,
+            h: Fixed::from(region.height()) / scale,
         };
         self.modify_target_region(&logical, &mut |target| {
-            if target.width != region.width || target.height != region.height {
+            if target.width != region.width() || target.height != region.height() {
                 return Err(RenderError::InvalidGeometry);
             }
             let width = target.width;
@@ -693,28 +729,48 @@ mod tests {
     #[test]
     fn target_fallback_budget_uses_physical_rgba_extent() {
         assert_eq!(
-            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), Some(48)),
+            RenderRoute::target_readback(
+                PhysicalRect::new(1, 2, 3, 4),
+                Some(48),
+                PlaneRequirements::CPU,
+            ),
             Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
                 1, 2, 3, 4, 12
             )))
         );
         assert_eq!(
-            RenderRoute::target_readback(None, None),
+            RenderRoute::target_readback(None, None, PlaneRequirements::CPU),
             Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
                 0, 0, 0, 0, 0
             )))
         );
         assert_eq!(
-            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), Some(47)),
+            RenderRoute::target_readback(
+                PhysicalRect::new(1, 2, 3, 4),
+                Some(47),
+                PlaneRequirements::CPU,
+            ),
             Err(RenderError::InsufficientWorkspace {
                 required_bytes: 48,
                 capacity_bytes: 47,
             })
         );
         assert_eq!(
-            RenderRoute::target_readback(Some(Rect::new(1, 2, 3, 4)), None),
+            RenderRoute::target_readback(
+                PhysicalRect::new(1, 2, 3, 4),
+                None,
+                PlaneRequirements::CPU,
+            ),
             Err(RenderError::MissingWorkspace)
         );
+    }
+
+    #[test]
+    fn physical_fallback_route_stays_compact() {
+        assert_eq!(core::mem::size_of::<PhysicalRect>(), 8);
+        let word = core::mem::size_of::<usize>();
+        assert_eq!(core::mem::size_of::<FallbackRegion>(), 8 + word);
+        assert!(core::mem::size_of::<RenderRoute>() <= 16 + word);
     }
 
     #[test]
@@ -754,7 +810,13 @@ mod tests {
         let mut pixels = [0u8; 4 * 3 * 4];
         let mut dst = Texture::new(&mut pixels, 4, 3, ColorFormat::RGBA8888);
         let source = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        copy_packed_rgba8(&source, Rect::new(1, 1, 2, 2), (0, 0), &mut dst).unwrap();
+        copy_packed_rgba8(
+            &source,
+            PhysicalRect::new(1, 1, 2, 2).unwrap(),
+            (0, 0),
+            &mut dst,
+        )
+        .unwrap();
         assert_eq!(&pixels[..20], &[0; 20]);
         assert_eq!(&pixels[20..28], &source[..8]);
         assert_eq!(&pixels[36..44], &source[8..]);
@@ -766,7 +828,12 @@ mod tests {
         let mut pixels = [23u8; 16];
         let mut dst = Texture::new(&mut pixels, 2, 2, ColorFormat::RGBA8888);
         assert_eq!(
-            copy_packed_rgba8(&[1, 2, 3, 4], Rect::new(0, 0, 2, 2), (0, 0), &mut dst),
+            copy_packed_rgba8(
+                &[1, 2, 3, 4],
+                PhysicalRect::new(0, 0, 2, 2).unwrap(),
+                (0, 0),
+                &mut dst,
+            ),
             Err(RenderError::BackendFailure)
         );
         assert_eq!(pixels, [23; 16]);

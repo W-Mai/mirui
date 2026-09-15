@@ -79,19 +79,23 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
                 // Shift before blit — reversing smears the dirty pixels.
                 let scale = transform.scale();
                 for shift in &plan.shifts {
-                    let (x0, y0, x1, y1) = transform.rect_to_physical_pixel_bounds(shift.area);
+                    let Some(area) = transform.physical_rect(shift.area) else {
+                        continue;
+                    };
                     let dx_phys = (shift.dx * scale).trunc_to_int();
                     let dy_phys = (shift.dy * scale).trunc_to_int();
                     for inact in inactives.iter_mut() {
                         crate::surface::mirror::texture_scroll_in_place(
-                            inact, x0, y0, x1, y1, dx_phys, dy_phys,
+                            inact, area, dx_phys, dy_phys,
                         );
                     }
                 }
                 for rect in &plan.rects {
-                    let (x0, y0, x1, y1) = transform.rect_to_physical_pixel_bounds(*rect);
+                    let Some(area) = transform.physical_rect(*rect) else {
+                        continue;
+                    };
                     for inact in inactives.iter_mut() {
-                        crate::surface::mirror::blit_region(inact, active, x0, y0, x1, y1);
+                        crate::surface::mirror::blit_region(inact, active, area);
                     }
                 }
             }

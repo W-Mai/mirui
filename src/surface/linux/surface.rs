@@ -16,7 +16,7 @@ use crate::input::event::input::InputEvent;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::surface::scale::{ScaleMode, compute_scale};
 use crate::surface::{DisplayInfo, FramebufferAccess, Surface};
-use crate::types::{Fixed, Rect};
+use crate::types::Fixed;
 
 /// Configuration for [`super::init`]. `fb_path` defaults to
 /// `/dev/fb0`; `input_path` defaults to `None`, which triggers
@@ -173,7 +173,7 @@ impl Surface for LinuxFbSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, _area: &Rect) {
+    fn flush(&mut self, _area: crate::types::PhysicalRect) {
         // Direct mmap; no staging copy / present here.
     }
 

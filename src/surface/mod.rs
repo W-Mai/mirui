@@ -30,7 +30,7 @@ pub mod web_canvas;
 pub mod wgpu_surface;
 
 use crate::render::texture::Texture;
-use crate::types::{Fixed, Rect, Viewport};
+use crate::types::{Fixed, PhysicalRect, Rect, Viewport};
 
 /// Display information reported by a backend. `width` / `height` are in
 /// **logical pixels** — the units user code writes `Dimension::px(…)` in.
@@ -45,8 +45,8 @@ pub struct DisplayInfo {
 impl DisplayInfo {
     #[inline]
     pub fn viewport(&self) -> Viewport {
-        let phys_w = (Fixed::from(self.width) * self.scale).to_int().max(0) as u16;
-        let phys_h = (Fixed::from(self.height) * self.scale).to_int().max(0) as u16;
+        let phys_w = saturating_u16((Fixed::from(self.width) * self.scale).to_int());
+        let phys_h = saturating_u16((Fixed::from(self.height) * self.scale).to_int());
         Viewport::new(phys_w, phys_h, self.scale)
     }
 }
@@ -77,11 +77,22 @@ pub enum BackbufferPersistence {
 pub trait Surface: crate::core::cache::InspectCaches {
     fn display_info(&self) -> DisplayInfo;
 
+    /// Authoritative logical-to-physical mapping for this surface.
+    fn viewport(&self) -> Viewport {
+        let info = self.display_info();
+        let (physical_width, physical_height) = self.physical_size();
+        Viewport::new(
+            saturating_u16_from_u32(physical_width),
+            saturating_u16_from_u32(physical_height),
+            info.scale,
+        )
+    }
+
     /// Present the given **physical-pixel** region of the backing surface.
     /// `App` is responsible for converting a logical dirty rect to physical
     /// before calling this; driver-side code treats `area` as raw device
     /// coordinates / buffer offsets.
-    fn flush(&mut self, area: &Rect);
+    fn flush(&mut self, area: PhysicalRect);
 
     /// Called before the frame's first `flush`. Default no-op.
     fn begin_flush(&mut self) {}
@@ -132,9 +143,23 @@ pub(crate) fn logical_from_physical(phys_w: u16, phys_h: u16, scale: Fixed) -> (
     if scale <= Fixed::ZERO {
         return (phys_w, phys_h);
     }
-    let lw = (Fixed::from(phys_w) / scale).to_int().max(0) as u16;
-    let lh = (Fixed::from(phys_h) / scale).to_int().max(0) as u16;
+    let lw = saturating_u16((Fixed::from(phys_w) / scale).to_int());
+    let lh = saturating_u16((Fixed::from(phys_h) / scale).to_int());
     (lw, lh)
+}
+
+#[inline]
+pub(crate) fn saturating_u16(value: i32) -> u16 {
+    value.clamp(0, i32::from(u16::MAX)) as u16
+}
+
+#[inline]
+pub(crate) const fn saturating_u16_from_u32(value: u32) -> u16 {
+    if value > u16::MAX as u32 {
+        u16::MAX
+    } else {
+        value as u16
+    }
 }
 
 /// A [`Surface`] that exposes a CPU-accessible framebuffer as a [`Texture`].
@@ -169,7 +194,7 @@ mod tests {
                 format: crate::render::texture::ColorFormat::RGBA8888,
             }
         }
-        fn flush(&mut self, _area: &Rect) {}
+        fn flush(&mut self, _area: PhysicalRect) {}
         fn poll_event(&mut self) -> Option<InputEvent> {
             None
         }
@@ -179,5 +204,16 @@ mod tests {
     fn default_persistence_is_persistent() {
         let b = NoOpBackend;
         assert_eq!(b.persistence(), BackbufferPersistence::Persistent);
+    }
+
+    #[test]
+    fn logical_dimensions_saturate_instead_of_wrapping() {
+        assert_eq!(
+            logical_from_physical(u16::MAX, u16::MAX, Fixed::from_ratio(1, 2)),
+            (u16::MAX, u16::MAX)
+        );
+        assert_eq!(saturating_u16(-1), 0);
+        assert_eq!(saturating_u16(i32::MAX), u16::MAX);
+        assert_eq!(saturating_u16_from_u32(u32::MAX), u16::MAX);
     }
 }

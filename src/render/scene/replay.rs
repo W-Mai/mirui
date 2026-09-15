@@ -764,8 +764,8 @@ fn preflight_software_scope(
         preflight.region.height(),
         preflight.output_scale,
     );
-    let origin_x = Fixed::from_int(preflight.region.x()) / preflight.output_scale;
-    let origin_y = Fixed::from_int(preflight.region.y()) / preflight.output_scale;
+    let origin_x = Fixed::from(preflight.region.x()) / preflight.output_scale;
+    let origin_y = Fixed::from(preflight.region.y()) / preflight.output_scale;
     let mut local = crate::render::renderer::RegionRenderer::new(&mut software, origin_x, origin_y);
     let mut routes = [ReplayPlan::EMPTY; 0];
     let mut route_len = 0;
@@ -950,8 +950,8 @@ fn draw_isolated_scope(
     let scale = draw.renderer.output_scale();
     let local_w = scope.region.width();
     let local_h = scope.region.height();
-    let origin_x = Fixed::from_int(scope.region.x()) / scale;
-    let origin_y = Fixed::from_int(scope.region.y()) / scale;
+    let origin_x = Fixed::from(scope.region.x()) / scale;
+    let origin_y = Fixed::from(scope.region.y()) / scale;
     let group = composed_frame(
         draw.root,
         transform.unwrap_or(Transform::IDENTITY),

@@ -9,9 +9,9 @@
 use mirui::app::{App, Runner};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::Rect;
+use mirui::types::PhysicalRect;
 
-fn dummy_backend() -> FramebufSurface<impl FnMut(&[u8], &Rect)> {
+fn dummy_backend() -> FramebufSurface<impl FnMut(&[u8], PhysicalRect)> {
     FramebufSurface::with_format(8, 8, ColorFormat::RGBA8888, |_bytes, _area| {})
 }
 

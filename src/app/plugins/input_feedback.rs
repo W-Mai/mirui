@@ -91,8 +91,8 @@ mod tests {
     use crate::ui::view::ViewRegistry;
     use crate::ui::{Children, WidgetRoot};
 
-    fn make_app() -> App<crate::surface::framebuf::FramebufSurface<fn(&[u8], &crate::types::Rect)>>
-    {
+    fn make_app()
+    -> App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>> {
         let mut app = crate::app::App::headless(64, 64);
         app.with_default_widgets();
         app
