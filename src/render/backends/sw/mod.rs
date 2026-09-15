@@ -1229,12 +1229,35 @@ impl SwRenderer<'_> {
                     opacity: *opa,
                 });
             }
+            DrawCommand::FillPath {
+                path,
+                paint,
+                opa,
+                fill_rule,
+                ..
+            } => {
+                let physical =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(&logical);
+                self.fill_path_projective(
+                    path,
+                    &physical,
+                    self.viewport.rect_to_physical(*clip),
+                    paint,
+                    *opa,
+                    *fill_rule,
+                )?;
+            }
+            DrawCommand::PushClip {
+                path, fill_rule, ..
+            } => {
+                let physical =
+                    Transform3D::from_affine(self.viewport.as_transform()).compose(&logical);
+                self.push_clip_projective(path, &physical, *fill_rule)?;
+            }
+            DrawCommand::PopClip => self.pop_clip(),
             DrawCommand::Line { .. }
             | DrawCommand::Arc { .. }
-            | DrawCommand::FillPath { .. }
             | DrawCommand::StrokePath { .. }
-            | DrawCommand::PushClip { .. }
-            | DrawCommand::PopClip
             | DrawCommand::ApplyBlur { .. } => {
                 return Err(ProjectiveDrawError::Unsupported);
             }
@@ -1259,14 +1282,14 @@ impl SwRenderer<'_> {
             DrawCommand::Fill { .. }
             | DrawCommand::Border { .. }
             | DrawCommand::GlyphRun { .. }
-            | DrawCommand::PosedGlyphRun { .. } => true,
+            | DrawCommand::PosedGlyphRun { .. }
+            | DrawCommand::PushClip { .. }
+            | DrawCommand::PopClip => true,
             DrawCommand::Blit { .. } => true,
+            DrawCommand::FillPath { paint, .. } => matches!(paint, Paint::Color(_)),
             DrawCommand::Line { .. }
             | DrawCommand::Arc { .. }
-            | DrawCommand::FillPath { .. }
             | DrawCommand::StrokePath { .. }
-            | DrawCommand::PushClip { .. }
-            | DrawCommand::PopClip
             | DrawCommand::ApplyBlur { .. } => false,
         };
         if !supported {
@@ -1304,12 +1327,13 @@ impl SwRenderer<'_> {
                 font.glyph_run_ink_bounds(glyphs, *pos, *transform, output_ppem)
                     .is_none_or(|bounds| projective.apply_rect(bounds).is_some())
             }
+            DrawCommand::FillPath { path, .. } | DrawCommand::PushClip { path, .. } => path
+                .bbox()
+                .is_none_or(|bounds| logical.apply_rect(bounds).is_some()),
+            DrawCommand::PopClip => true,
             DrawCommand::Line { .. }
             | DrawCommand::Arc { .. }
-            | DrawCommand::FillPath { .. }
             | DrawCommand::StrokePath { .. }
-            | DrawCommand::PushClip { .. }
-            | DrawCommand::PopClip
             | DrawCommand::ApplyBlur { .. } => true,
         };
         if !valid_geometry {
@@ -3443,7 +3467,7 @@ mod tests {
     }
 
     #[test]
-    fn projective_path_reports_unsupported_instead_of_drawing_affine() {
+    fn projective_solid_path_flattens_into_the_software_target() {
         let mut pixels = vec![0u8; 8 * 8 * 4];
         let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
         let path = Path::rect(
@@ -3465,10 +3489,50 @@ mod tests {
             renderer.draw_projective(
                 &command,
                 &Rect::new(0, 0, 8, 8),
-                &Transform3D::rotate_y_perspective(Fixed::from_int(18), Fixed::from_int(400),),
+                &Transform3D::translate(Fixed::from_int(2), Fixed::ONE),
             ),
-            Err(ProjectiveDrawError::Unsupported)
+            Ok(())
         );
-        assert!(pixels.iter().all(|byte| *byte == 0));
+        assert_eq!(renderer.target.get_pixel(3, 2), Color::rgb(255, 255, 255));
+        assert_eq!(renderer.target.get_pixel(1, 2), Color::rgba(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn projective_clip_masks_following_draws() {
+        let mut pixels = vec![0u8; 8 * 8 * 4];
+        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
+        let path = Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(4),
+            Fixed::from_int(4),
+        );
+        let clip = Rect::new(0, 0, 8, 8);
+        let push = DrawCommand::PushClip {
+            path: &path,
+            transform: Transform::IDENTITY,
+            fill_rule: crate::render::raster::FillRule::NonZero,
+        };
+        let fill = DrawCommand::Fill {
+            area: clip,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(120, 180, 240),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let projection = Transform3D::translate(Fixed::from_int(2), Fixed::ONE);
+
+        renderer
+            .submit(&DrawRequest::new(&push, clip).with_projective(projection))
+            .unwrap();
+        renderer.submit(&DrawRequest::new(&fill, clip)).unwrap();
+        renderer
+            .submit(&DrawRequest::new(&DrawCommand::PopClip, clip).with_projective(projection))
+            .unwrap();
+
+        assert_eq!(renderer.target.get_pixel(3, 2), Color::rgb(120, 180, 240));
+        assert_eq!(renderer.target.get_pixel(1, 2), Color::rgba(0, 0, 0, 0));
+        assert_eq!(renderer.target.get_pixel(6, 2), Color::rgba(0, 0, 0, 0));
     }
 }

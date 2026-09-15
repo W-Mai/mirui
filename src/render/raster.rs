@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::types::{Fixed, Point, Transform};
+use crate::types::{Fixed, Point, Transform, Transform3D};
 
 use super::path::{Path, PathCmd};
 
@@ -189,6 +189,88 @@ pub fn flatten_into(cmds: &[PathCmd], transform: Option<&Transform>, out: &mut V
     if out.capacity() > MAX_SEG_CAP {
         out.shrink_to(MAX_SEG_CAP);
     }
+}
+
+/// Flatten a path after homographic projection into caller-owned segments.
+/// Curve samples are projected individually so perspective does not get
+/// approximated by an affine transform of the control polygon.
+pub(crate) fn flatten_projective_into(
+    cmds: &[PathCmd],
+    transform: &Transform3D,
+    out: &mut Vec<LineSeg>,
+) -> Result<(), ()> {
+    out.clear();
+    let mut subpath_start = Point::ZERO;
+    let mut current = Point::ZERO;
+    let mut projected_start = Point::ZERO;
+    let mut projected_current = Point::ZERO;
+    let mut has_current = false;
+
+    for cmd in cmds {
+        match cmd {
+            PathCmd::MoveTo(point) => {
+                let projected = transform.apply_point(*point).ok_or(())?;
+                subpath_start = *point;
+                current = *point;
+                projected_start = projected;
+                projected_current = projected;
+                has_current = true;
+            }
+            PathCmd::LineTo(point) if has_current => {
+                let projected = transform.apply_point(*point).ok_or(())?;
+                out.push(LineSeg {
+                    p1: projected_current,
+                    p2: projected,
+                });
+                current = *point;
+                projected_current = projected;
+            }
+            PathCmd::QuadTo { ctrl, end } if has_current => {
+                let p0 = current;
+                for i in 1..=QUAD_STEPS {
+                    let t = Fixed::from_int(i) / Fixed::from_int(QUAD_STEPS);
+                    let point = quad_at(p0, *ctrl, *end, t);
+                    let projected = transform.apply_point(point).ok_or(())?;
+                    out.push(LineSeg {
+                        p1: projected_current,
+                        p2: projected,
+                    });
+                    projected_current = projected;
+                }
+                current = *end;
+            }
+            PathCmd::CubicTo { ctrl1, ctrl2, end } if has_current => {
+                let p0 = current;
+                for i in 1..=CUBIC_STEPS {
+                    let t = Fixed::from_int(i) / Fixed::from_int(CUBIC_STEPS);
+                    let point = cubic_at(p0, *ctrl1, *ctrl2, *end, t);
+                    let projected = transform.apply_point(point).ok_or(())?;
+                    out.push(LineSeg {
+                        p1: projected_current,
+                        p2: projected,
+                    });
+                    projected_current = projected;
+                }
+                current = *end;
+            }
+            PathCmd::Close if has_current => {
+                if projected_current != projected_start {
+                    out.push(LineSeg {
+                        p1: projected_current,
+                        p2: projected_start,
+                    });
+                }
+                current = subpath_start;
+                projected_current = projected_start;
+            }
+            _ => {}
+        }
+    }
+
+    if out.capacity() > MAX_SEG_CAP {
+        out.shrink_to(MAX_SEG_CAP);
+    }
+    Ok(())
 }
 
 /// Flatten path into per-subpath groups, tracking whether each ended with
@@ -1597,6 +1679,41 @@ mod tests {
             "got {} segs, expected ≥{}",
             segs.len(),
             expected_min
+        );
+    }
+
+    #[test]
+    fn projective_flatten_projects_curve_samples_in_path_space() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).quad_to(pt(8, 12), pt(16, 0));
+        let projection =
+            Transform3D::rotate_y_perspective(Fixed::from_int(25), Fixed::from_int(120));
+        let mut segments = Vec::new();
+
+        flatten_projective_into(&path.cmds, &projection, &mut segments).unwrap();
+
+        let midpoint = quad_at(pt(0, 0), pt(8, 12), pt(16, 0), Fixed::from_ratio(1, 2));
+        assert_eq!(segments[3].p2, projection.apply_point(midpoint).unwrap());
+        assert_eq!(segments.len(), QUAD_STEPS as usize);
+    }
+
+    #[test]
+    fn projective_flatten_rejects_points_behind_the_camera() {
+        let path = Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(8),
+            Fixed::from_int(8),
+        );
+        let projection = Transform3D {
+            m22: crate::types::Fixed64::ZERO,
+            ..Transform3D::IDENTITY
+        };
+        let mut segments = Vec::new();
+
+        assert_eq!(
+            flatten_projective_into(&path.cmds, &projection, &mut segments),
+            Err(())
         );
     }
 

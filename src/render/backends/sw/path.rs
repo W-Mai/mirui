@@ -3,11 +3,32 @@ use crate::render::canvas::Paint;
 use crate::render::paint::GradientPaint;
 use crate::render::path::{self, Path};
 use crate::render::raster::{self, FillRule};
-use crate::types::{Color, Fixed, Rect, Transform};
+use crate::render::renderer::ProjectiveDrawError;
+use crate::types::{Color, Fixed, Rect, Transform, Transform3D};
 
 fn stroked_paint_bbox(outline: &Path, physical: &Transform) -> Option<Rect> {
     let inverse = physical.inverse()?;
     path::bbox_of_cmds_transformed(&outline.cmds, Some(&inverse))
+}
+
+fn segment_bounds(segments: &[raster::LineSeg]) -> Option<Rect> {
+    let first = segments.first()?;
+    let mut min_x = first.p1.x.min(first.p2.x);
+    let mut min_y = first.p1.y.min(first.p2.y);
+    let mut max_x = first.p1.x.max(first.p2.x);
+    let mut max_y = first.p1.y.max(first.p2.y);
+    for segment in &segments[1..] {
+        min_x = min_x.min(segment.p1.x).min(segment.p2.x);
+        min_y = min_y.min(segment.p1.y).min(segment.p2.y);
+        max_x = max_x.max(segment.p1.x).max(segment.p2.x);
+        max_y = max_y.max(segment.p1.y).max(segment.p2.y);
+    }
+    Some(Rect {
+        x: min_x,
+        y: min_y,
+        w: max_x - min_x,
+        h: max_y - min_y,
+    })
 }
 
 #[cfg(test)]
@@ -297,6 +318,129 @@ impl SwRenderer<'_> {
 
         let alpha = core::mem::take(&mut scratch.clip_mask_buf);
         scratch.clip_stack.push(super::ClipMask { alpha });
+    }
+
+    pub(super) fn push_clip_projective(
+        &mut self,
+        path: &Path,
+        physical: &Transform3D,
+        fill_rule: FillRule,
+    ) -> Result<(), ProjectiveDrawError> {
+        let w = self.target.width as usize;
+        let h = self.target.height as usize;
+        let scratch = &mut *self.scratch;
+        if scratch.clip_mask_buf.capacity() < w * h {
+            if let Some(index) = scratch
+                .clip_recycled
+                .iter()
+                .position(|mask| mask.alpha.capacity() >= w * h)
+            {
+                let mut mask = scratch.clip_recycled.swap_remove(index);
+                core::mem::swap(&mut scratch.clip_mask_buf, &mut mask.alpha);
+                if mask.alpha.capacity() > 0 {
+                    scratch.clip_recycled.push(mask);
+                }
+            }
+        }
+        scratch.clip_mask_buf.clear();
+        scratch.clip_mask_buf.resize(w * h, 0);
+        raster::flatten_projective_into(&path.cmds, physical, &mut scratch.flatten_buf)
+            .map_err(|()| ProjectiveDrawError::InvalidProjection)?;
+        if let Some(bounds) = segment_bounds(&scratch.flatten_buf) {
+            let screen = Rect::new(0, 0, self.target.width, self.target.height);
+            if let Some(draw_area) = bounds.inflate(Fixed::ONE).intersect(&screen) {
+                let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
+                let segments = &scratch.flatten_buf;
+                let acc = &mut scratch.scanline_acc;
+                let crossings = &mut scratch.scanline_crossings;
+                let mask = &mut scratch.clip_mask_buf;
+                raster::scanline_fill(
+                    segments,
+                    px_x0,
+                    px_y0,
+                    px_x1,
+                    py_y1,
+                    fill_rule,
+                    acc,
+                    crossings,
+                    |px, py, coverage| {
+                        mask[py as usize * w + px as usize] = coverage.map01(255).to_int() as u8;
+                    },
+                );
+            }
+        }
+        if let Some(previous) = scratch.clip_stack.last() {
+            for (next, previous) in scratch.clip_mask_buf.iter_mut().zip(previous.alpha.iter()) {
+                *next = (*next).min(*previous);
+            }
+        }
+        let alpha = core::mem::take(&mut scratch.clip_mask_buf);
+        scratch.clip_stack.push(super::ClipMask { alpha });
+        Ok(())
+    }
+
+    pub(super) fn fill_path_projective(
+        &mut self,
+        path: &Path,
+        physical: &Transform3D,
+        clip: Rect,
+        paint: &Paint,
+        opa: u8,
+        fill_rule: FillRule,
+    ) -> Result<(), ProjectiveDrawError> {
+        if opa == 0 {
+            return Ok(());
+        }
+        let Paint::Color(color) = paint else {
+            return Err(ProjectiveDrawError::Unsupported);
+        };
+        let color: Color = (*color).into();
+        let scratch = &mut *self.scratch;
+        raster::flatten_projective_into(&path.cmds, physical, &mut scratch.flatten_buf)
+            .map_err(|()| ProjectiveDrawError::InvalidProjection)?;
+        let Some(bounds) = segment_bounds(&scratch.flatten_buf) else {
+            return Ok(());
+        };
+        let screen = Rect::new(0, 0, self.target.width, self.target.height);
+        let Some(draw_area) = bounds
+            .inflate(Fixed::ONE)
+            .intersect(&clip)
+            .and_then(|bounds| bounds.intersect(&screen))
+        else {
+            return Ok(());
+        };
+        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+        let opacity = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let color_alpha =
+            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let alpha = opacity * color_alpha;
+        let segments = &scratch.flatten_buf;
+        let target_width = self.target.width as usize;
+        let clip_mask = scratch.clip_stack.last().map(|mask| mask.alpha.as_slice());
+        let target = &mut self.target;
+        let acc = &mut scratch.scanline_acc;
+        let crossings = &mut scratch.scanline_crossings;
+        raster::scanline_fill(
+            segments,
+            px_x0,
+            px_y0,
+            px_x1,
+            px_y1,
+            fill_rule,
+            acc,
+            crossings,
+            |px, py, coverage| {
+                let coverage = (coverage * alpha).map01(255).to_int() as u8;
+                let clip_alpha = clip_mask
+                    .map(|mask| mask[py as usize * target_width + px as usize])
+                    .unwrap_or(255);
+                let final_alpha = ((u16::from(coverage) * u16::from(clip_alpha) + 127) / 255) as u8;
+                if final_alpha != 0 {
+                    target.blend_pixel_int(px, py, &color, final_alpha);
+                }
+            },
+        );
+        Ok(())
     }
 
     pub(super) fn fill_path_inner(
