@@ -235,10 +235,9 @@ impl Scene {
         self
     }
 
-    /// Strict SVG `<g opacity>`: would need offscreen compositing for
-    /// overlapping children, which this build doesn't have, so replay rejects
-    /// overlap rather than seaming. For layered/stacked motifs use
-    /// [`group_alpha_multiply`].
+    /// Flatten the group before applying `opacity`. Overlapping children use
+    /// caller-owned RGBA storage supplied to scene replay; disjoint children
+    /// can apply the same opacity without an intermediate layer.
     pub fn group_opacity(
         &mut self,
         transform: Transform,

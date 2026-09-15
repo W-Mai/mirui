@@ -1,16 +1,14 @@
 //! Replay an owned `SceneOp` stream back through a live `Renderer`.
 
-use super::bbox::{
-    BoundsError, BoundsWalkError, children_disjoint_with, op_bbox, union_of_children_with,
-};
+use super::bbox::{BoundsError, BoundsWalkError, children_disjoint_with, op_bbox};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
 use crate::render::renderer::{
     DrawRequest, FallbackRegion, RenderError, RenderFeature, RenderRoute, Renderer,
 };
-use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Fixed, Rect, Transform, Transform3D};
+use crate::render::texture::{AlphaMode, ColorFormat, Texture};
+use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
 use core::cell::Cell;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,10 +27,8 @@ pub enum ReplayError {
     UnresolvedTexture,
     UnresolvedClip,
     UnsupportedFillRule,
-    /// Mid-range group opacity over overlapping children with no
-    /// `disjoint_hint`. Flat alpha-multiply would seam; offscreen
-    /// compositing isn't available. Separate the children, or set the
-    /// hint to flatten with a visible seam.
+    /// Mid-range group opacity over overlapping children needs borrowed RGBA
+    /// storage. Supply it through [`ReplayScratch::with_rgba`].
     GroupOpacityNeedsOffscreen,
     Render(RenderError),
 }
@@ -59,7 +55,6 @@ pub struct ReplayFrame {
     projective: Option<Transform3D>,
     alpha: u8,
     has_clip: bool,
-    start_idx: usize,
 }
 
 impl ReplayFrame {
@@ -68,7 +63,6 @@ impl ReplayFrame {
         projective: None,
         alpha: 255,
         has_clip: false,
-        start_idx: 0,
     };
 }
 
@@ -85,6 +79,16 @@ pub struct ReplayScopePlan {
     start_idx: usize,
     end_idx: usize,
     region: FallbackRegion,
+    kind: ReplayScopeKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplayScopeKind {
+    Fallback,
+    Isolated {
+        opacity: u8,
+        blur_alpha: Option<Fixed>,
+    },
 }
 
 impl ReplayScopePlan {
@@ -92,6 +96,7 @@ impl ReplayScopePlan {
         start_idx: usize::MAX,
         end_idx: usize::MAX,
         region: FallbackRegion::EMPTY,
+        kind: ReplayScopeKind::Fallback,
     };
 }
 
@@ -100,6 +105,7 @@ pub struct ReplayScratch<'a> {
     frames: &'a mut [ReplayFrame],
     routes: &'a mut [ReplayPlan],
     scopes: &'a mut [ReplayScopePlan],
+    rgba: &'a mut [u8],
 }
 
 impl<'a> ReplayScratch<'a> {
@@ -112,7 +118,14 @@ impl<'a> ReplayScratch<'a> {
             frames,
             routes,
             scopes,
+            rgba: &mut [],
         }
+    }
+
+    /// Supply fixed-capacity RGBA storage for isolated scene groups.
+    pub fn with_rgba(mut self, rgba: &'a mut [u8]) -> Self {
+        self.rgba = rgba;
+        self
     }
 }
 
@@ -222,6 +235,8 @@ struct ReplayPassState<'a> {
     scopes: &'a mut [ReplayScopePlan],
     scope_len: &'a mut usize,
     scope_cursor: usize,
+    rgba: Option<&'a mut [u8]>,
+    rgba_capacity: usize,
 }
 
 impl ReplayPassState<'_> {
@@ -257,6 +272,7 @@ impl ReplayPassState<'_> {
         start_idx: usize,
         end_idx: usize,
         region: FallbackRegion,
+        kind: ReplayScopeKind,
     ) -> Result<(), ReplayError> {
         if *self.scope_len == self.scopes.len() {
             return Err(ReplayError::InsufficientScopePlans {
@@ -268,6 +284,7 @@ impl ReplayPassState<'_> {
             start_idx,
             end_idx,
             region,
+            kind,
         };
         *self.scope_len += 1;
         Ok(())
@@ -393,24 +410,11 @@ fn resolved_children_disjoint(
     .map_err(map_bounds_walk)
 }
 
-fn resolved_children_union(
-    ops: &[SceneOp],
-    parent: Transform,
-    resolver: &dyn SceneResolver,
-    output_scale: Fixed,
-) -> Result<Rect, ReplayError> {
-    union_of_children_with(ops, parent, &|op, parent| {
-        resolved_leaf_bounds(op, parent, resolver, output_scale)
-    })
-    .map_err(map_bounds_walk)
-}
-
 fn composed_frame(
     parent: ReplayFrame,
     local_affine: Transform,
     local_projective: Option<Transform3D>,
     alpha: u8,
-    start_idx: usize,
 ) -> ReplayFrame {
     let (transform, projective) = match (parent.projective, local_projective) {
         (None, None) => (parent.transform.compose(&local_affine), None),
@@ -436,7 +440,6 @@ fn composed_frame(
         projective,
         alpha,
         has_clip: false,
-        start_idx,
     }
 }
 
@@ -449,7 +452,7 @@ fn resolved_visual_union(
 ) -> Result<Rect, ReplayError> {
     let mut stack = ReplayStack::new(frames, root)?;
     let mut bounds: Option<Rect> = None;
-    for (index, op) in ops.iter().enumerate() {
+    for op in ops {
         match op {
             SceneOp::GroupBegin {
                 transform,
@@ -463,7 +466,6 @@ fn resolved_visual_union(
                     transform.unwrap_or(Transform::IDENTITY),
                     projective.filter(|value| !value.is_identity()),
                     opacity.map_or(parent.alpha, |value| mul_alpha(parent.alpha, value)),
-                    index,
                 ))?;
             }
             SceneOp::GroupEnd => {
@@ -536,29 +538,42 @@ fn scope_bounds(
         .unwrap_or(Rect::ZERO))
 }
 
-fn preflight_software_scope(
-    ops: &[SceneOp],
-    clip: &Rect,
-    resolver: &dyn SceneResolver,
+struct ScopePreflight<'a> {
+    clip: &'a Rect,
+    resolver: &'a dyn SceneResolver,
     root: ReplayFrame,
     output_scale: Fixed,
+    region: FallbackRegion,
+    rgba_capacity: usize,
+}
+
+fn preflight_software_scope(
+    ops: &[SceneOp],
     frames: &mut [ReplayFrame],
+    scopes: &mut [ReplayScopePlan],
+    preflight: ScopePreflight<'_>,
 ) -> Result<(), ReplayError> {
     let mut pixel = [0u8; 4];
     let texture = Texture::new(&mut pixel, 1, 1, ColorFormat::RGBA8888);
     let mut software = crate::render::backends::sw::SwRenderer::new(texture);
-    software.viewport = crate::types::Viewport::new(1, 1, output_scale);
+    software.viewport = crate::types::Viewport::new(
+        preflight.region.width(),
+        preflight.region.height(),
+        preflight.output_scale,
+    );
+    let origin_x = Fixed::from_int(preflight.region.x()) / preflight.output_scale;
+    let origin_y = Fixed::from_int(preflight.region.y()) / preflight.output_scale;
+    let mut local = crate::render::renderer::RegionRenderer::new(&mut software, origin_x, origin_y);
     let mut routes = [ReplayPlan::EMPTY; 8];
-    let mut scopes = [ReplayScopePlan::EMPTY; 0];
     let mut route_len = 0;
     let mut scope_len = 0;
     replay_scene_pass(
         ops,
-        &mut software,
-        clip,
-        resolver,
+        &mut local,
+        preflight.clip,
+        preflight.resolver,
         frames,
-        root,
+        preflight.root,
         &mut ReplayPassState {
             pass: ReplayPass::Preflight,
             probe_only: false,
@@ -566,9 +581,11 @@ fn preflight_software_scope(
             plan_len: &mut route_len,
             ordinal: 0,
             plan_cursor: 0,
-            scopes: &mut scopes,
+            scopes,
             scope_len: &mut scope_len,
             scope_cursor: 0,
+            rgba: None,
+            rgba_capacity: preflight.rgba_capacity,
         },
     )
 }
@@ -607,6 +624,8 @@ fn probe_scope(
             scopes: &mut scopes,
             scope_len: &mut scope_len,
             scope_cursor: 0,
+            rgba: None,
+            rgba_capacity: 0,
         },
     )?;
     if let Some(error) = probe.error.get() {
@@ -615,40 +634,39 @@ fn probe_scope(
     Ok(probe.needs_scope.get())
 }
 
+struct ScopeDraw<'a> {
+    renderer: &'a mut dyn Renderer,
+    clip: &'a Rect,
+    resolver: &'a dyn SceneResolver,
+    root: ReplayFrame,
+    frames: &'a mut [ReplayFrame],
+    rgba: &'a mut [u8],
+}
+
 fn draw_scope(
     ops: &[SceneOp],
     scope: ReplayScopePlan,
-    renderer: &mut dyn Renderer,
-    clip: &Rect,
-    resolver: &dyn SceneResolver,
-    root: ReplayFrame,
-    frames: &mut [ReplayFrame],
+    draw: &mut ScopeDraw<'_>,
 ) -> Result<(), ReplayError> {
+    if let ReplayScopeKind::Isolated {
+        opacity,
+        blur_alpha,
+    } = scope.kind
+    {
+        return draw_isolated_scope(ops, scope, draw, opacity, blur_alpha);
+    }
     let scoped_ops = &ops[scope.start_idx..=scope.end_idx];
     let mut nested_error = None;
-    let result = renderer.render_scope(scope.region, &mut |local| {
-        let mut routes = [ReplayPlan::EMPTY; 0];
-        let mut scopes = [ReplayScopePlan::EMPTY; 0];
-        let mut route_len = 0;
-        let mut scope_len = 0;
-        let result = replay_scene_pass(
+    let result = draw.renderer.render_scope(scope.region, &mut |local| {
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let result = replay_scene_with_root(
             scoped_ops,
             local,
-            clip,
-            resolver,
-            frames,
-            root,
-            &mut ReplayPassState {
-                pass: ReplayPass::Draw,
-                probe_only: false,
-                plans: &mut routes,
-                plan_len: &mut route_len,
-                ordinal: 0,
-                plan_cursor: 0,
-                scopes: &mut scopes,
-                scope_len: &mut scope_len,
-                scope_cursor: 0,
-            },
+            draw.clip,
+            draw.resolver,
+            ReplayScratch::new(draw.frames, &mut routes, &mut scopes).with_rgba(draw.rgba),
+            draw.root,
         );
         match result {
             Ok(()) => Ok(()),
@@ -663,6 +681,119 @@ fn draw_scope(
         return Err(error);
     }
     result.map(|_| ()).map_err(ReplayError::Render)
+}
+
+fn draw_isolated_scope(
+    ops: &[SceneOp],
+    scope: ReplayScopePlan,
+    draw: &mut ScopeDraw<'_>,
+    opacity: u8,
+    blur_alpha: Option<Fixed>,
+) -> Result<(), ReplayError> {
+    let SceneOp::GroupBegin {
+        transform,
+        projective,
+        clip: group_clip,
+        ..
+    } = &ops[scope.start_idx]
+    else {
+        return Err(ReplayError::UnbalancedGroup);
+    };
+    let required = scope.region.required_bytes();
+    if required > draw.rgba.len() {
+        return Err(ReplayError::Render(RenderError::InsufficientWorkspace {
+            required_bytes: required,
+            capacity_bytes: draw.rgba.len(),
+        }));
+    }
+    let (target, nested_rgba) = draw.rgba.split_at_mut(required);
+    target.fill(0);
+    let scale = draw.renderer.output_scale();
+    let local_w = scope.region.width();
+    let local_h = scope.region.height();
+    let origin_x = Fixed::from_int(scope.region.x()) / scale;
+    let origin_y = Fixed::from_int(scope.region.y()) / scale;
+    let group = composed_frame(
+        draw.root,
+        transform.unwrap_or(Transform::IDENTITY),
+        projective.filter(|value| !value.is_identity()),
+        255,
+    );
+    {
+        let texture = Texture::new(target, local_w, local_h, ColorFormat::RGBA8888);
+        let mut software =
+            crate::render::backends::sw::SwRenderer::new(texture).with_alpha_mode(AlphaMode::Blend);
+        software.viewport = crate::types::Viewport::new(local_w, local_h, scale);
+        {
+            let mut local =
+                crate::render::renderer::RegionRenderer::new(&mut software, origin_x, origin_y);
+            if let Some(ResourceRef::Inline(path)) = group_clip {
+                let command = DrawCommand::PushClip {
+                    path,
+                    transform: group.transform,
+                    fill_rule: crate::render::raster::FillRule::EvenOdd,
+                };
+                local
+                    .submit(
+                        &DrawRequest::new(&command, *draw.clip)
+                            .with_projective(group.projective.unwrap_or(Transform3D::IDENTITY)),
+                    )
+                    .map_err(ReplayError::Render)?;
+            } else if group_clip.is_some() {
+                return Err(ReplayError::UnresolvedClip);
+            }
+            let mut nested_frames = [ReplayFrame::EMPTY; 8];
+            let mut nested_routes = [ReplayPlan::EMPTY; 8];
+            let mut nested_scopes = [ReplayScopePlan::EMPTY; 8];
+            replay_scene_with_root(
+                &ops[scope.start_idx + 1..scope.end_idx],
+                &mut local,
+                draw.clip,
+                draw.resolver,
+                ReplayScratch::new(&mut nested_frames, &mut nested_routes, &mut nested_scopes)
+                    .with_rgba(nested_rgba),
+                group,
+            )?;
+            if group_clip.is_some() {
+                local
+                    .submit(
+                        &DrawRequest::new(&DrawCommand::PopClip, *draw.clip)
+                            .with_projective(group.projective.unwrap_or(Transform3D::IDENTITY)),
+                    )
+                    .map_err(ReplayError::Render)?;
+            }
+        }
+        if let Some(alpha) = blur_alpha {
+            software
+                .blur_target_region(
+                    alpha,
+                    &Rect::new(
+                        0,
+                        0,
+                        Fixed::from(local_w) / scale,
+                        Fixed::from(local_h) / scale,
+                    ),
+                )
+                .map_err(ReplayError::Render)?;
+        }
+    }
+
+    let source = Texture::from_ref(target, local_w, local_h, ColorFormat::RGBA8888);
+    draw.renderer
+        .submit(&DrawRequest::new(
+            &DrawCommand::Blit {
+                pos: Point::new(origin_x, origin_y),
+                size: Point::new(Fixed::from(local_w) / scale, Fixed::from(local_h) / scale),
+                transform: Transform::IDENTITY,
+                quad: None,
+                texture: &source,
+                opa: opacity,
+                radius: Fixed::ZERO,
+                composite: crate::render::command::CompositeMode::SourceOver,
+            },
+            *draw.clip,
+        ))
+        .map_err(ReplayError::Render)
 }
 
 /// Replay with capacity for seven nested groups. Use
@@ -726,25 +857,34 @@ fn replay_scene_with_root(
     scratch: ReplayScratch<'_>,
     root: ReplayFrame,
 ) -> Result<(), ReplayError> {
+    let ReplayScratch {
+        frames,
+        routes,
+        scopes,
+        rgba,
+    } = scratch;
     let mut plan_len = 0;
     let mut scope_len = 0;
+    let rgba_capacity = rgba.len();
     replay_scene_pass(
         ops,
         renderer,
         clip,
         resolver,
-        &mut *scratch.frames,
+        &mut *frames,
         root,
         &mut ReplayPassState {
             pass: ReplayPass::Preflight,
             probe_only: false,
-            plans: &mut *scratch.routes,
+            plans: &mut *routes,
             plan_len: &mut plan_len,
             ordinal: 0,
             plan_cursor: 0,
-            scopes: &mut *scratch.scopes,
+            scopes: &mut *scopes,
             scope_len: &mut scope_len,
             scope_cursor: 0,
+            rgba: None,
+            rgba_capacity,
         },
     )?;
     replay_scene_pass(
@@ -752,18 +892,20 @@ fn replay_scene_with_root(
         renderer,
         clip,
         resolver,
-        &mut *scratch.frames,
+        &mut *frames,
         root,
         &mut ReplayPassState {
             pass: ReplayPass::Draw,
             probe_only: false,
-            plans: &mut *scratch.routes,
+            plans: &mut *routes,
             plan_len: &mut plan_len,
             ordinal: 0,
             plan_cursor: 0,
-            scopes: &mut *scratch.scopes,
+            scopes: &mut *scopes,
             scope_len: &mut scope_len,
             scope_cursor: 0,
+            rgba: Some(&mut *rgba),
+            rgba_capacity,
         },
     )
 }
@@ -797,15 +939,21 @@ fn replay_scene_pass(
         let top = stack.top();
         if state.pass == ReplayPass::Draw {
             if let Some(scope) = state.scope_at(i) {
-                draw_scope(
+                let rgba = state.rgba.take().unwrap_or(&mut []);
+                let result = draw_scope(
                     ops,
                     scope,
-                    renderer,
-                    clip,
-                    resolver,
-                    top,
-                    stack.workspace_from_top(),
-                )?;
+                    &mut ScopeDraw {
+                        renderer,
+                        clip,
+                        resolver,
+                        root: top,
+                        frames: stack.workspace_from_top(),
+                        rgba: &mut *rgba,
+                    },
+                );
+                state.rgba = Some(rgba);
+                result?;
                 i = scope.end_idx + 1;
                 continue;
             }
@@ -816,39 +964,117 @@ fn replay_scene_pass(
                 projective,
                 opacity,
                 clip: group_clip,
+                mask,
+                filter,
                 disjoint_hint,
-                ..
             } => {
                 let local_affine = transform.unwrap_or(Transform::IDENTITY);
                 let local_projective = projective.filter(|value| !value.is_identity());
-                let next = composed_frame(top, local_affine, local_projective, top.alpha, i);
+                let next = composed_frame(top, local_affine, local_projective, top.alpha);
                 let composed = next.transform;
                 let composed_projective = next.projective;
-                let next_alpha = match opacity {
-                    None => top.alpha,
-                    Some(255) => top.alpha,
-                    Some(0) => {
-                        skip_depth = 1;
-                        i += 1;
-                        continue;
-                    }
-                    Some(n) => {
-                        if !*disjoint_hint {
-                            let end_idx =
-                                matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?;
-                            let inner = &ops[i + 1..end_idx];
-                            if !resolved_children_disjoint(
-                                inner,
-                                composed,
-                                resolver,
-                                renderer.output_scale(),
-                            )? {
-                                return Err(ReplayError::GroupOpacityNeedsOffscreen);
-                            }
-                        }
-                        mul_alpha(top.alpha, *n)
+                let group_opacity = opacity.unwrap_or(255);
+                if group_opacity == 0 {
+                    skip_depth = 1;
+                    i += 1;
+                    continue;
+                }
+                if mask.is_some() {
+                    return Err(ReplayError::Render(RenderError::Unsupported(
+                        RenderFeature::Mask,
+                    )));
+                }
+                let blur_radius = match filter {
+                    None => None,
+                    Some(ResourceRef::Token(value)) => Some(parse_blur_filter(value).ok_or(
+                        ReplayError::Render(RenderError::Unsupported(RenderFeature::Blur)),
+                    )?),
+                    Some(ResourceRef::Inline(_) | ResourceRef::Index(_)) => {
+                        return Err(ReplayError::Render(RenderError::Unsupported(
+                            RenderFeature::Blur,
+                        )));
                     }
                 };
+                let needs_subtree =
+                    blur_radius.is_some() || (group_opacity != 255 && !*disjoint_hint);
+                let end_idx = if needs_subtree {
+                    Some(matching_group_end(ops, i).ok_or(ReplayError::UnbalancedGroup)?)
+                } else {
+                    None
+                };
+                let opacity_isolation = if group_opacity != 255 && !*disjoint_hint {
+                    let end_idx = end_idx.expect("opacity subtree was resolved");
+                    !resolved_children_disjoint(
+                        &ops[i + 1..end_idx],
+                        composed,
+                        resolver,
+                        renderer.output_scale(),
+                    )?
+                } else {
+                    false
+                };
+                if opacity_isolation || blur_radius.is_some() {
+                    if state.probe_only {
+                        let end_idx = end_idx.expect("isolated subtree was resolved");
+                        i = end_idx + 1;
+                        continue;
+                    }
+                    if state.pass != ReplayPass::Preflight {
+                        return Err(ReplayError::GroupOpacityNeedsOffscreen);
+                    }
+                    let end_idx = end_idx.expect("isolated subtree was resolved");
+                    let inner = &ops[i + 1..end_idx];
+                    let available = state.rgba_capacity;
+                    let scope_root = ReplayFrame { alpha: 255, ..next };
+                    let mut bounds = scope_bounds(
+                        inner,
+                        scope_root,
+                        *clip,
+                        resolver,
+                        renderer.output_scale(),
+                        stack.workspace_from_top(),
+                    )?;
+                    if let Some(radius) = blur_radius {
+                        bounds = bounds
+                            .inflate(radius * Fixed::from_int(4))
+                            .intersect(clip)
+                            .unwrap_or(Rect::ZERO);
+                    }
+                    if bounds.w <= Fixed::ZERO || bounds.h <= Fixed::ZERO {
+                        i = end_idx + 1;
+                        continue;
+                    }
+                    if available == 0 {
+                        return Err(if opacity_isolation && blur_radius.is_none() {
+                            ReplayError::GroupOpacityNeedsOffscreen
+                        } else {
+                            ReplayError::Render(RenderError::MissingWorkspace)
+                        });
+                    }
+                    let region = renderer.plan_scope(&bounds).map_err(ReplayError::Render)?;
+                    if region.required_bytes() > available {
+                        return Err(ReplayError::Render(RenderError::InsufficientWorkspace {
+                            required_bytes: region.required_bytes(),
+                            capacity_bytes: available,
+                        }));
+                    }
+                    state.retain_scope(
+                        i,
+                        end_idx,
+                        region,
+                        ReplayScopeKind::Isolated {
+                            opacity: mul_alpha(top.alpha, group_opacity),
+                            blur_alpha: blur_radius.map(|radius| {
+                                crate::render::backends::sw::blur::alpha_for_radius(
+                                    radius * renderer.output_scale(),
+                                )
+                            }),
+                        },
+                    )?;
+                    i = end_idx + 1;
+                    continue;
+                }
+                let next_alpha = mul_alpha(top.alpha, group_opacity);
                 let next = ReplayFrame {
                     alpha: next_alpha,
                     ..next
@@ -892,14 +1118,6 @@ fn replay_scene_pass(
                             )?;
                         }
                         if needs_scope {
-                            preflight_software_scope(
-                                scoped_ops,
-                                clip,
-                                resolver,
-                                top,
-                                renderer.output_scale(),
-                                stack.workspace_from_top(),
-                            )?;
                             let bounds = scope_bounds(
                                 &ops[i + 1..end_idx],
                                 scope_root,
@@ -910,7 +1128,20 @@ fn replay_scene_pass(
                             )?;
                             let region =
                                 renderer.plan_scope(&bounds).map_err(ReplayError::Render)?;
-                            state.retain_scope(i, end_idx, region)?;
+                            preflight_software_scope(
+                                scoped_ops,
+                                stack.workspace_from_top(),
+                                &mut state.scopes[*state.scope_len..],
+                                ScopePreflight {
+                                    clip,
+                                    resolver,
+                                    root: top,
+                                    output_scale: renderer.output_scale(),
+                                    region,
+                                    rgba_capacity: state.rgba_capacity,
+                                },
+                            )?;
+                            state.retain_scope(i, end_idx, region, ReplayScopeKind::Fallback)?;
                             i = end_idx + 1;
                             continue;
                         }
@@ -924,7 +1155,6 @@ fn replay_scene_pass(
                             projective: composed_projective,
                             alpha: next_alpha,
                             has_clip: false,
-                            start_idx: i,
                         },
                         &DrawCommand::PushClip {
                             path,
@@ -946,35 +1176,6 @@ fn replay_scene_pass(
                 let frame = stack.pop()?;
                 if frame.has_clip {
                     draw_in_frame(renderer, &frame, &DrawCommand::PopClip, clip, state)?;
-                }
-                let filter = match &ops[frame.start_idx] {
-                    SceneOp::GroupBegin { filter, .. } => filter,
-                    _ => return Err(ReplayError::UnbalancedGroup),
-                };
-                if let Some(ResourceRef::Token(filter_str)) = filter {
-                    if let Some(blur_radius) = parse_blur_filter(filter_str) {
-                        if frame.projective.is_some() {
-                            return Err(ReplayError::Bounds(BoundsError::ProjectiveGroup));
-                        }
-                        let children = &ops[frame.start_idx + 1..i];
-                        let region = resolved_children_union(
-                            children,
-                            frame.transform,
-                            resolver,
-                            renderer.output_scale(),
-                        )?
-                        .inflate(blur_radius * Fixed::from_int(4));
-                        let alpha = crate::render::backends::sw::blur::alpha_for_radius(
-                            blur_radius * renderer.output_scale(),
-                        );
-                        draw_in_frame(
-                            renderer,
-                            &frame,
-                            &DrawCommand::ApplyBlur { alpha, region },
-                            clip,
-                            state,
-                        )?;
-                    }
                 }
             }
             SceneOp::PushClip {
@@ -1498,6 +1699,67 @@ mod tests {
     }
 
     #[test]
+    fn fallback_clip_preserves_nested_group_isolation() {
+        let clip_path = crate::render::path::Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(10),
+            Fixed::from_int(10),
+        );
+        let red_fill = |x, y| SceneOp::FillRect {
+            area: Rect::new(x, y, 4, 4),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(255, 0, 0),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let ops = [
+            SceneOp::GroupBegin {
+                transform: Some(Transform::translate(Fixed::from_int(5), Fixed::from_int(3))),
+                projective: None,
+                opacity: None,
+                clip: Some(ResourceRef::Inline(clip_path)),
+                mask: None,
+                filter: None,
+                disjoint_hint: false,
+            },
+            group(Some(128), false),
+            red_fill(0, 0),
+            red_fill(2, 2),
+            SceneOp::GroupEnd,
+            SceneOp::GroupEnd,
+        ];
+        let mut pixels = [0u8; 40 * 30 * 4];
+        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let mut renderer = ScopeFallback {
+            target: crate::render::backends::sw::SwRenderer::new(target),
+            outer_submits: 0,
+            scope_edits: 0,
+            projective_clip_only: false,
+        };
+        let mut frames = [ReplayFrame::EMPTY; 8];
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let mut rgba = [0u8; 40 * 30 * 4];
+
+        replay_scene_with_scratch(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 40, 30),
+            &NoResolver,
+            ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
+        )
+        .unwrap();
+
+        assert_eq!(renderer.scope_edits, 1);
+        assert_eq!(renderer.outer_submits, 0);
+        drop(renderer);
+        let overlap = (6 * 40 + 8) * 4;
+        assert_eq!(&pixels[overlap..overlap + 4], &[128, 0, 0, 255]);
+    }
+
+    #[test]
     fn native_outer_clip_absorbs_a_nested_fallback_scope() {
         let ops = nested_clip_group();
         let mut pixels = [0u8; 40 * 30 * 4];
@@ -1555,23 +1817,31 @@ mod tests {
 
     #[test]
     fn scene_blur_uses_physical_radius_and_includes_edge_bleed() {
-        struct BlurCapture(Option<(Fixed, Rect)>);
+        struct ScopePlanCapture {
+            bounds: Cell<Option<Rect>>,
+            scale: Fixed,
+        }
 
-        impl Renderer for BlurCapture {
+        impl Renderer for ScopePlanCapture {
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-                self.route(request)?;
-                if let DrawCommand::ApplyBlur { alpha, region } = request.command {
-                    self.0 = Some((*alpha, *region));
-                }
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
             fn output_scale(&self) -> Fixed {
-                Fixed::from_int(2)
+                self.scale
+            }
+
+            fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+                self.bounds.set(Some(*bounds));
+                FallbackRegion::from_logical_bounds(
+                    *bounds,
+                    crate::types::Viewport::new(200, 200, self.scale),
+                    Some(200 * 200 * 4),
+                )
             }
 
             fn flush(&mut self) {}
@@ -1590,31 +1860,49 @@ mod tests {
             fill(Transform::IDENTITY),
             SceneOp::GroupEnd,
         ];
-        let mut renderer = BlurCapture(None);
-        replay_scene(&ops, &mut renderer, &Rect::new(0, 0, 100, 100), &NoResolver).unwrap();
-        assert_eq!(
-            renderer.0,
-            Some((
-                crate::render::backends::sw::blur::alpha_for_radius(Fixed::from_int(6)),
-                Rect::new(-12, -12, 28, 28),
-            ))
-        );
+        let mut renderer = ScopePlanCapture {
+            bounds: Cell::new(None),
+            scale: Fixed::from_int(2),
+        };
+        let mut frames = [ReplayFrame::EMPTY; 8];
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let mut rgba = [0u8; 200 * 200 * 4];
+        replay_scene_with_scratch(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 100, 100),
+            &NoResolver,
+            ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
+        )
+        .unwrap();
+        let bounds = renderer.bounds.get().expect("isolated blur scope");
+        assert_eq!(bounds.x, Fixed::ZERO);
+        assert_eq!(bounds.y, Fixed::ZERO);
+        assert!(bounds.w >= Fixed::from_int(16));
+        assert!(bounds.h >= Fixed::from_int(16));
     }
 
     #[test]
     fn scene_blur_resolves_glyph_ink_instead_of_using_the_clip() {
-        struct BlurCapture(Option<Rect>);
+        struct BlurCapture(Cell<Option<Rect>>);
 
         impl Renderer for BlurCapture {
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-                if let DrawCommand::ApplyBlur { region, .. } = request.command {
-                    self.0 = Some(*region);
-                }
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
+            }
+
+            fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
+                self.0.set(Some(*bounds));
+                FallbackRegion::from_logical_bounds(
+                    *bounds,
+                    crate::types::Viewport::new(200, 100, Fixed::ONE),
+                    Some(200 * 100 * 4),
+                )
             }
 
             fn flush(&mut self) {}
@@ -1633,23 +1921,71 @@ mod tests {
             glyph_at(30),
             SceneOp::GroupEnd,
         ];
-        let mut renderer = BlurCapture(None);
-
-        replay_scene(
+        let mut renderer = BlurCapture(Cell::new(None));
+        let mut frames = [ReplayFrame::EMPTY; 8];
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let mut rgba = [0u8; 200 * 100 * 4];
+        replay_scene_with_scratch(
             &ops,
             &mut renderer,
             &Rect::new(0, 0, 200, 100),
             &BitmapResolver(Font::bitmap_8x8()),
+            ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
         )
         .unwrap();
 
-        let region = renderer.0.expect("blur command");
+        let region = renderer.0.get().expect("blur scope");
         assert!(region.x > Fixed::ZERO);
         assert!(region.w < Fixed::from_int(100));
         assert!(region.x <= Fixed::from_int(30));
         assert!(region.y <= Fixed::from_int(20));
         assert!(region.x + region.w >= Fixed::from_int(30));
         assert!(region.y + region.h >= Fixed::from_int(20));
+    }
+
+    #[test]
+    fn isolated_blur_does_not_filter_the_existing_target() {
+        let mut red = opaque_fill_at(14, 14);
+        if let SceneOp::FillRect { color, .. } = &mut red {
+            *color = Color::rgb(255, 0, 0);
+        }
+        let ops = [
+            SceneOp::GroupBegin {
+                transform: None,
+                projective: None,
+                opacity: None,
+                clip: None,
+                mask: None,
+                filter: Some(ResourceRef::Token("blur:2".into())),
+                disjoint_hint: true,
+            },
+            red,
+            SceneOp::GroupEnd,
+        ];
+        let mut output = [0u8; 32 * 32 * 4];
+        for pixel in output.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[0, 0, 255, 255]);
+        }
+        let texture = Texture::new(&mut output, 32, 32, ColorFormat::RGBA8888);
+        let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
+        let mut frames = [ReplayFrame::EMPTY; 8];
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let mut rgba = [0u8; 32 * 32 * 4];
+        replay_scene_with_scratch(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 32, 32),
+            &NoResolver,
+            ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
+        )
+        .unwrap();
+
+        assert_eq!(&output[..4], &[0, 0, 255, 255]);
+        let edge = (15 * 32 + 12) * 4;
+        assert!(output[edge] > 0);
+        assert!(output[edge + 2] > 0);
     }
 
     #[test]
@@ -2426,6 +2762,70 @@ mod tests {
             replay_scene(&ops, &mut r, &rect(), &NoResolver),
             Err(ReplayError::GroupOpacityNeedsOffscreen)
         );
+    }
+
+    #[test]
+    fn group_opacity_overlap_flattens_once_with_borrowed_rgba() {
+        let mut first = opaque_fill_at(0, 0);
+        let mut second = opaque_fill_at(2, 2);
+        for op in [&mut first, &mut second] {
+            if let SceneOp::FillRect { color, .. } = op {
+                *color = Color::rgb(255, 0, 0);
+            }
+        }
+        let ops = vec![group(Some(128), false), first, second, SceneOp::GroupEnd];
+        let mut output = [0u8; 8 * 8 * 4];
+        let texture = Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888);
+        let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
+        let mut frames = [ReplayFrame::EMPTY; 8];
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let mut rgba = [0u8; 8 * 8 * 4];
+        replay_scene_with_scratch(
+            &ops,
+            &mut renderer,
+            &Rect::new(0, 0, 8, 8),
+            &NoResolver,
+            ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
+        )
+        .unwrap();
+
+        let overlap = (3 * 8 + 3) * 4;
+        assert_eq!(&output[overlap..overlap + 4], &[128, 0, 0, 255]);
+    }
+
+    #[test]
+    fn nested_isolation_exhaustion_leaves_output_untouched() {
+        let ops = vec![
+            group(Some(128), false),
+            group(Some(128), false),
+            opaque_fill_at(0, 0),
+            opaque_fill_at(2, 2),
+            SceneOp::GroupEnd,
+            opaque_fill_at(1, 1),
+            SceneOp::GroupEnd,
+        ];
+        let mut output = [17u8; 8 * 8 * 4];
+        let before = output;
+        let texture = Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888);
+        let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
+        let mut frames = [ReplayFrame::EMPTY; 8];
+        let mut routes = [ReplayPlan::EMPTY; 8];
+        let mut scopes = [ReplayScopePlan::EMPTY; 8];
+        let mut rgba = [0u8; 200];
+        assert!(matches!(
+            replay_scene_with_scratch(
+                &ops,
+                &mut renderer,
+                &Rect::new(0, 0, 8, 8),
+                &NoResolver,
+                ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
+            ),
+            Err(ReplayError::Render(
+                RenderError::InsufficientWorkspace { .. }
+            ))
+        ));
+        assert_eq!(output, before);
     }
 
     #[test]

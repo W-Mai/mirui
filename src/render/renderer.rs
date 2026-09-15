@@ -190,13 +190,25 @@ impl RenderRoute {
     }
 }
 
-struct RegionRenderer<'a> {
+pub(crate) struct RegionRenderer<'a> {
     inner: &'a mut dyn Renderer,
     origin_x: Fixed,
     origin_y: Fixed,
 }
 
 impl RegionRenderer<'_> {
+    pub(crate) fn new(
+        inner: &mut dyn Renderer,
+        origin_x: Fixed,
+        origin_y: Fixed,
+    ) -> RegionRenderer<'_> {
+        RegionRenderer {
+            inner,
+            origin_x,
+            origin_y,
+        }
+    }
+
     fn clip(&self, clip: Rect) -> Rect {
         Rect {
             x: clip.x - self.origin_x,
@@ -319,7 +331,36 @@ impl Renderer for RegionRenderer<'_> {
     }
 
     fn plan_scope(&self, bounds: &Rect) -> Result<FallbackRegion, RenderError> {
-        self.inner.plan_scope(&self.clip(*bounds))
+        let local = self.inner.plan_scope(&self.clip(*bounds))?;
+        let scale = self.output_scale();
+        if scale <= Fixed::ZERO {
+            return Err(RenderError::InvalidGeometry);
+        }
+        let origin_x = (self.origin_x * scale).to_int();
+        let origin_y = (self.origin_y * scale).to_int();
+        let x = local
+            .x()
+            .checked_add(origin_x)
+            .ok_or(RenderError::InvalidGeometry)?;
+        let y = local
+            .y()
+            .checked_add(origin_y)
+            .ok_or(RenderError::InvalidGeometry)?;
+        Ok(FallbackRegion::from_parts(
+            x,
+            y,
+            local.width(),
+            local.height(),
+            local.stride_bytes(),
+        ))
+    }
+
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        draw: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
+    ) -> Result<bool, RenderError> {
+        self.inner.modify_target_region(&self.clip(*src), draw)
     }
 }
 
@@ -329,6 +370,7 @@ pub enum RenderFeature {
     AffineGeometry,
     ProjectiveGeometry,
     PathClip,
+    Mask,
     PathStroke,
     FillRule,
     GradientPaint,

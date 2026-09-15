@@ -271,25 +271,6 @@ where
     Ok(true)
 }
 
-pub(crate) fn union_of_children_with<E, F>(
-    ops: &[SceneOp],
-    parent: Transform,
-    leaf_bounds: &F,
-) -> Result<Rect, BoundsWalkError<E>>
-where
-    F: Fn(&SceneOp, Transform) -> Result<Option<Rect>, E>,
-{
-    let mut index = 0usize;
-    let mut bounds: Option<Rect> = None;
-    while let Some(child) = next_child_bounds_with(ops, &mut index, parent, leaf_bounds)? {
-        bounds = Some(match bounds {
-            Some(current) => current.union(&child),
-            None => child,
-        });
-    }
-    Ok(bounds.unwrap_or(Rect::ZERO))
-}
-
 fn next_child_bounds_with<E, F>(
     ops: &[SceneOp],
     index: &mut usize,

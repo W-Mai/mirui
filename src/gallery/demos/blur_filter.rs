@@ -41,12 +41,17 @@ const SCENE: &[SceneOp] = scene! {
 
 fn blur_filter_render(
     renderer: &mut dyn Renderer,
-    _world: &World,
+    world: &World,
     _entity: Entity,
     _rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    ctx.replay(renderer, SCENE, &SliceResolver::new(&[], &[]));
+    let scratch = world
+        .resource::<crate::gallery::SceneRgbaScratch>()
+        .expect("Blur Filter setup installs scene RGBA storage");
+    scratch.with_mut(|rgba| {
+        ctx.replay_with_rgba(renderer, SCENE, &SliceResolver::new(&[], &[]), rgba)
+    });
 }
 
 pub fn blur_filter_view() -> View {
@@ -74,6 +79,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::SceneRgbaScratch::install(&mut app.world, 480 * 240 * 4);
     app.with_widget(blur_filter_view());
     app.compose(parent, build_widgets);
 }

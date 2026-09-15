@@ -74,6 +74,26 @@ impl ViewCtx<'_> {
         .map(Self::replay_error);
     }
 
+    /// Replay a scene with caller-owned storage for isolated groups.
+    pub fn replay_with_rgba(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        ops: &[crate::render::scene::SceneOp],
+        resolver: &dyn crate::render::scene::replay::SceneResolver,
+        rgba: &mut [u8],
+    ) {
+        let mut frames = [crate::render::scene::replay::ReplayFrame::EMPTY; 8];
+        let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
+        let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
+        self.replay_with_scratch(
+            renderer,
+            ops,
+            resolver,
+            crate::render::scene::replay::ReplayScratch::new(&mut frames, &mut routes, &mut scopes)
+                .with_rgba(rgba),
+        );
+    }
+
     /// Replay a scene using caller-owned group, route, and scope storage.
     pub fn replay_with_scratch(
         &mut self,
