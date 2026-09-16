@@ -38,6 +38,7 @@ const CYAN: Color = Color::rgb(64, 237, 218);
 const VIOLET: Color = Color::rgb(182, 116, 255);
 const GOLD: Color = Color::rgb(255, 197, 88);
 const LANE_COLORS: [Color; 3] = [CYAN, VIOLET, GOLD];
+const COMPACT_MARQUEE_CYCLE: i32 = 188;
 
 #[derive(Clone)]
 struct CurveModel {
@@ -162,45 +163,7 @@ fn bitmap_line(align: TextAlign) -> ParagraphStyle {
     }
 }
 
-fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) -> [PathCmd; 3] {
-    if compact {
-        let center = Fixed::from_int(38 + lane as i32 * 12);
-        return [
-            PathCmd::MoveTo(Point {
-                x: Fixed::ZERO,
-                y: center,
-            }),
-            PathCmd::CubicTo {
-                ctrl1: Point {
-                    x: Fixed::from_int(20),
-                    y: center - amplitude,
-                },
-                ctrl2: Point {
-                    x: Fixed::from_int(60),
-                    y: center - amplitude,
-                },
-                end: Point {
-                    x: Fixed::from_int(80),
-                    y: center,
-                },
-            },
-            PathCmd::CubicTo {
-                ctrl1: Point {
-                    x: Fixed::from_int(100),
-                    y: center + amplitude,
-                },
-                ctrl2: Point {
-                    x: Fixed::from_int(135),
-                    y: center + amplitude,
-                },
-                end: Point {
-                    x: Fixed::from_int(430),
-                    y: center,
-                },
-            },
-        ];
-    }
-
+fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
     let lane_scale = match lane {
         0 => Fixed::ONE,
         1 => Fixed::from_ratio(3, 4),
@@ -249,10 +212,44 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) -> 
     ]
 }
 
+fn make_compact_lane(lane: usize) -> Path {
+    let center = Fixed::from_int(38 + lane as i32 * 12);
+    let amplitude = Fixed::from_int(28);
+    let mut path = Path::try_with_capacity(9).expect("compact curve path storage");
+    path.move_to(Point {
+        x: Fixed::from_int(-160),
+        y: center,
+    });
+    for half in 0..8 {
+        let start_x = -160 + half * 80;
+        let control_y = if half % 2 == 0 {
+            center - amplitude
+        } else {
+            center + amplitude
+        };
+        path.cubic_to(
+            Point {
+                x: Fixed::from_int(start_x + 20),
+                y: control_y,
+            },
+            Point {
+                x: Fixed::from_int(start_x + 60),
+                y: control_y,
+            },
+            Point {
+                x: Fixed::from_int(start_x + 80),
+                y: center,
+            },
+        );
+    }
+    path
+}
+
 fn make_lane(lane: usize, compact: bool) -> Path {
-    let amplitude = if compact { 28 } else { 68 };
-    let [start, first, second] =
-        lane_commands(lane, Fixed::ZERO, Fixed::from_int(amplitude), compact);
+    if compact {
+        return make_compact_lane(lane);
+    }
+    let [start, first, second] = lane_commands(lane, Fixed::ZERO, Fixed::from_int(68));
     let mut path = Path::try_with_capacity(3).expect("curve path storage");
     let PathCmd::MoveTo(start) = start else {
         unreachable!();
@@ -268,8 +265,8 @@ fn make_lane(lane: usize, compact: bool) -> Path {
     path
 }
 
-fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) {
-    for (index, command) in lane_commands(lane, phase, amplitude, compact)
+fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed) {
+    for (index, command) in lane_commands(lane, phase, amplitude)
         .into_iter()
         .enumerate()
     {
@@ -492,8 +489,9 @@ fn curve_text_animation_system(world: &mut World) {
     }
 }
 
-fn compact_text_offset(phase: Fixed) -> Fixed {
-    phase * Fixed::from_int(260) / Fixed::from_int(360)
+fn compact_text_offset(phase: Fixed, copy: i32) -> Fixed {
+    phase * Fixed::from_int(COMPACT_MARQUEE_CYCLE) / Fixed::from_int(360)
+        + Fixed::from_int(copy * COMPACT_MARQUEE_CYCLE)
 }
 
 fn route_label() -> &'static str {
@@ -518,13 +516,7 @@ fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &
             let envelope = Fixed::from_ratio(17, 20)
                 + Fixed::sin_deg(current_phase / 3 + Fixed::from_int(lane as i32 * 37))
                     * Fixed::from_ratio(3, 20);
-            update_lane(
-                geometry,
-                lane,
-                current_phase,
-                amplitude.get() * envelope,
-                paths.compact,
-            );
+            update_lane(geometry, lane, current_phase, amplitude.get() * envelope);
         })
         .expect("mutable curve path");
     }
@@ -761,7 +753,9 @@ fn build_compact_widgets(paths: CurvePaths) {
         .cloned()
         .expect("Curve Text model");
     bind_curve_paths(cx, paths, &model);
-    let text_phase = model.phase.clone();
+    let first_phase = model.phase.clone();
+    let second_phase = model.phase.clone();
+    let third_phase = model.phase.clone();
 
     ui! {
         Column (
@@ -782,19 +776,6 @@ fn build_compact_widgets(paths: CurvePaths) {
                     text_color: TEXT,
                     paragraph: bitmap_line(TextAlign::Start)
                 )
-                Text (
-                    "AUTO",
-                    width: 25,
-                    height: 12,
-                    bg_color: PANEL_ALT,
-                    border_color: CYAN,
-                    border_width: 1,
-                    border_radius: 6,
-                    font: FontToken::Default,
-                    font_size: 6,
-                    text_color: CYAN,
-                    paragraph: bitmap_line(TextAlign::Center)
-                )
             }
             View (
                 id: "curve_text_stage",
@@ -806,7 +787,45 @@ fn build_compact_widgets(paths: CurvePaths) {
                     "MIRUI RIDES THE WAVE",
                     path: ${
                         crate::text::TextPath::new(paths.ids[0])
-                            .with_offset(compact_text_offset(text_phase.get()))
+                            .with_offset(compact_text_offset(first_phase.get(), 0))
+                    },
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    font: FontToken::Default,
+                    font_size: 8,
+                    text_color: TEXT,
+                    paragraph: bitmap_line(TextAlign::Start)
+                ) [
+                    IgnoreHitTest,
+                ]
+                Text (
+                    id: "curve_text_secondary",
+                    "MIRUI RIDES THE WAVE",
+                    path: ${
+                        crate::text::TextPath::new(paths.ids[0])
+                            .with_offset(compact_text_offset(second_phase.get(), 1))
+                    },
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    font: FontToken::Default,
+                    font_size: 8,
+                    text_color: TEXT,
+                    paragraph: bitmap_line(TextAlign::Start)
+                ) [
+                    IgnoreHitTest,
+                ]
+                Text (
+                    id: "curve_text_tertiary",
+                    "MIRUI RIDES THE WAVE",
+                    path: ${
+                        crate::text::TextPath::new(paths.ids[0])
+                            .with_offset(compact_text_offset(third_phase.get(), 2))
                     },
                     position: Position::Absolute,
                     left: 0,
@@ -824,6 +843,12 @@ fn build_compact_widgets(paths: CurvePaths) {
             Text (
                 "AUTO LOOP",
                 height: 16,
+                padding: Padding {
+                    top: Dimension::px(2),
+                    right: Dimension::px(4),
+                    bottom: Dimension::px(2),
+                    left: Dimension::px(4),
+                },
                 bg_color: PANEL_ALT,
                 border_color: BORDER,
                 border_width: 1,
@@ -955,7 +980,7 @@ mod tests {
             let phase = Fixed::from_ratio(frame * 1_024, 1_000);
             let envelope =
                 Fixed::from_ratio(17, 20) + Fixed::sin_deg(phase / 3) * Fixed::from_ratio(3, 20);
-            update_lane(&mut path, 0, phase, Fixed::from_int(68) * envelope, false);
+            update_lane(&mut path, 0, phase, Fixed::from_int(68) * envelope);
             let measure = crate::text::baseline::PathMeasure::new(
                 &path,
                 0,
@@ -1185,55 +1210,71 @@ mod tests {
         assert!(current_offset > initial_offset);
         assert_eq!(current_revision, initial_revision);
         app.render().unwrap();
-
         let stage = app.world.find_by_id("curve_text_stage").unwrap();
         let rect = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
         assert!(rect.x >= Fixed::ZERO && rect.y >= Fixed::ZERO);
         assert!(rect.x + rect.w <= Fixed::from_int(128));
         assert!(rect.y + rect.h <= Fixed::from_int(128));
-        let texture = app.backend.framebuffer();
         let x_range = rect.x.to_int() as usize..(rect.x + rect.w).to_int() as usize;
         let y_range = rect.y.to_int() as usize..(rect.y + rect.h).to_int() as usize;
-        let visible_text_pixels = texture
-            .buf
-            .as_slice()
-            .chunks_exact(4)
-            .enumerate()
-            .filter(|(index, pixel)| {
-                let x = index % texture.width as usize;
-                let y = index / texture.width as usize;
-                x_range.contains(&x)
-                    && y_range.contains(&y)
-                    && pixel[..3] == [TEXT.r, TEXT.g, TEXT.b]
-            })
-            .count();
-        assert!(visible_text_pixels > 8);
+        let model = app.world.resource::<CurveModel>().unwrap().clone();
+        for phase in [0, 45, 90, 135, 180, 225, 270, 315, 359] {
+            model.phase.set(Fixed::from_int(phase));
+            flush_signal_dirty(&mut app.world);
+            app.render().unwrap();
+            let texture = app.backend.framebuffer();
+            let visible_text_pixels = texture
+                .buf
+                .as_slice()
+                .chunks_exact(4)
+                .enumerate()
+                .filter(|(index, pixel)| {
+                    let x = index % texture.width as usize;
+                    let y = index / texture.width as usize;
+                    x_range.contains(&x)
+                        && y_range.contains(&y)
+                        && pixel[..3] == [TEXT.r, TEXT.g, TEXT.b]
+                })
+                .count();
+            assert!(visible_text_pixels > 8, "phase {phase}");
+        }
     }
 
     #[test]
-    fn compact_text_crosses_the_full_wave_from_left_to_right() {
-        assert_eq!(compact_text_offset(Fixed::ZERO), Fixed::ZERO);
+    fn compact_text_marquee_repeats_across_the_wave() {
+        assert_eq!(compact_text_offset(Fixed::ZERO, 0), Fixed::ZERO);
         assert_eq!(
-            compact_text_offset(Fixed::from_int(180)),
-            Fixed::from_int(130)
+            compact_text_offset(Fixed::ZERO, 1),
+            Fixed::from_int(COMPACT_MARQUEE_CYCLE)
         );
-        assert!(compact_text_offset(Fixed::from_int(359)) > Fixed::from_int(259));
+        assert_eq!(
+            compact_text_offset(Fixed::ZERO, 2),
+            Fixed::from_int(COMPACT_MARQUEE_CYCLE * 2)
+        );
+        assert!(
+            compact_text_offset(Fixed::from_int(359), 0)
+                > Fixed::from_int(COMPACT_MARQUEE_CYCLE - 1)
+        );
 
-        let [
-            PathCmd::MoveTo(start),
-            PathCmd::CubicTo { ctrl1: crest, .. },
-            PathCmd::CubicTo {
-                ctrl1: trough, end, ..
-            },
-        ] = lane_commands(0, Fixed::ZERO, Fixed::from_int(28), true)
-        else {
-            panic!("compact path topology");
+        let path = make_compact_lane(0);
+        assert_eq!(path.commands().len(), 9);
+        let PathCmd::MoveTo(start) = path.commands()[0] else {
+            panic!("compact path start");
         };
-        assert_eq!(start.x, Fixed::ZERO);
+        let PathCmd::CubicTo { ctrl1: crest, .. } = path.commands()[1] else {
+            panic!("compact path crest");
+        };
+        let PathCmd::CubicTo { ctrl1: trough, .. } = path.commands()[2] else {
+            panic!("compact path trough");
+        };
+        let PathCmd::CubicTo { end, .. } = path.commands()[8] else {
+            panic!("compact path end");
+        };
+        assert_eq!(start.x, Fixed::from_int(-160));
         assert_eq!(start.y, Fixed::from_int(38));
         assert_eq!(crest.y, Fixed::from_int(10));
         assert_eq!(trough.y, Fixed::from_int(66));
-        assert_eq!(end.x, Fixed::from_int(430));
+        assert_eq!(end.x, Fixed::from_int(480));
         assert_eq!(end.y, Fixed::from_int(38));
     }
 }
