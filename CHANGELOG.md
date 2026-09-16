@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-09-16
+
 ### Added
 
 - **Path placement offsets.** `TextPath::with_offset` applies a fixed-point leading inset inside the selected range; wrapping, alignment, ellipsis, glyphs, and carets share the remaining path length.
