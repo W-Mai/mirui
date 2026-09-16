@@ -951,6 +951,84 @@ mod tests {
         }
     }
 
+    #[test]
+    fn animated_lane_baseline_is_temporally_continuous() {
+        let mut path = make_lane(0, false);
+        let mut previous: Option<(Point, Point)> = None;
+        let mut segment_count = None;
+        let mut maximum_position_step = Fixed::ZERO;
+        let mut maximum_tangent_step = Fixed::ZERO;
+        let mut previous_quad: Option<[Point; 4]> = None;
+        let mut maximum_quad_step = Fixed::ZERO;
+        for frame in 0..360 {
+            let phase = Fixed::from_ratio(frame * 1_024, 1_000);
+            let envelope =
+                Fixed::from_ratio(17, 20) + Fixed::sin_deg(phase / 3) * Fixed::from_ratio(3, 20);
+            update_lane(&mut path, 0, phase, Fixed::from_int(68) * envelope, false);
+            let measure = crate::text::baseline::PathMeasure::new(
+                &path,
+                0,
+                crate::text::baseline::DEFAULT_TOLERANCE,
+            )
+            .unwrap();
+            let requirements = measure.requirements().unwrap();
+            let mut segments = alloc::vec![
+                crate::text::baseline::MeasuredSegment {
+                    end: Point::ZERO,
+                    end_distance: Fixed::ZERO,
+                };
+                requirements.segments
+            ];
+            let baseline = measure.measure_into(&mut segments).unwrap();
+            let mut cursor = baseline.cursor();
+            let sample = cursor.sample_forward(Fixed::from_int(360)).unwrap();
+            let pose = Transform {
+                m00: sample.unit_tangent.x,
+                m01: -sample.unit_tangent.y,
+                tx: sample.position.x,
+                m10: sample.unit_tangent.y,
+                m11: sample.unit_tangent.x,
+                ty: sample.position.y,
+            };
+            let quad = pose.apply_rect(Rect::new(0, -24, 32, 32));
+            assert_eq!(
+                *segment_count.get_or_insert(requirements.segments),
+                requirements.segments
+            );
+            if let Some((last_position, last_tangent)) = previous {
+                let position_step = (sample.position.x - last_position.x)
+                    .abs()
+                    .max((sample.position.y - last_position.y).abs());
+                let tangent_step = (sample.unit_tangent.x - last_tangent.x)
+                    .abs()
+                    .max((sample.unit_tangent.y - last_tangent.y).abs());
+                maximum_position_step = maximum_position_step.max(position_step);
+                maximum_tangent_step = maximum_tangent_step.max(tangent_step);
+            }
+            if let Some(previous_quad) = previous_quad {
+                for (current, previous) in quad.into_iter().zip(previous_quad) {
+                    maximum_quad_step = maximum_quad_step
+                        .max((current.x - previous.x).abs())
+                        .max((current.y - previous.y).abs());
+                }
+            }
+            previous = Some((sample.position, sample.unit_tangent));
+            previous_quad = Some(quad);
+        }
+        assert!(
+            maximum_position_step <= Fixed::ONE,
+            "{maximum_position_step:?}"
+        );
+        assert!(
+            maximum_tangent_step <= Fixed::from_ratio(1, 32),
+            "{maximum_tangent_step:?}"
+        );
+        assert!(
+            maximum_quad_step <= Fixed::from_int(2),
+            "{maximum_quad_step:?}"
+        );
+    }
+
     fn tap(world: &mut World, id: &'static str) {
         let target = world.find_by_id(id).expect("control id");
         GestureHandler::trigger(

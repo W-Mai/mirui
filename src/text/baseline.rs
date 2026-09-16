@@ -9,6 +9,7 @@ use crate::types::fixed::{from_textflow, to_textflow};
 use crate::types::{Fixed, Point};
 
 const MAX_SUBDIVISION_DEPTH: u8 = 12;
+const MIN_CURVE_SUBDIVISION_DEPTH: u8 = 3;
 pub(crate) const DEFAULT_TOLERANCE: Fixed = Fixed::from_ratio(1, 4);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1847,7 +1848,9 @@ fn flatten_quad<S: SegmentSink>(
     depth: u8,
     sink: S,
 ) -> Result<S, PathBaselineError> {
-    if curve_excess(&[start, ctrl, end])? <= to_textflow(tolerance) {
+    if depth >= MIN_CURVE_SUBDIVISION_DEPTH
+        && curve_excess(&[start, ctrl, end])? <= to_textflow(tolerance)
+    {
         return sink.segment(start, end);
     }
     if depth == MAX_SUBDIVISION_DEPTH {
@@ -1869,7 +1872,9 @@ fn flatten_cubic<S: SegmentSink>(
     depth: u8,
     sink: S,
 ) -> Result<S, PathBaselineError> {
-    if curve_excess(&[start, ctrl1, ctrl2, end])? <= to_textflow(tolerance) {
+    if depth >= MIN_CURVE_SUBDIVISION_DEPTH
+        && curve_excess(&[start, ctrl1, ctrl2, end])? <= to_textflow(tolerance)
+    {
         return sink.segment(start, end);
     }
     if depth == MAX_SUBDIVISION_DEPTH {
