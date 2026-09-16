@@ -1,20 +1,30 @@
 #[cfg(any(feature = "std", test))]
 use crate::ecs::Entity;
 use crate::prelude::*;
-use crate::ui::widgets::Text;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
 //~focus-start
 ui!(compose Card {
-    Column (direction: FlexDirection::Column, grow: 1.0) {
+    Column (
+        direction: FlexDirection::Column,
+        grow: 1.0,
+        border_radius: 12,
+        clip_children: true
+    ) {
         View (
             bg_color: ColorToken::Primary,
             padding: Padding::all(8),
             height: 32
         ) {
             @@header {
-                Text ("(untitled)", text_color: ColorToken::OnPrimary)
+                Text (
+                    "(untitled)",
+                    grow: 1.0,
+                    text_color: ColorToken::OnPrimary,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
             }
         }
         View (
@@ -47,12 +57,28 @@ pub fn build_widgets() {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(24),
-            direction: FlexDirection::Column
+            padding: Padding::all(12),
+            direction: FlexDirection::Column,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            row_gap: 8
         ) {
-            Card (grow: 1.0) {
+            Text (
+                "NAMED SLOTS",
+                width: Dimension::percent(100),
+                max_width: 420,
+                height: 24,
+                font_size: 18,
+                text_color: ColorToken::OnSurface
+            )
+            Card (width: Dimension::percent(100), max_width: 420, height: 140) {
                 @header {
-                    Text ("Alert", text_color: ColorToken::OnPrimary)
+                    Text (
+                        "ALERT",
+                        grow: 1.0,
+                        text_color: ColorToken::OnPrimary,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
                 }
                 @body {
                     Column (direction: FlexDirection::Column, grow: 1.0) {
@@ -67,11 +93,14 @@ pub fn build_widgets() {
                     }
                 }
                 @footer {
-                    Text ("dismiss", text_color: ColorToken::OnSurfaceVariant)
+                    Text (
+                        "FOOTER SLOT",
+                        font_size: 11,
+                        text_color: ColorToken::OnSurfaceVariant
+                    )
                 }
             }
-            View (height: 16)
-            Card (height: 120) {
+            Card (width: Dimension::percent(100), max_width: 420, height: 92) {
                 @body {
                     Column (direction: FlexDirection::Column, grow: 1.0) {
                         Text (

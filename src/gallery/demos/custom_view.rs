@@ -4,6 +4,7 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
+use crate::ui::widgets::Text;
 
 pub struct Diamond {
     pub color: Color,
@@ -75,47 +76,64 @@ pub const PALETTE: [Color; 3] = [
 pub fn build_widgets() {
     //~focus-start
     ui! {
-        Row (
-            justify: JustifyContent::SpaceEvenly,
+        Column (
             align: AlignItems::Center,
-            width: 480,
-            height: 200
+            justify: JustifyContent::Center,
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 16
         ) {
-            Diamond (
-                color: PALETTE[0],
-                line_width: Fixed::from_int(2),
-                width: 100,
-                height: 100
-            ) on Tap {
-                if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
-                    let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-                    d.color = PALETTE[(i + 1) % PALETTE.len()];
+            Text (
+                "CUSTOM VIEW · TAP TO RECOLOR",
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface
+            )
+            Row (
+                justify: JustifyContent::SpaceEvenly,
+                align: AlignItems::Center,
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 120
+            ) {
+                Diamond (
+                    color: PALETTE[0],
+                    line_width: Fixed::from_int(2),
+                    width: 88,
+                    height: 88
+                ) on Tap {
+                    if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
+                        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
+                        d.color = PALETTE[(i + 1) % PALETTE.len()];
+                    }
+                    ctx.world.invalidate(ctx.entity);
                 }
-                ctx.world.invalidate(ctx.entity);
-            }
-            Diamond (
-                color: PALETTE[1],
-                line_width: Fixed::from_int(3),
-                width: 100,
-                height: 100
-            ) on Tap {
-                if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
-                    let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-                    d.color = PALETTE[(i + 1) % PALETTE.len()];
+                Diamond (
+                    color: PALETTE[1],
+                    line_width: Fixed::from_int(3),
+                    width: 88,
+                    height: 88
+                ) on Tap {
+                    if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
+                        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
+                        d.color = PALETTE[(i + 1) % PALETTE.len()];
+                    }
+                    ctx.world.invalidate(ctx.entity);
                 }
-                ctx.world.invalidate(ctx.entity);
-            }
-            Diamond (
-                color: PALETTE[2],
-                line_width: Fixed::from_int(4),
-                width: 100,
-                height: 100
-            ) on Tap {
-                if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
-                    let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-                    d.color = PALETTE[(i + 1) % PALETTE.len()];
+                Diamond (
+                    color: PALETTE[2],
+                    line_width: Fixed::from_int(4),
+                    width: 88,
+                    height: 88
+                ) on Tap {
+                    if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
+                        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
+                        d.color = PALETTE[(i + 1) % PALETTE.len()];
+                    }
+                    ctx.world.invalidate(ctx.entity);
                 }
-                ctx.world.invalidate(ctx.entity);
             }
         }
     };
@@ -170,7 +188,8 @@ mod tests {
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);
-        let row = world.get::<Children>(parent).unwrap().0[0];
+        let shell = world.get::<Children>(parent).unwrap().0[0];
+        let row = world.get::<Children>(shell).unwrap().0[1];
         let d0 = world.get::<Children>(row).unwrap().0[0];
 
         assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[0]));

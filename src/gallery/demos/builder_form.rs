@@ -14,22 +14,20 @@ use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::surface::Surface;
 use crate::types::{Dimension, Fixed};
 use crate::ui::Style;
-use crate::ui::layout::{FlexDirection, LayoutStyle};
+use crate::ui::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle, Padding};
 use crate::ui::spawn_children;
 use crate::ui::theme::ColorToken;
-use crate::ui::widgets::{ProgressBar, Slider, Switch};
+use crate::ui::widgets::{ParagraphStyle, ProgressBar, Slider, Switch, Text, TextAlign};
 
 fn column_style() -> Style {
     Style {
         layout: LayoutStyle {
             direction: FlexDirection::Column,
             grow: Fixed::from_int(1),
-            padding: crate::ui::layout::Padding {
-                top: Dimension::px(12),
-                left: Dimension::px(12),
-                right: Dimension::px(12),
-                bottom: Dimension::px(12),
-            },
+            justify: JustifyContent::Center,
+            align: AlignItems::Center,
+            padding: Padding::all(20),
+            row_gap: Dimension::px(14),
             ..Default::default()
         },
         ..Default::default()
@@ -39,6 +37,8 @@ fn column_style() -> Style {
 fn row_style(height: i32) -> Style {
     Style {
         layout: LayoutStyle {
+            width: Dimension::percent(100),
+            max_width: Dimension::px(420),
             height: Dimension::px(height),
             ..Default::default()
         },
@@ -50,12 +50,62 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     //~focus-start
     let column = spawn_children(world, column_style(), |c| {
         c.spawn(
+            Text::build("BUILDER API")
+                .style(Style {
+                    font_size: Some(20),
+                    ..row_style(32)
+                })
+                .paragraph(ParagraphStyle::label().with_align(TextAlign::Start)),
+        );
+        c.spawn(
+            Text::build("The same widget tree without ui!")
+                .style(row_style(26))
+                .paragraph(ParagraphStyle::label().with_align(TextAlign::Start)),
+        );
+        c.spawn(
             Slider::build(Fixed::ZERO, Fixed::from_int(100))
-                .style(row_style(20))
+                .style(row_style(28))
                 .fill_color(ColorToken::Primary),
         );
-        c.spawn(Switch::build().style(row_style(26)));
-        c.spawn(ProgressBar::build().value(0.6).style(row_style(12)));
+        c.children(
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    align: AlignItems::Center,
+                    column_gap: Dimension::px(12),
+                    ..row_style(34).layout
+                },
+                ..Default::default()
+            },
+            |row| {
+                row.spawn(
+                    Text::build("Notifications")
+                        .style(Style {
+                            layout: LayoutStyle {
+                                grow: Fixed::ONE,
+                                height: Dimension::px(28),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .paragraph(ParagraphStyle::label().with_align(TextAlign::Start)),
+                );
+                row.spawn(Switch::build().style(Style {
+                    layout: LayoutStyle {
+                        width: Dimension::px(56),
+                        height: Dimension::px(28),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }));
+            },
+        );
+        c.spawn(
+            ProgressBar::build()
+                .value(0.6)
+                .style(row_style(14))
+                .fill_color(ColorToken::Success),
+        );
     });
     //~focus-end
 
@@ -93,7 +143,12 @@ mod tests {
             .get::<Children>(parent)
             .and_then(|c| c.0.first().copied());
         let column = column.expect("column parented");
-        assert_eq!(world.get::<Children>(column).map(|c| c.0.len()), Some(3));
-        assert!(world.has::<Slider>(world.get::<Children>(column).unwrap().0[0]));
+        let children = &world.get::<Children>(column).unwrap().0;
+        assert_eq!(children.len(), 5);
+        assert!(world.has::<Text>(children[0]));
+        assert!(world.has::<Slider>(children[2]));
+        let control_row = children[3];
+        assert!(world.has::<Switch>(world.get::<Children>(control_row).unwrap().0[1]));
+        assert!(world.has::<ProgressBar>(children[4]));
     }
 }

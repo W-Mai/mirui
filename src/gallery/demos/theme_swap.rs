@@ -1,9 +1,9 @@
-extern crate alloc;
-
 use crate::prelude::*;
-use crate::ui::widgets::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
+use crate::ui::widgets::{
+    Button, Checkbox, ParagraphStyle, Placeholder, ProgressBar, Slider, Switch, TabBar, Text,
+    TextAlign, TextInput,
+};
 use crate::ui::{Theme, theme};
-use alloc::vec::Vec;
 
 pub struct ThemeChoice(pub Theme);
 
@@ -34,126 +34,178 @@ pub fn custom_theme() -> Theme {
 pub fn build_widgets() {
     //~focus-start
     ui! {
-        Row (height: 44, padding: Padding::all(12)) {
-            Button (
-                grow: 1.0,
-                height: 36,
-                border_radius: 6,
-                text_color: ColorToken::OnPrimary,
-                normal_color: Color::rgb(40, 50, 70),
-                pressed_color: Color::rgb(20, 25, 35)
-            ) [
-                ThemeChoice(dark_with_accent()),
-            ] on Tap {
-                if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
-                    theme::set_theme(ctx.world, theme);
-                }
-            }
-            {
-                Text ("Dark")
-            }
-            Button (
-                grow: 1.0,
-                height: 36,
-                border_radius: 6,
-                text_color: ColorToken::OnPrimary,
-                normal_color: Color::rgb(0, 100, 200),
-                pressed_color: Color::rgb(0, 70, 150)
-            ) [
-                ThemeChoice(light_with_accent()),
-            ] on Tap {
-                if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
-                    theme::set_theme(ctx.world, theme);
-                }
-            }
-            {
-                Text ("Light")
-            }
-            Button (
-                grow: 1.0,
-                height: 36,
-                border_radius: 6,
-                text_color: ColorToken::OnPrimary,
-                normal_color: Color::rgb(255, 105, 180),
-                pressed_color: Color::rgb(200, 70, 140)
-            ) [
-                ThemeChoice(custom_theme()),
-            ] on Tap {
-                if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
-                    theme::set_theme(ctx.world, theme);
-                }
-            }
-            {
-                Text ("Custom")
-            }
-        }
-    };
-    //~focus-end
-
-    //~focus-start
-    ui! {
-        Column (grow: 1.0) {
-            Row (height: 28, align: AlignItems::Center) {
-                View (width: 90) {
-                    Text ("Slider")
-                }
-                Slider (
-                    min: Fixed::ZERO,
-                    max: Fixed::from_int(100),
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            padding: Padding::all(16),
+            row_gap: 12
+        ) {
+            Text (
+                "LIVE THEME TOKENS",
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface
+            )
+            Row (
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 40,
+                column_gap: 8
+            ) {
+                Button (
                     grow: 1.0,
-                    height: 20
-                )
+                    height: 40,
+                    border_radius: 10,
+                    text_color: ColorToken::OnPrimary,
+                    normal_color: Color::rgb(40, 50, 70),
+                    pressed_color: Color::rgb(20, 25, 35)
+                ) [
+                    ThemeChoice(dark_with_accent()),
+                    Text::label("Dark"),
+                ] on Tap {
+                    if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
+                        theme::set_theme(ctx.world, theme);
+                    }
+                }
+                Button (
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 10,
+                    text_color: ColorToken::OnPrimary,
+                    normal_color: Color::rgb(0, 100, 200),
+                    pressed_color: Color::rgb(0, 70, 150)
+                ) [
+                    ThemeChoice(light_with_accent()),
+                    Text::label("Light"),
+                ] on Tap {
+                    if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
+                        theme::set_theme(ctx.world, theme);
+                    }
+                }
+                Button (
+                    id: "theme_custom",
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 10,
+                    text_color: ColorToken::OnPrimary,
+                    normal_color: Color::rgb(255, 105, 180),
+                    pressed_color: Color::rgb(200, 70, 140)
+                ) [
+                    ThemeChoice(custom_theme()),
+                    Text::label("Custom"),
+                ] on Tap {
+                    if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
+                        theme::set_theme(ctx.world, theme);
+                    }
+                }
             }
-            Row (height: 36, align: AlignItems::Center) {
-                View (width: 90) {
-                    Text ("Switch")
+            Column (
+                width: Dimension::percent(100),
+                max_width: 480,
+                grow: 1.0,
+                max_height: 300,
+                padding: Padding::all(12),
+                row_gap: 8,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 14
+            ) {
+                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Slider",
+                        width: 90,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Slider (
+                        min: Fixed::ZERO,
+                        max: Fixed::from_int(100),
+                        grow: 1.0,
+                        height: 24
+                    )
                 }
-                Switch (width: 56, height: 28)
-            }
-            Row (height: 36, align: AlignItems::Center) {
-                View (width: 90) {
-                    Text ("Checkbox")
+                Row (height: 32, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Switch",
+                        width: 90,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Switch (
+                        width: 56,
+                        height: 28,
+                        off_color: ColorToken::Outline
+                    )
                 }
-                Checkbox (width: 24, height: 24, border_radius: 4)
-            }
-            Row (height: 28, align: AlignItems::Center) {
-                View (width: 90) {
-                    Text ("Progress")
+                Row (height: 32, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Checkbox",
+                        width: 90,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Checkbox (
+                        width: 24,
+                        height: 24,
+                        border_radius: 4,
+                        border_color: ColorToken::Outline,
+                        border_width: 1
+                    )
                 }
-                ProgressBar (grow: 1.0, height: 12, border_radius: 6)
-            }
-            Row (height: 36, align: AlignItems::Center) {
-                View (width: 90) {
-                    Text ("Input")
+                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Progress",
+                        width: 90,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    ProgressBar (grow: 1.0, height: 12, border_radius: 6, value: 0.6)
                 }
-                TextInput (grow: 1.0, height: 28)
-            }
-            Row (height: 24, align: AlignItems::Center) {
-                View (width: 90) {
-                    Text ("Tabs")
+                Row (height: 36, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Input",
+                        width: 90,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    TextInput (
+                        grow: 1.0,
+                        height: 32,
+                        border_radius: 8,
+                        bg_color: ColorToken::Surface,
+                        border_color: ColorToken::Outline,
+                        border_width: 1
+                    ) [
+                        Placeholder("Theme-aware input"),
+                    ]
                 }
-                TabBar (count: 3, grow: 1.0, height: 24) {
-                    View (grow: 1.0)
-                    View (grow: 1.0)
-                    View (grow: 1.0)
+                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Tabs",
+                        width: 90,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    TabBar (count: 3, grow: 1.0, height: 28) {
+                        Text ("A", grow: 1.0, paragraph: ParagraphStyle::label())
+                        Text ("B", grow: 1.0, paragraph: ParagraphStyle::label())
+                        Text ("C", grow: 1.0, paragraph: ParagraphStyle::label())
+                    }
                 }
-            }
-            Row (height: 32, align: AlignItems::Center) {
-                View (width: 120) {
-                    Text ("Custom 'accent'")
+                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                    Text (
+                        "Custom accent",
+                        width: 120,
+                        height: 28,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    View (width: 32, height: 24, border_radius: 6, bg_color: ACCENT)
                 }
-                View (width: 32, height: 24, border_radius: 4, bg_color: ACCENT)
             }
         }
     };
     //~focus-end
-
-    let pbs: Vec<Entity> = cx.world_mut().query::<ProgressBar>().collect();
-    for pb in pbs {
-        if let Some(p) = cx.world_mut().get_mut::<ProgressBar>(pb) {
-            p.value = 0.6;
-        }
-    }
 }
 
 #[cfg(feature = "std")]
@@ -200,8 +252,7 @@ mod tests {
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);
         drop(cx);
-        let row = world.get::<crate::ui::Children>(parent).unwrap().0[0];
-        let custom_btn = world.get::<crate::ui::Children>(row).unwrap().0[2];
+        let custom_btn = world.find_by_id("theme_custom").unwrap();
 
         GestureHandler::trigger(
             &mut world,
