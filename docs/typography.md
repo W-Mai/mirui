@@ -92,6 +92,7 @@ use mirui::prelude::*;
 let placement = TextPath::new(path)
     .with_subpath(1)
     .with_range(Fixed::from_int(12)..Fixed::from_int(180))
+    .with_offset(Fixed::from_int(8))
     .with_direction(PathDirection::Reverse)
     .with_seam(Fixed::from_int(36));
 
@@ -101,6 +102,8 @@ ui! {
 ```
 
 `with_seam` chooses the distance treated as the start of a closed subpath. The selected range remains measured in path-length units after the seam is applied.
+
+`with_offset` leaves a fixed-point leading inset inside the selected range. Wrapping, alignment, ellipsis, glyphs, and carets use the remaining path length.
 
 The builder API accepts the same value:
 

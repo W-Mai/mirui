@@ -60,7 +60,8 @@ fn configured_dsl_preserves_path_options() {
             "configured",
             path: TextPath::new(path)
                 .with_subpath(2)
-                .with_range(Fixed::from_int(8)..Fixed::from_int(72)),
+                .with_range(Fixed::from_int(8)..Fixed::from_int(72))
+                .with_offset(Fixed::from_int(6)),
         )
     };
 
@@ -69,6 +70,7 @@ fn configured_dsl_preserves_path_options() {
     assert_eq!(text_path.subpath(), 2);
     assert_eq!(text_path.start(), Fixed::from_int(8));
     assert_eq!(text_path.end(), Some(Fixed::from_int(72)));
+    assert_eq!(text_path.offset(), Fixed::from_int(6));
 }
 
 #[test]

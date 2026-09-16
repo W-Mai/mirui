@@ -3,6 +3,8 @@ use core::ops::Range;
 use crate::ecs::{Entity, World};
 use crate::render::path::{Path, PathCmd, PathId, PathRevision, PathStore, PathStoreError};
 use crate::types::Fixed;
+#[cfg(test)]
+use crate::types::fixed::{from_textflow, to_textflow};
 use crate::ui::dirty::Dirty;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -18,6 +20,7 @@ pub struct TextPath {
     subpath: u16,
     start: Fixed,
     end: Option<Fixed>,
+    offset: Fixed,
     direction: PathDirection,
     seam: Option<Fixed>,
 }
@@ -29,6 +32,7 @@ impl TextPath {
             subpath: 0,
             start: Fixed::ZERO,
             end: None,
+            offset: Fixed::ZERO,
             direction: PathDirection::Forward,
             seam: None,
         }
@@ -50,6 +54,10 @@ impl TextPath {
         self.end
     }
 
+    pub const fn offset(&self) -> Fixed {
+        self.offset
+    }
+
     pub const fn direction(&self) -> PathDirection {
         self.direction
     }
@@ -66,6 +74,11 @@ impl TextPath {
     pub const fn with_range(mut self, range: Range<Fixed>) -> Self {
         self.start = range.start;
         self.end = Some(range.end);
+        self
+    }
+
+    pub const fn with_offset(mut self, offset: Fixed) -> Self {
+        self.offset = offset;
         self
     }
 
@@ -102,10 +115,18 @@ pub(crate) fn layout_width(
     resource.with(store, text_path, DEFAULT_TOLERANCE, |baseline| {
         let length = baseline.length();
         let end = text_path.end().unwrap_or(length);
-        if text_path.start() < Fixed::ZERO || end <= text_path.start() || end > length {
+        let start = to_textflow(text_path.start())
+            .checked_add(to_textflow(text_path.offset()))
+            .map(from_textflow)
+            .ok_or(PathBaselineError::InvalidRange)?;
+        if text_path.start() < Fixed::ZERO
+            || text_path.offset() < Fixed::ZERO
+            || end <= start
+            || end > length
+        {
             Err(PathBaselineError::InvalidRange)
         } else {
-            Ok(end - text_path.start())
+            Ok(end - start)
         }
     })?
 }
@@ -220,6 +241,7 @@ mod tests {
         assert_eq!(path.subpath(), 0);
         assert_eq!(path.start(), Fixed::ZERO);
         assert_eq!(path.end(), None);
+        assert_eq!(path.offset(), Fixed::ZERO);
         assert_eq!(path.direction(), PathDirection::Forward);
         assert_eq!(path.seam(), None);
     }
@@ -274,9 +296,11 @@ mod tests {
                 PathCmd::LineTo(crate::types::Point::new(100, 0)),
             ]))
             .unwrap();
-        let path = TextPath::new(id).with_range(Fixed::from_int(20)..Fixed::from_int(80));
+        let path = TextPath::new(id)
+            .with_range(Fixed::from_int(20)..Fixed::from_int(80))
+            .with_offset(Fixed::from_int(12));
 
-        assert_eq!(layout_width(&world, path), Ok(Fixed::from_int(60)));
+        assert_eq!(layout_width(&world, path), Ok(Fixed::from_int(48)));
     }
 
     #[test]
@@ -329,5 +353,27 @@ mod tests {
             layout_width(&world, path),
             Err(crate::text::baseline::PathBaselineError::InvalidRange)
         );
+    }
+
+    #[test]
+    fn layout_width_rejects_invalid_offsets() {
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
+        let id = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(crate::types::Point::new(0, 0)),
+                PathCmd::LineTo(crate::types::Point::new(10, 0)),
+            ]))
+            .unwrap();
+
+        for offset in [Fixed::from_int(-1), Fixed::from_int(10)] {
+            assert_eq!(
+                layout_width(&world, TextPath::new(id).with_offset(offset)),
+                Err(crate::text::baseline::PathBaselineError::InvalidRange)
+            );
+        }
     }
 }

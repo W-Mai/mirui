@@ -840,7 +840,15 @@ impl<'a> BaselineWindow<'a> {
     fn new(baseline: PathBaseline<'a>, path: TextPath) -> Result<Self, PathBaselineError> {
         let full_length = baseline.length();
         let end = path.end().unwrap_or(full_length);
-        if path.start() < Fixed::ZERO || end <= path.start() || end > full_length {
+        let start = to_textflow(path.start())
+            .checked_add(to_textflow(path.offset()))
+            .map(from_textflow)
+            .ok_or(PathBaselineError::InvalidRange)?;
+        if path.start() < Fixed::ZERO
+            || path.offset() < Fixed::ZERO
+            || end <= start
+            || end > full_length
+        {
             return Err(PathBaselineError::InvalidRange);
         }
         let anchor = match path.seam() {
@@ -859,8 +867,8 @@ impl<'a> BaselineWindow<'a> {
         Ok(Self {
             baseline,
             anchor,
-            start: path.start(),
-            length: end - path.start(),
+            start,
+            length: end - start,
             direction: path.direction(),
             wraps,
         })
@@ -2167,6 +2175,44 @@ mod tests {
     }
 
     #[test]
+    fn offset_advances_forward_and_reverse_window_origins() {
+        use textflow::placement::{BaselineCursor as _, TextBaseline as _};
+
+        let path = Path::from_owned(alloc::vec![
+            PathCmd::MoveTo(point(0, 0)),
+            PathCmd::LineTo(point(20, 0)),
+        ]);
+        let baseline = PathBaseline::Line(
+            PathMeasure::new(&path, 0, DEFAULT_TOLERANCE)
+                .unwrap()
+                .line()
+                .unwrap(),
+        );
+        let id = path_id(path.clone());
+        let forward =
+            BaselineWindow::new(baseline, TextPath::new(id).with_offset(Fixed::from_int(4)))
+                .unwrap();
+        let reverse = BaselineWindow::new(
+            baseline,
+            TextPath::new(id)
+                .with_offset(Fixed::from_int(4))
+                .with_direction(PathDirection::Reverse),
+        )
+        .unwrap();
+
+        assert_eq!(forward.length(), 16 << 8);
+        assert_eq!(reverse.length(), 16 << 8);
+        assert_eq!(
+            forward.cursor().sample_forward(0).unwrap().position,
+            FlowPoint { x: 4 << 8, y: 0 }
+        );
+        assert_eq!(
+            reverse.cursor().sample_forward(0).unwrap().position,
+            FlowPoint { x: 16 << 8, y: 0 }
+        );
+    }
+
+    #[test]
     fn reverse_window_supports_measured_curves() {
         use textflow::placement::{BaselineCursor as _, TextBaseline as _};
 
@@ -2229,6 +2275,38 @@ mod tests {
         assert_eq!(
             cursor.sample_forward(20 << 8).unwrap().position,
             FlowPoint { x: 10 << 8, y: 0 }
+        );
+    }
+
+    #[test]
+    fn offset_is_applied_after_the_closed_seam() {
+        use textflow::placement::{BaselineCursor as _, TextBaseline as _};
+
+        let path = Path::from_owned(alloc::vec![
+            PathCmd::MoveTo(point(0, 0)),
+            PathCmd::LineTo(point(10, 0)),
+            PathCmd::LineTo(point(10, 10)),
+            PathCmd::LineTo(point(0, 10)),
+            PathCmd::Close,
+        ]);
+        let baseline = PathBaseline::Line(
+            PathMeasure::new(&path, 0, DEFAULT_TOLERANCE)
+                .unwrap()
+                .line()
+                .unwrap(),
+        );
+        let id = path_id(path.clone());
+        let window = BaselineWindow::new(
+            baseline,
+            TextPath::new(id)
+                .with_seam(Fixed::from_int(38))
+                .with_offset(Fixed::from_int(4)),
+        )
+        .unwrap();
+
+        assert_eq!(
+            window.cursor().sample_forward(0).unwrap().position,
+            FlowPoint { x: 2 << 8, y: 0 }
         );
     }
 
