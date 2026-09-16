@@ -6,61 +6,19 @@ use crate::render::raster::FillRule;
 use crate::render::renderer::DrawRequest;
 use crate::render::scene::Paint;
 use crate::types::Transform;
+use crate::ui::Theme;
 
 #[derive(Default)]
 pub struct ClipPath;
 
-fn circle_path(cx: Fixed, cy: Fixed, r: Fixed) -> Path {
-    let k = r * Fixed::from_f32(0.552_284_8);
-    let mut path = Path::new();
-    path.move_to(Point { x: cx + r, y: cy });
-    path.cubic_to(
-        Point {
-            x: cx + r,
-            y: cy + k,
-        },
-        Point {
-            x: cx + k,
-            y: cy + r,
-        },
-        Point { x: cx, y: cy + r },
-    );
-    path.cubic_to(
-        Point {
-            x: cx - k,
-            y: cy + r,
-        },
-        Point {
-            x: cx - r,
-            y: cy + k,
-        },
-        Point { x: cx - r, y: cy },
-    );
-    path.cubic_to(
-        Point {
-            x: cx - r,
-            y: cy - k,
-        },
-        Point {
-            x: cx - k,
-            y: cy - r,
-        },
-        Point { x: cx, y: cy - r },
-    );
-    path.cubic_to(
-        Point {
-            x: cx + k,
-            y: cy - r,
-        },
-        Point {
-            x: cx + r,
-            y: cy - k,
-        },
-        Point { x: cx + r, y: cy },
-    );
-    path.close();
-    path
-}
+static CLIP_CIRCLE: Path = path!(
+    M 208 104
+    C 208 161.438 161.438 208 104 208
+    C 46.562 208 0 161.438 0 104
+    C 0 46.562 46.562 0 104 0
+    C 161.438 0 208 46.562 208 104
+    Z
+);
 
 fn fill_rect(
     renderer: &mut dyn Renderer,
@@ -92,22 +50,26 @@ fn fill_rect(
 
 fn clip_path_render(
     renderer: &mut dyn Renderer,
-    _world: &World,
+    world: &World,
     _entity: Entity,
     _rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let surface = theme.resolve(ColorToken::SurfaceVariant);
+    let foreground = theme.resolve(ColorToken::OnSurface);
     let grays = [
-        Color::rgb(58, 60, 68),
-        Color::rgb(72, 74, 82),
-        Color::rgb(86, 88, 96),
-        Color::rgb(100, 102, 110),
+        surface,
+        surface.blend_with(foreground, Fixed::from_ratio(1, 12)),
+        surface.blend_with(foreground, Fixed::from_ratio(1, 6)),
+        surface.blend_with(foreground, Fixed::from_ratio(1, 4)),
     ];
     let colors = [
-        Color::rgb(255, 90, 110),
-        Color::rgb(255, 190, 80),
-        Color::rgb(80, 210, 160),
-        Color::rgb(80, 145, 255),
+        theme.resolve(ColorToken::Primary),
+        theme.resolve(ColorToken::Secondary),
+        theme.resolve(ColorToken::Tertiary),
+        theme.resolve(ColorToken::Success),
     ];
 
     for (i, color) in grays.into_iter().enumerate() {
@@ -117,16 +79,12 @@ fn clip_path_render(
         return;
     }
 
-    let clip_path = circle_path(
-        Fixed::from_int(160),
-        Fixed::from_int(160),
-        Fixed::from_int(104),
-    );
+    let circle_transform = Transform::translate(Fixed::from_int(56), Fixed::from_int(56));
     ctx.draw(
         renderer,
         &DrawCommand::PushClip {
-            path: &clip_path,
-            transform: Transform::IDENTITY,
+            path: &CLIP_CIRCLE,
+            transform: circle_transform,
             fill_rule: FillRule::EvenOdd,
         },
         ctx.clip,
@@ -139,12 +97,12 @@ fn clip_path_render(
     }
     ctx.record(renderer.submit(&DrawRequest::new(&DrawCommand::PopClip, *ctx.clip)));
 
-    let outline = Paint::Color(Color::rgb(230, 235, 245).into());
+    let outline = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
     ctx.draw(
         renderer,
         &DrawCommand::StrokePath {
-            path: &clip_path,
-            transform: Transform::IDENTITY,
+            path: &CLIP_CIRCLE,
+            transform: circle_transform,
             paint: &outline,
             width: Fixed::from_int(2),
             opa: 220,
@@ -218,6 +176,11 @@ mod tests {
         assert_eq!(ctx.error, Some(RenderError::BackendFailure));
         assert!(!renderer.pushed);
         assert_eq!(renderer.pops, 1);
+    }
+
+    #[test]
+    fn clip_geometry_stays_in_static_storage() {
+        assert!(CLIP_CIRCLE.is_borrowed());
     }
 }
 

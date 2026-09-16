@@ -1,8 +1,6 @@
 #![allow(clippy::needless_update)]
 
-extern crate alloc;
-
-use alloc::vec;
+use alloc::borrow::Cow;
 
 use crate::prelude::draw::*;
 use crate::prelude::*;
@@ -27,57 +25,57 @@ fn unit(v: f32) -> mirx::types::Fixed {
 #[derive(Default)]
 pub struct Gradient;
 
-fn circle_path(cx: Fixed, cy: Fixed, r: Fixed) -> Path {
-    let k = r * Fixed::from_f32(0.552_284_8);
-    let mut path = Path::new();
-    path.move_to(Point { x: cx + r, y: cy });
-    path.cubic_to(
-        Point {
-            x: cx + r,
-            y: cy + k,
-        },
-        Point {
-            x: cx + k,
-            y: cy + r,
-        },
-        Point { x: cx, y: cy + r },
-    );
-    path.cubic_to(
-        Point {
-            x: cx - k,
-            y: cy + r,
-        },
-        Point {
-            x: cx - r,
-            y: cy + k,
-        },
-        Point { x: cx - r, y: cy },
-    );
-    path.cubic_to(
-        Point {
-            x: cx - r,
-            y: cy - k,
-        },
-        Point {
-            x: cx - k,
-            y: cy - r,
-        },
-        Point { x: cx, y: cy - r },
-    );
-    path.cubic_to(
-        Point {
-            x: cx + k,
-            y: cy - r,
-        },
-        Point {
-            x: cx + r,
-            y: cy - k,
-        },
-        Point { x: cx + r, y: cy },
-    );
-    path.close();
-    path
-}
+static LINEAR_PANEL: Path = path!(
+    M 76 70
+    H 180
+    Q 208 70 208 98
+    V 222
+    Q 208 250 180 250
+    H 76
+    Q 48 250 48 222
+    V 98
+    Q 48 70 76 70
+    Z
+);
+
+static RADIAL_DISC: Path = path!(
+    M 200 100
+    C 200 155.228 155.228 200 100 200
+    C 44.772 200 0 155.228 0 100
+    C 0 44.772 44.772 0 100 0
+    C 155.228 0 200 44.772 200 100
+    Z
+);
+
+static LINEAR_STOPS: [GradientStop; 3] = [
+    GradientStop {
+        offset: mirx::types::Fixed::ZERO,
+        color: mirx::types::Color::rgb(50, 120, 255),
+    },
+    GradientStop {
+        offset: mirx::types::Fixed::from_ratio(55, 100),
+        color: mirx::types::Color::rgb(125, 90, 255),
+    },
+    GradientStop {
+        offset: mirx::types::Fixed::ONE,
+        color: mirx::types::Color::rgb(255, 70, 90),
+    },
+];
+
+static RADIAL_STOPS: [GradientStop; 3] = [
+    GradientStop {
+        offset: mirx::types::Fixed::ZERO,
+        color: mirx::types::Color::rgb(255, 255, 255),
+    },
+    GradientStop {
+        offset: mirx::types::Fixed::from_ratio(42, 100),
+        color: mirx::types::Color::rgb(90, 190, 255),
+    },
+    GradientStop {
+        offset: mirx::types::Fixed::ONE,
+        color: mirx::types::Color::rgb(20, 70, 190),
+    },
+];
 
 fn gradient_render(
     renderer: &mut dyn Renderer,
@@ -86,30 +84,10 @@ fn gradient_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let left = Path::rounded_rect(
-        rect.x + Fixed::from_int(48),
-        rect.y + Fixed::from_int(70),
-        Fixed::from_int(160),
-        Fixed::from_int(180),
-        Fixed::from_int(28),
-    );
     let linear = Paint::LinearGradient(LinearGradient {
         start: unit_point(0.0, 0.0),
         end: unit_point(1.0, 1.0),
-        stops: alloc::borrow::Cow::Owned(vec![
-            GradientStop {
-                offset: unit(0.0),
-                color: Color::rgb(50, 120, 255).into(),
-            },
-            GradientStop {
-                offset: unit(0.55),
-                color: Color::rgb(125, 90, 255).into(),
-            },
-            GradientStop {
-                offset: unit(1.0),
-                color: Color::rgb(255, 70, 90).into(),
-            },
-        ]),
+        stops: Cow::Borrowed(&LINEAR_STOPS),
         spread: SpreadMode::Pad,
         units: GradientUnits::ObjectBoundingBox,
         transform: Transform::IDENTITY.into(),
@@ -117,8 +95,8 @@ fn gradient_render(
     ctx.draw(
         renderer,
         &DrawCommand::FillPath {
-            path: &left,
-            transform: ctx.transform,
+            path: &LINEAR_PANEL,
+            transform: ctx.transform.compose(&Transform::translate(rect.x, rect.y)),
             paint: &linear,
             opa: 255,
             fill_rule: FillRule::EvenOdd,
@@ -126,30 +104,12 @@ fn gradient_render(
         ctx.clip,
     );
 
-    let circle = circle_path(
-        rect.x + Fixed::from_int(340),
-        rect.y + Fixed::from_int(160),
-        Fixed::from_int(86),
-    );
     let radial = Paint::RadialGradient(RadialGradient {
         center: unit_point(0.42, 0.38),
         radius: unit(0.7),
         focal: unit_point(0.35, 0.32),
         focal_radius: unit(0.0),
-        stops: alloc::borrow::Cow::Owned(vec![
-            GradientStop {
-                offset: unit(0.0),
-                color: Color::rgb(255, 255, 255).into(),
-            },
-            GradientStop {
-                offset: unit(0.42),
-                color: Color::rgb(90, 190, 255).into(),
-            },
-            GradientStop {
-                offset: unit(1.0),
-                color: Color::rgb(20, 70, 190).into(),
-            },
-        ]),
+        stops: Cow::Borrowed(&RADIAL_STOPS),
         spread: SpreadMode::Pad,
         units: GradientUnits::ObjectBoundingBox,
         transform: Transform::IDENTITY.into(),
@@ -157,8 +117,14 @@ fn gradient_render(
     ctx.draw(
         renderer,
         &DrawCommand::FillPath {
-            path: &circle,
-            transform: ctx.transform,
+            path: &RADIAL_DISC,
+            transform: ctx.transform.compose(
+                &Transform::translate(rect.x + Fixed::from_int(254), rect.y + Fixed::from_int(74))
+                    .compose(&Transform::scale(
+                        Fixed::from_ratio(86, 100),
+                        Fixed::from_ratio(86, 100),
+                    )),
+            ),
             paint: &radial,
             opa: 255,
             fill_rule: FillRule::EvenOdd,
@@ -186,4 +152,17 @@ where
 {
     app.with_widget(gradient_view());
     app.compose(parent, build_widgets);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gradient_geometry_and_stops_stay_in_static_storage() {
+        assert!(LINEAR_PANEL.is_borrowed());
+        assert!(RADIAL_DISC.is_borrowed());
+        assert_eq!(LINEAR_STOPS.len(), 3);
+        assert_eq!(RADIAL_STOPS.len(), 3);
+    }
 }

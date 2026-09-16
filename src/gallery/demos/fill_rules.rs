@@ -5,58 +5,48 @@ use crate::prelude::*;
 use crate::render::raster::FillRule;
 use crate::render::scene::{LineCap, LineJoin, Paint};
 use crate::types::Transform;
+use crate::ui::Theme;
 use crate::ui::widgets::Text;
 
 #[derive(Default)]
 pub struct FillRules;
 
-fn star_path(cx: Fixed, cy: Fixed, r: Fixed) -> Path {
-    let mut pts = [Point::ZERO; 5];
-    for (i, p) in pts.iter_mut().enumerate() {
-        let a = Fixed::from_int(-90 + i as i32 * 72);
-        *p = Point {
-            x: cx + Fixed::cos_deg(a) * r,
-            y: cy + Fixed::sin_deg(a) * r,
-        };
-    }
-    let mut path = Path::new();
-    path.move_to(pts[0]);
-    for i in [2, 4, 1, 3] {
-        path.line_to(pts[i]);
-    }
-    path.close();
-    path
-}
+static STAR: Path = path!(
+    M 100 18
+    L 148.198 166.34
+    L 22.013 74.661
+    L 177.987 74.661
+    L 51.802 166.34
+    Z
+);
 
 fn fill_rules_render(
     renderer: &mut dyn Renderer,
-    _world: &World,
+    world: &World,
     _entity: Entity,
     _rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let star_left = star_path(
-        Fixed::from_int(112),
-        Fixed::from_int(116),
-        Fixed::from_int(82),
-    );
-    let star_right = star_path(
-        Fixed::from_int(288),
-        Fixed::from_int(116),
-        Fixed::from_int(82),
-    );
-    let fill = Paint::Color(Color::rgb(255, 195, 70).into());
-    let stroke = Paint::Color(Color::rgb(255, 245, 210).into());
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let fill = Paint::Color(theme.resolve(ColorToken::Secondary).into());
+    let stroke = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
 
-    for (path, rule) in [
-        (&star_left, FillRule::EvenOdd),
-        (&star_right, FillRule::NonZero),
+    for (transform, rule) in [
+        (
+            Transform::translate(Fixed::from_int(12), Fixed::from_int(16)),
+            FillRule::EvenOdd,
+        ),
+        (
+            Transform::translate(Fixed::from_int(188), Fixed::from_int(16)),
+            FillRule::NonZero,
+        ),
     ] {
         ctx.draw(
             renderer,
             &DrawCommand::FillPath {
-                path,
-                transform: Transform::IDENTITY,
+                path: &STAR,
+                transform,
                 paint: &fill,
                 opa: 245,
                 fill_rule: rule,
@@ -66,8 +56,8 @@ fn fill_rules_render(
         ctx.draw(
             renderer,
             &DrawCommand::StrokePath {
-                path,
-                transform: Transform::IDENTITY,
+                path: &STAR,
+                transform,
                 paint: &stroke,
                 width: Fixed::from_int(2),
                 opa: 235,
@@ -111,4 +101,14 @@ where
 {
     app.with_widget(fill_rules_view());
     app.compose(parent, build_widgets);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn star_geometry_stays_in_static_storage() {
+        assert!(STAR.is_borrowed());
+    }
 }

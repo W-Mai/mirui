@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Declarative transform examples.** Affine, projective image, flip-card, and subpixel demos attach animation state directly through `ui!` trees and adapt their presentation to phone and desktop stages.
 - **Gallery physics and effects.** The three-body field uses semantic image nodes on a restrained orbital stage, while the live effects panel groups mirror, temporal, blur, shadow, and glow pipelines into readable capability cards.
 - **Gallery motion studies.** Particle, butterfly, and shape demos use responsive capability cards, semantic text nodes, theme color roles, deterministic composition, and static vector geometry while preserving their live rendering paths.
+- **Gallery vector studies.** Clip, fill-rule, stroke, and gradient demos keep fixed geometry and gradient stops in static storage, resolve presentation colors through the active theme, and avoid per-frame path allocation.
 - **Semantic responsive state demos.** Gallery state, persistence, form, keyed collection, and localization examples use their corresponding text and input components in one layout that contracts for phones and remains bounded on desktop.
 - **Responsive Gallery stage.** Portrait phones open landscape demos in a fitted portrait viewport, the demo selector collapses into a drawer, and the orientation control animates between the current width and height.
 
