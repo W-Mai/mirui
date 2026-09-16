@@ -7,7 +7,7 @@ mod opentype;
 pub(crate) mod path;
 
 pub use crate::ui::widgets::text::{
-    PathCaretHit, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
+    PathCaretGeometry, PathCaretHit, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
 };
 pub use layout::TextLayoutLimits;
 pub(crate) use layout::{TextLayout, TextLayoutHandle, TextMeasure};

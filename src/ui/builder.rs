@@ -83,7 +83,7 @@ impl<'a> WidgetBuilder<'a> {
     }
 
     pub fn text_path(self, path: impl Into<crate::text::TextPath>) -> Self {
-        crate::text::path::set_text_path(self.world, self.entity, path);
+        self.world.set_text_path(self.entity, path);
         self
     }
 

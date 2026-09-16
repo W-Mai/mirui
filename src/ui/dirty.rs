@@ -50,6 +50,16 @@ impl ExactDirtyRegions {
 }
 
 impl World {
+    /// Invalidates an entity's layout and visual output.
+    pub fn invalidate(&mut self, entity: Entity) {
+        self.insert(entity, Dirty);
+    }
+
+    /// Invalidates an entity's visual output while preserving its layout.
+    pub fn invalidate_visual(&mut self, entity: Entity) {
+        self.insert(entity, VisualDirty);
+    }
+
     /// Invalidates a logical rectangle without invalidating layout.
     ///
     /// Use this when retained geometry changes inside known bounds and the

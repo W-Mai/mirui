@@ -430,7 +430,7 @@ impl crate::ecs::IntoBundle for TextBuilder {
             world.insert(entity, style);
         }
         if let Some(path) = self.path {
-            crate::text::path::set_text_path(world, entity, path);
+            world.set_text_path(entity, path);
         }
     }
 }
@@ -662,6 +662,44 @@ impl PathCaretHit {
     }
 }
 
+/// One projected caret segment on a path-text widget.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PathCaretGeometry {
+    segment: [Point; 2],
+    index: usize,
+    text_offset: u32,
+    bidi_level: u8,
+}
+
+impl Default for PathCaretGeometry {
+    fn default() -> Self {
+        Self {
+            segment: [Point::ZERO; 2],
+            index: 0,
+            text_offset: 0,
+            bidi_level: 0,
+        }
+    }
+}
+
+impl PathCaretGeometry {
+    pub const fn segment(self) -> [Point; 2] {
+        self.segment
+    }
+
+    pub const fn index(self) -> usize {
+        self.index
+    }
+
+    pub const fn text_offset(self) -> u32 {
+        self.text_offset
+    }
+
+    pub const fn bidi_level(self) -> u8 {
+        self.bidi_level
+    }
+}
+
 /// One projected selection segment within a line and visual bidi run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PathSelectionRibbon {
@@ -706,7 +744,7 @@ pub enum PathTextGeometryError {
     Unavailable,
     /// The geometry is singular or crosses the projective near plane.
     InvalidProjection,
-    /// Caller-provided selection storage is too small.
+    /// Caller-provided geometry storage is too small.
     InsufficientCapacity { required: usize, provided: usize },
 }
 
@@ -779,6 +817,44 @@ impl<'a> PathTextGeometry<'a> {
                 ));
             }
             Ok(nearest.map(|(hit, _)| hit))
+        })
+        .ok_or(PathTextGeometryError::Unavailable)?
+    }
+
+    /// Writes every projected caret segment into caller-provided storage.
+    pub fn carets_into<'output>(
+        &self,
+        output: &'output mut [PathCaretGeometry],
+    ) -> Result<&'output [PathCaretGeometry], PathTextGeometryError> {
+        self.with_carets(|layout, frames, metrics| {
+            let required = layout.carets().len();
+            if output.len() < required {
+                return Err(PathTextGeometryError::InsufficientCapacity {
+                    required,
+                    provided: output.len(),
+                });
+            }
+            if frames
+                .iter()
+                .any(|frame| caret_segment(self.rect, self.transform, *frame, metrics).is_none())
+            {
+                return Err(PathTextGeometryError::InvalidProjection);
+            }
+            for (index, (slot, (caret, frame))) in output
+                .iter_mut()
+                .zip(layout.carets().iter().zip(frames))
+                .enumerate()
+            {
+                *slot = PathCaretGeometry {
+                    segment: caret_segment(self.rect, self.transform, *frame, metrics)
+                        .expect("caret projection was preflighted")
+                        .into(),
+                    index,
+                    text_offset: caret.text_offset,
+                    bidi_level: caret.bidi_level,
+                };
+            }
+            Ok(&output[..required])
         })
         .ok_or(PathTextGeometryError::Unavailable)?
     }

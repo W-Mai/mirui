@@ -74,7 +74,7 @@ pub fn reactive_set_paragraph(entity: Entity, value: crate::ui::widgets::text::P
 
 pub fn reactive_set_text_path(entity: Entity, value: impl Into<crate::text::TextPath>) {
     crate::core::reactive::with_world(|world| {
-        crate::text::path::set_text_path(world, entity, value);
+        world.set_text_path(entity, value);
     });
 }
 

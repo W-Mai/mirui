@@ -3201,7 +3201,7 @@ mod text_layout_check {
             .unwrap()
             .insert(baseline)
             .unwrap();
-        crate::text::path::set_text_path(&mut world, label, path);
+        world.set_text_path(label, path);
         let viewport = Viewport::new(96, 96, Fixed::ONE);
 
         update_layout(&mut world, root, &viewport);
@@ -3395,7 +3395,7 @@ mod text_layout_check {
             .unwrap()
             .insert(baseline)
             .unwrap();
-        crate::text::path::set_text_path(&mut world, label, path);
+        world.set_text_path(label, path);
         let viewport = Viewport::new(96, 96, Fixed::ONE);
         update_layout(&mut world, root, &viewport);
 

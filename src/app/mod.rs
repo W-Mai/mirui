@@ -197,7 +197,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     pub fn paths(&mut self) -> crate::text::PathAccess<'_> {
-        crate::text::PathAccess::new(&mut self.world)
+        self.world.paths()
+    }
+
+    pub fn viewport(&self) -> crate::types::Viewport {
+        self.backend.viewport()
     }
 
     pub fn with_i18n(&mut self, i18n: crate::core::i18n::I18n) -> &mut Self {

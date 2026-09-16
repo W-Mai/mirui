@@ -5,6 +5,7 @@ use crate::render::path::{Path, PathCmd, PathId, PathRevision, PathStore, PathSt
 use crate::types::Fixed;
 #[cfg(test)]
 use crate::types::fixed::{from_textflow, to_textflow};
+#[cfg(test)]
 use crate::ui::dirty::Dirty;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -82,6 +83,14 @@ impl TextPath {
         self
     }
 
+    /// Selects a fixed-width window whose origin advances along the path.
+    pub fn with_window(mut self, offset: Fixed, extent: Fixed) -> Self {
+        self.start = Fixed::ZERO;
+        self.offset = offset;
+        self.end = Some(offset + extent);
+        self
+    }
+
     pub const fn with_direction(mut self, direction: PathDirection) -> Self {
         self.direction = direction;
         self
@@ -135,43 +144,49 @@ pub(crate) struct TextPathSubscription {
     _inner: crate::render::path::PathSubscription,
 }
 
-pub(crate) fn set_text_path(world: &mut World, entity: Entity, path: impl Into<TextPath>) {
-    let path = path.into();
-    if let Some(current) = world.get::<TextPath>(entity).copied() {
-        if current == path {
-            return;
-        }
-        if current.path == path.path
-            && current.subpath == path.subpath
-            && current.direction == path.direction
-            && current.seam == path.seam
-            && current.end.is_some()
-            && path.end.is_some()
-            && current.end.unwrap() - current.start - current.offset
-                == path.end.unwrap() - path.start - path.offset
-        {
-            world.insert(entity, path);
-            world.insert(entity, crate::ui::dirty::VisualDirty);
-            return;
-        }
+impl World {
+    pub fn paths(&mut self) -> PathAccess<'_> {
+        PathAccess::new(self)
     }
-    let subscription = world
-        .resource_mut::<PathStore>()
-        .and_then(|store| {
-            store
-                .subscribe(path.path(), entity, path.end().is_some())
-                .ok()
-                .flatten()
-        })
-        .map(|inner| TextPathSubscription { _inner: inner });
 
-    world.insert(entity, path);
-    if let Some(subscription) = subscription {
-        world.insert(entity, subscription);
-    } else {
-        world.remove::<TextPathSubscription>(entity);
+    pub fn set_text_path(&mut self, entity: Entity, path: impl Into<TextPath>) {
+        let path = path.into();
+        if let Some(current) = self.get::<TextPath>(entity).copied() {
+            if current == path {
+                return;
+            }
+            if current.path == path.path
+                && current.subpath == path.subpath
+                && current.direction == path.direction
+                && current.seam == path.seam
+                && current.end.is_some()
+                && path.end.is_some()
+                && current.end.unwrap() - current.start - current.offset
+                    == path.end.unwrap() - path.start - path.offset
+            {
+                self.insert(entity, path);
+                self.invalidate_visual(entity);
+                return;
+            }
+        }
+        let subscription = self
+            .resource_mut::<PathStore>()
+            .and_then(|store| {
+                store
+                    .subscribe(path.path(), entity, path.end().is_some())
+                    .ok()
+                    .flatten()
+            })
+            .map(|inner| TextPathSubscription { _inner: inner });
+
+        self.insert(entity, path);
+        if let Some(subscription) = subscription {
+            self.insert(entity, subscription);
+        } else {
+            self.remove::<TextPathSubscription>(entity);
+        }
+        self.invalidate(entity);
     }
-    world.insert(entity, Dirty);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -280,8 +295,8 @@ mod tests {
             .insert(Path::new())
             .unwrap();
 
-        set_text_path(&mut world, widget, first);
-        set_text_path(&mut world, widget, second);
+        world.set_text_path(widget, first);
+        world.set_text_path(widget, second);
         world.remove::<Dirty>(widget);
 
         world
@@ -322,6 +337,17 @@ mod tests {
     }
 
     #[test]
+    fn path_window_keeps_extent_constant_while_offset_advances() {
+        let mut store = PathStore::new(1).unwrap();
+        let id = store.insert(Path::new()).unwrap();
+        let path = TextPath::new(id).with_window(Fixed::from_int(12), Fixed::from_int(80));
+
+        assert_eq!(path.start(), Fixed::ZERO);
+        assert_eq!(path.offset(), Fixed::from_int(12));
+        assert_eq!(path.end(), Some(Fixed::from_int(92)));
+    }
+
+    #[test]
     fn equal_width_offset_changes_preserve_layout() {
         let mut world = World::new();
         world.insert_resource(PathStore::new(1).unwrap());
@@ -331,15 +357,13 @@ mod tests {
             .unwrap()
             .insert(Path::new())
             .unwrap();
-        set_text_path(
-            &mut world,
+        world.set_text_path(
             widget,
             TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(80)),
         );
         world.remove::<Dirty>(widget);
 
-        set_text_path(
-            &mut world,
+        world.set_text_path(
             widget,
             TextPath::new(id)
                 .with_range(Fixed::ZERO..Fixed::from_int(92))
@@ -360,15 +384,13 @@ mod tests {
             .unwrap()
             .insert(Path::new())
             .unwrap();
-        set_text_path(
-            &mut world,
+        world.set_text_path(
             widget,
             TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(80)),
         );
         world.remove::<Dirty>(widget);
 
-        set_text_path(
-            &mut world,
+        world.set_text_path(
             widget,
             TextPath::new(id)
                 .with_range(Fixed::ZERO..Fixed::from_int(80))
@@ -392,8 +414,7 @@ mod tests {
                 PathCmd::LineTo(crate::types::Point::new(100, 0)),
             ]))
             .unwrap();
-        set_text_path(
-            &mut world,
+        world.set_text_path(
             widget,
             TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(80)),
         );
