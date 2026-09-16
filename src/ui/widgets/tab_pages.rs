@@ -98,7 +98,7 @@ fn apply_visibility(world: &mut World) {
                 // get swept; clear the subtree's leftover markers and
                 // push Dirty up to the parent whose rect still covers
                 // the freshly-hidden area.
-                crate::ui::dirty::clear_subtree_dirty(world, e);
+                world.clear_subtree_dirty(e);
                 if let Some(parent) = world.get::<Parent>(e).map(|p| p.0) {
                     world.insert(parent, Dirty);
                 }
@@ -108,11 +108,11 @@ fn apply_visibility(world: &mut World) {
                 // Mark the whole subtree, not just `e`. While `e` was
                 // Hidden any global event (theme swap, viewport
                 // resize) that walked from the root via
-                // `mark_subtree_dirty` skipped the subtree, leaving
+                // `World::mark_subtree_dirty` skipped the subtree, leaving
                 // descendants and any cached offscreen buffers with
                 // stale data. Marking the subtree on unhide bumps
                 // every `OffscreenGeneration` inside.
-                crate::ui::dirty::mark_subtree_dirty(world, e);
+                world.mark_subtree_dirty(e);
             }
             _ => {}
         }
@@ -204,7 +204,6 @@ mod tests {
     #[test]
     fn unhide_marks_whole_subtree_dirty() {
         use crate::ui::Children;
-        use crate::ui::dirty::mark_subtree_dirty;
 
         let mut world = World::default();
         let bar = make_bar(&mut world, 2);
@@ -220,9 +219,9 @@ mod tests {
         assert!(world.get::<Hidden>(p1).is_some());
 
         // Theme swap (or any global event) walks from a wider root.
-        // `mark_subtree_dirty` skips Hidden, so neither p1 nor
+        // `World::mark_subtree_dirty` skips Hidden, so neither p1 nor
         // p1_child receives Dirty here. Sanity-check that.
-        mark_subtree_dirty(&mut world, p1);
+        world.mark_subtree_dirty(p1);
         assert!(world.get::<Dirty>(p1).is_none());
         assert!(world.get::<Dirty>(p1_child).is_none());
 

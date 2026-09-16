@@ -439,7 +439,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::render(&self.world, root, &transform, &mut renderer)
         };
         if let Err(error) = render_result {
-            crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+            self.world.mark_subtree_dirty(root);
             return Err(error);
         }
         let render_end = self.clock_ns();
@@ -820,7 +820,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             for sop in &plan.shifts {
                 if let Err(error) = renderer.scroll_target_region(&sop.area, sop.dx, sop.dy) {
                     drop(renderer);
-                    crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+                    self.world.mark_subtree_dirty(root);
                     self.dirty_plan = plan;
                     return Err(error);
                 }
@@ -886,7 +886,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
             drop(renderer);
             if let Err(error) = render_result {
-                crate::ui::dirty::mark_subtree_dirty(&mut self.world, root);
+                self.world.mark_subtree_dirty(root);
                 self.dirty_plan = plan;
                 return Err(error);
             }

@@ -273,7 +273,7 @@ impl Default for Theme {
 pub fn set_theme(world: &mut World, theme: Theme) {
     world.insert_resource(theme);
     if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
-        super::dirty::mark_subtree_dirty(world, root);
+        world.mark_subtree_dirty(root);
     }
 }
 

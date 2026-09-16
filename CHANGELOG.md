@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Projective gradient paint.** Software and exact fallback paths inverse-map covered pixels into linear or radial paint space under homography, including gradient strokes.
 - **Scene group isolation.** Blur and overlapping group opacity render into caller-owned RGBA storage, then composite once through the active backend; nested scopes reuse caller-owned frame, route, and plan slices without a recursive fixed-depth limit.
 
+### Changed
+
+- **Dirty invalidation API.** `World::invalidate_rect`, `World::mark_subtree_dirty`, and `World::clear_subtree_dirty` keep region and subtree invalidation under the state owner.
+
 ### Fixed
 
 - **Curved text frame pacing.** Path placement cache generations now advance on every full or dirty render plan, preventing animated offsets from filling the embedded cache and triggering periodic recovery frames.

@@ -13,7 +13,7 @@ use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::IgnoreHitTest;
-use crate::ui::dirty::{VisualDirty, mark_exact_dirty};
+use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
     ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign, TextDirection, TextVerticalAlign,
@@ -447,7 +447,7 @@ fn mark_curve_stage_dirty(world: &mut World, stage: Entity) {
         .get::<crate::ui::ComputedRect>(stage)
         .map(|rect| rect.0)
     {
-        mark_exact_dirty(world, rect);
+        world.invalidate_rect(rect);
     } else {
         world.insert(stage, VisualDirty);
     }

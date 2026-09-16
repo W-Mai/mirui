@@ -2453,7 +2453,7 @@ mod layout_snapshot_reuse_check {
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
         let exact = Rect::new(7, 9, 11, 13);
-        super::super::dirty::mark_exact_dirty(&mut world, exact);
+        world.invalidate_rect(exact);
 
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
 
@@ -4890,9 +4890,9 @@ mod offscreen_render_check {
         let (mut w_a, fp_a, sw_a, sl_a) = build(Mark::OnPanel);
         let (mut w_b, fp_b, sw_b, sl_b) = build(Mark::OnSwitch);
 
-        crate::ui::dirty::mark_subtree_dirty(&mut w_ref, fp_ref);
-        crate::ui::dirty::mark_subtree_dirty(&mut w_a, fp_a);
-        crate::ui::dirty::mark_subtree_dirty(&mut w_b, fp_b);
+        w_ref.mark_subtree_dirty(fp_ref);
+        w_a.mark_subtree_dirty(fp_a);
+        w_b.mark_subtree_dirty(fp_b);
 
         assert_eq!(
             render_into(&mut w_ref, fp_ref),
@@ -4912,7 +4912,7 @@ mod offscreen_render_check {
             if let Some(s) = w.get_mut::<Switch>(sw) {
                 s.on = true;
             }
-            crate::ui::dirty::mark_subtree_dirty(w, fp);
+            w.mark_subtree_dirty(fp);
         };
         flip_on(&mut w_ref, fp_ref, sw_ref);
         flip_on(&mut w_a, fp_a, sw_a);
@@ -4932,7 +4932,7 @@ mod offscreen_render_check {
             if let Some(s) = w.get_mut::<Slider>(sl) {
                 s.value = s.max;
             }
-            crate::ui::dirty::mark_subtree_dirty(w, fp);
+            w.mark_subtree_dirty(fp);
         };
         slider_max(&mut w_ref, fp_ref, sl_ref);
         slider_max(&mut w_a, fp_a, sl_a);
@@ -5554,7 +5554,7 @@ mod offscreen_render_check {
     /// sees frame 1's buffer, frame 3 sees frame 2's.
     #[test]
     fn prev_texture_of_returns_previous_frame_buffer() {
-        use super::super::dirty::{Dirty, mark_subtree_dirty};
+        use super::super::dirty::Dirty;
         use super::super::offscreen::WidgetTextureAccess;
 
         let mut world = make_world();
@@ -5577,7 +5577,7 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
         let render_frame = |world: &mut World, buf: &mut [u8]| {
-            mark_subtree_dirty(world, panel);
+            world.mark_subtree_dirty(panel);
             let dirty = super::collect_dirty_region(world, panel, &viewport).unwrap_or(Rect {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -5686,7 +5686,7 @@ mod offscreen_render_check {
     }
 
     /// Self-Dirty case: the OffscreenRender entity itself goes Dirty
-    /// (e.g. theme rotation calls `mark_subtree_dirty(root)` which
+    /// (e.g. theme rotation calls `world.mark_subtree_dirty(root)` which
     /// stamps the entire tree). For an entity without children — a
     /// single-widget marker, like a Switch — the subtree scan finds
     /// no Dirty descendants and the old code skipped the
@@ -6038,7 +6038,6 @@ mod offscreen_render_check {
     /// pixels (proves the view fn ran end-to-end).
     #[test]
     fn mirror_of_paints_into_its_own_rect() {
-        use crate::ui::dirty::mark_subtree_dirty;
         use crate::ui::widgets::MirrorOf;
 
         let mut world = make_world();
@@ -6101,7 +6100,7 @@ mod offscreen_render_check {
         // Drive two dirty renders: frame 1 fills the source's buffer;
         // frame 2 lets the mirror's view fn read it.
         for _ in 0..2 {
-            mark_subtree_dirty(&mut world, root);
+            world.mark_subtree_dirty(root);
             let dirty =
                 super::collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
             let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
@@ -6179,7 +6178,7 @@ mod offscreen_render_check {
     }
 
     /// Theme swap while a subtree is `Hidden`, then unhide.
-    /// `mark_subtree_dirty` skips Hidden, so the offscreen descendant
+    /// `World::mark_subtree_dirty` skips Hidden, so the offscreen descendant
     /// inside the hidden subtree never receives Dirty. When the
     /// subtree is later unhidden, the dirty walker must still see
     /// enough Dirty markers in the freshly-revealed subtree to bump
@@ -6188,7 +6187,7 @@ mod offscreen_render_check {
     #[test]
     fn unhide_after_global_event_invalidates_offscreen_descendants() {
         use crate::ui::Hidden;
-        use crate::ui::dirty::{Dirty, mark_subtree_dirty};
+        use crate::ui::dirty::Dirty;
         use crate::ui::offscreen::OffscreenGeneration;
 
         let mut world = make_world();
@@ -6244,15 +6243,15 @@ mod offscreen_render_check {
         // Hide the tab and clear any leftover Dirty in the subtree
         // (mirrors `tab_pages_system`'s hide branch).
         world.insert(tab_content, Hidden);
-        crate::ui::dirty::clear_subtree_dirty(&mut world, tab_content);
+        world.clear_subtree_dirty(tab_content);
 
         // Global event: theme swap walks from `root`, hitting Hidden
         // along the way. The offscreen grandchild does not get Dirty.
-        mark_subtree_dirty(&mut world, root);
+        world.mark_subtree_dirty(root);
         assert!(
             world.get::<Dirty>(offscreen_grandchild).is_none(),
             "Hidden subtree's descendants must not be Dirty after \
-             mark_subtree_dirty (this part is the existing optimisation)"
+             World::mark_subtree_dirty (this part is the existing optimisation)"
         );
 
         // Unhide: emulate the (false, true) branch of
@@ -6260,7 +6259,7 @@ mod offscreen_render_check {
         // subtree (rather than only `tab_content`) is what makes
         // descendants' caches invalidate.
         world.remove::<Hidden>(tab_content);
-        mark_subtree_dirty(&mut world, tab_content);
+        world.mark_subtree_dirty(tab_content);
 
         // Run the walker and check the offscreen generation has
         // advanced — the cached buffer must be invalidated so the

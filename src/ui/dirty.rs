@@ -1,6 +1,6 @@
 //! Dirty tracking — per-entity, no parent→child propagation. A parent's
 //! `Dirty` only contributes its own rect; descendants are unaffected
-//! unless they're marked too. Use `mark_subtree_dirty` when a global
+//! unless they're marked too. Use `World::mark_subtree_dirty` when a global
 //! change (theme swap, viewport resize) needs every entity flagged.
 
 use crate::ecs::{Entity, World};
@@ -28,7 +28,6 @@ impl Default for ExactDirtyRegions {
 }
 
 impl ExactDirtyRegions {
-    #[cfg_attr(not(feature = "gallery"), allow(dead_code))]
     fn mark(&mut self, rect: Rect) {
         let index = usize::from(self.len);
         if index < self.rects.len() {
@@ -50,44 +49,46 @@ impl ExactDirtyRegions {
     }
 }
 
-#[cfg_attr(not(feature = "gallery"), allow(dead_code))]
-pub(crate) fn mark_exact_dirty(world: &mut World, rect: Rect) {
-    if let Some(regions) = world.resource_mut::<ExactDirtyRegions>() {
+impl World {
+    /// Invalidates a logical rectangle without invalidating layout.
+    ///
+    /// Use this when retained geometry changes inside known bounds and the
+    /// current layout snapshot remains valid.
+    pub fn invalidate_rect(&mut self, rect: Rect) {
+        if let Some(regions) = self.resource_mut::<ExactDirtyRegions>() {
+            regions.mark(rect);
+            return;
+        }
+        let mut regions = ExactDirtyRegions::default();
         regions.mark(rect);
-        return;
+        self.insert_resource(regions);
     }
-    let mut regions = ExactDirtyRegions::default();
-    regions.mark(rect);
-    world.insert_resource(regions);
-}
 
-pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
-    use crate::ui::{Children, Hidden};
-    let mut stack = alloc::vec![root];
-    while let Some(e) = stack.pop() {
-        // Skip Hidden: the walker won't descend into it, so a marker
-        // placed here would stick forever and defeat the empty-storage
-        // fast path in `collect_dirty_region`.
-        if world.get::<Hidden>(e).is_some() {
-            continue;
-        }
-        world.insert(e, Dirty);
-        if let Some(children) = world.get::<Children>(e) {
-            stack.extend(children.0.iter().copied());
+    pub fn mark_subtree_dirty(&mut self, root: Entity) {
+        use crate::ui::{Children, Hidden};
+        let mut stack = alloc::vec![root];
+        while let Some(entity) = stack.pop() {
+            if self.get::<Hidden>(entity).is_some() {
+                continue;
+            }
+            self.insert(entity, Dirty);
+            if let Some(children) = self.get::<Children>(entity) {
+                stack.extend(children.0.iter().copied());
+            }
         }
     }
-}
 
-/// Sweep `Dirty` from the subtree at `root`. Call before hiding the
-/// subtree so the marker doesn't strand once the walker stops
-/// descending through it.
-pub fn clear_subtree_dirty(world: &mut World, root: Entity) {
-    use crate::ui::Children;
-    let mut stack = alloc::vec![root];
-    while let Some(e) = stack.pop() {
-        world.remove::<Dirty>(e);
-        if let Some(children) = world.get::<Children>(e) {
-            stack.extend(children.0.iter().copied());
+    /// Sweep `Dirty` from the subtree at `root`. Call before hiding the
+    /// subtree so the marker doesn't strand once the walker stops
+    /// descending through it.
+    pub fn clear_subtree_dirty(&mut self, root: Entity) {
+        use crate::ui::Children;
+        let mut stack = alloc::vec![root];
+        while let Some(entity) = stack.pop() {
+            self.remove::<Dirty>(entity);
+            if let Some(children) = self.get::<Children>(entity) {
+                stack.extend(children.0.iter().copied());
+            }
         }
     }
 }
@@ -295,7 +296,7 @@ mod tests {
         world.insert(child_a, Children(alloc::vec![grandchild]));
         let outsider = world.spawn_empty();
 
-        mark_subtree_dirty(&mut world, root);
+        world.mark_subtree_dirty(root);
 
         assert!(world.get::<Dirty>(root).is_some());
         assert!(world.get::<Dirty>(child_a).is_some());
@@ -310,7 +311,7 @@ mod tests {
     fn mark_subtree_handles_leaf() {
         let mut world = World::new();
         let only = world.spawn_empty();
-        mark_subtree_dirty(&mut world, only);
+        world.mark_subtree_dirty(only);
         assert!(world.get::<Dirty>(only).is_some());
     }
 
