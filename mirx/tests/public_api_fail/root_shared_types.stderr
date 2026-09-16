@@ -9,25 +9,6 @@ error[E0432]: unresolved imports `mirx::Color`, `mirx::Fixed`, `mirx::InvalidByt
   |                           |      |      no `InvalidByteAlignment` in the root
   |                           |      no `Fixed` in the root
   |                           no `Color` in the root
-  |
-  = help: consider importing one of these items instead:
-          mirx::image::SurfaceError::Color
-          mirx::scene::Paint::Color
-          mirx::types::Color
-          ttf_parser::colr::CompositeMode::Color
-  = help: consider importing one of these structs instead:
-          mirx::types::Fixed
-          ttf_parser::Fixed
-  = help: consider importing this enum instead:
-          mirx::types::InvalidByteAlignment
-  = help: consider importing this struct instead:
-          mirx::types::Point
-  = help: consider importing one of these structs instead:
-          mirx::types::Rect
-          ttf_parser::Rect
-  = help: consider importing one of these structs instead:
-          mirx::types::Transform
-          ttf_parser::Transform
 
 error[E0603]: struct `ByteAlignment` is private
  --> tests/public_api_fail/root_shared_types.rs:1:12
@@ -40,7 +21,3 @@ note: the struct `ByteAlignment` is defined here
   |
   | pub(crate) use alignment::ByteAlignment;
   |                ^^^^^^^^^^^^^^^^^^^^^^^^
-help: import `ByteAlignment` directly
-  |
-1 | use mirx::{mirx::alignment::ByteAlignment, Color, Fixed, InvalidByteAlignment, Point, Rect, Transform};
-  |            +++++++++++++++++

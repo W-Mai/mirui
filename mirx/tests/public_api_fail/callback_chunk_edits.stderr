@@ -2,10 +2,13 @@ error[E0432]: unresolved import `mirx::document::TryEditError`
  --> tests/public_api_fail/callback_chunk_edits.rs:1:5
   |
 1 | use mirx::document::TryEditError;
-  |     ^^^^^^^^^^^^^^^^------------
-  |     |               |
-  |     |               help: a similar name exists in the module: `EditError`
-  |     no `TryEditError` in `document`
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `TryEditError` in `document`
+  |
+help: a similar name exists in the module
+  |
+1 - use mirx::document::TryEditError;
+1 + use mirx::document::EditError;
+  |
 
 error[E0061]: this method takes 0 arguments but 1 argument was supplied
  --> tests/public_api_fail/callback_chunk_edits.rs:8:10

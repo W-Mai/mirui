@@ -9,9 +9,4 @@ error[E0432]: unresolved imports `mirx::EncodeOptions`, `mirx::LayoutPolicy`, `m
   |            no `EncodeOptions` in the root
   |
   = help: consider importing this struct instead:
-          mirx::document::EncodeOptions
-  = help: consider importing this enum instead:
-          mirx::document::LayoutPolicy
-  = help: consider importing one of these structs instead:
           std::fs::OpenOptions
-          mirx::document::OpenOptions

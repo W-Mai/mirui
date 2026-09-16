@@ -34,17 +34,17 @@ note: the constant `SURFACE_RECORD_LEN` is defined here
   | pub(crate) use surface::SURFACE_RECORD_LEN;
   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error[E0599]: no function or associated item named `encoded_len` found for struct `mirx::image::AtlasMap<'a>` in the current scope
+error[E0599]: no associated function or constant named `encoded_len` found for struct `mirx::image::AtlasMap<'a>` in the current scope
  --> tests/public_api_fail/image_record_authoring.rs:7:23
   |
 7 |     let _ = AtlasMap::encoded_len;
-  |                       ^^^^^^^^^^^ function or associated item not found in `mirx::image::AtlasMap<'_>`
+  |                       ^^^^^^^^^^^ associated function or constant not found in `mirx::image::AtlasMap<'_>`
 
-error[E0599]: no function or associated item named `encode_into` found for struct `mirx::image::AtlasMap<'a>` in the current scope
+error[E0599]: no associated function or constant named `encode_into` found for struct `mirx::image::AtlasMap<'a>` in the current scope
  --> tests/public_api_fail/image_record_authoring.rs:8:23
   |
 8 |     let _ = AtlasMap::encode_into;
-  |                       ^^^^^^^^^^^ function or associated item not found in `mirx::image::AtlasMap<'_>`
+  |                       ^^^^^^^^^^^ associated function or constant not found in `mirx::image::AtlasMap<'_>`
 
 error[E0624]: associated function `from_record` is private
  --> tests/public_api_fail/image_record_authoring.rs:9:32

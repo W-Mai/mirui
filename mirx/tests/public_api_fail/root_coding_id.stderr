@@ -3,8 +3,3 @@ error[E0432]: unresolved import `mirx::CodingId`
   |
 1 | use mirx::CodingId;
   |     ^^^^^^^^^^^^^^ no `CodingId` in the root
-  |
-help: consider importing this struct instead
-  |
-1 | use mirx::coding::CodingId;
-  |           ++++++++

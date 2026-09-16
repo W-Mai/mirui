@@ -7,12 +7,6 @@ error[E0432]: unresolved imports `mirx::ChunkIter`, `mirx::ChunksOfType`, `mirx:
   |            |          no `ChunksOfType` in the root
   |            no `ChunkIter` in the root
   |
-  = help: consider importing this struct instead:
-          mirx::document::ChunkIter
-  = help: consider importing this struct instead:
-          mirx::document::ChunksOfType
-  = help: consider importing this struct instead:
-          mirx::document::PayloadOrigin
 help: a similar name exists in the module
   |
 1 - use mirx::{ChunkIter, ChunksOfType, PayloadOrigin};

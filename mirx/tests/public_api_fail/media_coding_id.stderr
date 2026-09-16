@@ -3,12 +3,6 @@ error[E0432]: unresolved import `mirx::media::CodingId`
   |
 1 | use mirx::media::CodingId;
   |     ^^^^^^^^^^^^^^^^^^^^^ no `CodingId` in `media`
-  |
-help: consider importing this struct instead
-  |
-1 - use mirx::media::CodingId;
-1 + use mirx::coding::CodingId;
-  |
 
 error[E0603]: module `media` is private
  --> tests/public_api_fail/media_coding_id.rs:1:11

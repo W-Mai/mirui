@@ -69,14 +69,14 @@ error[E0624]: method `encoded_len` is private
    |     pub(super) const fn encoded_len(self) -> usize {
    |     ---------------------------------------------- private method defined here
 
-error[E0599]: no function or associated item named `encode_into` found for struct `FrameCounts<'a>` in the current scope
+error[E0599]: no associated function or constant named `encode_into` found for struct `FrameCounts<'a>` in the current scope
   --> tests/public_api_fail/frames_record_authoring.rs:15:26
    |
 15 |     let _ = FrameCounts::encode_into;
-   |                          ^^^^^^^^^^^ function or associated item not found in `FrameCounts<'_>`
+   |                          ^^^^^^^^^^^ associated function or constant not found in `FrameCounts<'_>`
 
-error[E0599]: no function or associated item named `encoded_len` found for struct `mirx::frames::FrameMap<'a>` in the current scope
+error[E0599]: no associated function or constant named `encoded_len` found for struct `mirx::frames::FrameMap<'a>` in the current scope
   --> tests/public_api_fail/frames_record_authoring.rs:16:23
    |
 16 |     let _ = FrameMap::encoded_len;
-   |                       ^^^^^^^^^^^ function or associated item not found in `mirx::frames::FrameMap<'_>`
+   |                       ^^^^^^^^^^^ associated function or constant not found in `mirx::frames::FrameMap<'_>`

@@ -14,14 +14,8 @@ error[E0603]: module `media` is private
  --> tests/public_api_fail/media_coding_types.rs:1:11
   |
 1 | use mirx::media::{CodingRecord, CodingTable, CodingTableError};
-  |           ^^^^^ private module
+  |           ^^^^^ private module               ---------------- enum `CodingTableError` is not publicly re-exported
   |
-help: consider importing this enum instead:
-      mirx::coding::CodingTableError
- --> tests/public_api_fail/media_coding_types.rs:1:46
-  |
-1 | use mirx::media::{CodingRecord, CodingTable, CodingTableError};
-  |                                              ^^^^^^^^^^^^^^^^
 note: the module `media` is defined here
  --> src/lib.rs
   |

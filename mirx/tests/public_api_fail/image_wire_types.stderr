@@ -2,11 +2,15 @@ error[E0432]: unresolved imports `mirx::image::UnitIndexEncoding`, `mirx::image:
  --> tests/public_api_fail/image_wire_types.rs:2:38
   |
 2 |     GroupSelection, UnitGroupRecord, UnitIndexEncoding, UnitSelectionEncoding,
-  |                                      ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^
-  |                                      |                  |
-  |                                      |                  no `UnitSelectionEncoding` in `image`
-  |                                      |                  help: a similar name exists in the module: `UnitSelectionError`
+  |                                      ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^ no `UnitSelectionEncoding` in `image`
+  |                                      |
   |                                      no `UnitIndexEncoding` in `image`
+  |
+help: a similar name exists in the module
+  |
+2 -     GroupSelection, UnitGroupRecord, UnitIndexEncoding, UnitSelectionEncoding,
+2 +     GroupSelection, UnitGroupRecord, UnitIndexEncoding, UnitSelectionError,
+  |
 
 error[E0603]: enum `GroupSelection` is private
  --> tests/public_api_fail/image_wire_types.rs:2:5

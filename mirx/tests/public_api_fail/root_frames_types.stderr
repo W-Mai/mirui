@@ -9,16 +9,3 @@ error[E0432]: unresolved imports `mirx::FrameDecodeError`, `mirx::FrameSequence`
   |     |                 |              no `FramesAccessError` in the root
   |     |                 no `FrameSequence` in the root
   |     no `FrameDecodeError` in the root
-  |
-  = help: consider importing this enum instead:
-          mirx::frames::FrameDecodeError
-  = help: consider importing this struct instead:
-          mirx::frames::FrameSequence
-  = help: consider importing this enum instead:
-          mirx::frames::FramesAccessError
-  = help: consider importing this struct instead:
-          mirx::frames::FramesEncoder
-  = help: consider importing this struct instead:
-          mirx::frames::FramesView
-  = help: consider importing this struct instead:
-          mirx::frames::PlaybackStorage

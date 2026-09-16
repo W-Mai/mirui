@@ -6,11 +6,6 @@ error[E0432]: unresolved imports `mirx::ImageAccessError`, `mirx::ImageDecodeErr
   |                  |                             |
   |                  |                             no `ImageDecodeError` in the root
   |                  no `ImageAccessError` in the root
-  |
-  = help: consider importing this enum instead:
-          mirx::image::ImageAccessError
-  = help: consider importing this enum instead:
-          mirx::image::ImageEncodeError
 
 error[E0603]: enum `ColorFormat` is private
  --> tests/public_api_fail/root_image_types.rs:2:5
@@ -23,10 +18,6 @@ note: the enum `ColorFormat` is defined here
   |
   | pub(crate) use format::ColorFormat;
   |                ^^^^^^^^^^^^^^^^^^^
-help: import `ColorFormat` directly
-  |
-2 |     mirx::format::ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
-  |     ++++++++++++++
 
 error[E0603]: struct `ImageAsset` is private
  --> tests/public_api_fail/root_image_types.rs:2:36
@@ -39,10 +30,6 @@ note: the struct `ImageAsset` is defined here
   |
   | pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
   |                                 ^^^^^^^^^^
-help: import `ImageAsset` directly
-  |
-2 |     ColorFormat, ImageAccessError, mirx::payload::image::ImageAsset, ImageDecodeError, ImageEncodeError,
-  |                                    ++++++++++++++++++++++
 
 error[E0603]: enum `ImagePayloadError` is private
  --> tests/public_api_fail/root_image_types.rs:3:5
@@ -60,10 +47,6 @@ note: the enum `ImagePayloadError` is defined here
   |
   | #[non_exhaustive]
   | ----------------- cannot be constructed because it is `#[non_exhaustive]`
-help: import `ImagePayloadError` directly
-  |
-3 |     mirx::payload::image::ImagePayloadError, ImageView,
-  |     ++++++++++++++++++++++
 
 error[E0603]: struct `ImageView` is private
  --> tests/public_api_fail/root_image_types.rs:3:24
@@ -76,7 +59,3 @@ note: the struct `ImageView` is defined here
   |
   | pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
   |                                                                ^^^^^^^^^
-help: import `ImageView` directly
-  |
-3 |     ImagePayloadError, mirx::payload::image::ImageView,
-  |                        ++++++++++++++++++++++

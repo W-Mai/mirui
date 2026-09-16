@@ -35,8 +35,8 @@ error[E0624]: associated function `encoded_len` is private
    |     pub(crate) fn encoded_len(records: &[CodingRecord<'_>]) -> Result<usize, CodingTableError> {
    |     ------------------------------------------------------------------------------------------ private associated function defined here
 
-error[E0599]: no function or associated item named `encode_into` found for struct `CodingTable<'a>` in the current scope
+error[E0599]: no associated function or constant named `encode_into` found for struct `CodingTable<'a>` in the current scope
   --> tests/public_api_fail/coding_wire_construction.rs:14:26
    |
 14 |     let _ = CodingTable::encode_into(&[CodingRecord::RAW], &mut bytes);
-   |                          ^^^^^^^^^^^ function or associated item not found in `CodingTable<'_>`
+   |                          ^^^^^^^^^^^ associated function or constant not found in `CodingTable<'_>`

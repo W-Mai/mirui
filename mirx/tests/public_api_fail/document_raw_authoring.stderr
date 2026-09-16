@@ -36,7 +36,3 @@ note: the struct `RawChunkPolicy` is defined here
   |
   | pub(crate) use raw::RawChunkPolicy;
   |                ^^^^^^^^^^^^^^^^^^^
-help: import `RawChunkPolicy` directly
-  |
-2 |     PayloadInput, RawChunkInput, mirx::document::raw::RawChunkPolicy, RawTypePolicy, RemovedChunkMetadata,
-  |                                  +++++++++++++++++++++

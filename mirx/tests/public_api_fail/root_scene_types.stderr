@@ -14,35 +14,15 @@ error[E0432]: unresolved imports `mirx::CodecError`, `mirx::CompositeMode`, `mir
   |     ^^^^^^^^^^^^^^  ^^^^^  ^^^^  ^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^^^  ^^^^^^^^^^
   |     |               |      |
   |     |               |      no `Path` in the root
-  |     |               |      help: a similar name exists in the module: `path`
   |     |               no `Paint` in the root
   |     no `LinearGradient` in the root
 4 |     VectorAccessError, VectorChunkHeader, VectorEncodeError, VectorReadError,
   |     ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
   |
-  = help: consider importing this enum instead:
-          mirx::scene::CodecError
-  = help: consider importing one of these enums instead:
-          mirx::scene::CompositeMode
-          ttf_parser::colr::CompositeMode
-  = help: consider importing this enum instead:
-          mirx::scene::FillRule
   = help: consider importing this struct instead:
-          mirx::scene::GradientStop
-  = help: consider importing this enum instead:
-          mirx::scene::GradientUnits
-  = help: consider importing this enum instead:
-          mirx::scene::LineCap
-  = help: consider importing this enum instead:
-          mirx::scene::LineJoin
-  = help: consider importing one of these items instead:
-          mirx::scene::LinearGradient
-          mirx::scene::Paint::LinearGradient
-          ttf_parser::colr::LinearGradient
-          ttf_parser::colr::Paint::LinearGradient
-  = help: consider importing one of these enums instead:
-          mirx::scene::Paint
-          ttf_parser::colr::Paint
-  = help: consider importing one of these structs instead:
           std::path::Path
-          mirx::scene::Path
+help: a similar name exists in the module
+  |
+3 -     LinearGradient, Paint, Path, PathCmd, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
+3 +     LinearGradient, Paint, path, PathCmd, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
+  |

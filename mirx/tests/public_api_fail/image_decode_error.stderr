@@ -2,7 +2,10 @@ error[E0432]: unresolved import `mirx::image::ImageDecodeError`
  --> tests/public_api_fail/image_decode_error.rs:1:5
   |
 1 | use mirx::image::ImageDecodeError;
-  |     ^^^^^^^^^^^^^----------------
-  |     |            |
-  |     |            help: a similar name exists in the module: `ImageEncodeError`
-  |     no `ImageDecodeError` in `image`
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `ImageDecodeError` in `image`
+  |
+help: a similar name exists in the module
+  |
+1 - use mirx::image::ImageDecodeError;
+1 + use mirx::image::ImageEncodeError;
+  |

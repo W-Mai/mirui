@@ -12,21 +12,6 @@ error[E0432]: unresolved imports `mirx::ComplianceFinding`, `mirx::EntryIter`, `
   |     |                       |
   |     |                       no `PayloadValidationFailure` in the root
   |     no `PayloadValidationError` in the root
-  |
-  = help: consider importing this enum instead:
-          mirx::reader::ComplianceFinding
-  = help: consider importing this struct instead:
-          mirx::reader::EntryIter
-  = help: consider importing this struct instead:
-          mirx::reader::FindingIter
-  = help: consider importing this enum instead:
-          mirx::reader::PayloadLocation
-  = help: consider importing this struct instead:
-          mirx::reader::PayloadValidationError
-  = help: consider importing this enum instead:
-          mirx::reader::PayloadValidationFailure
-  = help: consider importing this enum instead:
-          mirx::reader::ReadError
 
 error[E0603]: struct `PayloadLimits` is private
  --> tests/public_api_fail/root_reader_support.rs:2:48
@@ -39,10 +24,6 @@ note: the struct `PayloadLimits` is defined here
   |
   | pub(crate) use reader::{PayloadLimits, ReadOptions, TrailingBytesPolicy};
   |                         ^^^^^^^^^^^^^
-help: import `PayloadLimits` directly
-  |
-2 |     ComplianceFinding, EntryIter, FindingIter, mirx::reader::limits::PayloadLimits, PayloadLocation,
-  |                                                ++++++++++++++++++++++
 
 error[E0603]: struct `ReadOptions` is private
  --> tests/public_api_fail/root_reader_support.rs:3:66
@@ -55,10 +36,6 @@ note: the struct `ReadOptions` is defined here
   |
   | pub(crate) use reader::{PayloadLimits, ReadOptions, TrailingBytesPolicy};
   |                                        ^^^^^^^^^^^
-help: import `ReadOptions` directly
-  |
-3 |     PayloadValidationError, PayloadValidationFailure, ReadError, mirx::reader::options::ReadOptions, TrailingBytesPolicy,
-  |                                                                  +++++++++++++++++++++++
 
 error[E0603]: enum `TrailingBytesPolicy` is private
  --> tests/public_api_fail/root_reader_support.rs:3:79
@@ -71,7 +48,3 @@ note: the enum `TrailingBytesPolicy` is defined here
   |
   | pub(crate) use reader::{PayloadLimits, ReadOptions, TrailingBytesPolicy};
   |                                                     ^^^^^^^^^^^^^^^^^^^
-help: import `TrailingBytesPolicy` directly
-  |
-3 |     PayloadValidationError, PayloadValidationFailure, ReadError, ReadOptions, mirx::reader::options::TrailingBytesPolicy,
-  |                                                                               +++++++++++++++++++++++

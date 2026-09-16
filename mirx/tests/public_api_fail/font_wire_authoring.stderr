@@ -2,11 +2,15 @@ error[E0432]: unresolved imports `mirx::font::SFNT_HEADER_LEN`, `mirx::font::SFN
  --> tests/public_api_fail/font_wire_authoring.rs:5:5
   |
 5 |     SFNT_HEADER_LEN, SFNT_TABLE_RECORD_LEN,
-  |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^
-  |     |                |
-  |     |                no `SFNT_TABLE_RECORD_LEN` in `font`
-  |     |                help: a similar name exists in the module: `FACE_RECORD_LEN`
+  |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^ no `SFNT_TABLE_RECORD_LEN` in `font`
+  |     |
   |     no `SFNT_HEADER_LEN` in `font`
+  |
+help: a similar name exists in the module
+  |
+5 -     SFNT_HEADER_LEN, SFNT_TABLE_RECORD_LEN,
+5 +     SFNT_HEADER_LEN, FACE_RECORD_LEN,
+  |
 
 error[E0603]: constant `ADVANCE_RECORD_LEN` is private
  --> tests/public_api_fail/font_wire_authoring.rs:2:5

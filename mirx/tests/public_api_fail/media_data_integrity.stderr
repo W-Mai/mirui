@@ -2,15 +2,12 @@ error[E0603]: module `media` is private
  --> tests/public_api_fail/media_data_integrity.rs:1:11
   |
 1 | use mirx::media::DataIntegrity;
-  |           ^^^^^ private module
+  |           ^^^^^  ------------- enum `DataIntegrity` is not publicly re-exported
+  |           |
+  |           private module
   |
 note: the module `media` is defined here
  --> src/lib.rs
   |
   | pub(crate) mod media;
   | ^^^^^^^^^^^^^^^^^^^^
-help: consider importing this enum instead
-  |
-1 - use mirx::media::DataIntegrity;
-1 + use mirx::types::DataIntegrity;
-  |

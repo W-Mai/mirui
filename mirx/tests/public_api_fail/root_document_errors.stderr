@@ -7,10 +7,3 @@ error[E0432]: unresolved imports `mirx::DocumentError`, `mirx::EditError`, `mirx
   |            |              |          no `EncodeError` in the root
   |            |              no `EditError` in the root
   |            no `DocumentError` in the root
-  |
-  = help: consider importing this enum instead:
-          mirx::document::DocumentError
-  = help: consider importing this enum instead:
-          mirx::document::EditError
-  = help: consider importing this enum instead:
-          mirx::document::EncodeError

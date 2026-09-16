@@ -11,4 +11,9 @@ error[E0432]: unresolved imports `mirx::ChunkFile`, `mirx::FlatImage`, `mirx::Im
   |     |          |          no `ImageChunk` in the root
   |     |          no `FlatImage` in the root
   |     no `ChunkFile` in the root
-  |     help: a similar name exists in the module: `ChunkType`
+  |
+help: a similar name exists in the module
+  |
+2 -     ChunkFile, FlatImage, ImageChunk, MirxFile, parse, parse_chunk, parse_flat, peek_header,
+2 +     ChunkType, FlatImage, ImageChunk, MirxFile, parse, parse_chunk, parse_flat, peek_header,
+  |

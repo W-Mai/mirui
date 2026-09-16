@@ -9,18 +9,9 @@ error[E0432]: unresolved imports `mirx::Meta`, `mirx::MetaAccessError`, `mirx::M
   |            |     |                no `MetaDecodeError` in the root
   |            |     no `MetaAccessError` in the root
   |            no `Meta` in the root
-  |            help: a similar name exists in the module: `meta`
   |
-  = help: consider importing one of these items instead:
-          mirx::meta::Meta
-          mirx::reader::PayloadValidationFailure::Meta
-  = help: consider importing this enum instead:
-          mirx::meta::MetaAccessError
-  = help: consider importing this enum instead:
-          mirx::meta::MetaDecodeError
-  = help: consider importing this struct instead:
-          mirx::meta::MetaEntry
-  = help: consider importing this enum instead:
-          mirx::meta::MetaValue
-  = help: consider importing this struct instead:
-          mirx::meta::MetaView
+help: a similar name exists in the module
+  |
+1 - use mirx::{Meta, MetaAccessError, MetaDecodeError, MetaEntry, MetaValue, MetaView};
+1 + use mirx::{meta, MetaAccessError, MetaDecodeError, MetaEntry, MetaValue, MetaView};
+  |
