@@ -1,4 +1,5 @@
 use crate::ecs::{Entity, World};
+use crate::input::event::BusinessCallback;
 use crate::input::event::focus::{FocusState, Focusable, KeyHandler};
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::input::{
@@ -16,6 +17,18 @@ use crate::ui::view::{View, ViewCtx};
 pub struct CursorBlinkPhase(pub bool);
 
 pub const TEXT_INPUT_CAP: usize = 32;
+
+/// A semantic event emitted after text input content changes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextInputEvent {
+    /// The input accepted an insertion or deletion and now contains `len` bytes.
+    Changed { len: u8 },
+}
+
+/// Business-event callback installed by [`TextInputBuilder::on_change`].
+pub struct TextInputHandler {
+    pub on_event: BusinessCallback<TextInputEvent>,
+}
 
 /// Single-line ASCII text input with a fixed-capacity buffer.
 ///
@@ -154,6 +167,7 @@ impl TextInput {
             text_input: TextInput::new(),
             style: None,
             placeholder: None,
+            handler: None,
         }
     }
 }
@@ -168,6 +182,7 @@ pub struct TextInputBuilder {
     text_input: TextInput,
     style: Option<crate::ui::Style>,
     placeholder: Option<&'static str>,
+    handler: Option<TextInputHandler>,
 }
 
 impl TextInputBuilder {
@@ -216,6 +231,14 @@ impl TextInputBuilder {
         self
     }
 
+    /// Installs a callback for accepted insertions and deletions.
+    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &TextInputEvent) -> bool) -> Self {
+        self.handler = Some(TextInputHandler {
+            on_event: BusinessCallback::Fn(on_event),
+        });
+        self
+    }
+
     pub fn spawn(self, world: &mut World) -> Entity {
         world.spawn(self)
     }
@@ -229,6 +252,9 @@ impl crate::ecs::IntoBundle for TextInputBuilder {
         }
         if let Some(ph) = self.placeholder {
             world.insert(entity, Placeholder(ph));
+        }
+        if let Some(handler) = self.handler {
+            world.insert(entity, handler);
         }
     }
 }
@@ -439,43 +465,69 @@ fn sync_textinput_focus(world: &mut World) {
 }
 
 fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
-    let Some(ti) = world.get_mut::<TextInput>(entity) else {
-        return false;
-    };
-    let mut changed = false;
-    match event {
-        InputEvent::CharInput { ch } => {
-            if (*ch as u32) < 128 {
-                changed |= ti.insert(*ch as u8);
+    let (visual_changed, content_changed, len) = {
+        let Some(ti) = world.get_mut::<TextInput>(entity) else {
+            return false;
+        };
+        let mut content_changed = false;
+        let visual_changed = match event {
+            InputEvent::CharInput { ch } => {
+                if (*ch as u32) < 128 {
+                    content_changed = ti.insert(*ch as u8);
+                }
+                content_changed
             }
-        }
-        InputEvent::Key { code, pressed } if *pressed => match *code {
-            KEY_BACKSPACE => changed |= ti.backspace(),
-            KEY_DELETE => changed |= ti.delete_forward(),
-            KEY_LEFT => {
-                ti.move_left();
-                changed = true;
-            }
-            KEY_RIGHT => {
-                ti.move_right();
-                changed = true;
-            }
-            KEY_HOME => {
-                ti.move_home();
-                changed = true;
-            }
-            KEY_END => {
-                ti.move_end();
-                changed = true;
-            }
+            InputEvent::Key { code, pressed } if *pressed => match *code {
+                KEY_BACKSPACE => {
+                    content_changed = ti.backspace();
+                    content_changed
+                }
+                KEY_DELETE => {
+                    content_changed = ti.delete_forward();
+                    content_changed
+                }
+                KEY_LEFT => {
+                    let before = ti.cursor;
+                    ti.move_left();
+                    ti.cursor != before
+                }
+                KEY_RIGHT => {
+                    let before = ti.cursor;
+                    ti.move_right();
+                    ti.cursor != before
+                }
+                KEY_HOME => {
+                    let before = ti.cursor;
+                    ti.move_home();
+                    ti.cursor != before
+                }
+                KEY_END => {
+                    let before = ti.cursor;
+                    ti.move_end();
+                    ti.cursor != before
+                }
+                _ => return false,
+            },
             _ => return false,
-        },
-        _ => return false,
+        };
+        (visual_changed, content_changed, ti.len)
+    };
+    if content_changed {
+        emit_text_input_event(world, entity, &TextInputEvent::Changed { len });
     }
-    if changed {
+    if visual_changed {
         world.insert(entity, Dirty);
     }
     true
+}
+
+fn emit_text_input_event(world: &mut World, entity: Entity, event: &TextInputEvent) {
+    let callback = world
+        .get::<TextInputHandler>(entity)
+        .map(|handler| handler.on_event.clone_out());
+    if let Some(callback) = callback {
+        callback.call(world, entity, event);
+    }
 }
 
 fn text_input_attach(world: &mut World, entity: Entity) {
@@ -506,6 +558,7 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use alloc::{rc::Rc, vec::Vec};
+    use core::cell::RefCell;
 
     use super::*;
     use crate::render::font::{
@@ -759,5 +812,78 @@ mod tests {
         assert!(world.get::<TextInput>(e).is_some());
         assert!(world.get::<crate::ui::Style>(e).is_none());
         assert!(world.get::<Placeholder>(e).is_none());
+        assert!(world.get::<TextInputHandler>(e).is_none());
+    }
+
+    #[test]
+    fn content_mutation_emits_changed_after_releasing_the_input_borrow() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, TextInput::new());
+        let lengths = Rc::new(RefCell::new(Vec::new()));
+        let captured = lengths.clone();
+        world.insert(
+            entity,
+            TextInputHandler {
+                on_event: BusinessCallback::Closure(Rc::new(move |world, entity, event| {
+                    let TextInputEvent::Changed { len } = event;
+                    captured.borrow_mut().push(*len);
+                    assert_eq!(world.get::<TextInput>(entity).unwrap().len, *len);
+                    true
+                })),
+            },
+        );
+
+        assert!(textinput_key_handler(
+            &mut world,
+            entity,
+            &InputEvent::CharInput { ch: 'a' }
+        ));
+        assert!(textinput_key_handler(
+            &mut world,
+            entity,
+            &InputEvent::Key {
+                code: KEY_BACKSPACE,
+                pressed: true,
+            }
+        ));
+
+        assert_eq!(&*lengths.borrow(), &[1, 0]);
+    }
+
+    #[test]
+    fn caret_motion_and_no_op_edits_do_not_emit_changed() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, TextInput::new());
+        let calls = Rc::new(RefCell::new(0));
+        let captured = calls.clone();
+        world.insert(
+            entity,
+            TextInputHandler {
+                on_event: BusinessCallback::Closure(Rc::new(move |_, _, _| {
+                    *captured.borrow_mut() += 1;
+                    true
+                })),
+            },
+        );
+
+        assert!(textinput_key_handler(
+            &mut world,
+            entity,
+            &InputEvent::Key {
+                code: KEY_LEFT,
+                pressed: true,
+            }
+        ));
+        assert!(textinput_key_handler(
+            &mut world,
+            entity,
+            &InputEvent::Key {
+                code: KEY_DELETE,
+                pressed: true,
+            }
+        ));
+        assert_eq!(*calls.borrow(), 0);
     }
 }

@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -13,24 +14,44 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(16)
+            padding: Padding::all(20),
+            row_gap: 14
         ) {
-            View (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
-            Row (padding: Padding::all(8)) {
-                View (
-                    bg_color: Color::rgb(220, 80, 80),
-                    width: 60,
-                    height: 40,
-                    border_radius: 8,
-                    text: "-"
-                ) on Tap { dec.update(|n| *n -= 1); }
-                View (
-                    bg_color: Color::rgb(63, 185, 80),
-                    width: 60,
-                    height: 40,
-                    border_radius: 8,
-                    text: "+"
-                ) on Tap { inc.update(|n| *n += 1); }
+            Text (
+                text: ${ alloc::format!("COUNT  {}", label.get()) },
+                width: Dimension::percent(100),
+                max_width: 260,
+                height: 56,
+                font_size: 26,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            Row (
+                width: Dimension::percent(100),
+                max_width: 180,
+                height: 44,
+                column_gap: 12
+            ) {
+                Button (
+                    grow: 1.0,
+                    height: 44,
+                    border_radius: 12,
+                    normal_color: ColorToken::Error,
+                    pressed_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::label("−"),
+                ] on Tap { dec.update(|n| *n -= 1); }
+                Button (
+                    grow: 1.0,
+                    height: 44,
+                    border_radius: 12,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::label("+"),
+                ] on Tap { inc.update(|n| *n += 1); }
             }
         }
     };
@@ -77,7 +98,7 @@ mod tests {
         let row = world.get::<Children>(col).unwrap().0[1];
         let inc = world.get::<Children>(row).unwrap().0[1];
 
-        assert_eq!(label_text(&world, label), "Count: 0");
+        assert_eq!(label_text(&world, label), "COUNT  0");
 
         let tap = GestureEvent::Tap {
             x: Fixed::ZERO,
@@ -86,10 +107,10 @@ mod tests {
         };
         GestureHandler::trigger(&mut world, inc, &tap);
         flush_signal_dirty(&mut world);
-        assert_eq!(label_text(&world, label), "Count: 1");
+        assert_eq!(label_text(&world, label), "COUNT  1");
 
         GestureHandler::trigger(&mut world, inc, &tap);
         flush_signal_dirty(&mut world);
-        assert_eq!(label_text(&world, label), "Count: 2");
+        assert_eq!(label_text(&world, label), "COUNT  2");
     }
 }

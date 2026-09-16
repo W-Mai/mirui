@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
-use crate::ui::widgets::ProgressBar;
+use crate::ui::widgets::{Button, ProgressBar, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -19,83 +19,111 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(16)
+            padding: Padding::all(20),
+            row_gap: 10
         ) {
-            View (
-                bg_color: Color::rgb(88, 166, 255),
-                width: 160,
-                height: 40,
-                border_radius: 8,
-                text: "toggle panel"
-            ) on Tap { toggle.update(|v| *v = !*v); }
+            Button (
+                width: Dimension::percent(100),
+                max_width: 220,
+                height: 42,
+                border_radius: 11,
+                normal_color: ColorToken::Primary,
+                pressed_color: ColorToken::Secondary,
+                text_color: ColorToken::OnPrimary
+            ) [
+                Text::label("Toggle branch"),
+            ] on Tap { toggle.update(|v| *v = !*v); }
             if $cond {
                 View (
-                    bg_color: Color::rgb(63, 185, 80),
-                    width: 200,
-                    height: 60,
-                    border_radius: 8,
-                    text: "now you see me"
-                )
+                    bg_color: ColorToken::Success,
+                    width: Dimension::percent(100),
+                    max_width: 260,
+                    height: 58,
+                    border_radius: 12,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::label("now you see me"),
+                ]
             } else {
                 View (
-                    bg_color: Color::rgb(80, 80, 96),
-                    width: 200,
-                    height: 60,
-                    border_radius: 8,
-                    text: "hidden — tap to show"
-                )
+                    bg_color: ColorToken::SurfaceVariant,
+                    width: Dimension::percent(100),
+                    max_width: 260,
+                    height: 58,
+                    border_radius: 12,
+                    text_color: ColorToken::OnSurfaceVariant
+                ) [
+                    Text::label("hidden — tap to show"),
+                ]
             }
-            View (
-                bg_color: Color::rgb(210, 168, 80),
-                width: 160,
-                height: 40,
-                border_radius: 8,
-                text: "cycle mode"
-            ) on Tap { cycle.update(|m| *m = (*m + 1) % 3); }
+            Button (
+                width: Dimension::percent(100),
+                max_width: 220,
+                height: 42,
+                border_radius: 11,
+                normal_color: ColorToken::Secondary,
+                pressed_color: ColorToken::Primary,
+                text_color: ColorToken::OnSecondary
+            ) [
+                Text::label("Cycle keyed layout"),
+            ] on Tap { cycle.update(|m| *m = (*m + 1) % 3); }
             match $sel {
                 0 => {
                     View (
-                        width: 220,
+                        width: Dimension::percent(100),
+                        max_width: 260,
                         height: 60,
-                        border_radius: 8,
-                        bg_color: Color::rgb(88, 166, 255),
-                        text: "single card"
-                    )
+                        border_radius: 12,
+                        bg_color: ColorToken::Primary,
+                        text_color: ColorToken::OnPrimary
+                    ) [
+                        Text::label("single card"),
+                    ]
                 }
                 1 => {
                     Row (
-                        width: 220,
+                        width: Dimension::percent(100),
+                        max_width: 260,
                         height: 60,
                         justify: JustifyContent::SpaceBetween,
-                        align: AlignItems::Center
+                        align: AlignItems::Center,
+                        column_gap: 8
                     ) {
                         View (
-                            width: 60,
+                            grow: 1.0,
                             height: 60,
-                            border_radius: 8,
-                            bg_color: Color::rgb(220, 80, 80)
+                            border_radius: 12,
+                            bg_color: ColorToken::Error
                         )
                         View (
-                            width: 60,
+                            grow: 1.0,
                             height: 60,
-                            border_radius: 8,
-                            bg_color: Color::rgb(63, 185, 80)
+                            border_radius: 12,
+                            bg_color: ColorToken::Success
                         )
                         View (
-                            width: 60,
+                            grow: 1.0,
                             height: 60,
-                            border_radius: 8,
-                            bg_color: Color::rgb(88, 166, 255)
+                            border_radius: 12,
+                            bg_color: ColorToken::Primary
                         )
                     }
                 }
                 _ => {
                     Column (
-                        width: 220,
+                        width: Dimension::percent(100),
+                        max_width: 260,
                         align: AlignItems::Stretch,
-                        padding: Padding::all(8)
+                        padding: Padding::all(8),
+                        row_gap: 6,
+                        bg_color: ColorToken::SurfaceVariant,
+                        border_radius: 12
                     ) {
-                        View (height: 24, text: "stacked bars")
+                        Text (
+                            "stacked bars",
+                            height: 24,
+                            text_color: ColorToken::OnSurfaceVariant
+                        )
                         ProgressBar (height: 12, border_radius: 6, value: 0.3)
                         ProgressBar (height: 12, border_radius: 6, value: 0.7)
                     }
@@ -129,7 +157,6 @@ mod tests {
 
     #[test]
     fn reactive_if_else_swaps_branch() {
-        use crate::ui::widgets::text::Text;
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
@@ -174,10 +201,10 @@ mod tests {
             Column (grow: 1.0) {
                 match $m {
                     0 => {
-                        View (text: "zero", height: 30)
+                        Text ("zero", height: 30)
                     }
                     _ => {
-                        View (text: "other", height: 30)
+                        Text ("other", height: 30)
                     }
                 }
             }
@@ -187,7 +214,6 @@ mod tests {
 
     #[test]
     fn reactive_match_swaps_arm() {
-        use crate::ui::widgets::text::Text;
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
@@ -219,13 +245,13 @@ mod tests {
             :)
 
             Column (grow: 1.0) {
-                View (text: "top", height: 20)
+                Text ("top", height: 20)
                 if $f {
-                    View (text: "on", height: 20)
+                    Text ("on", height: 20)
                 } else {
-                    View (text: "off", height: 20)
+                    Text ("off", height: 20)
                 }
-                View (text: "bottom", height: 20)
+                Text ("bottom", height: 20)
             }
         };
         flag
@@ -233,7 +259,6 @@ mod tests {
 
     #[test]
     fn reactive_branch_keeps_index_between_static_siblings() {
-        use crate::ui::widgets::text::Text;
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();

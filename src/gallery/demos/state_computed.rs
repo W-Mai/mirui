@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -18,16 +19,29 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(16)
+            padding: Padding::all(20),
+            row_gap: 14
         ) {
-            View (text: ${ alloc::format!("n^2 = {}", label.get()) }, height: 40)
-            View (
-                bg_color: Color::rgb(63, 185, 80),
-                width: 120,
-                height: 40,
-                border_radius: 8,
-                text: "n + 1"
-            ) on Tap { inc.update(|v| *v += 1); }
+            Text (
+                text: ${ alloc::format!("n² = {}", label.get()) },
+                width: Dimension::percent(100),
+                max_width: 260,
+                height: 58,
+                font_size: 28,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            Button (
+                width: Dimension::percent(100),
+                max_width: 180,
+                height: 44,
+                border_radius: 12,
+                normal_color: ColorToken::Primary,
+                pressed_color: ColorToken::Secondary,
+                text_color: ColorToken::OnPrimary
+            ) [
+                Text::label("Increment n"),
+            ] on Tap { inc.update(|v| *v += 1); }
         }
     };
     //~focus-end
@@ -72,7 +86,7 @@ mod tests {
         let label = world.get::<Children>(col).unwrap().0[0];
         let btn = world.get::<Children>(col).unwrap().0[1];
 
-        assert_eq!(label_text(&world, label), "n^2 = 4");
+        assert_eq!(label_text(&world, label), "n² = 4");
 
         let tap = GestureEvent::Tap {
             x: Fixed::ZERO,
@@ -81,6 +95,6 @@ mod tests {
         };
         GestureHandler::trigger(&mut world, btn, &tap);
         flush_signal_dirty(&mut world);
-        assert_eq!(label_text(&world, label), "n^2 = 9");
+        assert_eq!(label_text(&world, label), "n² = 9");
     }
 }

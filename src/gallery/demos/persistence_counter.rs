@@ -3,6 +3,7 @@ extern crate alloc;
 #[cfg(feature = "persistence")]
 use crate::core::persistence::PersistencePlugin;
 use crate::prelude::*;
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets(count: Signal<i32>) {
@@ -14,28 +15,52 @@ pub fn build_widgets(count: Signal<i32>) {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(16)
+            padding: Padding::all(20),
+            row_gap: 14
         ) {
-            View (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
-            Row (padding: Padding::all(8)) {
-                View (
-                    bg_color: Color::rgb(220, 80, 80),
-                    width: 60,
-                    height: 40,
-                    border_radius: 8,
-                    text: "-"
-                ) on Tap { dec.update(|n| *n -= 1); }
-                View (
-                    bg_color: Color::rgb(63, 185, 80),
-                    width: 60,
-                    height: 40,
-                    border_radius: 8,
-                    text: "+"
-                ) on Tap { inc.update(|n| *n += 1); }
+            Text (
+                text: ${ alloc::format!("SAVED  {}", label.get()) },
+                width: Dimension::percent(100),
+                max_width: 260,
+                height: 56,
+                font_size: 26,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            Row (
+                width: Dimension::percent(100),
+                max_width: 180,
+                height: 44,
+                column_gap: 12
+            ) {
+                Button (
+                    grow: 1.0,
+                    height: 44,
+                    border_radius: 12,
+                    normal_color: ColorToken::Error,
+                    pressed_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::label("−"),
+                ] on Tap { dec.update(|n| *n -= 1); }
+                Button (
+                    grow: 1.0,
+                    height: 44,
+                    border_radius: 12,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::label("+"),
+                ] on Tap { inc.update(|n| *n += 1); }
             }
-            View (
-                height: 32,
-                text: "Counter persists across reloads / restarts"
+            Text (
+                "Persists across reloads and restarts",
+                width: Dimension::percent(100),
+                max_width: 280,
+                height: 34,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
             )
         }
     };

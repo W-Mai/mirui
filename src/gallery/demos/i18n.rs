@@ -4,6 +4,7 @@ use crate::core::i18n::{I18n, Locale, Translation};
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager};
 use crate::t;
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 const UI_FONT: &[u8] = include_bytes!("assets/misans_ui.mirx");
 const TOKEN_CJK: FontToken = FontToken::Custom("misans24");
@@ -38,22 +39,51 @@ pub fn build_widgets() {
     ui! {
         Column (
             grow: 1.0,
-            padding: Padding::all(24),
+            padding: Padding::all(20),
             justify: JustifyContent::Center,
-            align: AlignItems::Center
+            align: AlignItems::Center,
+            row_gap: 10
         ) {
-            View (height: 40, font: TOKEN_CJK, text: t!("welcome"))
-            View (height: 40, font: TOKEN_CJK, text: t!("greeting"))
-            View (height: 40, font: TOKEN_CJK, text: t!("goodbye"))
-            View (
+            Text (
+                t!("welcome"),
+                width: Dimension::percent(100),
+                max_width: 300,
                 height: 48,
-                width: 240,
-                bg_color: ColorToken::Primary,
-                text_color: ColorToken::OnPrimary,
-                border_radius: 8,
                 font: TOKEN_CJK,
-                text: t!("toggle")
-            ) on Tap {
+                font_size: 22,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                t!("greeting"),
+                width: Dimension::percent(100),
+                max_width: 300,
+                height: 34,
+                font: TOKEN_CJK,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                t!("goodbye"),
+                width: Dimension::percent(100),
+                max_width: 300,
+                height: 34,
+                font: TOKEN_CJK,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
+            )
+            Button (
+                height: 44,
+                width: Dimension::percent(100),
+                max_width: 240,
+                normal_color: ColorToken::Primary,
+                pressed_color: ColorToken::Secondary,
+                text_color: ColorToken::OnPrimary,
+                border_radius: 12,
+                font: TOKEN_CJK
+            ) [
+                Text::label(t!("toggle")),
+            ] on Tap {
                 if let Some(i18n) = ctx.world.resource::<I18n>() {
                     let next = if i18n.locale() == Locale::EnUs {
                         Locale::ZhCn

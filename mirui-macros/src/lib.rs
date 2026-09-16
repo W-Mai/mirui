@@ -164,6 +164,13 @@ const FIRST_PARTY_BUSINESS_EVENTS: &[BusinessEventEntry] = &[
         event_path: "::mirui::ui::widgets::tabbar::TabBarEvent::SelectionChanged",
         fields: &["new", "old"],
     },
+    BusinessEventEntry {
+        widget: "TextInput",
+        event: "Changed",
+        handler_component: "::mirui::ui::widgets::text_input::TextInputHandler",
+        event_path: "::mirui::ui::widgets::text_input::TextInputEvent::Changed",
+        fields: &["len"],
+    },
 ];
 
 fn lookup_business_event(widget: &str, event: &str) -> Option<&'static BusinessEventEntry> {

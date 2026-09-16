@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Control label and text input APIs.** `Text::label` and `ParagraphStyle::label` create centered single-line control captions; `TextInputEvent::Changed` reports allocation-free content mutations through builders and `ui!` handlers.
 - **Explicit Gallery scaling policy.** `DemoEntry::allow_upscale` keeps pixel-sized demos at their native dimensions while responsive showcases can fill available stage space.
 
 ### Changed
 
+- **Semantic responsive state demos.** Gallery state, persistence, form, keyed collection, and localization examples use their corresponding text and input components in one layout that contracts for phones and remains bounded on desktop.
 - **Responsive Gallery stage.** Portrait phones open landscape demos in a fitted portrait viewport, the demo selector collapses into a drawer, and the orientation control animates between the current width and height.
 
 ### Fixed

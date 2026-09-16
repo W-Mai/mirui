@@ -186,6 +186,16 @@ impl Default for ParagraphStyle {
 }
 
 impl ParagraphStyle {
+    /// A single-line paragraph centered within a control.
+    pub fn label() -> Self {
+        Self {
+            wrap: TextWrap::NoWrap,
+            align: TextAlign::Center,
+            vertical_align: TextVerticalAlign::Center,
+            ..Self::default()
+        }
+    }
+
     pub fn with_align(mut self, align: TextAlign) -> Self {
         self.align = align;
         self
@@ -285,6 +295,11 @@ impl Text {
             content: content.into(),
             paragraph: ParagraphStyle::default(),
         }
+    }
+
+    /// Creates a single-line label centered within its layout bounds.
+    pub fn label(content: impl Into<TextContent>) -> Self {
+        Self::new(content).with_paragraph(ParagraphStyle::label())
     }
 
     pub fn build(source: impl Into<Text>) -> TextBuilder {
@@ -1375,6 +1390,17 @@ mod tests {
             Some(Fixed::from_int(4)),
         );
         assert_eq!(request.wrap, textflow::layout::WrapMode::WordOrGrapheme);
+    }
+
+    #[test]
+    fn label_is_single_line_and_centered_on_both_axes() {
+        let text = Text::label("Apply");
+        let paragraph = text.paragraph();
+
+        assert_eq!(paragraph.wrap, TextWrap::NoWrap);
+        assert_eq!(paragraph.align, TextAlign::Center);
+        assert_eq!(paragraph.vertical_align, TextVerticalAlign::Center);
+        assert_eq!(paragraph.overflow, TextOverflow::Clip);
     }
 
     #[test]

@@ -2,8 +2,9 @@ extern crate alloc;
 
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-const ROW_H: i32 = 28;
+const ROW_H: i32 = 32;
 
 #[derive(Clone)]
 struct Fruit {
@@ -55,30 +56,48 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(12)
+            padding: Padding::all(20),
+            row_gap: 10
         ) {
-            View (text: ${ alloc::format!("{} fruits", label.with(| f | f.len())) }, height: 32)
-            Row (height: 52, padding: Padding::all(8)) {
-                View (
-                    bg_color: ColorToken::Error,
+            Text (
+                text: ${ alloc::format!("{} FRUITS", label.with(| f | f.len())) },
+                width: Dimension::percent(100),
+                max_width: 260,
+                height: 36,
+                font_size: 18,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            Row (
+                width: Dimension::percent(100),
+                max_width: 180,
+                height: 40,
+                column_gap: 10
+            ) {
+                Button (
                     text_color: ColorToken::OnPrimary,
-                    width: 48,
-                    height: 36,
-                    border_radius: 8,
-                    text: "-"
-                ) on Tap {
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 10,
+                    normal_color: ColorToken::Error,
+                    pressed_color: ColorToken::SurfaceVariant
+                ) [
+                    Text::label("−"),
+                ] on Tap {
                     dec.update(|f| {
                         f.pop();
                     });
                 }
-                View (
-                    bg_color: ColorToken::Primary,
+                Button (
                     text_color: ColorToken::OnPrimary,
-                    width: 48,
-                    height: 36,
-                    border_radius: 8,
-                    text: "+"
-                ) on Tap {
+                    grow: 1.0,
+                    height: 40,
+                    border_radius: 10,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary
+                ) [
+                    Text::label("+"),
+                ] on Tap {
                     inc.update(|f| {
                         let next = PALETTE[f.len() % PALETTE.len()].clone();
                         f.push(next);
@@ -87,11 +106,14 @@ pub fn build_widgets() {
             }
             Column (
                 id: "state_list_scroll",
-                bg_color: ColorToken::Surface,
+                bg_color: ColorToken::SurfaceVariant,
                 grow: 1.0,
-                width: 180,
-                border_radius: 8,
-                padding: Padding::all(4)
+                width: Dimension::percent(100),
+                max_width: 260,
+                max_height: 180,
+                border_radius: 12,
+                padding: Padding::all(6),
+                row_gap: 4
             ) [
                 ScrollOffset {
                     x: Fixed::ZERO,
@@ -108,11 +130,12 @@ pub fn build_widgets() {
                     View (
                         bg_color: fruit.color,
                         text_color: ColorToken::OnPrimary,
-                        width: 168,
-                        height: 28,
-                        border_radius: 6,
-                        text: fruit.name
-                    )
+                        width: Dimension::percent(100),
+                        height: ROW_H,
+                        border_radius: 8
+                    ) [
+                        Text::label(fruit.name),
+                    ]
                 }
             }
         }

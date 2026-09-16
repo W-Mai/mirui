@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
+use crate::ui::widgets::{Button, Checkbox, Placeholder, Text, TextInput};
 
 #[compose]
 pub fn build_widgets() {
@@ -12,19 +13,9 @@ pub fn build_widgets() {
         Computed::new(move || name_filled.get() && agreed.get())
     };
 
-    let toggle_name = name_filled.clone();
-    let toggle_agree = agreed.clone();
-    let name_bg = name_filled.clone();
-    let agree_bg = agreed.clone();
+    let name_changed = name_filled.clone();
+    let agreement_changed = agreed.clone();
     let submit_bg = can_submit.clone();
-
-    fn on_off(on: bool) -> Color {
-        if on {
-            Color::rgb(63, 185, 80)
-        } else {
-            Color::rgb(80, 80, 96)
-        }
-    }
 
     //~focus-start
     ui! {
@@ -32,29 +23,66 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(16)
+            padding: Padding::all(20),
+            row_gap: 12
         ) {
-            View (
-                bg_color: ${ on_off(name_bg.get()) },
-                width: 200,
-                height: 36,
-                border_radius: 6,
-                text: "name (tap to fill)"
-            ) on Tap { toggle_name.update(|v| *v = !*v); }
-            View (
-                bg_color: ${ on_off(agree_bg.get()) },
-                width: 200,
-                height: 36,
-                border_radius: 6,
-                text: "agree (tap to toggle)"
-            ) on Tap { toggle_agree.update(|v| *v = !*v); }
-            View (
-                bg_color: ${ on_off(submit_bg.get()) },
-                width: 200,
-                height: 40,
-                border_radius: 8,
-                text: "Submit"
+            Text (
+                "SIGNAL FORM",
+                width: Dimension::percent(100),
+                max_width: 280,
+                height: 34,
+                font_size: 20,
+                text_color: ColorToken::OnSurface
             )
+            TextInput (
+                id: "state_form_name",
+                width: Dimension::percent(100),
+                max_width: 280,
+                height: 42,
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: 10
+            ) [
+                Placeholder("Your name"),
+            ] on Changed { name_changed.set(*len > 0); }
+            Row (
+                width: Dimension::percent(100),
+                max_width: 280,
+                height: 38,
+                align: AlignItems::Center,
+                column_gap: 10
+            ) {
+                Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(*now); }
+                Text ("I agree to continue", grow: 1.0, text_color: ColorToken::OnSurface)
+            }
+            if $submit_bg {
+                Button (
+                    id: "state_form_submit",
+                    width: Dimension::percent(100),
+                    max_width: 280,
+                    height: 44,
+                    border_radius: 12,
+                    normal_color: ColorToken::Primary,
+                    pressed_color: ColorToken::Secondary,
+                    text_color: ColorToken::OnPrimary
+                ) [
+                    Text::label("Ready to submit"),
+                ]
+            } else {
+                Button (
+                    id: "state_form_submit",
+                    width: Dimension::percent(100),
+                    max_width: 280,
+                    height: 44,
+                    border_radius: 12,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::OnSurfaceVariant
+                ) [
+                    Text::label("Complete the form"),
+                ]
+            }
         }
     };
     //~focus-end
@@ -75,25 +103,20 @@ where
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::input::event::GestureHandler;
-    use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
 
-    fn bg(world: &World, e: Entity) -> Option<crate::ui::theme::ThemedColor> {
-        world.get::<Style>(e).and_then(|s| s.bg_color)
-    }
-
-    fn tap(world: &mut World, e: Entity) {
-        GestureHandler::trigger(
+    fn emit_input_changed(world: &mut World, entity: Entity, len: u8) {
+        let callback = world
+            .get::<crate::ui::widgets::TextInputHandler>(entity)
+            .expect("input changed handler")
+            .on_event
+            .clone_out();
+        callback.call(
             world,
-            e,
-            &GestureEvent::Tap {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                target: e,
-            },
+            entity,
+            &crate::ui::widgets::TextInputEvent::Changed { len },
         );
         flush_signal_dirty(world);
     }
@@ -107,17 +130,32 @@ mod tests {
         build_widgets(&mut cx);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
-        let name = world.get::<Children>(col).unwrap().0[0];
-        let agree = world.get::<Children>(col).unwrap().0[1];
-        let submit = world.get::<Children>(col).unwrap().0[2];
+        let name = world.find_by_id("state_form_name").unwrap();
+        let agreement_row = world.get::<Children>(col).unwrap().0[2];
+        let agree = world.get::<Children>(agreement_row).unwrap().0[0];
 
-        let off = crate::ui::theme::ThemedColor::Raw(Color::rgb(80, 80, 96));
-        let on = crate::ui::theme::ThemedColor::Raw(Color::rgb(63, 185, 80));
+        let normal = |world: &World| {
+            let submit = world.find_by_id("state_form_submit").unwrap();
+            world.get::<Button>(submit).unwrap().normal_color
+        };
+        let off = crate::ui::theme::ThemedColor::Token(ColorToken::SurfaceVariant);
+        let on = crate::ui::theme::ThemedColor::Token(ColorToken::Primary);
 
-        assert_eq!(bg(&world, submit), Some(off), "starts disabled");
-        tap(&mut world, name);
-        assert_eq!(bg(&world, submit), Some(off), "name alone is not enough");
-        tap(&mut world, agree);
-        assert_eq!(bg(&world, submit), Some(on), "both set -> submit enabled");
+        assert_eq!(normal(&world), off, "starts disabled");
+        emit_input_changed(&mut world, name, 3);
+        assert_eq!(normal(&world), off, "name alone is not enough");
+
+        let callback = world
+            .get::<crate::ui::widgets::checkbox::CheckboxHandler>(agree)
+            .expect("checkbox handler")
+            .on_event
+            .clone_out();
+        callback.call(
+            &mut world,
+            agree,
+            &crate::ui::widgets::checkbox::CheckboxEvent::Toggled { now: true },
+        );
+        flush_signal_dirty(&mut world);
+        assert_eq!(normal(&world), on, "both set -> submit enabled");
     }
 }

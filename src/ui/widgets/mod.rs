@@ -37,6 +37,6 @@ pub use text::{
     StaticGlyphRun, Text, TextAlign, TextContent, TextDirection, TextOverflow, TextVerticalAlign,
     TextWrap,
 };
-pub use text_input::{Placeholder, TextInput};
+pub use text_input::{Placeholder, TextInput, TextInputEvent, TextInputHandler};
 pub use transform::{WidgetTransform, set_transform};
 pub use transform_3d::{TransformOrigin, WidgetTransform3D};

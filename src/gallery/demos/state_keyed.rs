@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
+use crate::ui::widgets::{Button, Text};
 
 use alloc::vec::Vec;
 
@@ -48,16 +49,20 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             justify: JustifyContent::Center,
-            padding: Padding::all(12)
+            padding: Padding::all(20),
+            row_gap: 12
         ) {
-            View (
-                bg_color: ColorToken::Primary,
+            Button (
                 text_color: ColorToken::OnPrimary,
-                width: 168,
-                height: 36,
-                border_radius: 8,
-                text: "rotate"
-            ) on Tap {
+                width: Dimension::percent(100),
+                max_width: 260,
+                height: 42,
+                border_radius: 11,
+                normal_color: ColorToken::Primary,
+                pressed_color: ColorToken::Secondary
+            ) [
+                Text::label("Rotate keyed rows"),
+            ] on Tap {
                 rotate
                     .update(|c| {
                         if !c.is_empty() {
@@ -68,21 +73,25 @@ pub fn build_widgets() {
             }
             Column (
                 id: "state_keyed_list",
-                bg_color: ColorToken::Surface,
+                bg_color: ColorToken::SurfaceVariant,
                 grow: 1.0,
-                width: 180,
-                border_radius: 8,
-                padding: Padding::all(4)
+                width: Dimension::percent(100),
+                max_width: 260,
+                max_height: 160,
+                border_radius: 12,
+                padding: Padding::all(6),
+                row_gap: 6
             ) {
                 walk ${ rows.get() } with card by card.id {
                     View (
                         bg_color: card.color,
                         text_color: ColorToken::OnPrimary,
-                        width: 168,
-                        height: 28,
-                        border_radius: 6,
-                        text: card.name
-                    )
+                        width: Dimension::percent(100),
+                        height: 30,
+                        border_radius: 8
+                    ) [
+                        Text::label(card.name),
+                    ]
                 }
             }
         }

@@ -1,76 +1,67 @@
 extern crate alloc;
 
-use alloc::vec::Vec;
-
 use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
+use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-const ITEMS: &[&str] = &["buy milk", "write docs", "ship release"];
+#[compose]
+fn todo_row(label: &'static str, completed_label: &'static str, done: Signal<bool>) -> Entity {
+    let state = done.clone();
+    let toggle = done;
 
-fn row_color(done: bool) -> Color {
-    if done {
-        Color::rgb(63, 185, 80)
-    } else {
-        Color::rgb(80, 80, 96)
+    ui! {
+        Button (
+            width: Dimension::percent(100),
+            max_width: 280,
+            height: 40,
+            border_radius: 10,
+            normal_color: ColorToken::SurfaceVariant,
+            pressed_color: ColorToken::Primary,
+            text_color: ColorToken::OnSurface
+        ) on Tap { toggle.update(|done| *done = !*done); }
+        {
+            Text (
+                text: ${ alloc::string::String::from(if state.get() { completed_label } else { label }) },
+                grow: 1.0,
+                paragraph: ParagraphStyle::label()
+            )
+        }
     }
 }
 
 #[compose]
 pub fn build_widgets() {
-    let outer_parent = cx.parent();
-    let dones: Vec<Signal<bool>> = ITEMS.iter().map(|_| Signal::new(false)).collect();
+    let milk = Signal::new(false);
+    let docs = Signal::new(false);
+    let release = Signal::new(false);
     let remaining = {
-        let dones = dones.clone();
-        Computed::new(move || dones.iter().filter(|d| !d.get()).count() as i32)
+        let states = [milk.clone(), docs.clone(), release.clone()];
+        Computed::new(move || states.iter().filter(|state| !state.get()).count() as i32)
     };
     let summary = remaining.clone();
 
-    let root = WidgetBuilder::new(cx.world_mut())
-        .layout(crate::ui::layout::LayoutStyle {
-            direction: FlexDirection::Column,
-            align: AlignItems::Center,
-            padding: Padding::all(12),
-            grow: Fixed::ONE,
-            ..Default::default()
-        })
-        .id();
-    cx.world_mut().insert(root, crate::ui::Parent(outer_parent));
-    if let Some(c) = cx.world_mut().get_mut::<crate::ui::Children>(outer_parent) {
-        c.0.push(root);
-    }
-
-    let world = cx.world_mut();
     let _ = ui! {
-        :(
-            parent: root
-            world: world
-        :)
-
-        summary_label (
-            text: ${ alloc::format!("{} remaining", summary.get()) },
-            height: 32
-        )
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            padding: Padding::all(20),
+            row_gap: 8
+        ) {
+            Text (
+                text: ${ alloc::format!("{} REMAINING", summary.get()) },
+                width: Dimension::percent(100),
+                max_width: 280,
+                height: 38,
+                font_size: 18,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            todo_row ("Buy milk", "✓  Buy milk", milk)
+            todo_row ("Write docs", "✓  Write docs", docs)
+            todo_row ("Ship release", "✓  Ship release", release)
+        }
     };
-
-    for (i, label) in ITEMS.iter().enumerate() {
-        let toggle = dones[i].clone();
-        let bg = dones[i].clone();
-        let text = *label;
-        ui! {
-            :(
-                parent: root
-                world: world
-            :)
-
-            row (
-                bg_color: ${ row_color(bg.get()) },
-                width: 220,
-                height: 32,
-                border_radius: 6,
-                text: text
-            ) on Tap { toggle.update(|d| *d = !*d); }
-        };
-    }
 }
 
 #[cfg(feature = "std")]
@@ -93,7 +84,6 @@ mod tests {
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
-    use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
         let t = world.get::<Text>(label).expect("label has Text");
@@ -114,7 +104,7 @@ mod tests {
         let summary = kids[0];
         let first_row = kids[1];
 
-        assert_eq!(label_text(&world, summary), "3 remaining");
+        assert_eq!(label_text(&world, summary), "3 REMAINING");
 
         GestureHandler::trigger(
             &mut world,
@@ -126,6 +116,6 @@ mod tests {
             },
         );
         flush_signal_dirty(&mut world);
-        assert_eq!(label_text(&world, summary), "2 remaining");
+        assert_eq!(label_text(&world, summary), "2 REMAINING");
     }
 }
