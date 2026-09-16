@@ -38,7 +38,8 @@ const CYAN: Color = Color::rgb(64, 237, 218);
 const VIOLET: Color = Color::rgb(182, 116, 255);
 const GOLD: Color = Color::rgb(255, 197, 88);
 const LANE_COLORS: [Color; 3] = [CYAN, VIOLET, GOLD];
-const COMPACT_MARQUEE_CYCLE: i32 = 188;
+const COMPACT_MARQUEE_CYCLE: i32 = 192;
+const COMPACT_TEXT_WINDOW: i32 = 400;
 
 #[derive(Clone)]
 struct CurveModel {
@@ -81,6 +82,7 @@ impl Default for CurveMotion {
 #[derive(Clone, Copy)]
 struct CurveNodes {
     stage: Entity,
+    compact_text: Option<Entity>,
     compact: bool,
 }
 
@@ -438,6 +440,17 @@ fn curve_stage_view() -> View {
     View::new("CurveStage", 60, curve_stage_render).with_filter::<CurveStage>()
 }
 
+fn update_curve_visual(world: &mut World, nodes: CurveNodes, phase: Fixed) {
+    if let Some(text) = nodes.compact_text {
+        let path = world
+            .resource::<CurvePaths>()
+            .expect("Curve Text paths")
+            .ids[0];
+        world.insert(text, compact_text_path(path, phase));
+    }
+    world.insert(nodes.stage, VisualDirty);
+}
+
 #[mirui_macros::system(order = ANIMATION)]
 fn curve_text_animation_system(world: &mut World) {
     const MAX_STEP_MS: u16 = 50;
@@ -483,15 +496,19 @@ fn curve_text_animation_system(world: &mut World) {
     }
     model.phase.set(phase);
     if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-        if !nodes.compact {
-            world.insert(nodes.stage, VisualDirty);
-        }
+        update_curve_visual(world, nodes, phase);
     }
 }
 
-fn compact_text_offset(phase: Fixed, copy: i32) -> Fixed {
+fn compact_text_offset(phase: Fixed) -> Fixed {
     phase * Fixed::from_int(COMPACT_MARQUEE_CYCLE) / Fixed::from_int(360)
-        + Fixed::from_int(copy * COMPACT_MARQUEE_CYCLE)
+}
+
+fn compact_text_path(path: PathId, phase: Fixed) -> crate::text::TextPath {
+    let offset = compact_text_offset(phase);
+    crate::text::TextPath::new(path)
+        .with_range(Fixed::ZERO..offset + Fixed::from_int(COMPACT_TEXT_WINDOW))
+        .with_offset(offset)
 }
 
 fn route_label() -> &'static str {
@@ -753,10 +770,6 @@ fn build_compact_widgets(paths: CurvePaths) {
         .cloned()
         .expect("Curve Text model");
     bind_curve_paths(cx, paths, &model);
-    let first_phase = model.phase.clone();
-    let second_phase = model.phase.clone();
-    let third_phase = model.phase.clone();
-
     ui! {
         Column (
             id: "curve_text_shell",
@@ -784,49 +797,8 @@ fn build_compact_widgets(paths: CurvePaths) {
             ) {
                 Text (
                     id: "curve_text_primary",
-                    "MIRUI RIDES THE WAVE",
-                    path: ${
-                        crate::text::TextPath::new(paths.ids[0])
-                            .with_offset(compact_text_offset(first_phase.get(), 0))
-                    },
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    font: FontToken::Default,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: bitmap_line(TextAlign::Start)
-                ) [
-                    IgnoreHitTest,
-                ]
-                Text (
-                    id: "curve_text_secondary",
-                    "MIRUI RIDES THE WAVE",
-                    path: ${
-                        crate::text::TextPath::new(paths.ids[0])
-                            .with_offset(compact_text_offset(second_phase.get(), 1))
-                    },
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    font: FontToken::Default,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: bitmap_line(TextAlign::Start)
-                ) [
-                    IgnoreHitTest,
-                ]
-                Text (
-                    id: "curve_text_tertiary",
-                    "MIRUI RIDES THE WAVE",
-                    path: ${
-                        crate::text::TextPath::new(paths.ids[0])
-                            .with_offset(compact_text_offset(third_phase.get(), 2))
-                    },
+                    "MIRUI RIDES THE WAVE    MIRUI RIDES THE WAVE    ",
+                    path: compact_text_path(paths.ids[0], Fixed::ZERO),
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -840,26 +812,35 @@ fn build_compact_widgets(paths: CurvePaths) {
                     IgnoreHitTest,
                 ]
             }
-            Text (
-                "AUTO LOOP",
-                height: 16,
+            View (
+                id: "curve_text_footer",
+                width: Dimension::percent(100),
+                height: 18,
                 padding: Padding {
-                    top: Dimension::px(2),
-                    right: Dimension::px(4),
-                    bottom: Dimension::px(2),
-                    left: Dimension::px(4),
+                    top: Dimension::px(3),
+                    right: Dimension::px(10),
+                    bottom: Dimension::px(3),
+                    left: Dimension::px(10),
                 },
                 bg_color: PANEL_ALT,
                 border_color: BORDER,
                 border_width: 1,
-                border_radius: 8,
-                font: FontToken::Default,
-                font_size: 6,
-                text_color: MUTED,
-                paragraph: bitmap_line(TextAlign::Center)
+                border_radius: 8
             ) [
                 IgnoreHitTest,
-            ]
+            ] {
+                Text (
+                    id: "curve_text_footer_label",
+                    "AUTO LOOP",
+                    grow: 1.0,
+                    font: FontToken::Default,
+                    font_size: 6,
+                    text_color: MUTED,
+                    paragraph: bitmap_line(TextAlign::Center)
+                ) [
+                    IgnoreHitTest,
+                ]
+            }
         }
     };
 }
@@ -876,6 +857,7 @@ where
     let model = if compact {
         CurveModel {
             amplitude: Signal::new(Fixed::from_int(28)),
+            speed: Signal::new(Fixed::from_int(90)),
             ..CurveModel::default()
         }
     } else {
@@ -895,7 +877,16 @@ where
         .world
         .find_by_id("curve_text_stage")
         .expect("Curve Text stage");
-    app.world.insert_resource(CurveNodes { stage, compact });
+    let compact_text = compact.then(|| {
+        app.world
+            .find_by_id("curve_text_primary")
+            .expect("compact Curve Text")
+    });
+    app.world.insert_resource(CurveNodes {
+        stage,
+        compact_text,
+        compact,
+    });
 }
 
 pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
@@ -1193,6 +1184,9 @@ mod tests {
             .get::<crate::text::TextPath>(text)
             .unwrap()
             .offset();
+        app.render().unwrap();
+        app.world.remove::<crate::ui::dirty::Dirty>(text);
+        app.world.remove::<crate::ui::dirty::VisualDirty>(text);
         app.world.insert_resource(DeltaTimeMs(16));
         curve_text_animation_system(&mut app.world);
         flush_signal_dirty(&mut app.world);
@@ -1209,9 +1203,32 @@ mod tests {
             .unwrap();
         assert!(current_offset > initial_offset);
         assert_eq!(current_revision, initial_revision);
-        app.render().unwrap();
+        assert!(app.world.get::<crate::ui::dirty::Dirty>(text).is_none());
         let stage = app.world.find_by_id("curve_text_stage").unwrap();
+        assert!(
+            app.world
+                .get::<crate::ui::dirty::VisualDirty>(text)
+                .is_none()
+        );
+        assert!(
+            app.world
+                .get::<crate::ui::dirty::VisualDirty>(stage)
+                .is_some()
+        );
         let rect = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+        let footer = app.world.find_by_id("curve_text_footer").unwrap();
+        let footer_label = app.world.find_by_id("curve_text_footer_label").unwrap();
+        let footer_rect = app.world.get::<crate::ui::ComputedRect>(footer).unwrap().0;
+        let footer_label_rect = app
+            .world
+            .get::<crate::ui::ComputedRect>(footer_label)
+            .unwrap()
+            .0;
+        assert!(footer_label_rect.x >= footer_rect.x + Fixed::from_int(10));
+        assert!(
+            footer_label_rect.x + footer_label_rect.w
+                <= footer_rect.x + footer_rect.w - Fixed::from_int(10)
+        );
         assert!(rect.x >= Fixed::ZERO && rect.y >= Fixed::ZERO);
         assert!(rect.x + rect.w <= Fixed::from_int(128));
         assert!(rect.y + rect.h <= Fixed::from_int(128));
@@ -1220,7 +1237,8 @@ mod tests {
         let model = app.world.resource::<CurveModel>().unwrap().clone();
         for phase in [0, 45, 90, 135, 180, 225, 270, 315, 359] {
             model.phase.set(Fixed::from_int(phase));
-            flush_signal_dirty(&mut app.world);
+            let nodes = *app.world.resource::<CurveNodes>().unwrap();
+            update_curve_visual(&mut app.world, nodes, Fixed::from_int(phase));
             app.render().unwrap();
             let texture = app.backend.framebuffer();
             let visible_text_pixels = texture
@@ -1242,18 +1260,9 @@ mod tests {
 
     #[test]
     fn compact_text_marquee_repeats_across_the_wave() {
-        assert_eq!(compact_text_offset(Fixed::ZERO, 0), Fixed::ZERO);
-        assert_eq!(
-            compact_text_offset(Fixed::ZERO, 1),
-            Fixed::from_int(COMPACT_MARQUEE_CYCLE)
-        );
-        assert_eq!(
-            compact_text_offset(Fixed::ZERO, 2),
-            Fixed::from_int(COMPACT_MARQUEE_CYCLE * 2)
-        );
+        assert_eq!(compact_text_offset(Fixed::ZERO), Fixed::ZERO);
         assert!(
-            compact_text_offset(Fixed::from_int(359), 0)
-                > Fixed::from_int(COMPACT_MARQUEE_CYCLE - 1)
+            compact_text_offset(Fixed::from_int(359)) > Fixed::from_int(COMPACT_MARQUEE_CYCLE - 1)
         );
 
         let path = make_compact_lane(0);

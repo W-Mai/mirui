@@ -284,6 +284,17 @@ impl SwRenderer<'_> {
             else {
                 continue;
             };
+            if quad
+                .transform
+                .apply_rect_bbox(quad.rect)
+                .intersect(&run.clip)
+                .and_then(|area| {
+                    area.intersect(&Rect::new(0, 0, self.target.width, self.target.height))
+                })
+                .is_none()
+            {
+                continue;
+            }
             let Some(inverse) = RasterInverse::new(&quad.transform) else {
                 continue;
             };

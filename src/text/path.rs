@@ -137,6 +137,24 @@ pub(crate) struct TextPathSubscription {
 
 pub(crate) fn set_text_path(world: &mut World, entity: Entity, path: impl Into<TextPath>) {
     let path = path.into();
+    if let Some(current) = world.get::<TextPath>(entity).copied() {
+        if current == path {
+            return;
+        }
+        if current.path == path.path
+            && current.subpath == path.subpath
+            && current.direction == path.direction
+            && current.seam == path.seam
+            && current.end.is_some()
+            && path.end.is_some()
+            && current.end.unwrap() - current.start - current.offset
+                == path.end.unwrap() - path.start - path.offset
+        {
+            world.insert(entity, path);
+            world.insert(entity, crate::ui::dirty::VisualDirty);
+            return;
+        }
+    }
     let subscription = world
         .resource_mut::<PathStore>()
         .and_then(|store| {
@@ -301,6 +319,64 @@ mod tests {
             .with_offset(Fixed::from_int(12));
 
         assert_eq!(layout_width(&world, path), Ok(Fixed::from_int(48)));
+    }
+
+    #[test]
+    fn equal_width_offset_changes_preserve_layout() {
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        let widget = world.spawn_empty();
+        let id = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::new())
+            .unwrap();
+        set_text_path(
+            &mut world,
+            widget,
+            TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(80)),
+        );
+        world.remove::<Dirty>(widget);
+
+        set_text_path(
+            &mut world,
+            widget,
+            TextPath::new(id)
+                .with_range(Fixed::ZERO..Fixed::from_int(92))
+                .with_offset(Fixed::from_int(12)),
+        );
+
+        assert!(world.get::<Dirty>(widget).is_none());
+        assert!(world.get::<crate::ui::dirty::VisualDirty>(widget).is_some());
+    }
+
+    #[test]
+    fn width_changes_still_invalidate_layout() {
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        let widget = world.spawn_empty();
+        let id = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::new())
+            .unwrap();
+        set_text_path(
+            &mut world,
+            widget,
+            TextPath::new(id).with_range(Fixed::ZERO..Fixed::from_int(80)),
+        );
+        world.remove::<Dirty>(widget);
+
+        set_text_path(
+            &mut world,
+            widget,
+            TextPath::new(id)
+                .with_range(Fixed::ZERO..Fixed::from_int(80))
+                .with_offset(Fixed::from_int(12)),
+        );
+
+        assert!(world.get::<Dirty>(widget).is_some());
+        assert!(world.get::<crate::ui::dirty::VisualDirty>(widget).is_none());
     }
 
     #[test]

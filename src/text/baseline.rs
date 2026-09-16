@@ -1942,23 +1942,17 @@ fn integer_sqrt(value: u128) -> u128 {
 }
 
 fn sample_segment(start: Point, end: Point, length_raw: i32, offset_raw: i32) -> BaselineSample {
-    let dx = i128::from(to_textflow(end.x)) - i128::from(to_textflow(start.x));
-    let dy = i128::from(to_textflow(end.y)) - i128::from(to_textflow(start.y));
-    let length = i128::from(length_raw);
-    let squared = (dx * dx + dy * dy) as u128;
-    let scaled_length = rounded_sqrt(squared * 256 * 256);
-    let scaled_length = i128::try_from(scaled_length).unwrap_or(i128::MAX);
-    let x = i128::from(to_textflow(start.x)) + dx * i128::from(offset_raw) / length;
-    let y = i128::from(to_textflow(start.y)) + dy * i128::from(offset_raw) / length;
+    let dx = i64::from(to_textflow(end.x)) - i64::from(to_textflow(start.x));
+    let dy = i64::from(to_textflow(end.y)) - i64::from(to_textflow(start.y));
+    let length = i64::from(length_raw);
+    let x = i64::from(to_textflow(start.x)) + dx * i64::from(offset_raw) / length;
+    let y = i64::from(to_textflow(start.y)) + dy * i64::from(offset_raw) / length;
     BaselineSample {
         position: Point {
             x: from_textflow(x as i32),
             y: from_textflow(y as i32),
         },
-        unit_tangent: Point {
-            x: from_textflow((dx * 256 * 256 / scaled_length) as i32),
-            y: from_textflow((dy * 256 * 256 / scaled_length) as i32),
-        },
+        unit_tangent: segment_tangent(start, end, length_raw),
     }
 }
 
@@ -1983,70 +1977,108 @@ fn sample_measured_segment(
 
     let current = sample.unit_tangent;
     let incoming = index.checked_sub(1).map_or(current, |previous| {
-        let previous_start = if previous == 0 {
-            path_start
-        } else {
-            segments[previous - 1].end
-        };
-        normalized_tangent(previous_start, start)
+        measured_segment_tangent(path_start, segments, previous)
     });
-    let outgoing = segments
-        .get(index + 1)
-        .map_or(current, |next| normalized_tangent(end, next.end));
-    let start_tangent = averaged_tangent(incoming, current, current);
-    let end_tangent = averaged_tangent(current, outgoing, current);
-    let remaining = i128::from(length_raw - offset_raw);
-    let offset = i128::from(offset_raw);
-    let length = i128::from(length_raw);
+    let outgoing = segments.get(index + 1).map_or(current, |_| {
+        measured_segment_tangent(path_start, segments, index + 1)
+    });
+    let start_tangent = Point {
+        x: incoming.x + current.x,
+        y: incoming.y + current.y,
+    };
+    let end_tangent = Point {
+        x: current.x + outgoing.x,
+        y: current.y + outgoing.y,
+    };
+    let remaining = i64::from(length_raw - offset_raw);
+    let offset = i64::from(offset_raw);
+    let length = i64::from(length_raw);
     let interpolated = Point {
         x: from_textflow(
-            ((i128::from(to_textflow(start_tangent.x)) * remaining
-                + i128::from(to_textflow(end_tangent.x)) * offset)
+            ((i64::from(to_textflow(start_tangent.x)) * remaining
+                + i64::from(to_textflow(end_tangent.x)) * offset)
                 / length) as i32,
         ),
         y: from_textflow(
-            ((i128::from(to_textflow(start_tangent.y)) * remaining
-                + i128::from(to_textflow(end_tangent.y)) * offset)
+            ((i64::from(to_textflow(start_tangent.y)) * remaining
+                + i64::from(to_textflow(end_tangent.y)) * offset)
                 / length) as i32,
         ),
     };
-    sample.unit_tangent = normalize_tangent(interpolated, current);
+    sample.unit_tangent = normalize_q8(interpolated, current);
     sample
 }
 
-fn normalized_tangent(start: Point, end: Point) -> Point {
-    normalize_tangent(
-        Point {
-            x: end.x - start.x,
-            y: end.y - start.y,
-        },
-        Point::new(Fixed::ONE, Fixed::ZERO),
+fn measured_segment_tangent(
+    path_start: Point,
+    segments: &[MeasuredSegment],
+    index: usize,
+) -> Point {
+    let start = index
+        .checked_sub(1)
+        .map_or(path_start, |previous| segments[previous].end);
+    let start_distance = index
+        .checked_sub(1)
+        .map_or(0, |previous| to_textflow(segments[previous].end_distance));
+    let end = segments[index];
+    segment_tangent(
+        start,
+        end.end,
+        to_textflow(end.end_distance) - start_distance,
     )
 }
 
-fn averaged_tangent(a: Point, b: Point, fallback: Point) -> Point {
-    normalize_tangent(
-        Point {
-            x: a.x + b.x,
-            y: a.y + b.y,
-        },
-        fallback,
-    )
+fn segment_tangent(start: Point, end: Point, length_raw: i32) -> Point {
+    if length_raw <= 0 {
+        return Point::new(Fixed::ONE, Fixed::ZERO);
+    }
+    let dx = i64::from(to_textflow(end.x)) - i64::from(to_textflow(start.x));
+    let dy = i64::from(to_textflow(end.y)) - i64::from(to_textflow(start.y));
+    let length = i64::from(length_raw);
+    Point {
+        x: from_textflow((dx * 256 / length) as i32),
+        y: from_textflow((dy * 256 / length) as i32),
+    }
 }
 
-fn normalize_tangent(direction: Point, fallback: Point) -> Point {
-    let dx = i128::from(to_textflow(direction.x));
-    let dy = i128::from(to_textflow(direction.y));
-    let squared = (dx * dx + dy * dy) as u128;
+fn normalize_q8(direction: Point, fallback: Point) -> Point {
+    let dx = i64::from(to_textflow(direction.x));
+    let dy = i64::from(to_textflow(direction.y));
+    let squared = (dx * dx + dy * dy) as u64;
     if squared == 0 {
         return fallback;
     }
-    let scaled_length = rounded_sqrt(squared * 256 * 256);
-    let scaled_length = i128::try_from(scaled_length).unwrap_or(i128::MAX);
+    let length = rounded_sqrt_u64(squared) as i64;
     Point {
-        x: from_textflow((dx * 256 * 256 / scaled_length) as i32),
-        y: from_textflow((dy * 256 * 256 / scaled_length) as i32),
+        x: from_textflow((dx * 256 / length) as i32),
+        y: from_textflow((dy * 256 / length) as i32),
     }
+}
+
+fn rounded_sqrt_u64(value: u64) -> u64 {
+    let floor = integer_sqrt_u64(value);
+    let lower = value - floor * floor;
+    let next = floor + 1;
+    let upper = next * next - value;
+    if upper < lower { next } else { floor }
+}
+
+fn integer_sqrt_u64(mut value: u64) -> u64 {
+    let mut result = 0;
+    let mut bit = 1_u64 << 62;
+    while bit > value {
+        bit >>= 2;
+    }
+    while bit != 0 {
+        if value >= result + bit {
+            value -= result + bit;
+            result = (result >> 1) + bit;
+        } else {
+            result >>= 1;
+        }
+        bit >>= 2;
+    }
+    result
 }
 
 #[cfg(test)]
