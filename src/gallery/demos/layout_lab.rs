@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::ui::widgets::{Image, ParagraphStyle, Text, TextAlign, TextVerticalAlign, TextWrap};
+use crate::ui::widgets::{Image, ParagraphStyle, Text};
 
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
@@ -43,16 +43,6 @@ const CHIPS: [LayoutChip; 5] = [
     },
 ];
 
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
-
 #[compose]
 fn compose_header() -> Entity {
     ui! {
@@ -81,7 +71,7 @@ fn compose_header() -> Entity {
                 border_radius: 15,
                 font_size: 12,
                 text_color: CYAN,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
         }
     }
@@ -114,7 +104,7 @@ fn compose_flex_card() -> Entity {
                     border_radius: 9,
                     font_size: 11,
                     text_color: BACKGROUND,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
                 Text (
                     id: "layout_lab_grow",
@@ -127,7 +117,7 @@ fn compose_flex_card() -> Entity {
                     border_radius: 11,
                     font_size: 12,
                     text_color: BACKGROUND,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
                 Text (
                     id: "layout_lab_fixed",
@@ -138,7 +128,7 @@ fn compose_flex_card() -> Entity {
                     border_radius: 8,
                     font_size: 11,
                     text_color: TEXT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
             }
             Row (
@@ -160,7 +150,7 @@ fn compose_flex_card() -> Entity {
                         border_radius: 14,
                         font_size: 9,
                         text_color: chip.color,
-                        paragraph: centered_label()
+                        paragraph: ParagraphStyle::label()
                     )
                 }
             }
@@ -287,7 +277,7 @@ fn compose_overlay_card() -> Entity {
                     border_radius: 15,
                     font_size: 10,
                     text_color: TEXT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
             }
         }
@@ -346,7 +336,7 @@ fn compose_collection_card() -> Entity {
                     border_radius: 8,
                     font_size: 11,
                     text_color: CYAN,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
             }
         }

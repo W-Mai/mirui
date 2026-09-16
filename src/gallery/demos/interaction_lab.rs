@@ -8,10 +8,7 @@ use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::ui::UserState;
-use crate::ui::widgets::{
-    Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextAlign, TextInput, TextVerticalAlign,
-    TextWrap,
-};
+use crate::ui::widgets::{Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput};
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
 const BACKGROUND: Color = Color::rgb(9, 16, 28);
@@ -149,16 +146,6 @@ fn model_signal(cx: &mut crate::ui::UiScope<'_>) -> Signal<InteractionLabState> 
         .expect("Interaction Lab model")
 }
 
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
-
 #[cfg(any(feature = "std", test))]
 fn sync_user_state(
     world: &mut World,
@@ -243,7 +230,7 @@ fn compose_header() -> Entity {
                 border_radius: 15,
                 font_size: 11,
                 text_color: CYAN,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
         }
     }
@@ -299,7 +286,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: CYAN,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { InteractionAction::Single.publish(&single_action); }
                 Text (
                     id: "interaction_double",
@@ -313,7 +300,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: BLUE,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap(2) { InteractionAction::Double.publish(&double_action); }
                 Text (
                     id: "interaction_triple",
@@ -327,7 +314,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: VIOLET,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap(3) { InteractionAction::Triple.publish(&triple_action); }
                 Text (
                     id: "interaction_long",
@@ -341,7 +328,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: GOLD,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on LongPress { InteractionAction::Long.publish(&long_action); }
             }
             Text (
@@ -387,7 +374,7 @@ fn compose_state_card() -> Entity {
                     border_radius: 10,
                     font_size: 8,
                     text_color: BACKGROUND,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
                 Text (
                     id: "interaction_press_target",
@@ -397,7 +384,7 @@ fn compose_state_card() -> Entity {
                     border_radius: 10,
                     font_size: 8,
                     text_color: BACKGROUND,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
                 Text (
                     id: "interaction_error_target",
@@ -409,7 +396,7 @@ fn compose_state_card() -> Entity {
                     border_radius: 10,
                     font_size: 8,
                     text_color: TEXT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { InteractionAction::ToggleError.publish(&error_action); }
                 Text (
                     id: "interaction_disabled_target",
@@ -421,7 +408,7 @@ fn compose_state_card() -> Entity {
                     border_radius: 10,
                     font_size: 8,
                     text_color: TEXT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
             }
             TextInput (
@@ -444,7 +431,7 @@ fn compose_state_card() -> Entity {
                 border_radius: 9,
                 font_size: 10,
                 text_color: TEXT,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             ) on Tap { InteractionAction::ToggleDisabled.publish(&disabled_action); }
         }
     }
@@ -507,7 +494,7 @@ fn compose_motion_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: TEXT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on DragMove { InteractionAction::Drag(*dx, *dy).publish(&drag_action); } on DragEnd { InteractionAction::ResetDrag.publish(&drag_reset); }
             }
             Row (height: 58, column_gap: 8) {
@@ -530,7 +517,7 @@ fn compose_motion_card() -> Entity {
                         border_radius: 8,
                         font_size: 9,
                         text_color: BACKGROUND,
-                        paragraph: centered_label()
+                        paragraph: ParagraphStyle::label()
                     ) on Tap {
                         let allow = child_action.get_untracked().allow_bubble;
                         InteractionAction::ChildTap.publish(&child_action);
@@ -548,7 +535,7 @@ fn compose_motion_card() -> Entity {
                     border_radius: 10,
                     font_size: 9,
                     text_color: GOLD,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { InteractionAction::ToggleBubble.publish(&policy_action); }
             }
             Text (
@@ -634,7 +621,7 @@ fn compose_controls_card() -> Entity {
                 border_radius: 8,
                 font_size: 9,
                 text_color: CYAN,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
         }
     }

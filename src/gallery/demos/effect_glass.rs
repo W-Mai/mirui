@@ -76,16 +76,15 @@ pub fn build_widgets() {
     };
 
     ui! {
-        View (
-            text: "BlurMeBlurMe",
+        Text (
+            "BlurMeBlurMe",
             position: Position::Absolute,
             left: 8,
             top: 58,
             width: 112,
-            height: 14
-        ) [
-            Text::from("BlurMeBlurMe"),
-        ]
+            height: 14,
+            text_color: Color::rgb(255, 255, 255)
+        )
     };
 
     //~focus-start

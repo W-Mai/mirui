@@ -1,5 +1,6 @@
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 #[compose]
 pub fn build_widgets() {
@@ -16,20 +17,63 @@ pub fn build_widgets() {
 
     //~focus-start
     ui! {
-        Column (bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-            ScrollConfig {
-                direction: ScrollAxis::Vertical,
-                elastic: true,
-                content_height: Fixed::from_int(480),
-                content_width: Fixed::ZERO,
-            },
-        ] {
-            walk colors.iter() with item {
-                Row (bg_color: item.1, height: 60, border_radius: 4, text: item.0)
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            padding: Padding::all(16),
+            row_gap: 12,
+            bg_color: ColorToken::Surface
+        ) {
+            Text (
+                "ELASTIC LIST",
+                width: Dimension::percent(100),
+                max_width: 420,
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface
+            )
+            Column (
+                width: Dimension::percent(100),
+                max_width: 420,
+                grow: 1.0,
+                row_gap: 8,
+                padding: Padding::all(4),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 14
+            ) [
+                ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                },
+                ScrollConfig {
+                    direction: ScrollAxis::Vertical,
+                    elastic: true,
+                    content_height: Fixed::from_int(536),
+                    content_width: Fixed::ZERO,
+                },
+            ] {
+                walk colors.iter() with item {
+                    Row (
+                        bg_color: item.1,
+                        height: 60,
+                        border_radius: 10,
+                        padding: Padding {
+                            top: Dimension::px(0),
+                            right: Dimension::px(16),
+                            bottom: Dimension::px(0),
+                            left: Dimension::px(16),
+                        },
+                        align: AlignItems::Center
+                    ) {
+                        Text (
+                            item.0,
+                            grow: 1.0,
+                            height: 24,
+                            text_color: Color::rgb(255, 255, 255),
+                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        )
+                    }
+                }
             }
         }
     };

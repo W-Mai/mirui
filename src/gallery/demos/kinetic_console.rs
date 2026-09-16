@@ -15,7 +15,7 @@ use crate::ui::IgnoreHitTest;
 #[cfg(test)]
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextAlign, TextVerticalAlign, TextWrap};
+use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextVerticalAlign, TextWrap};
 
 pub const VIEWPORT: (u16, u16) = (128, 128);
 
@@ -425,16 +425,6 @@ pub fn kinetic_animation_system(world: &mut World) {
     }
 }
 
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
-
 fn header_label() -> ParagraphStyle {
     ParagraphStyle {
         wrap: TextWrap::NoWrap,
@@ -512,7 +502,7 @@ pub fn build_widgets() {
                         height: Dimension::percent(100),
                         font_size: 7,
                         text_color: TEXT,
-                        paragraph: centered_label()
+                        paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
                     ]
@@ -568,7 +558,7 @@ pub fn build_widgets() {
                         height: Dimension::percent(100),
                         font_size: 7,
                         text_color: ${ if orbit_fg.get() == ConsoleMode::Orbit { BACKGROUND } else { MUTED } },
-                        paragraph: centered_label()
+                        paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
                     ]
@@ -592,7 +582,7 @@ pub fn build_widgets() {
                         height: Dimension::percent(100),
                         font_size: 7,
                         text_color: ${ if flow_fg.get() == ConsoleMode::Flow { TEXT } else { MUTED } },
-                        paragraph: centered_label()
+                        paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
                     ]
@@ -616,7 +606,7 @@ pub fn build_widgets() {
                         height: Dimension::percent(100),
                         font_size: 7,
                         text_color: ${ if pulse_fg.get() == ConsoleMode::Pulse { BACKGROUND } else { MUTED } },
-                        paragraph: centered_label()
+                        paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
                     ]

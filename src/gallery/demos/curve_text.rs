@@ -14,10 +14,7 @@ use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::IgnoreHitTest;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{
-    ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign, TextDirection, TextVerticalAlign,
-    TextWrap,
-};
+use crate::ui::widgets::{ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextWrap};
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
 
@@ -121,16 +118,6 @@ fn single_line(direction: TextDirection) -> ParagraphStyle {
         wrap: TextWrap::NoWrap,
         direction,
         shaping: ShapingPolicy::Required,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
-
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
         max_lines: Some(1),
         ..ParagraphStyle::default()
     }
@@ -452,7 +439,7 @@ fn compose_header() -> Entity {
                 font: UI,
                 font_size: 10,
                 text_color: CYAN,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
         }
     }
@@ -621,7 +608,7 @@ fn compose_controls() -> Entity {
                 font: UI,
                 font_size: 10,
                 text_color: VIOLET,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
             Text (
                 id: "curve_text_pause",
@@ -636,7 +623,7 @@ fn compose_controls() -> Entity {
                 font: UI,
                 font_size: 10,
                 text_color: CYAN,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
         }
     }

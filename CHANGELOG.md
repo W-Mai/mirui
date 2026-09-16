@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Semantic responsive Gallery demos.** Scroll, nested scroll, text input, slider, composite, effects, and gesture examples use dedicated text widgets, bounded fluid layouts, and shared control-label styling across phone and desktop viewports.
 - **Semantic responsive state demos.** Gallery state, persistence, form, keyed collection, and localization examples use their corresponding text and input components in one layout that contracts for phones and remains bounded on desktop.
 - **Responsive Gallery stage.** Portrait phones open landscape demos in a fitted portrait viewport, the demo selector collapses into a drawer, and the orientation control animates between the current width and height.
 

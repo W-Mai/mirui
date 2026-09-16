@@ -2,7 +2,7 @@
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::ui::IdMap;
-use crate::ui::widgets::{Slider, Text};
+use crate::ui::widgets::{ParagraphStyle, Slider, Text};
 
 use alloc::format;
 
@@ -31,23 +31,52 @@ pub fn build_widgets() {
     }
 
     let stats = Signal::new(Stats::default());
-    let (s_read, s_value, s_drag_started, s_drag_ended) =
-        (stats.clone(), stats.clone(), stats.clone(), stats.clone());
+    let (s_value_text, s_read, s_value, s_drag_started, s_drag_ended) = (
+        stats.clone(),
+        stats.clone(),
+        stats.clone(),
+        stats.clone(),
+        stats.clone(),
+    );
 
     //~focus-start
     ui! {
-        Column (grow: 1.0, padding: Padding::all(20)) {
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            padding: Padding::all(20),
+            row_gap: 14
+        ) {
             Text (
-                ${
+                text: ${ format!("VALUE  {:03}", s_value_text.get().last_value) },
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 44,
+                font_size: 22,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                text: ${
                     format!(
-                        "value: {}   changes: {}   drags started/ended: {}", s_read.get().last_value,
-                        s_read.get().changes, s_read.get().drags
+                        "CHANGES  {:02}   ·   DRAG EDGES  {:02}", s_read.get().changes, s_read.get()
+                        .drags
                     )
                 },
                 id: "stats_label",
-                height: 30
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 32,
+                font_size: 11,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
             )
-            Slider (width: 600, height: 24) on ValueChanged {
+            Slider (
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 32
+            ) on ValueChanged {
                 let new_value = new.to_int();
                 let _ = old;
                 s_value

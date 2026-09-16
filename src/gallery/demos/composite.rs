@@ -2,21 +2,21 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::render::command::CompositeMode;
-use crate::ui::widgets::Image;
+use crate::ui::widgets::{Image, ParagraphStyle, Text};
 
-const MODES: &[(&str, &str, CompositeMode)] = &[
-    ("source-over", "opaque overlay", CompositeMode::SourceOver),
-    ("add", "lighten / glow", CompositeMode::Add),
-    ("screen", "soft glow", CompositeMode::Screen),
-    ("multiply", "tint / shadow", CompositeMode::Multiply),
-    ("darken", "keep darker", CompositeMode::Darken),
-    ("lighten", "keep brighter", CompositeMode::Lighten),
-    ("difference", "invert / FX", CompositeMode::Difference),
+const MODES: &[(&str, CompositeMode)] = &[
+    ("source-over", CompositeMode::SourceOver),
+    ("add", CompositeMode::Add),
+    ("screen", CompositeMode::Screen),
+    ("multiply", CompositeMode::Multiply),
+    ("darken", CompositeMode::Darken),
+    ("lighten", CompositeMode::Lighten),
+    ("difference", CompositeMode::Difference),
 ];
 
-const CELL_W: i32 = 96;
-const CELL_H: i32 = 96;
-const FG: i32 = 72;
+const CELL_W: i32 = 82;
+const CELL_H: i32 = 82;
+const FG: i32 = 60;
 
 #[compose]
 pub fn build_widgets() {
@@ -27,17 +27,35 @@ pub fn build_widgets() {
             padding: Padding::all(12),
             align: AlignItems::Center
         ) {
-            View (
-                text: "Composite modes — yellow thumbs-up over an R/G/B/black stripe backdrop. Each mode rewrites the overlap differently.",
-                height: 36
+            Text (
+                "Composite modes",
+                width: Dimension::percent(100),
+                height: 30,
+                font_size: 20,
+                text_color: ColorToken::OnSurface
+            )
+            Text (
+                "Each tile blends the same image over red, green, blue, and black bands.",
+                width: Dimension::percent(100),
+                height: 38,
+                text_color: ColorToken::OnSurfaceVariant
             )
             Row (
-                justify: JustifyContent::SpaceBetween,
+                width: Dimension::percent(100),
+                justify: JustifyContent::Center,
                 align: AlignItems::FlexStart,
-                grow: 1.0
+                wrap: FlexWrap::Wrap,
+                grow: 1.0,
+                row_gap: 12,
+                column_gap: 10
             ) {
                 walk MODES.iter() with cell {
-                    Column (align: AlignItems::Center) {
+                    Column (
+                        width: CELL_W,
+                        height: CELL_H + 24,
+                        align: AlignItems::Center,
+                        row_gap: 3
+                    ) {
                         View (
                             width: CELL_W,
                             height: CELL_H,
@@ -71,11 +89,17 @@ pub fn build_widgets() {
                                 width: FG,
                                 height: FG,
                                 src: "thumbs_up",
-                                composite: cell.2
+                                composite: cell.1
                             )
                         }
-                        View (text: cell.0, height: 18)
-                        View (text: cell.1, height: 16)
+                        Text (
+                            cell.0,
+                            width: CELL_W,
+                            height: 18,
+                            font_size: 10,
+                            text_color: ColorToken::OnSurface,
+                            paragraph: ParagraphStyle::label()
+                        )
                     }
                 }
             }

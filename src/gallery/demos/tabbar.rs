@@ -6,9 +6,7 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
 use crate::ui::IdMap;
-use crate::ui::widgets::{
-    ParagraphStyle, TabBar, TabContent, Text, TextAlign, TextVerticalAlign, TextWrap,
-};
+use crate::ui::widgets::{ParagraphStyle, TabBar, TabContent, Text};
 use alloc::format;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -16,16 +14,6 @@ struct SelectionState {
     current: u8,
     previous: u8,
     changes: u32,
-}
-
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
 }
 
 #[compose]
@@ -56,7 +44,7 @@ pub fn build_widgets() {
                 id: "tabbar_selection_status",
                 height: 30,
                 text_color: Color::rgb(255, 255, 255),
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
             TabBar (
                 id: "tabbar_demo_tabs",
@@ -77,19 +65,19 @@ pub fn build_widgets() {
                     "Home",
                     text_color: Color::rgb(220, 220, 230),
                     grow: 1.0,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
                 Text (
                     "Search",
                     text_color: Color::rgb(220, 220, 230),
                     grow: 1.0,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
                 Text (
                     "Profile",
                     text_color: Color::rgb(220, 220, 230),
                     grow: 1.0,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
             }
             View (grow: 1.0, clip_children: true) {
@@ -102,7 +90,7 @@ pub fn build_widgets() {
                     height: Dimension::percent(100),
                     bg_color: Color::rgb(63, 185, 80),
                     text_color: Color::rgb(255, 255, 255),
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -118,7 +106,7 @@ pub fn build_widgets() {
                     height: Dimension::percent(100),
                     bg_color: Color::rgb(255, 165, 80),
                     text_color: Color::rgb(255, 255, 255),
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -134,7 +122,7 @@ pub fn build_widgets() {
                     height: Dimension::percent(100),
                     bg_color: Color::rgb(210, 168, 255),
                     text_color: Color::rgb(40, 40, 56),
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),

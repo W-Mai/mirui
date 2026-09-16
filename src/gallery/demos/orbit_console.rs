@@ -20,7 +20,7 @@ use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextAlign, TextVerticalAlign, TextWrap};
+use crate::ui::widgets::{ParagraphStyle, Slider, Text};
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
@@ -874,16 +874,6 @@ fn register_fonts(world: &mut World) {
     manager.add_static(FontToken::Mono.cache_key(), mono);
 }
 
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
-
 #[mirui_macros::system(order = ANIMATION)]
 pub fn console_animation_system(world: &mut World) {
     let delta_ms = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
@@ -992,7 +982,7 @@ fn compose_orbit_stage() -> Entity {
                     font: FontToken::Mono,
                     font_size: 9,
                     text_color: MINT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 )
             }
             View (grow: 1.0)
@@ -1157,7 +1147,7 @@ fn compose_controls() -> Entity {
                     font: FontToken::Mono,
                     font_size: 8,
                     text_color: ${ ConsoleMode::Orbit.chip_foreground(orbit_fg.get().mode) },
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
                 Text (
                     id: "orbit_console_mode_flow",
@@ -1171,7 +1161,7 @@ fn compose_controls() -> Entity {
                     font: FontToken::Mono,
                     font_size: 8,
                     text_color: ${ ConsoleMode::Flow.chip_foreground(flow_fg.get().mode) },
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
                 Text (
                     id: "orbit_console_mode_pulse",
@@ -1185,7 +1175,7 @@ fn compose_controls() -> Entity {
                     font: FontToken::Mono,
                     font_size: 8,
                     text_color: ${ ConsoleMode::Pulse.chip_foreground(pulse_fg.get().mode) },
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Pulse).publish(&pulse_action); }
             }
             Row (grow: 1.0, min_height: 20, align: AlignItems::Center, column_gap: 6) {
@@ -1209,7 +1199,7 @@ fn compose_controls() -> Entity {
                     font: FontToken::Mono,
                     font_size: 8,
                     text_color: TEXT,
-                    paragraph: centered_label()
+                    paragraph: ParagraphStyle::label()
                 ) on Tap { ConsoleAction::TogglePaused.publish(&pause_action); }
             }
         }
@@ -1285,7 +1275,7 @@ fn compose_status_strip() -> Entity {
                 font: FontToken::Mono,
                 font_size: 8,
                 text_color: MINT,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
         }
     }

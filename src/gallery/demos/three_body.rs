@@ -6,7 +6,7 @@ use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui;
 use crate::ui::root_viewport;
-use crate::ui::widgets::{Image, assets::*};
+use crate::ui::widgets::{Image, ParagraphStyle, Text, assets::*};
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -303,17 +303,23 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
 
     ui! {
         Column (grow: 1.0) {
-            View (
+            Text (
+                "mirui",
                 bg_color: Color::rgb(88, 166, 255),
                 height: 20,
-                text: "mirui",
-                border_radius: 3
+                border_radius: 3,
+                paragraph: ParagraphStyle::label()
             )
             Row (grow: 1.0) {
                 View (bg_color: Color::rgb(63, 185, 80), grow: 1.0)
                 View (bg_color: Color::rgb(248, 81, 73), grow: 1.0)
             }
-            View (bg_color: Color::rgb(210, 168, 255), height: 20, text: "n-body")
+            Text (
+                "n-body",
+                bg_color: Color::rgb(210, 168, 255),
+                height: 20,
+                paragraph: ParagraphStyle::label()
+            )
         }
     };
 

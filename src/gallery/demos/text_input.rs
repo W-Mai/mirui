@@ -5,21 +5,46 @@ use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
-use crate::ui::widgets::{Placeholder, TextInput};
+use crate::ui::widgets::{Placeholder, Text, TextInput};
 
 #[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {
-        TextInput (
-            bg_color: Color::rgb(40, 40, 56),
-            border_color: Color::rgb(80, 80, 100),
-            border_radius: 4,
-            width: 400,
-            height: 28
-        ) [
-            Placeholder("type something..."),
-        ]
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            padding: Padding::all(20),
+            row_gap: 10
+        ) {
+            Text (
+                "TEXT INPUT",
+                width: Dimension::percent(100),
+                max_width: 420,
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface
+            )
+            Text (
+                "Keyboard editing with a fixed-capacity buffer",
+                width: Dimension::percent(100),
+                max_width: 420,
+                height: 36,
+                text_color: ColorToken::OnSurfaceVariant
+            )
+            TextInput (
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: 12,
+                width: Dimension::percent(100),
+                max_width: 420,
+                height: 44
+            ) [
+                Placeholder("Type something…"),
+            ]
+        }
     };
     //~focus-end
 }

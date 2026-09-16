@@ -1,8 +1,8 @@
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
-#[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
+use crate::ui::widgets::{ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets() {
@@ -27,13 +27,9 @@ pub fn build_widgets() {
     ui! {
         Column (
             grow: 1.0,
-            bg_color: Color::rgb(30, 30, 50),
-            padding: Padding {
-                top: Dimension::px(20),
-                left: Dimension::px(20),
-                right: Dimension::px(20),
-                bottom: Dimension::px(20),
-            }
+            bg_color: ColorToken::Surface,
+            padding: Padding::all(16),
+            row_gap: 12
         ) [
             ScrollOffset {
                 x: Fixed::ZERO,
@@ -46,13 +42,26 @@ pub fn build_widgets() {
                 content_width: Fixed::ZERO,
             },
         ] {
+            Text (
+                "NESTED SCROLL",
+                width: Dimension::percent(100),
+                height: 30,
+                font_size: 20,
+                text_color: ColorToken::OnSurface
+            )
             walk colors_outer.iter().enumerate() with item {
                 Column (
                     height: 200,
                     bg_color: *item.1,
-                    border_radius: 6
+                    border_radius: 12,
+                    clip_children: true
                 ) {
-                    View (height: 30, text: "Section", bg_color: Color::rgb(40, 40, 60))
+                    Text (
+                        text: ${ alloc::format!("SECTION {:02}", item.0 + 1) },
+                        height: 34,
+                        text_color: Color::rgb(255, 255, 255),
+                        paragraph: ParagraphStyle::label()
+                    )
                     Row (grow: 1.0) [
                         ScrollOffset {
                             x: Fixed::ZERO,
@@ -74,12 +83,14 @@ pub fn build_widgets() {
             Column (
                 height: 300,
                 bg_color: Color::rgb(50, 40, 70),
-                border_radius: 6
+                border_radius: 12,
+                clip_children: true
             ) {
-                View (
+                Text (
+                    "NESTED VERTICAL LIST",
                     height: 30,
-                    text: "Nested V-Scroll",
-                    bg_color: Color::rgb(60, 30, 80)
+                    text_color: Color::rgb(255, 255, 255),
+                    paragraph: ParagraphStyle::label()
                 )
                 Column (
                     grow: 1.0,
@@ -103,12 +114,21 @@ pub fn build_widgets() {
                     },
                 ] {
                     walk colors_inner.iter().enumerate() with item {
-                        View (
+                        Row (
                             height: 80,
                             bg_color: *item.1,
                             border_radius: 6,
-                            text: "V-Item"
-                        )
+                            align: AlignItems::Center,
+                            padding: Padding::all(12)
+                        ) {
+                            Text (
+                                text: ${ alloc::format!("CARD {:02}", item.0 + 1) },
+                                grow: 1.0,
+                                height: 24,
+                                text_color: Color::rgb(255, 255, 255),
+                                paragraph: ParagraphStyle::label()
+                            )
+                        }
                     }
                 }
             }

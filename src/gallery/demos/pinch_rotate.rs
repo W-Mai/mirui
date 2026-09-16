@@ -83,13 +83,13 @@ fn refresh(world: &mut World, entity: Entity) {
 #[compose]
 pub fn build_widgets() {
     ui! {
-        View (
+        Text (
+            "scale 100%   rotation 0",
             position: Position::Absolute,
             left: 16,
             top: 16,
             width: W - 32,
             height: 28,
-            text: "scale 100%   rotation 0",
             text_color: Color::rgb(140, 220, 255),
             id: "pinch_status"
         )

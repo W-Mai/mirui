@@ -12,7 +12,7 @@ use crate::types::DimPoint;
 use crate::ui::theme;
 use crate::ui::widgets::{
     Button, Checkbox, Image, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
-    Slider, Switch, TabBar, TabContent, Text, TextAlign, TextVerticalAlign, TextWrap,
+    Slider, Switch, TabBar, TabContent, Text,
 };
 use crate::ui::{Children, OffscreenRender, Theme};
 use alloc::format;
@@ -29,16 +29,6 @@ pub const ACCENT: ColorToken = ColorToken::custom("accent");
 struct FormSlider;
 struct FormProgress;
 pub struct ThemeCycleIndex(pub u8);
-
-fn centered_label() -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align: TextAlign::Center,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
 
 struct DemoSize {
     tabbar_h: i32,
@@ -141,19 +131,19 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                 "List",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
             Text (
                 "Form",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
             Text (
                 "Thm",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
-                paragraph: centered_label()
+                paragraph: ParagraphStyle::label()
             )
         }
     };
@@ -279,7 +269,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     pressed_color: ColorToken::Primary,
                     text_color: ColorToken::OnPrimary
                 ) [
-                    Text::from("Apply").with_paragraph(centered_label()),
+                    Text::label("Apply"),
                 ]
                 Button (
                     grow: 1.0,
@@ -289,7 +279,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     pressed_color: ColorToken::Primary,
                     text_color: ColorToken::OnSurface
                 ) [
-                    Text::from("Reset").with_paragraph(centered_label()),
+                    Text::label("Reset"),
                 ]
             }
             Row (

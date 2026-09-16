@@ -10,6 +10,7 @@ use crate::ecs::{DeltaTimeMs, World};
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
 use crate::ui;
+use crate::ui::widgets::{ParagraphStyle, Text};
 
 mirui_macros::animate!(AnimateTweenY, |world, entity, value| {
     ui::set_position(world, entity, Fixed::from_int(50), value);
@@ -53,36 +54,39 @@ pub fn spring_system(world: &mut World) {
 #[compose]
 pub fn build_widgets() {
     ui! {
-        View (
+        Text (
+            "Tween",
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
             left: 25,
             top: 5,
             width: 70,
             height: 14,
-            text: "Tween"
+            paragraph: ParagraphStyle::label()
         )
     };
     ui! {
-        View (
+        Text (
+            "Spring",
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
             left: 140,
             top: 5,
             width: 70,
             height: 14,
-            text: "Spring"
+            paragraph: ParagraphStyle::label()
         )
     };
     ui! {
-        View (
+        Text (
+            "Elastic",
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
             left: 270,
             top: 5,
             width: 70,
             height: 14,
-            text: "Elastic"
+            paragraph: ParagraphStyle::label()
         )
     };
 
