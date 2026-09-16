@@ -13,7 +13,7 @@ use crate::ui;
 use crate::ui::widgets::{ParagraphStyle, Text};
 
 mirui_macros::animate!(AnimateTweenY, |world, entity, value| {
-    ui::set_position(world, entity, Fixed::from_int(50), value);
+    ui::set_position(world, entity, Fixed::from_int(48), value);
 });
 
 pub struct SpringBall {
@@ -41,9 +41,9 @@ pub fn spring_system(world: &mut World) {
         ui::set_position(world, e, x, pos);
         if settled && let Some(sb) = world.get_mut::<SpringBall>(e) {
             let new_target = if target.to_int() > 150 {
-                Fixed::from_int(30)
+                Fixed::from_int(48)
             } else {
-                Fixed::from_int(250)
+                Fixed::from_int(220)
             };
             sb.spring.retarget(new_target, None);
         }
@@ -53,110 +53,125 @@ pub fn spring_system(world: &mut World) {
 
 #[compose]
 pub fn build_widgets() {
-    ui! {
-        Text (
-            "Tween",
-            bg_color: Color::rgb(40, 40, 50),
-            position: Position::Absolute,
-            left: 25,
-            top: 5,
-            width: 70,
-            height: 14,
-            paragraph: ParagraphStyle::label()
-        )
-    };
-    ui! {
-        Text (
-            "Spring",
-            bg_color: Color::rgb(40, 40, 50),
-            position: Position::Absolute,
-            left: 140,
-            top: 5,
-            width: 70,
-            height: 14,
-            paragraph: ParagraphStyle::label()
-        )
-    };
-    ui! {
-        Text (
-            "Elastic",
-            bg_color: Color::rgb(40, 40, 50),
-            position: Position::Absolute,
-            left: 270,
-            top: 5,
-            width: 70,
-            height: 14,
-            paragraph: ParagraphStyle::label()
-        )
-    };
-
     //~focus-start
-    let tween_ball = ui! {
-        View (
-            bg_color: Color::rgb(248, 81, 73),
-            position: Position::Absolute,
-            left: 50,
-            top: 30,
-            width: 20,
-            height: 20,
-            border_radius: 10
-        )
+    ui! {
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            padding: Padding::all(10)
+        ) {
+            View (
+                width: Dimension::percent(100),
+                max_width: 400,
+                height: 280,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18,
+                clip_children: true
+            ) {
+                Text (
+                    "TWEEN",
+                    position: Position::Absolute,
+                    left: 22,
+                    top: 12,
+                    width: 72,
+                    height: 24,
+                    font_size: 10,
+                    bg_color: ColorToken::Surface,
+                    text_color: Color::rgb(255, 118, 108),
+                    border_radius: 12,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "SPRING",
+                    position: Position::Absolute,
+                    left: 124,
+                    top: 12,
+                    width: 92,
+                    height: 24,
+                    font_size: 10,
+                    bg_color: ColorToken::Surface,
+                    text_color: Color::rgb(102, 221, 124),
+                    border_radius: 12,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "ELASTIC",
+                    position: Position::Absolute,
+                    left: 238,
+                    top: 12,
+                    width: 92,
+                    height: 24,
+                    font_size: 10,
+                    bg_color: ColorToken::Surface,
+                    text_color: Color::rgb(112, 181, 255),
+                    border_radius: 12,
+                    paragraph: ParagraphStyle::label()
+                )
+                walk [58, 170, 282] with x {
+                    View (
+                        position: Position::Absolute,
+                        left: x,
+                        top: 52,
+                        width: 2,
+                        height: 190,
+                        bg_color: ColorToken::Outline,
+                        border_radius: 1
+                    )
+                }
+                View (
+                    bg_color: Color::rgb(248, 81, 73),
+                    position: Position::Absolute,
+                    left: 48,
+                    top: 48,
+                    width: 22,
+                    height: 22,
+                    border_radius: 11
+                ) [
+                    AnimateTweenY(
+                        Tween::new(
+                                Fixed::from_int(48),
+                                Fixed::from_int(220),
+                                800,
+                                ease::ease_in_out_cubic,
+                                PlayMode::PingPong,
+                            )
+                            .into(),
+                    ),
+                ]
+                View (
+                    bg_color: Color::rgb(63, 185, 80),
+                    position: Position::Absolute,
+                    left: 160,
+                    top: 48,
+                    width: 22,
+                    height: 22,
+                    border_radius: 11
+                ) [
+                    SpringBall {
+                        spring: Spring::preset(Fixed::from_int(48), Fixed::from_int(220), SMOOTH)
+                            .repeat(),
+                        x: Fixed::from_int(160),
+                    },
+                ]
+                View (
+                    bg_color: Color::rgb(88, 166, 255),
+                    position: Position::Absolute,
+                    left: 272,
+                    top: 48,
+                    width: 22,
+                    height: 22,
+                    border_radius: 11
+                ) [
+                    SpringBall {
+                        spring: Spring::preset(Fixed::from_int(48), Fixed::from_int(220), BOUNCY)
+                            .repeat(),
+                        x: Fixed::from_int(272),
+                    },
+                ]
+            }
+        }
     };
-    cx.world_mut().insert(
-        tween_ball,
-        AnimateTweenY(
-            Tween::new(
-                Fixed::from_int(30),
-                Fixed::from_int(250),
-                800,
-                ease::ease_in_out_cubic,
-                PlayMode::PingPong,
-            )
-            .into(),
-        ),
-    );
-    //~focus-end
-
-    //~focus-start
-    let spring_ball = ui! {
-        View (
-            bg_color: Color::rgb(63, 185, 80),
-            position: Position::Absolute,
-            left: 170,
-            top: 30,
-            width: 20,
-            height: 20,
-            border_radius: 10
-        )
-    };
-    cx.world_mut().insert(
-        spring_ball,
-        SpringBall {
-            spring: Spring::preset(Fixed::from_int(30), Fixed::from_int(250), SMOOTH).repeat(),
-            x: Fixed::from_int(170),
-        },
-    );
-    //~focus-end
-
-    //~focus-start
-    let elastic_ball = ui! {
-        View (
-            bg_color: Color::rgb(88, 166, 255),
-            position: Position::Absolute,
-            left: 300,
-            top: 30,
-            width: 20,
-            height: 20,
-            border_radius: 10
-        )
-    };
-    cx.world_mut().insert(
-        elastic_ball,
-        SpringBall {
-            spring: Spring::preset(Fixed::from_int(30), Fixed::from_int(250), BOUNCY).repeat(),
-            x: Fixed::from_int(300),
-        },
-    );
     //~focus-end
 }
 

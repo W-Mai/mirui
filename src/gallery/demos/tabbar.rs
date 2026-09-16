@@ -6,7 +6,7 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
 use crate::ui::IdMap;
-use crate::ui::widgets::{ParagraphStyle, TabBar, TabContent, Text};
+use crate::ui::widgets::{ParagraphStyle, TabBar, TabContent, Text, TextAlign};
 use alloc::format;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -29,27 +29,35 @@ pub fn build_widgets() {
     ui! {
         Column (
             grow: 1.0,
+            align: AlignItems::Center,
             padding: Padding::all(16),
             row_gap: 10,
-            bg_color: Color::rgb(20, 20, 30)
+            bg_color: ColorToken::Surface
         ) {
             Text (
                 text: ${
                     let state = selection_text.get();
                     format!(
-                        "selected: {} · previous: {} · changes: {}", state.current, state.previous,
-                        state.changes
+                        "TAB {} · FROM {} · {} CHANGE{}", state.current + 1, state.previous + 1, state
+                        .changes, if state.changes == 1 { "" } else { "S" }
                     )
                 },
                 id: "tabbar_selection_status",
-                height: 30,
-                text_color: Color::rgb(255, 255, 255),
-                paragraph: ParagraphStyle::label()
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 22,
+                font_size: 10,
+                text_color: ColorToken::Primary,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             TabBar (
                 id: "tabbar_demo_tabs",
-                bg_color: Color::rgb(40, 40, 56),
-                height: 40,
+                width: Dimension::percent(100),
+                max_width: 480,
+                bg_color: ColorToken::SurfaceVariant,
+                height: 44,
+                border_radius: 14,
+                clip_children: true,
                 count: 3,
                 indicator_height: Fixed::from_int(3)
             ) on SelectionChanged {
@@ -63,72 +71,117 @@ pub fn build_widgets() {
             {
                 Text (
                     "Home",
-                    text_color: Color::rgb(220, 220, 230),
+                    text_color: ColorToken::OnSurfaceVariant,
                     grow: 1.0,
+                    height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     "Search",
-                    text_color: Color::rgb(220, 220, 230),
+                    text_color: ColorToken::OnSurfaceVariant,
                     grow: 1.0,
+                    height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
                     "Profile",
-                    text_color: Color::rgb(220, 220, 230),
+                    text_color: ColorToken::OnSurfaceVariant,
                     grow: 1.0,
+                    height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
                 )
             }
-            View (grow: 1.0, clip_children: true) {
-                Text (
-                    "Home page",
+            View (
+                width: Dimension::percent(100),
+                max_width: 480,
+                grow: 1.0,
+                clip_children: true,
+                border_radius: 18
+            ) {
+                Column (
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
-                    bg_color: Color::rgb(63, 185, 80),
-                    text_color: Color::rgb(255, 255, 255),
-                    paragraph: ParagraphStyle::label()
+                    justify: JustifyContent::Center,
+                    padding: Padding::all(22),
+                    row_gap: 8,
+                    bg_color: Color::rgb(22, 82, 76)
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
                         index: 0,
                     },
-                ]
-                Text (
-                    "Search page",
+                ] {
+                    Text (
+                        "HOME",
+                        height: 30,
+                        font_size: 22,
+                        text_color: Color::rgb(120, 241, 210),
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Text (
+                        "Active workspace overview.",
+                        text_color: Color::rgb(205, 236, 229)
+                    )
+                }
+                Column (
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
-                    bg_color: Color::rgb(255, 165, 80),
-                    text_color: Color::rgb(255, 255, 255),
-                    paragraph: ParagraphStyle::label()
+                    justify: JustifyContent::Center,
+                    padding: Padding::all(22),
+                    row_gap: 8,
+                    bg_color: Color::rgb(78, 54, 26)
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
                         index: 1,
                     },
-                ]
-                Text (
-                    "Profile page",
+                ] {
+                    Text (
+                        "SEARCH",
+                        height: 30,
+                        font_size: 22,
+                        text_color: Color::rgb(255, 196, 107),
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Text (
+                        "Explore the current workspace.",
+                        text_color: Color::rgb(241, 222, 191)
+                    )
+                }
+                Column (
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
-                    bg_color: Color::rgb(210, 168, 255),
-                    text_color: Color::rgb(40, 40, 56),
-                    paragraph: ParagraphStyle::label()
+                    justify: JustifyContent::Center,
+                    padding: Padding::all(22),
+                    row_gap: 8,
+                    bg_color: Color::rgb(63, 49, 92)
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
                         index: 2,
                     },
-                ]
+                ] {
+                    Text (
+                        "PROFILE",
+                        height: 30,
+                        font_size: 22,
+                        text_color: Color::rgb(207, 177, 255),
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Text (
+                        "Identity and preferences.",
+                        text_color: Color::rgb(225, 213, 243)
+                    )
+                }
             }
         }
     };
@@ -197,7 +250,7 @@ mod tests {
         let status = world.find_by_id("tabbar_selection_status").unwrap();
         let status_text = world.get::<Text>(status).unwrap().resolve(&world);
         assert!(
-            status_text.contains("selected: 1 · previous: 0 · changes: 1"),
+            status_text.contains("TAB 2 · FROM 1 · 1 CHANGE"),
             "{status_text}"
         );
     }
