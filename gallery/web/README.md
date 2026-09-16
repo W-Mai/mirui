@@ -65,6 +65,8 @@ Add one line to the `register_demos!` invocation in `src/lib.rs`:
 ("my_slug", "my label", "Category", my_module, 480, 320),
 ```
 
+Append `false` after the registered height when a demo must remain at its native size instead of filling spare Gallery space.
+
 The sidebar entry, query-string route, and canvas sizing all derive
 from that row. The demo body must already exist at
 `mirui::gallery::demos::my_module` with a `setup_app(app, parent)`.

@@ -40,6 +40,7 @@ pub struct DemoEntry {
     pub category: &'static str,
     pub width: u16,
     pub height: u16,
+    pub allow_upscale: bool,
     pub setup: fn(&mut Setup<'_>) -> Entity,
     pub source: &'static str,
 }
@@ -94,7 +95,7 @@ pub fn extract_focus(src: &str) -> String {
 
 #[macro_export]
 macro_rules! register_demos {
-    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident, $w:literal, $h:literal) ),* $(,)? ) => {
+    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident, $w:literal, $h:literal $(, $allow_upscale:literal)? ) ),* $(,)? ) => {
         pub const DEMOS: &[$crate::DemoEntry] = &[
             $(
                 $crate::DemoEntry {
@@ -103,6 +104,7 @@ macro_rules! register_demos {
                     category: $category,
                     width: $w,
                     height: $h,
+                    allow_upscale: $crate::register_demos!(@allow_upscale $($allow_upscale)?),
                     setup: |setup| {
                         let parent = setup.app.spawn_root().id();
                         $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
@@ -121,6 +123,14 @@ macro_rules! register_demos {
         pub fn lookup_demo(slug: &str) -> Option<&'static $crate::DemoEntry> {
             DEMOS.iter().find(|d| d.slug == slug)
         }
+    };
+
+    (@allow_upscale $allow_upscale:literal) => {
+        $allow_upscale
+    };
+
+    (@allow_upscale) => {
+        true
     };
 }
 

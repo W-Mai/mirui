@@ -202,7 +202,11 @@
       * { box-sizing: border-box; }
       html, body {
         margin: 0;
+        width: 100%;
         height: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        overscroll-behavior: none;
         background: var(--bg);
         color: var(--ink);
         font-family: var(--font-ui);
@@ -214,7 +218,9 @@
       .layout {
         display: grid;
         grid-template-rows: auto 1fr;
+        width: 100%;
         height: 100%;
+        overflow: hidden;
         background:
           radial-gradient(120% 80% at 18% -10%, rgba(70,229,208,0.05) 0%, transparent 55%),
           var(--bg);
@@ -311,6 +317,7 @@
         background: var(--raised);
       }
       .topbar .theme-toggle:active { transform: translateY(1px); }
+      .nav-toggle { display: none; }
       /* dark = default → offer the sun (switch to light); hide the moon.
          in light mode the .light-active class flips which glyph shows. */
       .topbar .theme-toggle .ico-moon { display: none; }
@@ -351,8 +358,10 @@
         display: grid;
         grid-template-columns: 276px 1fr;
         min-height: 0;
+        min-width: 0;
         overflow: hidden;
       }
+      .nav-backdrop { display: none; }
 
       /* ── LEFT: the navigator (the first-class demo selector) ── */
       aside {
@@ -559,11 +568,11 @@
          the drawer slides open or shut. ── */
       main {
         position: relative;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        display: block;
         padding: var(--s7);
         overflow: auto;
+        min-width: 0;
+        min-height: 0;
         background:
           radial-gradient(78% 56% at 32% 4%, rgba(70,229,208,0.045) 0%, transparent 58%),
           radial-gradient(64% 56% at 100% 100%, rgba(125,244,228,0.03) 0%, transparent 55%),
@@ -572,10 +581,12 @@
 
       /* ── Stage — the hero. The only element with real elevation. ── */
       .stage-wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        width: max-content;
+        height: max-content;
+        min-width: 100%;
+        min-height: 100%;
       }
       .stage {
         position: relative;
@@ -586,14 +597,16 @@
         padding: var(--s4);
         box-shadow: var(--lift-hero);
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        min-width: 0;
+        max-width: none;
       }
       .stage.resizing {
         border-color: var(--signal-edge);
         box-shadow: var(--lift-hero), var(--ring);
       }
       .stage-meta {
-        display: flex;
-        justify-content: space-between;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
         margin-bottom: var(--s3);
         gap: var(--s4);
@@ -607,6 +620,9 @@
         letter-spacing: -0.01em;
         color: var(--ink);
         min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .stage-meta .name::before {
         content: "";
@@ -633,6 +649,11 @@
         padding: 4px 9px;
         font-variant-numeric: tabular-nums;
       }
+      .stage.narrow .stage-meta { grid-template-columns: minmax(0, 1fr); }
+      .stage.narrow .stage-meta .name { display: none; }
+      .stage.narrow .stage-meta .meta-right { justify-content: space-between; min-width: 0; }
+      .stage.narrow .stage-meta .size { padding-inline: 4px; font-size: 10px; }
+      .stage.narrow .stage-meta .icon-btn { padding-inline: 5px; }
 
       /* one control family across stage + source head (reset · eye · copy) */
       .icon-btn,
@@ -897,19 +918,56 @@
       @media (max-width: 760px) {
         .body {
           grid-template-columns: 1fr;
-          grid-template-rows: auto 1fr;
+          grid-template-rows: 1fr;
         }
         aside {
-          border-right: none;
-          border-bottom: 1px solid var(--line);
-          max-height: 40vh;
+          position: fixed;
+          z-index: 60;
+          inset: 48px auto 0 0;
+          width: min(86vw, 340px);
+          max-height: none;
+          border-right: 1px solid var(--line-strong);
+          border-bottom: none;
+          box-shadow: 18px 0 48px -24px rgba(0,0,0,0.82);
+          transform: translateX(-102%);
+          transition: transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
         }
+        aside.open { transform: translateX(0); }
+        .nav-backdrop {
+          display: block;
+          position: fixed;
+          z-index: 50;
+          inset: 48px 0 0;
+          border: 0;
+          padding: 0;
+          background: rgba(2, 6, 12, 0.56);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
+        }
+        .nav-backdrop.open { opacity: 1; pointer-events: auto; }
+        .nav-toggle { display: inline-flex; width: 34px; height: 34px; padding: 0; }
         .topbar { height: 48px; padding: 0 var(--s4); gap: var(--s3); }
         .live-chip { display: none; }
         main {
-          padding: var(--s5) var(--s3);
-          align-items: flex-start;
+          padding: max(var(--s3), env(safe-area-inset-top, 0px)) max(var(--s3), env(safe-area-inset-right, 0px)) max(var(--s3), env(safe-area-inset-bottom, 0px)) max(var(--s3), env(safe-area-inset-left, 0px));
+          align-items: stretch;
+          overflow: hidden;
         }
+        .stage-wrap {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+          min-width: 0;
+          min-height: 0;
+        }
+        .stage { max-width: 100%; padding: var(--s3); }
+        .stage-meta { gap: var(--s2); margin-bottom: var(--s2); }
+        .stage-meta .name { font-size: 12px; }
+        .stage-meta .size { padding: 4px 7px; }
+        .resize-ring { display: none; }
 
         /* ── Source as a BOTTOM SHEET ──────────────────────────────
            The right-edge drawer hides under the canvas resize ring and
@@ -973,7 +1031,7 @@
         .code-body pre { padding-bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px)); }
       }
       @media (max-width: 760px) and (prefers-reduced-motion: reduce) {
-        .code-panel { transition: none; }
+        .code-panel, aside, .nav-backdrop { transition: none; }
       }
       @media (max-width: 420px) {
         .topbar .gh span.gh-label { display: none; }
@@ -997,6 +1055,11 @@
             <div class="tag">subpixel UI · no_std · wasm</div>
           </span>
         </div>
+        <button class="icon-btn nav-toggle" id="nav-toggle" type="button" title="Choose demo" aria-label="Choose demo" aria-expanded="false">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
         <div class="topbar-spacer"></div>
         <span class="live-chip" aria-hidden="true"><span class="dot"></span>rendering</span>
         <button class="theme-toggle" id="theme-toggle" type="button" title="Switch to light theme" aria-label="Toggle light / dark theme">
@@ -1033,6 +1096,7 @@
             <div class="nav-empty">No demos match that filter.</div>
           </div>
         </aside>
+        <button class="nav-backdrop" id="nav-backdrop" type="button" aria-label="Close demo selector"></button>
         <main>
           <div class="stage-wrap">
             <div class="stage" id="stage">
@@ -1040,6 +1104,12 @@
                 <span class="name" id="stage-name">—</span>
                 <span class="meta-right">
                   <span class="size" id="stage-size">—</span>
+                  <button class="icon-btn" id="rotate-btn" type="button" title="Swap portrait and landscape" aria-label="Swap portrait and landscape">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M5 2.5h6.5a2 2 0 0 1 2 2V11M11 13.5H4.5a2 2 0 0 1-2-2V5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                      <path d="m10.5 9.5 3 1.5 1.5-3M5.5 6.5 2.5 5 1 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
                   <button class="icon-btn" id="reset-btn" type="button" title="Reset canvas to default size" aria-label="Reset canvas size">
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M13 8a5 5 0 1 1-1.46-3.54" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
@@ -1168,16 +1238,38 @@
           }
         });
 
+        const navPanel = document.querySelector(".body > aside");
+        const navToggle = document.getElementById("nav-toggle");
+        const navBackdrop = document.getElementById("nav-backdrop");
+
+        function setNavOpen(open) {
+          navPanel.classList.toggle("open", open);
+          navBackdrop.classList.toggle("open", open);
+          navToggle.setAttribute("aria-expanded", String(open));
+        }
+
+        navToggle.addEventListener("click", () => setNavOpen(!navPanel.classList.contains("open")));
+        navBackdrop.addEventListener("click", () => setNavOpen(false));
+        document.addEventListener("keydown", (event) => {
+          if (event.key !== "Escape") return;
+          if (document.activeElement === filterInput && filterInput.value) return;
+          setNavOpen(false);
+        });
+
         const canvas = document.getElementById("mirui");
         const stage = document.getElementById("stage");
+        const stageWrap = document.querySelector(".stage-wrap");
         const stageName = document.getElementById("stage-name");
         const stageSize = document.getElementById("stage-size");
+        const mobileQuery = window.matchMedia("(max-width: 760px)");
+        const portraitQuery = window.matchMedia("(orientation: portrait)");
 
         // ── Canvas sizing ──────────────────────────────────────
         // mirui re-reads the viewport each frame, so changing both the
         // attribute size and the CSS size is all that's needed; the wasm
         // render loop picks up the new dimensions on its own.
         const MIN_SIZE = 120;
+        const MAX_MANUAL_SIZE = 4096;
         // Only the CSS box is ours; the wasm surface re-reads clientWidth
         // each frame and owns canvas.width/height (logical × DPR). Writing
         // the attributes here would fight that sync and blank the backing
@@ -1188,6 +1280,34 @@
           canvas.style.width = `${w}px`;
           canvas.style.height = `${h}px`;
           stageSize.textContent = `${w} × ${h}`;
+          stage.classList.toggle("narrow", w < 240);
+        }
+
+        function availableCanvasBounds() {
+          const stageStyle = getComputedStyle(stage);
+          const meta = stage.querySelector(".stage-meta");
+          const horizontal = parseFloat(stageStyle.paddingLeft) + parseFloat(stageStyle.paddingRight)
+            + parseFloat(stageStyle.borderLeftWidth) + parseFloat(stageStyle.borderRightWidth);
+          const vertical = parseFloat(stageStyle.paddingTop) + parseFloat(stageStyle.paddingBottom)
+            + parseFloat(stageStyle.borderTopWidth) + parseFloat(stageStyle.borderBottomWidth)
+            + meta.offsetHeight + parseFloat(getComputedStyle(meta).marginBottom);
+          return {
+            width: Math.max(MIN_SIZE, stageWrap.clientWidth - horizontal),
+            height: Math.max(MIN_SIZE, stageWrap.clientHeight - vertical),
+          };
+        }
+
+        function fitDimensions(width, height, allowUpscale) {
+          const bounds = availableCanvasBounds();
+          const scale = Math.min(
+            allowUpscale ? Number.POSITIVE_INFINITY : 1,
+            bounds.width / width,
+            bounds.height / height,
+          );
+          return {
+            width: Math.max(MIN_SIZE, Math.round(width * scale)),
+            height: Math.max(MIN_SIZE, Math.round(height * scale)),
+          };
         }
 
         let initW = 480;
@@ -1207,7 +1327,29 @@
           initW = 640;
           initH = 390;
         }
-        applyCanvasSize(initW, initH);
+        let allowUpscale = params.get("backend_parity") === "1"
+          || !activeLink
+          || activeLink.dataset.upscale !== "false";
+        let preferredW = initW;
+        let preferredH = initH;
+
+        function resetPreferredOrientation() {
+          preferredW = initW;
+          preferredH = initH;
+          if (mobileQuery.matches && portraitQuery.matches && preferredW > preferredH) {
+            [preferredW, preferredH] = [preferredH, preferredW];
+          }
+        }
+
+        function preferredCanvasSize() {
+          return mobileQuery.matches
+            ? fitDimensions(preferredW, preferredH, allowUpscale)
+            : { width: preferredW, height: preferredH };
+        }
+
+        resetPreferredOrientation();
+        const initialSize = preferredCanvasSize();
+        applyCanvasSize(initialSize.width, initialSize.height);
 
         // ── Resize ring ────────────────────────────────────────
         // Center-scaling: <main> already flex-centers the stage, so growing
@@ -1235,13 +1377,11 @@
 
         ring.addEventListener("pointermove", (e) => {
           if (!resizing) return;
-          const maxW = Math.max(MIN_SIZE, window.innerWidth - 80);
-          const maxH = Math.max(MIN_SIZE, window.innerHeight - 80);
-          // Stage is flex-centered, so it grows from the middle: the corner
+          // The stage is centered while it fits, so it grows from the middle: the corner
           // moves half the width delta. Double the delta so the corner tracks
           // the pointer 1:1 while the box stays centered.
-          const nextW = Math.min(maxW, Math.max(MIN_SIZE, startW + (e.clientX - startX) * 2));
-          const nextH = Math.min(maxH, Math.max(MIN_SIZE, startH + (e.clientY - startY) * 2));
+          const nextW = Math.min(MAX_MANUAL_SIZE, Math.max(MIN_SIZE, startW + (e.clientX - startX) * 2));
+          const nextH = Math.min(MAX_MANUAL_SIZE, Math.max(MIN_SIZE, startH + (e.clientY - startY) * 2));
           applyCanvasSize(nextW, nextH);
         });
 
@@ -1263,6 +1403,11 @@
         let resetRAF = null;
         function animateCanvasSize(targetW, targetH) {
           if (resetRAF) cancelAnimationFrame(resetRAF);
+          if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            applyCanvasSize(targetW, targetH);
+            resetRAF = null;
+            return;
+          }
           const r = canvas.getBoundingClientRect();
           const fromW = r.width;
           const fromH = r.height;
@@ -1288,8 +1433,37 @@
 
         const resetBtn = document.getElementById("reset-btn");
         resetBtn.addEventListener("click", () => {
-          animateCanvasSize(initW, initH);
+          resetPreferredOrientation();
+          const target = preferredCanvasSize();
+          animateCanvasSize(target.width, target.height);
         });
+
+        const rotateBtn = document.getElementById("rotate-btn");
+        rotateBtn.addEventListener("click", () => {
+          [preferredW, preferredH] = [preferredH, preferredW];
+          const target = preferredCanvasSize();
+          animateCanvasSize(target.width, target.height);
+        });
+
+        let fitFrame = null;
+        const fitObserver = new ResizeObserver(() => {
+          if (!mobileQuery.matches) return;
+          if (fitFrame) cancelAnimationFrame(fitFrame);
+          fitFrame = requestAnimationFrame(() => {
+            fitFrame = null;
+            const target = preferredCanvasSize();
+            applyCanvasSize(target.width, target.height);
+          });
+        });
+        fitObserver.observe(stageWrap);
+
+        function adoptDeviceOrientation() {
+          resetPreferredOrientation();
+          const target = preferredCanvasSize();
+          animateCanvasSize(target.width, target.height);
+        }
+        mobileQuery.addEventListener("change", adoptDeviceOrientation);
+        portraitQuery.addEventListener("change", adoptDeviceOrientation);
 
         // ── Theme toggle (page shell + mirui canvas in lockstep) ───
         // The head script already set data-theme from a stored choice or
@@ -1619,7 +1793,11 @@
             initW = w;
             initH = h;
           }
-          applyCanvasSize(initW, initH);
+          allowUpscale = link.dataset.upscale !== "false";
+          resetPreferredOrientation();
+          const target = preferredCanvasSize();
+          applyCanvasSize(target.width, target.height);
+          setNavOpen(false);
 
           loadSource(slug);
           applyFocusState();
@@ -1634,6 +1812,7 @@
           const link = e.target.closest("a[data-demo]");
           if (!link || !navEl.contains(link)) return;
           e.preventDefault();
+          setNavOpen(false);
           switchDemo(link.dataset.demo, true);
         });
 

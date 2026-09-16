@@ -1,5 +1,5 @@
 //! `web-canvas` Surface — wraps a DOM `<canvas>` and bridges
-//! pointer / wheel / keyboard / touch events into mirui's
+//! pointer / wheel / keyboard events into mirui's
 //! `InputEvent` queue.
 
 #![cfg(target_arch = "wasm32")]
@@ -14,7 +14,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
     CanvasRenderingContext2d, EventTarget, HtmlCanvasElement, KeyboardEvent, PointerEvent,
-    TouchEvent, WheelEvent,
+    WheelEvent,
 };
 
 use super::backbuffer_invalidation::BackbufferInvalidation;
@@ -145,7 +145,7 @@ fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed, bool) {
 }
 
 fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Listener> {
-    let mut listeners = Vec::with_capacity(12);
+    let mut listeners = Vec::with_capacity(8);
     listeners.push(pointer_listener(
         canvas,
         queue,
@@ -169,17 +169,8 @@ fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Liste
     ));
     listeners.push(leave_listener(canvas, queue));
     listeners.push(wheel_listener(canvas, queue));
-    listeners.push(touch_listener(
-        canvas,
-        queue,
-        "touchstart",
-        TouchKind::Start,
-    ));
-    listeners.push(touch_listener(canvas, queue, "touchmove", TouchKind::Move));
-    listeners.push(touch_listener(canvas, queue, "touchend", TouchKind::End));
-    listeners.push(touch_listener(canvas, queue, "touchcancel", TouchKind::End));
-    listeners.push(keyboard_listener(queue, "keydown", true));
-    listeners.push(keyboard_listener(queue, "keyup", false));
+    listeners.push(keyboard_listener(canvas, queue, "keydown", true));
+    listeners.push(keyboard_listener(canvas, queue, "keyup", false));
     listeners
 }
 
@@ -198,6 +189,7 @@ fn pointer_listener(
         let evt: PointerEvent = raw.unchecked_into();
         evt.prevent_default();
         if capture_on_down {
+            let _ = canvas_for_capture.focus();
             let _ = canvas_for_capture.set_pointer_capture(evt.pointer_id());
         }
         let id = (evt.pointer_id().rem_euclid(0xff)) as u8;
@@ -268,52 +260,13 @@ fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
     register_listener(canvas.clone().into(), "wheel", closure)
 }
 
-#[derive(Clone, Copy)]
-enum TouchKind {
-    Start,
-    Move,
-    End,
-}
-
-fn touch_listener(
+fn keyboard_listener(
     canvas: &HtmlCanvasElement,
     queue: &EventQueue,
     name: &str,
-    kind: TouchKind,
+    pressed: bool,
 ) -> Listener {
     let q = queue.clone();
-    let canvas_for_rect = canvas.clone();
-    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
-        let evt: TouchEvent = raw.unchecked_into();
-        evt.prevent_default();
-        // `client_x/y` are viewport-relative — subtract the canvas
-        // rect to match pointer events' `offsetX/Y`.
-        let rect = canvas_for_rect.get_bounding_client_rect();
-        let touches = match kind {
-            TouchKind::End => evt.changed_touches(),
-            _ => evt.target_touches(),
-        };
-        for i in 0..touches.length() {
-            let Some(touch) = touches.item(i) else {
-                continue;
-            };
-            let x = Fixed::from_int((touch.client_x() as f64 - rect.left()).round() as i32);
-            let y = Fixed::from_int((touch.client_y() as f64 - rect.top()).round() as i32);
-            let id = (touch.identifier().rem_euclid(0xff)) as u8;
-            let event = match kind {
-                TouchKind::Start => InputEvent::PointerDown { id, x, y },
-                TouchKind::Move => InputEvent::PointerMove { id, x, y },
-                TouchKind::End => InputEvent::PointerUp { id, x, y },
-            };
-            q.borrow_mut().push_back(event);
-        }
-    });
-    register_listener(canvas.clone().into(), name, closure)
-}
-
-fn keyboard_listener(queue: &EventQueue, name: &str, pressed: bool) -> Listener {
-    let q = queue.clone();
-    let window = web_sys::window().expect("no global `window`");
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: KeyboardEvent = raw.unchecked_into();
         let key = evt.key();
@@ -329,7 +282,7 @@ fn keyboard_listener(queue: &EventQueue, name: &str, pressed: bool) -> Listener 
             }
         }
     });
-    register_listener(window.into(), name, closure)
+    register_listener(canvas.clone().into(), name, closure)
 }
 
 fn map_key(key: &str) -> Option<u32> {

@@ -7,8 +7,9 @@ gallery::register_demos! {
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab,           1024, 720),
     ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab,       1024, 720),
     ("curve_text",           "Kinetic Type",         "Showcase",    curve_text,            960, 540),
+    ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact,    128, 128, false),
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab,      1024, 720),
-    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console,      128, 128),
+    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console,      128, 128, false),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),
@@ -27,7 +28,7 @@ gallery::register_demos! {
     ("book_flip",            "book flip",            "Animation",   book_flip,            640, 360),
 
     ("effect_panels",        "effect panels",        "Effects",     effect_panels,        360, 560),
-    ("effect_glass",         "effect glass",         "Effects",     effect_glass,         128, 128),
+    ("effect_glass",         "effect glass",         "Effects",     effect_glass,         128, 128, false),
     ("offscreen",            "offscreen render",     "Effects",     offscreen,            360, 360),
     ("offscreen_modal",      "offscreen modal",      "Effects",     offscreen_modal,      360, 360),
     ("custom_view",          "custom view (Diamond)","Effects",     custom_view,          480, 200),
@@ -237,11 +238,12 @@ pub fn nav_html() -> String {
             prev_cat = d.category;
         }
         out.push_str(&alloc::format!(
-            "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-w=\"{w}\" data-h=\"{h}\">{label}</a>",
+            "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-w=\"{w}\" data-h=\"{h}\" data-upscale=\"{upscale}\">{label}</a>",
             slug = d.slug,
             label = d.label,
             w = d.width,
             h = d.height,
+            upscale = d.allow_upscale,
         ));
     }
     if !prev_cat.is_empty() {

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Explicit Gallery scaling policy.** `DemoEntry::allow_upscale` keeps pixel-sized demos at their native dimensions while responsive showcases can fill available stage space.
+
+### Changed
+
+- **Responsive Gallery stage.** Portrait phones open landscape demos in a fitted portrait viewport, the demo selector collapses into a drawer, and the orientation control animates between the current width and height.
+
+### Fixed
+
+- **Gallery viewport containment.** The mobile shell no longer pans the whole document, fixed-size 128 × 128 demos remain unscaled, and desktop canvas resizing can grow vertically into the stage's internal scroll area.
+
 ## [0.44.0] - 2026-09-16
 
 ### Added
