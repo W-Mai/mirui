@@ -6,7 +6,7 @@ use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui;
 use crate::ui::root_viewport;
-use crate::ui::widgets::{Image, ParagraphStyle, Text, assets::*};
+use crate::ui::widgets::{Image, ParagraphStyle, Text, TextAlign};
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -35,6 +35,53 @@ pub struct WorldBounds {
     pub h: i32,
 }
 
+pub struct OrbitRing {
+    pub diameter_percent: i32,
+}
+
+impl OrbitRing {
+    fn sync_all(world: &mut World, width: i32, height: i32) {
+        world.for_each_stable::<Self>(|world, entity| {
+            let Some(percent) = world.get::<Self>(entity).map(|ring| ring.diameter_percent) else {
+                return;
+            };
+            let size = width.min(height) * percent / 100;
+            if let Some(style) = world.get_mut::<Style>(entity) {
+                style.layout.left = Dimension::px((width - size) / 2);
+                style.layout.top = Dimension::px((height - size) / 2);
+                style.layout.width = Dimension::px(size);
+                style.layout.height = Dimension::px(size);
+                style.border_radius = Fixed::from_int(size / 2);
+            }
+        });
+    }
+}
+
+impl WorldBounds {
+    fn sync(world: &mut World, width: i32, height: i32) {
+        let (old_width, old_height) = world
+            .resource::<Self>()
+            .map(|bounds| (bounds.w, bounds.h))
+            .unwrap_or((width, height));
+        if old_width == width && old_height == height {
+            return;
+        }
+        let dx = Fixed::from_int((width - old_width) / 2);
+        let dy = Fixed::from_int((height - old_height) / 2);
+        world.for_each_stable::<PhysicsBody>(|world, entity| {
+            if let Some(body) = world.get_mut::<PhysicsBody>(entity) {
+                body.x += dx;
+                body.y += dy;
+            }
+        });
+        world.insert_resource(Self {
+            w: width,
+            h: height,
+        });
+        OrbitRing::sync_all(world, width, height);
+    }
+}
+
 pub struct SpringLength(pub Fixed);
 
 #[derive(Default)]
@@ -61,6 +108,7 @@ impl PhysicsScratch {
 pub struct KickPhase(pub u32);
 
 const PHYSICS_DT_MS: u32 = 11;
+const BODY_SIZE: i32 = 24;
 
 fn isqrt(n: u32) -> u32 {
     if n == 0 {
@@ -78,10 +126,7 @@ fn isqrt(n: u32) -> u32 {
 #[mirui_macros::system]
 pub fn physics_tick_system(world: &mut World) {
     if let Some(rect) = root_viewport(world) {
-        world.insert_resource(WorldBounds {
-            w: rect.w.to_int(),
-            h: rect.h.to_int(),
-        });
+        WorldBounds::sync(world, rect.w.to_int(), rect.h.to_int());
     }
     let now_ms = world
         .resource::<MonoClock>()
@@ -167,9 +212,10 @@ fn three_body_step(world: &mut World) {
 
     let v_max = Fixed::from_int(5);
     let v_min = Fixed::ZERO - v_max;
-    let min = Fixed::from_int(8);
-    let max_x = Fixed::from_int(bound_w - 8);
-    let max_y = Fixed::from_int(bound_h - 8);
+    let margin = BODY_SIZE / 2;
+    let min = Fixed::from_int(margin);
+    let max_x = Fixed::from_int(bound_w - margin);
+    let max_y = Fixed::from_int(bound_h - margin);
     for i in 0..n {
         let e = scratch.entities[i];
         if let Some(vel) = world.get_mut::<Velocity>(e) {
@@ -258,8 +304,8 @@ pub fn kick_system(world: &mut World) {
 
 #[mirui_macros::system]
 pub fn sync_layout_system(world: &mut World) {
-    let half_w = Fixed::from_int(IMG_THUMBS_UP.width as i32 / 2);
-    let half_h = Fixed::from_int(IMG_THUMBS_UP.height as i32 / 2);
+    let half_w = Fixed::from_int(BODY_SIZE / 2);
+    let half_h = Fixed::from_int(BODY_SIZE / 2);
     PhysicsScratch::with_entities(world, |world, entities| {
         for &e in entities {
             if let (Some(body), Some(origin)) =
@@ -301,30 +347,74 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
     });
     cx.world_mut().insert_resource(KickPhase(0));
 
+    let orbit_size = logical_w.min(logical_h) * 72 / 100;
+    let orbit_left = (logical_w - orbit_size) / 2;
+    let orbit_top = (logical_h - orbit_size) / 2;
     ui! {
-        Column (grow: 1.0) {
-            Text (
-                "mirui",
-                bg_color: Color::rgb(88, 166, 255),
-                height: 20,
-                border_radius: 3,
-                paragraph: ParagraphStyle::label()
-            )
-            Row (grow: 1.0) {
-                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0)
-                View (bg_color: Color::rgb(248, 81, 73), grow: 1.0)
+        View (grow: 1.0, bg_color: ColorToken::Surface, clip_children: true) {
+            Row (
+                position: Position::Absolute,
+                left: 0,
+                top: 8,
+                width: Dimension::percent(100),
+                height: 32,
+                align: AlignItems::Center,
+                column_gap: 8,
+                padding: Padding {
+                    top: Dimension::px(0),
+                    right: Dimension::px(16),
+                    bottom: Dimension::px(0),
+                    left: Dimension::px(16),
+                }
+            ) {
+                Text (
+                    "THREE-BODY FIELD",
+                    grow: 1.0,
+                    height: 26,
+                    font_size: 15,
+                    text_color: ColorToken::OnSurface,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "FIXED · LIVE",
+                    width: 104,
+                    height: 22,
+                    font_size: 9,
+                    bg_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::Primary,
+                    border_radius: 11,
+                    paragraph: ParagraphStyle::label()
+                )
             }
-            Text (
-                "n-body",
-                bg_color: Color::rgb(210, 168, 255),
-                height: 20,
-                paragraph: ParagraphStyle::label()
-            )
+            View (
+                position: Position::Absolute,
+                left: orbit_left,
+                top: orbit_top,
+                width: orbit_size,
+                height: orbit_size,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: orbit_size as u32 / 2
+            ) [
+                OrbitRing { diameter_percent: 72 },
+            ]
+            View (
+                position: Position::Absolute,
+                left: orbit_left + orbit_size / 4,
+                top: orbit_top + orbit_size / 4,
+                width: orbit_size / 2,
+                height: orbit_size / 2,
+                border_color: Color::rgba(97, 218, 251, 80),
+                border_width: 1,
+                border_radius: orbit_size as u32 / 4
+            ) [
+                OrbitRing { diameter_percent: 36 },
+            ]
         }
     };
 
-    let iw = IMG_THUMBS_UP.width as i32;
-    let ih = IMG_THUMBS_UP.height as i32;
+    let iw = BODY_SIZE;
+    let ih = BODY_SIZE;
     let center_x = Fixed::from_int(logical_w / 2);
     let center_y = Fixed::from_int(logical_h / 2);
     let r = Fixed::from_int(logical_w.min(logical_h) * 35 / 100);
@@ -346,13 +436,17 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
     //~focus-start
     ui! {
         walk init_pos.iter() with pos {
-            View (
+            Image (
                 position: Position::Absolute,
                 left: pos.0.to_int() - iw / 2,
                 top: pos.1.to_int() - ih / 2,
                 width: iw,
                 height: ih,
-                image: Image::new("thumbs_up")
+                src: "thumbs_up",
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Primary,
+                border_width: 1,
+                border_radius: BODY_SIZE as u32 / 2
             ) [
                 PhysicsBody { x: pos.0, y: pos.1 },
                 Velocity { vx: pos.2, vy: pos.3 },
@@ -379,7 +473,13 @@ where
     app.add_system(kick_system::system());
     app.add_system(sync_layout_system::system());
     app.compose(parent, |cx| {
-        build_widgets(cx, info.width, info.height, 3, Fixed::from_int(30))
+        build_widgets(
+            cx,
+            info.width,
+            info.height,
+            3,
+            Fixed::from_int((info.width.min(info.height) as i32 * 22 / 100).max(30)),
+        )
     });
 }
 
@@ -445,8 +545,8 @@ mod tests {
         assert_eq!(
             transform,
             Transform::translate(
-                Fixed::from_int(40 - IMG_THUMBS_UP.width as i32 / 2) - origin.x,
-                Fixed::from_int(50 - IMG_THUMBS_UP.height as i32 / 2) - origin.y,
+                Fixed::from_int(40 - BODY_SIZE / 2) - origin.x,
+                Fixed::from_int(50 - BODY_SIZE / 2) - origin.y,
             )
         );
         assert!(
@@ -462,5 +562,35 @@ mod tests {
                 .as_ptr(),
             entities_ptr
         );
+    }
+
+    #[test]
+    fn viewport_resize_recenters_bodies_and_orbit_guides() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, 480, 320, 3, Fixed::from_int(70));
+        drop(cx);
+
+        let body = world.query::<PhysicsBody>().iter().next().unwrap().0;
+        let before = world.get::<PhysicsBody>(body).unwrap();
+        let before = (before.x, before.y);
+        WorldBounds::sync(&mut world, 320, 480);
+        let after = world.get::<PhysicsBody>(body).unwrap();
+        assert_eq!(after.x, before.0 - Fixed::from_int(80));
+        assert_eq!(after.y, before.1 + Fixed::from_int(80));
+
+        let outer = world
+            .query::<OrbitRing>()
+            .iter()
+            .find(|(_, ring)| ring.diameter_percent == 72)
+            .unwrap()
+            .0;
+        let layout = &world.get::<Style>(outer).unwrap().layout;
+        assert_eq!(layout.width, Dimension::px(230));
+        assert_eq!(layout.height, Dimension::px(230));
+        assert_eq!(layout.left, Dimension::px(45));
+        assert_eq!(layout.top, Dimension::px(125));
     }
 }

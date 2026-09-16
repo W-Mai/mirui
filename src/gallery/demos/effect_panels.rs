@@ -4,7 +4,9 @@ use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
-use crate::ui::widgets::{BackgroundBlur, DropGlow, DropShadow, MirrorOf, TemporalMix, Text};
+use crate::ui::widgets::{
+    BackgroundBlur, DropGlow, DropShadow, MirrorOf, ParagraphStyle, TemporalMix, Text, TextAlign,
+};
 
 pub const DEFAULT_VIEW: (u16, u16) = (360, 560);
 
@@ -68,48 +70,92 @@ fn tile_color(i: i32) -> Color {
 pub fn build_widgets() {
     ui! {
         Column (
-            direction: FlexDirection::Column,
-            align: AlignItems::FlexStart,
             grow: 1.0,
-            padding: Padding::all(10)
+            align: AlignItems::Center,
+            padding: Padding::all(10),
+            row_gap: 4
         ) {
-            Text ("MirrorOf", text_color: ColorToken::OnSurface, width: 240, height: 20)
-            Row (direction: FlexDirection::Row, justify: JustifyContent::SpaceAround, height: 80) {
+            Text (
+                "LIVE EFFECT PIPELINE",
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 24,
+                font_size: 16,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "MIRROR PIPELINE",
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 16,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Row (
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 58,
+                column_gap: 12,
+                padding: Padding::all(6),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
                 Text (
-                    "source",
+                    "SOURCE",
                     id: "mirror-src",
                     bg_color: ColorToken::Primary,
                     text_color: ColorToken::OnPrimary,
                     border_radius: 8,
-                    width: 140,
-                    height: 50
+                    grow: 1.0,
+                    paragraph: ParagraphStyle::label()
                 )
-                View (width: 140, height: 50) [
+                View (grow: 1.0, border_radius: 8, clip_children: true) [
                     MirrorOf::new(id("mirror-src")).with_fade(160),
                 ]
             }
-            Text ("TemporalMix", text_color: ColorToken::OnSurface, width: 240, height: 20)
-            Row (direction: FlexDirection::Row, justify: JustifyContent::SpaceAround, height: 80) {
+            Text (
+                "TEMPORAL MIX",
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 16,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Row (
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 58,
+                column_gap: 12,
+                padding: Padding::all(6),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 12
+            ) {
                 View (
                     id: "tm_src",
                     border_radius: 8,
-                    width: 140,
-                    height: 50
+                    grow: 1.0
                 ) [
                     ColorFlash { frame: 0 },
                 ]
                 View (
-                    width: 140,
-                    height: 50
+                    grow: 1.0,
+                    border_radius: 8,
+                    clip_children: true
                 ) [
                     TemporalMix::new(id("tm_src")).with_mix(230),
                 ]
             }
             Text (
-                "BackgroundBlur",
-                text_color: ColorToken::OnSurface,
-                width: 240,
-                height: 20
+                "MOVING BACKGROUND BLUR",
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 16,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             View (
                 width: 300,
@@ -155,10 +201,13 @@ pub fn build_widgets() {
                 ),
             ]
             Text (
-                "DropShadow / DropGlow",
-                text_color: ColorToken::OnSurface,
-                width: 240,
-                height: 20
+                "SHADOW + GLOW",
+                width: Dimension::percent(100),
+                max_width: 340,
+                height: 16,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
         }
     };
