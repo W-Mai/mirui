@@ -128,7 +128,9 @@ fn three_body_demo_smoke() {
 fn particles_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::particles::build_widgets(&mut world, parent);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::particles::build_widgets(&mut cx);
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 

@@ -4,8 +4,8 @@ extern crate alloc;
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::ui;
-use crate::ui::root_viewport;
-use crate::ui::{Children, Parent, Style};
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
+use crate::ui::{ComputedRect, Style};
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
@@ -34,9 +34,18 @@ pub struct ParticleBounds {
     pub h: i32,
 }
 
+pub struct ParticleArena;
+
 #[mirui_macros::system(order = ANIMATION)]
 pub fn particle_bounds_system(world: &mut World) {
-    if let Some(rect) = root_viewport(world) {
+    let arena = world
+        .query::<ParticleArena>()
+        .iter()
+        .next()
+        .map(|(entity, _)| entity);
+    if let Some(rect) =
+        arena.and_then(|entity| world.get::<ComputedRect>(entity).map(|rect| rect.0))
+    {
         world.insert_resource(ParticleBounds {
             w: rect.w.to_int(),
             h: rect.h.to_int(),
@@ -99,7 +108,7 @@ pub fn pulse_ring_system(world: &mut World) {
             style.layout.top = Dimension::Px(center_y - new_radius);
             style.layout.width = Dimension::Px(new_radius * 2);
             style.layout.height = Dimension::Px(new_radius * 2);
-            style.border_radius = Fixed::ZERO;
+            style.border_radius = new_radius;
         }
         world.invalidate(e);
     });
@@ -136,122 +145,92 @@ pub fn bar_system(world: &mut World) {
     });
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[derive(Clone, Copy)]
+struct RingSeed {
+    color: Color,
+    grow_speed: Fixed,
+    max_radius: Fixed,
+    radius: Fixed,
+}
+
+#[derive(Clone, Copy)]
+struct BarSeed {
+    color: Color,
+    speed: Fixed,
+    start: Fixed,
+    vertical: bool,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Clone, Copy)]
+struct ParticleSeed {
+    color: Color,
+    x: Fixed,
+    y: Fixed,
+    vx: Fixed,
+    vy: Fixed,
+}
+
+#[compose]
+pub fn build_widgets() {
     let bw = DEFAULT_VIEW.0 as i32;
     let bh = DEFAULT_VIEW.1 as i32;
-    world.insert_resource(ParticleBounds { w: bw, h: bh });
+    cx.world_mut()
+        .insert_resource(ParticleBounds { w: bw, h: bh });
 
-    let ring_colors = [
-        Color::rgba(80, 200, 255, 60),
-        Color::rgba(255, 100, 200, 40),
-        Color::rgba(100, 255, 150, 50),
+    let ring_seeds = [
+        RingSeed {
+            color: Color::rgba(80, 200, 255, 60),
+            grow_speed: Fixed::from_ratio(3, 64),
+            max_radius: Fixed::from_int(72),
+            radius: Fixed::from_int(12),
+        },
+        RingSeed {
+            color: Color::rgba(255, 100, 200, 40),
+            grow_speed: Fixed::from_ratio(1, 32),
+            max_radius: Fixed::from_int(92),
+            radius: Fixed::from_int(36),
+        },
+        RingSeed {
+            color: Color::rgba(100, 255, 150, 50),
+            grow_speed: Fixed::from_ratio(15, 256),
+            max_radius: Fixed::from_int(112),
+            radius: Fixed::from_int(64),
+        },
     ];
-    let ring_speeds = [
-        Fixed::from_ratio(3, 64),
-        Fixed::from_ratio(1, 32),
-        Fixed::from_ratio(15, 256),
+    let bar_seeds = [
+        BarSeed {
+            color: Color::rgba(255, 200, 50, 180),
+            speed: Fixed::from_ratio(45, 256),
+            start: Fixed::from_int(10),
+            vertical: false,
+            width: 30,
+            height: 6,
+        },
+        BarSeed {
+            color: Color::rgba(50, 255, 200, 160),
+            speed: Fixed::from_ratio(33, 256),
+            start: Fixed::from_int(80),
+            vertical: false,
+            width: 25,
+            height: 5,
+        },
+        BarSeed {
+            color: Color::rgba(200, 50, 255, 140),
+            speed: Fixed::from_ratio(55, 256),
+            start: Fixed::from_int(20),
+            vertical: true,
+            width: 5,
+            height: 40,
+        },
     ];
-    let ring_max = [
-        Fixed::from_int(20),
-        Fixed::from_int(16),
-        Fixed::from_int(22),
-    ];
-
-    for i in 0..3 {
-        let ring = WidgetBuilder::new(world)
-            .bg_color(ring_colors[i])
-            .border(ring_colors[i], Fixed::from_int(2))
-            .border_radius(Fixed::from_int(10))
-            .layout(LayoutStyle {
-                position: Position::Absolute,
-                left: Dimension::px(bw / 2 - 10),
-                top: Dimension::px(bh / 2 - 10),
-                width: Dimension::px(20),
-                height: Dimension::px(20),
-                ..Default::default()
-            })
-            .id();
-        world.insert(
-            ring,
-            PulseRing {
-                radius: Fixed::from_int(5 + i as i32 * 8),
-                grow_speed: ring_speeds[i],
-                max_radius: ring_max[i],
-            },
-        );
-        world.insert(ring, Parent(parent));
-        if let Some(ch) = world.get_mut::<Children>(parent) {
-            ch.0.push(ring);
-        }
-    }
-
-    let bar_configs: [(Color, Fixed, Fixed, bool, i32, i32); 3] = [
-        (
-            Color::rgba(255, 200, 50, 180),
-            Fixed::from_ratio(45, 256),
-            Fixed::from_int(10),
-            false,
-            30,
-            6,
-        ),
-        (
-            Color::rgba(50, 255, 200, 160),
-            Fixed::from_ratio(33, 256),
-            Fixed::from_int(80),
-            false,
-            25,
-            5,
-        ),
-        (
-            Color::rgba(200, 50, 255, 140),
-            Fixed::from_ratio(55, 256),
-            Fixed::from_int(20),
-            true,
-            5,
-            40,
-        ),
-    ];
-
-    for (color, speed, start, vertical, ww, hh) in bar_configs {
-        let bar = WidgetBuilder::new(world)
-            .bg_color(color)
-            .border_radius(Fixed::ZERO)
-            .layout(LayoutStyle {
-                position: Position::Absolute,
-                left: Dimension::px(4),
-                top: Dimension::px(4),
-                width: Dimension::px(ww),
-                height: Dimension::px(hh),
-                ..Default::default()
-            })
-            .id();
-        world.insert(
-            bar,
-            BouncingBar {
-                pos: start,
-                speed,
-                vertical,
-            },
-        );
-        world.insert(bar, Parent(parent));
-        if let Some(ch) = world.get_mut::<Children>(parent) {
-            ch.0.push(bar);
-        }
-    }
-
-    let mut rng_state: u32 = world
-        .resource::<MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0)
-        .wrapping_add(0x9E37_79B9);
-    if rng_state == 0 {
-        rng_state = 1;
-    }
-    let mut rng = || -> i32 {
+    let mut rng_state = 0x9E37_79B9_u32;
+    let mut rng = || -> u32 {
         rng_state ^= rng_state << 13;
         rng_state ^= rng_state >> 17;
         rng_state ^= rng_state << 5;
-        (rng_state % 256) as i32
+        rng_state
     };
 
     let particle_colors = [
@@ -262,40 +241,117 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         Color::rgb(255, 80, 255),
         Color::rgb(80, 255, 255),
     ];
+    let particle_seeds = particle_colors.map(|color| ParticleSeed {
+        color,
+        x: Fixed::from_int(12) + Fixed::from_ratio((rng() % ((bw - 24) as u32 * 256)) as i32, 256),
+        y: Fixed::from_int(12) + Fixed::from_ratio((rng() % ((bh - 64) as u32 * 256)) as i32, 256),
+        vx: Fixed::from_ratio((rng() % 201) as i32 - 100, 256),
+        vy: Fixed::from_ratio((rng() % 201) as i32 - 100, 256),
+    });
 
-    for color in particle_colors {
-        let px = Fixed::from_ratio(rng() % (100 * 256), 256);
-        let py = Fixed::from_ratio(rng() % (100 * 256), 256);
-        let vx = Fixed::from_ratio(rng() % 200 - 100, 256);
-        let vy = Fixed::from_ratio(rng() % 200 - 100, 256);
-
-        let particle = WidgetBuilder::new(world)
-            .bg_color(color)
-            .border_radius(Fixed::ZERO)
-            .layout(LayoutStyle {
-                position: Position::Absolute,
-                left: Dimension::Px(px),
-                top: Dimension::Px(py),
-                width: Dimension::px(4),
-                height: Dimension::px(4),
-                ..Default::default()
-            })
-            .id();
-        world.insert(
-            particle,
-            Particle {
-                x: px,
-                y: py,
-                vx,
-                vy,
-                phase: Fixed::ZERO,
-            },
-        );
-        world.insert(particle, Parent(parent));
-        if let Some(ch) = world.get_mut::<Children>(parent) {
-            ch.0.push(particle);
+    //~focus-start
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(12),
+            row_gap: 8,
+            bg_color: ColorToken::Surface
+        ) {
+            Row (
+                width: Dimension::percent(100),
+                height: 28,
+                align: AlignItems::Center
+            ) {
+                Text (
+                    "KINETIC FIELD",
+                    grow: 1.0,
+                    font_size: 14,
+                    text_color: ColorToken::OnSurface,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "LIVE · 12 NODES",
+                    width: 124,
+                    height: 22,
+                    font_size: 9,
+                    bg_color: ColorToken::SurfaceVariant,
+                    text_color: ColorToken::Success,
+                    border_color: ColorToken::Success,
+                    border_width: 1,
+                    border_radius: 11,
+                    paragraph: ParagraphStyle::label()
+                )
+            }
+            View (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: 14,
+                clip_children: true
+            ) [
+                ParticleArena,
+            ] {
+                walk ring_seeds.iter() with seed {
+                    View (
+                        position: Position::Absolute,
+                        left: bw / 2 - 10,
+                        top: bh / 2 - 10,
+                        width: 20,
+                        height: 20,
+                        bg_color: seed.color,
+                        border_color: seed.color,
+                        border_width: 2,
+                        border_radius: 10
+                    ) [
+                        PulseRing {
+                            radius: seed.radius,
+                            grow_speed: seed.grow_speed,
+                            max_radius: seed.max_radius,
+                        },
+                    ]
+                }
+                walk bar_seeds.iter() with seed {
+                    View (
+                        position: Position::Absolute,
+                        left: 4,
+                        top: 4,
+                        width: seed.width,
+                        height: seed.height,
+                        bg_color: seed.color,
+                        border_radius: 2
+                    ) [
+                        BouncingBar {
+                            pos: seed.start,
+                            speed: seed.speed,
+                            vertical: seed.vertical,
+                        },
+                    ]
+                }
+                walk particle_seeds.iter() with seed {
+                    View (
+                        position: Position::Absolute,
+                        left: seed.x,
+                        top: seed.y,
+                        width: 5,
+                        height: 5,
+                        bg_color: seed.color,
+                        border_radius: 3
+                    ) [
+                        Particle {
+                            x: seed.x,
+                            y: seed.y,
+                            vx: seed.vx,
+                            vy: seed.vy,
+                            phase: Fixed::ZERO,
+                        },
+                    ]
+                }
+            }
         }
-    }
+    };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]
@@ -309,20 +365,22 @@ where
     app.add_system(particle_system::system());
     app.add_system(pulse_ring_system::system());
     app.add_system(bar_system::system());
-    build_widgets(&mut app.world, parent);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::IdMap;
+    use crate::ui::{Children, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

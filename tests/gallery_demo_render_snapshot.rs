@@ -73,18 +73,6 @@ fn assert_renders(name: &str, colours: alloc::collections::BTreeSet<(u8, u8, u8)
     );
 }
 
-macro_rules! basic_demo {
-    ($name:ident, $w:expr, $h:expr) => {
-        #[test]
-        fn $name() {
-            let cs = render_demo($w, $h, |world, parent| {
-                mirui::gallery::demos::$name::build_widgets(world, parent);
-            });
-            assert_renders(stringify!($name), cs);
-        }
-    };
-}
-
 macro_rules! basic_demo_scoped {
     ($name:ident, $w:expr, $h:expr) => {
         #[test]
@@ -166,7 +154,7 @@ basic_demo_scoped!(transform, 480, 320);
 
 basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);
-basic_demo!(particles, 480, 320);
+basic_demo_scoped!(particles, 480, 320);
 basic_demo_scoped!(subpixel, 480, 320);
 viewport_demo_scoped!(widgets, 512, 512);
 

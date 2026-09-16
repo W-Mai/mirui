@@ -8,84 +8,23 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::canvas::Paint;
+use crate::types::Transform;
+use crate::ui::Theme;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 #[derive(Default)]
 pub struct Butterfly {
     pub start_ms: u32,
 }
 
-fn wing_path(cx: Fixed, cy: Fixed, span: Fixed, tilt: Fixed, side: i32, inner: bool) -> Path {
-    let s = Fixed::from_int(side);
-    let shrink = if inner {
-        Fixed::from_f32(0.6)
-    } else {
-        Fixed::ONE
-    };
-
-    let anchor_top = Point {
-        x: cx + tilt * Fixed::from_int(4),
-        y: cy - Fixed::from_int(8) * shrink,
-    };
-    let anchor_bot = Point {
-        x: cx - tilt * Fixed::from_int(4),
-        y: cy + Fixed::from_int(10) * shrink,
-    };
-
-    let forewing_tip = Point {
-        x: cx + Fixed::from_int(44) * s * span * shrink,
-        y: cy - Fixed::from_int(24) * shrink,
-    };
-    let hindwing_tip = Point {
-        x: cx + Fixed::from_int(34) * s * span * shrink,
-        y: cy + Fixed::from_int(22) * shrink,
-    };
-
-    let fw_out_c1 = Point {
-        x: cx + Fixed::from_int(18) * s * span * shrink,
-        y: anchor_top.y - Fixed::from_int(22) * shrink,
-    };
-    let fw_out_c2 = Point {
-        x: cx + Fixed::from_int(52) * s * span * shrink,
-        y: forewing_tip.y - Fixed::from_int(6) * shrink,
-    };
-    let fw_in_c1 = Point {
-        x: cx + Fixed::from_int(46) * s * span * shrink,
-        y: cy - Fixed::from_int(6) * shrink,
-    };
-    let fw_in_c2 = Point {
-        x: cx + Fixed::from_int(14) * s * span * shrink,
-        y: cy - Fixed::from_int(1) * shrink,
-    };
-    let notch = Point {
-        x: cx + Fixed::from_int(10) * s * span * shrink,
-        y: cy + Fixed::from_int(4) * shrink,
-    };
-    let hw_out_c1 = Point {
-        x: cx + Fixed::from_int(36) * s * span * shrink,
-        y: cy + Fixed::from_int(6) * shrink,
-    };
-    let hw_out_c2 = Point {
-        x: cx + Fixed::from_int(40) * s * span * shrink,
-        y: hindwing_tip.y - Fixed::from_int(2) * shrink,
-    };
-    let hw_in_c1 = Point {
-        x: cx + Fixed::from_int(26) * s * span * shrink,
-        y: cy + Fixed::from_int(18) * shrink,
-    };
-    let hw_in_c2 = Point {
-        x: cx + Fixed::from_int(8) * s * span * shrink,
-        y: cy + Fixed::from_int(14) * shrink,
-    };
-
-    let mut path = Path::new();
-    path.move_to(anchor_top);
-    path.cubic_to(fw_out_c1, fw_out_c2, forewing_tip);
-    path.cubic_to(fw_in_c1, fw_in_c2, notch);
-    path.cubic_to(hw_out_c1, hw_out_c2, hindwing_tip);
-    path.cubic_to(hw_in_c1, hw_in_c2, anchor_bot);
-    path.close();
-    path
-}
+static WING: Path = path!(
+    M 0 22
+    C 18 0 52 0 44 6
+    C 46 24 14 29 10 34
+    C 36 36 40 50 34 52
+    C 26 48 8 44 0 40
+    Z
+);
 
 fn fill_wing(
     renderer: &mut dyn Renderer,
@@ -96,26 +35,32 @@ fn fill_wing(
     tilt: Fixed,
     side: i32,
     inner: bool,
+    outer_color: Color,
+    inner_color: Color,
 ) {
-    let path = wing_path(cx, cy, span, tilt, side, inner);
-    let color = if inner {
-        if side < 0 {
-            Color::rgb(130, 210, 240)
-        } else {
-            Color::rgb(150, 220, 245)
-        }
-    } else if side < 0 {
-        Color::rgb(40, 70, 160)
-    } else {
-        Color::rgb(50, 80, 170)
-    };
+    let color = if inner { inner_color } else { outer_color };
     let opa = if inner { 210 } else { 240 };
     let paint = Paint::Color(color.into());
+    let shrink = if inner {
+        Fixed::from_f32(0.6)
+    } else {
+        Fixed::ONE
+    };
+    let shear = Fixed::ZERO - tilt / Fixed::from_int(2);
+    let local_y = Fixed::from_int(30);
+    let wing_transform = Transform {
+        m00: Fixed::from_int(side) * span * shrink,
+        m01: shear,
+        tx: cx - shear * local_y,
+        m10: Fixed::ZERO,
+        m11: shrink,
+        ty: cy - shrink * local_y,
+    };
     ctx.draw(
         renderer,
         &DrawCommand::FillPath {
-            path: &path,
-            transform: ctx.transform,
+            path: &WING,
+            transform: ctx.transform.compose(&wing_transform),
             paint: &paint,
             opa,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
@@ -135,6 +80,12 @@ fn butterfly_render(
     let Some(state) = world.get::<Butterfly>(entity) else {
         return;
     };
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let outer_wing = theme.resolve(ColorToken::Primary);
+    let inner_wing = theme.resolve(ColorToken::Secondary);
+    let body_color = theme.resolve(ColorToken::OnSurface);
+    let detail_color = theme.resolve(ColorToken::OnSurfaceVariant);
     let now_ms = world
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
@@ -159,10 +110,18 @@ fn butterfly_render(
     let span_left = (span_base * (Fixed::ONE + yaw)).max(min_span);
     let span_right = (span_base * (Fixed::ONE - yaw)).max(min_span);
 
-    fill_wing(renderer, ctx, cx, cy, span_left, tilt, -1, false);
-    fill_wing(renderer, ctx, cx, cy, span_right, tilt, 1, false);
-    fill_wing(renderer, ctx, cx, cy, span_left, tilt, -1, true);
-    fill_wing(renderer, ctx, cx, cy, span_right, tilt, 1, true);
+    fill_wing(
+        renderer, ctx, cx, cy, span_left, tilt, -1, false, outer_wing, inner_wing,
+    );
+    fill_wing(
+        renderer, ctx, cx, cy, span_right, tilt, 1, false, outer_wing, inner_wing,
+    );
+    fill_wing(
+        renderer, ctx, cx, cy, span_left, tilt, -1, true, outer_wing, inner_wing,
+    );
+    fill_wing(
+        renderer, ctx, cx, cy, span_right, tilt, 1, true, outer_wing, inner_wing,
+    );
 
     let body_head = Point {
         x: cx + tilt * Fixed::from_int(6),
@@ -178,7 +137,7 @@ fn butterfly_render(
             p1: body_head,
             p2: body_tail,
             transform: ctx.transform,
-            color: Color::rgb(30, 20, 40),
+            color: body_color,
             width: Fixed::from_int(2),
             opa: 255,
         },
@@ -193,7 +152,7 @@ fn butterfly_render(
                 y: body_head.y - Fixed::from_int(10),
             },
             transform: ctx.transform,
-            color: Color::rgb(50, 40, 60),
+            color: detail_color,
             width: Fixed::ONE,
             opa: 220,
         },
@@ -208,7 +167,7 @@ fn butterfly_render(
                 y: body_head.y - Fixed::from_int(10),
             },
             transform: ctx.transform,
-            color: Color::rgb(50, 40, 60),
+            color: detail_color,
             width: Fixed::ONE,
             opa: 220,
         },
@@ -238,10 +197,65 @@ pub fn build_widgets() {
 
     //~focus-start
     ui! {
-        Butterfly (
-            start_ms: now_ms,
-            grow: 1.0
-        )
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            padding: Padding::all(12),
+            bg_color: ColorToken::Surface
+        ) {
+            View (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                max_width: 440,
+                max_height: 296,
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: 18,
+                clip_children: true
+            ) {
+                Row (
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: Dimension::percent(100),
+                    height: 38,
+                    padding: Padding {
+                        left: Dimension::px(14),
+                        right: Dimension::px(14),
+                        ..Default::default()
+                    },
+                    align: AlignItems::Center
+                ) {
+                    Text (
+                        "FLIGHT STUDY",
+                        grow: 1.0,
+                        font_size: 14,
+                        text_color: ColorToken::OnSurface,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Text (
+                        "VECTOR · LIVE",
+                        width: 112,
+                        height: 22,
+                        font_size: 9,
+                        bg_color: ColorToken::Surface,
+                        text_color: ColorToken::Secondary,
+                        border_color: ColorToken::Secondary,
+                        border_width: 1,
+                        border_radius: 11,
+                        paragraph: ParagraphStyle::label()
+                    )
+                }
+                Butterfly (
+                    start_ms: now_ms,
+                    grow: 1.0,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100)
+                )
+            }
+        }
     };
     //~focus-end
 }
@@ -282,5 +296,10 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn wing_geometry_stays_in_static_storage() {
+        assert!(WING.is_borrowed());
     }
 }
