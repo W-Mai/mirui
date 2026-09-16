@@ -3,7 +3,7 @@ extern crate alloc;
 use crate::prelude::*;
 use crate::ui;
 use crate::ui::root_viewport;
-use crate::ui::{Children, Parent};
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 const BAR_W: i32 = 50;
 const RIGHT_MARGIN: i32 = 10;
@@ -47,7 +47,7 @@ pub fn bar_move_system(world: &mut World) {
             let old_display = if bar.snap { bar.y.floor() } else { bar.y };
             bar.y += bar.speed;
             if bar.y > Fixed::from_int(bound_h - 18) {
-                bar.y = Fixed::from_int(20);
+                bar.y = Fixed::from_int(58);
             }
             let new_display = if bar.snap { bar.y.floor() } else { bar.y };
             (
@@ -63,57 +63,75 @@ pub fn bar_move_system(world: &mut World) {
 }
 //~focus-end
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    let bar1 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(255, 100, 100))
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px(10),
-            top: Dimension::px(20),
-            width: Dimension::px(BAR_W),
-            height: Dimension::px(8),
-            ..Default::default()
-        })
-        .id();
-    world.insert(
-        bar1,
-        BarState {
-            y: Fixed::from_int(20),
-            speed: Fixed::from_ratio(9, 256),
-            snap: true,
-            x: Fixed::from_int(10),
-            right_anchored: false,
-        },
-    );
-
-    let bar2 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(100, 200, 255))
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px(0),
-            top: Dimension::px(20),
-            width: Dimension::px(BAR_W),
-            height: Dimension::px(8),
-            ..Default::default()
-        })
-        .id();
-    world.insert(
-        bar2,
-        BarState {
-            y: Fixed::from_int(20),
-            speed: Fixed::from_ratio(9, 256),
-            snap: false,
-            x: Fixed::ZERO,
-            right_anchored: true,
-        },
-    );
-
-    world.insert(bar1, Parent(parent));
-    world.insert(bar2, Parent(parent));
-    if let Some(children) = world.get_mut::<Children>(parent) {
-        children.0.push(bar1);
-        children.0.push(bar2);
-    }
+#[compose]
+pub fn build_widgets() {
+    ui! {
+        View (grow: 1.0, clip_children: true) {
+            Row (
+                position: Position::Absolute,
+                left: 0,
+                top: 12,
+                width: Dimension::percent(100),
+                height: 30,
+                align: AlignItems::Center,
+                padding: Padding {
+                    top: Dimension::px(0),
+                    right: Dimension::px(16),
+                    bottom: Dimension::px(0),
+                    left: Dimension::px(16),
+                }
+            ) {
+                Text (
+                    "PIXEL-SNAPPED",
+                    grow: 1.0,
+                    font_size: 11,
+                    text_color: Color::rgb(255, 112, 122),
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "Q24.8 SUBPIXEL",
+                    grow: 1.0,
+                    font_size: 11,
+                    text_color: Color::rgb(112, 202, 255),
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+                )
+            }
+            View (
+                bg_color: Color::rgb(255, 100, 110),
+                position: Position::Absolute,
+                left: 10,
+                top: 58,
+                width: BAR_W,
+                height: 8,
+                border_radius: 4
+            ) [
+                BarState {
+                    y: Fixed::from_int(58),
+                    speed: Fixed::from_ratio(9, 256),
+                    snap: true,
+                    x: Fixed::from_int(10),
+                    right_anchored: false,
+                },
+            ]
+            View (
+                bg_color: Color::rgb(100, 200, 255),
+                position: Position::Absolute,
+                left: 0,
+                top: 58,
+                width: BAR_W,
+                height: 8,
+                border_radius: 4
+            ) [
+                BarState {
+                    y: Fixed::from_int(58),
+                    speed: Fixed::from_ratio(9, 256),
+                    snap: false,
+                    x: Fixed::ZERO,
+                    right_anchored: true,
+                },
+            ]
+        }
+    };
 }
 
 #[cfg(feature = "std")]
@@ -123,20 +141,22 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(bar_move_system::system());
-    build_widgets(&mut app.world, parent);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::IdMap;
+    use crate::ui::{Children, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

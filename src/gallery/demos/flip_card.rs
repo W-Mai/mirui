@@ -2,9 +2,9 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform3D;
+use crate::ui::Style;
 use crate::ui::root_viewport;
-use crate::ui::widgets::WidgetTransform3D;
-use crate::ui::{Children, Parent, Style};
+use crate::ui::widgets::{ParagraphStyle, Text, WidgetTransform3D};
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
@@ -68,29 +68,59 @@ pub fn flip_system(world: &mut World) {
 }
 //~focus-end
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    let card = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(88, 166, 255))
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            ..Default::default()
-        })
-        .id();
-    world.insert(
-        card,
-        FlipCard {
-            angle_deg: super::PROJECTIVE_SPIN_PHASE,
-            speed_deg: Fixed::ONE,
-            front_color: Color::rgb(88, 166, 255),
-            back_color: Color::rgb(248, 81, 73),
-            root: parent,
-        },
-    );
-
-    world.insert(card, Parent(parent));
-    if let Some(children) = world.get_mut::<Children>(parent) {
-        children.0.push(card);
-    }
+#[compose]
+pub fn build_widgets() {
+    let root = cx.parent();
+    ui! {
+        View (grow: 1.0) {
+            Text (
+                "PROJECTIVE FLIP · FRONT / BACK",
+                position: Position::Absolute,
+                left: 16,
+                top: 12,
+                width: Dimension::percent(100),
+                max_width: 360,
+                height: 26,
+                font_size: 14,
+                text_color: ColorToken::OnSurface
+            )
+            Column (
+                position: Position::Absolute,
+                bg_color: Color::rgb(88, 166, 255),
+                border_radius: 18,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center,
+                row_gap: 8,
+                clip_children: true
+            ) [
+                FlipCard {
+                    angle_deg: super::PROJECTIVE_SPIN_PHASE,
+                    speed_deg: Fixed::ONE,
+                    front_color: Color::rgb(88, 166, 255),
+                    back_color: Color::rgb(248, 81, 73),
+                    root,
+                },
+                WidgetTransform3D(Transform3D::IDENTITY),
+            ] {
+                Text (
+                    "MIRUI",
+                    width: Dimension::percent(100),
+                    height: 34,
+                    font_size: 22,
+                    text_color: Color::rgb(255, 255, 255),
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "2.5D CARD",
+                    width: Dimension::percent(100),
+                    height: 22,
+                    font_size: 10,
+                    text_color: Color::rgba(255, 255, 255, 196),
+                    paragraph: ParagraphStyle::label()
+                )
+            }
+        }
+    };
 }
 
 #[cfg(feature = "std")]
@@ -100,20 +130,22 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(flip_system::system());
-    build_widgets(&mut app.world, parent);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::IdMap;
+    use crate::ui::{Children, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

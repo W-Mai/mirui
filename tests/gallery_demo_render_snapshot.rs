@@ -131,19 +131,6 @@ macro_rules! viewport_demo_ignored_scoped {
     };
 }
 
-macro_rules! viewport_demo_ignored_noargs {
-    ($name:ident, $w:expr, $h:expr) => {
-        #[test]
-        #[ignore = "needs multi-frame example loop, see module note above"]
-        fn $name() {
-            let cs = render_demo($w, $h, |world, parent| {
-                mirui::gallery::demos::$name::build_widgets(world, parent);
-            });
-            assert_renders(stringify!($name), cs);
-        }
-    };
-}
-
 macro_rules! viewport_demo_ignored_noargs_scoped {
     ($name:ident, $w:expr, $h:expr) => {
         #[test]
@@ -160,7 +147,7 @@ macro_rules! viewport_demo_ignored_noargs_scoped {
 
 basic_demo_scoped!(animation, 320, 180);
 basic_demo_scoped!(book_flip, 640, 360);
-basic_demo!(image_flip, 480, 320);
+basic_demo_scoped!(image_flip, 480, 320);
 basic_demo_scoped!(interaction_lab, 1024, 720);
 basic_demo_scoped!(layout_lab, 1024, 720);
 // Skip: LazyList pool warm-up needs multi-frame loop.
@@ -175,17 +162,17 @@ basic_demo_scoped!(spatial_anim, 400, 300);
 basic_demo_scoped!(tabbar, 480, 320);
 basic_demo_scoped!(text_input, 480, 200);
 basic_demo_scoped!(theme_swap, 480, 320);
-basic_demo!(transform, 480, 320);
+basic_demo_scoped!(transform, 480, 320);
 
 basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);
 basic_demo!(particles, 480, 320);
-basic_demo!(subpixel, 480, 320);
+basic_demo_scoped!(subpixel, 480, 320);
 viewport_demo_scoped!(widgets, 512, 512);
 
 viewport_demo_ignored_noargs_scoped!(butterfly, 480, 480);
 viewport_demo_ignored_scoped!(cover_flow, 640, 360);
-viewport_demo_ignored_noargs!(flip_card, 480, 320);
+viewport_demo_ignored_noargs_scoped!(flip_card, 480, 320);
 viewport_demo_ignored_noargs_scoped!(shapes, 480, 480);
 
 #[test]

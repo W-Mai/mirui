@@ -7,20 +7,6 @@ use mirui::ui::builder::WidgetBuilder;
 
 #[test]
 fn all_demos_build_widgets_smoke() {
-    macro_rules! smoke {
-        ($demo:path) => {{
-            let mut world = World::new();
-            let parent = WidgetBuilder::new(&mut world).id();
-            $demo(&mut world, parent);
-            assert!(
-                world
-                    .get::<Children>(parent)
-                    .is_some_and(|c| !c.0.is_empty()),
-                "demo did not add any children to parent",
-            );
-        }};
-    }
-
     macro_rules! smoke_scoped {
         ($demo:path) => {{
             let mut world = World::new();
@@ -38,7 +24,7 @@ fn all_demos_build_widgets_smoke() {
 
     smoke_scoped!(mirui::gallery::demos::animation::build_widgets);
     smoke_scoped!(mirui::gallery::demos::book_flip::build_widgets);
-    smoke!(mirui::gallery::demos::image_flip::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::image_flip::build_widgets);
     smoke_scoped!(mirui::gallery::demos::lazy_list::build_widgets);
     smoke_scoped!(mirui::gallery::demos::nested_scroll::build_widgets);
     smoke_scoped!(mirui::gallery::demos::offscreen::build_widgets);
@@ -49,7 +35,7 @@ fn all_demos_build_widgets_smoke() {
     smoke_scoped!(mirui::gallery::demos::spatial_anim::build_widgets);
     smoke_scoped!(mirui::gallery::demos::tabbar::build_widgets);
     smoke_scoped!(mirui::gallery::demos::text_input::build_widgets);
-    smoke!(mirui::gallery::demos::transform::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::transform::build_widgets);
 }
 
 fn assert_demo_built(world: &World, parent: mirui::ecs::Entity) {
@@ -89,7 +75,9 @@ fn widgets_demo_smoke() {
 fn flip_card_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::flip_card::build_widgets(&mut world, parent);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::flip_card::build_widgets(&mut cx);
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 
@@ -148,7 +136,9 @@ fn particles_demo_smoke() {
 fn subpixel_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::subpixel::build_widgets(&mut world, parent);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::subpixel::build_widgets(&mut cx);
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 

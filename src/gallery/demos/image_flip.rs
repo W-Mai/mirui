@@ -2,8 +2,7 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform3D;
-use crate::ui::widgets::{Image, WidgetTransform3D};
-use crate::ui::{Children, Parent};
+use crate::ui::widgets::{Image, ParagraphStyle, Text, TextAlign, WidgetTransform3D};
 
 pub struct Spinner {
     pub angle: Fixed,
@@ -50,31 +49,50 @@ pub fn spin_system(world: &mut World) {
 }
 //~focus-end
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    let side = 120;
-    let img_widget = WidgetBuilder::new(world)
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px((480 - side) / 2),
-            top: Dimension::px(320 - side - 20),
-            width: Dimension::px(side),
-            height: Dimension::px(side),
-            ..Default::default()
-        })
-        .id();
-    world.insert(img_widget, Image::new("thumbs_up"));
-    world.insert(
-        img_widget,
-        Spinner {
-            angle: super::PROJECTIVE_SPIN_PHASE,
-            speed: Fixed::from_int(3),
-            bounce_phase: Fixed::ZERO,
-        },
-    );
-    world.insert(img_widget, Parent(parent));
-    if let Some(children) = world.get_mut::<Children>(parent) {
-        children.0.push(img_widget);
-    }
+#[compose]
+pub fn build_widgets() {
+    ui! {
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            padding: Padding::all(12),
+            row_gap: 8
+        ) {
+            Text (
+                "PROJECTIVE IMAGE",
+                width: Dimension::percent(100),
+                max_width: 440,
+                height: 28,
+                font_size: 17,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Column (
+                width: Dimension::percent(100),
+                max_width: 440,
+                grow: 1.0,
+                align: AlignItems::Center,
+                justify: JustifyContent::FlexEnd,
+                padding: Padding::all(24),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18,
+                clip_children: true
+            ) {
+                Image (
+                    width: 120,
+                    height: 120,
+                    src: "thumbs_up"
+                ) [
+                    Spinner {
+                        angle: super::PROJECTIVE_SPIN_PHASE,
+                        speed: Fixed::from_int(3),
+                        bounce_phase: Fixed::ZERO,
+                    },
+                    WidgetTransform3D(Transform3D::IDENTITY),
+                ]
+            }
+        }
+    };
 }
 
 #[cfg(feature = "std")]
@@ -85,20 +103,22 @@ where
 {
     app.add_system(spin_system::system());
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    build_widgets(&mut app.world, parent);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::IdMap;
+    use crate::ui::{Children, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)
