@@ -13,7 +13,6 @@ use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::IgnoreHitTest;
-use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
     ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign, TextDirection, TextVerticalAlign,
@@ -38,8 +37,6 @@ const CYAN: Color = Color::rgb(64, 237, 218);
 const VIOLET: Color = Color::rgb(182, 116, 255);
 const GOLD: Color = Color::rgb(255, 197, 88);
 const LANE_COLORS: [Color; 3] = [CYAN, VIOLET, GOLD];
-const COMPACT_MARQUEE_CYCLE: i32 = 192;
-const COMPACT_TEXT_WINDOW: i32 = 400;
 
 #[derive(Clone)]
 struct CurveModel {
@@ -65,25 +62,13 @@ impl Default for CurveModel {
 #[derive(Clone, Copy)]
 struct CurvePaths {
     ids: [PathId; 3],
-    compact: bool,
 }
 
-#[derive(Clone, Copy)]
-struct CurveMotion {
-    rate: Fixed,
-}
-
-impl Default for CurveMotion {
-    fn default() -> Self {
-        Self { rate: Fixed::ONE }
-    }
-}
+type CurveMotion = super::motion::BrakedPhase;
 
 #[derive(Clone, Copy)]
 struct CurveNodes {
     stage: Entity,
-    compact_text: Option<Entity>,
-    compact: bool,
 }
 
 #[derive(Default, crate::Component)]
@@ -122,9 +107,7 @@ impl CurveAction {
             Self::TogglePaused => model.paused.update(|value| *value = !*value),
         }
         if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-            if !nodes.compact {
-                mark_curve_stage_dirty(world, nodes.stage);
-            }
+            mark_curve_stage_dirty(world, nodes.stage);
         }
     }
 }
@@ -149,18 +132,6 @@ fn centered_label() -> ParagraphStyle {
         align: TextAlign::Center,
         vertical_align: TextVerticalAlign::Center,
         max_lines: Some(1),
-        ..ParagraphStyle::default()
-    }
-}
-
-fn bitmap_line(align: TextAlign) -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::NoWrap,
-        align,
-        vertical_align: TextVerticalAlign::Center,
-        max_lines: Some(1),
-        direction: TextDirection::LeftToRight,
-        shaping: ShapingPolicy::Simple,
         ..ParagraphStyle::default()
     }
 }
@@ -214,43 +185,7 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
     ]
 }
 
-fn make_compact_lane(lane: usize) -> Path {
-    let center = Fixed::from_int(38 + lane as i32 * 12);
-    let amplitude = Fixed::from_int(28);
-    let mut path = Path::try_with_capacity(9).expect("compact curve path storage");
-    path.move_to(Point {
-        x: Fixed::from_int(-160),
-        y: center,
-    });
-    for half in 0..8 {
-        let start_x = -160 + half * 80;
-        let control_y = if half % 2 == 0 {
-            center - amplitude
-        } else {
-            center + amplitude
-        };
-        path.cubic_to(
-            Point {
-                x: Fixed::from_int(start_x + 20),
-                y: control_y,
-            },
-            Point {
-                x: Fixed::from_int(start_x + 60),
-                y: control_y,
-            },
-            Point {
-                x: Fixed::from_int(start_x + 80),
-                y: center,
-            },
-        );
-    }
-    path
-}
-
-fn make_lane(lane: usize, compact: bool) -> Path {
-    if compact {
-        return make_compact_lane(lane);
-    }
+fn make_lane(lane: usize) -> Path {
     let [start, first, second] = lane_commands(lane, Fixed::ZERO, Fixed::from_int(68));
     let mut path = Path::try_with_capacity(3).expect("curve path storage");
     let PathCmd::MoveTo(start) = start else {
@@ -277,21 +212,14 @@ fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed) {
     }
 }
 
-fn register_paths(world: &mut World, compact: bool) -> CurvePaths {
-    let store = world.resource_mut::<PathStore>().expect("path store");
+fn register_paths(world: &mut World) -> CurvePaths {
+    let mut paths = world.paths();
     CurvePaths {
         ids: [
-            store
-                .insert(make_lane(0, compact))
-                .expect("first curve path"),
-            store
-                .insert(make_lane(1, compact))
-                .expect("second curve path"),
-            store
-                .insert(make_lane(2, compact))
-                .expect("third curve path"),
+            paths.insert(make_lane(0)).expect("first curve path"),
+            paths.insert(make_lane(1)).expect("second curve path"),
+            paths.insert(make_lane(2)).expect("third curve path"),
         ],
-        compact,
     }
 }
 
@@ -328,55 +256,46 @@ fn curve_stage_render(
         return;
     }
     ctx.bg_handled = true;
-    let compact = rect.w < Fixed::from_int(200);
-    if !compact {
-        fill(renderer, ctx, *rect, PANEL, Fixed::from_int(18), 255);
-        for index in 0..12 {
-            let x = rect.x + rect.w * Fixed::from_ratio(index, 11);
-            fill(
-                renderer,
-                ctx,
-                Rect::new(x, rect.y, Fixed::ONE, rect.h),
-                BORDER,
-                Fixed::ZERO,
-                if index % 3 == 0 { 48 } else { 22 },
-            );
-        }
-        for index in 1..4 {
-            let y = rect.y + rect.h * Fixed::from_ratio(index, 4);
-            fill(
-                renderer,
-                ctx,
-                Rect::new(rect.x, y, rect.w, Fixed::ONE),
-                BORDER,
-                Fixed::ZERO,
-                28,
-            );
-        }
+    fill(renderer, ctx, *rect, PANEL, Fixed::from_int(18), 255);
+    for index in 0..12 {
+        let x = rect.x + rect.w * Fixed::from_ratio(index, 11);
+        fill(
+            renderer,
+            ctx,
+            Rect::new(x, rect.y, Fixed::ONE, rect.h),
+            BORDER,
+            Fixed::ZERO,
+            if index % 3 == 0 { 48 } else { 22 },
+        );
+    }
+    for index in 1..4 {
+        let y = rect.y + rect.h * Fixed::from_ratio(index, 4);
+        fill(
+            renderer,
+            ctx,
+            Rect::new(rect.x, y, rect.w, Fixed::ONE),
+            BORDER,
+            Fixed::ZERO,
+            28,
+        );
     }
 
-    let phase = if compact {
-        Fixed::ZERO
-    } else {
-        world
-            .resource::<CurveModel>()
-            .map_or(Fixed::ZERO, |model| model.phase.get_untracked())
-    };
-    if !compact {
-        for index in 0..5 {
-            let angle = phase + Fixed::from_int(index * 72);
-            let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * Fixed::from_int(300);
-            let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * Fixed::from_int(126);
-            let radius = Fixed::from_int(10 + index % 3 * 4);
-            fill(
-                renderer,
-                ctx,
-                Rect::new(x - radius, y - radius, radius * 2, radius * 2),
-                LANE_COLORS[index as usize % LANE_COLORS.len()],
-                radius,
-                32,
-            );
-        }
+    let phase = world
+        .resource::<CurveModel>()
+        .map_or(Fixed::ZERO, |model| model.phase.get_untracked());
+    for index in 0..5 {
+        let angle = phase + Fixed::from_int(index * 72);
+        let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * Fixed::from_int(300);
+        let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * Fixed::from_int(126);
+        let radius = Fixed::from_int(10 + index % 3 * 4);
+        fill(
+            renderer,
+            ctx,
+            Rect::new(x - radius, y - radius, radius * 2, radius * 2),
+            LANE_COLORS[index as usize % LANE_COLORS.len()],
+            radius,
+            32,
+        );
     }
 
     let (Some(paths), Some(store)) = (
@@ -386,29 +305,26 @@ fn curve_stage_render(
         return;
     };
     let transform = ctx.transform.compose(&Transform::translate(rect.x, rect.y));
-    let path_count = if compact { 1 } else { paths.ids.len() };
-    for (index, id) in paths.ids.into_iter().take(path_count).enumerate() {
+    for (index, id) in paths.ids.into_iter().enumerate() {
         let Ok(path) = store.get(id) else {
             continue;
         };
         let paint = Paint::Color(LANE_COLORS[index].into());
-        if !compact {
-            ctx.draw(
-                renderer,
-                &DrawCommand::StrokePath {
-                    path,
-                    transform,
-                    paint: &paint,
-                    width: Fixed::from_int(5),
-                    opa: 16,
-                    line_cap: LineCap::Round,
-                    line_join: LineJoin::Round,
-                    miter_limit: Fixed::from_int(4),
-                    dash: &[],
-                },
-                ctx.clip,
-            );
-        }
+        ctx.draw(
+            renderer,
+            &DrawCommand::StrokePath {
+                path,
+                transform,
+                paint: &paint,
+                width: Fixed::from_int(5),
+                opa: 16,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+                miter_limit: Fixed::from_int(4),
+                dash: &[],
+            },
+            ctx.clip,
+        );
         ctx.draw(
             renderer,
             &DrawCommand::StrokePath {
@@ -416,7 +332,7 @@ fn curve_stage_render(
                 transform,
                 paint: &paint,
                 width: Fixed::ONE,
-                opa: if compact { 92 } else { 150 },
+                opa: 150,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 miter_limit: Fixed::from_int(4),
@@ -431,14 +347,7 @@ fn curve_stage_view() -> View {
     View::new("CurveStage", 60, curve_stage_render).with_filter::<CurveStage>()
 }
 
-fn update_curve_visual(world: &mut World, nodes: CurveNodes, phase: Fixed) {
-    if let Some(text) = nodes.compact_text {
-        let path = world
-            .resource::<CurvePaths>()
-            .expect("Curve Text paths")
-            .ids[0];
-        world.insert(text, compact_text_path(path, phase));
-    }
+fn update_curve_visual(world: &mut World, nodes: CurveNodes) {
     mark_curve_stage_dirty(world, nodes.stage);
 }
 
@@ -449,14 +358,14 @@ fn mark_curve_stage_dirty(world: &mut World, stage: Entity) {
     {
         world.invalidate_rect(rect);
     } else {
-        world.insert(stage, VisualDirty);
+        world.invalidate_visual(stage);
     }
 }
 
 #[mirui_macros::system(order = ANIMATION)]
 fn curve_text_animation_system(world: &mut World) {
     const MAX_STEP_MS: u16 = 50;
-    const RATE_RAMP_MS: i32 = 520;
+    const RATE_RAMP_MS: u16 = 520;
 
     let Some(model) = world.resource::<CurveModel>().cloned() else {
         return;
@@ -471,63 +380,32 @@ fn curve_text_animation_system(world: &mut World) {
     let Some(motion) = world.resource_mut::<CurveMotion>() else {
         return;
     };
-    let previous_rate = motion.rate;
-    let rate_step = Fixed::from_ratio(i32::from(dt), RATE_RAMP_MS);
-    motion.rate = if paused {
-        (motion.rate - rate_step).max(Fixed::ZERO)
-    } else {
-        (motion.rate + rate_step).min(Fixed::ONE)
-    };
-    let average_rate = (previous_rate + motion.rate) / 2;
-    if average_rate <= Fixed::ZERO {
-        return;
-    }
     let direction = if reversed {
         Fixed::from_int(-1)
     } else {
         Fixed::ONE
     };
-    let delta =
-        speed * average_rate * direction * Fixed::from(i32::from(dt)) / Fixed::from_int(1_000);
-    let mut phase = model.phase.get_untracked() + delta;
-    while phase >= Fixed::from_int(360) {
-        phase -= Fixed::from_int(360);
-    }
-    while phase < Fixed::ZERO {
-        phase += Fixed::from_int(360);
+    let phase = motion.advance(
+        dt,
+        RATE_RAMP_MS,
+        speed,
+        direction,
+        paused,
+        Fixed::from_int(360),
+    );
+    if phase == model.phase.get_untracked() {
+        return;
     }
     model.phase.set(phase);
     if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-        update_curve_visual(world, nodes, phase);
+        update_curve_visual(world, nodes);
     }
 }
 
-fn compact_text_offset(phase: Fixed) -> Fixed {
-    phase * Fixed::from_int(COMPACT_MARQUEE_CYCLE) / Fixed::from_int(360)
-}
-
-fn compact_text_path(path: PathId, phase: Fixed) -> crate::text::TextPath {
-    let offset = compact_text_offset(phase);
-    crate::text::TextPath::new(path)
-        .with_range(Fixed::ZERO..offset + Fixed::from_int(COMPACT_TEXT_WINDOW))
-        .with_offset(offset)
-}
-
-fn route_label() -> &'static str {
-    if cfg!(all(feature = "web-canvas", target_arch = "wasm32")) {
-        "WEB CANVAS · AFFINE POSED GLYPHS"
-    } else if cfg!(feature = "wgpu") {
-        "WGPU · INSTANCED GLYPH ATLAS"
-    } else if cfg!(feature = "sdl-gpu") {
-        "SDL GPU · BATCHED POSED GLYPHS"
-    } else {
-        "SOFTWARE · INVERSE-SAMPLED GLYPHS"
-    }
-}
+const ROUTE_LABEL: &str = "POSED GLYPHS · BOUNDED FALLBACK";
 
 fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &CurveModel) {
-    let path_count = if paths.compact { 0 } else { paths.ids.len() };
-    for (lane, path) in paths.ids.into_iter().take(path_count).enumerate() {
+    for (lane, path) in paths.ids.into_iter().enumerate() {
         let phase = model.phase.clone();
         let amplitude = model.amplitude.clone();
         cx.bind_path(path, move |geometry| {
@@ -542,6 +420,229 @@ fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &
 }
 
 #[compose]
+fn compose_header() -> Entity {
+    ui! {
+        Row (height: 54, align: AlignItems::Center, column_gap: 12) {
+            View (width: 8, height: 38, bg_color: CYAN, border_radius: 4)
+            Column (grow: 1.0, row_gap: 2) {
+                Text (
+                    "KINETIC TYPE",
+                    height: 30,
+                    font: UI,
+                    font_size: 25,
+                    text_color: TEXT,
+                    paragraph: single_line(TextDirection::LeftToRight)
+                )
+                Text (
+                    "One shaped run · one retained path · continuous pose",
+                    font: UI,
+                    font_size: 12,
+                    text_color: MUTED,
+                    paragraph: single_line(TextDirection::LeftToRight)
+                )
+            }
+            Text (
+                ROUTE_LABEL,
+                width: 248,
+                height: 30,
+                bg_color: PANEL_ALT,
+                border_color: BORDER,
+                border_width: 1,
+                border_radius: 15,
+                font: UI,
+                font_size: 10,
+                text_color: CYAN,
+                paragraph: centered_label()
+            )
+        }
+    }
+}
+
+#[compose]
+fn compose_stage(paths: CurvePaths) -> Entity {
+    ui! {
+        View (
+            id: "curve_text_stage_shell",
+            grow: 1.0,
+            min_height: 360,
+            clip_children: true,
+            bg_color: PANEL,
+            border_color: BORDER,
+            border_width: 1,
+            border_radius: 18
+        ) {
+            CurveStage (
+                id: "curve_text_stage",
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: Dimension::percent(100),
+                height: Dimension::percent(100)
+            ) [
+                IgnoreHitTest,
+            ]
+            Text (
+                id: "curve_text_primary",
+                "MIRUI · BEND SPACE, NOT GLYPHS",
+                path: crate::text::TextPath::new(paths.ids[0])
+                    .with_range(Fixed::ZERO..Fixed::from_int(820)),
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: Dimension::percent(100),
+                height: Dimension::percent(100),
+                font: UI,
+                font_size: 30,
+                text_color: TEXT,
+                paragraph: single_line(TextDirection::LeftToRight)
+            ) [
+                IgnoreHitTest,
+            ]
+            Text (
+                id: "curve_text_multiscript",
+                "中文曲线排版 · مرحبا · ตั้ง",
+                path: crate::text::TextPath::new(paths.ids[1])
+                    .with_range(Fixed::ZERO..Fixed::from_int(820)),
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: Dimension::percent(100),
+                height: Dimension::percent(100),
+                font_stack: mixed_stack(),
+                font_size: 25,
+                text_color: CYAN,
+                paragraph: single_line(TextDirection::Auto)
+            ) [
+                IgnoreHitTest,
+            ]
+            Text (
+                id: "curve_text_caption",
+                "PATH REVISION → MEASURE → PLACE → FOUR BACKENDS",
+                path: crate::text::TextPath::new(paths.ids[2])
+                    .with_range(Fixed::ZERO..Fixed::from_int(820)),
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: Dimension::percent(100),
+                height: Dimension::percent(100),
+                font: UI,
+                font_size: 14,
+                text_color: GOLD,
+                paragraph: single_line(TextDirection::LeftToRight)
+            ) [
+                IgnoreHitTest,
+            ]
+        }
+    }
+}
+
+#[compose]
+fn compose_controls() -> Entity {
+    let model = cx
+        .world_mut()
+        .resource::<CurveModel>()
+        .cloned()
+        .expect("Curve Text model");
+    let amplitude_value = model.amplitude;
+    let speed_value = model.speed;
+    let direction_label = model.reversed;
+    let paused_label = model.paused;
+
+    ui! {
+        Row (
+            id: "curve_text_controls",
+            height: 62,
+            padding: Padding {
+                top: Dimension::px(10),
+                right: Dimension::px(12),
+                bottom: Dimension::px(10),
+                left: Dimension::px(12),
+            },
+            align: AlignItems::Center,
+            column_gap: 10,
+            bg_color: PANEL,
+            border_color: BORDER,
+            border_width: 1,
+            border_radius: 14
+        ) {
+            Text ("AMPLITUDE", width: 74, font: UI, font_size: 10, text_color: MUTED)
+            Slider (
+                id: "curve_text_amplitude",
+                width: 148,
+                height: 14,
+                min: Fixed::from_int(24),
+                max: Fixed::from_int(96),
+                value: Fixed::from_int(68),
+                track_color: BORDER,
+                fill_color: CYAN,
+                thumb_color: TEXT
+            ) on ValueChanged {
+                let _ = old;
+                CurveAction::SetAmplitude(*new).publish(ctx.world);
+            }
+            Text (
+                text: ${ format!("{}", amplitude_value.get().to_int()) },
+                width: 28,
+                font: UI,
+                font_size: 11,
+                text_color: TEXT
+            )
+            Text ("SPEED", width: 46, font: UI, font_size: 10, text_color: MUTED)
+            Slider (
+                id: "curve_text_speed",
+                width: 132,
+                height: 14,
+                min: Fixed::from_int(20),
+                max: Fixed::from_int(120),
+                value: Fixed::from_int(64),
+                track_color: BORDER,
+                fill_color: VIOLET,
+                thumb_color: TEXT
+            ) on ValueChanged {
+                let _ = old;
+                CurveAction::SetSpeed(*new).publish(ctx.world);
+            }
+            Text (
+                text: ${ format!("{}", speed_value.get().to_int()) },
+                width: 30,
+                font: UI,
+                font_size: 11,
+                text_color: TEXT
+            )
+            Text (
+                id: "curve_text_direction",
+                text: ${ if direction_label.get() { "REVERSE" } else { "FORWARD" } },
+                width: 96,
+                height: 34,
+                bg_color: PANEL_ALT,
+                border_color: VIOLET,
+                border_width: 1,
+                border_radius: 10,
+                font: UI,
+                font_size: 10,
+                text_color: VIOLET,
+                paragraph: centered_label()
+            ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
+            Text (
+                id: "curve_text_pause",
+                text: ${ if paused_label.get() { "RESUME" } else { "PAUSE" } },
+                grow: 1.0,
+                min_width: 82,
+                height: 34,
+                bg_color: PANEL_ALT,
+                border_color: CYAN,
+                border_width: 1,
+                border_radius: 10,
+                font: UI,
+                font_size: 10,
+                text_color: CYAN,
+                paragraph: centered_label()
+            ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
+        }
+    }
+}
+
+#[compose]
 fn build_widgets(paths: CurvePaths) {
     let model = cx
         .world_mut()
@@ -549,11 +650,6 @@ fn build_widgets(paths: CurvePaths) {
         .cloned()
         .expect("Curve Text model");
     bind_curve_paths(cx, paths, &model);
-
-    let amplitude_value = model.amplitude.clone();
-    let speed_value = model.speed.clone();
-    let direction_label = model.reversed.clone();
-    let paused_label = model.paused.clone();
 
     //~focus-start
     ui! {
@@ -564,331 +660,12 @@ fn build_widgets(paths: CurvePaths) {
             row_gap: 12,
             bg_color: BACKGROUND
         ) {
-            Row (height: 54, align: AlignItems::Center, column_gap: 12) {
-                View (width: 8, height: 38, bg_color: CYAN, border_radius: 4)
-                Column (grow: 1.0, row_gap: 2) {
-                    Text (
-                        "KINETIC TYPE",
-                        height: 30,
-                        font: UI,
-                        font_size: 25,
-                        text_color: TEXT,
-                        paragraph: single_line(TextDirection::LeftToRight)
-                    )
-                    Text (
-                        "One shaped run · one retained path · continuous pose",
-                        font: UI,
-                        font_size: 12,
-                        text_color: MUTED,
-                        paragraph: single_line(TextDirection::LeftToRight)
-                    )
-                }
-                Text (
-                    route_label(),
-                    width: 248,
-                    height: 30,
-                    bg_color: PANEL_ALT,
-                    border_color: BORDER,
-                    border_width: 1,
-                    border_radius: 15,
-                    font: UI,
-                    font_size: 10,
-                    text_color: CYAN,
-                    paragraph: centered_label()
-                )
-            }
-            View (
-                id: "curve_text_stage_shell",
-                grow: 1.0,
-                min_height: 360,
-                clip_children: true,
-                bg_color: PANEL,
-                border_color: BORDER,
-                border_width: 1,
-                border_radius: 18
-            ) {
-                CurveStage (
-                    id: "curve_text_stage",
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100)
-                ) [
-                    IgnoreHitTest,
-                ]
-                Text (
-                    id: "curve_text_primary",
-                    "MIRUI · BEND SPACE, NOT GLYPHS",
-                    path: crate::text::TextPath::new(paths.ids[0])
-                        .with_range(Fixed::ZERO..Fixed::from_int(820)),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    font: UI,
-                    font_size: 30,
-                    text_color: TEXT,
-                    paragraph: single_line(TextDirection::LeftToRight)
-                ) [
-                    IgnoreHitTest,
-                ]
-                Text (
-                    id: "curve_text_multiscript",
-                    "中文曲线排版 · مرحبا · ตั้ง",
-                    path: crate::text::TextPath::new(paths.ids[1])
-                        .with_range(Fixed::ZERO..Fixed::from_int(820)),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    font_stack: mixed_stack(),
-                    font_size: 25,
-                    text_color: CYAN,
-                    paragraph: single_line(TextDirection::Auto)
-                ) [
-                    IgnoreHitTest,
-                ]
-                Text (
-                    id: "curve_text_caption",
-                    "PATH REVISION → MEASURE → PLACE → FOUR BACKENDS",
-                    path: crate::text::TextPath::new(paths.ids[2])
-                        .with_range(Fixed::ZERO..Fixed::from_int(820)),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    font: UI,
-                    font_size: 14,
-                    text_color: GOLD,
-                    paragraph: single_line(TextDirection::LeftToRight)
-                ) [
-                    IgnoreHitTest,
-                ]
-            }
-            Row (
-                id: "curve_text_controls",
-                height: 62,
-                padding: Padding {
-                    top: Dimension::px(10),
-                    right: Dimension::px(12),
-                    bottom: Dimension::px(10),
-                    left: Dimension::px(12),
-                },
-                align: AlignItems::Center,
-                column_gap: 10,
-                bg_color: PANEL,
-                border_color: BORDER,
-                border_width: 1,
-                border_radius: 14
-            ) {
-                Text ("AMPLITUDE", width: 74, font: UI, font_size: 10, text_color: MUTED)
-                Slider (
-                    id: "curve_text_amplitude",
-                    width: 148,
-                    height: 14,
-                    min: Fixed::from_int(24),
-                    max: Fixed::from_int(96),
-                    value: Fixed::from_int(68),
-                    track_color: BORDER,
-                    fill_color: CYAN,
-                    thumb_color: TEXT
-                ) on ValueChanged {
-                    let _ = old;
-                    CurveAction::SetAmplitude(*new).publish(ctx.world);
-                }
-                Text (
-                    text: ${ format!("{}", amplitude_value.get().to_int()) },
-                    width: 28,
-                    font: UI,
-                    font_size: 11,
-                    text_color: TEXT
-                )
-                Text ("SPEED", width: 46, font: UI, font_size: 10, text_color: MUTED)
-                Slider (
-                    id: "curve_text_speed",
-                    width: 132,
-                    height: 14,
-                    min: Fixed::from_int(20),
-                    max: Fixed::from_int(120),
-                    value: Fixed::from_int(64),
-                    track_color: BORDER,
-                    fill_color: VIOLET,
-                    thumb_color: TEXT
-                ) on ValueChanged {
-                    let _ = old;
-                    CurveAction::SetSpeed(*new).publish(ctx.world);
-                }
-                Text (
-                    text: ${ format!("{}", speed_value.get().to_int()) },
-                    width: 30,
-                    font: UI,
-                    font_size: 11,
-                    text_color: TEXT
-                )
-                Text (
-                    id: "curve_text_direction",
-                    text: ${ if direction_label.get() { "REVERSE" } else { "FORWARD" } },
-                    width: 96,
-                    height: 34,
-                    bg_color: PANEL_ALT,
-                    border_color: VIOLET,
-                    border_width: 1,
-                    border_radius: 10,
-                    font: UI,
-                    font_size: 10,
-                    text_color: VIOLET,
-                    paragraph: centered_label()
-                ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
-                Text (
-                    id: "curve_text_pause",
-                    text: ${ if paused_label.get() { "RESUME" } else { "PAUSE" } },
-                    grow: 1.0,
-                    min_width: 82,
-                    height: 34,
-                    bg_color: PANEL_ALT,
-                    border_color: CYAN,
-                    border_width: 1,
-                    border_radius: 10,
-                    font: UI,
-                    font_size: 10,
-                    text_color: CYAN,
-                    paragraph: centered_label()
-                ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
-            }
+            compose_header ()
+            compose_stage (paths)
+            compose_controls ()
         }
     };
     //~focus-end
-}
-
-#[compose]
-fn build_compact_widgets(paths: CurvePaths) {
-    let model = cx
-        .world_mut()
-        .resource::<CurveModel>()
-        .cloned()
-        .expect("Curve Text model");
-    bind_curve_paths(cx, paths, &model);
-    ui! {
-        Column (
-            id: "curve_text_shell",
-            grow: 1.0,
-            padding: Padding::all(6),
-            row_gap: 4,
-            bg_color: BACKGROUND
-        ) {
-            Row (height: 14, align: AlignItems::Center, column_gap: 4) {
-                View (width: 4, height: 10, bg_color: CYAN, border_radius: 2)
-                Text (
-                    "CURVE TEXT",
-                    grow: 1.0,
-                    height: 14,
-                    font: FontToken::Default,
-                    font_size: 6,
-                    text_color: TEXT,
-                    paragraph: bitmap_line(TextAlign::Start)
-                )
-            }
-            View (
-                id: "curve_text_stage",
-                grow: 1.0,
-                clip_children: true
-            ) {
-                Text (
-                    id: "curve_text_primary",
-                    "MIRUI RIDES THE WAVE    MIRUI RIDES THE WAVE    ",
-                    path: compact_text_path(paths.ids[0], Fixed::ZERO),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    font: FontToken::Default,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: bitmap_line(TextAlign::Start)
-                ) [
-                    IgnoreHitTest,
-                ]
-            }
-            View (
-                id: "curve_text_footer",
-                width: Dimension::percent(100),
-                height: 18,
-                padding: Padding {
-                    top: Dimension::px(3),
-                    right: Dimension::px(10),
-                    bottom: Dimension::px(3),
-                    left: Dimension::px(10),
-                },
-                bg_color: PANEL_ALT,
-                border_color: BORDER,
-                border_width: 1,
-                border_radius: 8
-            ) [
-                IgnoreHitTest,
-            ] {
-                Text (
-                    id: "curve_text_footer_label",
-                    "AUTO LOOP",
-                    grow: 1.0,
-                    font: FontToken::Default,
-                    font_size: 6,
-                    text_color: MUTED,
-                    paragraph: bitmap_line(TextAlign::Center)
-                ) [
-                    IgnoreHitTest,
-                ]
-            }
-        }
-    };
-}
-
-fn install_layout<B, F>(app: &mut App<B, F>, parent: Entity, compact: bool)
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    app.with_widget(curve_stage_view());
-    if !compact {
-        crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
-    }
-    let model = if compact {
-        CurveModel {
-            amplitude: Signal::new(Fixed::from_int(28)),
-            speed: Signal::new(Fixed::from_int(90)),
-            ..CurveModel::default()
-        }
-    } else {
-        CurveModel::default()
-    };
-    app.world.insert_resource(model);
-    app.world.insert_resource(CurveMotion::default());
-    let paths = register_paths(&mut app.world, compact);
-    app.world.insert_resource(paths);
-    app.add_system(curve_text_animation_system::system());
-    if compact {
-        app.compose(parent, |cx| build_compact_widgets(cx, paths));
-    } else {
-        app.compose(parent, |cx| build_widgets(cx, paths));
-    }
-    let stage = app
-        .world
-        .find_by_id("curve_text_stage")
-        .expect("Curve Text stage");
-    let compact_text = compact.then(|| {
-        app.world
-            .find_by_id("curve_text_primary")
-            .expect("compact Curve Text")
-    });
-    app.world.insert_resource(CurveNodes {
-        stage,
-        compact_text,
-        compact,
-    });
 }
 
 pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
@@ -896,15 +673,19 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    install_layout(app, parent, false);
-}
-
-pub fn install_compact<B, F>(app: &mut App<B, F>, parent: Entity)
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    install_layout(app, parent, true);
+    app.with_widget(curve_stage_view());
+    crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
+    app.world.insert_resource(CurveModel::default());
+    app.world.insert_resource(CurveMotion::default());
+    let paths = register_paths(&mut app.world);
+    app.world.insert_resource(paths);
+    app.add_system(curve_text_animation_system::system());
+    app.compose(parent, |cx| build_widgets(cx, paths));
+    let stage = app
+        .world
+        .find_by_id("curve_text_stage")
+        .expect("Curve Text stage");
+    app.world.insert_resource(CurveNodes { stage });
 }
 
 #[cfg(feature = "std")]
@@ -944,7 +725,7 @@ mod tests {
     #[test]
     fn animated_lanes_keep_a_bounded_flattened_shape() {
         for lane in 0..3 {
-            let path = make_lane(lane, false);
+            let path = make_lane(lane);
             let requirements = crate::text::baseline::PathMeasure::new(
                 &path,
                 0,
@@ -962,7 +743,7 @@ mod tests {
 
     #[test]
     fn animated_lane_baseline_is_temporally_continuous() {
-        let mut path = make_lane(0, false);
+        let mut path = make_lane(0);
         let mut previous: Option<(Point, Point)> = None;
         let mut segment_count = None;
         let mut maximum_position_step = Fixed::ZERO;
@@ -1122,7 +903,7 @@ mod tests {
         let stopped = model.phase.get_untracked();
         assert!(stopped > moving);
         assert_eq!(
-            app.world.resource::<CurveMotion>().unwrap().rate,
+            app.world.resource::<CurveMotion>().unwrap().rate(),
             Fixed::ZERO
         );
 
@@ -1133,7 +914,7 @@ mod tests {
         tap(&mut app.world, "curve_text_pause");
         curve_text_animation_system(&mut app.world);
         assert!(model.phase.get_untracked() > stopped);
-        assert!(app.world.resource::<CurveMotion>().unwrap().rate < Fixed::ONE);
+        assert!(app.world.resource::<CurveMotion>().unwrap().rate() < Fixed::ONE);
     }
 
     #[test]
@@ -1161,156 +942,5 @@ mod tests {
             .filter(|pixel| pixel[..3] != [BACKGROUND.r, BACKGROUND.g, BACKGROUND.b])
             .count();
         assert!(non_background > 20_000);
-    }
-
-    #[test]
-    fn compact_layout_fits_embedded_viewport_and_animates() {
-        let mut app = App::headless(128, 128);
-        app.with_default_widgets().with_default_systems();
-        let parent = app.spawn_root().id();
-        install_compact(&mut app, parent);
-        app.set_root(parent);
-        flush_signal_dirty(&mut app.world);
-        let paths = app.world.resource::<CurvePaths>().copied().unwrap();
-        let initial_revision = app
-            .world
-            .resource::<PathStore>()
-            .unwrap()
-            .revision(paths.ids[0])
-            .unwrap();
-        let text = app.world.find_by_id("curve_text_primary").unwrap();
-        let style = app.world.get::<crate::ui::Style>(text).unwrap();
-        assert_eq!(style.font_stack.primary(), &FontToken::Default);
-        let initial_offset = app
-            .world
-            .get::<crate::text::TextPath>(text)
-            .unwrap()
-            .offset();
-        app.render().unwrap();
-        app.world.remove::<crate::ui::dirty::Dirty>(text);
-        app.world.remove::<crate::ui::dirty::VisualDirty>(text);
-        app.world.insert_resource(DeltaTimeMs(16));
-        curve_text_animation_system(&mut app.world);
-        flush_signal_dirty(&mut app.world);
-        let current_offset = app
-            .world
-            .get::<crate::text::TextPath>(text)
-            .unwrap()
-            .offset();
-        let current_revision = app
-            .world
-            .resource::<PathStore>()
-            .unwrap()
-            .revision(paths.ids[0])
-            .unwrap();
-        assert!(current_offset > initial_offset);
-        assert_eq!(current_revision, initial_revision);
-        assert!(app.world.get::<crate::ui::dirty::Dirty>(text).is_none());
-        let stage = app.world.find_by_id("curve_text_stage").unwrap();
-        assert!(
-            app.world
-                .get::<crate::ui::dirty::VisualDirty>(text)
-                .is_none()
-        );
-        assert!(
-            app.world
-                .get::<crate::ui::dirty::VisualDirty>(stage)
-                .is_none()
-        );
-        let rect = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
-        assert_eq!(
-            app.world
-                .resource::<crate::ui::dirty::ExactDirtyRegions>()
-                .map(|regions| regions.is_empty()),
-            Some(false)
-        );
-        let footer = app.world.find_by_id("curve_text_footer").unwrap();
-        let footer_label = app.world.find_by_id("curve_text_footer_label").unwrap();
-        let footer_rect = app.world.get::<crate::ui::ComputedRect>(footer).unwrap().0;
-        let footer_label_rect = app
-            .world
-            .get::<crate::ui::ComputedRect>(footer_label)
-            .unwrap()
-            .0;
-        assert!(footer_label_rect.x >= footer_rect.x + Fixed::from_int(10));
-        assert!(
-            footer_label_rect.x + footer_label_rect.w
-                <= footer_rect.x + footer_rect.w - Fixed::from_int(10)
-        );
-        assert!(rect.x >= Fixed::ZERO && rect.y >= Fixed::ZERO);
-        assert!(rect.x + rect.w <= Fixed::from_int(128));
-        assert!(rect.y + rect.h <= Fixed::from_int(128));
-        let x_range = rect.x.to_int() as usize..(rect.x + rect.w).to_int() as usize;
-        let y_range = rect.y.to_int() as usize..(rect.y + rect.h).to_int() as usize;
-        let model = app.world.resource::<CurveModel>().unwrap().clone();
-        for phase in [0, 45, 90, 135, 180, 225, 270, 315, 359] {
-            model.phase.set(Fixed::from_int(phase));
-            let nodes = *app.world.resource::<CurveNodes>().unwrap();
-            update_curve_visual(&mut app.world, nodes, Fixed::from_int(phase));
-            app.render().unwrap();
-            let texture = app.backend.framebuffer();
-            let visible_text_pixels = texture
-                .buf
-                .as_slice()
-                .chunks_exact(4)
-                .enumerate()
-                .filter(|(index, pixel)| {
-                    let x = index % texture.width as usize;
-                    let y = index / texture.width as usize;
-                    x_range.contains(&x)
-                        && y_range.contains(&y)
-                        && pixel[0] > 100
-                        && pixel[1] > 100
-                        && pixel[2] > 120
-                })
-                .count();
-            assert!(visible_text_pixels > 8, "phase {phase}");
-        }
-    }
-
-    #[test]
-    fn compact_text_marquee_repeats_across_the_wave() {
-        assert_eq!(compact_text_offset(Fixed::ZERO), Fixed::ZERO);
-        assert!(
-            compact_text_offset(Fixed::from_int(359)) > Fixed::from_int(COMPACT_MARQUEE_CYCLE - 1)
-        );
-
-        let path = make_compact_lane(0);
-        assert_eq!(path.commands().len(), 9);
-        let PathCmd::MoveTo(start) = path.commands()[0] else {
-            panic!("compact path start");
-        };
-        let PathCmd::CubicTo { ctrl1: crest, .. } = path.commands()[1] else {
-            panic!("compact path crest");
-        };
-        let PathCmd::CubicTo { ctrl1: trough, .. } = path.commands()[2] else {
-            panic!("compact path trough");
-        };
-        let PathCmd::CubicTo { end, .. } = path.commands()[8] else {
-            panic!("compact path end");
-        };
-        assert_eq!(start.x, Fixed::from_int(-160));
-        assert_eq!(start.y, Fixed::from_int(38));
-        assert_eq!(crest.y, Fixed::from_int(10));
-        assert_eq!(trough.y, Fixed::from_int(66));
-        assert_eq!(end.x, Fixed::from_int(480));
-        assert_eq!(end.y, Fixed::from_int(38));
-    }
-
-    #[test]
-    fn compact_path_placement_stays_available_across_dirty_frames() {
-        let mut app = App::headless(128, 128);
-        app.with_default_widgets().with_default_systems();
-        let parent = app.spawn_root().id();
-        install_compact(&mut app, parent);
-        app.render().unwrap();
-        app.render_dirty().unwrap();
-
-        let nodes = *app.world.resource::<CurveNodes>().unwrap();
-        for phase in 1..=64 {
-            update_curve_visual(&mut app.world, nodes, Fixed::from_int(phase));
-            app.render_dirty()
-                .unwrap_or_else(|error| panic!("frame {phase}: {error:?}"));
-        }
     }
 }

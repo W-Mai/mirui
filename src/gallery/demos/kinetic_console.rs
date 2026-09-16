@@ -12,6 +12,7 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::DimPoint;
 use crate::ui::IgnoreHitTest;
+#[cfg(test)]
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextAlign, TextVerticalAlign, TextWrap};
@@ -113,23 +114,11 @@ impl ConsoleModel {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct ConsoleMotion {
-    phase: Fixed,
-    rate: Fixed,
+    phase: super::motion::BrakedPhase,
     state: ConsoleState,
     wave_elapsed_ms: u16,
-}
-
-impl Default for ConsoleMotion {
-    fn default() -> Self {
-        Self {
-            phase: Fixed::ZERO,
-            rate: Fixed::ONE,
-            state: ConsoleState::default(),
-            wave_elapsed_ms: 0,
-        }
-    }
 }
 
 struct ConsoleNodes {
@@ -212,7 +201,7 @@ fn orbit_render(
     let state = model.snapshot();
     let phase = world
         .resource::<ConsoleMotion>()
-        .map_or(Fixed::ZERO, |motion| motion.phase);
+        .map_or(Fixed::ZERO, |motion| motion.phase.phase());
     let accent = state.mode.accent();
     let secondary = state.mode.secondary();
 
@@ -345,7 +334,7 @@ fn wave_render(
     let state = model.snapshot();
     let phase = world
         .resource::<ConsoleMotion>()
-        .map_or(Fixed::ZERO, |motion| motion.phase);
+        .map_or(Fixed::ZERO, |motion| motion.phase.phase());
     let accent = state.mode.accent();
     ctx.bg_handled = true;
     let clip = *ctx.clip;
@@ -389,7 +378,7 @@ fn wave_view() -> View {
 #[mirui_macros::system(order = ANIMATION)]
 pub fn kinetic_animation_system(world: &mut World) {
     const MAX_STEP_MS: u16 = 50;
-    const RATE_RAMP_MS: i32 = 450;
+    const RATE_RAMP_MS: u16 = 450;
 
     let Some(state) = world.resource::<ConsoleModel>().map(ConsoleModel::snapshot) else {
         return;
@@ -404,25 +393,19 @@ pub fn kinetic_animation_system(world: &mut World) {
     let controls_changed = motion.state.mode != state.mode || motion.state.focused != state.focused;
     let intensity_changed = motion.state.intensity != state.intensity;
     motion.state = state;
-    let previous_rate = motion.rate;
-    let rate_step = Fixed::from_ratio(i32::from(dt), RATE_RAMP_MS);
-    motion.rate = if state.paused {
-        (motion.rate - rate_step).max(Fixed::ZERO)
-    } else {
-        (motion.rate + rate_step).min(Fixed::ONE)
-    };
-    let moving = previous_rate > Fixed::ZERO || motion.rate > Fixed::ZERO;
+    let previous_phase = motion.phase.phase();
+    let speed = Fixed::from_int(state.mode.speed()) + state.intensity * Fixed::from_ratio(3, 5);
+    let phase = motion.phase.advance(
+        dt,
+        RATE_RAMP_MS,
+        speed,
+        Fixed::ONE,
+        state.paused,
+        Fixed::from_int(360),
+    );
+    let moving = phase != previous_phase;
     if moving {
-        let speed = Fixed::from_int(state.mode.speed()) + state.intensity * Fixed::from_ratio(3, 5);
-        let average_rate = (previous_rate + motion.rate) / Fixed::from_int(2);
-        let delta = speed * average_rate * Fixed::from_int(i32::from(dt)) / Fixed::from_int(1000);
-        if delta > Fixed::ZERO {
-            motion.phase += delta;
-            while motion.phase >= Fixed::from_int(360) {
-                motion.phase -= Fixed::from_int(360);
-            }
-            motion.wave_elapsed_ms = motion.wave_elapsed_ms.saturating_add(dt);
-        }
+        motion.wave_elapsed_ms = motion.wave_elapsed_ms.saturating_add(dt);
     }
     let orbit_dirty = controls_changed || moving;
     let wave_dirty = controls_changed || intensity_changed || motion.wave_elapsed_ms >= 64;
@@ -434,10 +417,10 @@ pub fn kinetic_animation_system(world: &mut World) {
         .map(|nodes| (nodes.orbit, nodes.wave))
     {
         if orbit_dirty {
-            world.insert(nodes.0, VisualDirty);
+            world.invalidate_visual(nodes.0);
         }
         if wave_dirty {
-            world.insert(nodes.1, VisualDirty);
+            world.invalidate_visual(nodes.1);
         }
     }
 }
@@ -796,7 +779,7 @@ mod tests {
         world.insert_resource(ConsoleNodes { orbit, wave });
 
         kinetic_animation_system(&mut world);
-        let phase = world.resource::<ConsoleMotion>().unwrap().phase;
+        let phase = world.resource::<ConsoleMotion>().unwrap().phase.phase();
         assert!(phase > Fixed::ZERO);
         assert!(world.get::<VisualDirty>(orbit).is_some());
         assert!(world.get::<VisualDirty>(wave).is_none());
@@ -812,8 +795,8 @@ mod tests {
         ConsoleAction::TogglePaused.publish(&model);
         kinetic_animation_system(&mut world);
         let braking = *world.resource::<ConsoleMotion>().unwrap();
-        assert!(braking.phase > phase);
-        assert!(braking.rate > Fixed::ZERO && braking.rate < Fixed::ONE);
+        assert!(braking.phase.phase() > phase);
+        assert!(braking.phase.rate() > Fixed::ZERO && braking.phase.rate() < Fixed::ONE);
         assert!(world.get::<VisualDirty>(orbit).is_some());
         world.remove::<VisualDirty>(orbit);
 
@@ -823,13 +806,13 @@ mod tests {
             world.remove::<VisualDirty>(wave);
         }
         let stopped = *world.resource::<ConsoleMotion>().unwrap();
-        assert_eq!(stopped.rate, Fixed::ZERO);
+        assert_eq!(stopped.phase.rate(), Fixed::ZERO);
 
         world.insert_resource(DeltaTimeMs(5_000));
         kinetic_animation_system(&mut world);
         assert_eq!(
-            world.resource::<ConsoleMotion>().unwrap().phase,
-            stopped.phase
+            world.resource::<ConsoleMotion>().unwrap().phase.phase(),
+            stopped.phase.phase()
         );
         assert!(world.get::<VisualDirty>(wave).is_none());
         assert!(world.get::<VisualDirty>(orbit).is_none());
@@ -837,8 +820,8 @@ mod tests {
         ConsoleAction::TogglePaused.publish(&model);
         kinetic_animation_system(&mut world);
         let resuming = *world.resource::<ConsoleMotion>().unwrap();
-        assert!(resuming.rate > Fixed::ZERO && resuming.rate < Fixed::ONE);
-        assert!(resuming.phase > stopped.phase);
+        assert!(resuming.phase.rate() > Fixed::ZERO && resuming.phase.rate() < Fixed::ONE);
+        assert!(resuming.phase.phase() > stopped.phase.phase());
         assert!(world.get::<VisualDirty>(orbit).is_some());
     }
 
