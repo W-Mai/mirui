@@ -5,6 +5,7 @@ use std::fs::{self, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
+use mirui::ecs::DeltaTimeMs;
 use mirui::gallery::demos::orbit_console::{self, DemoRunMode};
 use mirui::prelude::*;
 use mirui::render::texture::ColorFormat;
@@ -124,6 +125,10 @@ fn main() {
         .next()
         .map(|value| value.parse().expect("viewport height"))
         .unwrap_or(DEFAULT_HEIGHT);
+    let ticks = args
+        .next()
+        .map(|value| value.parse().expect("animation ticks"))
+        .unwrap_or(0);
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
@@ -131,6 +136,11 @@ fn main() {
     let root = app.spawn_root().id();
     orbit_console::setup(&mut app, root, DemoRunMode::Capture);
     app.set_root(root);
+    app.world.insert_resource(DeltaTimeMs(100));
+    for _ in 0..ticks {
+        orbit_console::console_animation_system(&mut app.world);
+        mirui::core::reactive::flush_signal_dirty(&mut app.world);
+    }
     app.render().unwrap();
 
     let texture = app.backend.framebuffer();
