@@ -271,9 +271,35 @@ impl SwRenderer<'_> {
 
     pub(super) fn draw_posed_glyph_run_inner(&mut self, run: PosedRun<'_>) {
         let requested_size = run.font.size.max(1);
+        let output_ppem =
+            crate::render::font::output_ppem(requested_size, run.transform.raster_scale());
+        let metrics = run.font.metrics(requested_size);
         for (positioned, frame) in run.glyphs.iter().zip(run.frames) {
-            let output_ppem =
-                crate::render::font::output_ppem(requested_size, run.transform.raster_scale());
+            if run.transform.is_identity()
+                && let Some(bitmap) = run.font.packed_mono_glyph(positioned.glyph_id())
+            {
+                self.blit_posed_mono_glyph(
+                    bitmap,
+                    Rect {
+                        x: Fixed::ZERO,
+                        y: -metrics.ascender,
+                        w: Fixed::from_int(8),
+                        h: metrics.line_height,
+                    },
+                    Point {
+                        x: run.pos.x + crate::types::fixed::from_textflow(frame.local_origin.x),
+                        y: run.pos.y + crate::types::fixed::from_textflow(frame.local_origin.y),
+                    },
+                    Point {
+                        x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
+                        y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
+                    },
+                    run.clip,
+                    run.color,
+                    run.opacity,
+                );
+                continue;
+            }
             let Some(raster) =
                 run.font
                     .raster_for_output(positioned.glyph_id(), requested_size, output_ppem)
@@ -295,10 +321,38 @@ impl SwRenderer<'_> {
             {
                 continue;
             }
-            let Some(inverse) = RasterInverse::new(&quad.transform) else {
+            let Some(region) = raster.region else {
                 continue;
             };
-            let Some(region) = raster.region else {
+            if run.transform.is_identity()
+                && raster.representation.design_ppem() == requested_size
+                && let mirx::font::FontRepresentationKind::Coverage { bits } =
+                    raster.representation.kind()
+                && let Some(field) = ScalarField::new(
+                    raster.surface.samples(),
+                    raster.surface.stride(),
+                    region,
+                    bits,
+                )
+            {
+                self.blit_posed_coverage_glyph(
+                    field,
+                    quad.rect,
+                    Point {
+                        x: quad.transform.tx,
+                        y: quad.transform.ty,
+                    },
+                    Point {
+                        x: quad.transform.m00,
+                        y: quad.transform.m10,
+                    },
+                    run.clip,
+                    run.color,
+                    run.opacity,
+                );
+                continue;
+            }
+            let Some(inverse) = RasterInverse::new(&quad.transform) else {
                 continue;
             };
             let field = match raster.representation.kind() {
@@ -331,6 +385,125 @@ impl SwRenderer<'_> {
                     run.color,
                     run.opacity,
                 );
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blit_posed_mono_glyph(
+        &mut self,
+        bitmap: &[u8],
+        logical_rect: Rect,
+        origin: Point,
+        tangent: Point,
+        clip: Rect,
+        color: &Color,
+        opacity: u8,
+    ) {
+        let transform = Transform {
+            m00: tangent.x,
+            m01: -tangent.y,
+            tx: origin.x,
+            m10: tangent.y,
+            m11: tangent.x,
+            ty: origin.y,
+        };
+        let Some(draw_area) = transform
+            .apply_rect_bbox(logical_rect)
+            .intersect(&clip)
+            .and_then(|area| {
+                area.intersect(&Rect::new(0, 0, self.target.width, self.target.height))
+            })
+        else {
+            return;
+        };
+        let clip_bounds = draw_area.pixel_bounds();
+        let target_width = self.target.width as usize;
+        let clip_mask = self
+            .scratch
+            .clip_stack
+            .last()
+            .map(|mask| mask.alpha.as_slice());
+        let local_x = logical_rect.x + Fixed::HALF;
+        for (row, byte) in bitmap.iter().copied().enumerate() {
+            let local_y = logical_rect.y + Fixed::from_int(row as i32) + Fixed::HALF;
+            let mut screen_x = origin.x + tangent.x * local_x - tangent.y * local_y;
+            let mut screen_y = origin.y + tangent.y * local_x + tangent.x * local_y;
+            for col in 0..8 {
+                if byte & (0x80 >> col) != 0 {
+                    splat_coverage_pixel(
+                        &mut self.target,
+                        screen_x - Fixed::HALF,
+                        screen_y - Fixed::HALF,
+                        clip_bounds,
+                        target_width,
+                        clip_mask,
+                        color,
+                        opacity,
+                    );
+                }
+                screen_x += tangent.x;
+                screen_y += tangent.y;
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn blit_posed_coverage_glyph(
+        &mut self,
+        field: ScalarField<'_>,
+        logical_rect: Rect,
+        origin: Point,
+        tangent: Point,
+        clip: Rect,
+        color: &Color,
+        opacity: u8,
+    ) {
+        let transform = Transform {
+            m00: tangent.x,
+            m01: -tangent.y,
+            tx: origin.x,
+            m10: tangent.y,
+            m11: tangent.x,
+            ty: origin.y,
+        };
+        let Some(draw_area) = transform
+            .apply_rect_bbox(logical_rect)
+            .intersect(&clip)
+            .and_then(|area| {
+                area.intersect(&Rect::new(0, 0, self.target.width, self.target.height))
+            })
+        else {
+            return;
+        };
+        let clip_bounds = draw_area.pixel_bounds();
+        let target_width = self.target.width as usize;
+        let clip_mask = self
+            .scratch
+            .clip_stack
+            .last()
+            .map(|mask| mask.alpha.as_slice());
+        let local_x = logical_rect.x + Fixed::HALF;
+        for row in 0..field.height() {
+            let local_y = logical_rect.y + Fixed::from_int(row as i32) + Fixed::HALF;
+            let mut screen_x = origin.x + tangent.x * local_x - tangent.y * local_y;
+            let mut screen_y = origin.y + tangent.y * local_x + tangent.x * local_y;
+            for col in 0..field.width() {
+                let coverage = field.alpha(col, row);
+                if coverage != 0 {
+                    splat_coverage_pixel(
+                        &mut self.target,
+                        screen_x - Fixed::HALF,
+                        screen_y - Fixed::HALF,
+                        clip_bounds,
+                        target_width,
+                        clip_mask,
+                        color,
+                        scale_opacity(opacity, coverage),
+                    );
+                }
+                screen_x += tangent.x;
+                screen_y += tangent.y;
             }
         }
     }
@@ -955,6 +1128,47 @@ fn mono_sample(bitmap: &[u8], x: i32, y: i32) -> Fixed {
     }
 }
 
+fn scale_opacity(opacity: u8, coverage: u8) -> u8 {
+    ((u16::from(opacity) * u16::from(coverage) + 127) / 255) as u8
+}
+
+#[allow(clippy::too_many_arguments)]
+fn splat_coverage_pixel(
+    target: &mut crate::render::texture::Texture<'_>,
+    x: Fixed,
+    y: Fixed,
+    clip: (i32, i32, i32, i32),
+    target_width: usize,
+    clip_mask: Option<&[u8]>,
+    color: &Color,
+    opacity: u8,
+) {
+    let x0 = x.floor().to_int();
+    let y0 = y.floor().to_int();
+    let fx = storage::to_i32(x - Fixed::from_int(x0)) as u32;
+    let fy = storage::to_i32(y - Fixed::from_int(y0)) as u32;
+    let weights = [
+        ((x0, y0), (256 - fx) * (256 - fy)),
+        ((x0 + 1, y0), fx * (256 - fy)),
+        ((x0, y0 + 1), (256 - fx) * fy),
+        ((x0 + 1, y0 + 1), fx * fy),
+    ];
+    for ((px, py), weight) in weights {
+        if weight == 0 || px < clip.0 || py < clip.1 || px >= clip.2 || py >= clip.3 {
+            continue;
+        }
+        let mut alpha = ((u32::from(opacity) * weight + 32_768) >> 16) as u8;
+        if let Some(mask) = clip_mask {
+            alpha = ((u16::from(alpha) * u16::from(mask[py as usize * target_width + px as usize])
+                + 127)
+                / 255) as u8;
+        }
+        if alpha != 0 {
+            target.blend_pixel_int(px, py, color, alpha);
+        }
+    }
+}
+
 fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
     let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
@@ -1179,6 +1393,43 @@ mod tests {
     }
 
     #[test]
+    fn posed_native_atlas_bitmap_uses_the_coverage_path() {
+        let font = Font {
+            family: "atlas-bitmap",
+            size: 8,
+            backend: FontBackend::Custom(Rc::new(AtlasBitmapProvider)),
+        };
+        let glyphs = [textflow::shaping::PositionedGlyph::new(
+            GlyphId::new(1),
+            textflow::shaping::FlowPoint { x: 0, y: 0 },
+        )];
+        let frames = [textflow::placement::GlyphFrame {
+            local_origin: textflow::shaping::FlowPoint {
+                x: 2 << 8,
+                y: 2 << 8,
+            },
+            unit_tangent: textflow::shaping::FlowPoint { x: 1 << 8, y: 0 },
+        }];
+        let mut buf = vec![0u8; 8 * 8 * 4];
+        let texture = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(texture);
+
+        renderer.draw_posed_glyph_run_inner(PosedRun {
+            pos: &Point::ZERO,
+            glyphs: &glyphs,
+            frames: &frames,
+            font: &font,
+            transform: &Transform::IDENTITY,
+            clip: Rect::new(0, 0, 8, 8),
+            color: &Color::rgba(255, 255, 255, 255),
+            opacity: 255,
+        });
+
+        assert_eq!(pixel_alpha(&buf, 8, 2, 2), 255);
+        assert_eq!(pixel_alpha(&buf, 8, 1, 2), 0);
+    }
+
+    #[test]
     fn coverage_full_value_is_opaque_and_zero_is_blank() {
         let coverage = [0xF0_u8];
         let mut buf = vec![0u8; 4 * 4 * 4];
@@ -1297,6 +1548,54 @@ mod tests {
         assert!((60..=65).contains(&buf[4]));
         assert!((190..=192).contains(&buf[8]));
         assert_eq!(buf[12], 255);
+    }
+
+    struct AtlasBitmapProvider;
+
+    impl FontProvider for AtlasBitmapProvider {
+        fn face_id(&self) -> FontFaceId {
+            FontFaceId::new(4)
+        }
+
+        fn map_char(&self, _ch: char) -> Option<GlyphId> {
+            Some(GlyphId::new(1))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+            Some(Fixed::ONE)
+        }
+
+        fn raster(
+            &self,
+            _glyph: GlyphId,
+            _layout_ppem: u16,
+            _output_ppem: u16,
+        ) -> Option<RasterGlyph<'_>> {
+            Some(RasterGlyph {
+                surface: GlyphSurface::new(
+                    &[0x0f],
+                    2,
+                    1,
+                    1,
+                    mirx::image::SampleLayout::A4,
+                    mirx::types::ByteAlignment::ONE,
+                    FontSurfaceId::new(4),
+                )
+                .unwrap(),
+                region: Some(mirx::image::Region::new(1, 0, 1, 1).unwrap()),
+                representation: mirx::font::FontRepresentation::coverage(4, 8, 1).unwrap(),
+                offset_x: Fixed::ZERO,
+                offset_y: Fixed::ZERO,
+            })
+        }
+
+        fn metrics(&self, _ppem: u16) -> FontMetrics {
+            FontMetrics {
+                ascender: Fixed::ZERO,
+                descender: Fixed::ZERO,
+                line_height: Fixed::from_int(8),
+            }
+        }
     }
 
     struct RecordingProvider {

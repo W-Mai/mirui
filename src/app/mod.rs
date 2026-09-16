@@ -141,6 +141,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(crate::core::i18n::I18n::default());
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());
+        world.insert_resource(crate::ui::dirty::ExactDirtyRegions::default());
         Self {
             world,
             backend,

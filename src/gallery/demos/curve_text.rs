@@ -13,7 +13,7 @@ use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::IgnoreHitTest;
-use crate::ui::dirty::VisualDirty;
+use crate::ui::dirty::{VisualDirty, mark_exact_dirty};
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
     ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign, TextDirection, TextVerticalAlign,
@@ -123,7 +123,7 @@ impl CurveAction {
         }
         if let Some(nodes) = world.resource::<CurveNodes>().copied() {
             if !nodes.compact {
-                world.insert(nodes.stage, VisualDirty);
+                mark_curve_stage_dirty(world, nodes.stage);
             }
         }
     }
@@ -328,32 +328,33 @@ fn curve_stage_render(
         return;
     }
     ctx.bg_handled = true;
-    fill(renderer, ctx, *rect, PANEL, Fixed::from_int(18), 255);
-
-    for index in 0..12 {
-        let x = rect.x + rect.w * Fixed::from_ratio(index, 11);
-        fill(
-            renderer,
-            ctx,
-            Rect::new(x, rect.y, Fixed::ONE, rect.h),
-            BORDER,
-            Fixed::ZERO,
-            if index % 3 == 0 { 48 } else { 22 },
-        );
-    }
-    for index in 1..4 {
-        let y = rect.y + rect.h * Fixed::from_ratio(index, 4);
-        fill(
-            renderer,
-            ctx,
-            Rect::new(rect.x, y, rect.w, Fixed::ONE),
-            BORDER,
-            Fixed::ZERO,
-            28,
-        );
-    }
-
     let compact = rect.w < Fixed::from_int(200);
+    if !compact {
+        fill(renderer, ctx, *rect, PANEL, Fixed::from_int(18), 255);
+        for index in 0..12 {
+            let x = rect.x + rect.w * Fixed::from_ratio(index, 11);
+            fill(
+                renderer,
+                ctx,
+                Rect::new(x, rect.y, Fixed::ONE, rect.h),
+                BORDER,
+                Fixed::ZERO,
+                if index % 3 == 0 { 48 } else { 22 },
+            );
+        }
+        for index in 1..4 {
+            let y = rect.y + rect.h * Fixed::from_ratio(index, 4);
+            fill(
+                renderer,
+                ctx,
+                Rect::new(rect.x, y, rect.w, Fixed::ONE),
+                BORDER,
+                Fixed::ZERO,
+                28,
+            );
+        }
+    }
+
     let phase = if compact {
         Fixed::ZERO
     } else {
@@ -361,33 +362,21 @@ fn curve_stage_render(
             .resource::<CurveModel>()
             .map_or(Fixed::ZERO, |model| model.phase.get_untracked())
     };
-    let orbit_x = if compact {
-        rect.w * Fixed::from_ratio(3, 8)
-    } else {
-        Fixed::from_int(300)
-    };
-    let orbit_y = if compact {
-        rect.h / 3
-    } else {
-        Fixed::from_int(126)
-    };
-    for index in 0..5 {
-        let angle = phase + Fixed::from_int(index * 72);
-        let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * orbit_x;
-        let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * orbit_y;
-        let radius = if compact {
-            Fixed::from_int(2 + index % 3)
-        } else {
-            Fixed::from_int(10 + index % 3 * 4)
-        };
-        fill(
-            renderer,
-            ctx,
-            Rect::new(x - radius, y - radius, radius * 2, radius * 2),
-            LANE_COLORS[index as usize % LANE_COLORS.len()],
-            radius,
-            32,
-        );
+    if !compact {
+        for index in 0..5 {
+            let angle = phase + Fixed::from_int(index * 72);
+            let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * Fixed::from_int(300);
+            let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * Fixed::from_int(126);
+            let radius = Fixed::from_int(10 + index % 3 * 4);
+            fill(
+                renderer,
+                ctx,
+                Rect::new(x - radius, y - radius, radius * 2, radius * 2),
+                LANE_COLORS[index as usize % LANE_COLORS.len()],
+                radius,
+                32,
+            );
+        }
     }
 
     let (Some(paths), Some(store)) = (
@@ -397,27 +386,29 @@ fn curve_stage_render(
         return;
     };
     let transform = ctx.transform.compose(&Transform::translate(rect.x, rect.y));
-    let path_count = if compact { 0 } else { paths.ids.len() };
+    let path_count = if compact { 1 } else { paths.ids.len() };
     for (index, id) in paths.ids.into_iter().take(path_count).enumerate() {
         let Ok(path) = store.get(id) else {
             continue;
         };
         let paint = Paint::Color(LANE_COLORS[index].into());
-        ctx.draw(
-            renderer,
-            &DrawCommand::StrokePath {
-                path,
-                transform,
-                paint: &paint,
-                width: Fixed::from_int(5),
-                opa: 16,
-                line_cap: LineCap::Round,
-                line_join: LineJoin::Round,
-                miter_limit: Fixed::from_int(4),
-                dash: &[],
-            },
-            ctx.clip,
-        );
+        if !compact {
+            ctx.draw(
+                renderer,
+                &DrawCommand::StrokePath {
+                    path,
+                    transform,
+                    paint: &paint,
+                    width: Fixed::from_int(5),
+                    opa: 16,
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
+                    miter_limit: Fixed::from_int(4),
+                    dash: &[],
+                },
+                ctx.clip,
+            );
+        }
         ctx.draw(
             renderer,
             &DrawCommand::StrokePath {
@@ -425,7 +416,7 @@ fn curve_stage_render(
                 transform,
                 paint: &paint,
                 width: Fixed::ONE,
-                opa: 150,
+                opa: if compact { 92 } else { 150 },
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
                 miter_limit: Fixed::from_int(4),
@@ -448,7 +439,18 @@ fn update_curve_visual(world: &mut World, nodes: CurveNodes, phase: Fixed) {
             .ids[0];
         world.insert(text, compact_text_path(path, phase));
     }
-    world.insert(nodes.stage, VisualDirty);
+    mark_curve_stage_dirty(world, nodes.stage);
+}
+
+fn mark_curve_stage_dirty(world: &mut World, stage: Entity) {
+    if let Some(rect) = world
+        .get::<crate::ui::ComputedRect>(stage)
+        .map(|rect| rect.0)
+    {
+        mark_exact_dirty(world, rect);
+    } else {
+        world.insert(stage, VisualDirty);
+    }
 }
 
 #[mirui_macros::system(order = ANIMATION)]
@@ -1213,9 +1215,15 @@ mod tests {
         assert!(
             app.world
                 .get::<crate::ui::dirty::VisualDirty>(stage)
-                .is_some()
+                .is_none()
         );
         let rect = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+        assert_eq!(
+            app.world
+                .resource::<crate::ui::dirty::ExactDirtyRegions>()
+                .map(|regions| regions.is_empty()),
+            Some(false)
+        );
         let footer = app.world.find_by_id("curve_text_footer").unwrap();
         let footer_label = app.world.find_by_id("curve_text_footer_label").unwrap();
         let footer_rect = app.world.get::<crate::ui::ComputedRect>(footer).unwrap().0;
@@ -1251,7 +1259,9 @@ mod tests {
                     let y = index / texture.width as usize;
                     x_range.contains(&x)
                         && y_range.contains(&y)
-                        && pixel[..3] == [TEXT.r, TEXT.g, TEXT.b]
+                        && pixel[0] > 100
+                        && pixel[1] > 100
+                        && pixel[2] > 120
                 })
                 .count();
             assert!(visible_text_pixels > 8, "phase {phase}");

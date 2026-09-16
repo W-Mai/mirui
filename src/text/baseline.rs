@@ -1538,9 +1538,7 @@ impl PathPlacementCache {
     ) -> Result<&'a [textflow::placement::GlyphFrame], PathBaselineError> {
         let paragraph = layout.paragraph().map_err(PathBaselineError::Layout)?;
         let placement = paragraph.place_with(baselines);
-        let requirements = placement
-            .preflight()
-            .map_err(PathBaselineError::Placement)?;
+        let requirements = placement.requirements();
         self.glyphs.resolve(key, requirements.glyphs, |output| {
             placement
                 .place_into(textflow::placement::PlacementOutput::new(output))
@@ -1557,9 +1555,7 @@ impl PathPlacementCache {
     ) -> Result<&'a [textflow::placement::CaretFrame], PathBaselineError> {
         let paragraph = layout.paragraph().map_err(PathBaselineError::Layout)?;
         let placement = paragraph.place_with(baselines);
-        let requirements = placement
-            .preflight()
-            .map_err(PathBaselineError::Placement)?;
+        let requirements = placement.requirements();
         self.carets.resolve(key, requirements.carets, |output| {
             placement
                 .place_carets_into(output)

@@ -556,6 +556,17 @@ impl Font {
         }
     }
 
+    pub(crate) fn packed_mono_glyph(&self, glyph: GlyphId) -> Option<&'static [u8]> {
+        let FontBackend::Bitmap8x8 = &self.backend else {
+            return None;
+        };
+        let value = u8::try_from(glyph.value()).ok()?;
+        let GlyphKind::Mono(bitmap) = bitmap_8x8_glyph(value as char)?.kind else {
+            return None;
+        };
+        Some(bitmap)
+    }
+
     pub fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>> {
         match &self.backend {
             FontBackend::Bitmap8x8 => None,

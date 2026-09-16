@@ -2142,7 +2142,20 @@ pub(crate) fn collect_dirty_regions_into(
         .storage::<super::dirty::VisualDirty>()
         .map(|s| s.len())
         .unwrap_or(0);
-    if layout_dirty_count == 0 && visual_dirty_count == 0 {
+    let has_exact_dirty = world
+        .resource::<super::dirty::ExactDirtyRegions>()
+        .is_some_and(|regions| !regions.is_empty());
+    if layout_dirty_count == 0 && visual_dirty_count == 0 && !has_exact_dirty {
+        return;
+    }
+
+    if layout_dirty_count == 0
+        && visual_dirty_count == 0
+        && world
+            .resource::<LayoutSnapshot>()
+            .is_some_and(|snapshot| snapshot.matches(root, logical_w, logical_h))
+    {
+        drain_dirty_rects(world, plan);
         return;
     }
 
@@ -2270,7 +2283,15 @@ pub(crate) fn collect_dirty_regions_into(
         }
     }
 
+    drain_dirty_rects(world, plan);
+
     world.put_resource_box(snapshot);
+}
+
+fn drain_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
+    if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
+        regions.drain_into(&mut plan.rects);
+    }
 }
 
 fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
@@ -2412,6 +2433,35 @@ mod layout_snapshot_reuse_check {
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
         assert_eq!(plan.rects.len(), 1);
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
+    }
+
+    #[test]
+    fn exact_dirty_rect_bypasses_layout_walk_with_a_valid_snapshot() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let child = widget(&mut world, 10);
+        world.insert(root, Children(vec![child]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+
+        world.insert(root, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
+        let exact = Rect::new(7, 9, 11, 13);
+        super::super::dirty::mark_exact_dirty(&mut world, exact);
+
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+
+        assert_eq!(plan.rects, [exact]);
+        assert!(
+            world
+                .resource::<super::super::dirty::ExactDirtyRegions>()
+                .is_some_and(|regions| regions.is_empty())
+        );
+        assert_eq!(
+            world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
+            snapshot
+        );
     }
 
     #[test]

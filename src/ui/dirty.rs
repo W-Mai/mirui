@@ -13,6 +13,54 @@ pub struct Dirty;
 /// Marks paint geometry dirty while preserving the existing layout snapshot.
 pub(crate) struct VisualDirty;
 
+pub(crate) struct ExactDirtyRegions {
+    rects: [Rect; 4],
+    len: u8,
+}
+
+impl Default for ExactDirtyRegions {
+    fn default() -> Self {
+        Self {
+            rects: [Rect::ZERO; 4],
+            len: 0,
+        }
+    }
+}
+
+impl ExactDirtyRegions {
+    #[cfg_attr(not(feature = "gallery"), allow(dead_code))]
+    fn mark(&mut self, rect: Rect) {
+        let index = usize::from(self.len);
+        if index < self.rects.len() {
+            self.rects[index] = rect;
+            self.len += 1;
+        } else {
+            let last = self.rects.len() - 1;
+            self.rects[last] = self.rects[last].union(&rect);
+        }
+    }
+
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub(crate) fn drain_into(&mut self, target: &mut Vec<Rect>) {
+        target.extend_from_slice(&self.rects[..usize::from(self.len)]);
+        self.len = 0;
+    }
+}
+
+#[cfg_attr(not(feature = "gallery"), allow(dead_code))]
+pub(crate) fn mark_exact_dirty(world: &mut World, rect: Rect) {
+    if let Some(regions) = world.resource_mut::<ExactDirtyRegions>() {
+        regions.mark(rect);
+        return;
+    }
+    let mut regions = ExactDirtyRegions::default();
+    regions.mark(rect);
+    world.insert_resource(regions);
+}
+
 pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
     use crate::ui::{Children, Hidden};
     let mut stack = alloc::vec![root];
@@ -295,5 +343,20 @@ mod tests {
 
         assert!(sparse.prefers_split_redraw());
         assert!(!dense.prefers_split_redraw());
+    }
+
+    #[test]
+    fn exact_regions_stay_inline_and_union_overflow() {
+        let mut regions = ExactDirtyRegions::default();
+        for x in [0, 10, 20, 30, 40] {
+            regions.mark(Rect::new(x, 0, 2, 2));
+        }
+        let mut rects = Vec::new();
+
+        regions.drain_into(&mut rects);
+
+        assert_eq!(rects.len(), 4);
+        assert_eq!(rects[3], Rect::new(30, 0, 12, 2));
+        assert!(regions.is_empty());
     }
 }

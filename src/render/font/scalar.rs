@@ -81,6 +81,17 @@ impl<'a> ScalarField<'a> {
         Fixed::from_ratio(i32::from(self.quantized(x, y)), i32::from(self.max_value))
     }
 
+    pub(crate) fn alpha(&self, x: u32, y: u32) -> u8 {
+        debug_assert!(x < self.region.width());
+        debug_assert!(y < self.region.height());
+        let bit = (self.region.x() + x) * u32::from(self.bits);
+        let row = (self.region.y() + y) as usize * self.stride as usize;
+        let byte = self.samples[row + (bit >> 3) as usize];
+        let shift = 8 - self.bits - (bit & 7) as u8;
+        let value = u16::from((byte >> shift) & self.max_value as u8);
+        ((value * 255 + self.max_value / 2) / self.max_value) as u8
+    }
+
     pub(crate) fn width(&self) -> u32 {
         self.region.width()
     }
