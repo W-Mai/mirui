@@ -12,13 +12,13 @@ use crate::render::font::{FontStack, FontToken};
 use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
+use crate::ui::IgnoreHitTest;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
     ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign, TextDirection, TextVerticalAlign,
     TextWrap,
 };
-use crate::ui::{IgnoreHitTest, OffscreenRender};
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
 
@@ -159,18 +159,18 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) -> 
     let lane_phase = phase + Fixed::from_int(lane as i32 * 71);
     let wave = amplitude * lane_scale;
     let (x0, x1, x2, x3, x4, base_y) = if compact {
-        (2, 12, 24, 39, 50, 15 + lane as i32 * 12)
+        (-30, 20, 60, 130, 190, 36 + lane as i32 * 12)
     } else {
         (34, 168, 316, 596, 744, 104 + lane as i32 * 106)
     };
     let base_y = Fixed::from_int(base_y);
-    let end_x = if compact { 58 } else { 878 };
+    let end_x = if compact { 260 } else { 878 };
     let start = Point {
         x: Fixed::from_int(x0),
         y: base_y + Fixed::sin_deg(lane_phase - Fixed::from_int(38)) * wave / 3,
     };
     let middle = Point {
-        x: Fixed::from_int(if compact { 30 } else { 456 }),
+        x: Fixed::from_int(if compact { 90 } else { 456 }),
         y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(124)) * wave / 2,
     };
     let end = Point {
@@ -205,7 +205,7 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed, compact: bool) -> 
 }
 
 fn make_lane(lane: usize, compact: bool) -> Path {
-    let amplitude = if compact { 7 } else { 68 };
+    let amplitude = if compact { 10 } else { 68 };
     let [start, first, second] =
         lane_commands(lane, Fixed::ZERO, Fixed::from_int(amplitude), compact);
     let mut path = Path::try_with_capacity(3).expect("curve path storage");
@@ -448,7 +448,7 @@ fn curve_text_animation_system(world: &mut World) {
 }
 
 fn compact_text_offset(phase: Fixed) -> Fixed {
-    (Fixed::sin_deg(phase) + Fixed::ONE) * Fixed::from_int(9)
+    phase * Fixed::from_int(190) / Fixed::from_int(360)
 }
 
 fn route_label() -> &'static str {
@@ -752,66 +752,26 @@ fn build_compact_widgets(paths: CurvePaths) {
                 )
             }
             View (
-                id: "curve_text_stage_shell",
+                id: "curve_text_stage",
                 grow: 1.0,
-                clip_children: true,
-                bg_color: PANEL,
-                border_color: BORDER,
-                border_width: 1,
-                border_radius: 8
+                clip_children: true
             ) {
-                View (
-                    id: "curve_text_stage",
+                Text (
+                    id: "curve_text_primary",
+                    "MIRUI RIDES THE WAVE",
+                    path: ${
+                        crate::text::TextPath::new(paths.ids[0])
+                            .with_offset(compact_text_offset(text_phase.get()))
+                    },
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
                     width: Dimension::percent(100),
-                    height: Dimension::percent(100)
-                ) [
-                    IgnoreHitTest,
-                ]
-                View (
-                    id: "curve_text_track",
-                    position: Position::Absolute,
-                    left: 24,
-                    top: 27,
-                    width: 64,
-                    height: 30
-                ) [
-                    IgnoreHitTest,
-                ] {
-                    Text (
-                        id: "curve_text_primary",
-                        "MIRUI",
-                        path: ${
-                            crate::text::TextPath::new(paths.ids[0])
-                                .with_offset(compact_text_offset(text_phase.get()))
-                        },
-                        position: Position::Absolute,
-                        left: 0,
-                        top: 0,
-                        width: Dimension::percent(100),
-                        height: Dimension::percent(100),
-                        font: UI,
-                        font_size: 9,
-                        text_color: TEXT,
-                        paragraph: single_line(TextDirection::LeftToRight)
-                    ) [
-                        OffscreenRender::default(),
-                        IgnoreHitTest,
-                    ]
-                }
-                Text (
-                    "SIGNAL PATH",
-                    position: Position::Absolute,
-                    left: 0,
-                    bottom: 5,
-                    width: Dimension::percent(100),
-                    height: 10,
+                    height: Dimension::percent(100),
                     font: UI,
-                    font_size: 6,
-                    text_color: GOLD,
-                    paragraph: centered_label()
+                    font_size: 8,
+                    text_color: TEXT,
+                    paragraph: single_line(TextDirection::LeftToRight)
                 ) [
                     IgnoreHitTest,
                 ]
@@ -840,13 +800,10 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(curve_stage_view());
-    if compact {
-        app.with_offscreen_pool_budget(8 * 1024);
-    }
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
     let model = if compact {
         CurveModel {
-            amplitude: Signal::new(Fixed::from_int(7)),
+            amplitude: Signal::new(Fixed::from_int(10)),
             ..CurveModel::default()
         }
     } else {
@@ -1176,9 +1133,8 @@ mod tests {
             .unwrap()
             .revision(paths.ids[0])
             .unwrap();
-        assert_ne!(current_offset, initial_offset);
+        assert!(current_offset > initial_offset);
         assert_eq!(current_revision, initial_revision);
-        assert!(app.world.get::<OffscreenRender>(text).is_some());
         app.render().unwrap();
 
         let stage = app.world.find_by_id("curve_text_stage").unwrap();
@@ -1186,5 +1142,23 @@ mod tests {
         assert!(rect.x >= Fixed::ZERO && rect.y >= Fixed::ZERO);
         assert!(rect.x + rect.w <= Fixed::from_int(128));
         assert!(rect.y + rect.h <= Fixed::from_int(128));
+    }
+
+    #[test]
+    fn compact_text_crosses_the_full_wave_from_left_to_right() {
+        assert_eq!(compact_text_offset(Fixed::ZERO), Fixed::ZERO);
+        assert_eq!(
+            compact_text_offset(Fixed::from_int(180)),
+            Fixed::from_int(95)
+        );
+        assert!(compact_text_offset(Fixed::from_int(359)) > Fixed::from_int(189));
+
+        let [PathCmd::MoveTo(start), _, PathCmd::CubicTo { end, .. }] =
+            lane_commands(0, Fixed::ZERO, Fixed::from_int(10), true)
+        else {
+            panic!("compact path topology");
+        };
+        assert_eq!(start.x, Fixed::from_int(-30));
+        assert_eq!(end.x, Fixed::from_int(260));
     }
 }
