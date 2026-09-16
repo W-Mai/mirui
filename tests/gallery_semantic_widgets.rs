@@ -78,3 +78,15 @@ fn semantic_guard_detects_container_text() {
     );
     assert!(container_text_attributes("ui! { View (height: 20) { Text (\"ok\") } }").is_empty());
 }
+
+#[test]
+fn themed_gallery_surfaces_do_not_embed_palette_literals() {
+    for source in [
+        include_str!("../src/gallery/demos/nested_scroll.rs"),
+        include_str!("../src/gallery/demos/scroll.rs"),
+        include_str!("../src/gallery/demos/tabbar.rs"),
+    ] {
+        assert!(!source.contains("bg_color: Color::"));
+        assert!(!source.contains("text_color: Color::"));
+    }
+}

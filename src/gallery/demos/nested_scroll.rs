@@ -7,20 +7,20 @@ use crate::ui::widgets::{ParagraphStyle, Text};
 #[compose]
 pub fn build_widgets() {
     let colors_outer = [
-        Color::rgb(60, 60, 90),
-        Color::rgb(70, 50, 80),
-        Color::rgb(50, 70, 80),
-        Color::rgb(80, 60, 60),
-        Color::rgb(60, 80, 60),
+        (ColorToken::Primary, ColorToken::OnPrimary),
+        (ColorToken::Secondary, ColorToken::OnSecondary),
+        (ColorToken::Tertiary, ColorToken::OnTertiary),
+        (ColorToken::SurfaceVariant, ColorToken::OnSurfaceVariant),
+        (ColorToken::Primary, ColorToken::OnPrimary),
     ];
 
     let colors_inner = [
-        Color::rgb(88, 166, 255),
-        Color::rgb(63, 185, 80),
-        Color::rgb(248, 81, 73),
-        Color::rgb(210, 168, 255),
-        Color::rgb(255, 200, 50),
-        Color::rgb(100, 200, 150),
+        (ColorToken::Primary, ColorToken::OnPrimary),
+        (ColorToken::Secondary, ColorToken::OnSecondary),
+        (ColorToken::Tertiary, ColorToken::OnTertiary),
+        (ColorToken::SurfaceVariant, ColorToken::OnSurfaceVariant),
+        (ColorToken::Secondary, ColorToken::OnSecondary),
+        (ColorToken::Primary, ColorToken::OnPrimary),
     ];
 
     //~focus-start
@@ -52,14 +52,14 @@ pub fn build_widgets() {
             walk colors_outer.iter().enumerate() with item {
                 Column (
                     height: 200,
-                    bg_color: *item.1,
+                    bg_color: item.1.0,
                     border_radius: 12,
                     clip_children: true
                 ) {
                     Text (
                         text: ${ alloc::format!("SECTION {:02}", item.0 + 1) },
                         height: 34,
-                        text_color: Color::rgb(255, 255, 255),
+                        text_color: item.1.1,
                         paragraph: ParagraphStyle::label()
                     )
                     Row (grow: 1.0) [
@@ -75,26 +75,26 @@ pub fn build_widgets() {
                         },
                     ] {
                         walk colors_inner.iter() with color {
-                            View (width: 100, height: 150, bg_color: *color, border_radius: 8)
+                            View (width: 100, height: 150, bg_color: color.0, border_radius: 8)
                         }
                     }
                 }
             }
             Column (
                 height: 300,
-                bg_color: Color::rgb(50, 40, 70),
+                bg_color: ColorToken::Primary,
                 border_radius: 12,
                 clip_children: true
             ) {
                 Text (
                     "NESTED VERTICAL LIST",
                     height: 30,
-                    text_color: Color::rgb(255, 255, 255),
+                    text_color: ColorToken::OnPrimary,
                     paragraph: ParagraphStyle::label()
                 )
                 Column (
                     grow: 1.0,
-                    bg_color: Color::rgb(40, 35, 60),
+                    bg_color: ColorToken::SurfaceVariant,
                     padding: Padding {
                         top: Dimension::px(8),
                         left: Dimension::px(8),
@@ -116,7 +116,7 @@ pub fn build_widgets() {
                     walk colors_inner.iter().enumerate() with item {
                         Row (
                             height: 80,
-                            bg_color: *item.1,
+                            bg_color: item.1.0,
                             border_radius: 6,
                             align: AlignItems::Center,
                             padding: Padding::all(12)
@@ -125,7 +125,7 @@ pub fn build_widgets() {
                                 text: ${ alloc::format!("CARD {:02}", item.0 + 1) },
                                 grow: 1.0,
                                 height: 24,
-                                text_color: Color::rgb(255, 255, 255),
+                                text_color: item.1.1,
                                 paragraph: ParagraphStyle::label()
                             )
                         }

@@ -5,14 +5,22 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 #[compose]
 pub fn build_widgets() {
     let colors = [
-        ("Item 0", Color::rgb(88, 166, 255)),
-        ("Item 1", Color::rgb(63, 185, 80)),
-        ("Item 2", Color::rgb(248, 81, 73)),
-        ("Item 3", Color::rgb(210, 168, 255)),
-        ("Item 4", Color::rgb(255, 200, 50)),
-        ("Item 5", Color::rgb(150, 100, 200)),
-        ("Item 6", Color::rgb(100, 200, 150)),
-        ("Item 7", Color::rgb(200, 100, 100)),
+        ("Item 0", ColorToken::Primary, ColorToken::OnPrimary),
+        ("Item 1", ColorToken::Secondary, ColorToken::OnSecondary),
+        ("Item 2", ColorToken::Tertiary, ColorToken::OnTertiary),
+        (
+            "Item 3",
+            ColorToken::SurfaceVariant,
+            ColorToken::OnSurfaceVariant,
+        ),
+        ("Item 4", ColorToken::Primary, ColorToken::OnPrimary),
+        ("Item 5", ColorToken::Secondary, ColorToken::OnSecondary),
+        ("Item 6", ColorToken::Tertiary, ColorToken::OnTertiary),
+        (
+            "Item 7",
+            ColorToken::SurfaceVariant,
+            ColorToken::OnSurfaceVariant,
+        ),
     ];
 
     //~focus-start
@@ -69,7 +77,7 @@ pub fn build_widgets() {
                             item.0,
                             grow: 1.0,
                             height: 24,
-                            text_color: Color::rgb(255, 255, 255),
+                            text_color: item.2,
                             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                         )
                     }

@@ -107,7 +107,7 @@ pub fn build_widgets() {
                     justify: JustifyContent::Center,
                     padding: Padding::all(22),
                     row_gap: 8,
-                    bg_color: Color::rgb(22, 82, 76)
+                    bg_color: ColorToken::Primary
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -118,12 +118,12 @@ pub fn build_widgets() {
                         "HOME",
                         height: 30,
                         font_size: 22,
-                        text_color: Color::rgb(120, 241, 210),
+                        text_color: ColorToken::OnPrimary,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
                         "Active workspace overview.",
-                        text_color: Color::rgb(205, 236, 229)
+                        text_color: ColorToken::OnPrimary
                     )
                 }
                 Column (
@@ -135,7 +135,7 @@ pub fn build_widgets() {
                     justify: JustifyContent::Center,
                     padding: Padding::all(22),
                     row_gap: 8,
-                    bg_color: Color::rgb(78, 54, 26)
+                    bg_color: ColorToken::Secondary
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -146,12 +146,12 @@ pub fn build_widgets() {
                         "SEARCH",
                         height: 30,
                         font_size: 22,
-                        text_color: Color::rgb(255, 196, 107),
+                        text_color: ColorToken::OnSecondary,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
                         "Explore the current workspace.",
-                        text_color: Color::rgb(241, 222, 191)
+                        text_color: ColorToken::OnSecondary
                     )
                 }
                 Column (
@@ -163,7 +163,7 @@ pub fn build_widgets() {
                     justify: JustifyContent::Center,
                     padding: Padding::all(22),
                     row_gap: 8,
-                    bg_color: Color::rgb(63, 49, 92)
+                    bg_color: ColorToken::Tertiary
                 ) [
                     TabContent {
                         tab_bar: id("tabbar_demo_tabs"),
@@ -174,12 +174,12 @@ pub fn build_widgets() {
                         "PROFILE",
                         height: 30,
                         font_size: 22,
-                        text_color: Color::rgb(207, 177, 255),
+                        text_color: ColorToken::OnTertiary,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
                         "Identity and preferences.",
-                        text_color: Color::rgb(225, 213, 243)
+                        text_color: ColorToken::OnTertiary
                     )
                 }
             }

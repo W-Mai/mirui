@@ -22,6 +22,10 @@ const CYAN: Color = Color::rgb(64, 237, 218);
 const MARQUEE_CYCLE: i32 = 192;
 const TEXT_WINDOW: i32 = 400;
 
+static WAVE: Path = path!(
+    "M -160 38 C -140 10 -100 10 -80 38 C -60 66 -20 66 0 38 C 20 10 60 10 80 38 C 100 66 140 66 160 38 C 180 10 220 10 240 38 C 260 66 300 66 320 38 C 340 10 380 10 400 38 C 420 66 460 66 480 38"
+);
+
 #[derive(Clone, Copy)]
 struct CompactCurveNodes {
     path: PathId,
@@ -41,39 +45,6 @@ fn bitmap_line(align: TextAlign) -> ParagraphStyle {
         shaping: ShapingPolicy::Simple,
         ..ParagraphStyle::default()
     }
-}
-
-fn make_wave() -> Path {
-    let center = Fixed::from_int(38);
-    let amplitude = Fixed::from_int(28);
-    let mut path = Path::try_with_capacity(9).expect("compact curve path storage");
-    path.move_to(Point {
-        x: Fixed::from_int(-160),
-        y: center,
-    });
-    for half in 0..8 {
-        let start_x = -160 + half * 80;
-        let control_y = if half % 2 == 0 {
-            center - amplitude
-        } else {
-            center + amplitude
-        };
-        path.cubic_to(
-            Point {
-                x: Fixed::from_int(start_x + 20),
-                y: control_y,
-            },
-            Point {
-                x: Fixed::from_int(start_x + 60),
-                y: control_y,
-            },
-            Point {
-                x: Fixed::from_int(start_x + 80),
-                y: center,
-            },
-        );
-    }
-    path
 }
 
 fn text_path(path: PathId, phase: Fixed) -> crate::text::TextPath {
@@ -186,7 +157,7 @@ where
         .world
         .resource_mut::<PathStore>()
         .expect("path store")
-        .insert(make_wave())
+        .insert_static(WAVE.commands())
         .expect("compact curve path");
     app.world.insert_resource(CompactCurveMotion::default());
     app.add_system(compact_curve_animation_system::system());
@@ -218,8 +189,9 @@ mod tests {
 
     #[test]
     fn wave_has_fixed_topology_and_alternating_extrema() {
-        let path = make_wave();
+        let path = &WAVE;
         assert_eq!(path.commands().len(), 9);
+        assert!(path.is_borrowed());
         let PathCmd::MoveTo(start) = path.commands()[0] else {
             panic!("compact path start");
         };

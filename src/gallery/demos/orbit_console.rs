@@ -346,34 +346,9 @@ impl<'a> DemoPainter<'a> {
     }
 }
 
-fn circle_path(radius: i32) -> Path {
-    let radius = Fixed::from_int(radius);
-    let control = radius * Fixed::from_ratio(141, 256);
-    let mut path = Path::new();
-    path.move_to(Point::new(radius, Fixed::ZERO))
-        .cubic_to(
-            Point::new(radius, control),
-            Point::new(control, radius),
-            Point::new(Fixed::ZERO, radius),
-        )
-        .cubic_to(
-            Point::new(Fixed::ZERO - control, radius),
-            Point::new(Fixed::ZERO - radius, control),
-            Point::new(Fixed::ZERO - radius, Fixed::ZERO),
-        )
-        .cubic_to(
-            Point::new(Fixed::ZERO - radius, Fixed::ZERO - control),
-            Point::new(Fixed::ZERO - control, Fixed::ZERO - radius),
-            Point::new(Fixed::ZERO, Fixed::ZERO - radius),
-        )
-        .cubic_to(
-            Point::new(control, Fixed::ZERO - radius),
-            Point::new(radius, Fixed::ZERO - control),
-            Point::new(radius, Fixed::ZERO),
-        )
-        .close();
-    path
-}
+static UNIT_CIRCLE: Path = path!(
+    "M 1 0 C 1 0.55078125 0.55078125 1 0 1 C -0.55078125 1 -1 0.55078125 -1 0 C -1 -0.55078125 -0.55078125 -1 0 -1 C 0.55078125 -1 1 -0.55078125 1 0 Z"
+);
 
 fn radial_paint(inner: Color, middle: Color, outer: Color) -> Paint {
     Paint::RadialGradient(RadialGradient {
@@ -402,7 +377,6 @@ fn radial_paint(inner: Color, middle: Color, outer: Color) -> Paint {
 }
 
 pub struct ConsoleBackdrop {
-    glow: Path,
     mint: Paint,
     violet: Paint,
 }
@@ -410,7 +384,6 @@ pub struct ConsoleBackdrop {
 impl ConsoleBackdrop {
     pub fn new() -> Self {
         Self {
-            glow: circle_path(280),
             mint: radial_paint(
                 Color::rgba(31, 209, 180, 120),
                 Color::rgba(13, 105, 123, 70),
@@ -427,20 +400,20 @@ impl ConsoleBackdrop {
     fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect) {
         painter.fill(*rect, BG, Fixed::ZERO, 255);
         painter.fill_path(
-            &self.glow,
+            &UNIT_CIRCLE,
             &self.mint,
             Point::new(rect.x + Fixed::from_int(160), rect.y + Fixed::from_int(80)),
-            Fixed::ONE,
+            Fixed::from_int(280),
             160,
         );
         painter.fill_path(
-            &self.glow,
+            &UNIT_CIRCLE,
             &self.violet,
             Point::new(
                 rect.x + rect.w - Fixed::from_int(80),
                 rect.y + rect.h - Fixed::from_int(20),
             ),
-            Fixed::ONE,
+            Fixed::from_int(280),
             145,
         );
     }
@@ -453,14 +426,12 @@ impl Default for ConsoleBackdrop {
 }
 
 pub struct OrbitInstrument {
-    core: Path,
     core_paints: [Paint; 3],
 }
 
 impl OrbitInstrument {
     pub fn new() -> Self {
         Self {
-            core: circle_path(48),
             core_paints: [
                 radial_paint(Color::rgb(236, 255, 251), MINT, Color::rgb(8, 62, 69)),
                 radial_paint(Color::rgb(241, 248, 255), BLUE, Color::rgb(13, 45, 91)),
@@ -578,10 +549,10 @@ impl OrbitInstrument {
             );
         }
         painter.fill_path(
-            &self.core,
+            &UNIT_CIRCLE,
             &self.core_paints[state.mode as usize],
             center,
-            core_radius / Fixed::from_int(48),
+            core_radius,
             255,
         );
         painter.arc(ArcStroke {
@@ -1378,6 +1349,12 @@ mod tests {
             .resource::<ConsoleModel>()
             .expect("console model")
             .snapshot()
+    }
+
+    #[test]
+    fn shared_circle_geometry_is_static() {
+        assert!(UNIT_CIRCLE.is_borrowed());
+        assert_eq!(UNIT_CIRCLE.commands().len(), 6);
     }
 
     #[test]
