@@ -257,7 +257,6 @@ fn cmd_test() -> Result {
 
 fn cmd_lint() -> Result {
     cargo(&[
-        "+stable",
         "clippy",
         "--workspace",
         "--all-features",
@@ -274,7 +273,6 @@ fn cmd_lint() -> Result {
         });
     if riscv_installed {
         cargo(&[
-            "+stable",
             "clippy",
             "--lib",
             "--no-default-features",
@@ -305,7 +303,6 @@ fn cmd_lint() -> Result {
             .unwrap_or(false);
         if installed {
             cargo(&[
-                "+stable",
                 "clippy",
                 "--workspace",
                 "--all-features",
@@ -322,7 +319,7 @@ fn cmd_lint() -> Result {
             );
         }
     }
-    cargo(&["+stable", "fmt", "--all", "--check"])?;
+    cargo(&["fmt", "--all", "--check"])?;
     println!("  → xrune-fmt --check gallery/examples + src/gallery/demos");
     xrune_fmt_check_dir("gallery/examples")?;
     xrune_fmt_check_dir("src/gallery/demos")?;
