@@ -81,7 +81,6 @@ impl Default for CurveMotion {
 struct CurveNodes {
     stage: Entity,
     compact: bool,
-    mover: Option<Entity>,
 }
 
 #[derive(Default, crate::Component)]
@@ -442,21 +441,14 @@ fn curve_text_animation_system(world: &mut World) {
     }
     model.phase.set(phase);
     if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-        if nodes.compact {
-            if let Some(mover) = nodes.mover {
-                let x = Fixed::sin_deg(phase) * Fixed::from_int(12);
-                let y = Fixed::cos_deg(phase * 2) * Fixed::from_int(3);
-                let rotation = Fixed::sin_deg(phase + Fixed::from_int(40)) * Fixed::from_int(4);
-                crate::ui::widgets::set_transform(
-                    world,
-                    mover,
-                    Transform::translate(x, y).compose(&Transform::rotate_deg(rotation)),
-                );
-            }
-        } else {
+        if !nodes.compact {
             world.insert(nodes.stage, VisualDirty);
         }
     }
+}
+
+fn compact_text_offset(phase: Fixed) -> Fixed {
+    (Fixed::sin_deg(phase) + Fixed::ONE) * Fixed::from_int(9)
 }
 
 fn route_label() -> &'static str {
@@ -724,6 +716,7 @@ fn build_compact_widgets(paths: CurvePaths) {
         .cloned()
         .expect("Curve Text model");
     bind_curve_paths(cx, paths, &model);
+    let text_phase = model.phase.clone();
 
     ui! {
         Column (
@@ -778,7 +771,7 @@ fn build_compact_widgets(paths: CurvePaths) {
                     IgnoreHitTest,
                 ]
                 View (
-                    id: "curve_text_mover",
+                    id: "curve_text_track",
                     position: Position::Absolute,
                     left: 24,
                     top: 27,
@@ -790,7 +783,10 @@ fn build_compact_widgets(paths: CurvePaths) {
                     Text (
                         id: "curve_text_primary",
                         "MIRUI",
-                        path: paths.ids[0],
+                        path: ${
+                            crate::text::TextPath::new(paths.ids[0])
+                                .with_offset(compact_text_offset(text_phase.get()))
+                        },
                         position: Position::Absolute,
                         left: 0,
                         top: 0,
@@ -870,16 +866,7 @@ where
         .world
         .find_by_id("curve_text_stage")
         .expect("Curve Text stage");
-    let mover = compact.then(|| {
-        app.world
-            .find_by_id("curve_text_mover")
-            .expect("Curve Text mover")
-    });
-    app.world.insert_resource(CurveNodes {
-        stage,
-        compact,
-        mover,
-    });
+    app.world.insert_resource(CurveNodes { stage, compact });
 }
 
 pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
@@ -1161,16 +1148,36 @@ mod tests {
         let parent = app.spawn_root().id();
         install_compact(&mut app, parent);
         app.set_root(parent);
+        flush_signal_dirty(&mut app.world);
+        let paths = app.world.resource::<CurvePaths>().copied().unwrap();
+        let initial_revision = app
+            .world
+            .resource::<PathStore>()
+            .unwrap()
+            .revision(paths.ids[0])
+            .unwrap();
+        let text = app.world.find_by_id("curve_text_primary").unwrap();
+        let initial_offset = app
+            .world
+            .get::<crate::text::TextPath>(text)
+            .unwrap()
+            .offset();
         app.world.insert_resource(DeltaTimeMs(16));
         curve_text_animation_system(&mut app.world);
         flush_signal_dirty(&mut app.world);
-        let mover = app.world.find_by_id("curve_text_mover").unwrap();
-        assert!(
-            app.world
-                .get::<crate::ui::widgets::WidgetTransform>(mover)
-                .is_some()
-        );
-        let text = app.world.find_by_id("curve_text_primary").unwrap();
+        let current_offset = app
+            .world
+            .get::<crate::text::TextPath>(text)
+            .unwrap()
+            .offset();
+        let current_revision = app
+            .world
+            .resource::<PathStore>()
+            .unwrap()
+            .revision(paths.ids[0])
+            .unwrap();
+        assert_ne!(current_offset, initial_offset);
+        assert_eq!(current_revision, initial_revision);
         assert!(app.world.get::<OffscreenRender>(text).is_some());
         app.render().unwrap();
 
