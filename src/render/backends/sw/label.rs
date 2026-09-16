@@ -2,7 +2,7 @@ use super::SwRenderer;
 use crate::render::font::scalar::ScalarField;
 use crate::render::font::sdf::SignedDistanceField;
 use crate::render::font::{Font, Glyph, GlyphKind};
-use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, fixed::storage};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, fixed::storage};
 
 #[derive(Clone, Copy)]
 struct GlyphRasterContext {
@@ -11,6 +11,47 @@ struct GlyphRasterContext {
     mono_scale: i32,
     mono_height: i32,
     bounds: (i32, i32, i32, i32),
+}
+
+#[derive(Clone, Copy)]
+struct RasterInverse {
+    m00: Fixed64,
+    m01: Fixed64,
+    tx: Fixed64,
+    m10: Fixed64,
+    m11: Fixed64,
+    ty: Fixed64,
+}
+
+impl RasterInverse {
+    fn new(transform: &Transform) -> Option<Self> {
+        let m00 = Fixed64::from(transform.m00);
+        let m01 = Fixed64::from(transform.m01);
+        let tx = Fixed64::from(transform.tx);
+        let m10 = Fixed64::from(transform.m10);
+        let m11 = Fixed64::from(transform.m11);
+        let ty = Fixed64::from(transform.ty);
+        let determinant = m00 * m11 - m01 * m10;
+        if determinant.is_zero() {
+            return None;
+        }
+        let inverse_determinant = Fixed64::ONE / determinant;
+        Some(Self {
+            m00: m11 * inverse_determinant,
+            m01: -m01 * inverse_determinant,
+            tx: (m01 * ty - m11 * tx) * inverse_determinant,
+            m10: -m10 * inverse_determinant,
+            m11: m00 * inverse_determinant,
+            ty: (m10 * tx - m00 * ty) * inverse_determinant,
+        })
+    }
+
+    fn apply(self, x: Fixed64, y: Fixed64) -> (Fixed64, Fixed64) {
+        (
+            self.m00 * x + self.m01 * y + self.tx,
+            self.m10 * x + self.m11 * y + self.ty,
+        )
+    }
 }
 
 enum TransformedGlyph<'a> {
@@ -131,7 +172,8 @@ impl SwRenderer<'_> {
     }
 
     pub(super) fn draw_glyph_run_transformed_inner(&mut self, run: TransformedRun<'_>) {
-        let (Some(first), Some(inverse)) = (run.glyphs.first(), run.transform.inverse()) else {
+        let (Some(first), Some(inverse)) = (run.glyphs.first(), RasterInverse::new(run.transform))
+        else {
             return;
         };
         let requested_size = run.font.size.max(1);
@@ -242,7 +284,7 @@ impl SwRenderer<'_> {
             else {
                 continue;
             };
-            let Some(inverse) = quad.transform.inverse() else {
+            let Some(inverse) = RasterInverse::new(&quad.transform) else {
                 continue;
             };
             let Some(region) = raster.region else {
@@ -547,7 +589,7 @@ impl SwRenderer<'_> {
         glyph: TransformedGlyph<'_>,
         logical_rect: Rect,
         physical_transform: &Transform,
-        inverse: &Transform,
+        inverse: &RasterInverse,
         physical_clip: Rect,
         color: &Color,
         opa: u8,
@@ -565,12 +607,23 @@ impl SwRenderer<'_> {
             return;
         };
         let (source_width, source_height) = glyph.dimensions();
-        let source_scale_x = Fixed::from_int(source_width as i32) / logical_rect.w;
-        let source_scale_y = Fixed::from_int(source_height as i32) / logical_rect.h;
+        let source_scale_x =
+            Fixed64::from_int(i64::from(source_width)) / Fixed64::from(logical_rect.w);
+        let source_scale_y =
+            Fixed64::from_int(i64::from(source_height)) / Fixed64::from(logical_rect.h);
         let source_dx_x = inverse.m00 * source_scale_x;
         let source_dx_y = inverse.m10 * source_scale_y;
         let source_dy_x = inverse.m01 * source_scale_x;
         let source_dy_y = inverse.m11 * source_scale_y;
+        let source_dx_x_fixed = source_dx_x.to_fixed();
+        let source_dx_y_fixed = source_dx_y.to_fixed();
+        let source_dy_x_fixed = source_dy_x.to_fixed();
+        let source_dy_y_fixed = source_dy_y.to_fixed();
+        let logical_x = Fixed64::from(logical_rect.x);
+        let logical_y = Fixed64::from(logical_rect.y);
+        let source_w = Fixed64::from_int(i64::from(source_width));
+        let source_h = Fixed64::from_int(i64::from(source_height));
+        let half = Fixed64::from_ratio(1, 2);
         let (x0, y0, x1, y1) = draw_area.pixel_bounds();
         let target_width = self.target.width as usize;
         let clip_mask = self
@@ -580,26 +633,31 @@ impl SwRenderer<'_> {
             .map(|mask| mask.alpha.as_slice());
         for py in y0..y1 {
             let mask_row = py as usize * target_width;
+            let (sample_x, sample_y) = inverse.apply(
+                Fixed64::from_int(i64::from(x0)) + half,
+                Fixed64::from_int(i64::from(py)) + half,
+            );
+            let mut source_x = (sample_x - logical_x) * source_scale_x;
+            let mut source_y = (sample_y - logical_y) * source_scale_y;
             for px in x0..x1 {
-                let logical = inverse.apply_point(Point {
-                    x: Fixed::from_int(px) + Fixed::HALF,
-                    y: Fixed::from_int(py) + Fixed::HALF,
-                });
-                let u = logical.x - logical_rect.x;
-                let v = logical.y - logical_rect.y;
-                if u < Fixed::ZERO || v < Fixed::ZERO || u >= logical_rect.w || v >= logical_rect.h
-                {
+                let u = source_x;
+                let v = source_y;
+                source_x += source_dx_x;
+                source_y += source_dx_y;
+                if u < Fixed64::ZERO || v < Fixed64::ZERO || u >= source_w || v >= source_h {
                     continue;
                 }
-                let sx = u * source_scale_x - Fixed::HALF;
-                let sy = v * source_scale_y - Fixed::HALF;
+                let sx = (u - half).to_fixed();
+                let sy = (v - half).to_fixed();
                 let coverage = match &glyph {
                     TransformedGlyph::Mono(bitmap) => sample_mono_bilinear(bitmap, sx, sy),
                     TransformedGlyph::Coverage(field) => field.sample_bilinear(sx, sy),
                     TransformedGlyph::SignedDistance(field) => {
                         let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
-                        let screen_x = gradient_x * source_dx_x + gradient_y * source_dx_y;
-                        let screen_y = gradient_x * source_dy_x + gradient_y * source_dy_y;
+                        let screen_x =
+                            gradient_x * source_dx_x_fixed + gradient_y * source_dx_y_fixed;
+                        let screen_y =
+                            gradient_x * source_dy_x_fixed + gradient_y * source_dy_y_fixed;
                         let edge_half = ((screen_x * screen_x + screen_y * screen_y).sqrt() / 2)
                             .max(Fixed::from_ratio(1, 256));
                         ((distance + edge_half) / (edge_half * 2))
@@ -930,6 +988,29 @@ mod tests {
             sample_mono_bilinear(&bitmap, Fixed::HALF, Fixed::HALF),
             Fixed::from_ratio(1, 4)
         );
+    }
+
+    #[test]
+    fn raster_inverse_keeps_precision_after_large_translation() {
+        let transform = Transform {
+            m00: Fixed::from_ratio(4, 5),
+            m01: Fixed::from_ratio(-3, 5),
+            tx: Fixed::from_ratio(2_801, 4),
+            m10: Fixed::from_ratio(3, 5),
+            m11: Fixed::from_ratio(4, 5),
+            ty: Fixed::from_ratio(2_003, 4),
+        };
+        let local = Point {
+            x: Fixed::from_ratio(35, 2),
+            y: Fixed::from_ratio(37, 4),
+        };
+        let screen = transform.apply_point(local);
+        let inverse = RasterInverse::new(&transform).unwrap();
+        let (actual_x, actual_y) = inverse.apply(Fixed64::from(screen.x), Fixed64::from(screen.y));
+        let tolerance = Fixed64::from_ratio(1, 32);
+
+        assert!((actual_x - Fixed64::from(local.x)).abs() <= tolerance);
+        assert!((actual_y - Fixed64::from(local.y)).abs() <= tolerance);
     }
 
     #[test]

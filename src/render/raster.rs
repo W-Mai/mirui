@@ -37,6 +37,7 @@ pub struct SubPath {
 }
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+#[derive(Clone, Copy)]
 pub(crate) struct StrokeSpec<'a> {
     pub width: Fixed,
     pub cap: LineCap,
@@ -51,12 +52,14 @@ pub(crate) struct StrokeScratch {
     outline: Path,
     flattened: Vec<LineSeg>,
     subpaths: Vec<SubPath>,
+    semantic_joins: Vec<usize>,
     normals: Vec<Point>,
     rail: Vec<Point>,
     left_rail: Vec<Point>,
     arc: Vec<Point>,
     dashed: Vec<LineSeg>,
     dash_subpaths: Vec<SubPath>,
+    dashed_semantic_joins: Vec<usize>,
     dash_lengths: Vec<Fixed>,
 }
 
@@ -67,12 +70,14 @@ impl StrokeScratch {
             outline: Path::new(),
             flattened: Vec::new(),
             subpaths: Vec::new(),
+            semantic_joins: Vec::new(),
             normals: Vec::new(),
             rail: Vec::new(),
             left_rail: Vec::new(),
             arc: Vec::new(),
             dashed: Vec::new(),
             dash_subpaths: Vec::new(),
+            dashed_semantic_joins: Vec::new(),
             dash_lengths: Vec::new(),
         }
     }
@@ -102,12 +107,14 @@ impl StrokeScratch {
             &mut self.outline,
             &mut self.flattened,
             &mut self.subpaths,
+            &mut self.semantic_joins,
             &mut self.normals,
             &mut self.rail,
             &mut self.left_rail,
             &mut self.arc,
             &mut self.dashed,
             &mut self.dash_subpaths,
+            &mut self.dashed_semantic_joins,
         );
         &self.outline
     }
@@ -282,8 +289,31 @@ pub fn flatten_subpaths_into(
     segments: &mut Vec<LineSeg>,
     out: &mut Vec<SubPath>,
 ) {
+    flatten_subpaths_impl(cmds, transform, segments, out, None);
+}
+
+fn flatten_stroke_subpaths_into(
+    cmds: &[PathCmd],
+    transform: Option<&Transform>,
+    segments: &mut Vec<LineSeg>,
+    out: &mut Vec<SubPath>,
+    semantic_joins: &mut Vec<usize>,
+) {
+    flatten_subpaths_impl(cmds, transform, segments, out, Some(semantic_joins));
+}
+
+fn flatten_subpaths_impl(
+    cmds: &[PathCmd],
+    transform: Option<&Transform>,
+    segments: &mut Vec<LineSeg>,
+    out: &mut Vec<SubPath>,
+    mut semantic_joins: Option<&mut Vec<usize>>,
+) {
     segments.clear();
     out.clear();
+    if let Some(joins) = semantic_joins.as_deref_mut() {
+        joins.clear();
+    }
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
     let mut start = 0;
@@ -320,6 +350,9 @@ pub fn flatten_subpaths_into(
                 if !has_moveto {
                     continue;
                 }
+                if let Some(joins) = semantic_joins.as_deref_mut() {
+                    joins.push(segments.len());
+                }
                 let p = apply(*p);
                 segments.push(LineSeg { p1: current, p2: p });
                 current = p;
@@ -327,6 +360,9 @@ pub fn flatten_subpaths_into(
             PathCmd::QuadTo { ctrl, end } => {
                 if !has_moveto {
                     continue;
+                }
+                if let Some(joins) = semantic_joins.as_deref_mut() {
+                    joins.push(segments.len());
                 }
                 let ctrl = apply(*ctrl);
                 let end = apply(*end);
@@ -345,6 +381,9 @@ pub fn flatten_subpaths_into(
                 if !has_moveto {
                     continue;
                 }
+                if let Some(joins) = semantic_joins.as_deref_mut() {
+                    joins.push(segments.len());
+                }
                 let ctrl1 = apply(*ctrl1);
                 let ctrl2 = apply(*ctrl2);
                 let end = apply(*end);
@@ -361,6 +400,9 @@ pub fn flatten_subpaths_into(
             }
             PathCmd::Close => {
                 if current != subpath_start {
+                    if let Some(joins) = semantic_joins.as_deref_mut() {
+                        joins.push(segments.len());
+                    }
                     segments.push(LineSeg {
                         p1: current,
                         p2: subpath_start,
@@ -603,17 +645,34 @@ fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
     dx * dx + dy * dy
 }
 
+struct DashJoinMap<'a> {
+    source_start: usize,
+    source_semantic_joins: &'a [usize],
+    output_semantic_joins: &'a mut Vec<usize>,
+}
+
 fn apply_dash_pattern(
     segs: &[LineSeg],
     closed: bool,
     pattern: &[Fixed],
     segments: &mut Vec<LineSeg>,
     out: &mut Vec<SubPath>,
+    joins: DashJoinMap<'_>,
 ) {
     let first_output = out.len();
     let first_segment = segments.len();
     if pattern.is_empty() || pattern.iter().any(|length| *length <= Fixed::ZERO) {
         segments.extend_from_slice(segs);
+        joins.output_semantic_joins.extend(
+            joins
+                .source_semantic_joins
+                .iter()
+                .copied()
+                .filter(|index| {
+                    *index >= joins.source_start && *index < joins.source_start + segs.len()
+                })
+                .map(|index| first_segment + index - joins.source_start),
+        );
         if !segs.is_empty() {
             out.push(SubPath {
                 start: first_segment,
@@ -629,7 +688,7 @@ fn apply_dash_pattern(
     let mut on = true;
     let mut start = segments.len();
 
-    for &seg in segs {
+    for (source_index, &seg) in segs.iter().enumerate() {
         let dx = seg.p2.x - seg.p1.x;
         let dy = seg.p2.y - seg.p1.y;
         let seg_len = (dx * dx + dy * dy).sqrt();
@@ -650,6 +709,14 @@ fn apply_dash_pattern(
                 y: p_start.y + uy * (walked + step),
             };
             if on {
+                if walked == Fixed::ZERO
+                    && joins
+                        .source_semantic_joins
+                        .binary_search(&(joins.source_start + source_index))
+                        .is_ok()
+                {
+                    joins.output_semantic_joins.push(segments.len());
+                }
                 segments.push(LineSeg {
                     p1: Point {
                         x: p_start.x + ux * walked,
@@ -699,12 +766,14 @@ pub(crate) fn offset_polygon_into(
     out: &mut Path,
     flattened: &mut Vec<LineSeg>,
     subpath_scratch: &mut Vec<SubPath>,
+    semantic_joins_scratch: &mut Vec<usize>,
     normals_scratch: &mut Vec<Point>,
     rail_scratch: &mut Vec<Point>,
     left_rail_scratch: &mut Vec<Point>,
     arc_scratch: &mut Vec<Point>,
     dashed: &mut Vec<LineSeg>,
     dash_scratch: &mut Vec<SubPath>,
+    dashed_semantic_joins_scratch: &mut Vec<usize>,
 ) {
     out.cmds.to_mut().clear();
     if width <= Fixed::ZERO {
@@ -712,28 +781,41 @@ pub(crate) fn offset_polygon_into(
     }
     let half = width / 2;
 
-    flatten_subpaths_into(cmds, transform, flattened, subpath_scratch);
+    flatten_stroke_subpaths_into(
+        cmds,
+        transform,
+        flattened,
+        subpath_scratch,
+        semantic_joins_scratch,
+    );
 
-    let (segments, subpaths): (&[LineSeg], &[SubPath]) = if let Some(pattern) = dash {
-        if pattern.is_empty() {
-            (flattened, subpath_scratch)
-        } else {
-            dashed.clear();
-            dash_scratch.clear();
-            for sub in subpath_scratch.iter() {
-                apply_dash_pattern(
-                    &flattened[sub.start..sub.end],
-                    sub.closed,
-                    pattern,
-                    dashed,
-                    dash_scratch,
-                );
+    let (segments, subpaths, semantic_joins): (&[LineSeg], &[SubPath], &[usize]) =
+        if let Some(pattern) = dash {
+            if pattern.is_empty() {
+                (flattened, subpath_scratch, semantic_joins_scratch)
+            } else {
+                dashed.clear();
+                dash_scratch.clear();
+                dashed_semantic_joins_scratch.clear();
+                for sub in subpath_scratch.iter() {
+                    apply_dash_pattern(
+                        &flattened[sub.start..sub.end],
+                        sub.closed,
+                        pattern,
+                        dashed,
+                        dash_scratch,
+                        DashJoinMap {
+                            source_start: sub.start,
+                            source_semantic_joins: semantic_joins_scratch,
+                            output_semantic_joins: dashed_semantic_joins_scratch,
+                        },
+                    );
+                }
+                (dashed, dash_scratch, dashed_semantic_joins_scratch)
             }
-            (dashed, dash_scratch)
-        }
-    } else {
-        (flattened, subpath_scratch)
-    };
+        } else {
+            (flattened, subpath_scratch, semantic_joins_scratch)
+        };
 
     for sub in subpaths {
         let segs = &segments[sub.start..sub.end];
@@ -746,6 +828,8 @@ pub(crate) fn offset_polygon_into(
                 join,
                 miter_limit,
                 /*left=*/ true,
+                semantic_joins,
+                sub.start,
                 rail_scratch,
                 arc_scratch,
             );
@@ -757,6 +841,8 @@ pub(crate) fn offset_polygon_into(
                 join,
                 miter_limit,
                 /*left=*/ false,
+                semantic_joins,
+                sub.start,
                 rail_scratch,
                 arc_scratch,
             );
@@ -770,6 +856,8 @@ pub(crate) fn offset_polygon_into(
                 join,
                 miter_limit,
                 /*left=*/ true,
+                semantic_joins,
+                sub.start,
                 left_rail_scratch,
                 arc_scratch,
             );
@@ -780,6 +868,8 @@ pub(crate) fn offset_polygon_into(
                 join,
                 miter_limit,
                 /*left=*/ false,
+                semantic_joins,
+                sub.start,
                 rail_scratch,
                 arc_scratch,
             );
@@ -814,6 +904,8 @@ fn build_ring_into(
     join: LineJoin,
     miter_limit: Fixed,
     left: bool,
+    semantic_joins: &[usize],
+    segment_offset: usize,
     out: &mut Vec<Point>,
     arc_scratch: &mut Vec<Point>,
 ) {
@@ -828,6 +920,11 @@ fn build_ring_into(
         let p_curr = segs[i];
         let n_prev = scaled(n[prev], sign);
         let n_curr = scaled(n[i], sign);
+        let point_join = if semantic_joins.binary_search(&(segment_offset + i)).is_ok() {
+            join
+        } else {
+            LineJoin::Miter
+        };
 
         compute_join_points(
             p_prev.p2,
@@ -837,7 +934,7 @@ fn build_ring_into(
             p_curr.p2,
             n_curr,
             half,
-            join,
+            point_join,
             miter_limit,
             arc_scratch,
         );
@@ -856,6 +953,8 @@ fn build_open_rail_into(
     join: LineJoin,
     miter_limit: Fixed,
     left: bool,
+    semantic_joins: &[usize],
+    segment_offset: usize,
     out: &mut Vec<Point>,
     arc_scratch: &mut Vec<Point>,
 ) {
@@ -872,6 +971,11 @@ fn build_open_rail_into(
         let p_curr = segs[i];
         let n_prev = scaled(n[i - 1], sign);
         let n_curr = scaled(n[i], sign);
+        let point_join = if semantic_joins.binary_search(&(segment_offset + i)).is_ok() {
+            join
+        } else {
+            LineJoin::Miter
+        };
 
         compute_join_points(
             p_prev.p2,
@@ -881,7 +985,7 @@ fn build_open_rail_into(
             p_curr.p2,
             n_curr,
             half,
-            join,
+            point_join,
             miter_limit,
             arc_scratch,
         );
@@ -916,12 +1020,43 @@ fn compute_join_points(
 
     match join {
         LineJoin::Round => {
-            out.push(p_in);
             let center = Point {
                 x: (b.x + c.x) / 2,
                 y: (b.y + c.y) / 2,
             };
-            let steps = arc_steps(half);
+            let dir_prev = Point {
+                x: b.x - a.x,
+                y: b.y - a.y,
+            };
+            let dir_curr = Point {
+                x: d.x - c.x,
+                y: d.y - c.y,
+            };
+            let turn = dir_prev.x * dir_curr.y - dir_prev.y * dir_curr.x;
+            let side = dir_prev.x * n_prev.y - dir_prev.y * n_prev.x;
+            let outer = (turn > Fixed::ZERO && side < Fixed::ZERO)
+                || (turn < Fixed::ZERO && side > Fixed::ZERO);
+            if !outer {
+                if let Some(inner) = line_intersect(p_in, dir_prev, p_out, dir_curr) {
+                    out.push(inner);
+                } else {
+                    out.push(Point {
+                        x: (p_in.x + p_out.x) / 2,
+                        y: (p_in.y + p_out.y) / 2,
+                    });
+                }
+                return;
+            }
+
+            out.push(p_in);
+            let chord_x = p_out.x - p_in.x;
+            let chord_y = p_out.y - p_in.y;
+            let chord = (chord_x * chord_x + chord_y * chord_y).sqrt();
+            let target_step = (half / 4).max(Fixed::from_ratio(1, 4));
+            let steps = (chord / target_step)
+                .ceil()
+                .to_int()
+                .clamp(1, arc_steps(half) as i32) as usize;
             for i in 1..steps {
                 let t = Fixed::from_int(i as i32) / Fixed::from_int(steps as i32);
                 let p = Point {
@@ -1196,32 +1331,45 @@ mod tests {
     }
 
     fn offset_polygon_path_with_cap(p: &Path, width: Fixed, cap: LineCap) -> Path {
+        offset_polygon_path_with_style(p, width, cap, LineJoin::Miter)
+    }
+
+    fn offset_polygon_path_with_style(
+        p: &Path,
+        width: Fixed,
+        cap: LineCap,
+        join: LineJoin,
+    ) -> Path {
         let mut out = Path::new();
         let mut flattened = Vec::new();
         let mut scratch = Vec::new();
+        let mut semantic_joins = Vec::new();
         let mut normals = Vec::new();
         let mut rail = Vec::new();
         let mut left_rail = Vec::new();
         let mut arc = Vec::new();
         let mut dashed = Vec::new();
         let mut dash_scratch = Vec::new();
+        let mut dashed_semantic_joins = Vec::new();
         offset_polygon_into(
             &p.cmds,
             None,
             width,
             cap,
-            LineJoin::Miter,
+            join,
             Fixed::from_int(4),
             None,
             &mut out,
             &mut flattened,
             &mut scratch,
+            &mut semantic_joins,
             &mut normals,
             &mut rail,
             &mut left_rail,
             &mut arc,
             &mut dashed,
             &mut dash_scratch,
+            &mut dashed_semantic_joins,
         );
         out
     }
@@ -1509,6 +1657,47 @@ mod tests {
     }
 
     #[test]
+    fn curve_flattening_does_not_apply_round_join_to_synthetic_vertices() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0))
+            .cubic_to(pt(8, 12), pt(16, 12), pt(24, 0));
+        let round = offset_polygon_path_with_style(
+            &path,
+            Fixed::from_int(4),
+            LineCap::Butt,
+            LineJoin::Round,
+        );
+        let miter = offset_polygon_path_with_style(
+            &path,
+            Fixed::from_int(4),
+            LineCap::Butt,
+            LineJoin::Miter,
+        );
+        assert_eq!(round.cmds, miter.cmds);
+    }
+
+    #[test]
+    fn round_join_is_retained_at_semantic_line_corner() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0))
+            .line_to(pt(10, 0))
+            .line_to(pt(10, 10));
+        let round = offset_polygon_path_with_style(
+            &path,
+            Fixed::from_int(4),
+            LineCap::Butt,
+            LineJoin::Round,
+        );
+        let miter = offset_polygon_path_with_style(
+            &path,
+            Fixed::from_int(4),
+            LineCap::Butt,
+            LineJoin::Miter,
+        );
+        assert_ne!(round.cmds, miter.cmds);
+    }
+
+    #[test]
     fn open_square_and_round_caps_extend_outward() {
         let mut path = Path::new();
         path.move_to(pt(0, 0)).line_to(pt(10, 0));
@@ -1539,12 +1728,18 @@ mod tests {
         let (segments, subpaths) = flatten_subpaths_path(&path);
         let mut dashed_segments = Vec::new();
         let mut dashed = Vec::new();
+        let mut dashed_semantic_joins = Vec::new();
         apply_dash_pattern(
             &segments[subpaths[0].start..subpaths[0].end],
             true,
             &[Fixed::from_int(100), Fixed::from_int(100)],
             &mut dashed_segments,
             &mut dashed,
+            DashJoinMap {
+                source_start: subpaths[0].start,
+                source_semantic_joins: &[],
+                output_semantic_joins: &mut dashed_semantic_joins,
+            },
         );
         assert_eq!(dashed.len(), 1);
         assert_eq!(dashed_segments, segments);
@@ -1558,12 +1753,14 @@ mod tests {
         let mut outline = Path::new();
         let mut flattened = Vec::new();
         let mut subpaths = Vec::new();
+        let mut semantic_joins = Vec::new();
         let mut normals = Vec::new();
         let mut right = Vec::new();
         let mut left = Vec::new();
         let mut arc = Vec::new();
         let mut dashed_segments = Vec::new();
         let mut dashed = Vec::new();
+        let mut dashed_semantic_joins = Vec::new();
         let mut first = None;
 
         for _ in 0..2 {
@@ -1578,12 +1775,14 @@ mod tests {
                 &mut outline,
                 &mut flattened,
                 &mut subpaths,
+                &mut semantic_joins,
                 &mut normals,
                 &mut right,
                 &mut left,
                 &mut arc,
                 &mut dashed_segments,
                 &mut dashed,
+                &mut dashed_semantic_joins,
             );
             let buffers = [
                 (left.as_ptr(), left.capacity()),
@@ -1605,12 +1804,14 @@ mod tests {
         let mut outline = Path::new();
         let mut flattened = Vec::new();
         let mut subpaths = Vec::new();
+        let mut semantic_joins = Vec::new();
         let mut normals = Vec::new();
         let mut right = Vec::new();
         let mut left = Vec::new();
         let mut arc = Vec::new();
         let mut dashed_segments = Vec::new();
         let mut dashed_subpaths = Vec::new();
+        let mut dashed_semantic_joins = Vec::new();
         let mut first = None;
 
         for _ in 0..2 {
@@ -1625,12 +1826,14 @@ mod tests {
                 &mut outline,
                 &mut flattened,
                 &mut subpaths,
+                &mut semantic_joins,
                 &mut normals,
                 &mut right,
                 &mut left,
                 &mut arc,
                 &mut dashed_segments,
                 &mut dashed_subpaths,
+                &mut dashed_semantic_joins,
             );
             let buffers = [
                 (flattened.as_ptr().cast::<()>(), flattened.capacity()),

@@ -75,19 +75,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let scale = self.viewport.scale();
         let phys_tf = self.viewport.as_transform().compose(cmd_tf);
         if spec.dash.is_empty() {
-            self.tessellator.stroke(
-                path,
-                Some(&phys_tf),
-                StrokeSpec {
-                    width: spec.width * scale,
-                    dash_scale: scale,
-                    ..spec
-                },
-                color,
-                opa,
-            );
+            let mut physical = StrokeSpec {
+                width: spec.width * scale,
+                dash_scale: scale,
+                ..spec
+            };
+            let mut physical_opacity = opa;
+            if physical.width <= Fixed::ONE {
+                let requested = physical.width;
+                physical.width += Fixed::HALF;
+                physical_opacity = coverage_opacity(opa, requested, physical.width);
+            }
+            self.tessellator
+                .stroke(path, Some(&phys_tf), physical, color, physical_opacity);
             let phys_clip = self.viewport.rect_to_physical(*clip);
-            self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
+            self.submit_geometry(&phys_clip, physical_opacity != 255 || color.a != 255);
             return;
         }
         let outline = self.stroke_scratch.outline(
@@ -103,5 +105,29 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .fill(outline, None, color, opa, FillRule::NonZero);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
+    }
+}
+
+fn coverage_opacity(opacity: u8, requested_width: Fixed, raster_width: Fixed) -> u8 {
+    if raster_width <= Fixed::ZERO {
+        return 0;
+    }
+    (Fixed::from_int(i32::from(opacity)) * requested_width / raster_width)
+        .round()
+        .clamp(Fixed::ZERO, Fixed::from_int(255))
+        .to_int() as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::coverage_opacity;
+    use crate::types::Fixed;
+
+    #[test]
+    fn one_pixel_stroke_preserves_integrated_coverage_when_expanded() {
+        assert_eq!(
+            coverage_opacity(150, Fixed::ONE, Fixed::from_ratio(3, 2)),
+            100
+        );
     }
 }

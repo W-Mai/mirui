@@ -514,12 +514,14 @@ impl SwRenderer<'_> {
                 &mut scratch.stroke_outline,
                 &mut scratch.flatten_buf,
                 &mut scratch.subpath_scratch,
+                &mut scratch.semantic_joins,
                 &mut scratch.stroke_normals,
                 &mut scratch.stroke_rail,
                 &mut scratch.stroke_left_rail,
                 &mut scratch.stroke_arc,
                 &mut scratch.dash_segments,
                 &mut scratch.dash_scratch,
+                &mut scratch.dashed_semantic_joins,
             );
         }
         let outline = core::mem::take(&mut self.scratch.stroke_outline);
@@ -678,12 +680,14 @@ impl SwRenderer<'_> {
                 &mut scratch.stroke_outline,
                 &mut scratch.flatten_buf,
                 &mut scratch.subpath_scratch,
+                &mut scratch.semantic_joins,
                 &mut scratch.stroke_normals,
                 &mut scratch.stroke_rail,
                 &mut scratch.stroke_left_rail,
                 &mut scratch.stroke_arc,
                 &mut scratch.dash_segments,
                 &mut scratch.dash_scratch,
+                &mut scratch.dashed_semantic_joins,
             );
         }
         let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
@@ -735,12 +739,14 @@ impl SwRenderer<'_> {
                 &mut scratch.stroke_outline,
                 &mut scratch.flatten_buf,
                 &mut scratch.subpath_scratch,
+                &mut scratch.semantic_joins,
                 &mut scratch.stroke_normals,
                 &mut scratch.stroke_rail,
                 &mut scratch.stroke_left_rail,
                 &mut scratch.stroke_arc,
                 &mut scratch.dash_segments,
                 &mut scratch.dash_scratch,
+                &mut scratch.dashed_semantic_joins,
             );
         }
         let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
