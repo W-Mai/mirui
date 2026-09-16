@@ -536,9 +536,6 @@ fn compute_layout_snapshot(
     if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
         cache.borrow_mut().begin_frame();
     }
-    if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
-        cache.begin_frame();
-    }
     let mut text_index = 0;
     let intrinsic_changed = crate::trace_span!("layout.text", {
         layout_text_tree(
@@ -1525,6 +1522,10 @@ fn render_full_with(
 pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
 
+    if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
+        cache.begin_frame();
+    }
+
     let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h) else {
         return;
     };
@@ -2131,6 +2132,10 @@ pub(crate) fn collect_dirty_regions_into(
 ) {
     let (logical_w, logical_h) = transform.logical_size();
     plan.clear();
+
+    if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
+        cache.begin_frame();
+    }
 
     // Idle skip: with zero Dirty markers the 5-step walk would just
     // re-derive last frame's outputs. Systems that mutate visible

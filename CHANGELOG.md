@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Curved text frame pacing.** Path placement cache generations now advance on every full or dirty render plan, preventing animated offsets from filling the embedded cache and triggering periodic recovery frames.
 - **WGPU drawable recovery.** Failed frames re-arm window event pumping so a temporarily unavailable drawable cannot leave the native runner in a retry loop.
 - **Animated curved text.** Fixed-range baselines invalidate visual geometry without rerunning intrinsic layout, exact repaint regions use a fixed-capacity frame queue, stale path revisions replace their cache entries, curve measurement retains a stable minimum subdivision topology across morph frames, tangents interpolate continuously, measured segment lengths eliminate repeated wide-integer normalization, native bitmap coverage avoids per-glyph inverse transforms across built-in and MIRX atlas fonts, the embedded marquee coalesces repaint into its clipped stage, and MIRX font metrics avoid repeated representation selection.
 - **Backend curves, stable software glyph sampling, and scaled Web effects.** WGPU and SDL GPU submit solid strokes as one joined mesh, SDL GPU preserves integrated coverage for one-pixel strokes, software stroking applies requested joins only at semantic path commands, software glyph transforms retain high-precision inverse sampling across large viewport coordinates, and Web scene effects size reusable RGBA scratch storage for physical output pixels.

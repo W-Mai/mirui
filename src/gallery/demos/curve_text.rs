@@ -1296,4 +1296,21 @@ mod tests {
         assert_eq!(end.x, Fixed::from_int(480));
         assert_eq!(end.y, Fixed::from_int(38));
     }
+
+    #[test]
+    fn compact_path_placement_stays_available_across_dirty_frames() {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets().with_default_systems();
+        let parent = app.spawn_root().id();
+        install_compact(&mut app, parent);
+        app.render().unwrap();
+        app.render_dirty().unwrap();
+
+        let nodes = *app.world.resource::<CurveNodes>().unwrap();
+        for phase in 1..=64 {
+            update_curve_visual(&mut app.world, nodes, Fixed::from_int(phase));
+            app.render_dirty()
+                .unwrap_or_else(|error| panic!("frame {phase}: {error:?}"));
+        }
+    }
 }
