@@ -125,7 +125,7 @@ mod tests {
             .map(|(entity, _)| entity)
             .collect();
         for entity in texts {
-            app.world.insert(entity, crate::ui::dirty::Dirty);
+            app.world.invalidate(entity);
             app.render_dirty().unwrap();
             let partial = app.backend.framebuffer().buf.as_slice().to_vec();
             app.render().unwrap();

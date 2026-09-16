@@ -9,7 +9,6 @@ use crate::input::event::sim::{SimAction, SimTimeline};
 use crate::prelude::plugin::{FpsSummaryPlugin, InputFeedbackPlugin};
 use crate::prelude::*;
 use crate::types::DimPoint;
-use crate::ui::dirty::Dirty;
 use crate::ui::theme;
 use crate::ui::widgets::{
     Button, Checkbox, Image, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
@@ -92,23 +91,20 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
 
 #[mirui_macros::system]
 pub fn slider_to_progress_system(world: &mut World) {
-    let sliders: Vec<Entity> = world.query::<FormSlider>().collect();
-    let mut value = None;
-    for e in sliders {
-        if let Some(s) = world.get::<Slider>(e) {
-            value = Some(s.value.to_f32() / 100.0);
-        }
-    }
+    let value = world
+        .query::<FormSlider>()
+        .iter()
+        .find_map(|(entity, _)| world.get::<Slider>(entity))
+        .map(|slider| slider.value.to_f32() / 100.0);
     let Some(v) = value else { return };
-    let bars: Vec<Entity> = world.query::<FormProgress>().collect();
-    for e in bars {
-        if let Some(pb) = world.get_mut::<ProgressBar>(e)
+    world.for_each_stable::<FormProgress>(|world, entity| {
+        if let Some(pb) = world.get_mut::<ProgressBar>(entity)
             && (pb.value - v).abs() > 0.001
         {
             pb.value = v;
-            world.insert(e, Dirty);
+            world.invalidate(entity);
         }
-    }
+    });
 }
 
 mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
@@ -458,6 +454,26 @@ mod tests {
     use super::*;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
+    use crate::ui::dirty::Dirty;
+
+    #[test]
+    fn slider_progress_sync_reuses_stable_traversal() {
+        let mut world = World::new();
+        let slider = world.spawn_empty();
+        world.insert(slider, FormSlider);
+        let mut control = Slider::new(Fixed::ZERO, Fixed::from_int(100));
+        control.value = Fixed::from_int(37);
+        world.insert(slider, control);
+
+        let progress = world.spawn_empty();
+        world.insert(progress, FormProgress);
+        world.insert(progress, ProgressBar::default());
+
+        slider_to_progress_system(&mut world);
+
+        assert!((world.get::<ProgressBar>(progress).unwrap().value - 0.37).abs() < 0.001);
+        assert!(world.get::<Dirty>(progress).is_some());
+    }
 
     #[test]
     fn build_widgets_smoke() {

@@ -17,7 +17,7 @@ mirui_macros::animate!(AnimateColor, |world, entity, value| {
     if let Some(style) = world.get_mut::<ui::Style>(entity) {
         style.set_bg_color(Color::rgb(r, 50, 255 - r));
     }
-    world.insert(entity, ui::dirty::Dirty);
+    world.invalidate(entity);
 });
 
 #[compose]

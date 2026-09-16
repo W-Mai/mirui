@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform3D;
-use crate::ui::dirty::Dirty;
 use crate::ui::root_viewport;
 use crate::ui::widgets::WidgetTransform3D;
 use crate::ui::{Children, Parent, Style};
@@ -30,7 +29,7 @@ pub fn flip_system(world: &mut World) {
     let card_left = (vw - card_w) / 2;
     let card_top = (vh - card_h) / 2;
 
-    super::for_each_stable_component::<FlipCard>(world, |world, e| {
+    world.for_each_stable::<FlipCard>(|world, e| {
         let (angle, front, back, root) = if let Some(c) = world.get_mut::<FlipCard>(e) {
             c.angle_deg += c.speed_deg;
             if c.angle_deg >= Fixed::from_int(360) {
@@ -63,8 +62,8 @@ pub fn flip_system(world: &mut World) {
                 Fixed::from_int(400),
             )),
         );
-        world.insert(e, Dirty);
-        world.insert(root, Dirty);
+        world.invalidate(e);
+        world.invalidate(root);
     });
 }
 //~focus-end

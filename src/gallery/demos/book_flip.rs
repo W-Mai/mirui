@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform3D;
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{TransformOrigin, WidgetTransform3D};
 
 pub struct Page {
@@ -12,7 +11,7 @@ pub struct Page {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn flip_system(world: &mut World) {
-    super::for_each_stable_component::<Page>(world, |world, e| {
+    world.for_each_stable::<Page>(|world, e| {
         let angle = if let Some(p) = world.get_mut::<Page>(e) {
             p.angle_deg += p.speed_deg;
             // 0..120..0 keeps the right page from swinging past the spine and covering the left.
@@ -31,7 +30,7 @@ pub fn flip_system(world: &mut World) {
                 Fixed::from_int(500),
             )),
         );
-        world.insert(e, Dirty);
+        world.invalidate(e);
     });
 }
 

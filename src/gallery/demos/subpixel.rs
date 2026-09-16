@@ -4,7 +4,6 @@ use crate::prelude::*;
 use crate::ui;
 use crate::ui::root_viewport;
 use crate::ui::{Children, Parent};
-use alloc::vec::Vec;
 
 const BAR_W: i32 = 50;
 const RIGHT_MARGIN: i32 = 10;
@@ -37,12 +36,10 @@ pub fn bar_move_system(world: &mut World) {
         .resource::<BarBounds>()
         .map(|b| (b.w, b.h))
         .unwrap_or((DEFAULT_VIEW.0 as i32, DEFAULT_VIEW.1 as i32));
-    let mut buf = Vec::new();
-    world.query::<BarState>().collect_into(&mut buf);
-    for e in buf {
+    world.for_each_stable::<BarState>(|world, e| {
         let (new_x, new_y, changed) = {
             let Some(bar) = world.get_mut::<BarState>(e) else {
-                continue;
+                return;
             };
             if bar.right_anchored {
                 bar.x = Fixed::from_int(bound_w - BAR_W - RIGHT_MARGIN);
@@ -62,7 +59,7 @@ pub fn bar_move_system(world: &mut World) {
         if changed {
             ui::set_position(world, e, new_x, new_y);
         }
-    }
+    });
 }
 //~focus-end
 

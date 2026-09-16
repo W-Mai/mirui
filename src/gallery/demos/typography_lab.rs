@@ -175,17 +175,7 @@ const BLUE: Color = Color::rgb(104, 161, 255);
 const GOLD: Color = Color::rgb(255, 197, 92);
 const VIOLET: Color = Color::rgb(177, 132, 255);
 
-fn active_render_path() -> &'static str {
-    if cfg!(all(feature = "web-canvas", target_arch = "wasm32")) {
-        "WEB CANVAS · RUN CACHE → A8 / SDF"
-    } else if cfg!(feature = "wgpu") {
-        "WGPU · GLYPH ATLAS → A8 / SDF"
-    } else if cfg!(feature = "sdl-gpu") {
-        "SDL GPU · RUN CACHE → A8 / SDF"
-    } else {
-        "SOFTWARE · GLYPH RUN → A8 / SDF"
-    }
-}
+const ACTIVE_RENDER_PATH: &str = "GLYPH RUN · A8 / SDF REPRESENTATIONS";
 
 fn draw_line(
     renderer: &mut dyn Renderer,
@@ -240,14 +230,13 @@ fn caret_overlay_render(
         return;
     };
     if let Some(text_path) = world.get::<TextPath>(target).copied() {
-        let probe_hit = overlay.probe.and_then(|probe| {
-            crate::ui::widgets::text::PathTextGeometry::for_widget(world, target)
-                .and_then(|geometry| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten())
-        });
-        let (Some(paths), Some(path_cache)) = (
-            world.resource::<crate::render::path::PathStore>(),
-            world.resource::<crate::text::baseline::PathBaselineResource>(),
-        ) else {
+        let Some(geometry) = crate::text::PathTextGeometry::for_widget(world, target) else {
+            return;
+        };
+        let probe_hit = overlay
+            .probe
+            .and_then(|probe| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten());
+        let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
             return;
         };
         if let Ok(path) = paths.get(text_path.path()) {
@@ -268,59 +257,25 @@ fn caret_overlay_render(
                 ctx.clip,
             );
         }
-        let _ = path_cache.with_caret_frames(
-            paths,
-            text_path,
-            crate::text::baseline::DEFAULT_TOLERANCE,
-            handle,
-            &layout,
-            |frames| {
-                for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
-                    let selected = probe_hit.is_some_and(|hit| hit.index() == index);
-                    let ascent = if selected {
-                        metrics.ascender
+        let mut caret_storage = [crate::text::PathCaretGeometry::default(); 128];
+        if let Ok(carets) = geometry.carets_into(&mut caret_storage) {
+            for caret in carets {
+                let [start, end] = caret.segment();
+                draw_line(
+                    renderer,
+                    ctx,
+                    start,
+                    end,
+                    if probe_hit.is_some_and(|hit| hit.index() == caret.index()) {
+                        GOLD
+                    } else if caret.bidi_level() & 1 == 0 {
+                        CYAN
                     } else {
-                        Fixed::from_int(4)
-                    };
-                    let descent = if selected {
-                        metrics.line_height - metrics.ascender
-                    } else {
-                        Fixed::from_int(4)
-                    };
-                    let origin = Point {
-                        x: rect.x + crate::types::fixed::from_textflow(frame.local_origin.x),
-                        y: rect.y + crate::types::fixed::from_textflow(frame.local_origin.y),
-                    };
-                    let tangent = Point {
-                        x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
-                        y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
-                    };
-                    let normal = Point {
-                        x: Fixed::ZERO - tangent.y,
-                        y: tangent.x,
-                    };
-                    draw_line(
-                        renderer,
-                        ctx,
-                        Point {
-                            x: origin.x - normal.x * ascent,
-                            y: origin.y - normal.y * ascent,
-                        },
-                        Point {
-                            x: origin.x + normal.x * descent,
-                            y: origin.y + normal.y * descent,
-                        },
-                        if selected {
-                            GOLD
-                        } else if caret.bidi_level & 1 == 0 {
-                            CYAN
-                        } else {
-                            VIOLET
-                        },
-                    );
-                }
-            },
-        );
+                        VIOLET
+                    },
+                );
+            }
+        }
         return;
     }
     for line in layout.lines() {
@@ -476,8 +431,7 @@ pub fn register_fonts(world: &mut World) {
 
 pub fn register_path(world: &mut World) -> PathId {
     world
-        .resource_mut::<crate::render::path::PathStore>()
-        .expect("path store")
+        .paths()
         .insert_static(WAVE_BASELINE.commands())
         .expect("static typography path")
 }
@@ -491,7 +445,7 @@ fn set_path_probe(world: &mut World, point: Point) {
     };
     if overlay.probe != Some(point) {
         overlay.probe = Some(point);
-        world.insert(entity, crate::ui::dirty::Dirty);
+        world.invalidate(entity);
     }
 }
 
@@ -837,7 +791,7 @@ pub fn build_widgets(wave_path: PathId) {
                         text_color: MUTED
                     )
                     Text (
-                        active_render_path(),
+                        ACTIVE_RENDER_PATH,
                         width: Dimension::percent(100),
                         font: UI,
                         font_size: 10,

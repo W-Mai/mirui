@@ -7,7 +7,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
 #[derive(Default)]
@@ -103,11 +102,9 @@ pub fn shapes_view() -> View {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn shapes_anim_system(world: &mut World) {
-    let mut buf = alloc::vec::Vec::new();
-    world.query::<Shapes>().collect_into(&mut buf);
-    for e in buf {
-        world.insert(e, Dirty);
-    }
+    world.for_each_stable::<Shapes>(|world, e| {
+        world.invalidate(e);
+    });
 }
 
 #[compose]

@@ -8,7 +8,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::canvas::Paint;
-use crate::ui::dirty::Dirty;
 
 #[derive(Default)]
 pub struct Butterfly {
@@ -224,11 +223,9 @@ pub fn butterfly_view() -> View {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn butterfly_anim_system(world: &mut World) {
-    let mut buf = alloc::vec::Vec::new();
-    world.query::<Butterfly>().collect_into(&mut buf);
-    for e in buf {
-        world.insert(e, Dirty);
-    }
+    world.for_each_stable::<Butterfly>(|world, e| {
+        world.invalidate(e);
+    });
 }
 
 #[compose]

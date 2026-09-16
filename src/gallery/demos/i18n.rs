@@ -4,7 +4,6 @@ use crate::core::i18n::{I18n, Locale, Translation};
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager};
 use crate::t;
-use crate::ui::dirty::Dirty;
 
 const UI_FONT: &[u8] = include_bytes!("assets/misans_ui.mirx");
 const TOKEN_CJK: FontToken = FontToken::Custom("misans24");
@@ -63,7 +62,7 @@ pub fn build_widgets() {
                     };
                     i18n.set_locale(next);
                 }
-                ctx.world.insert(ctx.entity, Dirty);
+                ctx.world.invalidate(ctx.entity);
             }
         }
     };

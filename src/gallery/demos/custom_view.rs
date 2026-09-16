@@ -3,7 +3,6 @@
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
 pub struct Diamond {
@@ -92,7 +91,7 @@ pub fn build_widgets() {
                     let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
                     d.color = PALETTE[(i + 1) % PALETTE.len()];
                 }
-                ctx.world.insert(ctx.entity, Dirty);
+                ctx.world.invalidate(ctx.entity);
             }
             Diamond (
                 color: PALETTE[1],
@@ -104,7 +103,7 @@ pub fn build_widgets() {
                     let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
                     d.color = PALETTE[(i + 1) % PALETTE.len()];
                 }
-                ctx.world.insert(ctx.entity, Dirty);
+                ctx.world.invalidate(ctx.entity);
             }
             Diamond (
                 color: PALETTE[2],
@@ -116,7 +115,7 @@ pub fn build_widgets() {
                     let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
                     d.color = PALETTE[(i + 1) % PALETTE.len()];
                 }
-                ctx.world.insert(ctx.entity, Dirty);
+                ctx.world.invalidate(ctx.entity);
             }
         }
     };

@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform3D;
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{Image, WidgetTransform3D};
 use crate::ui::{Children, Parent};
 
@@ -15,7 +14,7 @@ pub struct Spinner {
 //~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spin_system(world: &mut World) {
-    super::for_each_stable_component::<Spinner>(world, |world, e| {
+    world.for_each_stable::<Spinner>(|world, e| {
         let (angle, bounce) = if let Some(s) = world.get_mut::<Spinner>(e) {
             s.angle += s.speed;
             if s.angle >= Fixed::from_int(360) {
@@ -46,7 +45,7 @@ pub fn spin_system(world: &mut World) {
             e,
             WidgetTransform3D(translate.compose(&rot).compose(&scale)),
         );
-        world.insert(e, Dirty);
+        world.invalidate(e);
     });
 }
 //~focus-end

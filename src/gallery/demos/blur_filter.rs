@@ -47,9 +47,9 @@ fn blur_filter_render(
     ctx: &mut ViewCtx,
 ) {
     let scratch = world
-        .resource::<crate::gallery::SceneRgbaScratch>()
+        .resource::<crate::gallery::SceneReplayWorkspace>()
         .expect("Blur Filter setup installs scene RGBA storage");
-    scratch.with_surface_rgba(*rect, renderer.output_scale(), |rgba| {
+    let _ = scratch.with_prepared_surface(*rect, renderer.output_scale(), |rgba| {
         ctx.replay_with_rgba(renderer, SCENE, &SliceResolver::new(&[], &[]), rgba)
     });
 }
@@ -79,7 +79,9 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    crate::gallery::SceneRgbaScratch::install(&mut app.world, 480 * 240 * 4);
+    let scale = app.viewport().scale();
+    crate::gallery::SceneReplayWorkspace::install(&mut app.world, Rect::new(0, 0, 480, 240), scale)
+        .expect("Blur Filter scene workspace size is representable");
     app.with_widget(blur_filter_view());
     app.compose(parent, build_widgets);
 }

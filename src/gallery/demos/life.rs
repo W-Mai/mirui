@@ -5,7 +5,6 @@ use alloc::vec::Vec;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
 const PX_PER_CELL: i32 = 1;
@@ -229,9 +228,7 @@ pub fn life_view() -> View {
 
 #[mirui_macros::system]
 pub fn life_step_system(world: &mut World) {
-    let mut boards = alloc::vec::Vec::new();
-    world.query::<LifeBoard>().collect_into(&mut boards);
-    for e in boards {
+    world.for_each_stable::<LifeBoard>(|world, e| {
         // re-grid to the laid-out size: cell count tracks the canvas, no stretch
         if let Some(rect) = world.get::<crate::ui::ComputedRect>(e).map(|c| c.0) {
             let (cols, rows) = dims_from_px(rect.w.to_int(), rect.h.to_int());
@@ -242,8 +239,8 @@ pub fn life_step_system(world: &mut World) {
         if let Some(b) = world.get_mut::<LifeBoard>(e) {
             b.advance();
         }
-        world.insert(e, Dirty);
-    }
+        world.invalidate(e);
+    });
 }
 
 fn dims_from_px(w: i32, h: i32) -> (i32, i32) {

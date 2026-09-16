@@ -4,7 +4,6 @@ use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{BackgroundBlur, DropGlow, DropShadow, MirrorOf, TemporalMix, Text};
 
 pub const DEFAULT_VIEW: (u16, u16) = (360, 560);
@@ -15,15 +14,13 @@ pub struct ColorFlash {
 
 #[system(order = ANIMATION)]
 pub fn animate_color_flash(world: &mut World) {
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<ColorFlash>().collect_into(&mut entities);
-    for e in entities {
+    world.for_each_stable::<ColorFlash>(|world, e| {
         let frame = match world.get_mut::<ColorFlash>(e) {
             Some(c) => {
                 c.frame = c.frame.wrapping_add(1);
                 c.frame
             }
-            None => continue,
+            None => return,
         };
         let color = match (frame / 60) % 3 {
             0 => Color::rgb(220, 60, 60),
@@ -33,8 +30,8 @@ pub fn animate_color_flash(world: &mut World) {
         if let Some(style) = world.get_mut::<Style>(e) {
             style.bg_color = Some(color.into());
         }
-        world.insert(e, Dirty);
-    }
+        world.invalidate(e);
+    });
 }
 
 animate!(BlurPan, |world, entity, value| {
@@ -46,14 +43,14 @@ animate!(ShadowOffset, |world, entity, value| {
         sh.offset.0 = value;
         sh.offset.1 = value;
     }
-    world.insert(entity, Dirty);
+    world.invalidate(entity);
 });
 
 animate!(GlowPulse, |world, entity, value| {
     if let Some(gl) = world.get_mut::<DropGlow>(entity) {
         gl.blur_radius = value;
     }
-    world.insert(entity, Dirty);
+    world.invalidate(entity);
 });
 
 fn tile_color(i: i32) -> Color {

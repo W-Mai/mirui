@@ -8,7 +8,6 @@ use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
 use crate::types::{Dimension, Transform3D};
 use crate::ui;
-use crate::ui::dirty::Dirty;
 use crate::ui::root_viewport;
 use crate::ui::widgets::{Image, WidgetTransform3D};
 
@@ -118,7 +117,7 @@ pub fn layout_system(world: &mut World) {
     let container_center = Fixed::from_int(view_w / 2);
     let card_top = Fixed::from_int((view_h - card_h) / 2);
 
-    super::for_each_stable_component::<CarouselCard>(world, |world, e| {
+    world.for_each_stable::<CarouselCard>(|world, e| {
         let idx = match world.get::<CarouselCard>(e) {
             Some(c) => c.index as i32,
             None => return,
@@ -134,9 +133,9 @@ pub fn layout_system(world: &mut World) {
         let ty3d = Transform3D::rotate_y_perspective(tilt_y, distance);
         let tx3d = Transform3D::rotate_x_perspective(tilt_x, distance);
         world.insert(e, WidgetTransform3D(ty3d.compose(&tx3d)));
-        world.insert(e, Dirty);
+        world.invalidate(e);
     });
-    world.insert(carousel, Dirty);
+    world.invalidate(carousel);
 }
 //~focus-end
 

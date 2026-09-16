@@ -190,9 +190,9 @@ fn showcase_render(
 ) {
     let resolver = SliceResolver::new(&[], &[]);
     let scratch = world
-        .resource::<crate::gallery::SceneRgbaScratch>()
+        .resource::<crate::gallery::SceneReplayWorkspace>()
         .expect("Render Showcase setup installs scene RGBA storage");
-    scratch.with_surface_rgba(*rect, renderer.output_scale(), |rgba| {
+    let _ = scratch.with_prepared_surface(*rect, renderer.output_scale(), |rgba| {
         ctx.replay_with_rgba(renderer, SCENE, &resolver, rgba)
     });
 }
@@ -222,7 +222,9 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    crate::gallery::SceneRgbaScratch::install(&mut app.world, 640 * 660 * 4);
+    let scale = app.viewport().scale();
+    crate::gallery::SceneReplayWorkspace::install(&mut app.world, Rect::new(0, 0, 640, 660), scale)
+        .expect("Render Showcase scene workspace size is representable");
     app.with_widget(showcase_view());
     app.compose(parent, build_widgets);
 }

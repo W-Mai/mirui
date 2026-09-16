@@ -20,7 +20,7 @@ mirui_macros::animate!(IconScale, |world, entity, value| {
     if let Some(icon) = world.get_mut::<Icon>(entity) {
         icon.scale = value;
     }
-    world.insert(entity, ui::dirty::Dirty);
+    world.invalidate(entity);
 });
 
 fn icons() -> [(&'static Path, ColorToken); 20] {

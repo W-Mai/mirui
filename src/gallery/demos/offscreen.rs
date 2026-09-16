@@ -8,7 +8,6 @@ use crate::ecs::{FrameTimings, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::Text;
 use crate::ui::{Children, OffscreenRender};
 
@@ -68,15 +67,13 @@ pub fn mode_toggle_system(world: &mut World) {
     };
 
     if let Some(now_offscreen) = flip {
-        let mut panels = alloc::vec::Vec::new();
-        world.query::<PanelTarget>().collect_into(&mut panels);
-        for e in panels {
+        world.for_each_stable::<PanelTarget>(|world, e| {
             if now_offscreen {
                 world.insert(e, OffscreenRender::default());
             } else {
                 world.remove::<OffscreenRender>(e);
             }
-        }
+        });
     }
 }
 
@@ -91,9 +88,7 @@ pub fn fps_readout_system(world: &mut World) {
         .map(|t| t.offscreen)
         .unwrap_or(false);
 
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<FpsReadout>().collect_into(&mut entities);
-    for e in entities {
+    world.for_each_stable::<FpsReadout>(|world, e| {
         let snapshot = if let Some(r) = world.get_mut::<FpsReadout>(e) {
             r.accum_render_ns += render_ns;
             r.counter += 1;
@@ -113,18 +108,16 @@ pub fn fps_readout_system(world: &mut World) {
             let mode = if offscreen { "offscreen" } else { "inline   " };
             let label = alloc::format!("MODE={mode}  render avg {avg_us}us");
             world.insert(e, Text::from(label));
-            world.insert(e, Dirty);
+            world.invalidate(e);
         }
-    }
+    });
 }
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn force_dirty_system(world: &mut World) {
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<ForceDirty>().collect_into(&mut entities);
-    for e in entities {
-        world.insert(e, Dirty);
-    }
+    world.for_each_stable::<ForceDirty>(|world, e| {
+        world.invalidate(e);
+    });
 }
 
 fn tile_color(idx: i32) -> ColorToken {

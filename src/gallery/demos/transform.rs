@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform;
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{Image, WidgetTransform};
 use crate::ui::{Children, Parent};
 
@@ -14,18 +13,16 @@ pub struct Spinner {
 //~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spin_system(world: &mut World) {
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<Spinner>().collect_into(&mut entities);
-    for e in entities {
+    world.for_each_stable::<Spinner>(|world, e| {
         let next = if let Some(s) = world.get_mut::<Spinner>(e) {
             s.angle += s.speed;
             s.angle
         } else {
-            continue;
+            return;
         };
         world.insert(e, WidgetTransform(Transform::rotate_deg(next)));
-        world.insert(e, Dirty);
-    }
+        world.invalidate(e);
+    });
 }
 //~focus-end
 

@@ -8,7 +8,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 use crate::types::{Fixed64, Transform};
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{Text, WidgetTransform};
 use alloc::format;
 #[cfg(feature = "std")]
@@ -65,7 +64,7 @@ fn refresh(world: &mut World, entity: Entity) {
     let xform = Transform::scale(visual_scale, visual_scale)
         .compose(&Transform::rotate_deg(visual_rot_deg));
     world.insert(entity, WidgetTransform(xform));
-    world.insert(entity, Dirty);
+    world.invalidate(entity);
 
     let scale_pct = (last_pinch * Fixed64::from_int(100)).to_int();
     let visual_scale_pct = (visual_scale * Fixed::from_int(100)).to_int();
@@ -77,7 +76,7 @@ fn refresh(world: &mut World, entity: Entity) {
     );
     if let Some(status) = world.find_by_id("pinch_status") {
         world.insert(status, Text::from(line));
-        world.insert(status, Dirty);
+        world.invalidate(status);
     }
 }
 

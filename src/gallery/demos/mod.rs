@@ -55,45 +55,9 @@ pub mod widgets;
 
 pub(super) const PROJECTIVE_SPIN_PHASE: crate::types::Fixed = crate::types::Fixed::from_ratio(1, 4);
 
-/// Visit existing component IDs without retaining a heap buffer. Callers
-/// may edit component values but must not add or remove `T` during the visit.
-fn for_each_stable_component<T: 'static>(
-    world: &mut crate::ecs::World,
-    mut visit: impl FnMut(&mut crate::ecs::World, crate::ecs::Entity),
-) {
-    let count = world
-        .storage::<T>()
-        .map_or(0, |storage| storage.entities().len());
-    for index in 0..count {
-        let Some(entity) = world
-            .storage::<T>()
-            .and_then(|storage| storage.entities().get(index))
-            .copied()
-        else {
-            break;
-        };
-        visit(world, entity);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stable_component_visits_mutate_every_existing_value() {
-        let mut world = crate::ecs::World::new();
-        let first = world.spawn_empty();
-        let second = world.spawn_empty();
-        world.insert(first, 1u16);
-        world.insert(second, 2u16);
-        for_each_stable_component::<u16>(&mut world, |world, entity| {
-            *world.get_mut::<u16>(entity).unwrap() += 10;
-            world.insert(entity, crate::ui::dirty::Dirty);
-        });
-        assert_eq!(world.get::<u16>(first), Some(&11));
-        assert_eq!(world.get::<u16>(second), Some(&12));
-    }
 
     #[test]
     fn projective_spin_phase_avoids_singular_edge_on_frames() {

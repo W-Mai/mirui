@@ -8,8 +8,6 @@ use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::ui::UserState;
-#[cfg(any(feature = "std", test))]
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{
     Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextAlign, TextInput, TextVerticalAlign,
     TextWrap,
@@ -181,7 +179,7 @@ fn sync_user_state(
     } else {
         world.remove::<UserState>(entity);
     }
-    world.insert(entity, Dirty);
+    world.invalidate(entity);
 }
 
 #[cfg(any(feature = "std", test))]

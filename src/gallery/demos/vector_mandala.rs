@@ -2,8 +2,6 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::draw::*;
@@ -13,7 +11,6 @@ use crate::render::scene::resolver::SliceResolver;
 use crate::render::scene::{ResourceRef, Scene, SceneOp};
 use crate::render::texture::Texture;
 use crate::types::{Point, Transform};
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
 pub struct VectorMandala {
@@ -186,11 +183,9 @@ pub fn vector_mandala_view() -> View {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn vector_mandala_anim_system(world: &mut World) {
-    let mut buf = Vec::new();
-    world.query::<VectorMandala>().collect_into(&mut buf);
-    for e in buf {
-        world.insert(e, Dirty);
-    }
+    world.for_each_stable::<VectorMandala>(|world, e| {
+        world.invalidate(e);
+    });
 }
 
 #[compose]

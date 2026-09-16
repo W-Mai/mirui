@@ -9,7 +9,6 @@ use crate::prelude::*;
 use crate::types::Transform;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
-use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{Text, WidgetTransform};
 use crate::ui::{Children, OffscreenRender};
 
@@ -47,9 +46,7 @@ pub struct ModeToggle {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn modal_slide_system(world: &mut World) {
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<ModalAnim>().collect_into(&mut entities);
-    for e in entities {
+    world.for_each_stable::<ModalAnim>(|world, e| {
         let next_t = if let Some(a) = world.get_mut::<ModalAnim>(e) {
             a.t += Fixed::ONE / 90;
             if a.t > Fixed::ONE {
@@ -57,7 +54,7 @@ pub fn modal_slide_system(world: &mut World) {
             }
             a.t
         } else {
-            continue;
+            return;
         };
 
         let bounce = if next_t < Fixed::ONE / 2 {
@@ -68,8 +65,8 @@ pub fn modal_slide_system(world: &mut World) {
         let off_screen_offset = Fixed::from_int(-MODAL_LEFT_FINAL - MODAL_W);
         let tx = off_screen_offset * (Fixed::ONE - bounce);
         world.insert(e, WidgetTransform(Transform::translate(tx, Fixed::ZERO)));
-        world.insert(e, Dirty);
-    }
+        world.invalidate(e);
+    });
 }
 
 #[mirui_macros::system(order = ANIMATION)]
@@ -93,15 +90,13 @@ pub fn mode_toggle_system(world: &mut World) {
     };
 
     if let Some(now_offscreen) = flip {
-        let mut panels = alloc::vec::Vec::new();
-        world.query::<ModalAnim>().collect_into(&mut panels);
-        for e in panels {
+        world.for_each_stable::<ModalAnim>(|world, e| {
             if now_offscreen {
                 world.insert(e, OffscreenRender::default());
             } else {
                 world.remove::<OffscreenRender>(e);
             }
-        }
+        });
     }
 }
 
@@ -116,9 +111,7 @@ pub fn fps_readout_system(world: &mut World) {
         .map(|t| t.offscreen)
         .unwrap_or(false);
 
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<FpsReadout>().collect_into(&mut entities);
-    for e in entities {
+    world.for_each_stable::<FpsReadout>(|world, e| {
         let snapshot = if let Some(r) = world.get_mut::<FpsReadout>(e) {
             r.accum_render_ns += render_ns;
             r.counter += 1;
@@ -138,9 +131,9 @@ pub fn fps_readout_system(world: &mut World) {
             let mode = if offscreen { "offscreen" } else { "inline   " };
             let label = alloc::format!("MODE={mode}  render avg {avg_us}us");
             world.insert(e, Text::from(label));
-            world.insert(e, Dirty);
+            world.invalidate(e);
         }
-    }
+    });
 }
 
 fn tile_color(idx: i32) -> ColorToken {

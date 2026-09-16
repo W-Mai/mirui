@@ -4,10 +4,8 @@ extern crate alloc;
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::ui;
-use crate::ui::dirty::Dirty;
 use crate::ui::root_viewport;
 use crate::ui::{Children, Parent, Style};
-use alloc::vec::Vec;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
@@ -53,12 +51,10 @@ pub fn particle_system(world: &mut World) {
         .resource::<ParticleBounds>()
         .map(|b| (b.w, b.h))
         .unwrap_or((128, 128));
-    let mut buf = Vec::new();
-    world.query::<Particle>().collect_into(&mut buf);
-    for e in buf {
+    world.for_each_stable::<Particle>(|world, e| {
         let (new_x, new_y) = {
             let Some(p) = world.get_mut::<Particle>(e) else {
-                continue;
+                return;
             };
             p.x += p.vx;
             p.y += p.vy;
@@ -75,7 +71,7 @@ pub fn particle_system(world: &mut World) {
             (p.x, p.y)
         };
         ui::set_position(world, e, new_x, new_y);
-    }
+    });
 }
 //~focus-end
 
@@ -85,12 +81,10 @@ pub fn pulse_ring_system(world: &mut World) {
         .resource::<ParticleBounds>()
         .map(|b| (b.w, b.h))
         .unwrap_or((128, 128));
-    let mut buf = Vec::new();
-    world.query::<PulseRing>().collect_into(&mut buf);
-    for e in buf {
+    world.for_each_stable::<PulseRing>(|world, e| {
         let new_radius = {
             let Some(ring) = world.get_mut::<PulseRing>(e) else {
-                continue;
+                return;
             };
             ring.radius += ring.grow_speed;
             if ring.radius > ring.max_radius {
@@ -107,8 +101,8 @@ pub fn pulse_ring_system(world: &mut World) {
             style.layout.height = Dimension::Px(new_radius * 2);
             style.border_radius = Fixed::ZERO;
         }
-        world.insert(e, Dirty);
-    }
+        world.invalidate(e);
+    });
 }
 
 #[mirui_macros::system(order = ANIMATION)]
@@ -117,12 +111,10 @@ pub fn bar_system(world: &mut World) {
         .resource::<ParticleBounds>()
         .map(|b| (b.w, b.h))
         .unwrap_or((128, 128));
-    let mut buf = Vec::new();
-    world.query::<BouncingBar>().collect_into(&mut buf);
-    for e in buf {
+    world.for_each_stable::<BouncingBar>(|world, e| {
         let (new_x, new_y) = {
             let Some(bar) = world.get_mut::<BouncingBar>(e) else {
-                continue;
+                return;
             };
             bar.pos += bar.speed;
             let max = if bar.vertical {
@@ -141,7 +133,7 @@ pub fn bar_system(world: &mut World) {
             }
         };
         ui::set_position(world, e, new_x, new_y);
-    }
+    });
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
