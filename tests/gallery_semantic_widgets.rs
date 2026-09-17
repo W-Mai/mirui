@@ -102,3 +102,59 @@ fn themed_gallery_surfaces_do_not_embed_palette_literals() {
         assert!(!source.contains("text_color: Color::"));
     }
 }
+
+#[test]
+fn gallery_theme_ownership_stays_with_theme_studies() {
+    let demos = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gallery/demos");
+    let theme_studies = ["theme_swap.rs", "widgets.rs", "widgets_compact.rs"];
+    let mut violations = Vec::new();
+
+    for entry in fs::read_dir(demos).expect("gallery demos directory") {
+        let path = entry.expect("gallery demo entry").path();
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.extension().is_none_or(|extension| extension != "rs")
+            || theme_studies.contains(&file_name)
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&path).expect("gallery demo source");
+        let runtime = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        if runtime.contains("Theme::light()")
+            || runtime.contains("Theme::dark()")
+            || runtime.contains("theme::set_theme(")
+            || runtime.contains(".with_theme(")
+        {
+            violations.push(path.display().to_string());
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "only theme studies may replace the active gallery theme:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn native_compact_demos_are_not_registered_as_stretchable() {
+    let registry = include_str!("../gallery/web/src/lib.rs");
+    for slug in [
+        "curve_text_compact",
+        "kinetic_console",
+        "effect_glass",
+        "widgets_compact",
+    ] {
+        let entry = registry
+            .lines()
+            .find(|line| line.contains(&format!("(\"{slug}\"")))
+            .unwrap_or_else(|| panic!("compact demo `{slug}` must be registered"));
+        let compact: String = entry.split_whitespace().collect();
+        assert!(
+            compact.contains(",128,128,false),"),
+            "compact demo `{slug}` must retain its native 128 x 128 canvas"
+        );
+    }
+}
