@@ -85,6 +85,10 @@ fn themed_gallery_surfaces_do_not_embed_palette_literals() {
         include_str!("../src/gallery/demos/nested_scroll.rs"),
         include_str!("../src/gallery/demos/scroll.rs"),
         include_str!("../src/gallery/demos/tabbar.rs"),
+        include_str!("../src/gallery/demos/lazy_list.rs"),
+        include_str!("../src/gallery/demos/pinch_rotate.rs"),
+        include_str!("../src/gallery/demos/layout_lab.rs"),
+        include_str!("../src/gallery/demos/interaction_lab.rs"),
     ] {
         assert!(!source.contains("bg_color: Color::"));
         assert!(!source.contains("text_color: Color::"));

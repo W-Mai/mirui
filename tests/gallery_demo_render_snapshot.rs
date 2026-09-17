@@ -152,6 +152,37 @@ basic_demo_scoped!(text_input, 480, 200);
 basic_demo_scoped!(theme_swap, 480, 320);
 basic_demo_scoped!(transform, 480, 320);
 
+#[test]
+fn themed_demos_render_in_light_palette() {
+    let layout = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::layout_lab::build_widgets(&mut cx);
+    });
+    assert_renders("layout_lab_light", layout);
+
+    let interaction = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::interaction_lab::build_widgets(&mut cx);
+    });
+    assert_renders("interaction_lab_light", interaction);
+
+    let scroll = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::scroll::build_widgets(&mut cx);
+    });
+    assert_renders("scroll_light", scroll);
+
+    let tabs = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::tabbar::build_widgets(&mut cx);
+    });
+    assert_renders("tabbar_light", tabs);
+}
+
 basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);
 basic_demo_scoped!(particles, 480, 320);

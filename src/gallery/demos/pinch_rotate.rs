@@ -90,7 +90,7 @@ pub fn build_widgets() {
             top: 16,
             width: W - 32,
             height: 28,
-            text_color: Color::rgb(140, 220, 255),
+            text_color: ColorToken::Secondary,
             id: "pinch_status"
         )
     };
@@ -103,7 +103,7 @@ pub fn build_widgets() {
             top: CENTER_Y - BASE_H / 2,
             width: BASE_W,
             height: BASE_H,
-            bg_color: Color::rgb(88, 166, 255)
+            bg_color: ColorToken::Primary
         ) [
             PinchTarget {
                 last_pinch: Fixed64::ONE,

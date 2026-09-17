@@ -3,21 +3,21 @@ use crate::ui::widgets::{Image, ParagraphStyle, Text};
 
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
-const BACKGROUND: Color = Color::rgb(9, 16, 28);
-const PANEL: Color = Color::rgb(17, 30, 49);
-const PANEL_ALT: Color = Color::rgb(21, 38, 60);
-const BORDER: Color = Color::rgb(47, 73, 101);
-const TEXT: Color = Color::rgb(232, 240, 248);
-const MUTED: Color = Color::rgb(139, 163, 188);
-const CYAN: Color = Color::rgb(86, 226, 205);
-const BLUE: Color = Color::rgb(102, 161, 255);
-const VIOLET: Color = Color::rgb(179, 132, 255);
-const GOLD: Color = Color::rgb(255, 198, 92);
+const BACKGROUND: ColorToken = ColorToken::Surface;
+const PANEL: ColorToken = ColorToken::SurfaceVariant;
+const PANEL_ALT: ColorToken = ColorToken::Surface;
+const BORDER: ColorToken = ColorToken::Outline;
+const TEXT: ColorToken = ColorToken::OnSurface;
+const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
+const CYAN: ColorToken = ColorToken::Primary;
+const BLUE: ColorToken = ColorToken::Secondary;
+const VIOLET: ColorToken = ColorToken::Tertiary;
+const GOLD: ColorToken = ColorToken::Success;
 
 #[derive(Clone, Copy)]
 struct LayoutChip {
     label: &'static str,
-    color: Color,
+    color: ColorToken,
 }
 
 const CHIPS: [LayoutChip; 5] = [
@@ -63,7 +63,9 @@ fn compose_header() -> Entity {
             }
             Text (
                 "8 CAPABILITIES",
-                width: 154,
+                width: Dimension::percent(32),
+                min_width: 96,
+                max_width: 154,
                 height: 30,
                 bg_color: PANEL_ALT,
                 border_color: BORDER,
@@ -83,7 +85,8 @@ fn compose_flex_card() -> Entity {
         Column (
             id: "layout_lab_flex",
             grow: 1.0,
-            min_width: 430,
+            width: Dimension::percent(48),
+            min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 10,
@@ -93,7 +96,13 @@ fn compose_flex_card() -> Entity {
             border_radius: 14
         ) {
             Text ("FLEX · CONTENT → GROW → LIMITS", font_size: 12, text_color: BLUE)
-            Row (height: 70, align: AlignItems::Center, column_gap: 8) {
+            Row (
+                min_height: 70,
+                wrap: FlexWrap::Wrap,
+                align: AlignItems::Center,
+                row_gap: 8,
+                column_gap: 8
+            ) {
                 Text (
                     id: "layout_lab_content",
                     "CONTENT",
@@ -103,7 +112,7 @@ fn compose_flex_card() -> Entity {
                     bg_color: CYAN,
                     border_radius: 9,
                     font_size: 11,
-                    text_color: BACKGROUND,
+                    text_color: ColorToken::OnPrimary,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
@@ -116,7 +125,7 @@ fn compose_flex_card() -> Entity {
                     bg_color: BLUE,
                     border_radius: 11,
                     font_size: 12,
-                    text_color: BACKGROUND,
+                    text_color: ColorToken::OnSecondary,
                     paragraph: ParagraphStyle::label()
                 )
                 Text (
@@ -127,7 +136,7 @@ fn compose_flex_card() -> Entity {
                     bg_color: VIOLET,
                     border_radius: 8,
                     font_size: 11,
-                    text_color: TEXT,
+                    text_color: ColorToken::OnTertiary,
                     paragraph: ParagraphStyle::label()
                 )
             }
@@ -169,7 +178,8 @@ fn compose_surface_card() -> Entity {
         Column (
             id: "layout_lab_surfaces",
             grow: 1.0,
-            min_width: 300,
+            width: Dimension::percent(48),
+            min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 12,
@@ -185,7 +195,7 @@ fn compose_surface_card() -> Entity {
                     width: 72,
                     height: 72,
                     bg_color: BLUE,
-                    border_color: TEXT,
+                    border_color: ColorToken::OnSecondary,
                     border_width: 2,
                     border_radius: 18
                 )
@@ -193,7 +203,7 @@ fn compose_surface_card() -> Entity {
                     width: 72,
                     height: 72,
                     bg_color: CYAN,
-                    border_color: BACKGROUND,
+                    border_color: ColorToken::OnPrimary,
                     border_width: 3,
                     border_radius: 36
                 )
@@ -223,7 +233,8 @@ fn compose_overlay_card() -> Entity {
         Column (
             id: "layout_lab_overlay_card",
             grow: 1.0,
-            min_width: 360,
+            width: Dimension::percent(48),
+            min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 8,
@@ -244,7 +255,7 @@ fn compose_overlay_card() -> Entity {
                 View (
                     width: Dimension::percent(72),
                     height: Dimension::percent(62),
-                    bg_color: Color::rgb(20, 61, 78),
+                    bg_color: ColorToken::Primary,
                     border_radius: 12
                 )
                 View (
@@ -269,14 +280,14 @@ fn compose_overlay_card() -> Entity {
                 Text (
                     "PINNED",
                     position: Position::Absolute,
-                    left: 254,
+                    right: 10,
                     top: 104,
                     width: 88,
                     height: 30,
                     bg_color: VIOLET,
                     border_radius: 15,
                     font_size: 10,
-                    text_color: TEXT,
+                    text_color: ColorToken::OnTertiary,
                     paragraph: ParagraphStyle::label()
                 )
             }
@@ -292,7 +303,8 @@ fn compose_collection_card() -> Entity {
         Column (
             id: "layout_lab_collection",
             grow: 1.0,
-            min_width: 370,
+            width: Dimension::percent(48),
+            min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 10,
@@ -332,10 +344,10 @@ fn compose_collection_card() -> Entity {
                     id: "layout_lab_conditional",
                     "Conditional branch retained",
                     height: 30,
-                    bg_color: Color::rgb(21, 67, 68),
+                    bg_color: ColorToken::Primary,
                     border_radius: 8,
                     font_size: 11,
-                    text_color: CYAN,
+                    text_color: ColorToken::OnPrimary,
                     paragraph: ParagraphStyle::label()
                 )
             }
@@ -474,5 +486,36 @@ mod tests {
         let note = rect(&world, "layout_lab_surface_note");
         assert!(note.x + note.w <= surfaces.x + surfaces.w);
         assert!(note.y + note.h <= surfaces.y + surfaces.h);
+    }
+
+    #[test]
+    fn phone_viewport_stacks_cards_without_horizontal_overflow() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        let (mut world, parent) = fixture();
+        update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+        let rect = |world: &World, id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let shell = rect(&world, "layout_lab_shell");
+        let cards = [
+            rect(&world, "layout_lab_flex"),
+            rect(&world, "layout_lab_surfaces"),
+            rect(&world, "layout_lab_overlay_card"),
+            rect(&world, "layout_lab_collection"),
+        ];
+        for card in cards {
+            assert!(card.x >= shell.x);
+            assert!(card.x + card.w <= shell.x + shell.w);
+        }
+
+        let overlay = rect(&world, "layout_lab_overlay_stage");
+        let absolute = rect(&world, "layout_lab_absolute");
+        assert!(absolute.x + absolute.w <= overlay.x + overlay.w);
     }
 }

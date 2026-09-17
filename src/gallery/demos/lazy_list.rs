@@ -53,7 +53,7 @@ fn compose_list() -> Entity {
         ] {
             walk 0..POOL_SIZE with _i {
                 Row (
-                    bg_color: Color::rgb(40, 40, 56),
+                    bg_color: ColorToken::Surface,
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -71,7 +71,7 @@ fn compose_list() -> Entity {
                         "",
                         grow: 1.0,
                         height: 24,
-                        text_color: Color::rgb(220, 220, 230),
+                        text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                 }
