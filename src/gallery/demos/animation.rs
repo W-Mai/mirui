@@ -32,6 +32,7 @@ pub fn build_widgets() {
             padding: Padding::all(12)
         ) {
             View (
+                id: "animation_stage",
                 width: Dimension::percent(100),
                 max_width: 320,
                 height: 144,
@@ -40,12 +41,15 @@ pub fn build_widgets() {
                 clip_children: true
             ) {
                 Row (
-                    position: Position::Absolute,
-                    left: 16,
-                    top: 12,
-                    width: 288,
-                    height: 28,
-                    align: AlignItems::Center
+                    id: "animation_header",
+                    height: 52,
+                    align: AlignItems::Center,
+                    padding: Padding {
+                        top: Dimension::px(12),
+                        right: Dimension::px(16),
+                        bottom: Dimension::px(12),
+                        left: Dimension::px(16),
+                    }
                 ) {
                     Text (
                         "TWEEN MOTION",
@@ -122,9 +126,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Viewport;
     use crate::ui::Children;
-    use crate::ui::IdMap;
-    use crate::ui::UiScope;
+    use crate::ui::render_system::update_layout;
+    use crate::ui::{ComputedRect, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
@@ -139,5 +144,27 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn phone_header_stays_inside_the_animation_stage() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
+
+        update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+        let rect = |id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let stage = rect("animation_stage");
+        let header = rect("animation_header");
+        assert!(header.x >= stage.x);
+        assert!(header.x + header.w <= stage.x + stage.w);
     }
 }
