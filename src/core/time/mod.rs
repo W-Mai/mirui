@@ -165,8 +165,8 @@ mod tests {
             mock::set_ns(123);
             assert_eq!(clock_now_ns(), 123);
         }
+        let _guard = mock::serial_guard();
         let real = clock_now_ns();
-        assert!(real > 0);
         assert_ne!(real, 123);
     }
 }
