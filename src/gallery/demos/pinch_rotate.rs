@@ -62,7 +62,9 @@ fn refresh(world: &mut World, entity: Entity) {
         "{mode}  ·  SCALE {visual_scale_pct}%  ·  ROT {visual_rot_int}°  ·  P{pinch_events} R{rotate_events}",
     );
     if let Some(status) = world.find_by_id("pinch_status") {
-        world.insert(status, Text::from(line));
+        if let Some(text) = world.get_mut::<Text>(status) {
+            text.set_content(line);
+        }
         world.invalidate(status);
     }
 }
@@ -278,6 +280,9 @@ mod tests {
             Some("EXPAND")
         );
         assert!(world.has::<WidgetTransform>(target));
-        assert!(world.get::<Text>(status).is_some());
+        assert_eq!(
+            world.get::<Text>(status).map(Text::paragraph),
+            Some(&ParagraphStyle::label())
+        );
     }
 }
