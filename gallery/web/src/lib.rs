@@ -91,7 +91,6 @@ fn current_theme() -> gallery::mirui::ui::Theme {
 fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
     let mut app = gallery::assemble_app(backend, gallery::configured_factory());
     app.add_plugin(gallery::mirui::app::plugins::StdInstantClockPlugin);
-    set_canvas_size(demo.width, demo.height);
     let root = {
         let mut setup = gallery::Setup { app: &mut app };
         (demo.setup)(&mut setup)
@@ -104,27 +103,8 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
 
 fn build_backend_parity_app(backend: gallery::ActiveSurface) -> WebApp {
     let mut app = gallery::assemble_app(backend, gallery::configured_factory());
-    set_canvas_size(
-        gallery::backend_parity::WIDTH,
-        gallery::backend_parity::HEIGHT,
-    );
     gallery::backend_parity::build(&mut app);
     app
-}
-
-fn set_canvas_size(w: u16, h: u16) {
-    if let Some(canvas) = web_sys::window()
-        .and_then(|win| win.document())
-        .and_then(|doc| doc.get_element_by_id("mirui"))
-    {
-        let style: web_sys::HtmlElement = wasm_bindgen::JsCast::unchecked_into(canvas);
-        let _ = style
-            .style()
-            .set_property("width", &alloc::format!("{w}px"));
-        let _ = style
-            .style()
-            .set_property("height", &alloc::format!("{h}px"));
-    }
 }
 
 fn prefers_dark() -> bool {

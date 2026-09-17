@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Responsive gesture study.** Pinch and Rotate reflows through portrait and landscape canvases, and the Web runner no longer overwrites the Gallery shell's mobile canvas sizing.
 - **Dynamic label alignment.** Gesture status updates retain their centered paragraph style instead of replacing the complete text component.
 - **Transformed border invalidation.** Visual dirty bounds include the outward half of styled borders, preventing animated scale and rotation from leaving edge pixels behind.
 - **Centered icon content.** Explicit icon sizes and animated scale remain centered inside their layout rectangles instead of growing from the top-left corner.

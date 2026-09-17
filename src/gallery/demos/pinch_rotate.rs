@@ -7,8 +7,11 @@ use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::types::DimPoint;
 use crate::types::{Fixed64, Transform};
 use crate::ui::icons::ICON_PLUS;
+use crate::ui::root_viewport;
 use crate::ui::theme::ThemedColor;
 use crate::ui::widgets::icon::Icon;
 use crate::ui::widgets::{ParagraphStyle, Text};
@@ -16,15 +19,10 @@ use alloc::format;
 #[cfg(feature = "std")]
 use alloc::vec;
 
-const W: i32 = 480;
-const H: i32 = 360;
-
-pub const DEFAULT_VIEW: (u16, u16) = (W as u16, H as u16);
+pub const DEFAULT_VIEW: (u16, u16) = (480, 360);
 
 const BASE_W: i32 = 160;
 const BASE_H: i32 = 120;
-const CENTER_X: i32 = 240;
-const CENTER_Y: i32 = 220;
 
 pub struct PinchTarget {
     pub last_pinch: Fixed64,
@@ -35,6 +33,23 @@ pub struct PinchTarget {
     pub pinch_events: u32,
     pub rotate_events: u32,
     pub mode: &'static str,
+}
+
+fn status_line(
+    view_width: i32,
+    mode: &str,
+    scale_pct: i32,
+    rotation_deg: i32,
+    pinch_events: u32,
+    rotate_events: u32,
+) -> alloc::string::String {
+    if view_width < 420 {
+        format!("{mode}  |  {scale_pct}%  |  {rotation_deg} DEG")
+    } else {
+        format!(
+            "{mode}  |  SCALE {scale_pct}%  |  ROT {rotation_deg} DEG  |  P{pinch_events} R{rotate_events}",
+        )
+    }
 }
 
 fn refresh(world: &mut World, entity: Entity) {
@@ -58,8 +73,16 @@ fn refresh(world: &mut World, entity: Entity) {
 
     let visual_scale_pct = (visual_scale * Fixed::from_int(100)).to_int();
     let visual_rot_int = visual_rot_deg.to_int();
-    let line = format!(
-        "{mode}  ·  SCALE {visual_scale_pct}%  ·  ROT {visual_rot_int}°  ·  P{pinch_events} R{rotate_events}",
+    let view_width = root_viewport(world)
+        .map(|rect| rect.w.to_int())
+        .unwrap_or(i32::from(DEFAULT_VIEW.0));
+    let line = status_line(
+        view_width,
+        mode,
+        visual_scale_pct,
+        visual_rot_int,
+        pinch_events,
+        rotate_events,
     );
     if let Some(status) = world.find_by_id("pinch_status") {
         if let Some(text) = world.get_mut::<Text>(status) {
@@ -72,34 +95,40 @@ fn refresh(world: &mut World, entity: Entity) {
 #[compose]
 pub fn build_widgets() {
     ui! {
-        View (grow: 1.0, bg_color: ColorToken::Surface) {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 12,
+            bg_color: ColorToken::Surface
+        ) {
             View (
-                position: Position::Absolute,
-                left: 16,
-                top: 16,
-                width: W - 32,
+                width: Dimension::percent(100),
                 height: 32,
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 16
-            )
-            Text (
-                "IDLE  ·  SCALE 100%  ·  ROT 0°  ·  P0 R0",
-                position: Position::Absolute,
-                left: 28,
-                top: 16,
-                width: W - 56,
-                height: 32,
-                font_size: 10,
-                text_color: ColorToken::Secondary,
-                paragraph: ParagraphStyle::label(),
-                id: "pinch_status"
-            )
+            ) {
+                Text (
+                    "IDLE  ·  SCALE 100%  ·  ROT 0°  ·  P0 R0",
+                    grow: 1.0,
+                    width: Dimension::percent(100),
+                    height: 32,
+                    font_size: 10,
+                    text_color: ColorToken::Secondary,
+                    paragraph: ParagraphStyle::label(),
+                    id: "pinch_status"
+                )
+            }
+            View (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) {
+                pinch_target ()
+            }
             Text (
                 "TWO-POINTER GESTURE · LIVE TRANSFORM",
-                position: Position::Absolute,
-                left: 16,
-                top: 324,
-                width: W - 32,
+                width: Dimension::percent(100),
                 height: 20,
                 font_size: 9,
                 text_color: ColorToken::OnSurfaceVariant,
@@ -107,14 +136,14 @@ pub fn build_widgets() {
             )
         }
     };
+}
 
+#[compose]
+fn pinch_target() -> Entity {
     //~focus-start
     ui! {
         View (
             id: "pinch_target",
-            position: Position::Absolute,
-            left: CENTER_X - BASE_W / 2,
-            top: CENTER_Y - BASE_H / 2,
             width: BASE_W,
             height: BASE_H,
             bg_color: ColorToken::Primary,
@@ -167,7 +196,7 @@ pub fn build_widgets() {
                 width: Dimension::percent(100)
             )
         }
-    };
+    }
     //~focus-end
 }
 
@@ -179,39 +208,69 @@ where
 {
     app.compose(parent, build_widgets);
 
-    let center = Point {
-        x: Fixed::from_int(CENTER_X),
-        y: Fixed::from_int(CENTER_Y),
-    };
+    let target = app
+        .world
+        .find_by_id("pinch_target")
+        .expect("pinch target must be composed before its timeline");
     let small = Fixed::from_int(40);
     let large = Fixed::from_int(80);
     let radius = Fixed::from_int(50);
     let timeline = SimTimeline::new(vec![
-        SimAction::pinch(center, small, large, 1500, ease::ease_in_out_cubic),
+        SimAction::pinch(
+            DimPoint::CENTER,
+            small,
+            large,
+            1500,
+            ease::ease_in_out_cubic,
+        )
+        .on(target),
         SimAction::wait(800),
-        SimAction::pinch(center, large, small, 1500, ease::ease_in_out_cubic),
+        SimAction::pinch(
+            DimPoint::CENTER,
+            large,
+            small,
+            1500,
+            ease::ease_in_out_cubic,
+        )
+        .on(target),
         SimAction::wait(800),
-        SimAction::pinch(center, small, large, 1500, ease::ease_in_out_cubic),
+        SimAction::pinch(
+            DimPoint::CENTER,
+            small,
+            large,
+            1500,
+            ease::ease_in_out_cubic,
+        )
+        .on(target),
         SimAction::wait(800),
         SimAction::rotate_gesture(
-            center,
+            DimPoint::CENTER,
             radius,
             Fixed::ZERO,
             Fixed::PI / Fixed::from_int(2),
             1500,
             ease::ease_in_out_cubic,
-        ),
+        )
+        .on(target),
         SimAction::wait(800),
         SimAction::rotate_gesture(
-            center,
+            DimPoint::CENTER,
             radius,
             Fixed::PI / Fixed::from_int(2),
             Fixed::ZERO,
             1500,
             ease::ease_in_out_cubic,
-        ),
+        )
+        .on(target),
         SimAction::wait(800),
-        SimAction::pinch(center, large, small, 1500, ease::ease_in_out_cubic),
+        SimAction::pinch(
+            DimPoint::CENTER,
+            large,
+            small,
+            1500,
+            ease::ease_in_out_cubic,
+        )
+        .on(target),
         SimAction::wait(800),
     ])
     .looping(true);
@@ -284,5 +343,48 @@ mod tests {
             world.get::<Text>(status).map(Text::paragraph),
             Some(&ParagraphStyle::label())
         );
+    }
+
+    #[test]
+    fn portrait_layout_reflows_the_target_between_status_and_footer() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        let mut app = App::headless(360, 480);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        app.compose(root, build_widgets);
+        app.set_root(root);
+        update_layout(&mut app.world, root, &Viewport::new(360, 480, Fixed::ONE));
+
+        let target = app.world.find_by_id("pinch_target").expect("target id");
+        let status = app.world.find_by_id("pinch_status").expect("status id");
+        let target_rect = app
+            .world
+            .get::<ComputedRect>(target)
+            .expect("target rect")
+            .0;
+        let status_rect = app
+            .world
+            .get::<ComputedRect>(status)
+            .expect("status rect")
+            .0;
+
+        assert_eq!(status_rect.x.to_int(), 16);
+        assert_eq!(status_rect.w.to_int(), 328);
+        assert_eq!(target_rect.x.to_int(), 100);
+        assert!(target_rect.y > status_rect.y + status_rect.h);
+        assert!(target_rect.y + target_rect.h < Fixed::from_int(444));
+    }
+
+    #[test]
+    fn portrait_status_uses_the_compact_vocabulary() {
+        let compact = status_line(360, "ROTATE", 158, 25, 791, 3);
+        let landscape = status_line(480, "ROTATE", 158, 25, 791, 3);
+
+        assert_eq!(compact, "ROTATE  |  158%  |  25 DEG");
+        assert!(landscape.contains("SCALE 158%"));
+        assert!(landscape.contains("ROT 25 DEG"));
     }
 }
