@@ -12,6 +12,7 @@ use crate::ui::icons::{
 };
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::widgets::icon::Icon;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
@@ -81,63 +82,105 @@ fn bounce() -> IconScale {
 pub fn build_widgets() {
     let table = icons();
     ui! {
-        Column (grow: 1.0, padding: Padding::all(16)) {
-            walk table.chunks(5) with row {
-                Row (height: 56) {
-                    walk row.iter() with cell {
-                        Icon (
-                            path: cell.0.clone(),
-                            color: ThemedColor::Token(cell.1),
-                            size: Dimension::Px(Fixed::from_int(36)),
-                            width: 100,
-                            grow: 0.0
-                        )
-                    }
+        Column (
+            id: "icon_gallery_shell",
+            grow: 1.0,
+            padding: Padding::all(12),
+            row_gap: 8,
+            bg_color: ColorToken::Surface
+        ) {
+            Text (
+                "VECTOR ICONS",
+                height: 24,
+                font_size: 18,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "STATIC PATHS · LIVE THEME · RETAINED MOTION",
+                height: 18,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Row (
+                id: "icon_gallery_grid",
+                grow: 1.0,
+                wrap: FlexWrap::Wrap,
+                justify: JustifyContent::Center,
+                align: AlignItems::Center,
+                row_gap: 6,
+                column_gap: 6
+            ) {
+                walk table.iter() with cell {
+                    Icon (
+                        path: cell.0.clone(),
+                        color: ThemedColor::Token(cell.1),
+                        size: Dimension::Px(Fixed::from_int(28)),
+                        width: 44,
+                        height: 44,
+                        grow: 0.0,
+                        bg_color: ColorToken::SurfaceVariant,
+                        border_radius: 10
+                    )
                 }
             }
-            Row (height: 96) {
+            Text (
+                "MOTION PRESETS",
+                height: 18,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Row (
+                id: "icon_gallery_motion",
+                height: 54,
+                justify: JustifyContent::SpaceEvenly,
+                align: AlignItems::Center,
+                column_gap: 4
+            ) {
                 Icon (
                     path: ICON_HEART.clone(),
                     color: ThemedColor::Token(ColorToken::Error),
-                    size: Dimension::Px(Fixed::from_int(48)),
-                    width: 100,
-                    grow: 0.0
+                    size: Dimension::Px(Fixed::from_int(34)),
+                    grow: 1.0,
+                    height: 52
                 ) [
                     beat(),
                 ]
                 Icon (
                     path: ICON_CIRCLE.clone(),
                     color: ThemedColor::Token(ColorToken::Primary),
-                    size: Dimension::Px(Fixed::from_int(48)),
-                    width: 100,
-                    grow: 0.0
+                    size: Dimension::Px(Fixed::from_int(34)),
+                    grow: 1.0,
+                    height: 52
                 ) [
                     breathe(),
                 ]
                 Icon (
                     path: ICON_STAR.clone(),
                     color: ThemedColor::Token(ColorToken::Success),
-                    size: Dimension::Px(Fixed::from_int(48)),
-                    width: 100,
-                    grow: 0.0
+                    size: Dimension::Px(Fixed::from_int(34)),
+                    grow: 1.0,
+                    height: 52
                 ) [
                     bounce(),
                 ]
                 Icon (
                     path: ICON_PLAY.clone(),
                     color: ThemedColor::Token(ColorToken::Primary),
-                    size: Dimension::Px(Fixed::from_int(48)),
-                    width: 100,
-                    grow: 0.0
+                    size: Dimension::Px(Fixed::from_int(34)),
+                    grow: 1.0,
+                    height: 52
                 ) [
                     beat(),
                 ]
                 Icon (
                     path: ICON_PLUS.clone(),
                     color: ThemedColor::Token(ColorToken::OnSurface),
-                    size: Dimension::Px(Fixed::from_int(48)),
-                    width: 100,
-                    grow: 0.0
+                    size: Dimension::Px(Fixed::from_int(34)),
+                    grow: 1.0,
+                    height: 52
                 ) [
                     bounce(),
                 ]
@@ -160,9 +203,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Viewport;
     use crate::ui::Children;
-    use crate::ui::IdMap;
-    use crate::ui::UiScope;
+    use crate::ui::render_system::update_layout;
+    use crate::ui::{ComputedRect, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
@@ -181,5 +225,29 @@ mod tests {
     #[test]
     fn icons_table_has_twenty_entries() {
         assert_eq!(icons().len(), 20);
+    }
+
+    #[test]
+    fn icon_grid_stays_inside_phone_shell() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
+
+        update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+        let rect = |id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let shell = rect("icon_gallery_shell");
+        for id in ["icon_gallery_grid", "icon_gallery_motion"] {
+            let child = rect(id);
+            assert!(child.x >= shell.x);
+            assert!(child.x + child.w <= shell.x + shell.w);
+        }
     }
 }
