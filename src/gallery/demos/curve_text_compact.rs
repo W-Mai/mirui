@@ -13,12 +13,12 @@ use crate::ui::widgets::{
 
 pub const VIEWPORT: (u16, u16) = (128, 128);
 
-const BACKGROUND: Color = Color::rgb(5, 10, 22);
-const PANEL: Color = Color::rgb(14, 28, 51);
-const BORDER: Color = Color::rgb(39, 64, 94);
-const TEXT: Color = Color::rgb(235, 245, 255);
-const MUTED: Color = Color::rgb(128, 153, 181);
-const CYAN: Color = Color::rgb(64, 237, 218);
+const BACKGROUND: ColorToken = ColorToken::Surface;
+const PANEL: ColorToken = ColorToken::SurfaceVariant;
+const BORDER: ColorToken = ColorToken::Outline;
+const TEXT: ColorToken = ColorToken::OnSurface;
+const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
+const CYAN: ColorToken = ColorToken::Primary;
 const MARQUEE_CYCLE: i32 = 192;
 const TEXT_WINDOW: i32 = 400;
 
@@ -236,5 +236,23 @@ mod tests {
             Fixed::from_int(TEXT_WINDOW)
         );
         assert!(!app.backend.framebuffer().buf.as_slice().is_empty());
+    }
+
+    #[test]
+    fn compact_shell_resolves_the_active_theme() {
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets().with_default_systems();
+        app.world.insert_resource(crate::ui::Theme::light());
+        let root = app.spawn_root().id();
+        install(&mut app, root);
+        app.set_root(root);
+        flush_signal_dirty(&mut app.world);
+        app.render().unwrap();
+
+        let surface = crate::ui::Theme::light().resolve(BACKGROUND);
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..3],
+            &[surface.r, surface.g, surface.b]
+        );
     }
 }

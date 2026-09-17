@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gallery physics and effects.** The three-body field uses semantic image nodes on a restrained orbital stage, while the live effects panel groups mirror, temporal, blur, shadow, and glow pipelines into readable capability cards.
 - **Gallery motion studies.** Particle, butterfly, and shape demos use responsive capability cards, semantic text nodes, theme color roles, deterministic composition, and static vector geometry while preserving their live rendering paths.
 - **Gallery vector studies.** Clip, fill-rule, stroke, and gradient demos keep fixed geometry and gradient stops in static storage, resolve presentation colors through the active theme, and avoid per-frame path allocation.
-- **Gallery theme roles.** Scroll, gesture, layout, interaction, and tab examples use semantic palette roles for surfaces, accents, and foregrounds so their contrast adapts to the active light or dark theme.
+- **Gallery theme roles.** Scroll, gesture, layout, interaction, curve-text, and tab examples use semantic palette roles for surfaces, accents, and foregrounds so their contrast adapts to the active light or dark theme.
 - **Semantic responsive state demos.** Gallery state, persistence, form, keyed collection, and localization examples use their corresponding text and input components in one layout that contracts for phones and remains bounded on desktop.
 - **Responsive Gallery stage.** Portrait phones open landscape demos in a fitted portrait viewport, the demo selector collapses into a drawer, and the orientation control animates between the current width and height.
 

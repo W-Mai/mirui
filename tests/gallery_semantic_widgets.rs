@@ -89,6 +89,8 @@ fn themed_gallery_surfaces_do_not_embed_palette_literals() {
         include_str!("../src/gallery/demos/pinch_rotate.rs"),
         include_str!("../src/gallery/demos/layout_lab.rs"),
         include_str!("../src/gallery/demos/interaction_lab.rs"),
+        include_str!("../src/gallery/demos/curve_text.rs"),
+        include_str!("../src/gallery/demos/curve_text_compact.rs"),
     ] {
         assert!(!source.contains("bg_color: Color::"));
         assert!(!source.contains("text_color: Color::"));

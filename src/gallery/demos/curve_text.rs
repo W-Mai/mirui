@@ -12,9 +12,9 @@ use crate::render::font::{FontStack, FontToken};
 use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
-use crate::ui::IgnoreHitTest;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextWrap};
+use crate::ui::{IgnoreHitTest, Theme};
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
 
@@ -24,16 +24,16 @@ const ARABIC: FontToken = FontToken::Custom("typography_arabic");
 const THAI: FontToken = FontToken::Custom("typography_thai");
 const FALLBACKS: [FontToken; 3] = [CJK, ARABIC, THAI];
 
-const BACKGROUND: Color = Color::rgb(5, 10, 22);
-const PANEL: Color = Color::rgb(10, 20, 39);
-const PANEL_ALT: Color = Color::rgb(14, 28, 51);
-const BORDER: Color = Color::rgb(39, 64, 94);
-const TEXT: Color = Color::rgb(235, 245, 255);
-const MUTED: Color = Color::rgb(128, 153, 181);
-const CYAN: Color = Color::rgb(64, 237, 218);
-const VIOLET: Color = Color::rgb(182, 116, 255);
-const GOLD: Color = Color::rgb(255, 197, 88);
-const LANE_COLORS: [Color; 3] = [CYAN, VIOLET, GOLD];
+const BACKGROUND: ColorToken = ColorToken::Surface;
+const PANEL: ColorToken = ColorToken::SurfaceVariant;
+const PANEL_ALT: ColorToken = ColorToken::Surface;
+const BORDER: ColorToken = ColorToken::Outline;
+const TEXT: ColorToken = ColorToken::OnSurface;
+const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
+const CYAN: ColorToken = ColorToken::Primary;
+const VIOLET: ColorToken = ColorToken::Tertiary;
+const GOLD: ColorToken = ColorToken::Success;
+const LANE_COLORS: [ColorToken; 3] = [CYAN, VIOLET, GOLD];
 
 #[derive(Clone)]
 struct CurveModel {
@@ -242,15 +242,20 @@ fn curve_stage_render(
     if !world.has::<CurveStage>(entity) {
         return;
     }
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let panel = theme.resolve(PANEL);
+    let border = theme.resolve(BORDER);
+    let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
     ctx.bg_handled = true;
-    fill(renderer, ctx, *rect, PANEL, Fixed::from_int(18), 255);
+    fill(renderer, ctx, *rect, panel, Fixed::from_int(18), 255);
     for index in 0..12 {
         let x = rect.x + rect.w * Fixed::from_ratio(index, 11);
         fill(
             renderer,
             ctx,
             Rect::new(x, rect.y, Fixed::ONE, rect.h),
-            BORDER,
+            border,
             Fixed::ZERO,
             if index % 3 == 0 { 48 } else { 22 },
         );
@@ -261,7 +266,7 @@ fn curve_stage_render(
             renderer,
             ctx,
             Rect::new(rect.x, y, rect.w, Fixed::ONE),
-            BORDER,
+            border,
             Fixed::ZERO,
             28,
         );
@@ -279,7 +284,7 @@ fn curve_stage_render(
             renderer,
             ctx,
             Rect::new(x - radius, y - radius, radius * 2, radius * 2),
-            LANE_COLORS[index as usize % LANE_COLORS.len()],
+            lane_colors[index as usize % lane_colors.len()],
             radius,
             32,
         );
@@ -296,7 +301,7 @@ fn curve_stage_render(
         let Ok(path) = store.get(id) else {
             continue;
         };
-        let paint = Paint::Color(LANE_COLORS[index].into());
+        let paint = Paint::Color(lane_colors[index].into());
         ctx.draw(
             renderer,
             &DrawCommand::StrokePath {
@@ -922,12 +927,26 @@ mod tests {
         let mut app = fixture();
         app.render().unwrap();
         let texture = app.backend.framebuffer();
+        let background = Theme::default().resolve(BACKGROUND);
         let non_background = texture
             .buf
             .as_slice()
             .chunks_exact(4)
-            .filter(|pixel| pixel[..3] != [BACKGROUND.r, BACKGROUND.g, BACKGROUND.b])
+            .filter(|pixel| pixel[..3] != [background.r, background.g, background.b])
             .count();
         assert!(non_background > 20_000);
+    }
+
+    #[test]
+    fn shell_and_custom_stage_resolve_the_active_theme() {
+        let mut app = fixture();
+        app.world.insert_resource(Theme::light());
+        app.render().unwrap();
+
+        let surface = Theme::light().resolve(BACKGROUND);
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..3],
+            &[surface.r, surface.g, surface.b]
+        );
     }
 }
