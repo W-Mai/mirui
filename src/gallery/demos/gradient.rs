@@ -14,18 +14,6 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 const LOGICAL_WIDTH: i32 = 480;
 const LOGICAL_HEIGHT: i32 = 320;
 
-fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
-    let scale =
-        (rect.w / Fixed::from_int(LOGICAL_WIDTH)).min(rect.h / Fixed::from_int(LOGICAL_HEIGHT));
-    let width = Fixed::from_int(LOGICAL_WIDTH) * scale;
-    let height = Fixed::from_int(LOGICAL_HEIGHT) * scale;
-    let x = rect.x + (rect.w - width) / Fixed::from_int(2);
-    let y = rect.y + (rect.h - height) / Fixed::from_int(2);
-    parent
-        .compose(&Transform::translate(x, y))
-        .compose(&Transform::scale(scale, scale))
-}
-
 fn unit_point(x: f32, y: f32) -> mirx::types::Point {
     Point {
         x: Fixed::from_f32(x),
@@ -100,7 +88,8 @@ fn gradient_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let canvas = canvas_transform(rect, ctx.transform);
+    let canvas =
+        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     let linear = Paint::LinearGradient(LinearGradient {
         start: unit_point(0.0, 0.0),
         end: unit_point(1.0, 1.0),
@@ -210,7 +199,12 @@ mod tests {
     #[test]
     fn logical_canvas_stays_inside_phone_bounds() {
         let rect = Rect::new(8, 72, 304, 480);
-        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        let transform = crate::gallery::fit_logical_canvas(
+            rect,
+            Transform::IDENTITY,
+            LOGICAL_WIDTH,
+            LOGICAL_HEIGHT,
+        );
         let top_left = transform.apply_point(Point::ZERO);
         let bottom_right = transform.apply_point(Point::new(
             Fixed::from_int(LOGICAL_WIDTH),

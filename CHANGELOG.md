@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Control label and text input APIs.** `Text::label` and `ParagraphStyle::label` create centered single-line control captions; `TextInputEvent::Changed` reports allocation-free content mutations through builders and `ui!` handlers.
 - **Explicit Gallery scaling policy.** `DemoEntry::allow_upscale` keeps pixel-sized demos at their native dimensions while responsive showcases can fill available stage space.
+- **Transformed scene replay.** `ViewCtx::replay_transformed_with_rgba` and `replay_transformed_with_scratch` apply one shared root transform to borrowed scene operations while retaining caller-owned replay storage.
 
 ### Changed
 
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Gallery physics and effects.** The three-body field uses semantic image nodes on a restrained orbital stage, while the live effects panel groups mirror, temporal, blur, shadow, and glow pipelines into readable capability cards.
 - **Gallery motion studies.** Particle, butterfly, and shape demos use responsive capability cards, semantic text nodes, theme color roles, deterministic composition, and static vector geometry while preserving their live rendering paths.
 - **Gallery vector studies.** Clip, fill-rule, stroke, and gradient demos keep fixed geometry and gradient stops in static storage, resolve presentation colors through the active theme, scale logical canvases into live bounds, and avoid per-frame path allocation.
+- **Responsive retained scenes.** Blur Filter and Render Showcase fit their static scene geometry into live component bounds and size caller-owned effect workspaces from the active viewport.
 - **Gallery theme roles.** Scroll, gesture, layout, interaction, typography, curve-text, Kinetic Console, Orbit Console, and tab examples use semantic palette roles for surfaces, accents, and foregrounds so their contrast adapts to the active light or dark theme.
 - **Reactive button colors.** `Button(normal_color: ${ ... })` binds selected and application state directly to the button surface without imperative component mutation.
 - **Semantic responsive state demos.** Gallery state, persistence, form, keyed collection, and localization examples use their corresponding text and input components in one layout that contracts for phones and remains bounded on desktop.

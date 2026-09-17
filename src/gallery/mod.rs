@@ -3,6 +3,22 @@ use core::cell::RefCell;
 
 pub mod demos;
 
+pub(crate) fn fit_logical_canvas(
+    rect: crate::types::Rect,
+    parent: crate::types::Transform,
+    width: i32,
+    height: i32,
+) -> crate::types::Transform {
+    let logical_width = crate::types::Fixed::from_int(width);
+    let logical_height = crate::types::Fixed::from_int(height);
+    let scale = (rect.w / logical_width).min(rect.h / logical_height);
+    let x = rect.x + (rect.w - logical_width * scale) / crate::types::Fixed::from_int(2);
+    let y = rect.y + (rect.h - logical_height * scale) / crate::types::Fixed::from_int(2);
+    parent
+        .compose(&crate::types::Transform::translate(x, y))
+        .compose(&crate::types::Transform::scale(scale, scale))
+}
+
 pub(crate) struct SceneReplayWorkspace(RefCell<Vec<u8>>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,6 +99,18 @@ impl SceneReplayWorkspace {
 mod tests {
     use super::*;
     use crate::types::{Fixed, Rect};
+
+    #[test]
+    fn logical_canvas_is_centered_and_contained() {
+        let rect = Rect::new(10, 20, 300, 500);
+        let transform = fit_logical_canvas(rect, crate::types::Transform::IDENTITY, 400, 200);
+        let top_left = transform.apply_point(crate::types::Point::ZERO);
+        let bottom_right = transform.apply_point(crate::types::Point::new(400, 200));
+        assert_eq!(top_left.x, rect.x);
+        assert_eq!(top_left.y, Fixed::from_int(195));
+        assert_eq!(bottom_right.x, rect.x + rect.w);
+        assert_eq!(bottom_right.y, Fixed::from_int(345));
+    }
 
     #[test]
     fn prepared_surface_never_grows_during_render() {

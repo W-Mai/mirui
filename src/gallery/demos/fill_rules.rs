@@ -22,18 +22,6 @@ static STAR: Path = path!(
 const LOGICAL_WIDTH: i32 = 400;
 const LOGICAL_HEIGHT: i32 = 240;
 
-fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
-    let scale =
-        (rect.w / Fixed::from_int(LOGICAL_WIDTH)).min(rect.h / Fixed::from_int(LOGICAL_HEIGHT));
-    let width = Fixed::from_int(LOGICAL_WIDTH) * scale;
-    let height = Fixed::from_int(LOGICAL_HEIGHT) * scale;
-    let x = rect.x + (rect.w - width) / Fixed::from_int(2);
-    let y = rect.y + (rect.h - height) / Fixed::from_int(2);
-    parent
-        .compose(&Transform::translate(x, y))
-        .compose(&Transform::scale(scale, scale))
-}
-
 fn fill_rules_render(
     renderer: &mut dyn Renderer,
     world: &World,
@@ -45,7 +33,8 @@ fn fill_rules_render(
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let fill = Paint::Color(theme.resolve(ColorToken::Secondary).into());
     let stroke = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
-    let canvas = canvas_transform(rect, ctx.transform);
+    let canvas =
+        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
     for (transform, rule) in [
         (
@@ -153,7 +142,12 @@ mod tests {
             w: Fixed::from_int(304),
             h: Fixed::from_int(544),
         };
-        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        let transform = crate::gallery::fit_logical_canvas(
+            rect,
+            Transform::IDENTITY,
+            LOGICAL_WIDTH,
+            LOGICAL_HEIGHT,
+        );
         let top_left = transform.apply_point(Point::ZERO);
         let bottom_right = transform.apply_point(Point::new(
             Fixed::from_int(LOGICAL_WIDTH),

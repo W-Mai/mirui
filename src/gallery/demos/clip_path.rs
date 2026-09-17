@@ -11,17 +11,6 @@ use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 const LOGICAL_SIZE: i32 = 320;
 
-fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
-    let scale =
-        (rect.w / Fixed::from_int(LOGICAL_SIZE)).min(rect.h / Fixed::from_int(LOGICAL_SIZE));
-    let size = Fixed::from_int(LOGICAL_SIZE) * scale;
-    let x = rect.x + (rect.w - size) / Fixed::from_int(2);
-    let y = rect.y + (rect.h - size) / Fixed::from_int(2);
-    parent
-        .compose(&Transform::translate(x, y))
-        .compose(&Transform::scale(scale, scale))
-}
-
 #[derive(Default)]
 pub struct ClipPath;
 
@@ -62,7 +51,8 @@ fn clip_path_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let canvas = canvas_transform(rect, ctx.transform);
+    let canvas =
+        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_SIZE, LOGICAL_SIZE);
     let default_theme = Theme::default();
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let surface = theme.resolve(ColorToken::SurfaceVariant);
@@ -209,7 +199,12 @@ mod tests {
     #[test]
     fn logical_canvas_stays_inside_phone_bounds() {
         let rect = Rect::new(8, 72, 304, 480);
-        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        let transform = crate::gallery::fit_logical_canvas(
+            rect,
+            Transform::IDENTITY,
+            LOGICAL_SIZE,
+            LOGICAL_SIZE,
+        );
         let top_left = transform.apply_point(Point::ZERO);
         let bottom_right = transform.apply_point(Point::new(
             Fixed::from_int(LOGICAL_SIZE),

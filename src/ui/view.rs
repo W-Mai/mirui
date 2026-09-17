@@ -94,6 +94,28 @@ impl ViewCtx<'_> {
         );
     }
 
+    /// Replay borrowed scene operations under one shared root transform.
+    pub fn replay_transformed_with_rgba(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        ops: &[crate::render::scene::SceneOp],
+        resolver: &dyn crate::render::scene::replay::SceneResolver,
+        transform: Transform,
+        rgba: &mut [u8],
+    ) {
+        let mut frames = [crate::render::scene::replay::ReplayFrame::EMPTY; 8];
+        let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
+        let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
+        self.replay_transformed_with_scratch(
+            renderer,
+            ops,
+            resolver,
+            transform,
+            crate::render::scene::replay::ReplayScratch::new(&mut frames, &mut routes, &mut scopes)
+                .with_rgba(rgba),
+        );
+    }
+
     /// Replay a scene using caller-owned group, route, and scope storage.
     pub fn replay_with_scratch(
         &mut self,
@@ -102,11 +124,29 @@ impl ViewCtx<'_> {
         resolver: &dyn crate::render::scene::replay::SceneResolver,
         scratch: crate::render::scene::replay::ReplayScratch<'_>,
     ) {
+        self.replay_transformed_with_scratch(renderer, ops, resolver, Transform::IDENTITY, scratch);
+    }
+
+    /// Replay borrowed scene operations under one shared root transform and
+    /// caller-owned replay storage.
+    pub fn replay_transformed_with_scratch(
+        &mut self,
+        renderer: &mut dyn Renderer,
+        ops: &[crate::render::scene::SceneOp],
+        resolver: &dyn crate::render::scene::replay::SceneResolver,
+        transform: Transform,
+        scratch: crate::render::scene::replay::ReplayScratch<'_>,
+    ) {
         if self.error.is_some() {
             return;
         }
-        self.error = crate::render::scene::replay::replay_scene_with_scratch(
-            ops, renderer, self.clip, resolver, scratch,
+        self.error = crate::render::scene::replay::replay_scene_with_root(
+            ops,
+            renderer,
+            self.clip,
+            resolver,
+            scratch,
+            crate::render::scene::replay::ReplayFrame::with_transform(transform),
         )
         .err()
         .map(Self::replay_error);
@@ -519,6 +559,69 @@ mod tests {
             Some(RenderError::Unsupported(
                 crate::render::renderer::RenderFeature::AffineGeometry
             ))
+        );
+    }
+
+    #[test]
+    fn transformed_scene_replay_composes_one_root_transform() {
+        #[derive(Default)]
+        struct CapturingRenderer {
+            transform: Option<Transform>,
+        }
+
+        impl Renderer for CapturingRenderer {
+            fn route(
+                &self,
+                _: &DrawRequest<'_, '_>,
+            ) -> Result<crate::render::renderer::RenderRoute, RenderError> {
+                Ok(crate::render::renderer::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.transform = Some(request.command.transform());
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let style = Style::default();
+        let clip = Rect::new(0, 0, 64, 64);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::IDENTITY,
+            quad: None,
+            clip: &clip,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+            error: None,
+        };
+        let ops = [crate::render::scene::SceneOp::FillRect {
+            area: Rect::new(0, 0, 8, 8),
+            transform: Transform::translate(Fixed::from_int(2), Fixed::from_int(3)),
+            quad: None,
+            color: crate::types::Color::rgb(255, 255, 255),
+            radius: Fixed::ZERO,
+            opa: 255,
+        }];
+        let root = Transform::scale(Fixed::from_int(2), Fixed::from_int(2));
+        let mut renderer = CapturingRenderer::default();
+        let mut rgba = [];
+
+        ctx.replay_transformed_with_rgba(
+            &mut renderer,
+            &ops,
+            &crate::render::scene::resolver::SliceResolver::new(&[], &[]),
+            root,
+            &mut rgba,
+        );
+
+        assert_eq!(
+            renderer.transform,
+            Some(root.compose(&Transform::translate(
+                Fixed::from_int(2),
+                Fixed::from_int(3),
+            )))
         );
     }
 

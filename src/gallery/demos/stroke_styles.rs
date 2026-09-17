@@ -15,18 +15,6 @@ static GUIDE: Path = path!(M 0 0 H 448 V 320 H 0 Z);
 const LOGICAL_WIDTH: i32 = 480;
 const LOGICAL_HEIGHT: i32 = 360;
 
-fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
-    let scale =
-        (rect.w / Fixed::from_int(LOGICAL_WIDTH)).min(rect.h / Fixed::from_int(LOGICAL_HEIGHT));
-    let width = Fixed::from_int(LOGICAL_WIDTH) * scale;
-    let height = Fixed::from_int(LOGICAL_HEIGHT) * scale;
-    let x = rect.x + (rect.w - width) / Fixed::from_int(2);
-    let y = rect.y + (rect.h - height) / Fixed::from_int(2);
-    parent
-        .compose(&Transform::translate(x, y))
-        .compose(&Transform::scale(scale, scale))
-}
-
 #[allow(clippy::too_many_arguments)]
 fn stroke(
     renderer: &mut dyn Renderer,
@@ -70,7 +58,8 @@ fn stroke_styles_render(
     let green = Paint::Color(theme.resolve(ColorToken::Success).into());
     let violet = Paint::Color(theme.resolve(ColorToken::Tertiary).into());
     let empty: [Fixed; 0] = [];
-    let canvas = canvas_transform(rect, ctx.transform);
+    let canvas =
+        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
     for (i, cap) in [LineCap::Butt, LineCap::Round, LineCap::Square]
         .into_iter()
@@ -224,7 +213,12 @@ mod tests {
             w: Fixed::from_int(320),
             h: Fixed::from_int(568),
         };
-        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        let transform = crate::gallery::fit_logical_canvas(
+            rect,
+            Transform::IDENTITY,
+            LOGICAL_WIDTH,
+            LOGICAL_HEIGHT,
+        );
         assert_eq!(transform.m00, Fixed::from_ratio(2, 3));
         assert_eq!(transform.m11, Fixed::from_ratio(2, 3));
         let top_left = transform.apply_point(Point::ZERO);

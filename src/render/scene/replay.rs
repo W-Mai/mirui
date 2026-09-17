@@ -69,6 +69,13 @@ impl ReplayFrame {
         blur_support: Fixed::ZERO,
     };
 
+    pub(crate) const fn with_transform(transform: Transform) -> Self {
+        Self {
+            transform,
+            ..Self::EMPTY
+        }
+    }
+
     fn include_visual_bounds(&mut self, bounds: Rect) {
         self.visual_bounds = Some(match self.visual_bounds {
             Some(current) => current.union(&bounds),
@@ -1091,7 +1098,7 @@ pub fn replay_scene_with_scratch(
     replay_scene_with_root(ops, renderer, clip, resolver, scratch, ReplayFrame::EMPTY)
 }
 
-fn replay_scene_with_root(
+pub(crate) fn replay_scene_with_root(
     ops: &[SceneOp],
     renderer: &mut dyn Renderer,
     clip: &Rect,

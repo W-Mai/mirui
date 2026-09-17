@@ -4,7 +4,10 @@ use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::scene::SceneOp;
 use crate::render::scene::resolver::SliceResolver;
-use crate::ui::widgets::Text;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
+
+const LOGICAL_WIDTH: i32 = 640;
+const LOGICAL_HEIGHT: i32 = 660;
 
 #[derive(Default)]
 pub struct RenderShowcase;
@@ -188,12 +191,14 @@ fn showcase_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
+    let transform =
+        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     let resolver = SliceResolver::new(&[], &[]);
     let scratch = world
         .resource::<crate::gallery::SceneReplayWorkspace>()
         .expect("Render Showcase setup installs scene RGBA storage");
     let _ = scratch.with_prepared_surface(*rect, renderer.output_scale(), |rgba| {
-        ctx.replay_with_rgba(renderer, SCENE, &resolver, rgba)
+        ctx.replay_transformed_with_rgba(renderer, SCENE, &resolver, transform, rgba)
     });
 }
 
@@ -204,13 +209,31 @@ pub fn showcase_view() -> View {
 #[compose]
 pub fn build_widgets() {
     ui! {
-        Column (grow: 1.0, align: AlignItems::Center) {
-            RenderShowcase (width: 640, height: 660)
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 6,
+            bg_color: ColorToken::Surface
+        ) {
             Text (
-                "gradient · clip · blur · fill-rule · stroke-style · transform",
-                width: 640,
+                "RENDER SHOWCASE",
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "gradient · clip · blur · fill-rule · stroke · transform",
                 height: 20,
-                text_color: ColorToken::OnSurface
+                font_size: 11,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            RenderShowcase (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18
             )
         }
     };
@@ -223,8 +246,35 @@ where
     F: RendererFactory<B>,
 {
     let scale = app.viewport().scale();
-    crate::gallery::SceneReplayWorkspace::install(&mut app.world, Rect::new(0, 0, 640, 660), scale)
-        .expect("Render Showcase scene workspace size is representable");
+    let (width, height) = app.viewport().logical_size();
+    crate::gallery::SceneReplayWorkspace::install(
+        &mut app.world,
+        Rect::new(0, 0, width, height),
+        scale,
+    )
+    .expect("Render Showcase scene workspace size is representable");
     app.with_widget(showcase_view());
     app.compose(parent, build_widgets);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Transform;
+
+    #[test]
+    fn scene_canvas_stays_inside_phone_bounds() {
+        let rect = Rect::new(8, 72, 304, 480);
+        let transform = crate::gallery::fit_logical_canvas(
+            rect,
+            Transform::IDENTITY,
+            LOGICAL_WIDTH,
+            LOGICAL_HEIGHT,
+        );
+        let top_left = transform.apply_point(Point::ZERO);
+        let bottom_right = transform.apply_point(Point::new(LOGICAL_WIDTH, LOGICAL_HEIGHT));
+        assert!(top_left.x >= rect.x && top_left.y >= rect.y);
+        assert!(bottom_right.x <= rect.x + rect.w);
+        assert!(bottom_right.y <= rect.y + rect.h);
+    }
 }
