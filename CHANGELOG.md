@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Responsive simulation and composite studies.** The life field uses bounded square-cell geometry, semantic presentation surfaces, and reusable simulation buffers, while composite samples retain their raw blend inputs inside themed cards that reflow across portrait and landscape canvases.
 - **Responsive effect pipeline study.** Reflection, temporal mix, background blur, shadow, and glow panels inherit the active palette, retain bounded sampling geometry across portrait and landscape canvases, and animate the blur overlay without relayout.
 - **Responsive cached and projective studies.** Offscreen panels inherit the active theme and remain centered without changing their fixed buffer budgets, while Cover Flow resizes cards and preserves valid perspective across portrait and landscape canvases.
 - **Semantic responsive Gallery demos.** Scroll, nested scroll, text input, slider, composite, effects, and gesture examples use dedicated text widgets, bounded fluid layouts, and shared control-label styling across phone and desktop viewports.

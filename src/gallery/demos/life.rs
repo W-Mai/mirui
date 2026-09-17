@@ -6,8 +6,11 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
+use crate::ui::widgets::{ParagraphStyle, Text};
 
 const PX_PER_CELL: i32 = 1;
+const MIN_GRID_EDGE: i32 = 48;
+const MAX_GRID_EDGE: i32 = 160;
 
 const GOSPER_GUN: &[(i32, i32)] = &[
     (0, 24),
@@ -177,7 +180,9 @@ fn life_render(
     ctx.bg_handled = true;
     let theme = ctx.theme(world);
     let bg = theme.resolve(ColorToken::Surface);
-    let alive = theme.resolve(ColorToken::Primary);
+    let primary = theme.resolve(ColorToken::Primary);
+    let secondary = theme.resolve(ColorToken::Secondary);
+    let success = theme.resolve(ColorToken::Success);
     let (cols, rows) = (board.cols, board.rows);
     let x0 = rect.x.round().to_int();
     let y0 = rect.y.round().to_int();
@@ -209,14 +214,20 @@ fn life_render(
             }
             let px = x0 + bw * c / cols;
             let pw = (x0 + bw * (c + 1) / cols) - px;
+            let inset = i32::from(pw > 2 && ph > 2);
+            let color = match (r / 8 + c / 8).rem_euclid(3) {
+                0 => primary,
+                1 => secondary,
+                _ => success,
+            };
             fill(
                 Rect {
-                    x: Fixed::from_int(px),
-                    y: Fixed::from_int(py),
-                    w: Fixed::from_int(pw.max(1)),
-                    h: Fixed::from_int(ph.max(1)),
+                    x: Fixed::from_int(px + inset),
+                    y: Fixed::from_int(py + inset),
+                    w: Fixed::from_int((pw - inset).max(1)),
+                    h: Fixed::from_int((ph - inset).max(1)),
                 },
-                alive,
+                color,
             );
         }
     }
@@ -244,8 +255,10 @@ pub fn life_step_system(world: &mut World) {
 }
 
 fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
-    let cols = (w / PX_PER_CELL).clamp(48, 240);
-    let rows = (h / PX_PER_CELL).clamp(48, 240);
+    let longest = w.max(h).max(1);
+    let scale = PX_PER_CELL.max((longest + MAX_GRID_EDGE - 1) / MAX_GRID_EDGE);
+    let cols = (w / scale).clamp(MIN_GRID_EDGE, MAX_GRID_EDGE);
+    let rows = (h / scale).clamp(MIN_GRID_EDGE, MAX_GRID_EDGE);
     (cols, rows)
 }
 
@@ -254,22 +267,113 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
     let (cols, rows) = dims_from_px(view_w as i32, view_h as i32);
     let mut board = LifeBoard::new(cols, rows);
     board.seed((3, 2), GOSPER_GUN);
+    board.seed((rows / 4, cols / 2), GOSPER_GUN);
     board.seed((rows * 2 / 3, cols / 2), ACORN);
+    board.seed((rows / 2, cols / 5), ACORN);
+    board.seed((rows / 3, cols * 4 / 5), GLIDER);
+    board.seed((rows * 4 / 5, cols / 4), GLIDER);
 
     //~focus-start
     ui! {
         Column (
+            id: "life_shell",
             bg_color: ColorToken::Surface,
             grow: 1.0,
+            width: Dimension::percent(100),
+            padding: Padding::all(14),
+            row_gap: 10,
             align: AlignItems::Center,
             justify: JustifyContent::Center
         ) {
+            Row (
+                id: "life_header",
+                width: Dimension::percent(100),
+                max_width: 760,
+                height: 44,
+                align: AlignItems::Center,
+                column_gap: 10
+            ) {
+                Column (grow: 1.0, row_gap: 2) {
+                    Text (
+                        "CELLULAR FIELD",
+                        width: Dimension::percent(100),
+                        height: 24,
+                        font_size: 20,
+                        text_color: ColorToken::OnSurface
+                    )
+                    Text (
+                        "toroidal life / seeded emitters",
+                        width: Dimension::percent(100),
+                        height: 16,
+                        font_size: 10,
+                        text_color: ColorToken::OnSurfaceVariant
+                    )
+                }
+                View (
+                    width: 76,
+                    height: 24,
+                    padding: Padding {
+                        top: Dimension::px(5),
+                        right: Dimension::px(8),
+                        bottom: Dimension::px(5),
+                        left: Dimension::px(8),
+                    },
+                    direction: FlexDirection::Row,
+                    align: AlignItems::Center,
+                    column_gap: 5,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_color: ColorToken::Outline,
+                    border_width: 1,
+                    border_radius: 12
+                ) {
+                    View (
+                        width: 6,
+                        height: 6,
+                        bg_color: ColorToken::Success,
+                        border_radius: 3
+                    )
+                    Text (
+                        "LIVE",
+                        grow: 1.0,
+                        height: 14,
+                        font_size: 9,
+                        text_color: ColorToken::OnSurface,
+                        paragraph: ParagraphStyle::label()
+                    )
+                }
+            }
             View (
-                bg_color: ColorToken::Surface,
-                grow: 1.0
-            ) [
-                board,
-            ]
+                id: "life_stage",
+                width: Dimension::percent(100),
+                max_width: 760,
+                min_height: 120,
+                grow: 1.0,
+                padding: Padding::all(8),
+                bg_color: ColorToken::SurfaceVariant,
+                border_color: ColorToken::Outline,
+                border_width: 1,
+                border_radius: 16
+            ) {
+                View (
+                    id: "life_board",
+                    width: Dimension::percent(100),
+                    grow: 1.0,
+                    bg_color: ColorToken::Surface,
+                    border_radius: 10,
+                    clip_children: true
+                ) [
+                    board,
+                ]
+            }
+            Text (
+                "GOSPER GUN  ·  ACORN  ·  GLIDER FEED",
+                width: Dimension::percent(100),
+                max_width: 760,
+                height: 18,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
+            )
         }
     };
     //~focus-end
@@ -298,20 +402,70 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Viewport;
+    use crate::ui::ComputedRect;
+    use crate::ui::render_system::update_layout;
 
     #[test]
     fn dims_track_viewport() {
         assert_eq!(dims_from_px(10, 10), (48, 48), "tiny viewport floors at 48");
-        assert_eq!(
-            dims_from_px(10_000, 10_000),
-            (240, 240),
-            "huge viewport caps at 240",
-        );
+        let huge = dims_from_px(10_000, 10_000);
+        assert_eq!(huge.0, huge.1);
+        assert!(huge.0 <= MAX_GRID_EDGE, "huge viewport stays bounded");
         let mid = dims_from_px(200, 100);
         assert!(
             mid.0 > mid.1,
             "wider-than-tall viewport: more cols than rows"
         );
+        assert_eq!(dims_from_px(480, 240), (160, 80));
+    }
+
+    #[test]
+    fn responsive_shell_contains_the_board_at_supported_viewports() {
+        for (width, height) in [(320, 568), (480, 320), (1024, 640)] {
+            let mut app = App::headless(width, height);
+            app.with_default_widgets()
+                .with_default_systems()
+                .with_widget(life_view());
+            let root = app.spawn_root().id();
+            app.compose(root, |cx| build_widgets(cx, width, height));
+            app.set_root(root);
+            update_layout(
+                &mut app.world,
+                root,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+
+            for id in ["life_header", "life_stage", "life_board"] {
+                let entity = app.world.find_by_id(id).unwrap();
+                let rect = app.world.get::<ComputedRect>(entity).unwrap().0;
+                assert!(rect.x >= Fixed::ZERO, "{id} starts before the viewport");
+                assert!(rect.y >= Fixed::ZERO, "{id} starts above the viewport");
+                assert!(
+                    rect.x + rect.w <= Fixed::from_int(width as i32),
+                    "{id} exceeds {width}x{height} horizontally",
+                );
+                assert!(
+                    rect.y + rect.h <= Fixed::from_int(height as i32),
+                    "{id} exceeds {width}x{height} vertically",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stepping_reuses_the_existing_cell_buffers() {
+        let mut board = LifeBoard::new(96, 64);
+        board.seed((3, 2), GOSPER_GUN);
+        let cell_capacity = board.cell.capacity();
+        let scratch_capacity = board.scratch.capacity();
+
+        for _ in 0..120 {
+            board.step();
+        }
+
+        assert_eq!(board.cell.capacity(), cell_capacity);
+        assert_eq!(board.scratch.capacity(), scratch_capacity);
     }
 
     #[test]
