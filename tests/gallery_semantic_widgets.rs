@@ -92,6 +92,9 @@ fn themed_gallery_surfaces_do_not_embed_palette_literals() {
         include_str!("../src/gallery/demos/curve_text.rs"),
         include_str!("../src/gallery/demos/curve_text_compact.rs"),
         include_str!("../src/gallery/demos/typography_lab.rs"),
+        include_str!("../src/gallery/demos/book_flip.rs"),
+        include_str!("../src/gallery/demos/flip_card.rs"),
+        include_str!("../src/gallery/demos/image_flip.rs"),
     ] {
         assert!(!source.contains("bg_color: Color::"));
         assert!(!source.contains("text_color: Color::"));

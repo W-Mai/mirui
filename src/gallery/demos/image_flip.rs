@@ -1,25 +1,31 @@
 extern crate alloc;
 
+use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::types::Transform3D;
 use crate::ui::widgets::{Image, ParagraphStyle, Text, TextAlign, WidgetTransform3D};
 
 pub struct Spinner {
     pub angle: Fixed,
-    pub speed: Fixed,
+    pub speed_deg_per_second: Fixed,
     pub bounce_phase: Fixed,
 }
 
 //~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spin_system(world: &mut World) {
+    let dt = world
+        .resource::<DeltaTimeMs>()
+        .map_or(16, |delta| delta.0)
+        .min(50);
     world.for_each_stable::<Spinner>(|world, e| {
         let (angle, bounce) = if let Some(s) = world.get_mut::<Spinner>(e) {
-            s.angle += s.speed;
+            let step = s.speed_deg_per_second * Fixed::from_ratio(i32::from(dt), 1_000);
+            s.angle += step;
             if s.angle >= Fixed::from_int(360) {
                 s.angle -= Fixed::from_int(360);
             }
-            s.bounce_phase += s.speed;
+            s.bounce_phase += step;
             if s.bounce_phase >= Fixed::from_int(360) {
                 s.bounce_phase -= Fixed::from_int(360);
             }
@@ -85,7 +91,7 @@ pub fn build_widgets() {
                 ) [
                     Spinner {
                         angle: super::PROJECTIVE_SPIN_PHASE,
-                        speed: Fixed::from_int(3),
+                        speed_deg_per_second: Fixed::from_int(180),
                         bounce_phase: Fixed::ZERO,
                     },
                     WidgetTransform3D(Transform3D::IDENTITY),
@@ -109,6 +115,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::DeltaTimeMs;
     use crate::ui::{Children, IdMap, UiScope};
 
     #[test]
@@ -124,5 +131,27 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn image_motion_uses_frame_delta() {
+        let mut world = World::new();
+        world.insert_resource(DeltaTimeMs(20));
+        let image = world.spawn_empty();
+        world.insert(
+            image,
+            Spinner {
+                angle: Fixed::ZERO,
+                speed_deg_per_second: Fixed::from_int(180),
+                bounce_phase: Fixed::ZERO,
+            },
+        );
+
+        spin_system(&mut world);
+        let spinner = world.get::<Spinner>(image).unwrap();
+        let expected = Fixed::from_int(180) * Fixed::from_ratio(20, 1_000);
+        assert_eq!(spinner.angle, expected);
+        assert_eq!(spinner.bounce_phase, expected);
+        assert!(world.get::<WidgetTransform3D>(image).is_some());
     }
 }

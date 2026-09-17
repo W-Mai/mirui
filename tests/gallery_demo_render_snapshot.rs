@@ -181,6 +181,30 @@ fn themed_demos_render_in_light_palette() {
         mirui::gallery::demos::tabbar::build_widgets(&mut cx);
     });
     assert_renders("tabbar_light", tabs);
+
+    let book = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::book_flip::build_widgets(&mut cx);
+    });
+    assert_renders("book_flip_light", book);
+
+    let card = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::flip_card::build_widgets(&mut cx);
+        drop(cx);
+        world.insert_resource(mirui::ecs::DeltaTimeMs(16));
+        mirui::gallery::demos::flip_card::flip_system(world);
+    });
+    assert_renders("flip_card_light", card);
+
+    let image = render_demo(320, 568, |world, parent| {
+        world.insert_resource(mirui::ui::Theme::light());
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::image_flip::build_widgets(&mut cx);
+    });
+    assert_renders("image_flip_light", image);
 }
 
 basic_demo_scoped!(effect_panels, 480, 360);
