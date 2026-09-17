@@ -135,7 +135,7 @@ pub fn build_widgets() {
                 )
                 Text (
                     id: "compact_tab_color",
-                    "COLOR",
+                    "THEME",
                     grow: 1.0,
                     height: 20,
                     font: FontToken::Default,
@@ -312,7 +312,7 @@ pub fn build_widgets() {
                     },
                 ] {
                     Text (
-                        "SEMANTIC",
+                        "SEMANTIC TOKENS",
                         width: Dimension::percent(100),
                         height: 10,
                         font: FontToken::Default,

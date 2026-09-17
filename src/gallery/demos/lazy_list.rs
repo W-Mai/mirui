@@ -19,9 +19,16 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
         return;
     };
     if let Some(t) = world.get_mut::<Text>(label_entity) {
-        *t = Text::from(label);
-    } else {
-        world.insert(label_entity, Text::from(label));
+        t.set_content(label);
+        world.invalidate_visual(label_entity);
+    }
+    if let Some(style) = world.get_mut::<Style>(entity) {
+        style.set_bg_color(if index % 2 == 0 {
+            ColorToken::Surface
+        } else {
+            ColorToken::SurfaceVariant
+        });
+        world.invalidate_visual(entity);
     }
 }
 
@@ -31,6 +38,8 @@ fn compose_list() -> Entity {
         LazyList (
             id: "lazy_list_view",
             bg_color: ColorToken::SurfaceVariant,
+            border_color: ColorToken::Outline,
+            border_width: 1,
             width: Dimension::percent(100),
             max_width: 420,
             grow: 1.0,
@@ -74,6 +83,12 @@ fn compose_list() -> Entity {
                         text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
+                    View (
+                        width: 5,
+                        height: 5,
+                        bg_color: ColorToken::Primary,
+                        border_radius: 3
+                    )
                 }
             }
         }
@@ -95,16 +110,30 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             padding: Padding::all(16),
-            row_gap: 10
+            row_gap: 10,
+            bg_color: ColorToken::Surface
         ) {
-            Text (
-                "65K ROWS · 12 LIVE WIDGETS",
+            Column (
                 width: Dimension::percent(100),
                 max_width: 420,
-                height: 28,
-                font_size: 18,
-                text_color: ColorToken::OnSurface
-            )
+                height: 38,
+                row_gap: 2
+            ) {
+                Text (
+                    "VIRTUAL LIST",
+                    width: Dimension::percent(100),
+                    height: 22,
+                    font_size: 18,
+                    text_color: ColorToken::OnSurface
+                )
+                Text (
+                    "65,536 ROWS / 12 LIVE ENTITIES",
+                    width: Dimension::percent(100),
+                    height: 14,
+                    font_size: 10,
+                    text_color: ColorToken::OnSurfaceVariant
+                )
+            }
             compose_list ()
         }
     };
@@ -145,7 +174,13 @@ mod tests {
         let row = world.get::<LazyListPool>(list).unwrap().items[0];
         assert!(!world.has::<Text>(row));
         let label = world.get::<Children>(row).unwrap().0[0];
+        let paragraph = world.get::<Text>(label).unwrap().paragraph().clone();
         row_binder(&mut world, row, 42);
         assert_eq!(world.get::<Text>(label).unwrap().resolve(&world), "Row 42");
+        assert_eq!(world.get::<Text>(label).unwrap().paragraph(), &paragraph);
+        assert_eq!(
+            world.get::<Style>(row).unwrap().bg_color,
+            Some(ColorToken::Surface.into())
+        );
     }
 }

@@ -7,7 +7,7 @@ use crate::ui::{Theme, theme};
 
 pub struct ThemeChoice(pub Theme);
 
-pub const ACCENT: ColorToken = ColorToken::custom("accent");
+pub const ACCENT: ColorToken = ColorToken::Tertiary;
 
 pub fn dark_with_accent() -> Theme {
     Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
@@ -38,25 +38,26 @@ pub fn build_widgets() {
             grow: 1.0,
             align: AlignItems::Center,
             padding: Padding::all(16),
-            row_gap: 12
+            row_gap: 10,
+            bg_color: ColorToken::Surface
         ) {
             Text (
                 "LIVE THEME TOKENS",
                 width: Dimension::percent(100),
                 max_width: 480,
-                height: 28,
-                font_size: 18,
+                height: 24,
+                font_size: 16,
                 text_color: ColorToken::OnSurface
             )
             Row (
                 width: Dimension::percent(100),
                 max_width: 480,
-                height: 40,
+                height: 36,
                 column_gap: 8
             ) {
                 Button (
                     grow: 1.0,
-                    height: 40,
+                    height: 36,
                     border_radius: 10,
                     text_color: ColorToken::OnPrimary,
                     normal_color: Color::rgb(40, 50, 70),
@@ -71,7 +72,7 @@ pub fn build_widgets() {
                 }
                 Button (
                     grow: 1.0,
-                    height: 40,
+                    height: 36,
                     border_radius: 10,
                     text_color: ColorToken::OnPrimary,
                     normal_color: Color::rgb(0, 100, 200),
@@ -87,7 +88,7 @@ pub fn build_widgets() {
                 Button (
                     id: "theme_custom",
                     grow: 1.0,
-                    height: 40,
+                    height: 36,
                     border_radius: 10,
                     text_color: ColorToken::OnPrimary,
                     normal_color: Color::rgb(255, 105, 180),
@@ -101,77 +102,111 @@ pub fn build_widgets() {
                     }
                 }
             }
-            Column (
+            Row (
+                id: "theme_token_grid",
                 width: Dimension::percent(100),
                 max_width: 480,
                 grow: 1.0,
-                max_height: 300,
-                padding: Padding::all(12),
-                row_gap: 8,
+                max_height: 340,
+                padding: Padding::all(10),
+                wrap: FlexWrap::Wrap,
+                align: AlignItems::FlexStart,
+                row_gap: 6,
+                column_gap: 8,
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 14
             ) {
-                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
                         "Slider",
-                        width: 90,
-                        height: 28,
+                        width: 48,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Slider (
                         min: Fixed::ZERO,
                         max: Fixed::from_int(100),
                         grow: 1.0,
-                        height: 24
+                        height: 20
                     )
                 }
-                Row (height: 32, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
                         "Switch",
-                        width: 90,
-                        height: 28,
+                        width: 48,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Switch (
-                        width: 56,
-                        height: 28,
+                        width: 44,
+                        height: 22,
                         off_color: ColorToken::Outline
                     )
                 }
-                Row (height: 32, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
                         "Checkbox",
-                        width: 90,
-                        height: 28,
+                        width: 68,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Checkbox (
-                        width: 24,
-                        height: 24,
+                        width: 20,
+                        height: 20,
                         border_radius: 4,
                         border_color: ColorToken::Outline,
                         border_width: 1
                     )
                 }
-                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
                         "Progress",
-                        width: 90,
-                        height: 28,
+                        width: 68,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
-                    ProgressBar (grow: 1.0, height: 12, border_radius: 6, value: 0.6)
+                    ProgressBar (grow: 1.0, height: 10, border_radius: 5, value: 0.6)
                 }
-                Row (height: 36, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
                         "Input",
-                        width: 90,
-                        height: 28,
+                        width: 44,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     TextInput (
                         grow: 1.0,
-                        height: 32,
+                        height: 28,
                         border_radius: 8,
                         bg_color: ColorToken::Surface,
                         border_color: ColorToken::Outline,
@@ -180,27 +215,40 @@ pub fn build_widgets() {
                         Placeholder("Theme-aware input"),
                     ]
                 }
-                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
                         "Tabs",
-                        width: 90,
-                        height: 28,
+                        width: 32,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
-                    TabBar (count: 3, grow: 1.0, height: 28) {
+                    TabBar (count: 3, grow: 1.0, height: 24) {
                         Text ("A", grow: 1.0, paragraph: ParagraphStyle::label())
                         Text ("B", grow: 1.0, paragraph: ParagraphStyle::label())
                         Text ("C", grow: 1.0, paragraph: ParagraphStyle::label())
                     }
                 }
-                Row (height: 28, align: AlignItems::Center, column_gap: 10) {
+                Row (
+                    id: "theme_accent_row",
+                    width: 200,
+                    grow: 1.0,
+                    height: 38,
+                    align: AlignItems::Center,
+                    column_gap: 6
+                ) {
                     Text (
-                        "Custom accent",
-                        width: 120,
-                        height: 28,
+                        "Accent",
+                        width: 48,
+                        height: 38,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
-                    View (width: 32, height: 24, border_radius: 6, bg_color: ACCENT)
+                    View (grow: 1.0, height: 22, border_radius: 6, bg_color: ACCENT)
                 }
             }
         }
@@ -265,5 +313,41 @@ mod tests {
         );
         let theme = world.resource::<Theme>().unwrap();
         assert_eq!(theme.resolve(ACCENT), Color::rgb(140, 200, 220));
+    }
+
+    #[test]
+    fn token_grid_stays_inside_landscape_and_portrait_viewports() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        for (width, height) in [(480, 320), (320, 480)] {
+            let mut app = App::headless(width, height);
+            app.with_default_widgets()
+                .with_default_systems()
+                .with_theme(dark_with_accent());
+            let root = app.spawn_root().id();
+            app.compose(root, build_widgets);
+            app.set_root(root);
+            update_layout(
+                &mut app.world,
+                root,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+
+            let grid = app.world.find_by_id("theme_token_grid").unwrap();
+            let accent = app.world.find_by_id("theme_accent_row").unwrap();
+            let grid = app.world.get::<ComputedRect>(grid).unwrap().0;
+            let accent = app.world.get::<ComputedRect>(accent).unwrap().0;
+
+            assert!(grid.x >= Fixed::ZERO);
+            assert!(grid.y >= Fixed::ZERO);
+            assert!(grid.x + grid.w <= Fixed::from_int(width as i32));
+            assert!(grid.y + grid.h <= Fixed::from_int(height as i32));
+            assert!(accent.x >= grid.x);
+            assert!(accent.y >= grid.y);
+            assert!(accent.x + accent.w <= grid.x + grid.w);
+            assert!(accent.y + accent.h <= grid.y + grid.h);
+        }
     }
 }
