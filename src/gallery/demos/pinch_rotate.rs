@@ -133,8 +133,8 @@ pub fn build_widgets() {
         ] on Pinch {
             if let Some(t) = ctx.world.get_mut::<PinchTarget>(ctx.entity) {
                 t.last_pinch = *scale_delta;
-                let lo = Fixed64::from_fixed(Fixed::ONE / Fixed::from_int(2));
-                let hi = Fixed64::from_fixed(Fixed::from_int(2));
+                let lo = Fixed64::from_ratio(65, 100);
+                let hi = Fixed64::from_ratio(8, 5);
                 t.visual_scale64 = (t.visual_scale64 * *scale_delta).clamp(lo, hi);
                 t.visual_scale = t.visual_scale64.to_fixed();
                 t.pinch_events += 1;

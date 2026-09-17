@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Transformed border invalidation.** Visual dirty bounds include the outward half of styled borders, preventing animated scale and rotation from leaving edge pixels behind.
 - **Centered icon content.** Explicit icon sizes and animated scale remain centered inside their layout rectangles instead of growing from the top-left corner.
 - **Gallery viewport containment.** The mobile shell no longer pans the whole document, fixed-size 128 × 128 demos remain unscaled, and desktop canvas resizing can grow vertically into the stage's internal scroll area.
 

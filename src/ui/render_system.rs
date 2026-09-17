@@ -226,7 +226,7 @@ fn affine_visual_bounds(
     transform: Transform,
     output_scale: Fixed,
 ) -> Rect {
-    let layout = transform.apply_rect_bbox(rect);
+    let layout = transform.apply_rect_bbox(style_paint_bounds(world, entity, rect));
     crate::ui::widgets::text::path_text_ink_bounds(world, entity, rect, transform, output_scale)
         .map(|ink| layout.union(&ink))
         .unwrap_or(layout)
@@ -239,7 +239,9 @@ fn projective_visual_bounds(
     transform: Transform3D,
     output_scale: Fixed,
 ) -> Option<Rect> {
-    let layout = transform.apply_rect(rect).map(quad_bbox)?;
+    let layout = transform
+        .apply_rect(style_paint_bounds(world, entity, rect))
+        .map(quad_bbox)?;
     let ink = crate::ui::widgets::text::path_text_ink_bounds(
         world,
         entity,
@@ -250,6 +252,16 @@ fn projective_visual_bounds(
     .and_then(|bounds| transform.apply_rect(bounds))
     .map(quad_bbox);
     Some(ink.map(|bounds| layout.union(&bounds)).unwrap_or(layout))
+}
+
+fn style_paint_bounds(world: &World, entity: Entity, rect: Rect) -> Rect {
+    let Some(style) = world.get::<Style>(entity) else {
+        return rect;
+    };
+    if style.border_color.is_none() || style.border_width <= Fixed::ZERO {
+        return rect;
+    }
+    rect.inflate(style.border_width / Fixed::from_int(2))
 }
 
 fn visual_bounds(
@@ -3861,6 +3873,32 @@ mod clip_children_check {
         );
 
         assert_eq!(bounds, Rect::new(14, 18, 22, 20));
+    }
+
+    #[test]
+    fn style_border_expands_transformed_visual_dirty_bounds() {
+        use crate::types::Color;
+
+        let mut world = make_world();
+        let entity = world.spawn_empty();
+        world.insert(
+            entity,
+            Style {
+                border_color: Some(Color::rgb(255, 255, 255).into()),
+                border_width: Fixed::from_int(2),
+                ..Default::default()
+            },
+        );
+        let bounds = visual_bounds(
+            &world,
+            entity,
+            Rect::new(20, 24, 10, 8),
+            Transform::scale(Fixed::from_int(2), Fixed::from_int(2)),
+            Transform3D::IDENTITY,
+            Fixed::ONE,
+        );
+
+        assert_eq!(bounds, Rect::new(38, 46, 24, 20));
     }
 
     #[test]
