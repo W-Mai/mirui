@@ -7,16 +7,13 @@ use crate::ecs::Entity;
 use crate::ecs::{FrameTimings, World};
 use crate::prelude::*;
 use crate::types::Transform;
-#[cfg(feature = "std")]
-use crate::ui::Theme;
-use crate::ui::widgets::{Text, WidgetTransform};
-use crate::ui::{Children, OffscreenRender};
+use crate::ui::widgets::{ParagraphStyle, Text, WidgetTransform};
+use crate::ui::{ComputedRect, OffscreenRender};
 
 const WIN_W: i32 = 360;
 const WIN_H: i32 = 360;
 const MODAL_W: i32 = 200;
 const MODAL_H: i32 = 280;
-const MODAL_LEFT_FINAL: i32 = (WIN_W - MODAL_W) / 2;
 const GRID_COLS: i32 = 4;
 const GRID_ROWS: i32 = 9;
 const TILE_W: i32 = 40;
@@ -62,7 +59,11 @@ pub fn modal_slide_system(world: &mut World) {
         } else {
             (Fixed::ONE - next_t) * Fixed::from_int(2)
         };
-        let off_screen_offset = Fixed::from_int(-MODAL_LEFT_FINAL - MODAL_W);
+        let off_screen_offset = world
+            .get::<ComputedRect>(e)
+            .map_or(Fixed::from_int(-MODAL_W), |rect| {
+                Fixed::ZERO - rect.0.x - rect.0.w
+            });
         let tx = off_screen_offset * (Fixed::ONE - bounce);
         world.insert(e, WidgetTransform(Transform::translate(tx, Fixed::ZERO)));
         world.invalidate(e);
@@ -130,8 +131,10 @@ pub fn fps_readout_system(world: &mut World) {
             let avg_us = avg_ns / 1000;
             let mode = if offscreen { "offscreen" } else { "inline   " };
             let label = alloc::format!("MODE={mode}  render avg {avg_us}us");
-            world.insert(e, Text::from(label));
-            world.invalidate(e);
+            if let Some(text) = world.get_mut::<Text>(e) {
+                text.set_content(label);
+                world.invalidate_visual(e);
+            }
         }
     });
 }
@@ -146,59 +149,56 @@ fn tile_color(idx: i32) -> ColorToken {
 
 #[compose]
 pub fn build_widgets() {
-    let root = cx.parent();
     //~focus-start
-    let modal = ui! {
-        View (
-            bg_color: ColorToken::Surface,
-            border_radius: Fixed::from_int(12),
-            position: Position::Absolute,
-            left: MODAL_LEFT_FINAL,
-            top: 30,
-            width: MODAL_W,
-            height: MODAL_H
-        ) [
-            ModalAnim { t: Fixed::ZERO },
-        ] {
-            walk 0..(GRID_COLS * GRID_ROWS) with i {
-                View (
-                    bg_color: tile_color(i),
-                    border_color: ColorToken::OnSurface,
-                    border_width: Fixed::ONE,
-                    border_radius: Fixed::from_int(6),
-                    position: Position::Absolute,
-                    left: TILE_PAD + (i % GRID_COLS) * (TILE_W + TILE_GAP),
-                    top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
-                    width: TILE_W,
-                    height: TILE_H
-                )
+    ui! {
+        Column (
+            grow: 1.0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            row_gap: 6,
+            bg_color: ColorToken::SurfaceVariant,
+            clip_children: true
+        ) {
+            View (
+                id: "offscreen_modal_panel",
+                bg_color: ColorToken::Surface,
+                border_radius: Fixed::from_int(12),
+                width: MODAL_W,
+                height: MODAL_H
+            ) [
+                ModalAnim { t: Fixed::ZERO },
+            ] {
+                walk 0..(GRID_COLS * GRID_ROWS) with i {
+                    View (
+                        bg_color: tile_color(i),
+                        border_color: ColorToken::OnSurface,
+                        border_width: Fixed::ONE,
+                        border_radius: Fixed::from_int(6),
+                        position: Position::Absolute,
+                        left: TILE_PAD + (i % GRID_COLS) * (TILE_W + TILE_GAP),
+                        top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
+                        width: TILE_W,
+                        height: TILE_H
+                    )
+                }
             }
+            Text (
+                id: "offscreen_modal_readout",
+                "warming up...",
+                width: Dimension::percent(100),
+                max_width: 320,
+                height: 24,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label()
+            ) [
+                FpsReadout {
+                    counter: 0,
+                    accum_render_ns: 0,
+                },
+            ]
         }
     };
     //~focus-end
-
-    let readout = ui! {
-        View (
-            text_color: ColorToken::OnSurface,
-            position: Position::Absolute,
-            left: 20,
-            top: WIN_H - 30,
-            width: WIN_W - 40,
-            height: 24
-        ) [
-            Text::from("warming up..."),
-            FpsReadout {
-                counter: 0,
-                accum_render_ns: 0,
-            },
-        ]
-    };
-
-    if let Some(children) = cx.world_mut().get_mut::<Children>(root) {
-        children.0.clear();
-        children.0.push(modal);
-        children.0.push(readout);
-    }
 }
 
 #[cfg(feature = "std")]
@@ -209,8 +209,7 @@ where
 {
     // Modal buffer at RGBA8888 = 200×280×4 = 224 KB; the 256 KiB pool
     // fits one buffer with eviction headroom.
-    app.with_theme(Theme::dark())
-        .with_offscreen_pool_budget(256 * 1024);
+    app.with_offscreen_pool_budget(256 * 1024);
     app.world.insert_resource(ModeToggle {
         last_flip_ns: 0,
         elapsed_ns: 0,
@@ -226,8 +225,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::IdMap;
-    use crate::ui::UiScope;
+    use crate::types::Viewport;
+    use crate::ui::render_system::update_layout;
+    use crate::ui::{Children, IdMap, UiScope};
 
     #[test]
     fn build_widgets_smoke() {
@@ -242,5 +242,75 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty())
         );
+    }
+
+    #[test]
+    fn modal_is_centered_and_contained_across_supported_viewports() {
+        for (width, height) in [(320, 320), (320, 568), (1024, 640)] {
+            let mut app = App::headless(width, height);
+            app.with_default_widgets().with_default_systems();
+            let root = app.spawn_root().id();
+            app.compose(root, build_widgets);
+            app.set_root(root);
+            update_layout(
+                &mut app.world,
+                root,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+
+            let panel = app.world.find_by_id("offscreen_modal_panel").unwrap();
+            let rect = app.world.get::<ComputedRect>(panel).unwrap().0;
+            assert!(rect.x >= Fixed::ZERO);
+            assert!(rect.y >= Fixed::ZERO);
+            assert!(rect.x + rect.w <= Fixed::from_int(width as i32));
+            assert!(rect.y + rect.h <= Fixed::from_int(height as i32));
+        }
+    }
+
+    #[test]
+    fn slide_origin_uses_the_live_layout_position() {
+        let mut world = World::new();
+        let panel = WidgetBuilder::new(&mut world).id();
+        world.insert(panel, ModalAnim { t: Fixed::ZERO });
+        world.insert(
+            panel,
+            ComputedRect(Rect {
+                x: Fixed::from_int(412),
+                y: Fixed::from_int(20),
+                w: Fixed::from_int(MODAL_W),
+                h: Fixed::from_int(MODAL_H),
+            }),
+        );
+
+        modal_slide_system(&mut world);
+
+        let bounce = (Fixed::ONE / 90) * Fixed::from_int(2);
+        let expected = Fixed::from_int(-(412 + MODAL_W)) * (Fixed::ONE - bounce);
+        assert_eq!(world.get::<WidgetTransform>(panel).unwrap().0.tx, expected);
+    }
+
+    #[test]
+    fn readout_updates_content_without_replacing_paragraph_style() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        world.insert_resource(FrameTimings {
+            render_nanos: 77_000,
+            ..FrameTimings::default()
+        });
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
+
+        let readout = world.find_by_id("offscreen_modal_readout").unwrap();
+        let paragraph = world.get::<Text>(readout).unwrap().paragraph().clone();
+        let state = world.get_mut::<FpsReadout>(readout).unwrap();
+        state.counter = UPDATE_EVERY - 1;
+        state.accum_render_ns = 77_000 * (UPDATE_EVERY - 1) as u64;
+        fps_readout_system(&mut world);
+
+        let text = world.get::<Text>(readout).unwrap();
+        assert!(text.resolve(&world).contains("render avg 77us"));
+        assert_eq!(text.paragraph(), &paragraph);
     }
 }

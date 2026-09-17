@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Responsive cached and projective studies.** Offscreen panels inherit the active theme and remain centered without changing their fixed buffer budgets, while Cover Flow resizes cards and preserves valid perspective across portrait and landscape canvases.
 - **Semantic responsive Gallery demos.** Scroll, nested scroll, text input, slider, composite, effects, and gesture examples use dedicated text widgets, bounded fluid layouts, and shared control-label styling across phone and desktop viewports.
 - **Responsive component examples.** Named slots, theme switching, virtual lists, custom views, the icon catalog, and the hand-written builder example use bounded phone/desktop layouts and expose their intended component structure directly.
 - **Responsive stroke study.** Stroke Styles scales and centers its static path catalog inside the live custom-view bounds.

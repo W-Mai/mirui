@@ -41,7 +41,7 @@ impl CoverFlowBounds {
             card_w: vw * 7 / 32,
             card_h: vh / 2,
             card_gap: vw / 8,
-            perspective: vw * 25 / 64,
+            perspective: vw.max(vh) * 25 / 64,
         }
     }
 
@@ -125,6 +125,10 @@ pub fn layout_system(world: &mut World) {
         let tx =
             container_center + Fixed::from_int(idx) * slot_stride - Fixed::from_int(card_w / 2);
         ui::set_position(world, e, tx, card_top);
+        if let Some(style) = world.get_mut::<Style>(e) {
+            style.layout.width = Dimension::px(card_w);
+            style.layout.height = Dimension::px(card_h);
+        }
 
         let relative = Fixed::from_int(idx) - offset / slot_stride;
         let tilt_y = Fixed::ZERO - relative * Fixed::from_int(45);
@@ -166,7 +170,8 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
             left: 0,
             top: 0,
             width: vw,
-            height: vh
+            height: vh,
+            bg_color: ColorToken::Surface
         ) [
             Carousel,
             ScrollOffset {
@@ -189,16 +194,15 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     height: card_h,
                     bg_color: *item.1,
                     border_radius: 8,
-                    border_color: Color::rgb(0, 0, 0),
-                    border_width: 5
+                    border_color: ColorToken::Outline,
+                    border_width: 5,
+                    align: AlignItems::Center,
+                    justify: JustifyContent::Center
                 ) [
                     CarouselCard { index: item.0 },
                 ] {
                     if item.0 % 2 == 1 {
                         View (
-                            position: Position::Absolute,
-                            left: (card_w - 64) / 2,
-                            top: (card_h - 64) / 2,
                             width: 64,
                             height: 64,
                             image: Image::new("thumbs_up")
@@ -260,22 +264,42 @@ mod tests {
         app.set_root(root);
 
         let carousel = app.world.query::<Carousel>().collect()[0];
+        let card = app.world.query::<CarouselCard>().collect()[0];
 
-        let width_at = |app: &mut crate::app::App<_, _>, w: u16, h: u16| -> i32 {
+        let widths_at = |app: &mut crate::app::App<_, _>, w: u16, h: u16| -> (i32, i32) {
             let vp = Viewport::new(w, h, Fixed::ONE);
             update_layout(&mut app.world, root, &vp);
             layout_system(&mut app.world);
-            match app.world.get::<Style>(carousel).map(|s| s.layout.width) {
+            let carousel_width = match app.world.get::<Style>(carousel).map(|s| s.layout.width) {
                 Some(Dimension::Px(px)) => px.to_int(),
                 _ => -1,
-            }
+            };
+            let card_width = match app.world.get::<Style>(card).map(|s| s.layout.width) {
+                Some(Dimension::Px(px)) => px.to_int(),
+                _ => -1,
+            };
+            (carousel_width, card_width)
         };
 
-        let narrow = width_at(&mut app, 480, 320);
-        let wide = width_at(&mut app, 960, 540);
+        let narrow = widths_at(&mut app, 480, 320);
+        let wide = widths_at(&mut app, 960, 540);
         assert!(
-            wide > narrow,
-            "carousel width must grow with the live viewport: {narrow} -> {wide}",
+            wide.0 > narrow.0,
+            "carousel width must grow with the live viewport: {} -> {}",
+            narrow.0,
+            wide.0,
         );
+        assert!(
+            wide.1 > narrow.1,
+            "card width must grow with the live viewport: {} -> {}",
+            narrow.1,
+            wide.1,
+        );
+    }
+
+    #[test]
+    fn portrait_perspective_keeps_the_complete_card_in_front() {
+        let bounds = CoverFlowBounds::for_px(360, 640);
+        assert!(bounds.perspective > bounds.card_h / 2);
     }
 }
