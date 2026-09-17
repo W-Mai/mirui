@@ -487,6 +487,8 @@ where
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
     use crate::surface::FramebufferAccess;
     use crate::ui::ComputedRect;
 
@@ -565,5 +567,52 @@ mod tests {
         assert_eq!(pool.items.len(), POOL_SIZE);
         assert_ne!(light_surface, dark_surface);
         assert_eq!(timeline.total_ms, 9_000);
+    }
+
+    #[test]
+    fn compact_theme_buttons_replace_the_active_theme() {
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets()
+            .with_default_systems()
+            .with_theme(Theme::dark());
+        let root = app.spawn_root().id();
+        install(&mut app, root);
+        app.set_root(root);
+
+        let light = app.world.find_by_id("compact_theme_light").unwrap();
+        GestureHandler::trigger(
+            &mut app.world,
+            light,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: light,
+            },
+        );
+        assert_eq!(
+            app.world
+                .resource::<Theme>()
+                .unwrap()
+                .resolve(ColorToken::Surface),
+            Theme::light().resolve(ColorToken::Surface),
+        );
+
+        let dark = app.world.find_by_id("compact_theme_dark").unwrap();
+        GestureHandler::trigger(
+            &mut app.world,
+            dark,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: dark,
+            },
+        );
+        assert_eq!(
+            app.world
+                .resource::<Theme>()
+                .unwrap()
+                .resolve(ColorToken::Surface),
+            Theme::dark().resolve(ColorToken::Surface),
+        );
     }
 }
