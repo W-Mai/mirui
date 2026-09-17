@@ -212,6 +212,7 @@ basic_demo_scoped!(effect_glass, 128, 128);
 basic_demo_scoped!(particles, 480, 320);
 basic_demo_scoped!(subpixel, 480, 320);
 viewport_demo_scoped!(widgets, 512, 512);
+basic_demo_scoped!(widgets_compact, 128, 128);
 
 viewport_demo_ignored_noargs_scoped!(butterfly, 480, 480);
 viewport_demo_ignored_scoped!(cover_flow, 640, 360);

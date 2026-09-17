@@ -12,9 +12,9 @@ use crate::types::DimPoint;
 use crate::ui::theme;
 use crate::ui::widgets::{
     Button, Checkbox, Image, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
-    Slider, Switch, TabBar, TabContent, Text,
+    Slider, Switch, TabBar, TabContent, Text, TextAlign,
 };
-use crate::ui::{Children, OffscreenRender, Theme};
+use crate::ui::{Children, IdMap, OffscreenRender, Theme};
 use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -29,25 +29,6 @@ pub const ACCENT: ColorToken = ColorToken::custom("accent");
 struct FormSlider;
 struct FormProgress;
 pub struct ThemeCycleIndex(pub u8);
-
-struct DemoSize {
-    tabbar_h: i32,
-    row_h: i32,
-    scale: i32,
-}
-
-impl DemoSize {
-    fn for_viewport(view_w: u16, view_h: u16) -> Self {
-        let w = (view_w as i32).max(1);
-        let h = (view_h as i32).max(1);
-        let scale = (w.min(h) / 128).max(1);
-        Self {
-            tabbar_h: 14 * scale,
-            row_h: 12 * scale,
-            scale,
-        }
-    }
-}
 
 pub fn dark_with_accent() -> Theme {
     Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
@@ -72,10 +53,15 @@ pub fn custom_theme() -> Theme {
 
 fn row_binder(world: &mut World, entity: Entity, index: u32) {
     let label = format!("Row {index}");
-    if let Some(t) = world.get_mut::<Text>(entity) {
-        *t = Text::from(label);
-    } else {
-        world.insert(entity, Text::from(label));
+    let Some(label_entity) = world
+        .get::<Children>(entity)
+        .and_then(|children| children.0.first().copied())
+    else {
+        return;
+    };
+    if let Some(text) = world.get_mut::<Text>(label_entity) {
+        text.set_content(label);
+        world.invalidate_visual(label_entity);
     }
 }
 
@@ -112,232 +98,307 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
 });
 
 #[compose]
-pub fn build_widgets(view_w: u16, view_h: u16) {
-    let DemoSize {
-        tabbar_h: tabbar_h_,
-        row_h: row_h_,
-        scale: scale_,
-    } = DemoSize::for_viewport(view_w, view_h);
+pub fn build_widgets(_view_w: u16, _view_h: u16) {
+    const ROW_HEIGHT: i32 = 38;
+    if cx.world_mut().resource::<IdMap>().is_none() {
+        cx.world_mut().insert_resource(IdMap::new());
+    }
 
     //~focus-start
-    let tabs = ui! {
-        TabBar (
-            bg_color: ColorToken::SurfaceVariant,
-            height: tabbar_h_,
-            count: 3,
-            indicator_height: Fixed::from_int(2 * scale_)
-        ) {
-            Text (
-                "List",
-                text_color: ColorToken::OnSurface,
-                grow: 1.0,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "Form",
-                text_color: ColorToken::OnSurface,
-                grow: 1.0,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "Thm",
-                text_color: ColorToken::OnSurface,
-                grow: 1.0,
-                paragraph: ParagraphStyle::label()
-            )
-        }
-    };
-    //~focus-end
-
-    //~focus-start
-    let list = ui! {
-        LazyList (
+    ui! {
+        Column (
             bg_color: ColorToken::Surface,
             grow: 1.0,
-            item_count: ITEM_COUNT,
-            item_height: Fixed::from_int(row_h_),
-            pool_size: POOL_SIZE as u8
-        ) [
-            TabContent {
-                tab_bar: tabs,
-                index: 0,
-            },
-            LazyListBinder { bind: row_binder },
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-            ScrollConfig {
-                direction: ScrollAxis::Vertical,
-                elastic: false,
-                content_height: Fixed::from_int(row_h_ * ITEM_COUNT as i32),
-                content_width: Fixed::ZERO,
-            },
-        ] {
-            walk 0..POOL_SIZE with _i {
-                Row (
-                    bg_color: ColorToken::SurfaceVariant,
+            padding: Padding::all(16),
+            row_gap: 12
+        ) {
+            Column (
+                width: Dimension::percent(100),
+                height: 50,
+                row_gap: 2
+            ) {
+                Text (
+                    "WIDGET WORKBENCH",
+                    width: Dimension::percent(100),
+                    height: 28,
+                    font_size: 20,
                     text_color: ColorToken::OnSurface,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "LIST / CONTROLS / LIVE THEME",
+                    width: Dimension::percent(100),
+                    height: 18,
+                    font_size: 10,
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+            }
+            TabBar (
+                id: "widgets_tabs",
+                width: Dimension::percent(100),
+                height: 44,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 14,
+                clip_children: true,
+                count: 3,
+                indicator_height: Fixed::from_int(3)
+            ) {
+                Text (
+                    "LIST",
+                    grow: 1.0,
+                    height: Dimension::percent(100),
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "CONTROLS",
+                    grow: 1.0,
+                    height: Dimension::percent(100),
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "THEME",
+                    grow: 1.0,
+                    height: Dimension::percent(100),
+                    text_color: ColorToken::OnSurfaceVariant,
+                    paragraph: ParagraphStyle::label()
+                )
+            }
+            View (
+                width: Dimension::percent(100),
+                grow: 1.0,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18,
+                clip_children: true
+            ) {
+                LazyList (
+                    id: "widgets_list",
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
                     width: Dimension::percent(100),
-                    height: row_h_
-                )
+                    height: Dimension::percent(100),
+                    bg_color: ColorToken::SurfaceVariant,
+                    item_count: ITEM_COUNT,
+                    item_height: Fixed::from_int(ROW_HEIGHT),
+                    pool_size: POOL_SIZE as u8
+                ) [
+                    TabContent {
+                        tab_bar: id("widgets_tabs"),
+                        index: 0,
+                    },
+                    LazyListBinder { bind: row_binder },
+                    ScrollOffset {
+                        x: Fixed::ZERO,
+                        y: Fixed::ZERO,
+                    },
+                    ScrollConfig {
+                        direction: ScrollAxis::Vertical,
+                        elastic: false,
+                        content_height: Fixed::from_int(ROW_HEIGHT * ITEM_COUNT as i32),
+                        content_width: Fixed::ZERO,
+                    },
+                ] {
+                    walk 0..POOL_SIZE with _i {
+                        Row (
+                            bg_color: ColorToken::Surface,
+                            position: Position::Absolute,
+                            left: 0,
+                            top: 0,
+                            width: Dimension::percent(100),
+                            height: ROW_HEIGHT,
+                            align: AlignItems::Center,
+                            padding: Padding {
+                                top: Dimension::px(0),
+                                right: Dimension::px(14),
+                                bottom: Dimension::px(0),
+                                left: Dimension::px(14),
+                            }
+                        ) {
+                            Text (
+                                "",
+                                grow: 1.0,
+                                height: 24,
+                                text_color: ColorToken::OnSurface,
+                                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                            )
+                        }
+                    }
+                }
+                Column (
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    padding: Padding::all(18),
+                    row_gap: 14,
+                    bg_color: ColorToken::SurfaceVariant
+                ) [
+                    TabContent {
+                        tab_bar: id("widgets_tabs"),
+                        index: 1,
+                    },
+                ] {
+                    Row (height: 34, align: AlignItems::Center) {
+                        Text (
+                            "LIVE CONTROLS",
+                            grow: 1.0,
+                            height: 24,
+                            text_color: ColorToken::OnSurface,
+                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        )
+                        Switch (width: 44, height: 24) [
+                            OffscreenRender::default(),
+                        ]
+                    }
+                    Text (
+                        "INTENSITY",
+                        width: Dimension::percent(100),
+                        height: 18,
+                        font_size: 10,
+                        text_color: ColorToken::OnSurfaceVariant,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Slider (
+                        width: Dimension::percent(100),
+                        height: 20,
+                        min: Fixed::ZERO,
+                        max: Fixed::from_int(100)
+                    ) [
+                        FormSlider,
+                    ]
+                    ProgressBar (
+                        width: Dimension::percent(100),
+                        height: 8,
+                        border_radius: 4
+                    ) [
+                        FormProgress,
+                    ]
+                    Row (
+                        height: 42,
+                        align: AlignItems::Center,
+                        column_gap: 10
+                    ) {
+                        Image (width: 28, height: 28, src: "thumbs_up")
+                        Button (
+                            grow: 1.0,
+                            height: 38,
+                            border_radius: 12,
+                            normal_color: ColorToken::Success,
+                            pressed_color: ColorToken::Primary,
+                            text_color: ColorToken::OnPrimary
+                        ) [
+                            Text::label("Apply"),
+                        ]
+                        Button (
+                            grow: 1.0,
+                            height: 38,
+                            border_radius: 12,
+                            normal_color: ColorToken::Surface,
+                            pressed_color: ColorToken::Primary,
+                            text_color: ColorToken::OnSurface
+                        ) [
+                            Text::label("Reset"),
+                        ]
+                    }
+                    Row (height: 32, align: AlignItems::Center, column_gap: 10) {
+                        Text (
+                            "OPTIONS",
+                            grow: 1.0,
+                            height: 24,
+                            text_color: ColorToken::OnSurface,
+                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                        )
+                        Checkbox (
+                            width: 22,
+                            height: 22,
+                            checked: true,
+                            checked_color: ColorToken::Primary
+                        )
+                        Checkbox (
+                            width: 22,
+                            height: 22,
+                            checked_color: ColorToken::Success
+                        )
+                    }
+                }
+                Column (
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    padding: Padding::all(20),
+                    row_gap: 12,
+                    bg_color: ColorToken::SurfaceVariant
+                ) [
+                    TabContent {
+                        tab_bar: id("widgets_tabs"),
+                        index: 2,
+                    },
+                ] {
+                    Text (
+                        "SEMANTIC PALETTE",
+                        width: Dimension::percent(100),
+                        height: 28,
+                        font_size: 18,
+                        text_color: ColorToken::OnSurface,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Text (
+                        "PRIMARY",
+                        width: Dimension::percent(100),
+                        height: 18,
+                        font_size: 10,
+                        text_color: ColorToken::OnSurfaceVariant,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    View (
+                        width: Dimension::percent(100),
+                        height: 64,
+                        bg_color: ColorToken::Primary,
+                        border_radius: 14
+                    )
+                    Text (
+                        "CUSTOM ACCENT",
+                        width: Dimension::percent(100),
+                        height: 18,
+                        font_size: 10,
+                        text_color: ColorToken::OnSurfaceVariant,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    View (
+                        width: Dimension::percent(100),
+                        height: 64,
+                        bg_color: ACCENT,
+                        border_radius: 14
+                    )
+                    Text (
+                        "Palette tokens update every three seconds.",
+                        width: Dimension::percent(100),
+                        height: 24,
+                        text_color: ColorToken::OnSurfaceVariant,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                }
             }
         }
     };
     //~focus-end
+
+    let list = cx
+        .world_mut()
+        .find_by_id("widgets_list")
+        .expect("widgets list id");
     let pool: Vec<Entity> = cx
         .world_mut()
         .get::<Children>(list)
-        .map(|c| c.0.clone())
+        .map(|children| children.0.clone())
         .unwrap_or_default();
     cx.world_mut().insert(list, LazyListPool::new(pool));
-
-    //~focus-start
-    ui! {
-        Column (
-            bg_color: ColorToken::Surface,
-            grow: 1.0,
-            padding: Padding::all(10 * scale_)
-        ) [
-            TabContent {
-                tab_bar: tabs,
-                index: 1,
-            },
-        ] {
-            Row (
-                height: 28 * scale_,
-                align: AlignItems::Center
-            ) {
-                Text ("Enable", text_color: ColorToken::OnSurface, grow: 1.0)
-                Switch (width: 40 * scale_, height: 20 * scale_) [
-                    OffscreenRender::default(),
-                ]
-            }
-            View (
-                height: 14 * scale_,
-                padding: Padding {
-                    top: Dimension::px(6 * scale_),
-                    ..Default::default()
-                }
-            ) {
-                Slider (
-                    width: 108 * scale_,
-                    height: 14 * scale_,
-                    min: Fixed::ZERO,
-                    max: Fixed::from_int(100)
-                ) [
-                    FormSlider,
-                ]
-            }
-            View (
-                height: 10 * scale_,
-                padding: Padding {
-                    top: Dimension::px(8 * scale_),
-                    ..Default::default()
-                }
-            ) {
-                ProgressBar (
-                    width: 108 * scale_,
-                    height: 8 * scale_,
-                    border_radius: 4 * scale_ as u32
-                ) [
-                    FormProgress,
-                ]
-            }
-            Row (
-                height: 20 * scale_,
-                align: AlignItems::Center,
-                column_gap: 4 * scale_
-            ) {
-                Image (
-                    width: 16 * scale_,
-                    height: 16 * scale_,
-                    src: "thumbs_up"
-                )
-                Button (
-                    grow: 1.0,
-                    height: 18 * scale_,
-                    border_radius: 4 * scale_ as u32,
-                    normal_color: ColorToken::Success,
-                    pressed_color: ColorToken::Primary,
-                    text_color: ColorToken::OnPrimary
-                ) [
-                    Text::label("Apply"),
-                ]
-                Button (
-                    grow: 1.0,
-                    height: 18 * scale_,
-                    border_radius: 4 * scale_ as u32,
-                    normal_color: ColorToken::SurfaceVariant,
-                    pressed_color: ColorToken::Primary,
-                    text_color: ColorToken::OnSurface
-                ) [
-                    Text::label("Reset"),
-                ]
-            }
-            Row (
-                height: 16 * scale_,
-                align: AlignItems::Center,
-                column_gap: 5 * scale_
-            ) {
-                Text ("Options", text_color: ColorToken::OnSurface, grow: 1.0)
-                Checkbox (
-                    width: 14 * scale_,
-                    height: 14 * scale_,
-                    checked: true,
-                    checked_color: ColorToken::Primary
-                )
-                Checkbox (
-                    width: 14 * scale_,
-                    height: 14 * scale_,
-                    checked_color: ColorToken::Success
-                )
-            }
-        }
-    };
-    //~focus-end
-
-    //~focus-start
-    ui! {
-        Column (
-            bg_color: ColorToken::Surface,
-            grow: 1.0,
-            padding: Padding::all(12 * scale_),
-            align: AlignItems::Center
-        ) [
-            TabContent {
-                tab_bar: tabs,
-                index: 2,
-            },
-        ] {
-            Text ("Primary", text_color: ColorToken::OnSurface, height: 14 * scale_)
-            View (
-                width: 80 * scale_,
-                height: 18 * scale_,
-                bg_color: ColorToken::Primary,
-                border_radius: 4 * scale_ as u32
-            )
-            Text (
-                "accent (custom)",
-                text_color: ColorToken::OnSurfaceVariant,
-                height: 12 * scale_,
-                padding: Padding {
-                    top: Dimension::px(8 * scale_),
-                    ..Default::default()
-                }
-            )
-            View (
-                width: 80 * scale_,
-                height: 18 * scale_,
-                bg_color: ACCENT,
-                border_radius: 4 * scale_ as u32
-            )
-        }
-    };
-    //~focus-end
 }
 
 #[cfg(feature = "std")]
@@ -478,5 +539,61 @@ mod tests {
         assert_eq!(world.query::<Checkbox>().collect().len(), 2);
         assert_eq!(world.query::<Image>().collect().len(), 1);
         assert!(!world.query::<ProgressBar>().collect().is_empty());
+    }
+
+    #[test]
+    fn list_binding_updates_content_without_dropping_paragraph_style() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+        drop(cx);
+
+        let list = world.find_by_id("widgets_list").expect("widgets list id");
+        let row = world
+            .get::<Children>(list)
+            .and_then(|children| children.0.first().copied())
+            .expect("pooled row");
+        let label = world
+            .get::<Children>(row)
+            .and_then(|children| children.0.first().copied())
+            .expect("row label");
+        let paragraph = world
+            .get::<Text>(label)
+            .expect("label text")
+            .paragraph()
+            .clone();
+
+        row_binder(&mut world, row, 7);
+
+        let text = world.get::<Text>(label).expect("bound label");
+        assert_eq!(text.resolve(&world), "Row 7");
+        assert_eq!(text.paragraph(), &paragraph);
+    }
+
+    #[test]
+    fn portrait_layout_keeps_the_workbench_inside_the_viewport() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        let mut app = App::headless(320, 480);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| build_widgets(cx, 320, 480));
+        app.set_root(root);
+        update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE));
+
+        let tabs = app.world.find_by_id("widgets_tabs").expect("tabs id");
+        let list = app.world.find_by_id("widgets_list").expect("list id");
+        let tabs_rect = app.world.get::<ComputedRect>(tabs).expect("tabs rect").0;
+        let list_rect = app.world.get::<ComputedRect>(list).expect("list rect").0;
+
+        assert_eq!(tabs_rect.x.to_int(), 16);
+        assert_eq!(tabs_rect.w.to_int(), 288);
+        assert_eq!(list_rect.x.to_int(), 16);
+        assert_eq!(list_rect.w.to_int(), 288);
+        assert!(list_rect.y + list_rect.h <= Fixed::from_int(464));
     }
 }

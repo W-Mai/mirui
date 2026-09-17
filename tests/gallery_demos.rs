@@ -36,6 +36,7 @@ fn all_demos_build_widgets_smoke() {
     smoke_scoped!(mirui::gallery::demos::tabbar::build_widgets);
     smoke_scoped!(mirui::gallery::demos::text_input::build_widgets);
     smoke_scoped!(mirui::gallery::demos::transform::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::widgets_compact::build_widgets);
 }
 
 fn assert_demo_built(world: &World, parent: mirui::ecs::Entity) {

@@ -64,6 +64,7 @@ gallery::register_demos! {
     ("text_input",           "text input",           "Components",  text_input,           480, 200),
     ("theme_swap",           "theme swap",           "Components",  theme_swap,           480, 320),
     ("widgets",              "widgets",              "Components",  widgets,              512, 512),
+    ("widgets_compact",      "widgets compact",      "Components",  widgets_compact,      128, 128, false),
     ("builder_form",         "builder API (no DSL)", "Components",  builder_form,         320, 200),
 }
 

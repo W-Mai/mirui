@@ -54,6 +54,7 @@ pub mod transform;
 pub mod typography_lab;
 pub mod vector_mandala;
 pub mod widgets;
+pub mod widgets_compact;
 
 pub(super) const PROJECTIVE_SPIN_PHASE: crate::types::Fixed = crate::types::Fixed::from_ratio(1, 4);
 
