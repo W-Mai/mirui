@@ -54,6 +54,16 @@ pub fn reactive_set_text_color(entity: Entity, value: impl Into<ThemedColor>) {
     });
 }
 
+pub fn reactive_set_button_normal_color(entity: Entity, value: impl Into<ThemedColor>) {
+    let color = value.into();
+    crate::core::reactive::with_world(|world| {
+        if let Some(button) = world.get_mut::<crate::ui::widgets::Button>(entity) {
+            button.normal_color = color;
+        }
+        world.insert(entity, Dirty);
+    });
+}
+
 pub fn reactive_set_font_size(entity: Entity, value: u16) {
     crate::core::reactive::with_world(|w| {
         if let Some(style) = w.get_mut::<Style>(entity) {
@@ -140,6 +150,25 @@ mod tests {
         with_world_scope(&mut world, || reactive_set_font_size(e, 18));
         let style = world.get::<Style>(e).unwrap();
         assert_eq!(style.font_size, Some(18));
+        assert!(world.get::<Dirty>(e).is_some());
+    }
+
+    #[test]
+    fn set_button_normal_color_updates_render_state() {
+        use crate::ui::theme::ColorToken;
+        use crate::ui::widgets::Button;
+
+        let mut world = World::new();
+        let e = WidgetBuilder::new(&mut world).id();
+        world.insert(e, Button::new());
+        with_world_scope(&mut world, || {
+            reactive_set_button_normal_color(e, ColorToken::Tertiary)
+        });
+
+        assert_eq!(
+            world.get::<Button>(e).unwrap().normal_color,
+            ThemedColor::Token(ColorToken::Tertiary)
+        );
         assert!(world.get::<Dirty>(e).is_some());
     }
 

@@ -19,24 +19,24 @@ use crate::render::path::Path;
 use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
+use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{ParagraphStyle, Slider, Text};
+use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text};
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
 #[cfg(any(feature = "std", test))]
 const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
-const BG: Color = Color::rgb(6, 16, 23);
-const SURFACE: Color = Color::rgba(16, 36, 51, 238);
-const SURFACE_RAISED: Color = Color::rgba(20, 44, 61, 244);
-const BORDER: Color = Color::rgba(89, 132, 156, 72);
-const TEXT: Color = Color::rgb(226, 241, 247);
-const TEXT_MUTED: Color = Color::rgb(129, 157, 173);
-const MINT: Color = Color::rgb(99, 242, 207);
-const BLUE: Color = Color::rgb(109, 168, 255);
-const VIOLET: Color = Color::rgb(167, 139, 250);
-const AMBER: Color = Color::rgb(255, 200, 92);
+const BG: ColorToken = ColorToken::Surface;
+const SURFACE: ColorToken = ColorToken::SurfaceVariant;
+const BORDER: ColorToken = ColorToken::Outline;
+const TEXT: ColorToken = ColorToken::OnSurface;
+const TEXT_MUTED: ColorToken = ColorToken::OnSurfaceVariant;
+const MINT: ColorToken = ColorToken::Primary;
+const BLUE: ColorToken = ColorToken::Secondary;
+const VIOLET: ColorToken = ColorToken::Tertiary;
+const DATA_AMBER: Color = Color::rgb(255, 200, 92);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConsoleMode {
@@ -46,7 +46,7 @@ pub enum ConsoleMode {
 }
 
 impl ConsoleMode {
-    const fn accent(self) -> Color {
+    const fn accent(self) -> ColorToken {
         match self {
             Self::Orbit => MINT,
             Self::Flow => BLUE,
@@ -54,32 +54,24 @@ impl ConsoleMode {
         }
     }
 
-    const fn stage_background(self) -> Color {
-        match self {
-            Self::Orbit => SURFACE,
-            Self::Flow => Color::rgba(14, 34, 56, 238),
-            Self::Pulse => Color::rgba(29, 28, 57, 238),
-        }
-    }
-
-    const fn panel_background(self) -> Color {
-        match self {
-            Self::Orbit => SURFACE_RAISED,
-            Self::Flow => Color::rgba(18, 42, 65, 244),
-            Self::Pulse => Color::rgba(35, 33, 68, 244),
-        }
-    }
-
-    fn chip_background(self, selected: Self) -> Color {
+    fn chip_background(self, selected: Self) -> ColorToken {
         if self == selected {
             self.accent()
         } else {
-            Color::rgba(12, 29, 42, 220)
+            SURFACE
         }
     }
 
-    fn chip_foreground(self, selected: Self) -> Color {
-        if self == selected { BG } else { TEXT_MUTED }
+    fn chip_foreground(self, selected: Self) -> ColorToken {
+        if self == selected {
+            match self {
+                Self::Orbit => ColorToken::OnPrimary,
+                Self::Flow => ColorToken::OnSecondary,
+                Self::Pulse => ColorToken::OnTertiary,
+            }
+        } else {
+            TEXT_MUTED
+        }
     }
 
     fn phase_delta(self, elapsed_ms: u32) -> Fixed {
@@ -397,8 +389,8 @@ impl ConsoleBackdrop {
         }
     }
 
-    fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect) {
-        painter.fill(*rect, BG, Fixed::ZERO, 255);
+    fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, theme: &Theme) {
+        painter.fill(*rect, theme.resolve(BG), Fixed::ZERO, 255);
         painter.fill_path(
             &UNIT_CIRCLE,
             &self.mint,
@@ -433,14 +425,37 @@ impl OrbitInstrument {
     pub fn new() -> Self {
         Self {
             core_paints: [
-                radial_paint(Color::rgb(236, 255, 251), MINT, Color::rgb(8, 62, 69)),
-                radial_paint(Color::rgb(241, 248, 255), BLUE, Color::rgb(13, 45, 91)),
-                radial_paint(Color::rgb(251, 246, 255), VIOLET, Color::rgb(54, 27, 96)),
+                radial_paint(
+                    Color::rgb(236, 255, 251),
+                    Color::rgb(99, 242, 207),
+                    Color::rgb(8, 62, 69),
+                ),
+                radial_paint(
+                    Color::rgb(241, 248, 255),
+                    Color::rgb(109, 168, 255),
+                    Color::rgb(13, 45, 91),
+                ),
+                radial_paint(
+                    Color::rgb(251, 246, 255),
+                    Color::rgb(167, 139, 250),
+                    Color::rgb(54, 27, 96),
+                ),
             ],
         }
     }
 
-    fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, state: ConsoleState) {
+    fn render(
+        &self,
+        painter: &mut DemoPainter<'_>,
+        rect: &Rect,
+        state: ConsoleState,
+        theme: &Theme,
+    ) {
+        let surface = theme.resolve(SURFACE);
+        let border = theme.resolve(BORDER);
+        let text = theme.resolve(TEXT);
+        let text_muted = theme.resolve(TEXT_MUTED);
+        let grid = surface.blend_with(border, Fixed::from_ratio(1, 2));
         let margin = (rect.w / Fixed::from_int(24))
             .max(Fixed::from_int(8))
             .min(Fixed::from_int(20));
@@ -460,7 +475,7 @@ impl OrbitInstrument {
             painter.line(
                 Point::new(x, y0),
                 Point::new(x, y1),
-                Color::rgb(44, 80, 98),
+                grid,
                 Fixed::from_ratio(1, 2),
                 62,
             );
@@ -470,7 +485,7 @@ impl OrbitInstrument {
             painter.line(
                 Point::new(x0, y),
                 Point::new(x1, y),
-                Color::rgb(44, 80, 98),
+                grid,
                 Fixed::from_ratio(1, 2),
                 54,
             );
@@ -480,7 +495,7 @@ impl OrbitInstrument {
             rect.x + rect.w / Fixed::from_int(2),
             y0 + (y1 - y0) / Fixed::from_int(2),
         );
-        let accent = state.mode.accent();
+        let accent = theme.resolve(state.mode.accent());
         let outer_radius = ((x1 - x0) / Fixed::from_int(2))
             .min((y1 - y0) / Fixed::from_int(2))
             .max(Fixed::from_int(18))
@@ -500,7 +515,7 @@ impl OrbitInstrument {
                 color: if index == state.focused_node as usize {
                     accent
                 } else {
-                    Color::rgb(73, 111, 130)
+                    border
                 },
                 width: if index == state.focused_node as usize {
                     Fixed::from_ratio(3, 2)
@@ -529,7 +544,7 @@ impl OrbitInstrument {
             painter.line(
                 Point::new(center.x + cos * inner, center.y + sin * inner),
                 Point::new(center.x + cos * outer, center.y + sin * outer),
-                if tick % 4 == 0 { accent } else { TEXT_MUTED },
+                if tick % 4 == 0 { accent } else { text_muted },
                 Fixed::from_ratio(3, 4),
                 if tick % 4 == 0 { 165 } else { 72 },
             );
@@ -560,12 +575,16 @@ impl OrbitInstrument {
             radius: core_radius + outer_radius / Fixed::from_int(12),
             start: state.phase(),
             end: state.phase() + Fixed::from_int(110) + intensity * Fixed::from_int(60),
-            color: Color::rgb(232, 255, 250),
+            color: text,
             width: Fixed::from_int(2),
             opacity: 220,
         });
 
-        let node_colors = [MINT, BLUE, VIOLET];
+        let node_colors = [
+            theme.resolve(MINT),
+            theme.resolve(BLUE),
+            theme.resolve(VIOLET),
+        ];
         let node_speeds = [
             Fixed::ONE,
             Fixed::from_ratio(-3, 5),
@@ -618,7 +637,7 @@ impl OrbitInstrument {
                     radius: Fixed::from_int(12),
                     start: Fixed::from_int(20),
                     end: Fixed::from_int(322),
-                    color: Color::rgb(235, 255, 251),
+                    color: text,
                     width: Fixed::ONE,
                     opacity: 220,
                 });
@@ -637,7 +656,13 @@ impl Default for OrbitInstrument {
 pub struct SignalMeter;
 
 impl SignalMeter {
-    fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, state: ConsoleState) {
+    fn render(
+        &self,
+        painter: &mut DemoPainter<'_>,
+        rect: &Rect,
+        state: ConsoleState,
+        theme: &Theme,
+    ) {
         let inset = (rect.w / Fixed::from_int(14))
             .max(Fixed::from_int(6))
             .min(Fixed::from_int(18));
@@ -648,13 +673,13 @@ impl SignalMeter {
             rect.x + rect.w - radius - inset,
             rect.y + rect.h / Fixed::from_int(2),
         );
-        let accent = state.mode.accent();
+        let accent = theme.resolve(state.mode.accent());
         painter.arc(ArcStroke {
             center,
             radius,
             start: Fixed::from_int(145),
             end: Fixed::from_int(395),
-            color: Color::rgb(43, 73, 89),
+            color: theme.resolve(BORDER),
             width: Fixed::from_int(6),
             opacity: 150,
         });
@@ -676,7 +701,7 @@ impl SignalMeter {
                 Fixed::from_int(6),
                 Fixed::from_int(6),
             ),
-            Color::rgb(236, 255, 251),
+            theme.resolve(TEXT),
             Fixed::from_int(3),
             255,
         );
@@ -687,7 +712,13 @@ impl SignalMeter {
 pub struct ActivityPlot;
 
 impl ActivityPlot {
-    fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, state: ConsoleState) {
+    fn render(
+        &self,
+        painter: &mut DemoPainter<'_>,
+        rect: &Rect,
+        state: ConsoleState,
+        theme: &Theme,
+    ) {
         let inset = (rect.w / Fixed::from_int(16))
             .max(Fixed::from_int(8))
             .min(Fixed::from_int(20));
@@ -696,7 +727,7 @@ impl ActivityPlot {
         let plot_top = rect.y + (rect.h / Fixed::from_int(4)).max(Fixed::from_int(24));
         let plot_height = (rect.y + rect.h - plot_top - inset).max(Fixed::from_int(12));
         let baseline = plot_top + plot_height * Fixed::from_ratio(2, 5);
-        let accent = state.mode.accent();
+        let accent = theme.resolve(state.mode.accent());
         let mut previous = Point::new(left, baseline);
         for sample in 0..24 {
             let x = left + width * Fixed::from_ratio(sample, 23);
@@ -724,11 +755,11 @@ impl ActivityPlot {
                     height,
                 ),
                 if bar % 7 == 0 {
-                    AMBER
+                    DATA_AMBER
                 } else if bar % 3 == 0 {
-                    VIOLET
+                    theme.resolve(VIOLET)
                 } else {
-                    BLUE
+                    theme.resolve(BLUE)
                 },
                 Fixed::from_int(4),
                 120,
@@ -747,8 +778,10 @@ fn backdrop_render(
     let Some(backdrop) = world.get::<ConsoleBackdrop>(entity) else {
         return;
     };
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    backdrop.render(&mut painter, rect);
+    backdrop.render(&mut painter, rect, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
@@ -765,8 +798,10 @@ fn orbit_render(
     ) else {
         return;
     };
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    instrument.render(&mut painter, rect, state);
+    instrument.render(&mut painter, rect, state, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
@@ -783,8 +818,10 @@ fn signal_render(
     ) else {
         return;
     };
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    meter.render(&mut painter, rect, state);
+    meter.render(&mut painter, rect, state, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
@@ -801,8 +838,10 @@ fn activity_render(
     ) else {
         return;
     };
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    plot.render(&mut painter, rect, state);
+    plot.render(&mut painter, rect, state, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
@@ -880,7 +919,7 @@ fn compose_header() -> Entity {
                     top: 9,
                     width: 22,
                     height: 22,
-                    border_color: BG,
+                    border_color: ColorToken::OnPrimary,
                     border_width: 2,
                     border_radius: 11
                 )
@@ -890,7 +929,7 @@ fn compose_header() -> Entity {
                     top: 5,
                     width: 4,
                     height: 30,
-                    bg_color: BG,
+                    bg_color: ColorToken::OnPrimary,
                     border_radius: 2
                 )
             }
@@ -927,7 +966,12 @@ fn compose_orbit_stage() -> Entity {
             min_height: Dimension::percent(48),
             padding: Padding::all(12),
             row_gap: 6,
-            bg_color: ${ stage_visual.get().mode.stage_background() },
+            bg_color: ${
+                {
+                    let _ = stage_visual.get().revision();
+                    SURFACE
+                }
+            },
             border_color: BORDER,
             border_width: 1,
             border_radius: 20,
@@ -948,7 +992,9 @@ fn compose_orbit_stage() -> Entity {
                     "LIVE VECTOR",
                     width: 92,
                     height: 22,
-                    bg_color: Color::rgba(20, 64, 65, 200),
+                    bg_color: SURFACE,
+                    border_color: MINT,
+                    border_width: 1,
                     border_radius: 11,
                     font: FontToken::Mono,
                     font_size: 9,
@@ -977,8 +1023,7 @@ fn compose_orbit_stage() -> Entity {
 
 #[compose]
 fn compose_signal_card() -> Entity {
-    let state_signal = console_signal(cx);
-    let signal_visual = state_signal;
+    let signal_visual = console_signal(cx);
 
     ui! {
         Row (
@@ -987,7 +1032,12 @@ fn compose_signal_card() -> Entity {
             min_height: 44,
             padding: Padding::all(10),
             align: AlignItems::Center,
-            bg_color: ${ signal_visual.get().mode.panel_background() },
+            bg_color: ${
+                {
+                    let _ = signal_visual.get().revision();
+                    SURFACE
+                }
+            },
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
@@ -1015,8 +1065,7 @@ fn compose_signal_card() -> Entity {
 
 #[compose]
 fn compose_activity_card() -> Entity {
-    let state_signal = console_signal(cx);
-    let activity_visual = state_signal;
+    let activity_visual = console_signal(cx);
 
     ui! {
         Column (
@@ -1024,7 +1073,12 @@ fn compose_activity_card() -> Entity {
             grow: 5.0,
             min_height: 48,
             padding: Padding::all(10),
-            bg_color: ${ activity_visual.get().mode.panel_background() },
+            bg_color: ${
+                {
+                    let _ = activity_visual.get().revision();
+                    SURFACE
+                }
+            },
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
@@ -1084,7 +1138,7 @@ fn compose_controls() -> Entity {
             min_height: 64,
             padding: Padding::all(10),
             row_gap: 4,
-            bg_color: SURFACE_RAISED,
+            bg_color: SURFACE,
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
@@ -1106,54 +1160,63 @@ fn compose_controls() -> Entity {
                 )
             }
             Row (height: 20, column_gap: 4) {
-                Text (
+                Button (
                     id: "orbit_console_mode_orbit",
-                    "ORBIT",
                     grow: 1.0,
                     height: 20,
-                    bg_color: ${ ConsoleMode::Orbit.chip_background(orbit_bg.get().mode) },
+                    normal_color: ${ ConsoleMode::Orbit.chip_background(orbit_bg.get().mode) },
+                    pressed_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: ${ ConsoleMode::Orbit.chip_foreground(orbit_fg.get().mode) },
-                    paragraph: ParagraphStyle::label()
-                ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
-                Text (
+                    text_color: ${ ConsoleMode::Orbit.chip_foreground(orbit_fg.get().mode) }
+                ) [
+                    Text::label("ORBIT"),
+                ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
+                Button (
                     id: "orbit_console_mode_flow",
-                    "FLOW",
                     grow: 1.0,
                     height: 20,
-                    bg_color: ${ ConsoleMode::Flow.chip_background(flow_bg.get().mode) },
+                    normal_color: ${ ConsoleMode::Flow.chip_background(flow_bg.get().mode) },
+                    pressed_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: ${ ConsoleMode::Flow.chip_foreground(flow_fg.get().mode) },
-                    paragraph: ParagraphStyle::label()
-                ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
-                Text (
+                    text_color: ${ ConsoleMode::Flow.chip_foreground(flow_fg.get().mode) }
+                ) [
+                    Text::label("FLOW"),
+                ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
+                Button (
                     id: "orbit_console_mode_pulse",
-                    "PULSE",
                     grow: 1.0,
                     height: 20,
-                    bg_color: ${ ConsoleMode::Pulse.chip_background(pulse_bg.get().mode) },
+                    normal_color: ${ ConsoleMode::Pulse.chip_background(pulse_bg.get().mode) },
+                    pressed_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: ${ ConsoleMode::Pulse.chip_foreground(pulse_fg.get().mode) },
-                    paragraph: ParagraphStyle::label()
-                ) on Tap { ConsoleAction::SelectMode(ConsoleMode::Pulse).publish(&pulse_action); }
+                    text_color: ${ ConsoleMode::Pulse.chip_foreground(pulse_fg.get().mode) }
+                ) [
+                    Text::label("PULSE"),
+                ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Pulse).publish(&pulse_action); }
             }
             Row (grow: 1.0, min_height: 20, align: AlignItems::Center, column_gap: 6) {
                 Slider (
                     id: "orbit_console_intensity",
                     grow: 1.0,
-                    height: 18
+                    height: 18,
+                    min: Fixed::ZERO,
+                    max: Fixed::from_int(100),
+                    value: Fixed::from_int(state.intensity as i32),
+                    track_color: BORDER,
+                    fill_color: MINT,
+                    thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
                     ConsoleAction::SetIntensity(*new).publish(&slider_action);
@@ -1163,7 +1226,7 @@ fn compose_controls() -> Entity {
                     text: ${ if pause_text.get().paused { "RESUME" } else { "PAUSE" } },
                     width: 54,
                     height: 20,
-                    bg_color: Color::rgba(32, 55, 71, 235),
+                    bg_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
@@ -1175,18 +1238,6 @@ fn compose_controls() -> Entity {
             }
         }
     };
-    let slider = cx
-        .world_mut()
-        .find_by_id("orbit_console_intensity")
-        .expect("intensity slider id");
-    if let Some(control) = cx.world_mut().get_mut::<Slider>(slider) {
-        control.min = Fixed::ZERO;
-        control.max = Fixed::from_int(100);
-        control.value = Fixed::from_int(state.intensity as i32);
-        control.track_color = Color::rgb(35, 63, 78).into();
-        control.fill_color = MINT.into();
-        control.thumb_color = TEXT.into();
-    }
     controls
 }
 
@@ -1232,8 +1283,8 @@ fn compose_status_strip() -> Entity {
             padding: Padding::all(6),
             align: AlignItems::Center,
             column_gap: 8,
-            bg_color: Color::rgba(8, 24, 34, 224),
-            border_color: Color::rgba(84, 122, 143, 64),
+            bg_color: SURFACE,
+            border_color: BORDER,
             border_width: 1,
             border_radius: 10
         ) {
@@ -1316,6 +1367,7 @@ mod tests {
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
     use crate::render::font::default_font_manager;
+    use crate::surface::FramebufferAccess;
     use crate::ui::Children;
     use crate::ui::ComputedRect;
     use crate::ui::IdMap;
@@ -1323,6 +1375,7 @@ mod tests {
     use crate::ui::UiScope;
     use crate::ui::dirty::Dirty;
     use crate::ui::view::ViewRegistry;
+    use crate::ui::widgets::Button;
     use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
 
     fn fixture(state: ConsoleState) -> (World, Entity) {
@@ -1504,12 +1557,33 @@ mod tests {
         flush_signal_dirty(&mut world);
         assert_eq!(
             world
-                .get::<Style>(pulse)
-                .and_then(|style| style.bg_color)
-                .map(|color| color.resolve(&crate::ui::Theme::dark())),
-            Some(VIOLET)
+                .get::<Button>(pulse)
+                .map(|button| button.normal_color.resolve(&Theme::dark())),
+            Some(Theme::dark().resolve(VIOLET))
         );
         assert!(world.has::<Dirty>(stage));
+    }
+
+    #[test]
+    fn shell_and_instruments_resolve_the_active_theme() {
+        let render = |theme| {
+            let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+            app.with_default_widgets().with_default_systems();
+            app.world.insert_resource(theme);
+            let root = app.spawn_root().id();
+            setup(&mut app, root, DemoRunMode::Capture);
+            app.set_root(root);
+            app.render().unwrap();
+            <[u8; 3]>::try_from(&app.backend.framebuffer().buf.as_slice()[..3]).unwrap()
+        };
+
+        let light = render(Theme::light());
+        let dark = render(Theme::dark());
+        assert_ne!(light, dark);
+        assert!(
+            light.iter().map(|channel| u16::from(*channel)).sum::<u16>()
+                > dark.iter().map(|channel| u16::from(*channel)).sum::<u16>()
+        );
     }
 
     #[test]

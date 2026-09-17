@@ -423,6 +423,7 @@ fn reactive_setter(widget: &str, attr: &str) -> Option<&'static str> {
         "text" => Some("reactive_set_text"),
         "bg_color" => Some("reactive_set_bg_color"),
         "text_color" => Some("reactive_set_text_color"),
+        "normal_color" if widget == "Button" => Some("reactive_set_button_normal_color"),
         "font_size" => Some("reactive_set_font_size"),
         "width" => Some("reactive_set_width"),
         "height" => Some("reactive_set_height"),
