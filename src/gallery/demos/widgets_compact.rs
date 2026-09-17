@@ -564,7 +564,7 @@ pub fn build_widgets() {
                                     .get::<CompactTheme>(ctx.entity)
                                     .map(|choice| choice.0.clone())
                                 {
-                                    theme::set_theme(ctx.world, theme);
+                                    theme::set_theme(ctx.world, theme).unwrap();
                                 }
                             }
                             {
@@ -594,7 +594,7 @@ pub fn build_widgets() {
                                     .get::<CompactTheme>(ctx.entity)
                                     .map(|choice| choice.0.clone())
                                 {
-                                    theme::set_theme(ctx.world, theme);
+                                    theme::set_theme(ctx.world, theme).unwrap();
                                 }
                             }
                             {

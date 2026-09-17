@@ -94,7 +94,7 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
         1 => light_with_accent(),
         _ => custom_theme(),
     };
-    theme::set_theme(world, theme);
+    theme::set_theme(world, theme).unwrap();
 });
 
 #[compose]

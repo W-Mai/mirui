@@ -85,7 +85,7 @@ pub fn build_widgets() {
                     Text::label("Dark"),
                 ] on Tap {
                     if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
-                        let _ = theme::set_theme_id(ctx.world, id);
+                        let _ = theme::set_theme(ctx.world, id);
                     }
                 }
                 Button (
@@ -100,7 +100,7 @@ pub fn build_widgets() {
                     Text::label("Light"),
                 ] on Tap {
                     if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
-                        let _ = theme::set_theme_id(ctx.world, id);
+                        let _ = theme::set_theme(ctx.world, id);
                     }
                 }
                 Button (
@@ -116,7 +116,7 @@ pub fn build_widgets() {
                     Text::label("Custom"),
                 ] on Tap {
                     if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
-                        let _ = theme::set_theme_id(ctx.world, id);
+                        let _ = theme::set_theme(ctx.world, id);
                     }
                 }
             }
@@ -283,8 +283,7 @@ where
     app.register_theme(dark_with_accent())
         .register_theme(light_with_accent())
         .register_theme(custom_theme());
-    app.set_theme_id("midnight-amber")
-        .expect("registered theme");
+    app.set_theme("midnight-amber").expect("registered theme");
     app.compose(parent, build_widgets);
 }
 
@@ -301,7 +300,7 @@ mod tests {
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
-        theme::set_theme(&mut world, dark_with_accent());
+        theme::set_theme(&mut world, dark_with_accent()).unwrap();
         theme::register(&mut world, light_with_accent());
         theme::register(&mut world, custom_theme());
         let parent = WidgetBuilder::new(&mut world).id();
@@ -319,7 +318,7 @@ mod tests {
     fn tap_button_swaps_global_theme() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
-        theme::set_theme(&mut world, dark_with_accent());
+        theme::set_theme(&mut world, dark_with_accent()).unwrap();
         theme::register(&mut world, light_with_accent());
         theme::register(&mut world, custom_theme());
         let parent = WidgetBuilder::new(&mut world).id();

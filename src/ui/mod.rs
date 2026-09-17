@@ -35,7 +35,7 @@ pub use offscreen::{
 };
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};
-pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemedColor};
+pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};
 pub use view::{View, ViewRegistry};
 pub use visibility::{Hidden, IgnoreHitTest};
 

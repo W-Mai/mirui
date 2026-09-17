@@ -390,29 +390,44 @@ pub enum ThemeError {
     NotFound(ThemeId),
 }
 
-/// Free-function counterpart to `App::set_theme`, for handlers and
-/// systems that don't have an `App` reference.
-pub fn set_theme(world: &mut World, theme: Theme) {
-    if world.resource::<ThemeCatalog>().is_none() {
-        world.insert_resource(ThemeCatalog::new());
-    }
-    world
-        .resource_mut::<ThemeCatalog>()
-        .expect("ThemeCatalog was just inserted")
-        .insert(theme.clone());
-    world.insert_resource(theme);
-    if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
-        world.mark_subtree_dirty(root);
+#[derive(Clone, Debug)]
+pub enum ThemeSource {
+    Theme(Theme),
+    Id(ThemeId),
+}
+
+impl From<Theme> for ThemeSource {
+    fn from(theme: Theme) -> Self {
+        Self::Theme(theme)
     }
 }
 
-pub fn set_theme_id(world: &mut World, id: impl Into<ThemeId>) -> Result<(), ThemeError> {
-    let id = id.into();
-    let theme = world
-        .resource::<ThemeCatalog>()
-        .and_then(|catalog| catalog.get(id))
-        .cloned()
-        .ok_or(ThemeError::NotFound(id))?;
+impl From<ThemeId> for ThemeSource {
+    fn from(id: ThemeId) -> Self {
+        Self::Id(id)
+    }
+}
+
+impl From<&'static str> for ThemeSource {
+    fn from(id: &'static str) -> Self {
+        Self::Id(id.into())
+    }
+}
+
+/// Free-function counterpart to `App::set_theme`, for handlers and
+/// systems that don't have an `App` reference.
+pub fn set_theme(world: &mut World, source: impl Into<ThemeSource>) -> Result<(), ThemeError> {
+    let theme = match source.into() {
+        ThemeSource::Theme(theme) => {
+            register(world, theme.clone());
+            theme
+        }
+        ThemeSource::Id(id) => world
+            .resource::<ThemeCatalog>()
+            .and_then(|catalog| catalog.get(id))
+            .cloned()
+            .ok_or(ThemeError::NotFound(id))?,
+    };
     world.insert_resource(theme);
     if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
         world.mark_subtree_dirty(root);

@@ -99,7 +99,7 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
     };
     app.set_root(root);
     // Global toggle wins over any theme a demo set in its own setup_app.
-    app.set_theme(current_theme());
+    app.set_theme(current_theme()).unwrap();
     app
 }
 
@@ -146,7 +146,7 @@ pub fn set_theme(dark: bool) {
     let cell = APP.with(|slot| slot.borrow().clone());
     let Some(cell) = cell else { return };
     if let Some(app) = cell.borrow_mut().as_mut() {
-        app.set_theme(current_theme());
+        app.set_theme(current_theme()).unwrap();
     }
 }
 

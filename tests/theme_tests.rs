@@ -89,7 +89,7 @@ fn registered_themes_switch_by_id_and_keep_catalog_edits() {
     let ocean = Theme::dark().with_info(ThemeInfo::new("ocean", "Ocean", "Low-glare cyan palette"));
 
     app.register_theme(ocean);
-    app.set_theme_id("ocean").unwrap();
+    app.set_theme("ocean").unwrap();
     assert_eq!(app.theme().name(), "Ocean");
     assert_eq!(app.themes().len(), 3);
 
@@ -97,15 +97,15 @@ fn registered_themes_switch_by_id_and_keep_catalog_edits() {
         theme.set(ColorToken::Primary, Color::rgb(12, 34, 56));
     })
     .unwrap();
-    app.set_theme_id("light").unwrap();
-    app.set_theme_id("ocean").unwrap();
+    app.set_theme("light").unwrap();
+    app.set_theme(ThemeId::new("ocean")).unwrap();
     assert_eq!(
         app.theme().resolve(ColorToken::Primary),
         Color::rgb(12, 34, 56)
     );
 
     assert_eq!(
-        app.set_theme_id("missing"),
+        app.set_theme("missing"),
         Err(ThemeError::NotFound(ThemeId::new("missing")))
     );
     assert_eq!(app.theme().id(), ThemeId::new("ocean"));
@@ -147,7 +147,7 @@ fn set_theme_swaps_resource_and_marks_tree_dirty() {
     app.world.remove::<Dirty>(child_b);
     assert!(app.world.get::<Dirty>(root).is_none());
 
-    app.set_theme(Theme::light());
+    app.set_theme(Theme::light()).unwrap();
 
     let theme = app.world.resource::<Theme>().unwrap();
     assert_eq!(
@@ -183,7 +183,7 @@ fn set_root_publishes_widget_root_resource() {
 fn set_theme_without_root_only_swaps_resource() {
     let backend = FramebufSurface::new(64, 64, |_, _| {});
     let mut app = App::new(backend);
-    app.set_theme(Theme::light());
+    app.set_theme(Theme::light()).unwrap();
     assert_eq!(
         app.world
             .resource::<Theme>()

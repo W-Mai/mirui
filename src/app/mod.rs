@@ -18,7 +18,7 @@ use crate::ui::dirty::DirtyRegions;
 use crate::ui::offscreen::OffscreenBufferPool;
 use crate::ui::render_system;
 use crate::ui::view::{View, ViewRegistry};
-use crate::ui::{Theme, ThemeCatalog, ThemeError};
+use crate::ui::{Theme, ThemeCatalog, ThemeError, ThemeSource};
 
 pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 
@@ -166,7 +166,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Replace the active [`Theme`]. Defaults to [`Theme::dark`].
     pub fn with_theme(&mut self, theme: Theme) -> &mut Self {
-        crate::ui::theme::set_theme(&mut self.world, theme);
+        crate::ui::theme::set_theme(&mut self.world, theme)
+            .expect("an owned theme is always accepted");
         self
     }
 
@@ -235,20 +236,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Runtime counterpart to `with_theme`: also forces a full-tree repaint.
-    pub fn set_theme(&mut self, theme: Theme) {
-        crate::ui::theme::set_theme(&mut self.world, theme);
+    pub fn set_theme(&mut self, source: impl Into<ThemeSource>) -> Result<(), ThemeError> {
+        crate::ui::theme::set_theme(&mut self.world, source)
     }
 
     pub fn register_theme(&mut self, theme: Theme) -> &mut Self {
         crate::ui::theme::register(&mut self.world, theme);
         self
-    }
-
-    pub fn set_theme_id(
-        &mut self,
-        id: impl Into<crate::ui::theme::ThemeId>,
-    ) -> Result<(), ThemeError> {
-        crate::ui::theme::set_theme_id(&mut self.world, id)
     }
 
     pub fn themes(&self) -> &ThemeCatalog {

@@ -182,7 +182,7 @@ let theme = Theme::dark()
     .with_info(ThemeInfo::new("ocean", "Ocean", "Low-glare cyan palette"))
     .with(ColorToken::Primary, Color::rgb(72, 214, 200));
 app.register_theme(theme);
-app.set_theme_id("ocean").unwrap();
+app.set_theme("ocean").unwrap();
 
 assert_eq!(app.theme().id().as_str(), "ocean");
 app.edit_theme(|theme| { theme.set(ColorToken::Primary, Color::rgb(96, 230, 214)); });

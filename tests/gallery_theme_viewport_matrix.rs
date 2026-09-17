@@ -52,7 +52,7 @@ macro_rules! render_demo {
         let root = app.spawn_root().id();
         mirui::gallery::demos::$module::setup_app(&mut app, root);
         app.set_root(root);
-        app.set_theme($theme);
+        app.set_theme($theme).unwrap();
         app.systems.run_all(&mut app.world);
         app.render().unwrap();
         frame_signature(&mut app.backend, width, height)
@@ -71,7 +71,7 @@ macro_rules! render_persistence_counter {
             mirui::gallery::demos::persistence_counter::build_widgets(cx, count)
         });
         app.set_root(root);
-        app.set_theme($theme);
+        app.set_theme($theme).unwrap();
         app.systems.run_all(&mut app.world);
         app.render().unwrap();
         frame_signature(&mut app.backend, width, height)
@@ -159,7 +159,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
                     let root = app.spawn_root().id();
                     mirui::gallery::demos::$module::setup_app(&mut app, root);
                     app.set_root(root);
-                    app.set_theme(theme);
+                    app.set_theme(theme).unwrap();
                     app.systems.run_all(&mut app.world);
                     mirui::ui::render_system::update_layout(
                         &mut app.world,

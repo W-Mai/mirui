@@ -144,7 +144,7 @@ pub mod prelude {
         AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutStyle, Padding, Position,
     };
     pub use crate::ui::theme::{
-        ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemedColor,
+        ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
     pub use crate::ui::{Style, Widget};
 
