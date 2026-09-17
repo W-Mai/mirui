@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
+use core::cell::RefCell;
+
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::draw::*;
@@ -16,6 +18,8 @@ use crate::ui::widgets::assets::IMG_THUMBS_UP;
 pub struct VectorMandala {
     pub start_ms: u32,
     pub petals: u8,
+    frame: RefCell<Scene>,
+    emblem: RefCell<Option<Scene>>,
 }
 
 impl Default for VectorMandala {
@@ -23,6 +27,8 @@ impl Default for VectorMandala {
         Self {
             start_ms: 0,
             petals: 10,
+            frame: RefCell::new(Scene::new()),
+            emblem: RefCell::new(None),
         }
     }
 }
@@ -60,12 +66,22 @@ const LAYERS: [(Fixed, u8); 3] = [
     (Fixed::from_f32(0.547), 220),
 ];
 
-fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
+fn decode_emblem() -> Scene {
+    let reader = mirx::Reader::open(EMBLEM_MIRX).expect("baked EMBLEM_MIRX must parse");
+    let payload = reader
+        .chunks()
+        .find(|chunk| chunk.chunk_type() == mirx::ChunkType::VECTOR)
+        .map(|chunk| chunk.payload())
+        .expect("baked EMBLEM_MIRX must contain a VECTOR chunk");
+    Scene::decode(payload).expect("baked EMBLEM_MIRX must decode")
+}
+
+fn rebuild_frame(s: &mut Scene, cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed, emblem: &Scene) {
     let n = petals.max(1) as i32;
     let center = Transform::translate(cx, cy);
     let step = Fixed::from_int(360) / Fixed::from_int(n);
 
-    let mut s = Scene::new();
+    s.ops.clear();
 
     s.group(center.compose(&Transform::rotate_deg(spin_deg)), |s| {
         for (li, (scale, opa)) in LAYERS.iter().enumerate() {
@@ -98,19 +114,10 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
     );
 
     s.group(center, |s| {
-        let reader = mirx::Reader::open(EMBLEM_MIRX).expect("baked EMBLEM_MIRX must parse");
-        let payload = reader
-            .chunks()
-            .find(|chunk| chunk.chunk_type() == mirx::ChunkType::VECTOR)
-            .map(|chunk| chunk.payload())
-            .expect("baked EMBLEM_MIRX must contain a VECTOR chunk");
-        let emblem = Scene::decode(payload).expect("baked EMBLEM_MIRX must decode");
         s.extend_from_slice(&emblem.ops);
     });
 
-    push_thumbs_ring(&mut s, cx, cy, spin_deg);
-
-    s
+    push_thumbs_ring(s, cx, cy, spin_deg);
 }
 
 const THUMB_RING_COUNT: i32 = 6;
@@ -169,7 +176,15 @@ fn vector_mandala_render(
     let cx = rect.x + rect.w / Fixed::from_int(2);
     let cy = rect.y + rect.h / Fixed::from_int(2);
 
-    let scene = build_frame(cx, cy, state.petals, spin_deg);
+    let mut emblem = state.emblem.borrow_mut();
+    if emblem.is_none() {
+        *emblem = Some(decode_emblem());
+    }
+    let emblem = emblem
+        .as_ref()
+        .expect("the vector mandala emblem is initialized");
+    let mut scene = state.frame.borrow_mut();
+    rebuild_frame(&mut scene, cx, cy, state.petals, spin_deg, emblem);
 
     let fonts: [(&str, &Font); 0] = [];
     let textures: [(&str, &Texture); 1] = [("thumbs_up", &IMG_THUMBS_UP)];
@@ -224,6 +239,13 @@ mod tests {
     use crate::ui::IdMap;
     use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
+
+    fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
+        let emblem = decode_emblem();
+        let mut scene = Scene::new();
+        rebuild_frame(&mut scene, cx, cy, petals, spin_deg, &emblem);
+        scene
+    }
 
     #[test]
     fn build_widgets_smoke() {
@@ -282,6 +304,30 @@ mod tests {
             }
         }
         assert_eq!(max_depth, 2, "outer spin group wrapping per-petal groups");
+    }
+
+    #[test]
+    fn frame_reuses_operation_capacity() {
+        let emblem = decode_emblem();
+        let mut scene = Scene::new();
+        rebuild_frame(
+            &mut scene,
+            Fixed::from_int(240),
+            Fixed::from_int(240),
+            10,
+            Fixed::ZERO,
+            &emblem,
+        );
+        let capacity = scene.ops.capacity();
+        rebuild_frame(
+            &mut scene,
+            Fixed::from_int(240),
+            Fixed::from_int(240),
+            10,
+            Fixed::from_int(120),
+            &emblem,
+        );
+        assert_eq!(scene.ops.capacity(), capacity);
     }
 
     #[test]

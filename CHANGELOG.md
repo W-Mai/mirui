@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reactive button colors.** `Button(normal_color: ${ ... })` binds selected and application state directly to the button surface without imperative component mutation.
 - **Semantic responsive state demos.** Gallery state, persistence, form, keyed collection, and localization examples use their corresponding text and input components in one layout that contracts for phones and remains bounded on desktop.
 - **Responsive Gallery stage.** Portrait phones open landscape demos in a fitted portrait viewport, the demo selector collapses into a drawer, and the orientation control animates between the current width and height.
+- **Allocation-stable vector mandala.** The animated vector demo decodes its embedded MIRX emblem once and reuses its scene operation storage across frames.
 
 ### Fixed
 
