@@ -145,6 +145,7 @@ fn native_compact_demos_are_not_registered_as_stretchable() {
         "curve_text_compact",
         "kinetic_console",
         "effect_glass",
+        "life_compact",
         "widgets_compact",
     ] {
         let entry = registry

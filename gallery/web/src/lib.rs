@@ -17,6 +17,7 @@ gallery::register_demos! {
     ("animation",            "tween + ping pong",    "Animation",   animation,            320, 180),
     ("three_body",           "three body",           "Animation",   three_body,           480, 320),
     ("life",                 "game of life",         "Animation",   life,                 640, 640),
+    ("life_compact",         "life compact",          "Animation",   life_compact,         128, 128, false),
     ("particles",            "particles",            "Animation",   particles,            480, 320),
     ("butterfly",            "butterfly",            "Animation",   butterfly,            480, 480),
     ("shapes",               "shapes",               "Animation",   shapes,               480, 480),

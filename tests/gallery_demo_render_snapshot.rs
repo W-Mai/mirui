@@ -214,6 +214,15 @@ basic_demo_scoped!(subpixel, 480, 320);
 viewport_demo_scoped!(widgets, 512, 512);
 basic_demo_scoped!(widgets_compact, 128, 128);
 
+#[test]
+fn life_compact() {
+    let cs = render_demo(128, 128, |world, parent| {
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::life_compact::build_widgets(&mut cx, 128, 128);
+    });
+    assert_renders("life_compact", cs);
+}
+
 viewport_demo_ignored_noargs_scoped!(butterfly, 480, 480);
 viewport_demo_ignored_scoped!(cover_flow, 640, 360);
 viewport_demo_ignored_noargs_scoped!(flip_card, 480, 320);

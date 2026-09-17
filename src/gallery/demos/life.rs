@@ -254,7 +254,7 @@ pub fn life_step_system(world: &mut World) {
     });
 }
 
-fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
+pub(super) fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
     let longest = w.max(h).max(1);
     let scale = PX_PER_CELL.max((longest + MAX_GRID_EDGE - 1) / MAX_GRID_EDGE);
     let cols = (w / scale).clamp(MIN_GRID_EDGE, MAX_GRID_EDGE);
@@ -262,9 +262,7 @@ fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
     (cols, rows)
 }
 
-#[compose]
-pub fn build_widgets(view_w: u16, view_h: u16) {
-    let (cols, rows) = dims_from_px(view_w as i32, view_h as i32);
+pub(super) fn seeded_board(cols: i32, rows: i32) -> LifeBoard {
     let mut board = LifeBoard::new(cols, rows);
     board.seed((3, 2), GOSPER_GUN);
     board.seed((rows / 4, cols / 2), GOSPER_GUN);
@@ -272,6 +270,13 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
     board.seed((rows / 2, cols / 5), ACORN);
     board.seed((rows / 3, cols * 4 / 5), GLIDER);
     board.seed((rows * 4 / 5, cols / 4), GLIDER);
+    board
+}
+
+#[compose]
+pub fn build_widgets(view_w: u16, view_h: u16) {
+    let (cols, rows) = dims_from_px(view_w as i32, view_h as i32);
+    let board = seeded_board(cols, rows);
 
     //~focus-start
     ui! {
@@ -384,19 +389,28 @@ mirui_macros::timer!(LifeTick, every: 90, |world, _entity| {
 });
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
+pub(super) fn install_runtime<B, F>(app: &mut App<B, F>)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     use crate::app::plugins::StdInstantClockPlugin;
     use crate::prelude::plugin::FpsSummaryPlugin;
-    let info = app.backend.display_info();
     app.with_widget(life_view())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
     LifeTick::install(&mut app.world);
+}
+
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    let info = app.backend.display_info();
+    install_runtime(app);
+    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
 }
 
 #[cfg(test)]
