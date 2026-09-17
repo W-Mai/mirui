@@ -8,6 +8,7 @@ use crate::render::font::scalar::ScalarField;
 use crate::render::font::{Font, FontManager, FontStack, ResolvedFontStack};
 use crate::render::renderer::Renderer;
 use crate::types::{Transform, Transform3D};
+use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::text::FontFeature;
 use crate::ui::widgets::{
@@ -164,16 +165,16 @@ impl TypographyAction {
     }
 }
 
-const BACKGROUND: Color = Color::rgb(10, 17, 29);
-const PANEL: Color = Color::rgb(17, 29, 48);
-const PANEL_ALT: Color = Color::rgb(21, 36, 58);
-const BORDER: Color = Color::rgb(46, 70, 98);
-const TEXT: Color = Color::rgb(231, 239, 248);
-const MUTED: Color = Color::rgb(143, 164, 188);
-const CYAN: Color = Color::rgb(82, 221, 207);
-const BLUE: Color = Color::rgb(104, 161, 255);
-const GOLD: Color = Color::rgb(255, 197, 92);
-const VIOLET: Color = Color::rgb(177, 132, 255);
+const BACKGROUND: ColorToken = ColorToken::Surface;
+const PANEL: ColorToken = ColorToken::SurfaceVariant;
+const PANEL_ALT: ColorToken = ColorToken::Surface;
+const BORDER: ColorToken = ColorToken::Outline;
+const TEXT: ColorToken = ColorToken::OnSurface;
+const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
+const CYAN: ColorToken = ColorToken::Primary;
+const BLUE: ColorToken = ColorToken::Secondary;
+const GOLD: ColorToken = ColorToken::Success;
+const VIOLET: ColorToken = ColorToken::Tertiary;
 
 const ACTIVE_RENDER_PATH: &str = "GLYPH RUN · A8 / SDF REPRESENTATIONS";
 
@@ -229,6 +230,13 @@ fn caret_overlay_render(
     let Some(layout) = cache.get(handle) else {
         return;
     };
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let border = theme.resolve(BORDER);
+    let primary = theme.resolve(CYAN);
+    let secondary = theme.resolve(BLUE);
+    let tertiary = theme.resolve(VIOLET);
+    let success = theme.resolve(GOLD);
     if let Some(text_path) = world.get::<TextPath>(target).copied() {
         let Some(geometry) = crate::text::PathTextGeometry::for_widget(world, target) else {
             return;
@@ -240,7 +248,7 @@ fn caret_overlay_render(
             return;
         };
         if let Ok(path) = paths.get(text_path.path()) {
-            let paint = Paint::Color(BLUE.into());
+            let paint = Paint::Color(secondary.into());
             ctx.draw(
                 renderer,
                 &DrawCommand::StrokePath {
@@ -267,11 +275,11 @@ fn caret_overlay_render(
                     start,
                     end,
                     if probe_hit.is_some_and(|hit| hit.index() == caret.index()) {
-                        GOLD
+                        success
                     } else if caret.bidi_level() & 1 == 0 {
-                        CYAN
+                        primary
                     } else {
-                        VIOLET
+                        tertiary
                     },
                 );
             }
@@ -291,7 +299,7 @@ fn caret_overlay_render(
                 x: rect.x + rect.w,
                 y: baseline,
             },
-            BORDER,
+            border,
         );
     }
     for caret in layout.carets() {
@@ -312,21 +320,25 @@ fn caret_overlay_render(
                 y: baseline - metrics.ascender + metrics.line_height,
             },
             if caret.bidi_level & 1 == 0 {
-                CYAN
+                primary
             } else {
-                VIOLET
+                tertiary
             },
         );
     }
 }
 
-fn contour_color(value: Fixed) -> Color {
+fn contour_color(theme: &Theme, value: Fixed) -> Color {
+    let surface = theme.resolve(PANEL_ALT);
+    let primary = theme.resolve(CYAN);
+    let secondary = theme.resolve(BLUE);
+    let success = theme.resolve(GOLD);
     match crate::types::fixed::to_textflow(value).clamp(0, 256) {
-        0..=63 => Color::rgb(15, 28, 46),
-        64..=111 => Color::rgb(46, 86, 142),
-        112..=144 => GOLD,
-        145..=207 => Color::rgb(44, 153, 153),
-        _ => CYAN,
+        0..=63 => surface,
+        64..=111 => surface.blend_with(secondary, Fixed::from_ratio(1, 2)),
+        112..=144 => success,
+        145..=207 => secondary,
+        _ => primary,
     }
 }
 
@@ -378,6 +390,8 @@ fn raster_contour_render(
         y: rect.y + (rect.h - grid_height) / Fixed::from_int(2),
     };
     let extent = Fixed::from_int((cell - 1).max(1));
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     for y in 0..height {
         for x in 0..width {
             ctx.draw(
@@ -391,7 +405,7 @@ fn raster_contour_render(
                     },
                     transform: ctx.transform,
                     quad: None,
-                    color: contour_color(field.sample(x, y)),
+                    color: contour_color(theme, field.sample(x, y)),
                     radius: Fixed::ZERO,
                     opa: 255,
                 },
@@ -534,7 +548,9 @@ pub fn build_widgets(wave_path: PathId) {
                 Text (
                     id: "typography_panel_count",
                     "8 TEST PANELS",
-                    width: 158,
+                    width: Dimension::percent(32),
+                    min_width: 96,
+                    max_width: 158,
                     height: 30,
                     bg_color: PANEL_ALT,
                     border_color: BORDER,

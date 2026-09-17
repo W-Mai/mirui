@@ -194,10 +194,14 @@ viewport_demo_ignored_scoped!(cover_flow, 640, 360);
 viewport_demo_ignored_noargs_scoped!(flip_card, 480, 320);
 viewport_demo_ignored_noargs_scoped!(shapes, 480, 480);
 
-#[test]
-fn typography_lab_renders() {
+fn render_typography_lab(
+    theme: Option<mirui::ui::Theme>,
+) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
     let (width, height) = mirui::gallery::demos::typography_lab::VIEWPORT;
-    let colours = render_demo(width, height, |world, parent| {
+    render_demo(width, height, |world, parent| {
+        if let Some(theme) = theme {
+            world.insert_resource(theme);
+        }
         let views = world
             .resource_mut::<mirui::ui::view::ViewRegistry>()
             .expect("view registry");
@@ -207,8 +211,21 @@ fn typography_lab_renders() {
         let wave_path = mirui::gallery::demos::typography_lab::register_path(world);
         let mut cx = mirui::ui::UiScope::new(world, parent);
         mirui::gallery::demos::typography_lab::build_widgets(&mut cx, wave_path);
-    });
+    })
+}
+
+#[test]
+fn typography_lab_renders() {
+    let colours = render_typography_lab(None);
     assert_renders("typography_lab", colours);
+}
+
+#[test]
+fn typography_lab_renders_in_light_palette() {
+    let dark = render_typography_lab(None);
+    let light = render_typography_lab(Some(mirui::ui::Theme::light()));
+    assert_renders("typography_lab_light", light.clone());
+    assert_ne!(dark, light);
 }
 
 #[test]
