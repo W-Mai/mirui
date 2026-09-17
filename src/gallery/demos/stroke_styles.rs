@@ -12,6 +12,20 @@ pub struct StrokeStyles;
 static LINE: Path = path!(M 0 0 L 100 0);
 static ELBOW: Path = path!(M 0 42 L 42 0 L 84 42);
 static GUIDE: Path = path!(M 0 0 H 448 V 320 H 0 Z);
+const LOGICAL_WIDTH: i32 = 480;
+const LOGICAL_HEIGHT: i32 = 360;
+
+fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
+    let scale =
+        (rect.w / Fixed::from_int(LOGICAL_WIDTH)).min(rect.h / Fixed::from_int(LOGICAL_HEIGHT));
+    let width = Fixed::from_int(LOGICAL_WIDTH) * scale;
+    let height = Fixed::from_int(LOGICAL_HEIGHT) * scale;
+    let x = rect.x + (rect.w - width) / Fixed::from_int(2);
+    let y = rect.y + (rect.h - height) / Fixed::from_int(2);
+    parent
+        .compose(&Transform::translate(x, y))
+        .compose(&Transform::scale(scale, scale))
+}
 
 #[allow(clippy::too_many_arguments)]
 fn stroke(
@@ -46,7 +60,7 @@ fn stroke_styles_render(
     renderer: &mut dyn Renderer,
     world: &World,
     _entity: Entity,
-    _rect: &Rect,
+    rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
     let default_theme = Theme::default();
@@ -56,6 +70,7 @@ fn stroke_styles_render(
     let green = Paint::Color(theme.resolve(ColorToken::Success).into());
     let violet = Paint::Color(theme.resolve(ColorToken::Tertiary).into());
     let empty: [Fixed; 0] = [];
+    let canvas = canvas_transform(rect, ctx.transform);
 
     for (i, cap) in [LineCap::Butt, LineCap::Round, LineCap::Square]
         .into_iter()
@@ -66,8 +81,10 @@ fn stroke_styles_render(
             renderer,
             ctx,
             &LINE,
-            Transform::translate(Fixed::from_int(x), Fixed::from_int(54))
-                .compose(&Transform::scale(Fixed::from_ratio(92, 100), Fixed::ONE)),
+            canvas.compose(
+                &Transform::translate(Fixed::from_int(x), Fixed::from_int(54))
+                    .compose(&Transform::scale(Fixed::from_ratio(92, 100), Fixed::ONE)),
+            ),
             &paint,
             Fixed::from_int(10),
             cap,
@@ -84,7 +101,10 @@ fn stroke_styles_render(
             renderer,
             ctx,
             &ELBOW,
-            Transform::translate(Fixed::from_int(38 + i as i32 * 146), Fixed::from_int(108)),
+            canvas.compose(&Transform::translate(
+                Fixed::from_int(38 + i as i32 * 146),
+                Fixed::from_int(108),
+            )),
             &hot,
             Fixed::from_int(11),
             LineCap::Butt,
@@ -110,7 +130,10 @@ fn stroke_styles_render(
             renderer,
             ctx,
             &LINE,
-            Transform::translate(Fixed::from_int(x), Fixed::from_int(214)),
+            canvas.compose(&Transform::translate(
+                Fixed::from_int(x),
+                Fixed::from_int(214),
+            )),
             &green,
             Fixed::from_int(6),
             LineCap::Round,
@@ -128,8 +151,10 @@ fn stroke_styles_render(
             renderer,
             ctx,
             &LINE,
-            Transform::translate(Fixed::from_int(x), Fixed::from_int(304))
-                .compose(&Transform::scale(Fixed::from_ratio(98, 100), Fixed::ONE)),
+            canvas.compose(
+                &Transform::translate(Fixed::from_int(x), Fixed::from_int(304))
+                    .compose(&Transform::scale(Fixed::from_ratio(98, 100), Fixed::ONE)),
+            ),
             &violet,
             width,
             LineCap::Round,
@@ -143,7 +168,10 @@ fn stroke_styles_render(
         renderer,
         &DrawCommand::StrokePath {
             path: &GUIDE,
-            transform: Transform::translate(Fixed::from_int(16), Fixed::from_int(20)),
+            transform: canvas.compose(&Transform::translate(
+                Fixed::from_int(16),
+                Fixed::from_int(20),
+            )),
             paint: &guide_paint,
             width: Fixed::ONE,
             opa: 180,
@@ -186,5 +214,34 @@ mod tests {
         assert!(LINE.is_borrowed());
         assert!(ELBOW.is_borrowed());
         assert!(GUIDE.is_borrowed());
+    }
+
+    #[test]
+    fn logical_canvas_scales_and_centers_inside_phone_bounds() {
+        let rect = Rect {
+            x: Fixed::from_int(10),
+            y: Fixed::from_int(20),
+            w: Fixed::from_int(320),
+            h: Fixed::from_int(568),
+        };
+        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        assert_eq!(transform.m00, Fixed::from_ratio(2, 3));
+        assert_eq!(transform.m11, Fixed::from_ratio(2, 3));
+        let top_left = transform.apply_point(Point::ZERO);
+        let bottom_right = transform.apply_point(Point::new(
+            Fixed::from_int(LOGICAL_WIDTH),
+            Fixed::from_int(LOGICAL_HEIGHT),
+        ));
+        assert!(top_left.x >= rect.x && top_left.y >= rect.y);
+        assert!(bottom_right.x <= rect.x + rect.w);
+        assert!(bottom_right.y <= rect.y + rect.h);
+        assert!(
+            ((top_left.x - rect.x) - (rect.x + rect.w - bottom_right.x)).abs()
+                <= Fixed::from_ratio(1, 256),
+        );
+        assert!(
+            ((top_left.y - rect.y) - (rect.y + rect.h - bottom_right.y)).abs()
+                <= Fixed::from_ratio(1, 256),
+        );
     }
 }

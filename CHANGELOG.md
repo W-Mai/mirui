@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Semantic responsive Gallery demos.** Scroll, nested scroll, text input, slider, composite, effects, and gesture examples use dedicated text widgets, bounded fluid layouts, and shared control-label styling across phone and desktop viewports.
 - **Responsive component examples.** Named slots, theme switching, virtual lists, custom views, the icon catalog, and the hand-written builder example use bounded phone/desktop layouts and expose their intended component structure directly.
+- **Responsive stroke study.** Stroke Styles scales and centers its static path catalog inside the live custom-view bounds.
 - **Responsive motion examples.** Tween, spring, elastic, and tab navigation demos use semantic labels, bounded stages, and layouts that remain legible across phone and desktop viewports.
 - **Declarative transform examples.** Affine, projective image, flip-card, book, and subpixel demos attach animation state directly through `ui!` trees, use elapsed frame time for projective motion, and adapt themed presentation to phone and desktop stages.
 - **Gallery physics and effects.** The three-body field uses semantic image nodes on a restrained orbital stage, while the live effects panel groups mirror, temporal, blur, shadow, and glow pipelines into readable capability cards.
