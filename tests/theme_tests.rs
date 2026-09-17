@@ -5,7 +5,7 @@ use mirui::app::App;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Color;
 use mirui::ui::Theme;
-use mirui::ui::theme::ColorToken;
+use mirui::ui::theme::{ColorToken, ThemeError, ThemeId, ThemeInfo};
 
 #[test]
 fn app_new_inserts_default_theme() {
@@ -60,6 +60,67 @@ fn user_defined_token_round_trips_through_app() {
     assert_eq!(
         app.world.resource::<Theme>().unwrap().resolve(BRAND),
         Color::rgb(220, 60, 70),
+    );
+}
+
+#[test]
+fn app_exposes_identity_and_scoped_theme_edits() {
+    const BRAND: ColorToken = ColorToken::custom("brand");
+    let backend = FramebufSurface::new(64, 64, |_, _| {});
+    let mut app = App::new(backend);
+    app.with_theme(Theme::dark().with_info(ThemeInfo::new(
+        "studio",
+        "Studio",
+        "High-contrast studio palette",
+    )));
+
+    assert_eq!(app.theme().id(), ThemeId::new("studio"));
+    assert_eq!(app.theme().name(), "Studio");
+    app.edit_theme(|theme| {
+        theme.set(BRAND, Color::rgb(12, 34, 56));
+    });
+    assert_eq!(app.theme().resolve(BRAND), Color::rgb(12, 34, 56));
+}
+
+#[test]
+fn registered_themes_switch_by_id_and_keep_catalog_edits() {
+    let backend = FramebufSurface::new(64, 64, |_, _| {});
+    let mut app = App::new(backend);
+    let ocean = Theme::dark().with_info(ThemeInfo::new("ocean", "Ocean", "Low-glare cyan palette"));
+
+    app.register_theme(ocean);
+    app.set_theme_id("ocean").unwrap();
+    assert_eq!(app.theme().name(), "Ocean");
+    assert_eq!(app.themes().len(), 3);
+
+    app.edit_theme_id("ocean", |theme| {
+        theme.set(ColorToken::Primary, Color::rgb(12, 34, 56));
+    })
+    .unwrap();
+    app.set_theme_id("light").unwrap();
+    app.set_theme_id("ocean").unwrap();
+    assert_eq!(
+        app.theme().resolve(ColorToken::Primary),
+        Color::rgb(12, 34, 56)
+    );
+
+    assert_eq!(
+        app.set_theme_id("missing"),
+        Err(ThemeError::NotFound(ThemeId::new("missing")))
+    );
+    assert_eq!(app.theme().id(), ThemeId::new("ocean"));
+}
+
+#[test]
+fn theme_types_are_available_from_the_prelude() {
+    use mirui::prelude::*;
+
+    let theme = Theme::dark().with_info(ThemeInfo::new("prelude", "Prelude", "Visible"));
+    let mut catalog = ThemeCatalog::new();
+    catalog.insert(theme);
+    assert_eq!(
+        catalog.get(ThemeId::new("prelude")).unwrap().name(),
+        "Prelude"
     );
 }
 

@@ -143,7 +143,9 @@ pub mod prelude {
     pub use crate::ui::layout::{
         AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutStyle, Padding, Position,
     };
-    pub use crate::ui::theme::{ColorToken, ThemedColor};
+    pub use crate::ui::theme::{
+        ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemedColor,
+    };
     pub use crate::ui::{Style, Widget};
 
     pub use mirui_macros::{

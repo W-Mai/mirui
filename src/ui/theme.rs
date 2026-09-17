@@ -1,4 +1,5 @@
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 
 use crate::ecs::World;
 use crate::types::{Color, Fixed};
@@ -81,6 +82,42 @@ impl From<ColorToken> for ThemedColor {
 /// palette so an unbound token shows up immediately.
 const MISSING_TOKEN_FALLBACK: Color = Color::rgb(255, 0, 255);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ThemeId(&'static str);
+
+impl ThemeId {
+    pub const fn new(value: &'static str) -> Self {
+        Self(value)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl From<&'static str> for ThemeId {
+    fn from(value: &'static str) -> Self {
+        Self::new(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThemeInfo {
+    pub id: ThemeId,
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
+impl ThemeInfo {
+    pub const fn new(id: &'static str, name: &'static str, description: &'static str) -> Self {
+        Self {
+            id: ThemeId::new(id),
+            name,
+            description,
+        }
+    }
+}
+
 /// Colour palette consumed by built-in widgets. World resource;
 /// `App::new` inserts `Theme::default()`.
 ///
@@ -94,6 +131,7 @@ const MISSING_TOKEN_FALLBACK: Color = Color::rgb(255, 0, 255);
 /// - `Outline` / `Shadow`: borders / elevation
 #[derive(Clone, Debug)]
 pub struct Theme {
+    info: ThemeInfo,
     primary: Color,
     on_primary: Color,
     secondary: Color,
@@ -115,6 +153,7 @@ impl Theme {
     /// Dark palette; the default for `App::new`.
     pub fn dark() -> Self {
         Self {
+            info: ThemeInfo::new("dark", "Dark", "Bundled low-light palette"),
             primary: Color::rgb(88, 166, 255),
             on_primary: Color::rgb(255, 255, 255),
             secondary: Color::rgb(140, 200, 220),
@@ -135,6 +174,7 @@ impl Theme {
 
     pub fn light() -> Self {
         Self {
+            info: ThemeInfo::new("light", "Light", "Bundled high-contrast light palette"),
             primary: Color::rgb(0, 100, 200),
             on_primary: Color::rgb(255, 255, 255),
             secondary: Color::rgb(40, 120, 160),
@@ -177,6 +217,22 @@ impl Theme {
         }
     }
 
+    pub const fn info(&self) -> ThemeInfo {
+        self.info
+    }
+
+    pub const fn id(&self) -> ThemeId {
+        self.info.id
+    }
+
+    pub const fn name(&self) -> &'static str {
+        self.info.name
+    }
+
+    pub const fn description(&self) -> &'static str {
+        self.info.description
+    }
+
     pub fn resolve_in(&self, token: ColorToken, state: WidgetState) -> Color {
         let base = self.resolve(token);
         match state {
@@ -213,6 +269,16 @@ impl Theme {
 }
 
 impl Theme {
+    pub fn set_info(&mut self, info: ThemeInfo) -> &mut Self {
+        self.info = info;
+        self
+    }
+
+    pub fn with_info(mut self, info: ThemeInfo) -> Self {
+        self.info = info;
+        self
+    }
+
     /// Bind a colour to a token, builtin or custom.
     pub fn set(&mut self, token: ColorToken, color: Color) -> &mut Self {
         match token {
@@ -268,13 +334,147 @@ impl Default for Theme {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ThemeCatalog {
+    themes: Vec<Theme>,
+}
+
+impl ThemeCatalog {
+    pub fn new() -> Self {
+        Self { themes: Vec::new() }
+    }
+
+    pub fn with_builtins() -> Self {
+        let themes = alloc::vec![Theme::dark(), Theme::light()];
+        Self { themes }
+    }
+
+    pub fn get(&self, id: impl Into<ThemeId>) -> Option<&Theme> {
+        let id = id.into();
+        self.themes.iter().find(|theme| theme.id() == id)
+    }
+
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &Theme> {
+        self.themes.iter()
+    }
+
+    pub fn insert(&mut self, theme: Theme) -> Option<Theme> {
+        if let Some(current) = self
+            .themes
+            .iter_mut()
+            .find(|current| current.id() == theme.id())
+        {
+            return Some(core::mem::replace(current, theme));
+        }
+        self.themes.push(theme);
+        None
+    }
+
+    pub fn len(&self) -> usize {
+        self.themes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.themes.is_empty()
+    }
+}
+
+impl Default for ThemeCatalog {
+    fn default() -> Self {
+        Self::with_builtins()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeError {
+    NotFound(ThemeId),
+}
+
 /// Free-function counterpart to `App::set_theme`, for handlers and
 /// systems that don't have an `App` reference.
 pub fn set_theme(world: &mut World, theme: Theme) {
+    if world.resource::<ThemeCatalog>().is_none() {
+        world.insert_resource(ThemeCatalog::new());
+    }
+    world
+        .resource_mut::<ThemeCatalog>()
+        .expect("ThemeCatalog was just inserted")
+        .insert(theme.clone());
     world.insert_resource(theme);
     if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
         world.mark_subtree_dirty(root);
     }
+}
+
+pub fn set_theme_id(world: &mut World, id: impl Into<ThemeId>) -> Result<(), ThemeError> {
+    let id = id.into();
+    let theme = world
+        .resource::<ThemeCatalog>()
+        .and_then(|catalog| catalog.get(id))
+        .cloned()
+        .ok_or(ThemeError::NotFound(id))?;
+    world.insert_resource(theme);
+    if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
+        world.mark_subtree_dirty(root);
+    }
+    Ok(())
+}
+
+pub fn register(world: &mut World, theme: Theme) -> Option<Theme> {
+    if world.resource::<ThemeCatalog>().is_none() {
+        world.insert_resource(ThemeCatalog::new());
+    }
+    world
+        .resource_mut::<ThemeCatalog>()
+        .expect("ThemeCatalog was just inserted")
+        .insert(theme)
+}
+
+pub fn active(world: &World) -> Option<&Theme> {
+    world.resource::<Theme>()
+}
+
+pub fn edit(world: &mut World, update: impl FnOnce(&mut Theme)) -> bool {
+    let Some(theme) = world.resource_mut::<Theme>() else {
+        return false;
+    };
+    update(theme);
+    let snapshot = theme.clone();
+    register(world, snapshot);
+    if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
+        world.mark_subtree_dirty(root);
+    }
+    true
+}
+
+pub fn edit_registered(
+    world: &mut World,
+    id: impl Into<ThemeId>,
+    update: impl FnOnce(&mut Theme),
+) -> Result<(), ThemeError> {
+    let id = id.into();
+    let snapshot = {
+        let catalog = world
+            .resource_mut::<ThemeCatalog>()
+            .ok_or(ThemeError::NotFound(id))?;
+        let theme = catalog
+            .themes
+            .iter_mut()
+            .find(|theme| theme.id() == id)
+            .ok_or(ThemeError::NotFound(id))?;
+        update(theme);
+        theme.clone()
+    };
+    if world
+        .resource::<Theme>()
+        .is_some_and(|theme| theme.id() == id)
+    {
+        world.insert_resource(snapshot);
+        if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
+            world.mark_subtree_dirty(root);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -287,6 +487,43 @@ mod tests {
             Theme::dark().resolve(ColorToken::Primary),
             Color::rgb(88, 166, 255),
         );
+    }
+
+    #[test]
+    fn bundled_themes_expose_stable_identity() {
+        let dark = Theme::dark();
+        assert_eq!(dark.id().as_str(), "dark");
+        assert_eq!(dark.name(), "Dark");
+        assert!(!dark.description().is_empty());
+
+        let light = Theme::light();
+        assert_eq!(light.id().as_str(), "light");
+        assert_eq!(light.name(), "Light");
+    }
+
+    #[test]
+    fn custom_theme_metadata_is_all_borrowed() {
+        let theme =
+            Theme::dark().with_info(ThemeInfo::new("ocean", "Ocean", "Low-glare cyan palette"));
+        assert_eq!(theme.info().id.as_str(), "ocean");
+        assert_eq!(theme.info().name, "Ocean");
+    }
+
+    #[test]
+    fn edit_mutates_active_theme_and_invalidates_root() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert_resource(super::super::WidgetRoot(root));
+        world.insert_resource(Theme::dark());
+
+        assert!(edit(&mut world, |theme| {
+            theme.set(ColorToken::Primary, Color::rgb(1, 2, 3));
+        }));
+        assert_eq!(
+            active(&world).unwrap().resolve(ColorToken::Primary),
+            Color::rgb(1, 2, 3)
+        );
+        assert!(world.get::<crate::ui::dirty::Dirty>(root).is_some());
     }
 
     #[test]

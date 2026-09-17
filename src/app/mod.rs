@@ -14,11 +14,11 @@ use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{PhysicalRect, Rect};
-use crate::ui::Theme;
 use crate::ui::dirty::DirtyRegions;
 use crate::ui::offscreen::OffscreenBufferPool;
 use crate::ui::render_system;
 use crate::ui::view::{View, ViewRegistry};
+use crate::ui::{Theme, ThemeCatalog, ThemeError};
 
 pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 
@@ -131,6 +131,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let info = backend.display_info();
         world.insert_resource(info);
         world.insert_resource(ViewRegistry::default());
+        world.insert_resource(ThemeCatalog::default());
         world.insert_resource(Theme::default());
         world.insert_resource(crate::render::font::default_font_manager());
         world.insert_resource(crate::text::layout::TextLayoutResource::new(
@@ -165,7 +166,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Replace the active [`Theme`]. Defaults to [`Theme::dark`].
     pub fn with_theme(&mut self, theme: Theme) -> &mut Self {
-        self.world.insert_resource(theme);
+        crate::ui::theme::set_theme(&mut self.world, theme);
         self
     }
 
@@ -236,6 +237,43 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Runtime counterpart to `with_theme`: also forces a full-tree repaint.
     pub fn set_theme(&mut self, theme: Theme) {
         crate::ui::theme::set_theme(&mut self.world, theme);
+    }
+
+    pub fn register_theme(&mut self, theme: Theme) -> &mut Self {
+        crate::ui::theme::register(&mut self.world, theme);
+        self
+    }
+
+    pub fn set_theme_id(
+        &mut self,
+        id: impl Into<crate::ui::theme::ThemeId>,
+    ) -> Result<(), ThemeError> {
+        crate::ui::theme::set_theme_id(&mut self.world, id)
+    }
+
+    pub fn themes(&self) -> &ThemeCatalog {
+        self.world
+            .resource::<ThemeCatalog>()
+            .expect("App always owns a ThemeCatalog")
+    }
+
+    pub fn theme(&self) -> &Theme {
+        self.world
+            .resource::<Theme>()
+            .expect("App always owns an active Theme")
+    }
+
+    pub fn edit_theme(&mut self, update: impl FnOnce(&mut Theme)) {
+        let edited = crate::ui::theme::edit(&mut self.world, update);
+        debug_assert!(edited, "App always owns an active Theme");
+    }
+
+    pub fn edit_theme_id(
+        &mut self,
+        id: impl Into<crate::ui::theme::ThemeId>,
+        update: impl FnOnce(&mut Theme),
+    ) -> Result<(), ThemeError> {
+        crate::ui::theme::edit_registered(&mut self.world, id, update)
     }
 
     /// Owned snapshot of the entity's rendered output. One-off cost:

@@ -1,33 +1,51 @@
 use crate::prelude::*;
+use crate::ui::theme;
 use crate::ui::widgets::{
     Button, Checkbox, ParagraphStyle, Placeholder, ProgressBar, Slider, Switch, TabBar, Text,
     TextAlign, TextInput,
 };
-use crate::ui::{Theme, theme};
 
-pub struct ThemeChoice(pub Theme);
+pub struct ThemeChoice(pub ThemeId);
 
 pub const ACCENT: ColorToken = ColorToken::Tertiary;
 
 pub fn dark_with_accent() -> Theme {
-    Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
+    Theme::dark()
+        .with_info(ThemeInfo::new(
+            "midnight-amber",
+            "Midnight Amber",
+            "Dark surfaces with a warm accent",
+        ))
+        .with(ACCENT, Color::rgb(255, 200, 60))
 }
 
 pub fn light_with_accent() -> Theme {
-    Theme::light().with(ACCENT, Color::rgb(220, 60, 90))
+    Theme::light()
+        .with_info(ThemeInfo::new(
+            "paper-rose",
+            "Paper Rose",
+            "Light surfaces with a rose accent",
+        ))
+        .with(ACCENT, Color::rgb(220, 60, 90))
 }
 
 pub fn custom_theme() -> Theme {
-    Theme::dark().with_many([
-        (ColorToken::Primary, Color::rgb(255, 105, 180)),
-        (ColorToken::OnPrimary, Color::rgb(20, 20, 30)),
-        (ColorToken::Success, Color::rgb(255, 200, 60)),
-        (ColorToken::Surface, Color::rgb(38, 28, 50)),
-        (ColorToken::SurfaceVariant, Color::rgb(70, 50, 90)),
-        (ColorToken::OnSurface, Color::rgb(245, 235, 255)),
-        (ColorToken::OnSurfaceVariant, Color::rgb(180, 150, 200)),
-        (ACCENT, Color::rgb(140, 200, 220)),
-    ])
+    Theme::dark()
+        .with_info(ThemeInfo::new(
+            "plum",
+            "Plum",
+            "Deep plum surfaces with cyan accents",
+        ))
+        .with_many([
+            (ColorToken::Primary, Color::rgb(255, 105, 180)),
+            (ColorToken::OnPrimary, Color::rgb(20, 20, 30)),
+            (ColorToken::Success, Color::rgb(255, 200, 60)),
+            (ColorToken::Surface, Color::rgb(38, 28, 50)),
+            (ColorToken::SurfaceVariant, Color::rgb(70, 50, 90)),
+            (ColorToken::OnSurface, Color::rgb(245, 235, 255)),
+            (ColorToken::OnSurfaceVariant, Color::rgb(180, 150, 200)),
+            (ACCENT, Color::rgb(140, 200, 220)),
+        ])
 }
 
 #[compose]
@@ -63,11 +81,11 @@ pub fn build_widgets() {
                     normal_color: Color::rgb(40, 50, 70),
                     pressed_color: Color::rgb(20, 25, 35)
                 ) [
-                    ThemeChoice(dark_with_accent()),
+                    ThemeChoice(ThemeId::new("midnight-amber")),
                     Text::label("Dark"),
                 ] on Tap {
-                    if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
-                        theme::set_theme(ctx.world, theme);
+                    if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
+                        let _ = theme::set_theme_id(ctx.world, id);
                     }
                 }
                 Button (
@@ -78,11 +96,11 @@ pub fn build_widgets() {
                     normal_color: Color::rgb(0, 100, 200),
                     pressed_color: Color::rgb(0, 70, 150)
                 ) [
-                    ThemeChoice(light_with_accent()),
+                    ThemeChoice(ThemeId::new("paper-rose")),
                     Text::label("Light"),
                 ] on Tap {
-                    if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
-                        theme::set_theme(ctx.world, theme);
+                    if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
+                        let _ = theme::set_theme_id(ctx.world, id);
                     }
                 }
                 Button (
@@ -94,11 +112,11 @@ pub fn build_widgets() {
                     normal_color: Color::rgb(255, 105, 180),
                     pressed_color: Color::rgb(200, 70, 140)
                 ) [
-                    ThemeChoice(custom_theme()),
+                    ThemeChoice(ThemeId::new("plum")),
                     Text::label("Custom"),
                 ] on Tap {
-                    if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
-                        theme::set_theme(ctx.world, theme);
+                    if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
+                        let _ = theme::set_theme_id(ctx.world, id);
                     }
                 }
             }
@@ -262,7 +280,11 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_theme(dark_with_accent());
+    app.register_theme(dark_with_accent())
+        .register_theme(light_with_accent())
+        .register_theme(custom_theme());
+    app.set_theme_id("midnight-amber")
+        .expect("registered theme");
     app.compose(parent, build_widgets);
 }
 
@@ -279,7 +301,9 @@ mod tests {
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
-        world.insert_resource(dark_with_accent());
+        theme::set_theme(&mut world, dark_with_accent());
+        theme::register(&mut world, light_with_accent());
+        theme::register(&mut world, custom_theme());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);
@@ -295,7 +319,9 @@ mod tests {
     fn tap_button_swaps_global_theme() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
-        world.insert_resource(dark_with_accent());
+        theme::set_theme(&mut world, dark_with_accent());
+        theme::register(&mut world, light_with_accent());
+        theme::register(&mut world, custom_theme());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);

@@ -175,14 +175,17 @@ Powered by [xrune](https://github.com/W-Mai/xrune). Integer literals in attribut
 
 ## Theme
 
-Built-in widgets read colours through `ColorToken`s; switch palette with `app.with_theme(Theme::light())`, swap at runtime with `app.set_theme(...)`.
+Built-in widgets read colours through `ColorToken`s. `Theme::light()` and `Theme::dark()` are ordinary editable palettes; `app.set_theme(...)` replaces the active theme and `app.edit_theme(...)` updates its tokens with one repaint.
 
 ```rust
-use mirui::ui::theme::{Theme, ColorToken};
+let theme = Theme::dark()
+    .with_info(ThemeInfo::new("ocean", "Ocean", "Low-glare cyan palette"))
+    .with(ColorToken::Primary, Color::rgb(72, 214, 200));
+app.register_theme(theme);
+app.set_theme_id("ocean").unwrap();
 
-let mut theme = Theme::dark();
-theme.set(ColorToken::Custom("brand_accent"), Color::rgb(255, 105, 180));
-app.with_theme(theme);
+assert_eq!(app.theme().id().as_str(), "ocean");
+app.edit_theme(|theme| { theme.set(ColorToken::Primary, Color::rgb(96, 230, 214)); });
 ```
 
 `WidgetState` (`Hovered` / `Pressed` / `Error` / `Disabled`) routes overlays automatically: hover blends 8% `OnSurface`, press 12%, error 16% `Error`, disabled blends text/icon to 38% on `Surface` and container roles to 12%. No widget needs to author per-state logic.
