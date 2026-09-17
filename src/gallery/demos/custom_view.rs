@@ -1,10 +1,14 @@
 #![allow(clippy::needless_update)]
 
+use crate::prelude::draw::*;
 use crate::prelude::*;
-use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
+use crate::render::scene::{LineCap, LineJoin, Paint};
+use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::Text;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
+
+static DIAMOND_PATH: Path = path!(M 50 0 L 100 50 L 50 100 L 0 50 Z);
 
 pub struct Diamond {
     pub color: Color,
@@ -30,36 +34,30 @@ fn diamond_render(
     let Some(d) = world.get::<Diamond>(entity) else {
         return;
     };
-    let half_w = rect.w / Fixed::from_int(2);
-    let half_h = rect.h / Fixed::from_int(2);
-    let cx = rect.x + half_w;
-    let cy = rect.y + half_h;
-    let top = Point { x: cx, y: rect.y };
-    let right = Point {
-        x: rect.x + rect.w,
-        y: cy,
-    };
-    let bottom = Point {
-        x: cx,
-        y: rect.y + rect.h,
-    };
-    let left = Point { x: rect.x, y: cy };
-
-    let segs = [(top, right), (right, bottom), (bottom, left), (left, top)];
-    for (p1, p2) in segs {
-        ctx.draw(
-            renderer,
-            &DrawCommand::Line {
-                p1,
-                p2,
-                transform: ctx.transform,
-                color: d.color,
-                width: d.line_width,
-                opa: 255,
-            },
-            ctx.clip,
-        );
-    }
+    let transform = ctx
+        .transform
+        .compose(&Transform::translate(rect.x, rect.y))
+        .compose(&Transform::scale(
+            rect.w / Fixed::from_int(100),
+            rect.h / Fixed::from_int(100),
+        ));
+    let paint = Paint::Color(d.color.into());
+    let dash: [Fixed; 0] = [];
+    ctx.draw(
+        renderer,
+        &DrawCommand::StrokePath {
+            path: &DIAMOND_PATH,
+            transform,
+            paint: &paint,
+            width: d.line_width,
+            opa: 255,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            miter_limit: Fixed::from_int(4),
+            dash: &dash,
+        },
+        ctx.clip,
+    );
 }
 
 pub fn diamond_view() -> View {
@@ -81,17 +79,29 @@ pub fn build_widgets() {
             justify: JustifyContent::Center,
             grow: 1.0,
             padding: Padding::all(16),
-            row_gap: 16
+            row_gap: 16,
+            bg_color: ColorToken::Surface
         ) {
             Text (
-                "CUSTOM VIEW · TAP TO RECOLOR",
+                "CUSTOM VECTOR VIEW",
                 width: Dimension::percent(100),
                 max_width: 480,
                 height: 28,
                 font_size: 18,
-                text_color: ColorToken::OnSurface
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "STATIC PATH · TAP ANY TILE TO RECOLOR",
+                width: Dimension::percent(100),
+                max_width: 480,
+                height: 18,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Row (
+                id: "custom_view_tiles",
                 justify: JustifyContent::SpaceEvenly,
                 align: AlignItems::Center,
                 width: Dimension::percent(100),
@@ -102,7 +112,9 @@ pub fn build_widgets() {
                     color: PALETTE[0],
                     line_width: Fixed::from_int(2),
                     width: 88,
-                    height: 88
+                    height: 88,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 18
                 ) on Tap {
                     if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
                         let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
@@ -114,7 +126,9 @@ pub fn build_widgets() {
                     color: PALETTE[1],
                     line_width: Fixed::from_int(3),
                     width: 88,
-                    height: 88
+                    height: 88,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 18
                 ) on Tap {
                     if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
                         let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
@@ -126,7 +140,9 @@ pub fn build_widgets() {
                     color: PALETTE[2],
                     line_width: Fixed::from_int(4),
                     width: 88,
-                    height: 88
+                    height: 88,
+                    bg_color: ColorToken::SurfaceVariant,
+                    border_radius: 18
                 ) on Tap {
                     if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
                         let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
@@ -179,6 +195,11 @@ mod tests {
     }
 
     #[test]
+    fn diamond_geometry_stays_in_static_storage() {
+        assert!(DIAMOND_PATH.is_borrowed());
+    }
+
+    #[test]
     fn tap_cycles_diamond_color() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -188,8 +209,7 @@ mod tests {
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);
-        let shell = world.get::<Children>(parent).unwrap().0[0];
-        let row = world.get::<Children>(shell).unwrap().0[1];
+        let row = world.find_by_id("custom_view_tiles").unwrap();
         let d0 = world.get::<Children>(row).unwrap().0[0];
 
         assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[0]));

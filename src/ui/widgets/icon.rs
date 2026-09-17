@@ -58,6 +58,25 @@ impl Icon {
     }
 }
 
+fn icon_transform(icon: &Icon, rect: &Rect, parent: Transform) -> Option<Transform> {
+    let available = rect.w.min(rect.h);
+    let size_px = icon.size.resolve_or(available, available);
+    if icon.viewbox <= Fixed::ZERO || size_px <= Fixed::ZERO || icon.scale <= Fixed::ZERO {
+        return None;
+    }
+    let rendered_size = size_px * icon.scale;
+    let x = rect.x + (rect.w - rendered_size) / Fixed::from_int(2);
+    let y = rect.y + (rect.h - rendered_size) / Fixed::from_int(2);
+    Some(
+        parent
+            .compose(&Transform::translate(x, y))
+            .compose(&Transform::scale(
+                rendered_size / icon.viewbox,
+                rendered_size / icon.viewbox,
+            )),
+    )
+}
+
 fn icon_render(
     renderer: &mut dyn Renderer,
     world: &World,
@@ -71,16 +90,9 @@ fn icon_render(
     let theme = ctx.theme(world);
     let color = icon.color.resolve_in(theme, ctx.state);
 
-    let size_px = icon.size.resolve_or(rect.w, rect.w);
-    if icon.viewbox <= Fixed::ZERO || size_px <= Fixed::ZERO {
+    let Some(scaled) = icon_transform(icon, rect, ctx.transform) else {
         return;
-    }
-    let effective = (size_px / icon.viewbox) * icon.scale;
-
-    let scaled = ctx
-        .transform
-        .compose(&Transform::translate(rect.x, rect.y))
-        .compose(&Transform::scale(effective, effective));
+    };
     let paint = Paint::Color(color.into());
 
     ctx.draw(
@@ -153,6 +165,41 @@ mod tests {
         let icon = Icon::new(Path::from_static(CMDS));
         let cloned = icon.clone();
         assert!(matches!(cloned.path.cmds, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn explicit_icon_size_is_centered_inside_its_layout_rect() {
+        let icon =
+            Icon::new(Path::from_static(CLOSED_PATH)).with_size(Dimension::Px(Fixed::from_int(24)));
+        let rect = Rect {
+            x: Fixed::from_int(10),
+            y: Fixed::from_int(20),
+            w: Fixed::from_int(44),
+            h: Fixed::from_int(60),
+        };
+        let transform = icon_transform(&icon, &rect, Transform::IDENTITY).unwrap();
+        assert_eq!(transform.tx, Fixed::from_int(20));
+        assert_eq!(transform.ty, Fixed::from_int(38));
+        assert_eq!(transform.m00, Fixed::ONE);
+        assert_eq!(transform.m11, Fixed::ONE);
+    }
+
+    #[test]
+    fn animated_icon_scale_remains_centered() {
+        let icon = Icon::new(Path::from_static(CLOSED_PATH))
+            .with_size(Dimension::Px(Fixed::from_int(24)))
+            .with_scale(Fixed::from_ratio(3, 2));
+        let rect = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(60),
+            h: Fixed::from_int(60),
+        };
+        let transform = icon_transform(&icon, &rect, Transform::IDENTITY).unwrap();
+        assert_eq!(transform.tx, Fixed::from_int(12));
+        assert_eq!(transform.ty, Fixed::from_int(12));
+        assert_eq!(transform.m00, Fixed::from_ratio(3, 2));
+        assert_eq!(transform.m11, Fixed::from_ratio(3, 2));
     }
 
     // Stand-in for an `animate!`-generated component so this invariant
