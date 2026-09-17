@@ -7,6 +7,20 @@ use crate::render::renderer::DrawRequest;
 use crate::render::scene::Paint;
 use crate::types::Transform;
 use crate::ui::Theme;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
+
+const LOGICAL_SIZE: i32 = 320;
+
+fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
+    let scale =
+        (rect.w / Fixed::from_int(LOGICAL_SIZE)).min(rect.h / Fixed::from_int(LOGICAL_SIZE));
+    let size = Fixed::from_int(LOGICAL_SIZE) * scale;
+    let x = rect.x + (rect.w - size) / Fixed::from_int(2);
+    let y = rect.y + (rect.h - size) / Fixed::from_int(2);
+    parent
+        .compose(&Transform::translate(x, y))
+        .compose(&Transform::scale(scale, scale))
+}
 
 #[derive(Default)]
 pub struct ClipPath;
@@ -23,22 +37,15 @@ static CLIP_CIRCLE: Path = path!(
 fn fill_rect(
     renderer: &mut dyn Renderer,
     ctx: &mut ViewCtx,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
+    area: Rect,
     color: Color,
+    transform: Transform,
 ) {
     ctx.draw(
         renderer,
         &DrawCommand::Fill {
-            area: Rect::new(
-                Fixed::from_int(x),
-                Fixed::from_int(y),
-                Fixed::from_int(w),
-                Fixed::from_int(h),
-            ),
-            transform: Transform::IDENTITY,
+            area,
+            transform,
             quad: None,
             color,
             radius: Fixed::from_int(10),
@@ -52,9 +59,10 @@ fn clip_path_render(
     renderer: &mut dyn Renderer,
     world: &World,
     _entity: Entity,
-    _rect: &Rect,
+    rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
+    let canvas = canvas_transform(rect, ctx.transform);
     let default_theme = Theme::default();
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let surface = theme.resolve(ColorToken::SurfaceVariant);
@@ -73,13 +81,22 @@ fn clip_path_render(
     ];
 
     for (i, color) in grays.into_iter().enumerate() {
-        fill_rect(renderer, ctx, 30, 42 + i as i32 * 56, 260, 42, color);
+        fill_rect(
+            renderer,
+            ctx,
+            Rect::new(30, 42 + i as i32 * 56, 260, 42),
+            color,
+            canvas,
+        );
     }
     if ctx.error.is_some() {
         return;
     }
 
-    let circle_transform = Transform::translate(Fixed::from_int(56), Fixed::from_int(56));
+    let circle_transform = canvas.compose(&Transform::translate(
+        Fixed::from_int(56),
+        Fixed::from_int(56),
+    ));
     ctx.draw(
         renderer,
         &DrawCommand::PushClip {
@@ -93,7 +110,13 @@ fn clip_path_render(
         return;
     }
     for (i, color) in colors.into_iter().enumerate() {
-        fill_rect(renderer, ctx, 30, 42 + i as i32 * 56, 260, 42, color);
+        fill_rect(
+            renderer,
+            ctx,
+            Rect::new(30, 42 + i as i32 * 56, 260, 42),
+            color,
+            canvas,
+        );
     }
     ctx.record(renderer.submit(&DrawRequest::new(&DrawCommand::PopClip, *ctx.clip)));
 
@@ -182,12 +205,52 @@ mod tests {
     fn clip_geometry_stays_in_static_storage() {
         assert!(CLIP_CIRCLE.is_borrowed());
     }
+
+    #[test]
+    fn logical_canvas_stays_inside_phone_bounds() {
+        let rect = Rect::new(8, 72, 304, 480);
+        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        let top_left = transform.apply_point(Point::ZERO);
+        let bottom_right = transform.apply_point(Point::new(
+            Fixed::from_int(LOGICAL_SIZE),
+            Fixed::from_int(LOGICAL_SIZE),
+        ));
+        assert!(top_left.x >= rect.x && top_left.y >= rect.y);
+        assert!(bottom_right.x <= rect.x + rect.w);
+        assert!(bottom_right.y <= rect.y + rect.h);
+    }
 }
 
 #[compose]
 pub fn build_widgets() {
     ui! {
-        ClipPath (grow: 1.0)
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 6,
+            bg_color: ColorToken::Surface
+        ) {
+            Text (
+                "CLIP PATH",
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "one vector boundary, four semantic layers",
+                height: 20,
+                font_size: 11,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            ClipPath (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18
+            )
+        }
     };
 }
 

@@ -9,6 +9,22 @@ use crate::render::scene::{
     GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode,
 };
 use crate::types::Transform;
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
+
+const LOGICAL_WIDTH: i32 = 480;
+const LOGICAL_HEIGHT: i32 = 320;
+
+fn canvas_transform(rect: &Rect, parent: Transform) -> Transform {
+    let scale =
+        (rect.w / Fixed::from_int(LOGICAL_WIDTH)).min(rect.h / Fixed::from_int(LOGICAL_HEIGHT));
+    let width = Fixed::from_int(LOGICAL_WIDTH) * scale;
+    let height = Fixed::from_int(LOGICAL_HEIGHT) * scale;
+    let x = rect.x + (rect.w - width) / Fixed::from_int(2);
+    let y = rect.y + (rect.h - height) / Fixed::from_int(2);
+    parent
+        .compose(&Transform::translate(x, y))
+        .compose(&Transform::scale(scale, scale))
+}
 
 fn unit_point(x: f32, y: f32) -> mirx::types::Point {
     Point {
@@ -84,6 +100,7 @@ fn gradient_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
+    let canvas = canvas_transform(rect, ctx.transform);
     let linear = Paint::LinearGradient(LinearGradient {
         start: unit_point(0.0, 0.0),
         end: unit_point(1.0, 1.0),
@@ -96,7 +113,7 @@ fn gradient_render(
         renderer,
         &DrawCommand::FillPath {
             path: &LINEAR_PANEL,
-            transform: ctx.transform.compose(&Transform::translate(rect.x, rect.y)),
+            transform: canvas,
             paint: &linear,
             opa: 255,
             fill_rule: FillRule::EvenOdd,
@@ -118,12 +135,10 @@ fn gradient_render(
         renderer,
         &DrawCommand::FillPath {
             path: &RADIAL_DISC,
-            transform: ctx.transform.compose(
-                &Transform::translate(rect.x + Fixed::from_int(254), rect.y + Fixed::from_int(74))
-                    .compose(&Transform::scale(
-                        Fixed::from_ratio(86, 100),
-                        Fixed::from_ratio(86, 100),
-                    )),
+            transform: canvas.compose(
+                &Transform::translate(Fixed::from_int(254), Fixed::from_int(74)).compose(
+                    &Transform::scale(Fixed::from_ratio(86, 100), Fixed::from_ratio(86, 100)),
+                ),
             ),
             paint: &radial,
             opa: 255,
@@ -140,7 +155,33 @@ pub fn gradient_view() -> View {
 #[compose]
 pub fn build_widgets() {
     ui! {
-        Gradient (grow: 1.0)
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            row_gap: 6,
+            bg_color: ColorToken::Surface
+        ) {
+            Text (
+                "GRADIENTS",
+                height: 28,
+                font_size: 18,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "object-space linear + focal radial",
+                height: 20,
+                font_size: 11,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Gradient (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 18
+            )
+        }
     };
 }
 
@@ -164,5 +205,19 @@ mod tests {
         assert!(RADIAL_DISC.is_borrowed());
         assert_eq!(LINEAR_STOPS.len(), 3);
         assert_eq!(RADIAL_STOPS.len(), 3);
+    }
+
+    #[test]
+    fn logical_canvas_stays_inside_phone_bounds() {
+        let rect = Rect::new(8, 72, 304, 480);
+        let transform = canvas_transform(&rect, Transform::IDENTITY);
+        let top_left = transform.apply_point(Point::ZERO);
+        let bottom_right = transform.apply_point(Point::new(
+            Fixed::from_int(LOGICAL_WIDTH),
+            Fixed::from_int(LOGICAL_HEIGHT),
+        ));
+        assert!(top_left.x >= rect.x && top_left.y >= rect.y);
+        assert!(bottom_right.x <= rect.x + rect.w);
+        assert!(bottom_right.y <= rect.y + rect.h);
     }
 }

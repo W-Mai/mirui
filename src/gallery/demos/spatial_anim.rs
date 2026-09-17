@@ -62,6 +62,7 @@ pub fn build_widgets() {
             padding: Padding::all(10)
         ) {
             View (
+                id: "spatial_animation_stage",
                 width: Dimension::percent(100),
                 max_width: 400,
                 height: 280,
@@ -69,45 +70,46 @@ pub fn build_widgets() {
                 border_radius: 18,
                 clip_children: true
             ) {
-                Text (
-                    "TWEEN",
+                Row (
+                    id: "spatial_animation_header",
                     position: Position::Absolute,
-                    left: 22,
+                    left: 12,
                     top: 12,
-                    width: 72,
+                    width: Dimension::percent(92),
                     height: 24,
-                    font_size: 10,
-                    bg_color: ColorToken::Surface,
-                    text_color: Color::rgb(255, 118, 108),
-                    border_radius: 12,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
-                    "SPRING",
-                    position: Position::Absolute,
-                    left: 124,
-                    top: 12,
-                    width: 92,
-                    height: 24,
-                    font_size: 10,
-                    bg_color: ColorToken::Surface,
-                    text_color: Color::rgb(102, 221, 124),
-                    border_radius: 12,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
-                    "ELASTIC",
-                    position: Position::Absolute,
-                    left: 238,
-                    top: 12,
-                    width: 92,
-                    height: 24,
-                    font_size: 10,
-                    bg_color: ColorToken::Surface,
-                    text_color: Color::rgb(112, 181, 255),
-                    border_radius: 12,
-                    paragraph: ParagraphStyle::label()
-                )
+                    column_gap: 10
+                ) {
+                    Text (
+                        "TWEEN",
+                        grow: 1.0,
+                        height: 24,
+                        font_size: 10,
+                        bg_color: ColorToken::Surface,
+                        text_color: ColorToken::Error,
+                        border_radius: 12,
+                        paragraph: ParagraphStyle::label()
+                    )
+                    Text (
+                        "SPRING",
+                        grow: 1.0,
+                        height: 24,
+                        font_size: 10,
+                        bg_color: ColorToken::Surface,
+                        text_color: ColorToken::Success,
+                        border_radius: 12,
+                        paragraph: ParagraphStyle::label()
+                    )
+                    Text (
+                        "ELASTIC",
+                        grow: 1.0,
+                        height: 24,
+                        font_size: 10,
+                        bg_color: ColorToken::Surface,
+                        text_color: ColorToken::Primary,
+                        border_radius: 12,
+                        paragraph: ParagraphStyle::label()
+                    )
+                }
                 walk [58, 170, 282] with x {
                     View (
                         position: Position::Absolute,
@@ -120,7 +122,7 @@ pub fn build_widgets() {
                     )
                 }
                 View (
-                    bg_color: Color::rgb(248, 81, 73),
+                    bg_color: ColorToken::Error,
                     position: Position::Absolute,
                     left: 48,
                     top: 48,
@@ -140,7 +142,7 @@ pub fn build_widgets() {
                     ),
                 ]
                 View (
-                    bg_color: Color::rgb(63, 185, 80),
+                    bg_color: ColorToken::Success,
                     position: Position::Absolute,
                     left: 160,
                     top: 48,
@@ -155,7 +157,7 @@ pub fn build_widgets() {
                     },
                 ]
                 View (
-                    bg_color: Color::rgb(88, 166, 255),
+                    bg_color: ColorToken::Primary,
                     position: Position::Absolute,
                     left: 272,
                     top: 48,
@@ -191,9 +193,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Viewport;
     use crate::ui::Children;
+    use crate::ui::ComputedRect;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
+    use crate::ui::render_system::update_layout;
 
     #[test]
     fn build_widgets_smoke() {
@@ -208,5 +213,27 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn labels_stay_inside_phone_stage() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
+
+        update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+        let rect = |id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let stage = rect("spatial_animation_stage");
+        let header = rect("spatial_animation_header");
+        assert!(header.x >= stage.x);
+        assert!(header.x + header.w <= stage.x + stage.w);
     }
 }
