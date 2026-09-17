@@ -1,13 +1,12 @@
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
-use crate::ui::IdMap;
 use crate::ui::widgets::{ParagraphStyle, Slider, Text};
 
 use alloc::format;
 
 #[derive(Clone, Copy, Default)]
-pub struct Stats {
+struct Stats {
     pub last_value: i32,
     pub changes: u32,
     pub drags: u32,
@@ -18,18 +17,8 @@ pub struct Stats {
 /// # Required plugins
 /// - [`StdInstantClockPlugin`] — gesture timing
 ///
-/// # Resources auto-inserted
-/// - [`IdMap`] (if absent) — `find_by_id("stats_label")`
-/// - [`Stats`] (if absent) — populated by the handlers
 #[compose]
 pub fn build_widgets() {
-    if cx.world_mut().resource::<IdMap>().is_none() {
-        cx.world_mut().insert_resource(IdMap::new());
-    }
-    if cx.world_mut().resource::<Stats>().is_none() {
-        cx.world_mut().insert_resource(Stats::default());
-    }
-
     let stats = Signal::new(Stats::default());
     let (s_value_text, s_read, s_value, s_drag_started, s_drag_ended) = (
         stats.clone(),
@@ -75,7 +64,10 @@ pub fn build_widgets() {
             Slider (
                 width: Dimension::percent(100),
                 max_width: 480,
-                height: 32
+                height: 32,
+                min: Fixed::ZERO,
+                max: Fixed::from_int(100),
+                value: Fixed::ZERO
             ) on ValueChanged {
                 let new_value = new.to_int();
                 let _ = old;
@@ -98,15 +90,6 @@ pub fn build_widgets() {
         }
     };
     //~focus-end
-
-    let sliders = cx.world_mut().query::<Slider>().collect();
-    if let Some(&slider_entity) = sliders.first()
-        && let Some(s) = cx.world_mut().get_mut::<Slider>(slider_entity)
-    {
-        s.min = Fixed::ZERO;
-        s.max = Fixed::from_int(100);
-        s.value = Fixed::ZERO;
-    }
 }
 
 #[cfg(feature = "std")]
@@ -123,11 +106,13 @@ where
 mod tests {
     use super::*;
     use crate::ui::Children;
+    use crate::ui::IdMap;
     use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
+        world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);
@@ -137,8 +122,6 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty())
         );
-        assert!(world.resource::<Stats>().is_some());
-
         // The reactive Text's first run must seed real content at build time,
         // not leave the label empty until the first event.
         let label = world.find_by_id("stats_label").expect("stats_label exists");

@@ -181,6 +181,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
+                    width: Dimension::percent(100),
                     height: row_h_
                 )
             }
@@ -192,11 +193,6 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
         .get::<Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
-    for &row in &pool {
-        if let Some(style) = cx.world_mut().get_mut::<Style>(row) {
-            style.layout.width = Dimension::percent(100);
-        }
-    }
     cx.world_mut().insert(list, LazyListPool::new(pool));
 
     //~focus-start
