@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Compact widget workbench.** A native 128 × 128 Gallery entry automates separate endless-list, controls, and live-theme tabs without scaling the desktop composition.
+- **Compact widget workbench.** A native Gallery entry automates separate endless-list, controls, and live-theme tabs, with dedicated square, portrait, and landscape arrangements instead of scaling the desktop composition.
 - **Control label and text input APIs.** `Text::label` and `ParagraphStyle::label` create centered single-line control captions; `TextInputEvent::Changed` reports allocation-free content mutations through builders and `ui!` handlers.
 - **Explicit Gallery scaling policy.** `DemoEntry::allow_upscale` keeps pixel-sized demos at their native dimensions while responsive showcases can fill available stage space.
 - **Transformed scene replay.** `ViewCtx::replay_transformed_with_rgba` and `replay_transformed_with_scratch` apply one shared root transform to borrowed scene operations while retaining caller-owned replay storage.
