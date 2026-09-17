@@ -11,24 +11,24 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::DimPoint;
-use crate::ui::IgnoreHitTest;
 #[cfg(test)]
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextVerticalAlign, TextWrap};
+use crate::ui::{IgnoreHitTest, Theme};
 
 pub const VIEWPORT: (u16, u16) = (128, 128);
 
-const BACKGROUND: Color = Color::rgb(4, 12, 20);
-const PANEL: Color = Color::rgb(8, 25, 38);
-const BORDER: Color = Color::rgb(24, 60, 78);
-const TEXT: Color = Color::rgb(222, 242, 248);
-const MUTED: Color = Color::rgb(100, 142, 158);
-const CYAN: Color = Color::rgb(62, 232, 213);
-const BLUE: Color = Color::rgb(75, 148, 255);
-const VIOLET: Color = Color::rgb(177, 112, 255);
-const AMBER: Color = Color::rgb(255, 188, 72);
-const PINK: Color = Color::rgb(255, 90, 154);
+const BACKGROUND: ColorToken = ColorToken::Surface;
+const PANEL: ColorToken = ColorToken::SurfaceVariant;
+const BORDER: ColorToken = ColorToken::Outline;
+const TEXT: ColorToken = ColorToken::OnSurface;
+const MUTED: ColorToken = ColorToken::OnSurfaceVariant;
+const CYAN: ColorToken = ColorToken::Primary;
+const BLUE: ColorToken = ColorToken::Secondary;
+const VIOLET: ColorToken = ColorToken::Tertiary;
+const AMBER: ColorToken = ColorToken::Success;
+const PINK: ColorToken = ColorToken::Error;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum ConsoleMode {
@@ -39,7 +39,7 @@ enum ConsoleMode {
 }
 
 impl ConsoleMode {
-    const fn accent(self) -> Color {
+    const fn accent(self) -> ColorToken {
         match self {
             Self::Orbit => CYAN,
             Self::Flow => VIOLET,
@@ -47,7 +47,7 @@ impl ConsoleMode {
         }
     }
 
-    const fn secondary(self) -> Color {
+    const fn secondary(self) -> ColorToken {
         match self {
             Self::Orbit => BLUE,
             Self::Flow => CYAN,
@@ -202,8 +202,13 @@ fn orbit_render(
     let phase = world
         .resource::<ConsoleMotion>()
         .map_or(Fixed::ZERO, |motion| motion.phase.phase());
-    let accent = state.mode.accent();
-    let secondary = state.mode.secondary();
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let panel = theme.resolve(PANEL);
+    let border = theme.resolve(BORDER);
+    let text = theme.resolve(TEXT);
+    let accent = theme.resolve(state.mode.accent());
+    let secondary = theme.resolve(state.mode.secondary());
 
     ctx.bg_handled = true;
     let clip = *ctx.clip;
@@ -212,9 +217,9 @@ fn orbit_render(
         ctx,
         clip,
     };
-    painter.fill(*rect, PANEL, Fixed::ZERO, 255);
+    painter.fill(*rect, panel, Fixed::ZERO, 255);
 
-    let grid = Color::rgb(13, 45, 62);
+    let grid = panel.blend_with(border, Fixed::from_ratio(1, 2));
     for step in 1..4 {
         let x = rect.x + rect.w * Fixed::from_ratio(step, 4);
         painter.fill(
@@ -287,7 +292,7 @@ fn orbit_render(
                 Fixed::from_int(size),
             ),
             if ring == state.focused as i32 {
-                TEXT
+                text
             } else {
                 secondary
             },
@@ -302,7 +307,7 @@ fn orbit_render(
         } else if size == 8 {
             secondary
         } else {
-            TEXT
+            text
         };
         painter.fill(
             Rect::new(
@@ -335,7 +340,11 @@ fn wave_render(
     let phase = world
         .resource::<ConsoleMotion>()
         .map_or(Fixed::ZERO, |motion| motion.phase.phase());
-    let accent = state.mode.accent();
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let panel = theme.resolve(PANEL);
+    let muted = theme.resolve(MUTED);
+    let accent = theme.resolve(state.mode.accent());
     ctx.bg_handled = true;
     let clip = *ctx.clip;
     let mut painter = InstrumentPainter {
@@ -343,7 +352,7 @@ fn wave_render(
         ctx,
         clip,
     };
-    painter.fill(*rect, PANEL, Fixed::ZERO, 255);
+    painter.fill(*rect, panel, Fixed::ZERO, 255);
 
     let plot_inset = Fixed::from_int(5);
     let bar_width = Fixed::from_int(2);
@@ -359,7 +368,7 @@ fn wave_render(
             if bar % 3 == state.focused as i32 {
                 accent
             } else {
-                MUTED
+                muted
             },
             Fixed::ONE,
             220,
@@ -488,7 +497,7 @@ pub fn build_widgets() {
                     width: 38,
                     height: 18,
                     padding: Padding::all(2),
-                    bg_color: ${ if status_bg.get() { Color::rgb(64, 38, 46) } else { Color::rgb(10, 64, 59) } },
+                    bg_color: ${ if status_bg.get() { ColorToken::Error } else { ColorToken::Success } },
                     border_color: CYAN,
                     border_width: 1,
                     border_radius: 6,
@@ -501,7 +510,7 @@ pub fn build_widgets() {
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: TEXT,
+                        text_color: ColorToken::OnPrimary,
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -557,7 +566,7 @@ pub fn build_widgets() {
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if orbit_fg.get() == ConsoleMode::Orbit { BACKGROUND } else { MUTED } },
+                        text_color: ${ if orbit_fg.get() == ConsoleMode::Orbit { ColorToken::OnPrimary } else { MUTED } },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -581,7 +590,7 @@ pub fn build_widgets() {
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if flow_fg.get() == ConsoleMode::Flow { TEXT } else { MUTED } },
+                        text_color: ${ if flow_fg.get() == ConsoleMode::Flow { ColorToken::OnTertiary } else { MUTED } },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -605,7 +614,7 @@ pub fn build_widgets() {
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if pulse_fg.get() == ConsoleMode::Pulse { BACKGROUND } else { MUTED } },
+                        text_color: ${ if pulse_fg.get() == ConsoleMode::Pulse { ColorToken::OnPrimary } else { MUTED } },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -614,26 +623,19 @@ pub fn build_widgets() {
             }
             Slider (
                 id: "kinetic_console_intensity",
-                height: 10
+                height: 10,
+                min: Fixed::ZERO,
+                max: Fixed::from_int(100),
+                value: Fixed::from_int(68),
+                track_color: BORDER,
+                fill_color: CYAN,
+                thumb_color: TEXT
             ) on ValueChanged {
                 let _ = old;
                 ConsoleAction::SetIntensity(*new).publish(&slider_action);
             }
         }
     };
-
-    let slider = cx
-        .world_mut()
-        .find_by_id("kinetic_console_intensity")
-        .expect("Kinetic Console slider");
-    if let Some(control) = cx.world_mut().get_mut::<Slider>(slider) {
-        control.min = Fixed::ZERO;
-        control.max = Fixed::from_int(100);
-        control.value = Fixed::from_int(68);
-        control.track_color = Color::rgb(18, 48, 64).into();
-        control.fill_color = CYAN.into();
-        control.thumb_color = TEXT.into();
-    }
 }
 
 pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
@@ -721,6 +723,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::surface::FramebufferAccess;
     use crate::ui::IdMap;
     use crate::ui::view::ViewRegistry;
 
@@ -850,5 +853,22 @@ mod tests {
             assert!(world.find_by_id(id).is_some(), "missing {id}");
         }
         assert!(build_sim_timeline(&world).is_some_and(|timeline| timeline.total_ms >= 10_000));
+    }
+
+    #[test]
+    fn compact_console_resolves_the_active_theme() {
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets().with_default_systems();
+        app.world.insert_resource(Theme::light());
+        let root = app.spawn_root().id();
+        install(&mut app, root, false);
+        app.set_root(root);
+        app.render().unwrap();
+
+        let surface = Theme::light().resolve(BACKGROUND);
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..3],
+            &[surface.r, surface.g, surface.b]
+        );
     }
 }
