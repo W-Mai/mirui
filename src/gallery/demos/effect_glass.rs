@@ -2,7 +2,7 @@ extern crate alloc;
 
 use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
-use crate::ui::widgets::{BackgroundBlur, MirrorOf, Text};
+use crate::ui::widgets::{BackgroundBlur, MirrorOf, ParagraphStyle, Text};
 
 pub const DEFAULT_VIEW: (u16, u16) = (128, 128);
 
@@ -18,6 +18,7 @@ mirui_macros::animate!(GlassX, |world, entity, value| {
 mirui_macros::animate!(GaussRadius, |world, entity, value| {
     if let Some(blur) = world.get_mut::<BackgroundBlur>(entity) {
         blur.radius = value;
+        world.invalidate_visual(entity);
     }
 });
 //~focus-end
@@ -77,13 +78,15 @@ pub fn build_widgets() {
 
     ui! {
         Text (
-            "BlurMeBlurMe",
+            "BLUR FIELD",
             position: Position::Absolute,
             left: 8,
             top: 58,
             width: 112,
             height: 14,
-            text_color: Color::rgb(255, 255, 255)
+            font_size: 8,
+            text_color: Color::rgb(255, 255, 255),
+            paragraph: ParagraphStyle::label()
         )
     };
 

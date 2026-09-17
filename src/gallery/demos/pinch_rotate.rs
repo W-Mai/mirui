@@ -8,7 +8,10 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 use crate::types::{Fixed64, Transform};
-use crate::ui::widgets::{Text, WidgetTransform};
+use crate::ui::icons::ICON_PLUS;
+use crate::ui::theme::ThemedColor;
+use crate::ui::widgets::icon::Icon;
+use crate::ui::widgets::{ParagraphStyle, Text};
 use alloc::format;
 #[cfg(feature = "std")]
 use alloc::vec;
@@ -38,41 +41,25 @@ fn refresh(world: &mut World, entity: Entity) {
     let snapshot = world.get::<PinchTarget>(entity).map(|t| {
         (
             t.mode,
-            t.last_pinch,
-            t.last_rotate,
             t.visual_scale,
             t.visual_rotation,
             t.pinch_events,
             t.rotate_events,
         )
     });
-    let Some((
-        mode,
-        last_pinch,
-        last_rotate,
-        visual_scale,
-        visual_rotation,
-        pinch_events,
-        rotate_events,
-    )) = snapshot
-    else {
+    let Some((mode, visual_scale, visual_rotation, pinch_events, rotate_events)) = snapshot else {
         return;
     };
 
-    let rot_deg = last_rotate * Fixed::from_int(180) / Fixed::PI;
     let visual_rot_deg = visual_rotation * Fixed::from_int(180) / Fixed::PI;
     let xform = Transform::scale(visual_scale, visual_scale)
         .compose(&Transform::rotate_deg(visual_rot_deg));
-    world.insert(entity, WidgetTransform(xform));
-    world.invalidate(entity);
+    crate::ui::widgets::set_transform(world, entity, xform);
 
-    let scale_pct = (last_pinch * Fixed64::from_int(100)).to_int();
     let visual_scale_pct = (visual_scale * Fixed::from_int(100)).to_int();
-    let rot_int = rot_deg.to_int();
     let visual_rot_int = visual_rot_deg.to_int();
     let line = format!(
-        "{mode}   delta {scale_pct}%/{:.3} factor   visual {visual_scale_pct}% {visual_rot_int}deg   rotate_delta {rot_int}   counts {pinch_events}/{rotate_events}",
-        last_pinch.to_f32(),
+        "{mode}  ·  SCALE {visual_scale_pct}%  ·  ROT {visual_rot_int}°  ·  P{pinch_events} R{rotate_events}",
     );
     if let Some(status) = world.find_by_id("pinch_status") {
         world.insert(status, Text::from(line));
@@ -83,27 +70,55 @@ fn refresh(world: &mut World, entity: Entity) {
 #[compose]
 pub fn build_widgets() {
     ui! {
-        Text (
-            "scale 100%   rotation 0",
-            position: Position::Absolute,
-            left: 16,
-            top: 16,
-            width: W - 32,
-            height: 28,
-            text_color: ColorToken::Secondary,
-            id: "pinch_status"
-        )
+        View (grow: 1.0, bg_color: ColorToken::Surface) {
+            View (
+                position: Position::Absolute,
+                left: 16,
+                top: 16,
+                width: W - 32,
+                height: 32,
+                bg_color: ColorToken::SurfaceVariant,
+                border_radius: 16
+            )
+            Text (
+                "IDLE  ·  SCALE 100%  ·  ROT 0°  ·  P0 R0",
+                position: Position::Absolute,
+                left: 28,
+                top: 16,
+                width: W - 56,
+                height: 32,
+                font_size: 10,
+                text_color: ColorToken::Secondary,
+                paragraph: ParagraphStyle::label(),
+                id: "pinch_status"
+            )
+            Text (
+                "TWO-POINTER GESTURE · LIVE TRANSFORM",
+                position: Position::Absolute,
+                left: 16,
+                top: 324,
+                width: W - 32,
+                height: 20,
+                font_size: 9,
+                text_color: ColorToken::OnSurfaceVariant,
+                paragraph: ParagraphStyle::label()
+            )
+        }
     };
 
     //~focus-start
     ui! {
         View (
+            id: "pinch_target",
             position: Position::Absolute,
             left: CENTER_X - BASE_W / 2,
             top: CENTER_Y - BASE_H / 2,
             width: BASE_W,
             height: BASE_H,
-            bg_color: ColorToken::Primary
+            bg_color: ColorToken::Primary,
+            border_color: ColorToken::OnPrimary,
+            border_width: 2,
+            border_radius: 28
         ) [
             PinchTarget {
                 last_pinch: Fixed64::ONE,
@@ -140,6 +155,15 @@ pub fn build_widgets() {
                 t.mode = "ROTATE";
             }
             refresh(ctx.world, ctx.entity);
+        }
+        {
+            Icon (
+                path: ICON_PLUS.clone(),
+                color: ThemedColor::Token(ColorToken::OnPrimary),
+                size: Dimension::Px(Fixed::from_int(46)),
+                grow: 1.0,
+                width: Dimension::percent(100)
+            )
         }
     };
     //~focus-end
@@ -200,6 +224,7 @@ mod tests {
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
+    use crate::ui::widgets::WidgetTransform;
 
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
@@ -227,7 +252,7 @@ mod tests {
         let mut cx = UiScope::new(&mut world, parent);
         build_widgets(&mut cx);
         drop(cx);
-        let target = world.get::<Children>(parent).unwrap().0[1];
+        let target = world.find_by_id("pinch_target").expect("target id");
         let status = world.find_by_id("pinch_status").expect("status id");
 
         assert_eq!(

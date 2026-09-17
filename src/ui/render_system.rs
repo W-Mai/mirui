@@ -260,11 +260,18 @@ fn visual_bounds(
     projective: Transform3D,
     output_scale: Fixed,
 ) -> Rect {
-    if projective.is_identity() {
+    let bounds = if projective.is_identity() {
         affine_visual_bounds(world, entity, rect, affine, output_scale)
     } else {
         projective_visual_bounds(world, entity, rect, projective, output_scale).unwrap_or(rect)
+    };
+    if let Some(blur) = world.get::<crate::ui::widgets::BackgroundBlur>(entity) {
+        let padding = blur.radius + blur.spread;
+        if padding > Fixed::ZERO {
+            return bounds.inflate(padding);
+        }
     }
+    bounds
 }
 
 fn seed_prev_rect_walk(
@@ -3835,6 +3842,25 @@ mod clip_children_check {
             collect_dirty_region(&mut world, root, &viewport),
             Some(expected)
         );
+    }
+
+    #[test]
+    fn background_blur_expands_visual_dirty_bounds() {
+        use crate::ui::widgets::BackgroundBlur;
+
+        let mut world = make_world();
+        let entity = world.spawn_empty();
+        world.insert(entity, BackgroundBlur::new(4).with_spread(2));
+        let bounds = visual_bounds(
+            &world,
+            entity,
+            Rect::new(20, 24, 10, 8),
+            Transform::IDENTITY,
+            Transform3D::IDENTITY,
+            Fixed::ONE,
+        );
+
+        assert_eq!(bounds, Rect::new(14, 18, 22, 20));
     }
 
     #[test]
