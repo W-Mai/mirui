@@ -83,7 +83,10 @@ impl<'a> WidgetBuilder<'a> {
     }
 
     pub fn text_path(self, path: impl Into<crate::text::TextPath>) -> Self {
-        self.world.set_text_path(self.entity, path);
+        self.world
+            .widget_mut(self.entity)
+            .expect("WidgetBuilder entity is alive")
+            .text_path(path);
         self
     }
 

@@ -445,7 +445,10 @@ impl crate::ecs::IntoBundle for TextBuilder {
             world.insert(entity, style);
         }
         if let Some(path) = self.path {
-            world.set_text_path(entity, path);
+            world
+                .widget_mut(entity)
+                .expect("TextBuilder entity is alive")
+                .text_path(path);
         }
     }
 }

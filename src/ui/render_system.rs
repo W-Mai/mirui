@@ -3220,7 +3220,7 @@ mod text_layout_check {
             .unwrap()
             .insert(baseline)
             .unwrap();
-        world.set_text_path(label, path);
+        world.widget_mut(label).unwrap().text_path(path);
         let viewport = Viewport::new(96, 96, Fixed::ONE);
 
         update_layout(&mut world, root, &viewport);
@@ -3414,7 +3414,7 @@ mod text_layout_check {
             .unwrap()
             .insert(baseline)
             .unwrap();
-        world.set_text_path(label, path);
+        world.widget_mut(label).unwrap().text_path(path);
         let viewport = Viewport::new(96, 96, Fixed::ONE);
         update_layout(&mut world, root, &viewport);
 

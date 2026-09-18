@@ -16,7 +16,7 @@ pub mod id;
 pub mod layout;
 pub mod niche;
 pub mod offscreen;
-pub mod reactive_attr;
+pub mod property;
 pub mod render_system;
 pub mod scope;
 pub mod state;
@@ -33,6 +33,7 @@ pub use offscreen::{
     OffscreenRender, TextureSnapshot, WidgetTextureAccess, WidgetTextureRef,
     WidgetTextureRefPrevGen,
 };
+pub use property::WidgetMut;
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};
 pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};

@@ -406,7 +406,7 @@ struct MatchArm {
 
 // A `!signal` / `!{ expr }` attribute: re-applied via a per-widget effect.
 struct ReactiveBind {
-    setter: syn::Ident,
+    property: syn::Ident,
     expr: proc_macro2::TokenStream,
 }
 
@@ -418,17 +418,17 @@ fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
     }
 }
 
-fn reactive_setter(widget: &str, attr: &str) -> Option<&'static str> {
+fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
-        "text" => Some("reactive_set_text"),
-        "bg_color" => Some("reactive_set_bg_color"),
-        "text_color" => Some("reactive_set_text_color"),
-        "normal_color" if widget == "Button" => Some("reactive_set_button_normal_color"),
-        "font_size" => Some("reactive_set_font_size"),
-        "width" => Some("reactive_set_width"),
-        "height" => Some("reactive_set_height"),
-        "paragraph" if widget == "Text" => Some("reactive_set_paragraph"),
-        "path" if widget == "Text" => Some("reactive_set_text_path"),
+        "text" => Some("TextContent"),
+        "bg_color" => Some("BackgroundColor"),
+        "text_color" => Some("TextColor"),
+        "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
+        "font_size" => Some("FontSize"),
+        "width" => Some("Width"),
+        "height" => Some("Height"),
+        "paragraph" if widget == "Text" => Some("Paragraph"),
+        "path" if widget == "Text" => Some("TextPath"),
         _ => None,
     }
 }
@@ -602,10 +602,10 @@ impl MiruiRune {
             // Must run before the Text / Component `text` routes below, or a
             // reactive `text` gets frozen as static content instead of bound.
             if attr.reactive {
-                match reactive_setter(widget_name, &name) {
-                    Some(setter) => {
+                match reactive_property(widget_name, &name) {
+                    Some(property) => {
                         reactive_binds.push(ReactiveBind {
-                            setter: syn::Ident::new(setter, attr_span),
+                            property: syn::Ident::new(property, attr_span),
                             expr: reactive_read(value),
                         });
                         continue;
@@ -1048,12 +1048,17 @@ impl MiruiRune {
                 .reactive_binds
                 .iter()
                 .map(|b| {
-                    let setter = &b.setter;
+                    let property = &b.property;
                     let expr = &b.expr;
+                    let value = if property == "TextContent" {
+                        quote! { mirui::ui::property::IntoText::into_text(__v) }
+                    } else {
+                        quote! { ::core::convert::Into::into(__v) }
+                    };
                     quote! {
                         mirui::core::reactive::effect_with_widget(#var, move || {
                             let __v = #expr;
-                            mirui::ui::reactive_attr::#setter(#var, __v);
+                            mirui::ui::property::apply::<mirui::ui::property::prop::#property>(#var, #value);
                         });
                     }
                 })

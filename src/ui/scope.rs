@@ -41,6 +41,18 @@ impl<'w> UiScope<'w> {
         crate::text::PathAccess::new(self.world)
     }
 
+    pub fn bind_property<P: crate::ui::property::Property>(
+        &mut self,
+        entity: Entity,
+        read: impl Fn() -> P::Value + 'static,
+    ) {
+        crate::core::reactive::with_world_scope(self.world, || {
+            crate::core::reactive::effect_with_widget(entity, move || {
+                crate::ui::property::apply::<P>(entity, read());
+            });
+        });
+    }
+
     pub fn bind_path(
         &mut self,
         path: crate::render::path::PathId,
@@ -155,5 +167,45 @@ mod tests {
             .commands()[1]
             .clone();
         assert_eq!(endpoint, PathCmd::LineTo(Point::new(24, 0)));
+    }
+
+    #[test]
+    fn custom_property_binding_is_typed_and_reactive() {
+        use crate::core::reactive::{Signal, flush_signal_dirty};
+        use crate::ui::property::Property;
+        use crate::ui::{Style, Widget};
+
+        struct BorderWidth;
+
+        impl Property for BorderWidth {
+            type Value = crate::types::Fixed;
+
+            fn apply(world: &mut World, entity: Entity, value: Self::Value) {
+                world.get_mut::<Style>(entity).unwrap().border_width = value;
+                world.invalidate(entity);
+            }
+        }
+
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let widget = world.spawn_empty();
+        world.insert(widget, Widget);
+        world.insert(widget, Style::default());
+        let width = Signal::new(crate::types::Fixed::from_int(2));
+        let bound_width = width.clone();
+
+        UiScope::new(&mut world, root)
+            .bind_property::<BorderWidth>(widget, move || bound_width.get());
+        assert_eq!(
+            world.get::<Style>(widget).unwrap().border_width,
+            crate::types::Fixed::from_int(2)
+        );
+
+        width.set(crate::types::Fixed::from_int(4));
+        flush_signal_dirty(&mut world);
+        assert_eq!(
+            world.get::<Style>(widget).unwrap().border_width,
+            crate::types::Fixed::from_int(4)
+        );
     }
 }

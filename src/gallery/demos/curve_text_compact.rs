@@ -72,7 +72,9 @@ fn compact_curve_animation_system(world: &mut World) {
     let Some(nodes) = world.resource::<CompactCurveNodes>().copied() else {
         return;
     };
-    world.set_text_path(nodes.text, text_path(nodes.path, phase));
+    if let Some(mut text) = world.widget_mut(nodes.text) {
+        text.text_path(text_path(nodes.path, phase));
+    }
 }
 
 #[compose]

@@ -147,6 +147,7 @@ pub mod prelude {
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
     pub use crate::ui::{Style, Widget};
+    pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{
         animate, compose, path, scene, system, timer, trace_fn, trace_span, ui,
