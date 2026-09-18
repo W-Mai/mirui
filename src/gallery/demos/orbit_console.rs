@@ -970,7 +970,8 @@ fn compose_orbit_stage() -> Entity {
             border_color: BORDER,
             border_width: 1,
             border_radius: 20,
-            clip_children: true
+            clip_children: true,
+            render_key: ${ u64::from(stage_visual.get().revision()) }
         ) [
             OrbitInstrument::new(),
         ] on Tap { ConsoleAction::CycleFocus.publish(&stage_action); }
@@ -1014,9 +1015,6 @@ fn compose_orbit_stage() -> Entity {
             )
         }
     };
-    cx.bind_visual(stage, move || {
-        let _ = stage_visual.get().revision();
-    });
     stage
 }
 
@@ -1031,12 +1029,8 @@ fn compose_signal_card() -> Entity {
             min_height: 44,
             padding: Padding::all(10),
             align: AlignItems::Center,
-            bg_color: ${
-                {
-                    let _ = signal_visual.get().revision();
-                    SURFACE
-                }
-            },
+            bg_color: SURFACE,
+            render_key: ${ u64::from(signal_visual.get().revision()) },
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
@@ -1072,12 +1066,8 @@ fn compose_activity_card() -> Entity {
             grow: 5.0,
             min_height: 48,
             padding: Padding::all(10),
-            bg_color: ${
-                {
-                    let _ = activity_visual.get().revision();
-                    SURFACE
-                }
-            },
+            bg_color: SURFACE,
+            render_key: ${ u64::from(activity_visual.get().revision()) },
             border_color: BORDER,
             border_width: 1,
             border_radius: 16

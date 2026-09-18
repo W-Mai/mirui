@@ -52,6 +52,10 @@ use crate::ui::layout::LayoutStyle;
 
 pub struct Widget;
 
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RenderKey(pub u64);
+
 /// World resource cached by `App::set_root` so handlers and systems can
 /// reach the active root without an `App` reference.
 #[derive(Clone, Copy)]

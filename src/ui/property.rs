@@ -96,6 +96,7 @@ pub mod prop {
     pub struct BackgroundColor;
     pub struct TextColor;
     pub struct ButtonNormalColor;
+    pub struct RenderKey;
     pub struct FontSize;
     pub struct Paragraph;
     pub struct Direction;
@@ -177,6 +178,21 @@ pub mod prop {
             } else {
                 return PropertyChange::Unchanged;
             }
+            PropertyChange::Visual
+        }
+    }
+
+    impl Property for RenderKey {
+        type Value = u64;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if world
+                .get::<crate::ui::RenderKey>(entity)
+                .is_some_and(|current| current.0 == value)
+            {
+                return PropertyChange::Unchanged;
+            }
+            world.insert(entity, crate::ui::RenderKey(value));
             PropertyChange::Visual
         }
     }
@@ -355,6 +371,27 @@ mod tests {
     use crate::ui::dirty::Dirty;
     use crate::ui::widgets::{Button, ParagraphStyle, Text};
     use crate::ui::{Children, Widget};
+
+    #[test]
+    fn render_key_invalidates_visuals_only_when_it_changes() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+
+        assert_eq!(
+            apply_to_world::<prop::RenderKey>(&mut world, entity, 7),
+            PropertyChange::Visual
+        );
+        assert!(world.has::<crate::ui::dirty::VisualDirty>(entity));
+        assert!(!world.has::<Dirty>(entity));
+
+        world.remove::<crate::ui::dirty::VisualDirty>(entity);
+        assert_eq!(
+            apply_to_world::<prop::RenderKey>(&mut world, entity, 7),
+            PropertyChange::Unchanged
+        );
+        assert!(!world.has::<crate::ui::dirty::VisualDirty>(entity));
+    }
 
     #[test]
     fn reactive_property_preserves_visual_only_invalidation() {

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified image sources.** `Image` accepts texture tokens, borrowed/owned vector `Path` values, or typed `IconAsset` constants through `ImageSource` and renders static vector images without transformed command buffers.
 - `TouchAction` gives widgets compile-time-typed control over pointer-drag arbitration with ancestor scrollers while leaving wheel and rotary input unchanged.
 - **Typed widget properties.** `WidgetMut::set` routes imperative and reactive updates through monomorphized property markers; text-path subscriptions and damage classification no longer live on `World`.
+- **Reactive custom-view rendering.** `render_key: ${ ... }` declares the reactive identity of custom drawing and repaints the widget without forcing layout or exposing manual effect wiring in composition code.
 - **Compact widget workbench.** A native Gallery entry automates separate endless-list, controls, and live-theme tabs, with dedicated square, portrait, and landscape arrangements instead of scaling the desktop composition.
 - **Control label and text input APIs.** `Text::label` and `ParagraphStyle::label` create centered single-line control captions; `TextInputEvent::Changed` reports allocation-free content mutations through builders and `ui!` handlers.
 - **Explicit Gallery scaling policy.** `DemoEntry::allow_upscale` keeps pixel-sized demos at their native dimensions while responsive showcases can fill available stage space.

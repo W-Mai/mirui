@@ -53,16 +53,6 @@ impl<'w> UiScope<'w> {
         });
     }
 
-    /// Marks a widget visually dirty when the observed reactive inputs change.
-    pub fn bind_visual(&mut self, entity: Entity, observe: impl Fn() + 'static) {
-        crate::core::reactive::with_world_scope(self.world, || {
-            crate::core::reactive::effect_with_widget(entity, move || {
-                observe();
-                crate::core::reactive::with_world(|world| world.invalidate_visual(entity));
-            });
-        });
-    }
-
     pub fn bind_layout(
         &mut self,
         entity: Entity,
@@ -245,29 +235,5 @@ mod tests {
             world.get::<Style>(widget).unwrap().border_width,
             crate::types::Fixed::from_int(4)
         );
-    }
-
-    #[test]
-    fn visual_binding_does_not_invalidate_layout() {
-        use crate::core::reactive::{Signal, flush_signal_dirty};
-        use crate::ui::Widget;
-        use crate::ui::dirty::{Dirty, VisualDirty};
-
-        let mut world = World::new();
-        let root = world.spawn_empty();
-        let widget = world.spawn_empty();
-        world.insert(widget, Widget);
-        let revision = Signal::new(0u8);
-        let observed = revision.clone();
-        UiScope::new(&mut world, root).bind_visual(widget, move || {
-            let _ = observed.get();
-        });
-        world.remove::<VisualDirty>(widget);
-
-        revision.set(1);
-        flush_signal_dirty(&mut world);
-
-        assert!(world.has::<VisualDirty>(widget));
-        assert!(!world.has::<Dirty>(widget));
     }
 }
