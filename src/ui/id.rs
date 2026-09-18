@@ -16,6 +16,13 @@ impl IdMap {
     }
 
     pub fn insert(&mut self, id: &'static str, entity: Entity) {
+        if let Some(current) = self.map.get(id) {
+            assert_eq!(
+                *current, entity,
+                "widget id `{id}` is already bound to another entity"
+            );
+            return;
+        }
         self.map.insert(id, entity);
     }
 
@@ -67,12 +74,21 @@ mod tests {
     }
 
     #[test]
-    fn second_insert_overwrites() {
+    #[should_panic(expected = "widget id `slot` is already bound to another entity")]
+    fn duplicate_id_is_rejected() {
         let (_, a, b) = fresh();
         let mut m = IdMap::new();
         m.insert("slot", a);
         m.insert("slot", b);
-        assert_eq!(m.get("slot"), Some(b));
+    }
+
+    #[test]
+    fn reinserting_the_same_entity_is_idempotent() {
+        let (_, a, _) = fresh();
+        let mut m = IdMap::new();
+        m.insert("slot", a);
+        m.insert("slot", a);
+        assert_eq!(m.get("slot"), Some(a));
     }
 
     #[test]

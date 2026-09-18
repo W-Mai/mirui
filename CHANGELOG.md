@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Semantic button labels and input targets.** `Button("Label", ...)` creates a centered label with built-in control metrics; `HitTarget` controls event targeting while `InteractionFeedback` independently opts semantic controls into hover and press visuals.
-- **Layout-responsive DSL.** `@width`, `@height`, and named `@id(...).width` / `height` dependencies derive typed widget properties from computed geometry; `container: true` defines the nearest responsive scope, aliases expose concise local names, and undeclared or oversized dependency sets fail at compile time.
+- **Layout-responsive DSL.** `@width`, `@height`, and named `@id(...).width` / `height` dependencies derive typed widget properties, including flex direction and text paragraphs, from computed geometry; `container: true` defines the nearest responsive scope, aliases expose concise local names, and undeclared or oversized dependency sets fail at compile time.
 - **Inspectable themes.** `ThemeInfo`, `ThemeId`, `ThemeCatalog`, `App::theme`, and the theme editing APIs expose borrowed identity and safe token mutation; `App::set_theme` accepts an owned palette, `ThemeId`, or static ID through one entry point.
 - **Unified image sources.** `Image` accepts texture tokens, borrowed/owned vector `Path` values, or typed `IconAsset` constants through `ImageSource` and renders static vector images without transformed command buffers.
 - `TouchAction` gives widgets compile-time-typed control over pointer-drag arbitration with ancestor scrollers while leaving wheel and rotary input unchanged.
@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Responsive dependency integrity.** Widget IDs reject conflicting entity registrations, named and container dependencies follow legal rebinding and reparenting, and acyclic binding chains reconcile according to their dependency count instead of a fixed three-pass limit.
 - **Text content-box layout.** Linear text measures, wraps, aligns, and renders inside widget padding, keeping compact control labels centered without changing path-text placement.
 - **Showcase palette selection.** Showcase demos retain their navy, cyan, blue, violet, and amber presentation through dedicated light and dark theme IDs; the Web gallery selects the active canvas palette by ID instead of replacing it with the generic application theme.
 - **Mobile Lab scrolling and text containment.** Layout, Typography, Curve Text, and Interaction Labs expose bounded vertical documents across phone orientations; long labels wrap or ellipsize, curved paths scale to the live stage, non-elastic inertia remains inside its extent, and large scroll jumps repaint the viewport instead of shifting from an empty source region.

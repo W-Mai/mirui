@@ -106,7 +106,8 @@ mod tests {
     }
 
     #[test]
-    fn id_attr_last_write_wins() {
+    #[should_panic(expected = "widget id `shared` is already bound to another entity")]
+    fn duplicate_id_attributes_are_rejected() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
 
@@ -123,9 +124,5 @@ mod tests {
                 second (id: "shared") {}
             }
         };
-
-        let found = world.find_by_id("shared").unwrap();
-        let map = world.resource::<IdMap>().unwrap();
-        assert_eq!(map.get("shared"), Some(found));
     }
 }

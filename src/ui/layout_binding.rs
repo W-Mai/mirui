@@ -170,10 +170,20 @@ fn nearest_container(world: &World, entity: Entity) -> Option<Entity> {
     None
 }
 
-fn resolve_source(world: &World, owner: Entity, source: LayoutSource) -> Option<Entity> {
+fn resolve_cached_source(
+    world: &World,
+    owner: Entity,
+    source: LayoutSource,
+    cached: Entity,
+) -> Option<Entity> {
     match source {
-        LayoutSource::Entity(entity) => world.is_alive(entity).then_some(entity),
-        LayoutSource::Named(name) => world.resource::<IdMap>()?.get(name),
+        LayoutSource::Entity(entity) => (entity == cached && world.is_alive(cached))
+            .then_some(cached)
+            .or_else(|| world.is_alive(entity).then_some(entity)),
+        LayoutSource::Named(name) => {
+            let current = world.resource::<IdMap>()?.get(name)?;
+            world.is_alive(current).then_some(current)
+        }
         LayoutSource::NearestContainer => nearest_container(world, owner),
     }
 }
@@ -198,15 +208,12 @@ pub(crate) fn apply_layout_bindings(world: &mut World, invoke: bool) -> bool {
         };
         for index in 0..count {
             let dependency = dependencies[index];
-            let entity = if world.is_alive(resolved[index]) {
-                resolved[index]
-            } else {
-                let Some(entity) = resolve_source(world, owner, dependency.source) else {
-                    return;
-                };
-                resolved[index] = entity;
-                entity
+            let Some(entity) =
+                resolve_cached_source(world, owner, dependency.source, resolved[index])
+            else {
+                return;
             };
+            resolved[index] = entity;
             let Some(rect) = world.get::<ComputedRect>(entity).map(|computed| computed.0) else {
                 return;
             };
@@ -254,15 +261,12 @@ pub(crate) fn apply_layout_bindings(world: &mut World, invoke: bool) -> bool {
         };
         for index in 0..count {
             let dependency = dependencies[index];
-            let entity = if world.is_alive(resolved[index]) {
-                resolved[index]
-            } else {
-                let Some(entity) = resolve_source(world, owner, dependency.source) else {
-                    return;
-                };
-                resolved[index] = entity;
-                entity
+            let Some(entity) =
+                resolve_cached_source(world, owner, dependency.source, resolved[index])
+            else {
+                return;
             };
+            resolved[index] = entity;
             let Some(rect) = world.get::<ComputedRect>(entity).map(|computed| computed.0) else {
                 return;
             };
@@ -445,7 +449,8 @@ mod tests {
     }
 
     #[test]
-    fn reconciliation_is_bounded_to_three_passes() {
+    #[should_panic(expected = "layout bindings did not settle")]
+    fn cyclic_binding_is_reported() {
         let mut world = World::new();
         world.insert_resource(Probe::default());
         let root = widget(&mut world, 100, 100);
@@ -464,12 +469,45 @@ mod tests {
             root,
             &Viewport::new(300, 200, Fixed::ONE),
         );
-        assert_eq!(world.resource::<Probe>().unwrap().calls, 2);
-        let style_width = world.get::<Style>(root).unwrap().layout.width;
-        assert_eq!(style_width, Dimension::px(100));
+    }
+
+    #[test]
+    fn dependency_chain_longer_than_three_passes_converges() {
+        let mut world = World::new();
+        let root = widget(&mut world, 320, 200);
+        let first = widget(&mut world, 20, 20);
+        let second = widget(&mut world, 20, 20);
+        let third = widget(&mut world, 20, 20);
+        let fourth = widget(&mut world, 20, 20);
+        world.insert(root, Children(vec![first, second, third, fourth]));
+        for child in [first, second, third, fourth] {
+            world.insert(child, Parent(root));
+        }
+        for (target, source) in [
+            (first, root),
+            (second, first),
+            (third, second),
+            (fourth, third),
+        ] {
+            world.insert(
+                target,
+                SharedLayoutBinding::new(
+                    &[LayoutDependency::entity(source, LayoutAxis::Width)],
+                    |world, entity, values| {
+                        let _ = size_child(world, entity, values);
+                    },
+                ),
+            );
+        }
+
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(320, 200, Fixed::ONE),
+        );
         assert_eq!(
-            world.get::<ComputedRect>(root).unwrap().0.w,
-            Fixed::from_int(100)
+            world.get::<ComputedRect>(fourth).unwrap().0.w,
+            Fixed::from_int(20)
         );
     }
 
@@ -515,6 +553,94 @@ mod tests {
         assert_eq!(
             world.get::<ComputedRect>(target).unwrap().0,
             Rect::new(0, 0, 40, 20)
+        );
+    }
+
+    #[test]
+    fn named_source_follows_an_explicit_id_rebind() {
+        const DEPENDENCIES: &[LayoutDependency] =
+            &[LayoutDependency::named("stage", LayoutAxis::Width)];
+        let mut world = World::new();
+        world.insert_resource(Probe::default());
+        world.insert_resource(IdMap::new());
+        let root = widget(&mut world, 320, 240);
+        let first = widget(&mut world, 120, 20);
+        let second = widget(&mut world, 220, 20);
+        let target = widget(&mut world, 40, 20);
+        world.insert(root, Children(vec![first, second, target]));
+        for child in [first, second, target] {
+            world.insert(child, Parent(root));
+        }
+        world
+            .resource_mut::<IdMap>()
+            .unwrap()
+            .insert("stage", first);
+        world.insert(
+            target,
+            LayoutBinding::new(DEPENDENCIES, |world, _, values| {
+                world.resource_mut::<Probe>().unwrap().last = values.get(0);
+                false
+            }),
+        );
+        let viewport = Viewport::new(320, 240, Fixed::ONE);
+
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<Probe>().unwrap().last,
+            Fixed::from_int(120)
+        );
+
+        world.resource_mut::<IdMap>().unwrap().remove("stage");
+        world
+            .resource_mut::<IdMap>()
+            .unwrap()
+            .insert("stage", second);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<Probe>().unwrap().last,
+            Fixed::from_int(220)
+        );
+    }
+
+    #[test]
+    fn nearest_container_source_follows_reparenting() {
+        const DEPENDENCIES: &[LayoutDependency] = &[LayoutDependency::container(LayoutAxis::Width)];
+        let mut world = World::new();
+        world.insert_resource(Probe::default());
+        let root = widget(&mut world, 320, 240);
+        let first = widget(&mut world, 120, 100);
+        let second = widget(&mut world, 220, 100);
+        let target = widget(&mut world, 40, 20);
+        world.insert(root, Children(vec![first, second]));
+        world.insert(first, Parent(root));
+        world.insert(second, Parent(root));
+        world.insert(first, Children(vec![target]));
+        world.insert(second, Children(Vec::new()));
+        world.insert(first, LayoutContainer);
+        world.insert(second, LayoutContainer);
+        world.insert(target, Parent(first));
+        world.insert(
+            target,
+            LayoutBinding::new(DEPENDENCIES, |world, _, values| {
+                world.resource_mut::<Probe>().unwrap().last = values.get(0);
+                false
+            }),
+        );
+        let viewport = Viewport::new(320, 240, Fixed::ONE);
+
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<Probe>().unwrap().last,
+            Fixed::from_int(120)
+        );
+
+        world.get_mut::<Children>(first).unwrap().0.clear();
+        world.get_mut::<Children>(second).unwrap().0.push(target);
+        world.insert(target, Parent(second));
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            world.resource::<Probe>().unwrap().last,
+            Fixed::from_int(220)
         );
     }
 

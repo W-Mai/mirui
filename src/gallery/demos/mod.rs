@@ -4,6 +4,7 @@ pub mod book_flip;
 pub mod builder_form;
 pub mod butterfly;
 pub mod clip_path;
+mod compact_layout;
 pub mod composite;
 pub mod cover_flow;
 pub mod curve_text;

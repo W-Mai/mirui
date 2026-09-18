@@ -1575,15 +1575,31 @@ fn reconcile_layout_snapshot(
     logical_w: u16,
     logical_h: u16,
 ) -> Option<Box<LayoutSnapshot>> {
-    const MAX_LAYOUT_PASSES: usize = 3;
-    for pass in 0..MAX_LAYOUT_PASSES {
+    const MAX_LAYOUT_BINDING_UPDATES: usize = 32;
+    let binding_count = world
+        .storage::<super::layout_binding::LayoutBinding>()
+        .map_or(0, |storage| storage.len())
+        + world
+            .storage::<super::layout_binding::SharedLayoutBinding>()
+            .map_or(0, |storage| storage.len());
+    let update_budget = binding_count
+        .saturating_add(1)
+        .min(MAX_LAYOUT_BINDING_UPDATES);
+    let pass_count = update_budget.saturating_add(1);
+
+    for pass in 0..pass_count {
         let snapshot = compute_layout_snapshot(world, root, logical_w, logical_h)?;
 
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
         world.put_resource_box(snapshot);
-        let invoke = pass + 1 < MAX_LAYOUT_PASSES;
-        if !super::layout_binding::apply_layout_bindings(world, invoke) || !invoke {
+        let invoke = pass < update_budget;
+        let changed = super::layout_binding::apply_layout_bindings(world, invoke);
+        if !changed || !invoke {
+            debug_assert!(
+                !changed,
+                "layout bindings did not settle after {update_budget} updates"
+            );
             return world.take_resource_box::<LayoutSnapshot>();
         }
         crate::core::reactive::flush_signal_dirty(world);

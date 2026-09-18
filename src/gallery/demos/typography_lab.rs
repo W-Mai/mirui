@@ -515,77 +515,41 @@ fn features_off() -> ParagraphStyle {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct TypographyLayoutMetrics {
-    columns: u8,
-    grid_height: i32,
-    controls_height: i32,
+fn typography_grid_height(document_width: Fixed) -> Fixed {
+    const PANEL_COUNT: i32 = 8;
+    const PANEL_MIN_WIDTH: i32 = 220;
+    const PANEL_HEIGHT: i32 = 186;
+    const PATH_PANEL_EXTRA_HEIGHT: i32 = 26;
+    const GAP: i32 = 12;
+    const DOCUMENT_HORIZONTAL_PADDING: i32 = 36;
+
+    let available = (document_width.to_int() - DOCUMENT_HORIZONTAL_PADDING).max(1);
+    let columns = ((available + GAP) / (PANEL_MIN_WIDTH + GAP)).clamp(1, PANEL_COUNT);
+    let rows = (PANEL_COUNT + columns - 1) / columns;
+    Fixed::from_int(rows * PANEL_HEIGHT + PATH_PANEL_EXTRA_HEIGHT + (rows - 1) * GAP)
 }
 
-impl TypographyLayoutMetrics {
-    fn for_width(width: u16) -> Self {
-        let available = i32::from(width).saturating_sub(36).max(1);
-        let columns = ((available + 12) / 232).clamp(1, 4) as u8;
-        let grid_height = match columns {
-            1 => 1_598,
-            2 => 806,
-            3 => 608,
-            _ => 410,
-        };
-        Self {
-            columns,
-            grid_height,
-            controls_height: if available >= 514 { 154 } else { 266 },
-        }
-    }
-}
+fn typography_controls_height(document_width: Fixed) -> Fixed {
+    const DOCUMENT_HORIZONTAL_PADDING: i32 = 36;
+    const CONTROL_HORIZONTAL_PADDING: i32 = 24;
+    const COLUMN_MIN_WIDTH: i32 = 250;
+    const COLUMN_GAP: i32 = 14;
+    const LIVE_COLUMN_HEIGHT: i32 = 130;
+    const SETTINGS_COLUMN_HEIGHT: i32 = 100;
+    const ROW_GAP: i32 = 12;
 
-#[derive(Clone, Copy)]
-#[cfg(feature = "std")]
-struct TypographyLayoutState {
-    metrics: TypographyLayoutMetrics,
-    grid: Entity,
-    controls: Entity,
-}
-
-#[cfg(feature = "std")]
-fn apply_typography_metrics(
-    world: &mut World,
-    state: TypographyLayoutState,
-    metrics: TypographyLayoutMetrics,
-) {
-    if let Some(style) = world.get_mut::<Style>(state.grid) {
-        style.layout.height = Dimension::px(metrics.grid_height);
-    }
-    if let Some(style) = world.get_mut::<Style>(state.controls) {
-        style.layout.height = Dimension::px(metrics.controls_height);
-    }
-    world.invalidate(state.grid);
-    world.invalidate(state.controls);
-}
-
-#[mirui_macros::system]
-#[cfg(feature = "std")]
-fn sync_typography_layout(world: &mut World) {
-    let Some(viewport) = crate::ui::root_viewport(world) else {
-        return;
+    let inner_width =
+        document_width.to_int() - DOCUMENT_HORIZONTAL_PADDING - CONTROL_HORIZONTAL_PADDING;
+    let content_height = if inner_width >= COLUMN_MIN_WIDTH * 2 + COLUMN_GAP {
+        LIVE_COLUMN_HEIGHT
+    } else {
+        LIVE_COLUMN_HEIGHT + ROW_GAP + SETTINGS_COLUMN_HEIGHT
     };
-    let Some(state) = world.resource::<TypographyLayoutState>().copied() else {
-        return;
-    };
-    let width = viewport.w.to_int().clamp(0, i32::from(u16::MAX)) as u16;
-    let metrics = TypographyLayoutMetrics::for_width(width);
-    if metrics == state.metrics {
-        return;
-    }
-    apply_typography_metrics(world, state, metrics);
-    if let Some(state) = world.resource_mut::<TypographyLayoutState>() {
-        state.metrics = metrics;
-    }
+    Fixed::from_int(content_height + CONTROL_HORIZONTAL_PADDING)
 }
 
 #[compose]
-pub fn build_widgets(wave_path: PathId, view_width: u16) {
+pub fn build_widgets(wave_path: PathId) {
     let state = Signal::new(TypographyState::default());
     let sample_width = state.clone();
     let caret_width = state.clone();
@@ -666,7 +630,9 @@ pub fn build_widgets(wave_path: PathId, view_width: u16) {
                 Row (
                     id: "typography_lab_grid",
                     width: Dimension::percent(100),
-                    height: TypographyLayoutMetrics::for_width(view_width).grid_height,
+                    height: @id(typography_lab_document).width {
+                        typography_grid_height(typography_lab_document.width)
+                    },
                     wrap: FlexWrap::Wrap,
                     align: AlignItems::FlexStart,
                     row_gap: 12,
@@ -986,7 +952,9 @@ pub fn build_widgets(wave_path: PathId, view_width: u16) {
                 Row (
                     id: "typography_controls",
                     width: Dimension::percent(100),
-                    height: TypographyLayoutMetrics::for_width(view_width).controls_height,
+                    height: @id(typography_lab_document).width {
+                        typography_controls_height(typography_lab_document.width)
+                    },
                     min_height: 154,
                     padding: Padding::all(12),
                     wrap: FlexWrap::Wrap,
@@ -1151,20 +1119,9 @@ pub fn build_widgets(wave_path: PathId, view_width: u16) {
         cx.world_mut(),
         viewport,
         content,
-        Fixed::from_int(2200),
+        Fixed::ZERO,
         Fixed::from_int(18),
     );
-    #[cfg(feature = "std")]
-    {
-        let metrics = TypographyLayoutMetrics::for_width(view_width);
-        let grid = cx.world_mut().find_by_id("typography_lab_grid").unwrap();
-        let controls = cx.world_mut().find_by_id("typography_controls").unwrap();
-        cx.world_mut().insert_resource(TypographyLayoutState {
-            metrics,
-            grid,
-            controls,
-        });
-    }
     //~focus-end
 }
 
@@ -1179,10 +1136,8 @@ where
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
     let wave_path = register_path(&mut app.world);
-    let view_width = app.backend.display_info().width;
-    app.add_system(super::lab_scroll::sync_lab_scroll_extents::system())
-        .add_system(sync_typography_layout::system());
-    app.compose(parent, |cx| build_widgets(cx, wave_path, view_width));
+    app.add_system(super::lab_scroll::sync_lab_scroll_extents::system());
+    app.compose(parent, |cx| build_widgets(cx, wave_path));
 }
 
 #[cfg(test)]
@@ -1220,7 +1175,7 @@ mod tests {
             })
             .id();
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx, wave_path, width);
+        build_widgets(&mut cx, wave_path);
         drop(cx);
         world
     }

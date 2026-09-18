@@ -71,6 +71,7 @@ pub mod prop {
     pub struct ButtonNormalColor;
     pub struct FontSize;
     pub struct Paragraph;
+    pub struct Direction;
     pub struct Width;
     pub struct MinWidth;
     pub struct MaxWidth;
@@ -182,6 +183,22 @@ pub mod prop {
                 return false;
             };
             text.set_paragraph(value);
+            world.invalidate(entity);
+            true
+        }
+    }
+
+    impl Property for Direction {
+        type Value = crate::ui::layout::FlexDirection;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+            let Some(style) = world.get_mut::<crate::ui::Style>(entity) else {
+                return false;
+            };
+            if style.layout.direction == value {
+                return false;
+            }
+            style.layout.direction = value;
             world.invalidate(entity);
             true
         }
