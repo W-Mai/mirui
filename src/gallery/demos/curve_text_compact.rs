@@ -155,6 +155,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     let path = app
         .world
         .resource_mut::<PathStore>()
@@ -244,14 +245,15 @@ mod tests {
     fn compact_shell_resolves_the_active_theme() {
         let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
         app.with_default_widgets().with_default_systems();
-        app.world.insert_resource(crate::ui::Theme::light());
         let root = app.spawn_root().id();
         install(&mut app, root);
         app.set_root(root);
+        app.set_theme(crate::gallery::showcase_theme::LIGHT_ID)
+            .unwrap();
         flush_signal_dirty(&mut app.world);
         app.render().unwrap();
 
-        let surface = crate::ui::Theme::light().resolve(BACKGROUND);
+        let surface = crate::gallery::showcase_theme::light().resolve(BACKGROUND);
         assert_eq!(
             &app.backend.framebuffer().buf.as_slice()[..3],
             &[surface.r, surface.g, surface.b]

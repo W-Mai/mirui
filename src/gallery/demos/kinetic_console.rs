@@ -689,6 +689,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     app.with_widget(orbit_view()).with_widget(wave_view());
     app.world.insert_resource(ConsoleModel::default());
     app.world.insert_resource(ConsoleMotion::default());
@@ -859,13 +860,14 @@ mod tests {
     fn compact_console_resolves_the_active_theme() {
         let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
         app.with_default_widgets().with_default_systems();
-        app.world.insert_resource(Theme::light());
         let root = app.spawn_root().id();
         install(&mut app, root, false);
         app.set_root(root);
+        app.set_theme(crate::gallery::showcase_theme::LIGHT_ID)
+            .unwrap();
         app.render().unwrap();
 
-        let surface = Theme::light().resolve(BACKGROUND);
+        let surface = crate::gallery::showcase_theme::light().resolve(BACKGROUND);
         assert_eq!(
             &app.backend.framebuffer().buf.as_slice()[..3],
             &[surface.r, surface.g, surface.b]

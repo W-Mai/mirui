@@ -864,6 +864,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     app.with_widget(curve_stage_view());
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
     app.world.insert_resource(CurveModel::default());

@@ -1329,6 +1329,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     let initial_state = match run_mode {
         DemoRunMode::Live => ConsoleState::live(),
         DemoRunMode::Capture => ConsoleState::capture(),
@@ -1566,19 +1567,19 @@ mod tests {
 
     #[test]
     fn shell_and_instruments_resolve_the_active_theme() {
-        let render = |theme| {
+        let render = |theme_id| {
             let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
             app.with_default_widgets().with_default_systems();
-            app.world.insert_resource(theme);
             let root = app.spawn_root().id();
             setup(&mut app, root, DemoRunMode::Capture);
             app.set_root(root);
+            app.set_theme(theme_id).unwrap();
             app.render().unwrap();
             <[u8; 3]>::try_from(&app.backend.framebuffer().buf.as_slice()[..3]).unwrap()
         };
 
-        let light = render(Theme::light());
-        let dark = render(Theme::dark());
+        let light = render(crate::gallery::showcase_theme::LIGHT_ID);
+        let dark = render(crate::gallery::showcase_theme::DARK_ID);
         assert_ne!(light, dark);
         assert!(
             light.iter().map(|channel| u16::from(*channel)).sum::<u16>()

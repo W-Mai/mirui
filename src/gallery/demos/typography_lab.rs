@@ -1174,6 +1174,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);

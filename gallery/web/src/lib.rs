@@ -82,11 +82,23 @@ thread_local! {
     static DARK: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
 }
 
-fn current_theme() -> gallery::mirui::ui::Theme {
-    if DARK.with(|d| d.get()) {
-        gallery::mirui::ui::Theme::dark()
+fn theme_ids_for(demo: &gallery::DemoEntry) -> (&'static str, &'static str) {
+    if demo.category == "Showcase" {
+        (
+            gallery::mirui::gallery::showcase_theme::DARK_ID,
+            gallery::mirui::gallery::showcase_theme::LIGHT_ID,
+        )
     } else {
-        gallery::mirui::ui::Theme::light()
+        ("dark", "light")
+    }
+}
+
+fn selected_theme_id(demo: &gallery::DemoEntry) -> &'static str {
+    let (dark, light) = theme_ids_for(demo);
+    if DARK.with(|value| value.get()) {
+        dark
+    } else {
+        light
     }
 }
 
@@ -98,8 +110,7 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
         (demo.setup)(&mut setup)
     };
     app.set_root(root);
-    // Global toggle wins over any theme a demo set in its own setup_app.
-    app.set_theme(current_theme()).unwrap();
+    app.set_theme(selected_theme_id(demo)).unwrap();
     app
 }
 
@@ -141,12 +152,23 @@ pub fn default_demo_slug() -> String {
 }
 
 #[wasm_bindgen]
-pub fn set_theme(dark: bool) {
-    DARK.with(|d| d.set(dark));
+pub fn set_theme(theme_id: &str) {
+    let theme_id = match theme_id {
+        "dark" => "dark",
+        "light" => "light",
+        gallery::mirui::gallery::showcase_theme::DARK_ID => {
+            gallery::mirui::gallery::showcase_theme::DARK_ID
+        }
+        gallery::mirui::gallery::showcase_theme::LIGHT_ID => {
+            gallery::mirui::gallery::showcase_theme::LIGHT_ID
+        }
+        _ => return,
+    };
+    DARK.with(|dark| dark.set(matches!(theme_id, "dark" | "showcase-dark")));
     let cell = APP.with(|slot| slot.borrow().clone());
     let Some(cell) = cell else { return };
     if let Some(app) = cell.borrow_mut().as_mut() {
-        app.set_theme(current_theme()).unwrap();
+        let _ = app.set_theme(theme_id);
     }
 }
 
@@ -219,8 +241,9 @@ pub fn nav_html() -> String {
             ));
             prev_cat = d.category;
         }
+        let (dark_theme, light_theme) = theme_ids_for(d);
         out.push_str(&alloc::format!(
-            "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-w=\"{w}\" data-h=\"{h}\" data-upscale=\"{upscale}\">{label}</a>",
+            "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-w=\"{w}\" data-h=\"{h}\" data-upscale=\"{upscale}\" data-theme-dark=\"{dark_theme}\" data-theme-light=\"{light_theme}\">{label}</a>",
             slug = d.slug,
             label = d.label,
             w = d.width,

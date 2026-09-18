@@ -1468,7 +1468,8 @@
         // ── Theme toggle (page shell + mirui canvas in lockstep) ───
         // The head script already set data-theme from a stored choice or
         // prefers-color-scheme. The wasm picked the canvas theme from the
-        // same prefers-color-scheme on load; we push set_theme(dark) once
+        // same prefers-color-scheme on load; the active demo link supplies
+        // the concrete theme ID used by the canvas.
         // here so the canvas honours an explicit stored preference too and
         // page + canvas are guaranteed to agree from the first frame.
         const themeToggle = document.getElementById("theme-toggle");
@@ -1483,7 +1484,10 @@
           return document.documentElement.getAttribute("data-theme") !== "light";
         }
         function syncCanvasTheme(dark) {
-          try { wasmBindings.set_theme(dark); } catch (_) {}
+          const id = activeLink
+            ? activeLink.dataset[dark ? "themeDark" : "themeLight"]
+            : (dark ? "dark" : "light");
+          try { wasmBindings.set_theme(id); } catch (_) {}
         }
         function applyTheme(dark, persist) {
           document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");

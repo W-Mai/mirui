@@ -471,6 +471,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     app.add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, build_widgets);

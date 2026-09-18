@@ -574,7 +574,9 @@ fn compose_motion_card() -> Entity {
                     font_size: 10,
                     text_color: ColorToken::OnTertiary,
                     paragraph: ParagraphStyle::label()
-                ) on DragMove { InteractionAction::Drag(*dx, *dy).publish(&drag_action); } on DragEnd { InteractionAction::ResetDrag.publish(&drag_reset); }
+                ) [
+                    TouchAction::None,
+                ] on DragMove { InteractionAction::Drag(*dx, *dy).publish(&drag_action); } on DragEnd { InteractionAction::ResetDrag.publish(&drag_reset); }
             }
             Row (height: 58, column_gap: 8) {
                 Row (
@@ -768,11 +770,6 @@ pub fn build_widgets() {
         Fixed::from_int(1280),
         Fixed::from_int(18),
     );
-    let drag = cx
-        .world_mut()
-        .find_by_id("interaction_drag_target")
-        .expect("Interaction Lab drag target");
-    cx.world_mut().insert(drag, TouchAction::None);
     //~focus-end
 }
 
@@ -782,6 +779,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    crate::gallery::showcase_theme::install(&mut app.world);
     if app.world.resource::<InteractionModel>().is_none() {
         app.world.insert_resource(InteractionModel::default());
     }

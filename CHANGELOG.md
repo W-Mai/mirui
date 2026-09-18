@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Showcase palette selection.** Showcase demos retain their navy, cyan, blue, violet, and amber presentation through dedicated light and dark theme IDs; the Web gallery selects the active canvas palette by ID instead of replacing it with the generic application theme.
 - **Mobile Lab scrolling and text containment.** Layout, Typography, Curve Text, and Interaction Labs expose bounded vertical documents across phone orientations; long labels wrap or ellipsize, curved paths scale to the live stage, non-elastic inertia remains inside its extent, and large scroll jumps repaint the viewport instead of shifting from an empty source region.
 - **Responsive gesture study.** Pinch and Rotate reflows through portrait and landscape canvases, and the Web runner no longer overwrites the Gallery shell's mobile canvas sizing.
 - **Dynamic label alignment.** Gesture status updates retain their centered paragraph style instead of replacing the complete text component.
