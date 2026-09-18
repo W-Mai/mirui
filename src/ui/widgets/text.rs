@@ -518,9 +518,10 @@ fn text_render(
         ctx.record(result.unwrap_or(Err(crate::render::RenderError::InvalidGeometry)));
         return;
     }
+    let content_rect = linear_text_content_rect(ctx.style, *rect);
     let offset_y = vertical_offset(
         text.paragraph().vertical_align,
-        rect.h,
+        content_rect.h,
         crate::types::fixed::from_textflow(layout.measure().height),
     );
     ctx.record(draw_text_layout(
@@ -529,14 +530,66 @@ fn text_render(
         |font_id| fonts.font(font_id),
         TextPaint::new(
             Point {
-                x: rect.x,
-                y: rect.y + offset_y,
+                x: content_rect.x,
+                y: content_rect.y + offset_y,
             },
             ctx.transform,
             ctx.clip,
             color,
         ),
     ));
+}
+
+pub(crate) fn linear_text_content_rect(style: &crate::ui::Style, rect: Rect) -> Rect {
+    let padding = style.layout.padding;
+    let left = padding.left.resolve(rect.w).unwrap_or(Fixed::ZERO);
+    let right = padding.right.resolve(rect.w).unwrap_or(Fixed::ZERO);
+    let top = padding.top.resolve(rect.h).unwrap_or(Fixed::ZERO);
+    let bottom = padding.bottom.resolve(rect.h).unwrap_or(Fixed::ZERO);
+    Rect {
+        x: rect.x + left,
+        y: rect.y + top,
+        w: (rect.w - left - right).max(Fixed::ZERO),
+        h: (rect.h - top - bottom).max(Fixed::ZERO),
+    }
+}
+
+pub(crate) fn padded_text_intrinsic_size(
+    style: &crate::ui::Style,
+    width: Fixed,
+    height: Fixed,
+) -> (Fixed, Fixed) {
+    let padding = style.layout.padding;
+    (
+        padded_intrinsic_axis(width, padding.left, padding.right),
+        padded_intrinsic_axis(height, padding.top, padding.bottom),
+    )
+}
+
+fn padded_intrinsic_axis(
+    content: Fixed,
+    before: crate::types::Dimension,
+    after: crate::types::Dimension,
+) -> Fixed {
+    use crate::types::Dimension;
+
+    let mut fixed = Fixed::ZERO;
+    let mut percent = Fixed::ZERO;
+    for value in [before, after] {
+        match value {
+            Dimension::Px(value) => fixed += value,
+            Dimension::Percent(value) => percent += value,
+            Dimension::Auto | Dimension::Content => {}
+        }
+    }
+    let base = (content + fixed).max(Fixed::ZERO);
+    let hundred = Fixed::from_int(100);
+    let remaining = hundred - percent;
+    if remaining > Fixed::ZERO {
+        (base * hundred / remaining).max(Fixed::ZERO)
+    } else {
+        base
+    }
 }
 
 fn draw_posed_text_layout<'font>(

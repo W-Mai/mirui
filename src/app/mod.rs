@@ -816,6 +816,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
         let mut plan = core::mem::take(&mut self.dirty_plan);
         if force_full {
+            render_system::update_layout(&mut self.world, root, &transform);
             plan.clear();
             let (lw, lh) = transform.logical_size();
             plan.rects.push(Rect::new(0, 0, lw, lh));
@@ -1151,17 +1152,51 @@ fn clone_texture_owned(
 #[cfg(test)]
 mod dirty_plan_reuse_check {
     use super::*;
+    use crate::input::event::hit_test::hit_test;
+    use crate::types::{Dimension, Fixed};
+    use crate::ui::builder::WidgetBuilder;
     use crate::ui::dirty::Dirty;
+    use crate::ui::layout::LayoutStyle;
     use crate::ui::render_system::LastDirtyRegions;
+    use crate::ui::{Children, HitTarget, Parent};
 
     #[test]
     fn active_and_idle_frames_retain_plan_storage() {
         let mut app = App::headless(32, 32);
         app.with_default_widgets();
         let root = app.spawn_root().id();
+        let target = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                width: Dimension::px(16),
+                height: Dimension::px(16),
+                ..LayoutStyle::default()
+            })
+            .id();
+        app.world.insert(target, HitTarget);
+        app.world.insert(target, Parent(root));
+        app.world.get_mut::<Children>(root).unwrap().0.push(target);
 
         app.world.insert(root, Dirty);
         app.render_dirty().unwrap();
+        assert!(crate::input::event::hit_test::geometry_matches(
+            &app.world, root, 32, 32,
+        ));
+        assert_eq!(
+            app.world.get::<crate::ui::ComputedRect>(root).unwrap().0,
+            Rect::new(0, 0, 32, 32),
+        );
+        assert_eq!(
+            hit_test(
+                &app.world,
+                root,
+                Fixed::from_int(4),
+                Fixed::from_int(4),
+                32,
+                32,
+            ),
+            Some(target),
+            "the persistent render path must publish input geometry",
+        );
         let scratch_ptr = app.dirty_plan.rects.as_ptr();
         let last = app.world.resource::<LastDirtyRegions>().unwrap();
         let last_ptr = last as *const LastDirtyRegions;

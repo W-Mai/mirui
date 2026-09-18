@@ -33,6 +33,34 @@ mod tests {
     }
 
     #[test]
+    fn button_accepts_positional_and_named_labels() {
+        use mirui::ui::widgets::Text;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Row () {
+                Button("Save") {}
+                Button (text: "Cancel") {}
+            }
+        };
+
+        let entities = world.query::<Text>().collect();
+        let labels: Vec<_> = entities
+            .into_iter()
+            .map(|entity| world.get::<Text>(entity).unwrap().resolve(&world))
+            .collect();
+        assert_eq!(labels, ["Save", "Cancel"]);
+    }
+
+    #[test]
     fn capital_name_uses_default_for_omitted_fields() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Semantic button labels and input targets.** `Button("Label", ...)` creates a centered label with built-in control metrics, while `HitTarget` keeps ordinary layout containers transparent to pointer hover, press, and hit testing.
 - **Layout-responsive DSL.** `@width`, `@height`, and named `@id(...).width` / `height` dependencies derive typed widget properties from computed geometry; `container: true` defines the nearest responsive scope, aliases expose concise local names, and undeclared or oversized dependency sets fail at compile time.
 - **Inspectable themes.** `ThemeInfo`, `ThemeId`, `ThemeCatalog`, `App::theme`, and the theme editing APIs expose borrowed identity and safe token mutation; `App::set_theme` accepts an owned palette, `ThemeId`, or static ID through one entry point.
 - **Unified image sources.** `Image` accepts texture tokens, borrowed/owned vector `Path` values, or typed `IconAsset` constants through `ImageSource` and renders static vector images without transformed command buffers.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Retained hit-test geometry.** Layout and visual-dirty passes publish reusable input geometry for explicit controls and scroll viewports; pointer dispatch no longer rebuilds layout or allocates temporary traversal buffers per query.
 - **Declarative Curve Text layout.** Compact control height and typography derive from the live stage width in `ui!`, while the path window uses one explicit geometry binding instead of polling layout from the animation system.
 - **Responsive subpixel study.** Pixel-snapped and Q24.8 motion use semantic theme roles, elapsed frame time, and a bounded live arena that adapts independently across portrait and landscape canvases.
 - **Responsive simulation and composite studies.** The life field uses bounded square-cell geometry, semantic presentation surfaces, reusable simulation buffers, and a native compact variant that reflows its controls around portrait, square, and landscape canvases. Composite samples retain their raw blend inputs inside themed cards that reflow across portrait and landscape canvases.
@@ -44,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text content-box layout.** Linear text measures, wraps, aligns, and renders inside widget padding, keeping compact control labels centered without changing path-text placement.
 - **Showcase palette selection.** Showcase demos retain their navy, cyan, blue, violet, and amber presentation through dedicated light and dark theme IDs; the Web gallery selects the active canvas palette by ID instead of replacing it with the generic application theme.
 - **Mobile Lab scrolling and text containment.** Layout, Typography, Curve Text, and Interaction Labs expose bounded vertical documents across phone orientations; long labels wrap or ellipsize, curved paths scale to the live stage, non-elastic inertia remains inside its extent, and large scroll jumps repaint the viewport instead of shifting from an empty source region.
 - **Responsive gesture study.** Pinch and Rotate reflows through portrait and landscape canvases, and the Web runner no longer overwrites the Gallery shell's mobile canvas sizing.

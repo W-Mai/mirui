@@ -15,7 +15,7 @@ use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
 use hit_test::hit_test;
 use input::InputEvent;
-use scroll::{ScrollDragState, scroll_system};
+use scroll::{ScrollDragState, scroll_system_with_target};
 
 #[derive(Clone, Copy, Default)]
 pub struct PointerCursor {
@@ -78,27 +78,24 @@ pub fn dispatch_input(
         _ => {}
     }
 
-    if let InputEvent::PointerDown { x, y, .. } = event {
-        if let Some(target) = hit_test(world, root, *x, *y, lw, lh) {
-            if entity_or_ancestor_disabled(world, target) {
-                key_dispatch(world, event);
-                return;
-            }
-        }
-    }
-
-    scroll_system(world, root, event, lw, lh);
-
-    let hit = match event {
+    let pointer_down_target = match event {
         InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, lw, lh),
         _ => None,
     };
+    if pointer_down_target.is_some_and(|target| entity_or_ancestor_disabled(world, target)) {
+        key_dispatch(world, event);
+        return;
+    }
+
+    scroll_system_with_target(world, root, event, lw, lh, pointer_down_target);
+
     let scroll_claimed = world
         .resource::<ScrollDragState>()
         .is_some_and(|s| s.active && s.resolved);
     if let Some(gs) = world.resource_mut::<GestureSystem>() {
         gs.recognizer.scroll_claimed = scroll_claimed;
-        gs.recognizer.update(event, now_ms, hit, &mut gs.events);
+        gs.recognizer
+            .update(event, now_ms, pointer_down_target, &mut gs.events);
     }
 
     key_dispatch(world, event);

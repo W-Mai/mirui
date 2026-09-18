@@ -19,7 +19,7 @@ pub mod transform;
 pub mod transform_3d;
 
 pub use background_blur::BackgroundBlur;
-pub use button::Button;
+pub use button::{Button, ButtonSize};
 pub use checkbox::Checkbox;
 pub use drop_shadow::{DropGlow, DropShadow};
 pub use icon::Icon;

@@ -21,7 +21,7 @@ use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, S
 use crate::types::Transform;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text};
+use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Text};
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
@@ -1162,6 +1162,7 @@ fn compose_controls() -> Entity {
             Row (height: 20, column_gap: 4) {
                 Button (
                     id: "orbit_console_mode_orbit",
+                    size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 20,
                     normal_color: ${ ConsoleMode::Orbit.chip_background(orbit_bg.get().mode) },
@@ -1177,6 +1178,7 @@ fn compose_controls() -> Entity {
                 ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
                 Button (
                     id: "orbit_console_mode_flow",
+                    size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 20,
                     normal_color: ${ ConsoleMode::Flow.chip_background(flow_bg.get().mode) },
@@ -1192,6 +1194,7 @@ fn compose_controls() -> Entity {
                 ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
                 Button (
                     id: "orbit_console_mode_pulse",
+                    size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 20,
                     normal_color: ${ ConsoleMode::Pulse.chip_background(pulse_bg.get().mode) },
@@ -1221,19 +1224,20 @@ fn compose_controls() -> Entity {
                     let _ = old;
                     ConsoleAction::SetIntensity(*new).publish(&slider_action);
                 }
-                Text (
+                Button (
                     id: "orbit_console_pause",
+                    size: ButtonSize::Compact,
                     text: ${ if pause_text.get().paused { "RESUME" } else { "PAUSE" } },
                     width: 54,
                     height: 20,
-                    bg_color: SURFACE,
+                    normal_color: SURFACE,
+                    pressed_color: MINT,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label()
+                    text_color: TEXT
                 ) on Tap { ConsoleAction::TogglePaused.publish(&pause_action); }
             }
         }

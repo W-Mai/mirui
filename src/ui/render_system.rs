@@ -437,9 +437,21 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
     let text_path = world.get::<crate::text::TextPath>(entity).copied();
-    let request =
-        text.paragraph()
-            .layout_request(&content, metrics, text_path.is_none().then_some(width));
+    let content_width = crate::ui::widgets::text::linear_text_content_rect(
+        style,
+        Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: width,
+            h: Fixed::ZERO,
+        },
+    )
+    .w;
+    let request = text.paragraph().layout_request(
+        &content,
+        metrics,
+        text_path.is_none().then_some(content_width),
+    );
     let language = text
         .paragraph()
         .language
@@ -504,8 +516,21 @@ fn layout_text_tree(
     *index += 1;
     let mut intrinsic_changed = false;
     if let Some(layout) = layout_text(world, entity, node.rect.w) {
-        let width = from_textflow(layout.measure.width);
-        let height = from_textflow(layout.measure.height);
+        let measured_width = from_textflow(layout.measure.width);
+        let measured_height = from_textflow(layout.measure.height);
+        let (width, height) = if world.get::<crate::text::TextPath>(entity).is_none() {
+            world
+                .get::<Style>(entity)
+                .map_or((measured_width, measured_height), |style| {
+                    crate::ui::widgets::text::padded_text_intrinsic_size(
+                        style,
+                        measured_width,
+                        measured_height,
+                    )
+                })
+        } else {
+            (measured_width, measured_height)
+        };
         intrinsic_changed =
             node.intrinsic_width != Some(width) || node.intrinsic_height != Some(height);
         node.set_intrinsic_size(width, height);
@@ -657,7 +682,14 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
             measure
         }
     };
-    node.set_intrinsic_size(from_textflow(measure.width), from_textflow(measure.height));
+    let measured_width = from_textflow(measure.width);
+    let measured_height = from_textflow(measure.height);
+    let (width, height) = if text_path.is_none() {
+        crate::ui::widgets::text::padded_text_intrinsic_size(style, measured_width, measured_height)
+    } else {
+        (measured_width, measured_height)
+    };
+    node.set_intrinsic_size(width, height);
 }
 
 fn text_layout_owner(entity: Entity) -> u64 {
@@ -1553,6 +1585,14 @@ pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
 
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
+        crate::input::event::hit_test::update_hit_test_geometry(
+            world,
+            root,
+            logical_w,
+            logical_h,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+        );
         world.put_resource_box(snapshot);
         let invoke = pass + 1 < MAX_LAYOUT_PASSES;
         if !super::layout_binding::apply_layout_bindings(world, invoke) || !invoke {
@@ -2179,7 +2219,10 @@ pub(crate) fn collect_dirty_regions_into(
     let has_exact_dirty = world
         .resource::<super::dirty::ExactDirtyRegions>()
         .is_some_and(|regions| !regions.is_empty());
-    if layout_dirty_count == 0 && visual_dirty_count == 0 && !has_exact_dirty {
+    let hit_geometry_valid =
+        crate::input::event::hit_test::geometry_matches(world, root, logical_w, logical_h);
+    if layout_dirty_count == 0 && visual_dirty_count == 0 && !has_exact_dirty && hit_geometry_valid
+    {
         return;
     }
 
@@ -2188,6 +2231,7 @@ pub(crate) fn collect_dirty_regions_into(
         && world
             .resource::<LayoutSnapshot>()
             .is_some_and(|snapshot| snapshot.matches(root, logical_w, logical_h))
+        && hit_geometry_valid
     {
         drain_dirty_rects(world, plan);
         return;
@@ -2318,6 +2362,15 @@ pub(crate) fn collect_dirty_regions_into(
     }
 
     drain_dirty_rects(world, plan);
+
+    crate::input::event::hit_test::update_hit_test_geometry(
+        world,
+        root,
+        logical_w,
+        logical_h,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+    );
 
     world.put_resource_box(snapshot);
 }
@@ -2586,7 +2639,7 @@ mod text_layout_check {
         FontToken, GlyphId, RasterGlyph,
     };
     use crate::types::{Dimension, Viewport};
-    use crate::ui::layout::{FlexDirection, LayoutStyle};
+    use crate::ui::layout::{FlexDirection, LayoutStyle, Padding};
     use crate::ui::widgets::Text;
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
@@ -2646,6 +2699,49 @@ mod text_layout_check {
     }
 
     #[test]
+    fn text_intrinsic_size_includes_padding() {
+        let mut world = world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Content,
+                    height: Dimension::Content,
+                    padding: Padding {
+                        top: Dimension::px(3),
+                        right: Dimension::px(4),
+                        bottom: Dimension::px(3),
+                        left: Dimension::px(4),
+                    },
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("abc"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(32));
+        assert_eq!(rect.h, Fixed::from_int(14));
+    }
+
+    #[test]
     fn constrained_text_height_tracks_wrapped_lines() {
         let mut world = world();
         let root = spawn(
@@ -2686,6 +2782,121 @@ mod text_layout_check {
             .unwrap()
             .borrow();
         assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
+    }
+
+    #[test]
+    fn text_padding_reduces_wrap_width_and_expands_content_height() {
+        let mut world = world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(32),
+                    height: Dimension::Content,
+                    padding: Padding {
+                        top: Dimension::px(2),
+                        right: Dimension::px(4),
+                        bottom: Dimension::px(2),
+                        left: Dimension::px(4),
+                    },
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("ab cd"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(32));
+        assert_eq!(rect.h, Fixed::from_int(20));
+        let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
+        let cache = world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .unwrap()
+            .borrow();
+        assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
+    }
+
+    #[test]
+    fn text_paints_from_the_padded_content_origin() {
+        #[derive(Default)]
+        struct Recorder {
+            pos: Option<Point>,
+        }
+
+        impl Renderer for Recorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.route(request)?;
+                if let DrawCommand::GlyphRun { pos, .. } = request.command {
+                    self.pos = Some(*pos);
+                }
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(32),
+                    height: Dimension::px(20),
+                    padding: Padding {
+                        top: Dimension::px(3),
+                        right: Dimension::px(4),
+                        bottom: Dimension::px(3),
+                        left: Dimension::px(4),
+                    },
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("abc"));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+
+        let mut recorder = Recorder::default();
+        render(&world, root, &viewport, &mut recorder).unwrap();
+
+        assert_eq!(recorder.pos, Some(Point::new(4, 3)));
     }
 
     #[test]
@@ -3170,6 +3381,44 @@ mod text_layout_check {
     }
 
     #[test]
+    fn path_text_intrinsic_size_ignores_widget_padding() {
+        let mut app = crate::app::App::headless(96, 96);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let mut baseline = crate::render::path::Path::new();
+        baseline
+            .move_to(Point::new(0, 24))
+            .line_to(Point::new(64, 24));
+        let path = world
+            .resource_mut::<crate::render::path::PathStore>()
+            .unwrap()
+            .insert(baseline)
+            .unwrap();
+        let plain = spawn(&mut world, None, Style::default());
+        world.insert(plain, Text::from("ABC"));
+        world.widget_mut(plain).unwrap().text_path(path);
+        let padded_style = Style {
+            layout: LayoutStyle {
+                padding: Padding::all(Dimension::px(12)),
+                ..LayoutStyle::default()
+            },
+            ..Style::default()
+        };
+        let padded_layout = padded_style.layout;
+        let padded = spawn(&mut world, None, padded_style);
+        world.insert(padded, Text::from("ABC"));
+        world.widget_mut(padded).unwrap().text_path(path);
+
+        let mut plain_node = LayoutNode::new(LayoutStyle::default());
+        apply_text_intrinsic(&world, plain, &mut plain_node);
+        let mut padded_node = LayoutNode::new(padded_layout);
+        apply_text_intrinsic(&world, padded, &mut padded_node);
+
+        assert_eq!(padded_node.intrinsic_width, plain_node.intrinsic_width);
+        assert_eq!(padded_node.intrinsic_height, plain_node.intrinsic_height);
+    }
+
+    #[test]
     fn path_text_ink_drives_culling_and_damage_outside_layout_bounds() {
         #[derive(Default)]
         struct Recorder {
@@ -3367,6 +3616,7 @@ mod text_layout_check {
         #[derive(Default)]
         struct Recorder {
             clip: Option<Rect>,
+            origin: Option<Point>,
         }
 
         impl Renderer for Recorder {
@@ -3376,8 +3626,9 @@ mod text_layout_check {
 
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.route(request)?;
-                if matches!(request.command, DrawCommand::PosedGlyphRun { .. }) {
+                if let DrawCommand::PosedGlyphRun { pos, .. } = request.command {
                     self.clip = Some(request.clip);
+                    self.origin = Some(*pos);
                 }
                 Ok(())
             }
@@ -3413,7 +3664,17 @@ mod text_layout_check {
                 ..Style::default()
             },
         );
-        let label = spawn(&mut world, Some(clipper), Style::default());
+        let label = spawn(
+            &mut world,
+            Some(clipper),
+            Style {
+                layout: LayoutStyle {
+                    padding: Padding::all(Dimension::px(5)),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
         world.insert(label, Text::from("ABC"));
         let mut baseline = crate::render::path::Path::new();
         baseline
@@ -3453,6 +3714,13 @@ mod text_layout_check {
         )
         .unwrap();
         assert_eq!(recorder.clip, Some(clip));
+        assert_eq!(
+            recorder.origin,
+            Some(Point {
+                x: label_rect.x,
+                y: label_rect.y,
+            })
+        );
     }
 }
 
@@ -6998,7 +7266,7 @@ mod scroll_plan_check {
     }
 
     #[test]
-    fn idle_frame_leaves_snapshot_absent() {
+    fn idle_first_pass_publishes_input_geometry_snapshot() {
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(64, 64));
         spawn_widget(&mut world, Some(root), px_style(32, 32));
@@ -7006,10 +7274,10 @@ mod scroll_plan_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let plan_idle = collect_dirty_regions(&mut world, root, &viewport);
         assert!(plan_idle.rects.is_empty());
-        assert!(
-            world.resource::<LayoutSnapshot>().is_none(),
-            "no Dirty markers ⇒ no snapshot needed",
-        );
+        assert!(world.resource::<LayoutSnapshot>().is_some());
+        assert!(crate::input::event::hit_test::geometry_matches(
+            &world, root, 64, 64,
+        ));
     }
 
     #[test]

@@ -87,8 +87,11 @@ pub mod prop {
         type Value = alloc::string::String;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+            let is_button = world.has::<crate::ui::widgets::Button>(entity);
             if let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) {
                 text.set_content(value);
+            } else if is_button {
+                world.insert(entity, crate::ui::widgets::Text::label(value));
             } else {
                 world.insert(entity, crate::ui::widgets::Text::from(value));
             }
@@ -313,9 +316,11 @@ pub mod prop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::reactive::{Signal, flush_signal_dirty};
     use crate::types::Dimension;
-    use crate::ui::Widget;
     use crate::ui::dirty::Dirty;
+    use crate::ui::widgets::{Button, ParagraphStyle, Text};
+    use crate::ui::{Children, Widget};
 
     #[test]
     fn typed_property_updates_share_widget_mut() {
@@ -364,5 +369,51 @@ mod tests {
 
         <prop::Width as Property>::apply(&mut world, entity, Dimension::px(120));
         assert!(world.has::<Dirty>(entity));
+    }
+
+    #[test]
+    fn button_text_shorthand_and_reactive_text_use_label_paragraphs() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::IdMap::new());
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+        let label = Signal::new(alloc::string::String::from("Idle"));
+        let bound_label = label.clone();
+
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Column () {
+                Button("Save")
+                Button(text: ${ bound_label.get() })
+                Text("Body")
+            }
+        };
+
+        let column = world.get::<Children>(root).unwrap().0[0];
+        let children = &world.get::<Children>(column).unwrap().0;
+        let static_button = children[0];
+        let reactive_button = children[1];
+        let body_text = children[2];
+        for (entity, expected) in [(static_button, "Save"), (reactive_button, "Idle")] {
+            assert!(world.has::<Button>(entity));
+            let text = world.get::<Text>(entity).expect("Button owns Text");
+            assert_eq!(text.resolve(&world).as_ref(), expected);
+            assert_eq!(text.paragraph(), &ParagraphStyle::label());
+        }
+        assert_eq!(
+            world.get::<Text>(body_text).unwrap().paragraph(),
+            &ParagraphStyle::default()
+        );
+
+        label.set(alloc::string::String::from("Saved"));
+        flush_signal_dirty(&mut world);
+        let text = world
+            .get::<Text>(reactive_button)
+            .expect("reactive Button keeps Text");
+        assert_eq!(text.resolve(&world).as_ref(), "Saved");
+        assert_eq!(text.paragraph(), &ParagraphStyle::label());
     }
 }

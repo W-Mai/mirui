@@ -1,238 +1,219 @@
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
-use crate::input::event::scroll::ScrollOffset;
+use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
-use crate::ui::layout::{LayoutNode, compute_layout};
+use crate::ui::layout::LayoutNode;
 use crate::ui::widgets::transform::WidgetTransform;
 use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
-use crate::ui::{Children, Hidden, IgnoreHitTest, Style, Widget};
+use crate::ui::{HitTarget, IgnoreHitTest};
 
-// INVARIANT: every recursive walker in this module — build_rects,
-// compute_scroll_offsets, compute_transforms, compute_transforms_3d —
-// must gate child recursion on the same triple (Widget && !Hidden &&
-// Style). They share an implicit per-entity index; any divergence
-// silently mis-aligns the rect/scroll/transform Vecs hit_test reads.
+#[derive(Clone, Copy)]
+enum HitShape {
+    Rect(Rect),
+    TransformedRect { rect: Rect, inverse: Transform },
+    Quad([Point; 4]),
+}
 
-fn build_rects(
-    world: &World,
+#[derive(Clone, Copy)]
+struct HitGeometry {
     entity: Entity,
-    parent_node: &mut LayoutNode,
-    entities: &mut Vec<Entity>,
-    parents: &mut Vec<Option<usize>>,
-    parent_idx: Option<usize>,
-) {
-    let my_idx = entities.len();
-    entities.push(entity);
-    parents.push(parent_idx);
-    if let Some(children) = world.get::<Children>(entity) {
-        for &child in &children.0 {
-            if world.get::<Widget>(child).is_none() {
-                continue;
-            }
-            if world.get::<Hidden>(child).is_some() {
-                continue;
-            }
-            if let Some(style) = world.get::<Style>(child) {
-                let mut child_node = LayoutNode::new(style.layout);
-                crate::ui::render_system::apply_text_intrinsic(world, child, &mut child_node);
-                build_rects(
-                    world,
-                    child,
-                    &mut child_node,
-                    entities,
-                    parents,
-                    Some(my_idx),
-                );
-                parent_node.add_child(child_node);
-            }
-        }
+    shape: HitShape,
+    scroll_clip: Option<Rect>,
+}
+
+/// Layout-derived input geometry retained between pointer events.
+///
+/// Only explicit input targets and scroll viewports occupy this buffer. Its
+/// allocation is owned by the world and reused by every layout pass.
+#[derive(Default)]
+struct HitTestGeometry {
+    root: Option<Entity>,
+    logical_w: u16,
+    logical_h: u16,
+    entries: Vec<HitGeometry>,
+}
+
+impl HitTestGeometry {
+    fn matches(&self, root: Entity, logical_w: u16, logical_h: u16) -> bool {
+        self.root == Some(root) && self.logical_w == logical_w && self.logical_h == logical_h
     }
 }
 
-fn collect_rects(node: &LayoutNode, rects: &mut Vec<Rect>) {
-    rects.push(node.rect);
-    for child in &node.children {
-        collect_rects(child, rects);
-    }
-}
-
-/// Compute the accumulated scroll offset for each entity.
-/// For each entity, this is the sum of all ancestor ScrollOffsets.
-fn compute_scroll_offsets(world: &World, root: Entity, entities: &[Entity]) -> Vec<(Fixed, Fixed)> {
-    let mut offsets = vec![(Fixed::ZERO, Fixed::ZERO); entities.len()];
-    compute_scroll_recursive(world, root, Fixed::ZERO, Fixed::ZERO, &mut offsets, &mut 0);
-    offsets
-}
-
-fn compute_scroll_recursive(
-    world: &World,
-    entity: Entity,
-    acc_x: Fixed,
-    acc_y: Fixed,
-    offsets: &mut [(Fixed, Fixed)],
-    idx: &mut usize,
-) {
-    if *idx < offsets.len() {
-        offsets[*idx] = (acc_x, acc_y);
-    }
-    *idx += 1;
-
-    let (child_acc_x, child_acc_y) = if let Some(scroll) = world.get::<ScrollOffset>(entity) {
-        (acc_x + scroll.x, acc_y + scroll.y)
-    } else {
-        (acc_x, acc_y)
-    };
-
-    if let Some(children) = world.get::<Children>(entity) {
-        for &child in &children.0 {
-            // See module INVARIANT.
-            if world.get::<Widget>(child).is_none() {
-                continue;
-            }
-            if world.get::<Hidden>(child).is_some() {
-                continue;
-            }
-            if world.get::<Style>(child).is_none() {
-                continue;
-            }
-            compute_scroll_recursive(world, child, child_acc_x, child_acc_y, offsets, idx);
-        }
-    }
-}
-
-fn compute_transforms(
+pub(crate) fn geometry_matches(
     world: &World,
     root: Entity,
-    entities: &[Entity],
-    rects: &[Rect],
-) -> Vec<Transform> {
-    let mut out = vec![Transform::IDENTITY; entities.len()];
-    compute_transforms_recursive(world, root, &Transform::IDENTITY, rects, &mut out, &mut 0);
-    out
+    logical_w: u16,
+    logical_h: u16,
+) -> bool {
+    world
+        .resource::<HitTestGeometry>()
+        .is_some_and(|geometry| geometry.matches(root, logical_w, logical_h))
 }
 
-fn compute_transforms_recursive(
+fn shifted(rect: Rect, scroll: (Fixed, Fixed)) -> Rect {
+    Rect {
+        x: rect.x - scroll.0,
+        y: rect.y - scroll.1,
+        w: rect.w,
+        h: rect.h,
+    }
+}
+
+fn inside(rect: Rect, point: Point) -> bool {
+    point.x >= rect.x && point.x < rect.x + rect.w && point.y >= rect.y && point.y < rect.y + rect.h
+}
+
+fn intersect_clip(parent: Option<Rect>, next: Rect) -> Option<Rect> {
+    match parent {
+        Some(parent) => Some(parent.intersect(&next).unwrap_or(Rect::ZERO)),
+        None => Some(next),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_geometry(
     world: &World,
-    entity: Entity,
-    parent: &Transform,
-    rects: &[Rect],
-    out: &mut [Transform],
-    idx: &mut usize,
+    node: &LayoutNode,
+    entities: &[Entity],
+    index: &mut usize,
+    scroll: (Fixed, Fixed),
+    scroll_clip: Option<Rect>,
+    parent_2d: Transform,
+    parent_3d: Transform3D,
+    entries: &mut Vec<HitGeometry>,
 ) {
-    let my_idx = *idx;
-    let rect = rects.get(my_idx).copied().unwrap_or(Rect::ZERO);
-    let local = world
+    let Some(&entity) = entities.get(*index) else {
+        return;
+    };
+    *index += 1;
+
+    let local_2d = world
         .get::<WidgetTransform>(entity)
-        .map(|t| t.0)
+        .map(|transform| transform.0)
         .unwrap_or(Transform::IDENTITY);
-    let effective = if local.is_identity() {
-        *parent
+    let effective_2d = if local_2d.is_identity() {
+        parent_2d
     } else {
-        let cx = rect.x + rect.w / Fixed::from_int(2);
-        let cy = rect.y + rect.h / Fixed::from_int(2);
-        parent
+        let cx = node.rect.x + node.rect.w / Fixed::from_int(2);
+        let cy = node.rect.y + node.rect.h / Fixed::from_int(2);
+        parent_2d
             .compose(&Transform::translate(cx, cy))
-            .compose(&local)
+            .compose(&local_2d)
             .compose(&Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy))
     };
-    if my_idx < out.len() {
-        out[my_idx] = effective;
-    }
-    *idx += 1;
-
-    if let Some(children) = world.get::<Children>(entity) {
-        for &child in &children.0 {
-            // See module INVARIANT.
-            if world.get::<Widget>(child).is_none() {
-                continue;
-            }
-            if world.get::<Hidden>(child).is_some() {
-                continue;
-            }
-            if world.get::<Style>(child).is_none() {
-                continue;
-            }
-            compute_transforms_recursive(world, child, &effective, rects, out, idx);
-        }
-    }
-}
-
-fn compute_transforms_3d(
-    world: &World,
-    root: Entity,
-    entities: &[Entity],
-    rects: &[Rect],
-) -> Vec<Option<Transform3D>> {
-    let mut out = vec![None; entities.len()];
-    compute_transforms_3d_recursive(world, root, &Transform3D::IDENTITY, rects, &mut out, &mut 0);
-    out
-}
-
-fn compute_transforms_3d_recursive(
-    world: &World,
-    entity: Entity,
-    parent: &Transform3D,
-    rects: &[Rect],
-    out: &mut [Option<Transform3D>],
-    idx: &mut usize,
-) {
-    let my_idx = *idx;
-    let rect = rects.get(my_idx).copied().unwrap_or(Rect::ZERO);
 
     let local_3d = world
         .get::<WidgetTransform3D>(entity)
-        .map(|t| t.0)
-        .filter(|t| !t.is_identity());
-    let local_2d_lift = if local_3d.is_none() && !parent.is_identity() {
-        world
-            .get::<WidgetTransform>(entity)
-            .map(|t| t.0)
-            .filter(|t| !t.is_identity())
-            .map(Transform3D::from_affine)
+        .map(|transform| transform.0)
+        .filter(|transform| !transform.is_identity());
+    let lifted_2d = if local_3d.is_none() && !parent_3d.is_identity() {
+        (!local_2d.is_identity()).then(|| Transform3D::from_affine(local_2d))
     } else {
         None
     };
-
-    let effective = if let Some(t3) = local_3d.or(local_2d_lift) {
+    let effective_3d = if let Some(transform) = local_3d.or(lifted_2d) {
         let origin = world
             .get::<TransformOrigin>(entity)
             .copied()
             .unwrap_or_default();
-        let cx = rect.x + rect.w * origin.x;
-        let cy = rect.y + rect.h * origin.y;
-        parent
+        let cx = node.rect.x + node.rect.w * origin.x;
+        let cy = node.rect.y + node.rect.h * origin.y;
+        parent_3d
             .compose(&Transform3D::translate(cx, cy))
-            .compose(&t3)
+            .compose(&transform)
             .compose(&Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy))
     } else {
-        *parent
+        parent_3d
     };
 
-    if my_idx < out.len() && !effective.is_identity() {
-        out[my_idx] = Some(effective);
-    }
-    *idx += 1;
-
-    if let Some(children) = world.get::<Children>(entity) {
-        for &child in &children.0 {
-            if world.get::<Widget>(child).is_none() {
-                continue;
+    let is_candidate = world.get::<HitTarget>(entity).is_some()
+        || world.get::<ScrollConfig>(entity).is_some()
+        || world.get::<ScrollOffset>(entity).is_some();
+    if is_candidate && world.get::<IgnoreHitTest>(entity).is_none() {
+        let rect = shifted(node.rect, scroll);
+        let shape = if effective_3d.is_identity() {
+            if effective_2d.is_identity() {
+                Some(HitShape::Rect(rect))
+            } else {
+                effective_2d
+                    .inverse()
+                    .map(|inverse| HitShape::TransformedRect { rect, inverse })
             }
-            if world.get::<Hidden>(child).is_some() {
-                continue;
-            }
-            if world.get::<Style>(child).is_none() {
-                continue;
-            }
-            compute_transforms_3d_recursive(world, child, &effective, rects, out, idx);
+        } else {
+            effective_3d.apply_rect(rect).map(HitShape::Quad)
+        };
+        if let Some(shape) = shape {
+            entries.push(HitGeometry {
+                entity,
+                shape,
+                scroll_clip,
+            });
         }
+    }
+
+    let child_scroll = world
+        .get::<ScrollOffset>(entity)
+        .map_or(scroll, |offset| (scroll.0 + offset.x, scroll.1 + offset.y));
+    let child_clip = if world.get::<ScrollConfig>(entity).is_some()
+        || world.get::<ScrollOffset>(entity).is_some()
+    {
+        intersect_clip(scroll_clip, shifted(node.rect, scroll))
+    } else {
+        scroll_clip
+    };
+
+    for child in &node.children {
+        collect_geometry(
+            world,
+            child,
+            entities,
+            index,
+            child_scroll,
+            child_clip,
+            effective_2d,
+            effective_3d,
+            entries,
+        );
     }
 }
 
-/// Hit test: given a coordinate, find the deepest widget entity that contains it.
-/// Accounts for scroll offsets.
+/// Refresh retained input geometry from the layout snapshot produced in the
+/// same pass. The backing allocation is cleared and reused.
+pub(crate) fn update_hit_test_geometry(
+    world: &mut World,
+    root: Entity,
+    logical_w: u16,
+    logical_h: u16,
+    layout_tree: &LayoutNode,
+    entities: &[Entity],
+) {
+    let mut geometry = world
+        .take_resource_box::<HitTestGeometry>()
+        .unwrap_or_default();
+    geometry.entries.clear();
+    let mut index = 0;
+    collect_geometry(
+        world,
+        layout_tree,
+        entities,
+        &mut index,
+        (Fixed::ZERO, Fixed::ZERO),
+        None,
+        Transform::IDENTITY,
+        Transform3D::IDENTITY,
+        &mut geometry.entries,
+    );
+    geometry.root = Some(root);
+    geometry.logical_w = logical_w;
+    geometry.logical_h = logical_h;
+    world.put_resource_box(geometry);
+}
+
+/// Find the deepest input target containing the coordinate.
+///
+/// Ordinary visual widgets do not participate. Scroll viewports remain
+/// candidates so a drag can begin over otherwise empty viewport space.
 pub fn hit_test(
     world: &World,
     root: Entity,
@@ -241,94 +222,218 @@ pub fn hit_test(
     screen_w: u16,
     screen_h: u16,
 ) -> Option<Entity> {
-    let root_style = world.get::<Style>(root)?;
-    let mut root_node = LayoutNode::new(root_style.layout);
-    let mut entities = Vec::new();
-    let mut parents: Vec<Option<usize>> = Vec::new();
-    build_rects(
-        world,
-        root,
-        &mut root_node,
-        &mut entities,
-        &mut parents,
-        None,
-    );
-    compute_layout(
-        &mut root_node,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        screen_w.into(),
-        screen_h.into(),
-    );
-
-    let mut rects = Vec::new();
-    collect_rects(&root_node, &mut rects);
-
-    let scroll_offsets = compute_scroll_offsets(world, root, &entities);
-    let transforms = compute_transforms(world, root, &entities, &rects);
-    let transforms_3d = compute_transforms_3d(world, root, &entities, &rects);
-
-    // Visually-clipped rows must not steal taps from siblings outside the scroll.
-    let clip_ok = |i: usize, px: Fixed, py: Fixed| -> bool {
-        let mut p = parents[i];
-        while let Some(idx) = p {
-            if world
-                .get::<crate::input::event::scroll::components::ScrollOffset>(entities[idx])
-                .is_some()
-            {
-                let r = rects[idx];
-                let (asx, asy) = scroll_offsets[idx];
-                let ax = r.x - asx;
-                let ay = r.y - asy;
-                if !(px >= ax && px < ax + r.w && py >= ay && py < ay + r.h) {
-                    return false;
-                }
-            }
-            p = parents[idx];
-        }
-        true
-    };
-
+    let geometry = world
+        .resource::<HitTestGeometry>()
+        .filter(|geometry| geometry.matches(root, screen_w, screen_h))?;
+    let point = Point { x, y };
     let mut hit = None;
-    for (i, rect) in rects.iter().enumerate() {
-        if world.get::<IgnoreHitTest>(entities[i]).is_some() {
-            continue;
-        }
-        let (sx, sy) = scroll_offsets[i];
-        let shifted = Rect {
-            x: rect.x - sx,
-            y: rect.y - sy,
-            w: rect.w,
-            h: rect.h,
-        };
-
-        if let Some(tf3d) = transforms_3d[i] {
-            if let Some(q) = tf3d.apply_rect(shifted) {
-                if crate::types::transform_3d::point_in_quad(&q, Point { x, y }) && clip_ok(i, x, y)
-                {
-                    hit = Some(entities[i]);
-                }
-            }
-            continue;
-        }
-
-        let probe = if transforms[i].is_identity() {
-            Point { x, y }
-        } else {
-            match transforms[i].inverse() {
-                Some(inv) => inv.apply_point(Point { x, y }),
-                None => continue,
-            }
-        };
-
-        if probe.x >= shifted.x
-            && probe.x < shifted.x + shifted.w
-            && probe.y >= shifted.y
-            && probe.y < shifted.y + shifted.h
-            && clip_ok(i, probe.x, probe.y)
+    for entry in &geometry.entries {
+        if world.get::<IgnoreHitTest>(entry.entity).is_some()
+            || (world.get::<HitTarget>(entry.entity).is_none()
+                && world.get::<ScrollConfig>(entry.entity).is_none()
+                && world.get::<ScrollOffset>(entry.entity).is_none())
         {
-            hit = Some(entities[i]);
+            continue;
+        }
+        let contains = match entry.shape {
+            HitShape::Rect(rect) => {
+                inside(rect, point) && entry.scroll_clip.is_none_or(|clip| inside(clip, point))
+            }
+            HitShape::TransformedRect { rect, inverse } => {
+                let probe = inverse.apply_point(point);
+                inside(rect, probe) && entry.scroll_clip.is_none_or(|clip| inside(clip, point))
+            }
+            HitShape::Quad(quad) => {
+                crate::types::transform_3d::point_in_quad(&quad, point)
+                    && entry.scroll_clip.is_none_or(|clip| inside(clip, point))
+            }
+        };
+        if contains {
+            hit = Some(entry.entity);
         }
     }
     hit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::event::scroll::ScrollAxis;
+    use crate::types::{Dimension, Viewport};
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::{Children, Parent, Style, Widget};
+
+    fn fixed_style(width: i32, height: i32) -> Style {
+        Style {
+            layout: LayoutStyle {
+                width: Dimension::px(width),
+                height: Dimension::px(height),
+                ..LayoutStyle::default()
+            },
+            ..Style::default()
+        }
+    }
+
+    fn append(world: &mut World, parent: Entity, child: Entity) {
+        world.insert(child, Parent(parent));
+        world
+            .get_mut::<Children>(parent)
+            .expect("parent children")
+            .0
+            .push(child);
+    }
+
+    #[test]
+    fn retained_geometry_tracks_layout_without_query_allocations() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(128, 128));
+        world.insert(root, Children(Vec::new()));
+        let target = world.spawn_empty();
+        world.insert(target, Widget);
+        world.insert(target, fixed_style(32, 24));
+        world.insert(target, HitTarget);
+        world.insert(target, Children(Vec::new()));
+        append(&mut world, root, target);
+
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(128, 128, Fixed::ONE),
+        );
+        assert_eq!(
+            hit_test(&world, root, 4.into(), 4.into(), 128, 128),
+            Some(target)
+        );
+        let capacity = world
+            .resource::<HitTestGeometry>()
+            .unwrap()
+            .entries
+            .capacity();
+        for _ in 0..8 {
+            assert_eq!(
+                hit_test(&world, root, 4.into(), 4.into(), 128, 128),
+                Some(target)
+            );
+        }
+        assert_eq!(
+            world
+                .resource::<HitTestGeometry>()
+                .unwrap()
+                .entries
+                .capacity(),
+            capacity
+        );
+    }
+
+    #[test]
+    fn empty_scroll_viewport_can_start_a_drag() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(128, 128));
+        world.insert(root, Children(Vec::new()));
+        let scroll = world.spawn_empty();
+        world.insert(scroll, Widget);
+        world.insert(scroll, fixed_style(96, 72));
+        world.insert(scroll, Children(Vec::new()));
+        world.insert(
+            scroll,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(
+            scroll,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                content_height: Fixed::from_int(256),
+                ..ScrollConfig::default()
+            },
+        );
+        append(&mut world, root, scroll);
+
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(128, 128, Fixed::ONE),
+        );
+        assert_eq!(
+            hit_test(&world, root, 40.into(), 40.into(), 128, 128),
+            Some(scroll)
+        );
+    }
+
+    #[test]
+    fn transformed_target_still_uses_the_viewport_clip_in_screen_space() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(128, 128));
+        world.insert(root, Children(Vec::new()));
+
+        let scroll = world.spawn_empty();
+        world.insert(scroll, Widget);
+        world.insert(scroll, fixed_style(40, 40));
+        world.insert(scroll, Children(Vec::new()));
+        world.insert(scroll, ScrollConfig::default());
+        append(&mut world, root, scroll);
+
+        let target = world.spawn_empty();
+        world.insert(target, Widget);
+        world.insert(target, fixed_style(20, 20));
+        world.insert(target, HitTarget);
+        world.insert(target, Children(Vec::new()));
+        world.insert(
+            target,
+            WidgetTransform(Transform::translate(Fixed::from_int(30), Fixed::ZERO)),
+        );
+        append(&mut world, scroll, target);
+
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(128, 128, Fixed::ONE),
+        );
+        assert_eq!(
+            hit_test(&world, root, 35.into(), 10.into(), 128, 128),
+            Some(target)
+        );
+        assert_eq!(hit_test(&world, root, 45.into(), 10.into(), 128, 128), None);
+    }
+
+    #[test]
+    fn visual_dirty_refreshes_transformed_geometry() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(128, 128));
+        world.insert(root, Children(Vec::new()));
+        let target = world.spawn_empty();
+        world.insert(target, Widget);
+        world.insert(target, fixed_style(24, 24));
+        world.insert(target, HitTarget);
+        world.insert(target, Children(Vec::new()));
+        append(&mut world, root, target);
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+
+        world.insert(
+            target,
+            WidgetTransform(Transform::translate(Fixed::from_int(40), Fixed::ZERO)),
+        );
+        world.insert(target, crate::ui::dirty::VisualDirty);
+        let mut dirty = crate::ui::dirty::DirtyRegions::default();
+        crate::ui::render_system::collect_dirty_regions_into(
+            &mut world, root, &viewport, &mut dirty,
+        );
+
+        assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
+        assert_eq!(
+            hit_test(&world, root, 44.into(), 4.into(), 128, 128),
+            Some(target)
+        );
+    }
 }

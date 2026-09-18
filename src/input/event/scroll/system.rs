@@ -70,13 +70,27 @@ pub fn scroll_system(
     screen_w: u16,
     screen_h: u16,
 ) {
+    let pointer_down_target = match event {
+        InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, screen_w, screen_h),
+        _ => None,
+    };
+    scroll_system_with_target(world, root, event, screen_w, screen_h, pointer_down_target);
+}
+
+pub(crate) fn scroll_system_with_target(
+    world: &mut World,
+    root: Entity,
+    event: &InputEvent,
+    screen_w: u16,
+    screen_h: u16,
+    pointer_down_target: Option<Entity>,
+) {
     match event {
         InputEvent::PointerDown { x, y, .. } => {
-            let hit = hit_test(world, root, *x, *y, screen_w, screen_h);
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = true;
                 state.resolved = false;
-                state.hit_entity = hit.unwrap_or(Entity {
+                state.hit_entity = pointer_down_target.unwrap_or(Entity {
                     id: 0,
                     generation: 0,
                 });
@@ -652,6 +666,25 @@ fn find_scroll_target_for_direction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_down_reuses_the_pipeline_hit_target() {
+        let mut world = World::new();
+        world.insert_resource(ScrollDragState::default());
+        let root = world.spawn_empty();
+        let target = world.spawn_empty();
+        let event = InputEvent::PointerDown {
+            id: 0,
+            x: Fixed::from_int(12),
+            y: Fixed::from_int(18),
+        };
+
+        scroll_system_with_target(&mut world, root, &event, 64, 64, Some(target));
+
+        let state = world.resource::<ScrollDragState>().unwrap();
+        assert!(state.active);
+        assert_eq!(state.hit_entity, target);
+    }
 
     fn run_drag(elastic: bool, init_y: i32, dy_per_frame: i32, frames: usize) -> Fixed {
         use crate::ecs::World;

@@ -146,7 +146,7 @@ pub mod prelude {
     pub use crate::ui::theme::{
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
-    pub use crate::ui::{Style, Widget};
+    pub use crate::ui::{HitTarget, Style, Widget};
     pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{

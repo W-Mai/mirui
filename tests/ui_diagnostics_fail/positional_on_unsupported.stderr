@@ -1,5 +1,33 @@
-error: Button does not accept positional arguments; use `name: value` form
+error[E0277]: the trait bound `mirui::ui::widgets::TextContent: From<{integer}>` is not satisfied
   --> tests/ui_diagnostics_fail/positional_on_unsupported.rs:18:16
    |
-18 |         Button(42) {}
-   |                ^^
+13 | /     ui! {
+14 | |         :(
+15 | |             parent: root
+16 | |             world: world_ref
+17 | |         :)
+18 | |         Button(42) {}
+   | |                ^^ the trait `From<{integer}>` is not implemented for `mirui::ui::widgets::TextContent`
+19 | |     };
+   | |_____- required by a bound introduced by this call
+   |
+help: `mirui::ui::widgets::TextContent` implements trait `From<T>`
+  --> src/ui/widgets/text.rs
+   |
+   | impl From<&'static str> for TextContent {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<&str>`
+...
+   | impl From<String> for TextContent {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<String>`
+...
+   | impl From<Cow<'static, str>> for TextContent {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<Cow<'_, str>>`
+...
+   | impl From<Localized> for TextContent {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<mirui::core::i18n::Localized>`
+   = note: required for `{integer}` to implement `Into<mirui::ui::widgets::TextContent>`
+note: required by a bound in `Text::label`
+  --> src/ui/widgets/text.rs
+   |
+   |     pub fn label(content: impl Into<TextContent>) -> Self {
+   |                                ^^^^^^^^^^^^^^^^^ required by this bound in `Text::label`

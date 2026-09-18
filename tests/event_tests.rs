@@ -5,9 +5,10 @@ mod tests {
     use mirui::input::event::hit_test::hit_test;
     use mirui::input::event::input::InputEvent;
     use mirui::input::event::{GestureHandler, bubble_dispatch};
-    use mirui::types::{Color, Dimension, Fixed};
+    use mirui::types::{Color, Dimension, Fixed, Viewport};
     use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::*;
+    use mirui::ui::{HitTarget, render_system};
 
     /// Per-entity tap counter so tests don't share static state.
     struct TapHits(u32);
@@ -26,6 +27,7 @@ mod tests {
     fn attach_counter(world: &mut World, entity: Entity) {
         world.insert(entity, TapHits(0));
         world.insert(entity, GestureHandler::from_fn(count_handler));
+        world.insert(entity, HitTarget);
     }
 
     fn hits(world: &World, entity: Entity) -> u32 {
@@ -37,6 +39,7 @@ mod tests {
     fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, screen: u16) {
         let xf = Fixed::from_int(x);
         let yf = Fixed::from_int(y);
+        render_system::update_layout(world, root, &Viewport::new(screen, screen, Fixed::ONE));
         let hit = hit_test(world, root, xf, yf, screen, screen);
 
         let mut rec = GestureRecognizer::new();

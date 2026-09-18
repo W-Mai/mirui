@@ -6,8 +6,8 @@ use crate::render::font::FontToken;
 use crate::types::DimPoint;
 use crate::ui::theme;
 use crate::ui::widgets::{
-    Button, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar, Slider, Switch,
-    TabBar, TabContent, Text, TextAlign, TextVerticalAlign, TextWrap,
+    Button, ButtonSize, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
+    Slider, Switch, TabBar, TabContent, Text, TextAlign, TextVerticalAlign, TextWrap,
 };
 use crate::ui::{Children, IdMap, Theme};
 use alloc::vec;
@@ -481,6 +481,7 @@ pub fn build_widgets() {
                         ]
                         Row (grow: 1.0, align: AlignItems::Center, column_gap: 5) {
                             Button (
+                                size: ButtonSize::Custom,
                                 grow: 1.0,
                                 height: 18,
                                 border_radius: 7,
@@ -499,6 +500,7 @@ pub fn build_widgets() {
                                 )
                             }
                             Button (
+                                size: ButtonSize::Custom,
                                 grow: 1.0,
                                 height: 18,
                                 border_radius: 7,
@@ -550,6 +552,7 @@ pub fn build_widgets() {
                         Row (width: Dimension::percent(100), height: 18, column_gap: 4) {
                             Button (
                                 id: "compact_theme_light",
+                                size: ButtonSize::Custom,
                                 grow: 1.0,
                                 height: 18,
                                 border_radius: 6,
@@ -580,6 +583,7 @@ pub fn build_widgets() {
                             }
                             Button (
                                 id: "compact_theme_dark",
+                                size: ButtonSize::Custom,
                                 grow: 1.0,
                                 height: 18,
                                 border_radius: 6,

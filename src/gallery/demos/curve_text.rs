@@ -14,7 +14,7 @@ use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
-    ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextOverflow, TextWrap,
+    Button, ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextOverflow, TextWrap,
 };
 use crate::ui::{IgnoreHitTest, LayoutAxis, LayoutDependency, Theme};
 
@@ -779,35 +779,35 @@ fn compose_controls() -> Entity {
                 )
             }
             Row (grow: 1.0, min_width: 190, height: 34, column_gap: 8) {
-                Text (
+                Button (
                     id: "curve_text_direction",
                     text: ${ if direction_label.get() { "REVERSE" } else { "FORWARD" } },
                     grow: 1.0,
                     min_width: 92,
                     height: 34,
-                    bg_color: PANEL_ALT,
+                    normal_color: PANEL_ALT,
+                    pressed_color: VIOLET,
                     border_color: VIOLET,
                     border_width: 1,
                     border_radius: 10,
                     font: UI,
                     font_size: 10,
-                    text_color: VIOLET,
-                    paragraph: ParagraphStyle::label()
+                    text_color: VIOLET
                 ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
-                Text (
+                Button (
                     id: "curve_text_pause",
                     text: ${ if paused_label.get() { "RESUME" } else { "PAUSE" } },
                     grow: 1.0,
                     min_width: 82,
                     height: 34,
-                    bg_color: PANEL_ALT,
+                    normal_color: PANEL_ALT,
+                    pressed_color: CYAN,
                     border_color: CYAN,
                     border_width: 1,
                     border_radius: 10,
                     font: UI,
                     font_size: 10,
-                    text_color: CYAN,
-                    paragraph: ParagraphStyle::label()
+                    text_color: CYAN
                 ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
             }
         }

@@ -1803,6 +1803,11 @@ mod tests {
             tb.selected = 2;
         }
         tab_pages_system(&mut world);
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(128, 128, Fixed::ONE),
+        );
 
         let cx = Fixed::from_int(64);
         let cy = Fixed::from_int(71);
@@ -1834,7 +1839,7 @@ mod tests {
     #[test]
     fn hit_test_skips_hidden_subtree_scroll_offset() {
         use crate::input::event::scroll::ScrollOffset;
-        use crate::ui::{Children, Hidden, Parent};
+        use crate::ui::{Children, Hidden, HitTarget, Parent};
         let mut world = World::new();
         let mk = |w: &mut World, h: i32| {
             WidgetBuilder::new(w)
@@ -1858,6 +1863,7 @@ mod tests {
         let decoy = mk(&mut world, 30);
         let visible_a = mk(&mut world, 30);
         let target = mk(&mut world, 30);
+        world.insert(target, HitTarget);
         attach(&mut world, hidden, decoy);
         attach(&mut world, root, hidden);
         attach(&mut world, root, visible_a);
@@ -1869,6 +1875,11 @@ mod tests {
                 x: Fixed::ZERO,
                 y: Fixed::from_int(30),
             },
+        );
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(60, 90, Fixed::ONE),
         );
 
         let hit = hit_test(
@@ -1892,7 +1903,7 @@ mod tests {
     fn hit_test_clips_scrolled_child_to_container_rect() {
         use crate::input::event::scroll::ScrollOffset;
         use crate::ui::layout::Position;
-        use crate::ui::{Children, Parent};
+        use crate::ui::{Children, HitTarget, Parent};
         let mut world = World::new();
         let mk = |w: &mut World, width: i32, h: i32| {
             WidgetBuilder::new(w)
@@ -1913,6 +1924,7 @@ mod tests {
 
         let root = mk(&mut world, 100, 100);
         let tab = mk(&mut world, 100, 20);
+        world.insert(tab, HitTarget);
         let scroll = mk(&mut world, 100, 80);
         attach(&mut world, root, tab);
         attach(&mut world, root, scroll);
@@ -1936,6 +1948,11 @@ mod tests {
                 x: Fixed::ZERO,
                 y: Fixed::from_int(95),
             },
+        );
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(100, 100, Fixed::ONE),
         );
 
         let hit = hit_test(
@@ -1968,6 +1985,11 @@ mod tests {
             tb.selected = 2;
         }
         tab_pages_system(&mut world);
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(128, 128, Fixed::ONE),
+        );
 
         let cx = Fixed::from_int(64);
         let cy = Fixed::from_int(71);
@@ -2039,6 +2061,11 @@ mod tests {
             tb.selected = 2;
         }
         tab_pages_system(&mut world);
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(128, 128, Fixed::ONE),
+        );
 
         let cx = Fixed::from_int(64);
         let cy = Fixed::from_int(71);
@@ -2318,6 +2345,7 @@ mod tests {
             target,
             crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
+        world.insert(target, crate::ui::HitTarget);
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
@@ -2416,6 +2444,7 @@ mod tests {
             target,
             crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
+        world.insert(target, crate::ui::HitTarget);
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
@@ -2494,6 +2523,7 @@ mod tests {
             target,
             crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
+        world.insert(target, crate::ui::HitTarget);
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
@@ -2548,6 +2578,7 @@ mod tests {
             target,
             crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
+        world.insert(target, crate::ui::HitTarget);
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
@@ -2602,6 +2633,7 @@ mod tests {
             target,
             crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
+        world.insert(target, crate::ui::HitTarget);
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
@@ -2657,6 +2689,7 @@ mod tests {
             target,
             crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
+        world.insert(target, crate::ui::HitTarget);
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);

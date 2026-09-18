@@ -14,7 +14,7 @@ use crate::types::DimPoint;
 #[cfg(test)]
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{ParagraphStyle, Slider, Text, TextVerticalAlign, TextWrap};
+use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text, TextVerticalAlign, TextWrap};
 use crate::ui::{IgnoreHitTest, Theme};
 
 pub const VIEWPORT: (u16, u16) = (128, 128);
@@ -492,12 +492,13 @@ pub fn build_widgets() {
                 ) [
                     IgnoreHitTest,
                 ]
-                View (
+                Button (
                     id: "kinetic_console_status",
                     width: 38,
                     height: 18,
                     padding: Padding::all(2),
-                    bg_color: ${ if status_bg.get() { ColorToken::Error } else { ColorToken::Success } },
+                    normal_color: ${ if status_bg.get() { ColorToken::Error } else { ColorToken::Success } },
+                    pressed_color: PANEL,
                     border_color: CYAN,
                     border_width: 1,
                     border_radius: 6,
@@ -548,12 +549,13 @@ pub fn build_widgets() {
                 ]
             }
             Row (height: 16, column_gap: 3) {
-                View (
+                Button (
                     id: "kinetic_console_orbit",
                     grow: 1.0,
                     height: 16,
                     padding: Padding::all(2),
-                    bg_color: ${ if orbit_bg.get() == ConsoleMode::Orbit { CYAN } else { PANEL } },
+                    normal_color: ${ if orbit_bg.get() == ConsoleMode::Orbit { CYAN } else { PANEL } },
+                    pressed_color: CYAN,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 6,
@@ -572,12 +574,13 @@ pub fn build_widgets() {
                         IgnoreHitTest,
                     ]
                 }
-                View (
+                Button (
                     id: "kinetic_console_flow",
                     grow: 1.0,
                     height: 16,
                     padding: Padding::all(2),
-                    bg_color: ${ if flow_bg.get() == ConsoleMode::Flow { VIOLET } else { PANEL } },
+                    normal_color: ${ if flow_bg.get() == ConsoleMode::Flow { VIOLET } else { PANEL } },
+                    pressed_color: VIOLET,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 6,
@@ -596,12 +599,13 @@ pub fn build_widgets() {
                         IgnoreHitTest,
                     ]
                 }
-                View (
+                Button (
                     id: "kinetic_console_pulse",
                     grow: 1.0,
                     height: 16,
                     padding: Padding::all(2),
-                    bg_color: ${ if pulse_bg.get() == ConsoleMode::Pulse { AMBER } else { PANEL } },
+                    normal_color: ${ if pulse_bg.get() == ConsoleMode::Pulse { AMBER } else { PANEL } },
+                    pressed_color: AMBER,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 6,

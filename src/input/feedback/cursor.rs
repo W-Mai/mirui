@@ -226,8 +226,8 @@ mod tests {
     use crate::render::texture::ColorFormat;
     use crate::surface::DisplayInfo;
     use crate::types::{Dimension, Transform};
-    use crate::ui::Style;
-    use crate::ui::layout::LayoutStyle;
+    use crate::ui::layout::{LayoutStyle, Position};
+    use crate::ui::{HitTarget, Style};
 
     fn make_world() -> World {
         let mut app = crate::app::App::headless(128, 128);
@@ -303,7 +303,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        spawn_widget(
+        let target = spawn_widget(
             world,
             Some(root),
             Style {
@@ -315,6 +315,7 @@ mod tests {
                 ..Default::default()
             },
         );
+        world.insert(target, HitTarget);
         world.insert_resource(WidgetRoot(root));
         crate::ui::render_system::update_layout(
             world,
@@ -432,14 +433,14 @@ mod tests {
             .map(|c| c.0[0])
             .expect("child target");
         let prev_rect = world.get::<ComputedRect>(target).map(|r| r.0).unwrap();
-        world.insert(
-            target,
-            ComputedRect(crate::types::Rect::new(
-                prev_rect.x,
-                prev_rect.y + Fixed::from_int(20),
-                prev_rect.w,
-                prev_rect.h,
-            )),
+        let style = world.get_mut::<Style>(target).expect("target style");
+        style.layout.position = Position::Absolute;
+        style.layout.left = Dimension::px(0);
+        style.layout.top = Dimension::px(20);
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(128, 128, Fixed::ONE),
         );
 
         // Layout-motion signal that triggers the gate: a published

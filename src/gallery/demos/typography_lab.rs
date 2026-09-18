@@ -12,7 +12,7 @@ use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::text::FontFeature;
 use crate::ui::widgets::{
-    FontFeatures, LanguageTag, ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign,
+    Button, FontFeatures, LanguageTag, ParagraphStyle, ShapingPolicy, Slider, Text, TextAlign,
     TextDirection, TextOverflow, TextWrap, WidgetTransform3D,
 };
 
@@ -1095,47 +1095,47 @@ pub fn build_widgets(wave_path: PathId, view_width: u16) {
                             )
                         }
                         Row (height: 28, column_gap: 7) {
-                            Text (
+                            Button (
                                 id: "typography_wrap",
                                 text: ${ wrap_value.get().wrap_label() },
                                 grow: 1.0,
                                 height: 28,
-                                bg_color: PANEL_ALT,
+                                normal_color: PANEL_ALT,
+                                pressed_color: CYAN,
                                 border_color: BORDER,
                                 border_width: 1,
                                 border_radius: 8,
                                 font: UI,
                                 font_size: 10,
-                                text_color: CYAN,
-                                paragraph: ParagraphStyle::label()
+                                text_color: CYAN
                             ) on Tap { TypographyAction::CycleWrap.publish(&wrap_action); }
-                            Text (
+                            Button (
                                 id: "typography_align",
                                 text: ${ align_value.get().align_label() },
                                 grow: 1.0,
                                 height: 28,
-                                bg_color: PANEL_ALT,
+                                normal_color: PANEL_ALT,
+                                pressed_color: BLUE,
                                 border_color: BORDER,
                                 border_width: 1,
                                 border_radius: 8,
                                 font: UI,
                                 font_size: 10,
-                                text_color: BLUE,
-                                paragraph: ParagraphStyle::label()
+                                text_color: BLUE
                             ) on Tap { TypographyAction::CycleAlign.publish(&align_action); }
-                            Text (
+                            Button (
                                 id: "typography_overflow",
                                 text: ${ overflow_value.get().overflow_label() },
                                 grow: 1.0,
                                 height: 28,
-                                bg_color: PANEL_ALT,
+                                normal_color: PANEL_ALT,
+                                pressed_color: GOLD,
                                 border_color: BORDER,
                                 border_width: 1,
                                 border_radius: 8,
                                 font: UI,
                                 font_size: 10,
-                                text_color: GOLD,
-                                paragraph: ParagraphStyle::label()
+                                text_color: GOLD
                             ) on Tap { TypographyAction::ToggleOverflow.publish(&overflow_action); }
                         }
                     }

@@ -10,7 +10,7 @@ use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::ui::UserState;
 use crate::ui::widgets::{
-    Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput, TextOverflow,
+    Button, Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput, TextOverflow,
     TextVerticalAlign, TextWrap,
 };
 pub const VIEWPORT: (u16, u16) = (1024, 720);
@@ -55,6 +55,22 @@ fn status_text() -> ParagraphStyle {
         overflow: TextOverflow::Ellipsis,
         max_lines: Some(1),
         ..ParagraphStyle::default()
+    }
+}
+
+fn card_width(width: Fixed) -> Dimension {
+    if width < Fixed::from_int(800) {
+        Dimension::percent(100)
+    } else {
+        Dimension::percent(48)
+    }
+}
+
+fn gesture_cell_width(width: Fixed) -> Dimension {
+    if width < Fixed::from_int(400) {
+        Dimension::percent(48)
+    } else {
+        Dimension::percent(23)
     }
 }
 
@@ -308,11 +324,7 @@ fn compose_gesture_card() -> Entity {
             id: "interaction_gestures",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(800) {
-                    Dimension::percent(100)
-                } else {
-                    Dimension::percent(48)
-                }
+                card_width(interaction_lab_grid.width)
             },
             min_width: 250,
             min_height: @id(interaction_lab_grid).width {
@@ -348,11 +360,7 @@ fn compose_gesture_card() -> Entity {
                     id: "interaction_single_status",
                     text: ${ format!("single {}", single_text.get().single) },
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 86,
                     height: 24,
@@ -364,11 +372,7 @@ fn compose_gesture_card() -> Entity {
                     id: "interaction_double_status",
                     text: ${ format!("double {}", double_text.get().double) },
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 86,
                     height: 24,
@@ -380,11 +384,7 @@ fn compose_gesture_card() -> Entity {
                     id: "interaction_triple_status",
                     text: ${ format!("triple {}", triple_text.get().triple) },
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 86,
                     height: 24,
@@ -396,11 +396,7 @@ fn compose_gesture_card() -> Entity {
                     id: "interaction_long_status",
                     text: ${ format!("long {}", long_text.get().long) },
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 76,
                     height: 24,
@@ -419,85 +415,69 @@ fn compose_gesture_card() -> Entity {
                 row_gap: 8,
                 column_gap: 8
             ) {
-                Text (
-                    id: "interaction_single",
+                Button (
                     "1 TAP",
+                    id: "interaction_single",
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 70,
                     height: 68,
-                    bg_color: ColorToken::SurfaceVariant,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: CYAN,
                     border_color: CYAN,
                     border_width: 1,
                     border_radius: 12,
                     font_size: 10,
-                    text_color: CYAN,
-                    paragraph: ParagraphStyle::label()
+                    text_color: CYAN
                 ) on Tap { InteractionAction::Single.publish(&single_action); }
-                Text (
-                    id: "interaction_double",
+                Button (
                     "2 TAP",
+                    id: "interaction_double",
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 70,
                     height: 68,
-                    bg_color: ColorToken::SurfaceVariant,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: BLUE,
                     border_color: BLUE,
                     border_width: 1,
                     border_radius: 12,
                     font_size: 10,
-                    text_color: BLUE,
-                    paragraph: ParagraphStyle::label()
+                    text_color: BLUE
                 ) on Tap(2) { InteractionAction::Double.publish(&double_action); }
-                Text (
-                    id: "interaction_triple",
+                Button (
                     "3 TAP",
+                    id: "interaction_triple",
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 70,
                     height: 68,
-                    bg_color: ColorToken::SurfaceVariant,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: VIOLET,
                     border_color: VIOLET,
                     border_width: 1,
                     border_radius: 12,
                     font_size: 10,
-                    text_color: VIOLET,
-                    paragraph: ParagraphStyle::label()
+                    text_color: VIOLET
                 ) on Tap(3) { InteractionAction::Triple.publish(&triple_action); }
-                Text (
-                    id: "interaction_long",
+                Button (
                     "HOLD",
+                    id: "interaction_long",
                     width: @id(interaction_gestures).width {
-                        if interaction_gestures.width < Fixed::from_int(400) {
-                            Dimension::percent(48)
-                        } else {
-                            Dimension::percent(23)
-                        }
+                        gesture_cell_width(interaction_gestures.width)
                     },
                     min_width: 70,
                     height: 68,
-                    bg_color: ColorToken::SurfaceVariant,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: GOLD,
                     border_color: GOLD,
                     border_width: 1,
                     border_radius: 12,
                     font_size: 10,
-                    text_color: GOLD,
-                    paragraph: ParagraphStyle::label()
+                    text_color: GOLD
                 ) on LongPress { InteractionAction::Long.publish(&long_action); }
             }
             Text (
@@ -525,11 +505,7 @@ fn compose_state_card() -> Entity {
             id: "interaction_states",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(800) {
-                    Dimension::percent(100)
-                } else {
-                    Dimension::percent(48)
-                }
+                card_width(interaction_lab_grid.width)
             },
             min_width: 250,
             min_height: 278,
@@ -550,57 +526,57 @@ fn compose_state_card() -> Entity {
                 paragraph: bounded_text(2)
             )
             Row (height: 80, wrap: FlexWrap::Wrap, row_gap: 7, column_gap: 7) {
-                Text (
-                    id: "interaction_hover_target",
+                Button (
                     "HOVER",
+                    id: "interaction_hover_target",
                     grow: 1.0,
                     min_width: 70,
                     height: 36,
-                    bg_color: CYAN,
+                    normal_color: CYAN,
+                    pressed_color: CYAN,
                     border_radius: 10,
                     font_size: 8,
-                    text_color: ColorToken::OnPrimary,
-                    paragraph: ParagraphStyle::label()
+                    text_color: ColorToken::OnPrimary
                 )
-                Text (
-                    id: "interaction_press_target",
+                Button (
                     "PRESS",
+                    id: "interaction_press_target",
                     grow: 1.0,
                     min_width: 70,
                     height: 36,
-                    bg_color: BLUE,
+                    normal_color: BLUE,
+                    pressed_color: BLUE,
                     border_radius: 10,
                     font_size: 8,
-                    text_color: ColorToken::OnSecondary,
-                    paragraph: ParagraphStyle::label()
+                    text_color: ColorToken::OnSecondary
                 )
-                Text (
-                    id: "interaction_error_target",
+                Button (
                     "ERROR",
+                    id: "interaction_error_target",
                     grow: 1.0,
                     min_width: 70,
                     height: 36,
-                    bg_color: PANEL,
+                    normal_color: PANEL,
+                    pressed_color: ERROR,
                     border_color: ERROR,
                     border_width: 1,
                     border_radius: 10,
                     font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label()
+                    text_color: TEXT
                 ) on Tap { InteractionAction::ToggleError.publish(&error_action); }
-                Text (
-                    id: "interaction_disabled_target",
+                Button (
                     "DISABLED",
+                    id: "interaction_disabled_target",
                     grow: 1.0,
                     min_width: 70,
                     height: 36,
-                    bg_color: PANEL,
+                    normal_color: PANEL,
+                    pressed_color: PANEL,
                     border_color: MUTED,
                     border_width: 1,
                     border_radius: 10,
                     font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label()
+                    text_color: TEXT
                 )
             }
             TextInput (
@@ -613,17 +589,17 @@ fn compose_state_card() -> Entity {
             ) [
                 Placeholder("tap to focus, then type"),
             ]
-            Text (
+            Button (
                 id: "interaction_toggle_disabled",
                 text: ${ if disabled_text.get().disabled { "ENABLE TARGET" } else { "DISABLE TARGET" } },
                 height: 34,
-                bg_color: ColorToken::SurfaceVariant,
+                normal_color: ColorToken::SurfaceVariant,
+                pressed_color: BLUE,
                 border_color: BORDER,
                 border_width: 1,
                 border_radius: 9,
                 font_size: 10,
-                text_color: TEXT,
-                paragraph: ParagraphStyle::label()
+                text_color: TEXT
             ) on Tap { InteractionAction::ToggleDisabled.publish(&disabled_action); }
         }
     }
@@ -658,11 +634,7 @@ fn compose_motion_card() -> Entity {
             id: "interaction_motion",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(800) {
-                    Dimension::percent(100)
-                } else {
-                    Dimension::percent(48)
-                }
+                card_width(interaction_lab_grid.width)
             },
             min_width: 250,
             min_height: 278,
@@ -689,22 +661,20 @@ fn compose_motion_card() -> Entity {
                 border_radius: 10,
                 clip_children: true
             ) {
-                Text (
-                    id: "interaction_drag_target",
+                Button (
                     "DRAG",
+                    id: "interaction_drag_target",
                     position: Position::Absolute,
                     left: 24,
                     top: 27,
                     width: 92,
                     height: 40,
-                    bg_color: VIOLET,
+                    normal_color: VIOLET,
+                    pressed_color: VIOLET,
                     border_radius: 12,
                     font_size: 10,
-                    text_color: ColorToken::OnTertiary,
-                    paragraph: ParagraphStyle::label()
-                ) [
-                    TouchAction::None,
-                ] on DragMove { InteractionAction::Drag(*dx, *dy).publish(&drag_action); } on DragEnd { InteractionAction::ResetDrag.publish(&drag_reset); }
+                    text_color: ColorToken::OnTertiary
+                ) [TouchAction::None] on DragMove { InteractionAction::Drag(*dx, *dy).publish(&drag_action); } on DragEnd { InteractionAction::ResetDrag.publish(&drag_reset); }
             }
             Row (height: 58, column_gap: 8) {
                 Row (
@@ -717,34 +687,34 @@ fn compose_motion_card() -> Entity {
                     border_radius: 10
                 ) on Tap { InteractionAction::ParentTap.publish(&parent_action); }
                 {
-                    Text (
-                        id: "interaction_bubble_child",
+                    Button (
                         "CHILD TAP",
+                        id: "interaction_bubble_child",
                         grow: 1.0,
                         height: 40,
-                        bg_color: BLUE,
+                        normal_color: BLUE,
+                        pressed_color: BLUE,
                         border_radius: 8,
                         font_size: 9,
-                        text_color: ColorToken::OnSecondary,
-                        paragraph: ParagraphStyle::label()
+                        text_color: ColorToken::OnSecondary
                     ) on Tap {
                         let allow = child_action.get_untracked().allow_bubble;
                         InteractionAction::ChildTap.publish(&child_action);
                         if allow { BubbleControl::Allow } else { BubbleControl::Prevent }
                     }
                 }
-                Text (
+                Button (
                     id: "interaction_bubble_policy",
                     text: ${ if policy_text.get().allow_bubble { "ALLOW" } else { "BLOCK" } },
                     width: 88,
                     height: 58,
-                    bg_color: ColorToken::SurfaceVariant,
+                    normal_color: ColorToken::SurfaceVariant,
+                    pressed_color: GOLD,
                     border_color: GOLD,
                     border_width: 1,
                     border_radius: 10,
                     font_size: 9,
-                    text_color: GOLD,
-                    paragraph: ParagraphStyle::label()
+                    text_color: GOLD
                 ) on Tap { InteractionAction::ToggleBubble.publish(&policy_action); }
             }
             Text (
@@ -773,11 +743,7 @@ fn compose_controls_card() -> Entity {
             id: "interaction_controls",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(800) {
-                    Dimension::percent(100)
-                } else {
-                    Dimension::percent(48)
-                }
+                card_width(interaction_lab_grid.width)
             },
             min_width: 250,
             min_height: 278,
@@ -959,7 +925,7 @@ mod tests {
     use crate::input::event::{bubble_dispatch_at, entity_or_ancestor_disabled};
     use crate::input::feedback::{InputFeedback, InputFeedbackInput};
     use crate::ui::view::ViewRegistry;
-    use crate::ui::{IdMap, UiScope};
+    use crate::ui::{Children, IdMap, UiScope};
 
     fn fixture_tree() -> (World, Entity) {
         let mut world = World::new();
@@ -1020,7 +986,16 @@ mod tests {
             "interaction_checkbox",
             "interaction_feedback_status",
         ] {
-            assert!(world.find_by_id(id).is_some(), "missing {id}");
+            let entity = world
+                .find_by_id(id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            if id != "interaction_focus_target"
+                && id != "interaction_switch"
+                && id != "interaction_checkbox"
+                && id != "interaction_feedback_status"
+            {
+                assert!(world.has::<Button>(entity), "{id} is not a Button");
+            }
         }
         assert!(world.has::<Switch>(world.find_by_id("interaction_switch").unwrap()));
         assert!(world.has::<Checkbox>(world.find_by_id("interaction_checkbox").unwrap()));
@@ -1096,6 +1071,13 @@ mod tests {
             (1, 0)
         );
         tap(&mut world, "interaction_bubble_policy", 1_500);
+        let policy = world.find_by_id("interaction_bubble_policy").unwrap();
+        assert_eq!(world.get::<Text>(policy).unwrap().resolve(&world), "ALLOW");
+        assert!(
+            world
+                .get::<Children>(policy)
+                .is_none_or(|children| children.0.iter().all(|child| !world.has::<Text>(*child)))
+        );
         tap(&mut world, "interaction_bubble_child", 2_000);
         assert_eq!(
             (state(&world).child_taps, state(&world).parent_taps),

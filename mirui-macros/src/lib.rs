@@ -74,7 +74,7 @@ const BUILTIN_COMPONENT_NAMES: &[&str] = &[
 
 fn primary_attr_for(widget_name: &str) -> Option<&'static str> {
     match widget_name {
-        "Text" => Some("text"),
+        "Text" | "Button" => Some("text"),
         "Image" => Some("src"),
         "MirrorOf" => Some("source"),
         _ => None,
@@ -570,6 +570,7 @@ impl MiruiRune {
         let mut user_set_direction = false;
 
         let is_text_widget = widget_name == "Text";
+        let is_button_widget = widget_name == "Button";
         let is_text_input_widget = widget_name == "TextInput";
         const TEXT_INPUT_FIELDS: &[&str] = &[
             "text_color",
@@ -692,7 +693,7 @@ impl MiruiRune {
                 }
             }
 
-            if is_text_widget && name == "text" {
+            if (is_text_widget || is_button_widget) && name == "text" {
                 text_tuple_value = Some(quote! { #value });
                 continue;
             }
@@ -1009,6 +1010,7 @@ impl MiruiRune {
             // A closure (not a fn item) so the body can capture handles like a
             // Signal from the surrounding scope.
             tokens.extend(quote! {
+                (#world).insert(#widget_var, ::mirui::ui::HitTarget);
                 (#world).insert(
                     #widget_var,
                     ::mirui::input::event::GestureHandler {
@@ -1106,6 +1108,16 @@ impl MiruiRune {
                         __c
                     });
                 });
+                if cmd.name == "Button"
+                    && let Some(text_value) = &cmd.text_tuple_value
+                {
+                    tokens.extend(quote! {
+                        (#world).insert(
+                            #var,
+                            ::mirui::ui::widgets::Text::label(#text_value),
+                        );
+                    });
+                }
             }
 
             tokens.extend(quote! {

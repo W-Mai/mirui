@@ -6,24 +6,72 @@ pub use crate::ui::widgets::text_input::{CursorBlinkPhase, cursor_blink_system};
 // Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
 // drops before each fn gets &mut World. The mut-borrow conflict
 // is the reason for the two-step copy instead of streaming.
-pub fn attach_handlers_for(world: &mut World, entity: Entity) {
-    let mut pending: alloc::vec::Vec<crate::ui::view::ViewAttach> = alloc::vec::Vec::new();
+#[derive(Clone, Copy)]
+struct InputAttach {
+    attach: Option<crate::ui::view::ViewAttach>,
+    internal_gesture: InternalGesture,
+}
+
+#[derive(Clone, Copy)]
+enum InternalGesture {
+    None,
+    Any,
+    Component(core::any::TypeId),
+}
+
+fn input_attach_plan(world: &World) -> alloc::vec::Vec<InputAttach> {
+    let mut pending = alloc::vec::Vec::new();
     if let Some(reg) = world.resource::<crate::ui::view::ViewRegistry>() {
-        for v in reg.iter() {
-            if let Some(f) = v.auto_attach() {
-                pending.push(f);
+        for view in reg.iter() {
+            let attach = view.auto_attach();
+            let internal_gesture = match (view.internal_gesture(), view.component_filter()) {
+                (None, _) => InternalGesture::None,
+                (Some(_), None) => InternalGesture::Any,
+                (Some(_), Some(type_id)) => InternalGesture::Component(type_id),
+            };
+            if attach.is_some() || !matches!(internal_gesture, InternalGesture::None) {
+                pending.push(InputAttach {
+                    attach,
+                    internal_gesture,
+                });
             }
         }
     }
-    for f in pending {
-        f(world, entity);
+    pending
+}
+
+fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) {
+    let mut has_internal_gesture = false;
+    for hook in plan {
+        if let Some(attach) = hook.attach {
+            attach(world, entity);
+        }
+        has_internal_gesture |= match hook.internal_gesture {
+            InternalGesture::None => false,
+            InternalGesture::Any => true,
+            InternalGesture::Component(type_id) => world.has_type(entity, type_id),
+        };
     }
+
+    if has_internal_gesture
+        || world
+            .get::<crate::input::event::GestureHandler>(entity)
+            .is_some()
+    {
+        world.insert(entity, crate::ui::HitTarget);
+    }
+}
+
+pub fn attach_handlers_for(world: &mut World, entity: Entity) {
+    let plan = input_attach_plan(world);
+    apply_input_attach_plan(world, entity, &plan);
 }
 
 /// Walk the widget tree from `root` and auto-install gesture/key
 /// handlers on built-in widgets that don't already have one. Call once
 /// after building the tree.
 pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
+    let plan = input_attach_plan(world);
     let mut stack = alloc::vec::Vec::with_capacity(16);
     stack.push(root);
     while let Some(entity) = stack.pop() {
@@ -32,7 +80,7 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
                 stack.push(child);
             }
         }
-        attach_handlers_for(world, entity);
+        apply_input_attach_plan(world, entity, &plan);
     }
 }
 
@@ -43,6 +91,7 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::types::{Fixed, Rect};
     use crate::ui::ComputedRect;
+    use crate::ui::HitTarget;
     use crate::ui::view::ViewRegistry;
     use crate::ui::widgets::button::Button;
     use crate::ui::widgets::checkbox::{Checkbox, checkbox_handler};
@@ -71,16 +120,21 @@ mod tests {
     }
 
     #[test]
-    fn registry_carries_button_internal_gesture() {
-        let view = crate::ui::widgets::button::view();
-        assert!(
-            view.internal_gesture().is_some(),
-            "Button view must expose an internal gesture handler"
-        );
+    fn button_attach_marks_hit_target() {
+        let mut world = World::default();
+        let mut registry = ViewRegistry::default();
+        registry.insert(crate::ui::widgets::button::view());
+        world.insert_resource(registry);
+        let entity = world.spawn_empty();
+        world.insert(entity, Button::new());
+
+        attach_handlers_for(&mut world, entity);
+
+        assert!(world.has::<HitTarget>(entity));
     }
 
     #[test]
-    fn user_gesture_handler_coexists_with_button_internal() {
+    fn user_gesture_handler_survives_button_attach() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
         reg.insert(crate::ui::widgets::button::view());
@@ -95,6 +149,8 @@ mod tests {
 
         attach_handlers_for(&mut world, e);
 
+        assert!(world.has::<HitTarget>(e));
+
         let h = world.get::<GestureHandler>(e).expect("user handler stays");
         let installed = match h.on_gesture {
             crate::input::event::GestureCallback::Fn(f) => f as *const (),
@@ -104,8 +160,7 @@ mod tests {
         };
         assert!(
             core::ptr::eq(installed, user_handler as *const ()),
-            "user-supplied GestureHandler stays on the user channel; \
-             button internals run on the View internal channel"
+            "button attachment must preserve the user-supplied GestureHandler"
         );
     }
 
@@ -125,6 +180,7 @@ mod tests {
 
         assert!(world.get::<Focusable>(e).is_some());
         assert!(world.get::<KeyHandler>(e).is_some());
+        assert!(world.has::<HitTarget>(e));
         assert!(
             crate::ui::widgets::text_input::view()
                 .internal_gesture()
@@ -140,6 +196,25 @@ mod tests {
             view.internal_gesture().is_some(),
             "ProgressBar view must expose an internal gesture handler"
         );
+    }
+
+    #[test]
+    fn built_in_gesture_widgets_become_hit_targets() {
+        let mut world = World::default();
+        world.insert_resource(ViewRegistry::with_builtins());
+        let slider = world.spawn_empty();
+        world.insert(
+            slider,
+            crate::ui::widgets::Slider::new(Fixed::ZERO, Fixed::from_int(100)),
+        );
+        let switch = world.spawn_empty();
+        world.insert(switch, crate::ui::widgets::Switch::new());
+
+        attach_handlers_for(&mut world, slider);
+        attach_handlers_for(&mut world, switch);
+
+        assert!(world.has::<HitTarget>(slider));
+        assert!(world.has::<HitTarget>(switch));
     }
 
     #[test]
