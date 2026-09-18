@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Signal Scope demo.** A responsive fixed-point oscilloscope combines live controls, deterministic dual-channel animation, and lossless LZ4-compressed MIRX artwork across native and Web Gallery targets.
 - **Surface safe areas.** Mobile surfaces publish logical system insets, and application roots apply them as minimum content padding with an explicit fullscreen opt-out.
 
 ### Changed

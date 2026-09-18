@@ -138,6 +138,23 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
         }};
     }
 
+    macro_rules! fixed_palette {
+        ($module:ident) => {{
+            covered.insert(stringify!($module));
+            for (width, height) in [(320, 568), (480, 320), (1024, 640)] {
+                for theme in [Theme::light(), Theme::dark()] {
+                    let frame = render_demo!($module, width, height, theme);
+                    assert!(
+                        frame.colours >= 3,
+                        "{} {width}x{height} collapsed to {} colours",
+                        stringify!($module),
+                        frame.colours,
+                    );
+                }
+            }
+        }};
+    }
+
     macro_rules! persistence_counter {
         () => {{
             covered.insert("persistence_counter");
@@ -189,6 +206,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     compact!(curve_text_compact);
     responsive!(interaction_lab);
     compact!(kinetic_console);
+    fixed_palette!(signal_scope);
     responsive!(niche);
     responsive!(i18n);
     responsive!(animation);

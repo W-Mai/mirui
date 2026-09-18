@@ -11,6 +11,8 @@ gallery::register_demos! {
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab,      1024, 720),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console,      128, 128, false),
 
+    ("signal_scope",         "Signal Scope",         "Product",     signal_scope,         800, 480),
+
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),
 
@@ -83,7 +85,7 @@ thread_local! {
 }
 
 fn theme_ids_for(demo: &gallery::DemoEntry) -> (&'static str, &'static str) {
-    if demo.category == "Showcase" {
+    if matches!(demo.category, "Showcase" | "Product") {
         (
             gallery::mirui::gallery::showcase_theme::DARK_ID,
             gallery::mirui::gallery::showcase_theme::LIGHT_ID,

@@ -18,6 +18,8 @@ pub mod gradient;
 pub mod i18n;
 pub mod icon;
 pub mod image_flip;
+#[cfg(feature = "std")]
+mod instruments;
 pub mod interaction_lab;
 pub mod kinetic_console;
 pub mod layout_lab;
@@ -36,6 +38,8 @@ pub mod pinch_rotate;
 pub mod render_showcase;
 pub mod scroll;
 pub mod shapes;
+#[cfg(feature = "std")]
+pub mod signal_scope;
 pub mod slider_value_changed;
 pub mod spatial_anim;
 pub mod state_computed;

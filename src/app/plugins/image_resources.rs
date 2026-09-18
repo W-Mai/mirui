@@ -5,7 +5,7 @@ use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::core::cache::MaxSize;
 use crate::core::resource::ResourceManager;
-use crate::render::texture::{ColorFormat, Texture, TextureMeta};
+use crate::render::texture::{ColorFormat, MirxTextureOptions, Texture, TextureMeta};
 use crate::surface::Surface;
 use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
@@ -60,7 +60,7 @@ const FALLBACK_META: TextureMeta = TextureMeta {
 };
 
 type StaticEntry = (Cow<'static, str>, Texture<'static>);
-type MirxEntry = (Cow<'static, str>, &'static [u8]);
+type MirxEntry = (Cow<'static, str>, &'static [u8], MirxTextureOptions);
 type LoaderEntry = Box<dyn FnOnce(&ResourceManager<Texture<'static>>) + 'static>;
 
 /// Inserts a [`ResourceManager<Texture<'static>>`] into the world and seeds
@@ -118,11 +118,21 @@ impl ImageResourcesPlugin {
     }
 
     pub fn with_mirx_bytes(
-        mut self,
+        self,
         token: impl Into<Cow<'static, str>>,
         bytes: &'static [u8],
     ) -> Self {
-        self.mirx_bytes.push((token.into(), bytes));
+        self.with_mirx_bytes_options(token, bytes, MirxTextureOptions::new())
+    }
+
+    /// Registers MIRX bytes with explicit decode limits and output requirements.
+    pub fn with_mirx_bytes_options(
+        mut self,
+        token: impl Into<Cow<'static, str>>,
+        bytes: &'static [u8],
+        options: MirxTextureOptions,
+    ) -> Self {
+        self.mirx_bytes.push((token.into(), bytes, options));
         self
     }
 
@@ -152,11 +162,11 @@ where
         for (token, tex) in self.statics.drain(..) {
             manager.add_static(token, tex);
         }
-        for (token, bytes) in self.mirx_bytes.drain(..) {
+        for (token, bytes, options) in self.mirx_bytes.drain(..) {
             // Errors here mean the user gave us bad bytes during plugin
             // construction; surfacing via panic is the right call —
             // there's no other reasonable place to report it.
-            if let Err(e) = manager.add_mirx_bytes(token.clone(), bytes) {
+            if let Err(e) = manager.add_mirx_bytes_with(token.clone(), bytes, options) {
                 panic!("ImageResourcesPlugin: bad mirx bytes for {token:?}: {e:?}");
             }
         }
@@ -192,8 +202,8 @@ mod tests {
         for (token, tex) in plugin.statics.drain(..) {
             manager.add_static(token, tex);
         }
-        for (token, bytes) in plugin.mirx_bytes.drain(..) {
-            manager.add_mirx_bytes(token, bytes).unwrap();
+        for (token, bytes, options) in plugin.mirx_bytes.drain(..) {
+            manager.add_mirx_bytes_with(token, bytes, options).unwrap();
         }
         for configure in plugin.loaders.drain(..) {
             configure(&manager);

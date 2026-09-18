@@ -29,6 +29,8 @@ directory, so backend and demo edits rebuild the running WebAssembly bundle.
 
 Layout Lab, Typography Lab and Interaction Lab group related framework capabilities into responsive, inspectable scenarios. Focused entries remain for subsystems with distinct runtime behavior, including scrolling, animation, effects, text input and specialized controls.
 
+The Product group contains Signal Scope, an interactive instrument surface with allocation-stable custom drawing, responsive controls and lossless MIRX artwork.
+
 The source panel reads the selected scenario module directly. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
 
 ## Build for release
