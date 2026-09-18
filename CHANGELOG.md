@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Declarative Curve Text layout.** Compact control height and typography derive from the live stage width in `ui!`, while the path window uses one explicit geometry binding instead of polling layout from the animation system.
 - **Responsive subpixel study.** Pixel-snapped and Q24.8 motion use semantic theme roles, elapsed frame time, and a bounded live arena that adapts independently across portrait and landscape canvases.
 - **Responsive simulation and composite studies.** The life field uses bounded square-cell geometry, semantic presentation surfaces, reusable simulation buffers, and a native compact variant that reflows its controls around portrait, square, and landscape canvases. Composite samples retain their raw blend inputs inside themed cards that reflow across portrait and landscape canvases.
 - **Responsive effect pipeline study.** Reflection, temporal mix, background blur, shadow, and glow panels inherit the active palette, retain bounded sampling geometry across portrait and landscape canvases, and animate the blur overlay without relayout.

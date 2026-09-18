@@ -16,7 +16,7 @@ use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{
     ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextOverflow, TextWrap,
 };
-use crate::ui::{IgnoreHitTest, Theme};
+use crate::ui::{IgnoreHitTest, LayoutAxis, LayoutDependency, Theme};
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
 
@@ -46,8 +46,7 @@ struct CurveModel {
     speed: Signal<Fixed>,
     reversed: Signal<bool>,
     paused: Signal<bool>,
-    stage_width: Signal<Fixed>,
-    stage_height: Signal<Fixed>,
+    stage_size: Signal<CurveStageSize>,
 }
 
 impl Default for CurveModel {
@@ -58,8 +57,27 @@ impl Default for CurveModel {
             speed: Signal::new(Fixed::from_int(64)),
             reversed: Signal::new(false),
             paused: Signal::new(false),
-            stage_width: Signal::new(BASE_STAGE_WIDTH),
-            stage_height: Signal::new(BASE_STAGE_HEIGHT),
+            stage_size: Signal::new(CurveStageSize::BASE),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CurveStageSize {
+    width: Fixed,
+    height: Fixed,
+}
+
+impl CurveStageSize {
+    const BASE: Self = Self {
+        width: BASE_STAGE_WIDTH,
+        height: BASE_STAGE_HEIGHT,
+    };
+
+    fn from_dimensions(width: Fixed, height: Fixed) -> Self {
+        Self {
+            width: width.max(Fixed::from_int(120)),
+            height: height.max(Fixed::from_int(220)),
         }
     }
 }
@@ -73,43 +91,10 @@ type CurveMotion = super::motion::BrakedPhase;
 
 #[derive(Clone, Copy)]
 struct CurveNodes {
-    header: Entity,
     stage: Entity,
-    controls: Entity,
     primary: Entity,
     multiscript: Entity,
     caption: Entity,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CurveLayoutMetrics {
-    header_height: i32,
-    controls_height: i32,
-    primary_font_size: u16,
-    multiscript_font_size: u16,
-    caption_font_size: u16,
-}
-
-impl CurveLayoutMetrics {
-    fn for_width(width: Fixed) -> Self {
-        if width < Fixed::from_int(520) {
-            Self {
-                header_height: 104,
-                controls_height: 146,
-                primary_font_size: 18,
-                multiscript_font_size: 17,
-                caption_font_size: 10,
-            }
-        } else {
-            Self {
-                header_height: 104,
-                controls_height: 62,
-                primary_font_size: 30,
-                multiscript_font_size: 25,
-                caption_font_size: 14,
-            }
-        }
-    }
 }
 
 #[derive(Default, crate::Component)]
@@ -160,6 +145,7 @@ fn mixed_stack() -> FontStack {
 fn single_line(direction: TextDirection) -> ParagraphStyle {
     ParagraphStyle {
         wrap: TextWrap::NoWrap,
+        overflow: TextOverflow::Ellipsis,
         direction,
         shaping: ShapingPolicy::Required,
         max_lines: Some(1),
@@ -438,55 +424,33 @@ fn mark_curve_stage_dirty(world: &mut World, stage: Entity) {
     }
 }
 
-fn sync_stage_metrics(world: &mut World, nodes: CurveNodes, model: &CurveModel) {
-    let Some(rect) = world
-        .get::<crate::ui::ComputedRect>(nodes.stage)
-        .map(|rect| rect.0)
-    else {
-        return;
-    };
-    let width = rect.w.max(Fixed::from_int(120));
-    let height = rect.h.max(Fixed::from_int(220));
-    if model.stage_width.get_untracked() == width && model.stage_height.get_untracked() == height {
-        return;
-    }
-    model.stage_width.set(width);
-    model.stage_height.set(height);
+fn bind_stage_layout(
+    cx: &mut crate::ui::UiScope<'_>,
+    nodes: CurveNodes,
+    paths: CurvePaths,
+    model: CurveModel,
+) {
+    let dependencies = [
+        LayoutDependency::entity(nodes.stage, LayoutAxis::Width),
+        LayoutDependency::entity(nodes.stage, LayoutAxis::Height),
+    ];
+    cx.bind_layout(nodes.stage, &dependencies, move |world, _, values| {
+        let size = CurveStageSize::from_dimensions(values.get(0), values.get(1));
+        model.stage_size.set(size);
 
-    let metrics = CurveLayoutMetrics::for_width(width);
-    for (entity, height) in [
-        (nodes.header, metrics.header_height),
-        (nodes.controls, metrics.controls_height),
-    ] {
-        if let Some(style) = world.get_mut::<Style>(entity) {
-            style.layout.height = Dimension::px(height);
-            style.layout.min_height = Dimension::px(height);
+        let end = path_window_end(size.width);
+        for (entity, path) in [
+            (nodes.primary, paths.ids[0]),
+            (nodes.multiscript, paths.ids[1]),
+            (nodes.caption, paths.ids[2]),
+        ] {
+            world
+                .widget_mut(entity)
+                .expect("responsive curve path target")
+                .text_path(crate::text::TextPath::new(path).with_range(Fixed::ZERO..end));
         }
-        world.invalidate(entity);
-    }
-    for (entity, size) in [
-        (nodes.primary, metrics.primary_font_size),
-        (nodes.multiscript, metrics.multiscript_font_size),
-        (nodes.caption, metrics.caption_font_size),
-    ] {
-        if let Some(style) = world.get_mut::<Style>(entity) {
-            style.set_font_size(size);
-        }
-    }
-    let Some(paths) = world.resource::<CurvePaths>().copied() else {
-        return;
-    };
-    let end = path_window_end(width);
-    for (entity, path) in [
-        (nodes.primary, paths.ids[0]),
-        (nodes.multiscript, paths.ids[1]),
-        (nodes.caption, paths.ids[2]),
-    ] {
-        if let Some(mut text) = world.widget_mut(entity) {
-            text.text_path(crate::text::TextPath::new(path).with_range(Fixed::ZERO..end));
-        }
-    }
-    world.invalidate(nodes.stage);
+        world.invalidate_visual(nodes.stage);
+    });
 }
 
 #[mirui_macros::system(order = ANIMATION)]
@@ -497,9 +461,6 @@ fn curve_text_animation_system(world: &mut World) {
     let Some(model) = world.resource::<CurveModel>().cloned() else {
         return;
     };
-    if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-        sync_stage_metrics(world, nodes, &model);
-    }
     let paused = model.paused.get_untracked();
     let reversed = model.reversed.get_untracked();
     let speed = model.speed.get_untracked();
@@ -538,10 +499,10 @@ fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &
     for (lane, path) in paths.ids.into_iter().enumerate() {
         let phase = model.phase.clone();
         let amplitude = model.amplitude.clone();
-        let stage_width = model.stage_width.clone();
-        let stage_height = model.stage_height.clone();
+        let stage_size = model.stage_size.clone();
         cx.bind_path(path, move |geometry| {
             let current_phase = phase.get();
+            let stage_size = stage_size.get();
             let envelope = Fixed::from_ratio(17, 20)
                 + Fixed::sin_deg(current_phase / 3 + Fixed::from_int(lane as i32 * 37))
                     * Fixed::from_ratio(3, 20);
@@ -550,8 +511,8 @@ fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &
                 lane,
                 current_phase,
                 amplitude.get() * envelope,
-                stage_width.get(),
-                stage_height.get(),
+                stage_size.width,
+                stage_size.height,
             );
         })
         .expect("mutable curve path");
@@ -565,6 +526,7 @@ fn compose_header() -> Entity {
             id: "curve_text_header",
             width: Dimension::percent(100),
             height: 104,
+            min_height: 104,
             row_gap: 6
         ) {
             Row (
@@ -648,7 +610,9 @@ fn compose_stage(paths: CurvePaths) -> Entity {
                 width: Dimension::percent(100),
                 height: Dimension::percent(100),
                 font: UI,
-                font_size: 30,
+                font_size: @id(curve_text_stage).width {
+                    if curve_text_stage.width < Fixed::from_int(520) { 18_u16 } else { 30_u16 }
+                },
                 text_color: TEXT,
                 paragraph: single_line(TextDirection::LeftToRight)
             ) [
@@ -665,7 +629,9 @@ fn compose_stage(paths: CurvePaths) -> Entity {
                 width: Dimension::percent(100),
                 height: Dimension::percent(100),
                 font_stack: mixed_stack(),
-                font_size: 25,
+                font_size: @id(curve_text_stage).width {
+                    if curve_text_stage.width < Fixed::from_int(520) { 17_u16 } else { 25_u16 }
+                },
                 text_color: CYAN,
                 paragraph: single_line(TextDirection::Auto)
             ) [
@@ -682,7 +648,9 @@ fn compose_stage(paths: CurvePaths) -> Entity {
                 width: Dimension::percent(100),
                 height: Dimension::percent(100),
                 font: UI,
-                font_size: 14,
+                font_size: @id(curve_text_stage).width {
+                    if curve_text_stage.width < Fixed::from_int(520) { 10_u16 } else { 14_u16 }
+                },
                 text_color: GOLD,
                 paragraph: single_line(TextDirection::LeftToRight)
             ) [
@@ -708,8 +676,12 @@ fn compose_controls() -> Entity {
         Row (
             id: "curve_text_controls",
             width: Dimension::percent(100),
-            height: Dimension::Content,
-            min_height: 62,
+            height: @id(curve_text_stage).width {
+                if curve_text_stage.width < Fixed::from_int(520) { 146 } else { 62 }
+            },
+            min_height: @id(curve_text_stage).width {
+                if curve_text_stage.width < Fixed::from_int(520) { 146 } else { 62 }
+            },
             padding: Padding {
                 top: Dimension::px(10),
                 right: Dimension::px(12),
@@ -845,6 +817,26 @@ fn build_widgets(paths: CurvePaths) {
             }
         }
     };
+    let nodes = CurveNodes {
+        stage: cx
+            .world_mut()
+            .find_by_id("curve_text_stage")
+            .expect("Curve Text stage"),
+        primary: cx
+            .world_mut()
+            .find_by_id("curve_text_primary")
+            .expect("Curve Text primary text"),
+        multiscript: cx
+            .world_mut()
+            .find_by_id("curve_text_multiscript")
+            .expect("Curve Text multiscript text"),
+        caption: cx
+            .world_mut()
+            .find_by_id("curve_text_caption")
+            .expect("Curve Text caption"),
+    };
+    bind_stage_layout(cx, nodes, paths, model);
+    cx.world_mut().insert_resource(nodes);
     let content = cx
         .world_mut()
         .find_by_id("curve_text_document")
@@ -874,18 +866,6 @@ where
     app.add_system(curve_text_animation_system::system())
         .add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, |cx| build_widgets(cx, paths));
-    let stage = app
-        .world
-        .find_by_id("curve_text_stage")
-        .expect("Curve Text stage");
-    app.world.insert_resource(CurveNodes {
-        header: app.world.find_by_id("curve_text_header").unwrap(),
-        stage,
-        controls: app.world.find_by_id("curve_text_controls").unwrap(),
-        primary: app.world.find_by_id("curve_text_primary").unwrap(),
-        multiscript: app.world.find_by_id("curve_text_multiscript").unwrap(),
-        caption: app.world.find_by_id("curve_text_caption").unwrap(),
-    });
 }
 
 #[cfg(feature = "std")]
@@ -907,6 +887,7 @@ mod tests {
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
     use crate::surface::FramebufferAccess;
+    use crate::types::Viewport;
 
     type TestApp = App<
         crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
@@ -942,15 +923,82 @@ mod tests {
     }
 
     #[test]
-    fn compact_layout_reserves_rows_for_wrapped_header_and_controls() {
-        let compact = CurveLayoutMetrics::for_width(Fixed::from_int(378));
-        let desktop = CurveLayoutMetrics::for_width(BASE_STAGE_WIDTH);
+    fn stage_size_is_published_as_one_clamped_value() {
+        assert_eq!(
+            CurveStageSize::from_dimensions(Fixed::from_int(80), Fixed::from_int(160)),
+            CurveStageSize {
+                width: Fixed::from_int(120),
+                height: Fixed::from_int(220),
+            }
+        );
+        assert_eq!(
+            CurveStageSize::from_dimensions(Fixed::from_int(640), Fixed::from_int(360)),
+            CurveStageSize {
+                width: Fixed::from_int(640),
+                height: Fixed::from_int(360),
+            }
+        );
+    }
 
-        assert_eq!(compact.header_height, 104);
-        assert_eq!(compact.controls_height, 146);
-        assert!(compact.primary_font_size < desktop.primary_font_size);
-        assert_eq!(desktop.header_height, 104);
-        assert_eq!(desktop.controls_height, 62);
+    #[test]
+    fn layout_binding_updates_responsive_geometry_without_animation() {
+        let mut app = fixture();
+        let root = app.root.expect("root");
+        crate::ui::render_system::update_layout(
+            &mut app.world,
+            root,
+            &Viewport::new(400, 540, Fixed::ONE),
+        );
+
+        let nodes = *app.world.resource::<CurveNodes>().unwrap();
+        let controls = app
+            .world
+            .find_by_id("curve_text_controls")
+            .expect("Curve Text controls");
+        let stage_rect = app
+            .world
+            .get::<crate::ui::ComputedRect>(nodes.stage)
+            .unwrap()
+            .0;
+        let stage_size = app
+            .world
+            .resource::<CurveModel>()
+            .unwrap()
+            .stage_size
+            .get_untracked();
+        assert_eq!(
+            stage_size,
+            CurveStageSize::from_dimensions(stage_rect.w, stage_rect.h)
+        );
+        assert_eq!(
+            app.world.get::<Style>(controls).unwrap().layout.height,
+            Dimension::px(146)
+        );
+        assert_eq!(
+            app.world.get::<Style>(nodes.primary).unwrap().font_size,
+            Some(18)
+        );
+        assert_eq!(
+            app.world
+                .get::<crate::text::TextPath>(nodes.primary)
+                .unwrap()
+                .end(),
+            Some(path_window_end(stage_size.width))
+        );
+
+        crate::ui::render_system::update_layout(
+            &mut app.world,
+            root,
+            &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
+        );
+        assert_eq!(
+            app.world.get::<Style>(controls).unwrap().layout.height,
+            Dimension::px(62)
+        );
+        assert_eq!(
+            app.world.get::<Style>(nodes.primary).unwrap().font_size,
+            Some(30)
+        );
     }
 
     #[test]
