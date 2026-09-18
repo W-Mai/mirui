@@ -242,6 +242,41 @@ mod tests {
     }
 
     #[test]
+    fn image_accepts_a_borrowed_vector_path_positionally() {
+        use mirui::render::path::{Path, PathCmd};
+        use mirui::types::Point;
+        use mirui::ui::widgets::{Image, ImageSource};
+
+        static ICON: &[PathCmd] = &[
+            PathCmd::MoveTo(Point::ZERO),
+            PathCmd::LineTo(Point {
+                x: mirui::types::Fixed::from_int(24),
+                y: mirui::types::Fixed::from_int(24),
+            }),
+        ];
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+        let icon = Path::from_static(ICON);
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Image (icon) {}
+        };
+
+        let entity = world.query::<Image>().collect()[0];
+        assert!(matches!(
+            &world.get::<Image>(entity).unwrap().src,
+            ImageSource::Vector(path) if path.commands().as_ptr() == ICON.as_ptr()
+        ));
+    }
+
+    #[test]
     fn row_widget_implies_row_direction() {
         use mirui::ui::Style;
         use mirui::ui::layout::FlexDirection;

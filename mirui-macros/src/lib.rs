@@ -74,7 +74,7 @@ const BUILTIN_COMPONENT_NAMES: &[&str] = &[
 fn primary_attr_for(widget_name: &str) -> Option<&'static str> {
     match widget_name {
         "Text" => Some("text"),
-        "Image" => Some("texture"),
+        "Image" => Some("src"),
         "MirrorOf" => Some("source"),
         _ => None,
     }

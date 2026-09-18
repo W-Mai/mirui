@@ -22,7 +22,7 @@ pub use background_blur::BackgroundBlur;
 pub use button::Button;
 pub use checkbox::Checkbox;
 pub use drop_shadow::{DropGlow, DropShadow};
-pub use image::Image;
+pub use image::{Image, ImageSource};
 pub use lazy_list::{LazyList, LazyListBinder, LazyListPool};
 pub use mirror::MirrorOf;
 pub use progress_bar::ProgressBar;

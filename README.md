@@ -171,7 +171,7 @@ Powered by [xrune](https://github.com/W-Mai/xrune). Integer literals in attribut
 | `padding` | `Padding` | Inner padding |
 | `position` | `Position` | Flex / Absolute |
 | `left` / `top` | `Dimension` | Absolute position |
-| `image` | `Image` | Image component |
+| `src` | `ImageSource` | Texture token or vector `Path` for `Image` |
 
 ## Theme
 
@@ -189,6 +189,15 @@ app.edit_theme(|theme| { theme.set(ColorToken::Primary, Color::rgb(96, 230, 214)
 ```
 
 `WidgetState` (`Hovered` / `Pressed` / `Error` / `Disabled`) routes overlays automatically: hover blends 8% `OnSurface`, press 12%, error 16% `Error`, disabled blends text/icon to 38% on `Surface` and container roles to 12%. No widget needs to author per-state logic.
+
+## Images
+
+`Image` accepts resource names and vector paths through the same `src` field. Static paths remain borrowed and are scaled during rendering without allocating transformed commands.
+
+```rust
+Image("avatar")
+Image(src: ICON_HOME.clone(), color: ColorToken::Primary, viewbox: 24)
+```
 
 ## Animation
 

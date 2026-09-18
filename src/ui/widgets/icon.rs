@@ -1,6 +1,4 @@
 use crate::ecs::{Entity, World};
-use crate::render::canvas::Paint;
-use crate::render::command::DrawCommand;
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
 use crate::types::{Dimension, Fixed, Rect, Transform};
@@ -58,23 +56,18 @@ impl Icon {
     }
 }
 
-fn icon_transform(icon: &Icon, rect: &Rect, parent: Transform) -> Option<Transform> {
+fn icon_size(icon: &Icon, rect: &Rect) -> Option<Fixed> {
     let available = rect.w.min(rect.h);
     let size_px = icon.size.resolve_or(available, available);
     if icon.viewbox <= Fixed::ZERO || size_px <= Fixed::ZERO || icon.scale <= Fixed::ZERO {
         return None;
     }
     let rendered_size = size_px * icon.scale;
-    let x = rect.x + (rect.w - rendered_size) / Fixed::from_int(2);
-    let y = rect.y + (rect.h - rendered_size) / Fixed::from_int(2);
-    Some(
-        parent
-            .compose(&Transform::translate(x, y))
-            .compose(&Transform::scale(
-                rendered_size / icon.viewbox,
-                rendered_size / icon.viewbox,
-            )),
-    )
+    Some(rendered_size)
+}
+
+fn icon_transform(icon: &Icon, rect: &Rect, parent: Transform) -> Option<Transform> {
+    super::image::vector_transform(rect, icon.viewbox, icon_size(icon, rect)?, parent)
 }
 
 fn icon_render(
@@ -90,22 +83,10 @@ fn icon_render(
     let theme = ctx.theme(world);
     let color = icon.color.resolve_in(theme, ctx.state);
 
-    let Some(scaled) = icon_transform(icon, rect, ctx.transform) else {
+    let Some(transform) = icon_transform(icon, rect, ctx.transform) else {
         return;
     };
-    let paint = Paint::Color(color.into());
-
-    ctx.draw(
-        renderer,
-        &DrawCommand::FillPath {
-            path: &icon.path,
-            transform: scaled,
-            paint: &paint,
-            opa: 255,
-            fill_rule: crate::render::raster::FillRule::EvenOdd,
-        },
-        ctx.clip,
-    );
+    super::image::draw_vector_transformed(renderer, ctx, &icon.path, color, transform);
 }
 
 pub fn view() -> View {

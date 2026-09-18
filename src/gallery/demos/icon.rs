@@ -12,7 +12,7 @@ use crate::ui::icons::{
 };
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::widgets::icon::Icon;
-use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
+use crate::ui::widgets::{Image, ParagraphStyle, Text, TextAlign};
 
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
@@ -113,10 +113,11 @@ pub fn build_widgets() {
                 column_gap: 6
             ) {
                 walk table.iter() with cell {
-                    Icon (
-                        path: cell.0.clone(),
+                    Image (
+                        src: cell.0.clone(),
                         color: ThemedColor::Token(cell.1),
-                        size: Dimension::Px(Fixed::from_int(28)),
+                        viewbox: Fixed::from_int(24),
+                        scale: Fixed::from_ratio(7, 6),
                         width: 44,
                         height: 44,
                         grow: 0.0,
