@@ -52,7 +52,7 @@ const STYLE_ATTRS: &[&str] = &[
     "font_size",
 ];
 
-const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column"];
+const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column", "Scroll"];
 
 #[allow(dead_code)]
 const BUILTIN_COMPONENT_NAMES: &[&str] = &[
@@ -1079,6 +1079,22 @@ impl MiruiRune {
                 .id();
         });
 
+        if cmd.name == "Scroll" {
+            tokens.extend(quote! {
+                if let Some(__style) = (#world).get_mut::<mirui::ui::Style>(#var) {
+                    __style.clip_children = true;
+                }
+                (#world).insert(#var, mirui::input::event::scroll::ScrollOffset::default());
+                (#world).insert(
+                    #var,
+                    mirui::input::event::scroll::ScrollConfig {
+                        elastic: false,
+                        ..Default::default()
+                    },
+                );
+            });
+        }
+
         // Must precede the reactive-bind injection: an effect's first run writes
         // into the component, so seeding it after would clobber that value.
         if cmd.kind == WidgetKind::Component {
@@ -1891,7 +1907,7 @@ impl DsRune for MiruiRune {
                         quote! { direction: mirui::ui::layout::FlexDirection::Row },
                     );
                 }
-                "Column" => {
+                "Column" | "Scroll" => {
                     parsed.layout_fields.insert(
                         0,
                         quote! { direction: mirui::ui::layout::FlexDirection::Column },
@@ -2774,6 +2790,7 @@ mod widget_kind_tests {
         assert_eq!(classify_widget_name(&id("View")), WidgetKind::Layout);
         assert_eq!(classify_widget_name(&id("Row")), WidgetKind::Layout);
         assert_eq!(classify_widget_name(&id("Column")), WidgetKind::Layout);
+        assert_eq!(classify_widget_name(&id("Scroll")), WidgetKind::Layout);
     }
 
     #[test]

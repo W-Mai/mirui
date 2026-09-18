@@ -278,23 +278,13 @@ app.add_plugin(MyHotkeysPlugin);
 ## ScrollView
 
 ```rust
-use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-
 ui! {
     :(
         parent: root
         world: &mut world
     :)
 
-    scroll_container (direction: FlexDirection::Column, grow: 1.0) [
-        ScrollOffset { x: Fixed::ZERO, y: Fixed::ZERO },
-        ScrollConfig {
-            direction: ScrollAxis::Vertical,
-            elastic: true,
-            content_height: Fixed::from_int(800),
-            content_width: Fixed::ZERO,
-        }
-    ] {
+    Scroll (grow: 1.0) {
         walk items.iter() with item {
             row (height: 60, bg_color: item.color, text: item.label) {}
         }
@@ -302,7 +292,7 @@ ui! {
 };
 ```
 
-Drag scrolling, inertia (spring-damped), elastic bounce, iOS-style scroll chaining across nested scroll views, and per-axis content clamping.
+`Scroll` clips its children and derives the retained content extent without a synchronization system. Virtualized or externally measured content can still provide explicit `ScrollConfig` dimensions. Drag scrolling, inertia, elastic bounce, nested scroll chaining, and per-axis content clamping share the same bounds calculation.
 
 ## Hybrid Backends — `compose_backend!`
 

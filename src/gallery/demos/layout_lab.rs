@@ -456,8 +456,8 @@ fn compose_collection_card() -> Entity {
 #[compose]
 pub fn build_widgets() {
     //~focus-start
-    let viewport = ui! {
-        View (
+    ui! {
+        Scroll (
             id: "layout_lab_shell",
             grow: 1.0,
             clip_children: true,
@@ -489,17 +489,6 @@ pub fn build_widgets() {
             }
         }
     };
-    let content = cx
-        .world_mut()
-        .find_by_id("layout_lab_document")
-        .expect("Layout Lab document");
-    super::lab_scroll::LabScroll::attach(
-        cx.world_mut(),
-        viewport,
-        content,
-        Fixed::from_int(1280),
-        Fixed::from_int(18),
-    );
     //~focus-end
 }
 
@@ -511,7 +500,6 @@ where
 {
     crate::gallery::showcase_theme::install(&mut app.world);
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    app.add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, build_widgets);
 }
 
@@ -679,7 +667,7 @@ mod tests {
 
     #[test]
     fn phone_scroll_extent_ends_at_the_last_visible_descendant() {
-        use crate::input::event::scroll::ScrollConfig;
+        use crate::input::event::scroll::scroll_bounds;
         use crate::types::Viewport;
         use crate::ui::ComputedRect;
         use crate::ui::render_system::update_layout;
@@ -691,16 +679,15 @@ mod tests {
                 parent,
                 &Viewport::new(width, height, Fixed::ONE),
             );
-            super::super::lab_scroll::LabScroll::sync_all(&mut world);
-
             let shell = world.find_by_id("layout_lab_shell").unwrap();
             let content = world.find_by_id("layout_lab_document").unwrap();
             let last = world.find_by_id("layout_lab_collection").unwrap();
             let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
             let content_rect = world.get::<ComputedRect>(content).unwrap().0;
             let last_rect = world.get::<ComputedRect>(last).unwrap().0;
-            let extent = world.get::<ScrollConfig>(shell).unwrap().content_height;
-            let max_offset = extent - shell_rect.h;
+            let bounds = scroll_bounds(&world, shell).unwrap();
+            let extent = bounds.content_height;
+            let max_offset = bounds.max_y;
 
             assert!(max_offset > Fixed::ZERO, "{width}x{height}");
             assert!(

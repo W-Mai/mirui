@@ -5,6 +5,67 @@ use crate::input::event::hit_test::hit_test;
 use crate::input::event::input::InputEvent;
 use crate::types::Fixed;
 
+fn descendant_extent(world: &World, entity: Entity) -> Option<(Fixed, Fixed)> {
+    let rect = world.get::<crate::ui::ComputedRect>(entity)?.0;
+    let mut right = rect.x + rect.w;
+    let mut bottom = rect.y + rect.h;
+    if world
+        .get::<crate::ui::Style>(entity)
+        .is_some_and(|style| style.clip_children)
+    {
+        return Some((right, bottom));
+    }
+    if let Some(children) = world.get::<crate::ui::Children>(entity) {
+        for &child in &children.0 {
+            if let Some((child_right, child_bottom)) = descendant_extent(world, child) {
+                right = right.max(child_right);
+                bottom = bottom.max(child_bottom);
+            }
+        }
+    }
+    Some((right, bottom))
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScrollBounds {
+    pub viewport_width: Fixed,
+    pub viewport_height: Fixed,
+    pub content_width: Fixed,
+    pub content_height: Fixed,
+    pub max_x: Fixed,
+    pub max_y: Fixed,
+}
+
+pub fn scroll_bounds(world: &World, entity: Entity) -> Option<ScrollBounds> {
+    let rect = world.get::<crate::ui::ComputedRect>(entity)?.0;
+    let mut content_width = rect.w;
+    let mut content_height = rect.h;
+    if let Some(children) = world.get::<crate::ui::Children>(entity) {
+        for &child in &children.0 {
+            if let Some((right, bottom)) = descendant_extent(world, child) {
+                content_width = content_width.max(right - rect.x);
+                content_height = content_height.max(bottom - rect.y);
+            }
+        }
+    }
+    if let Some(config) = world.get::<ScrollConfig>(entity) {
+        if config.content_width > Fixed::ZERO {
+            content_width = config.content_width;
+        }
+        if config.content_height > Fixed::ZERO {
+            content_height = config.content_height;
+        }
+    }
+    Some(ScrollBounds {
+        viewport_width: rect.w,
+        viewport_height: rect.h,
+        content_width,
+        content_height,
+        max_x: (content_width - rect.w).max(Fixed::ZERO),
+        max_y: (content_height - rect.h).max(Fixed::ZERO),
+    })
+}
+
 fn accumulate_scroll_delta(world: &mut World, target: Entity, dx: Fixed, dy: Fixed) {
     if dx == Fixed::ZERO && dy == Fixed::ZERO {
         return;
@@ -193,13 +254,8 @@ pub(crate) fn scroll_system_with_target(
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
             let elastic = config.map(|c| c.elastic).unwrap_or(true);
-            let computed = world.get::<crate::ui::ComputedRect>(target);
-            let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
-            let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-            let content_h: Fixed = config.map(|c| c.content_height).unwrap_or(container_h);
-            let content_w: Fixed = config.map(|c| c.content_width).unwrap_or(container_w);
-            let max_y = (content_h - container_h).max(Fixed::ZERO);
-            let max_x = (content_w - container_w).max(Fixed::ZERO);
+            let bounds = scroll_bounds(world, target).unwrap_or_default();
+            let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
             // elastic=true rubber-bands past the edges; elastic=false hard-clamps.
             let bound = |offset: Fixed, delta: Fixed, max: Fixed| -> Fixed {
@@ -288,18 +344,8 @@ pub(crate) fn scroll_system_with_target(
                 .map(|s| (s.x, s.y))
                 .unwrap_or((Fixed::ZERO, Fixed::ZERO));
 
-            let (max_x, max_y) = {
-                let cfg = world.get::<ScrollConfig>(target_entity);
-                let computed = world.get::<crate::ui::ComputedRect>(target_entity);
-                let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
-                let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-                let content_h = cfg.map(|c| c.content_height).unwrap_or(container_h);
-                let content_w = cfg.map(|c| c.content_width).unwrap_or(container_w);
-                (
-                    (content_w - container_w).max(Fixed::ZERO),
-                    (content_h - container_h).max(Fixed::ZERO),
-                )
-            };
+            let bounds = scroll_bounds(world, target_entity).unwrap_or_default();
+            let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
             // elastic=false: clamp the inertia target so the spring can't
             // push offset past the content edge.
@@ -393,19 +439,10 @@ pub(crate) fn scroll_system_with_target(
 
             let (axis, max_x, max_y, elastic) = {
                 let cfg = world.get::<ScrollConfig>(target);
-                let computed = world.get::<crate::ui::ComputedRect>(target);
-                let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
-                let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-                let content_h = cfg.map(|c| c.content_height).unwrap_or(container_h);
-                let content_w = cfg.map(|c| c.content_width).unwrap_or(container_w);
+                let bounds = scroll_bounds(world, target).unwrap_or_default();
                 let dir = cfg.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
                 let elastic = cfg.map(|c| c.elastic).unwrap_or(true);
-                (
-                    dir,
-                    (content_w - container_w).max(Fixed::ZERO),
-                    (content_h - container_h).max(Fixed::ZERO),
-                    elastic,
-                )
+                (dir, bounds.max_x, bounds.max_y, elastic)
             };
 
             // Push the spring's target, don't touch ScrollOffset directly —
@@ -505,15 +542,9 @@ pub fn scroll_inertia_system(world: &mut World) {
 
     let (max_x, max_y, elastic) = {
         let config = world.get::<ScrollConfig>(target);
-        let computed = world.get::<crate::ui::ComputedRect>(target);
-        let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
-        let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-        let content_h = config.map(|c| c.content_height).unwrap_or(container_h);
-        let content_w = config.map(|c| c.content_width).unwrap_or(container_w);
-        let max_y = (content_h - container_h).max(Fixed::ZERO);
-        let max_x = (content_w - container_w).max(Fixed::ZERO);
+        let bounds = scroll_bounds(world, target).unwrap_or_default();
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
-        (max_x, max_y, elastic)
+        (bounds.max_x, bounds.max_y, elastic)
     };
 
     let (new_x, new_y, done) = {
@@ -666,6 +697,81 @@ fn find_scroll_target_for_direction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zero_extent_tracks_visible_descendants_without_allocation() {
+        use crate::ui::{Children, ComputedRect, Style};
+
+        let mut world = World::new();
+        let viewport = world.spawn(Style {
+            clip_children: true,
+            ..Style::default()
+        });
+        let content = world.spawn(Style::default());
+        let overflow = world.spawn(Style::default());
+        let clipped = world.spawn(Style {
+            clip_children: true,
+            ..Style::default()
+        });
+        let hidden_overflow = world.spawn(Style::default());
+        world.insert(
+            viewport,
+            ComputedRect(crate::types::Rect::new(10, 20, 120, 80)),
+        );
+        world.insert(
+            content,
+            ComputedRect(crate::types::Rect::new(10, 20, 120, 100)),
+        );
+        world.insert(
+            overflow,
+            ComputedRect(crate::types::Rect::new(10, 200, 120, 40)),
+        );
+        world.insert(
+            clipped,
+            ComputedRect(crate::types::Rect::new(10, 140, 120, 30)),
+        );
+        world.insert(
+            hidden_overflow,
+            ComputedRect(crate::types::Rect::new(10, 500, 120, 40)),
+        );
+        world.insert(viewport, Children(alloc::vec![content]));
+        world.insert(content, Children(alloc::vec![overflow, clipped]));
+        world.insert(clipped, Children(alloc::vec![hidden_overflow]));
+        world.insert(viewport, ScrollConfig::default());
+
+        let bounds = scroll_bounds(&world, viewport).unwrap();
+
+        assert_eq!(bounds.viewport_height, Fixed::from_int(80));
+        assert_eq!(bounds.content_height, Fixed::from_int(220));
+        assert_eq!(bounds.max_y, Fixed::from_int(140));
+    }
+
+    #[test]
+    fn explicit_extent_overrides_retained_descendants() {
+        use crate::ui::{Children, ComputedRect, Style};
+
+        let mut world = World::new();
+        let viewport = world.spawn(Style::default());
+        let child = world.spawn(Style::default());
+        world.insert(
+            viewport,
+            ComputedRect(crate::types::Rect::new(0, 0, 100, 80)),
+        );
+        world.insert(child, ComputedRect(crate::types::Rect::new(0, 0, 100, 200)));
+        world.insert(viewport, Children(alloc::vec![child]));
+        world.insert(
+            viewport,
+            ScrollConfig {
+                content_height: Fixed::from_int(480),
+                ..ScrollConfig::default()
+            },
+        );
+
+        let bounds = scroll_bounds(&world, viewport).unwrap();
+
+        assert_eq!(bounds.content_height, Fixed::from_int(480));
+        assert_eq!(bounds.max_y, Fixed::from_int(400));
+    }
 
     #[test]
     fn pointer_down_reuses_the_pipeline_hit_target() {
@@ -1081,13 +1187,8 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed)
         return false;
     };
     let config = world.get::<ScrollConfig>(entity);
-    let computed = world.get::<crate::ui::ComputedRect>(entity);
-    let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
-    let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-    let content_h = config.map(|c| c.content_height).unwrap_or(container_h);
-    let content_w = config.map(|c| c.content_width).unwrap_or(container_w);
-    let max_y = (content_h - container_h).max(Fixed::ZERO);
-    let max_x = (content_w - container_w).max(Fixed::ZERO);
+    let bounds = scroll_bounds(world, entity).unwrap_or_default();
+    let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
     let at_y = (scroll.y <= Fixed::ZERO && delta_y < Fixed::ZERO)
         || (scroll.y >= max_y && delta_y > Fixed::ZERO);

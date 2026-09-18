@@ -806,8 +806,8 @@ fn build_widgets(paths: CurvePaths) {
         .cloned()
         .expect("Curve Text model");
     //~focus-start
-    let viewport = ui! {
-        View (
+    ui! {
+        Scroll (
             id: "curve_text_shell",
             grow: 1.0,
             clip_children: true,
@@ -848,17 +848,6 @@ fn build_widgets(paths: CurvePaths) {
     bind_curve_paths(cx, nodes.stage, paths, &model);
     bind_stage_layout(cx, nodes, paths, model);
     cx.world_mut().insert_resource(nodes);
-    let content = cx
-        .world_mut()
-        .find_by_id("curve_text_document")
-        .expect("Curve Text document");
-    super::lab_scroll::LabScroll::attach(
-        cx.world_mut(),
-        viewport,
-        content,
-        Fixed::from_int(720),
-        Fixed::from_int(22),
-    );
     //~focus-end
 }
 
@@ -874,8 +863,7 @@ where
     app.world.insert_resource(CurveMotion::default());
     let paths = register_paths(&mut app.world);
     app.world.insert_resource(paths);
-    app.add_system(curve_text_animation_system::system())
-        .add_system(super::lab_scroll::sync_lab_scroll_extents::system());
+    app.add_system(curve_text_animation_system::system());
     app.compose(parent, |cx| build_widgets(cx, paths));
 }
 

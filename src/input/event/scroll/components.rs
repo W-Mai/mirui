@@ -38,6 +38,7 @@ impl TouchAction {
 }
 
 /// Scroll offset component — any widget with this becomes scrollable
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ScrollOffset {
     pub x: Fixed,
     pub y: Fixed,
@@ -53,7 +54,10 @@ pub struct ScrollDelta {
     pub dy: Fixed,
 }
 
-/// Scroll configuration
+/// Scroll configuration.
+///
+/// A zero content dimension derives that extent from the widget's retained
+/// descendants. Virtualized content can provide an explicit dimension.
 pub struct ScrollConfig {
     pub direction: ScrollAxis,
     pub elastic: bool,

@@ -861,8 +861,8 @@ fn compose_controls_card() -> Entity {
 #[compose]
 pub fn build_widgets() {
     //~focus-start
-    let viewport = ui! {
-        View (
+    ui! {
+        Scroll (
             id: "interaction_lab_shell",
             grow: 1.0,
             clip_children: true,
@@ -912,17 +912,6 @@ pub fn build_widgets() {
         };
         cx.world_mut().insert_resource(nodes);
     }
-    let content = cx
-        .world_mut()
-        .find_by_id("interaction_lab_document")
-        .expect("Interaction Lab document");
-    super::lab_scroll::LabScroll::attach(
-        cx.world_mut(),
-        viewport,
-        content,
-        Fixed::from_int(1280),
-        Fixed::from_int(18),
-    );
     //~focus-end
 }
 
@@ -937,8 +926,7 @@ where
         app.world.insert_resource(InteractionModel::default());
     }
     app.add_plugin(InputFeedbackPlugin::new())
-        .add_system(sync_interaction_user_states::system())
-        .add_system(super::lab_scroll::sync_lab_scroll_extents::system());
+        .add_system(sync_interaction_user_states::system());
     app.compose(parent, build_widgets);
 }
 
@@ -1334,7 +1322,7 @@ mod tests {
 
     #[test]
     fn phone_scroll_extent_keeps_the_last_card_reachable() {
-        use crate::input::event::scroll::ScrollConfig;
+        use crate::input::event::scroll::scroll_bounds;
         use crate::types::Viewport;
         use crate::ui::ComputedRect;
         use crate::ui::render_system::update_layout;
@@ -1346,14 +1334,13 @@ mod tests {
                 parent,
                 &Viewport::new(width, height, Fixed::ONE),
             );
-            super::super::lab_scroll::LabScroll::sync_all(&mut world);
-
             let shell = world.find_by_id("interaction_lab_shell").unwrap();
             let controls = world.find_by_id("interaction_controls").unwrap();
             let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
             let controls_rect = world.get::<ComputedRect>(controls).unwrap().0;
-            let extent = world.get::<ScrollConfig>(shell).unwrap().content_height;
-            let max_offset = extent - shell_rect.h;
+            let bounds = scroll_bounds(&world, shell).unwrap();
+            let extent = bounds.content_height;
+            let max_offset = bounds.max_y;
 
             assert!(max_offset > Fixed::ZERO, "{width}x{height}");
             assert!(

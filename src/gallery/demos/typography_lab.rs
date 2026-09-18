@@ -577,8 +577,8 @@ pub fn build_widgets(wave_path: PathId) {
     let overflow_action = state;
 
     //~focus-start
-    let viewport = ui! {
-        View (
+    ui! {
+        Scroll (
             id: "typography_lab_shell",
             grow: 1.0,
             clip_children: true,
@@ -1131,17 +1131,6 @@ pub fn build_widgets(wave_path: PathId) {
     );
     cx.world_mut()
         .insert_resource(TypographyNodes { path_overlay });
-    let content = cx
-        .world_mut()
-        .find_by_id("typography_lab_document")
-        .expect("Typography Lab document");
-    super::lab_scroll::LabScroll::attach(
-        cx.world_mut(),
-        viewport,
-        content,
-        Fixed::ZERO,
-        Fixed::from_int(18),
-    );
     //~focus-end
 }
 
@@ -1170,7 +1159,6 @@ where
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
     let wave_path = register_path(&mut app.world);
-    app.add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, |cx| build_widgets(cx, wave_path));
 }
 
@@ -1180,10 +1168,11 @@ mod tests {
     use crate::core::reactive::flush_signal_dirty;
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
+    use crate::input::event::scroll::scroll_bounds;
     use crate::types::Viewport;
-    use crate::ui::Parent;
     use crate::ui::view::ViewRegistry;
     use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
+    use crate::ui::{ComputedRect, Parent};
     use crate::ui::{IdMap, UiScope};
 
     fn fixture_at(width: u16, height: u16) -> World {
@@ -1256,7 +1245,7 @@ mod tests {
 
     #[test]
     fn phone_layout_stacks_controls_below_the_grid_and_scrolls_to_them() {
-        use crate::input::event::scroll::ScrollConfig;
+        use crate::input::event::scroll::scroll_bounds;
         use crate::ui::ComputedRect;
 
         for (width, height) in [(320, 568), (422, 600), (480, 320)] {
@@ -1271,15 +1260,14 @@ mod tests {
                 root,
                 &Viewport::new(width, height, Fixed::ONE),
             );
-            super::super::lab_scroll::LabScroll::sync_all(&mut world);
-
             let grid = world.find_by_id("typography_lab_grid").unwrap();
             let controls = world.find_by_id("typography_controls").unwrap();
             let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
             let grid_rect = world.get::<ComputedRect>(grid).unwrap().0;
             let controls_rect = world.get::<ComputedRect>(controls).unwrap().0;
-            let extent = world.get::<ScrollConfig>(shell).unwrap().content_height;
-            let max_offset = extent - shell_rect.h;
+            let bounds = scroll_bounds(&world, shell).unwrap();
+            let extent = bounds.content_height;
+            let max_offset = bounds.max_y;
 
             assert!(
                 controls_rect.y >= grid_rect.y + grid_rect.h,
@@ -1299,9 +1287,8 @@ mod tests {
 
     #[test]
     fn large_phone_scroll_repaints_the_destination_content() {
-        use crate::input::event::scroll::{ScrollConfig, ScrollDelta, ScrollOffset};
+        use crate::input::event::scroll::{ScrollDelta, ScrollOffset};
         use crate::surface::FramebufferAccess;
-        use crate::ui::ComputedRect;
         use crate::ui::dirty::Dirty;
 
         let mut app = App::headless(422, 600);
@@ -1310,12 +1297,9 @@ mod tests {
         setup_app(&mut app, root);
         app.set_root(root);
         app.render().unwrap();
-        super::super::lab_scroll::LabScroll::sync_all(&mut app.world);
-
         let shell = app.world.find_by_id("typography_lab_shell").unwrap();
-        let viewport_height = app.world.get::<ComputedRect>(shell).unwrap().0.h;
-        let extent = app.world.get::<ScrollConfig>(shell).unwrap().content_height;
-        let max_offset = extent - viewport_height;
+        let bounds = scroll_bounds(&app.world, shell).unwrap();
+        let max_offset = bounds.max_y;
         app.world.get_mut::<ScrollOffset>(shell).unwrap().y = max_offset;
         app.world.insert(
             shell,
@@ -1340,7 +1324,7 @@ mod tests {
         let controls_rect = app.world.get::<ComputedRect>(controls).unwrap().0;
         assert!(
             painted > 4_000,
-            "large scroll left the viewport blank: painted={painted}, viewport_height={viewport_height:?}, extent={extent:?}, max_offset={max_offset:?}, controls={controls_rect:?}",
+            "large scroll left the viewport blank: painted={painted}, bounds={bounds:?}, max_offset={max_offset:?}, controls={controls_rect:?}",
         );
     }
 
