@@ -57,7 +57,9 @@ fn compose_header() -> Entity {
     ui! {
         Row (
             id: "layout_lab_header",
-            min_height: 70,
+            min_height: @id(layout_lab_document).width {
+                if layout_lab_document.width < Fixed::from_int(640) { 108 } else { 70 }
+            },
             wrap: FlexWrap::Wrap,
             align: AlignItems::Center,
             row_gap: 4,
@@ -83,9 +85,21 @@ fn compose_header() -> Entity {
             }
             Text (
                 "8 CAPABILITIES",
-                width: Dimension::percent(32),
+                width: @id(layout_lab_document).width {
+                    if layout_lab_document.width < Fixed::from_int(640) {
+                        Dimension::percent(100)
+                    } else {
+                        Dimension::percent(32)
+                    }
+                },
                 min_width: 96,
-                max_width: 154,
+                max_width: @id(layout_lab_document).width {
+                    if layout_lab_document.width < Fixed::from_int(640) {
+                        Dimension::percent(100)
+                    } else {
+                        Dimension::px(154)
+                    }
+                },
                 height: 30,
                 bg_color: PANEL_ALT,
                 border_color: BORDER,
@@ -105,7 +119,13 @@ fn compose_flex_card() -> Entity {
         Column (
             id: "layout_lab_flex",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(layout_lab_grid).width {
+                if layout_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 300,
             padding: Padding::all(14),
@@ -209,7 +229,13 @@ fn compose_surface_card() -> Entity {
         Column (
             id: "layout_lab_surfaces",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(layout_lab_grid).width {
+                if layout_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
@@ -273,7 +299,13 @@ fn compose_overlay_card() -> Entity {
         Column (
             id: "layout_lab_overlay_card",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(layout_lab_grid).width {
+                if layout_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
@@ -351,7 +383,13 @@ fn compose_collection_card() -> Entity {
         Column (
             id: "layout_lab_collection",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(layout_lab_grid).width {
+                if layout_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
@@ -599,6 +637,33 @@ mod tests {
         let overlay = rect(&world, "layout_lab_overlay_stage");
         let absolute = rect(&world, "layout_lab_absolute");
         assert!(absolute.x + absolute.w <= overlay.x + overlay.w);
+    }
+
+    #[test]
+    fn medium_portrait_cards_fill_the_single_column() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        let (mut world, parent) = fixture();
+        update_layout(&mut world, parent, &Viewport::new(539, 734, Fixed::ONE));
+        let rect = |world: &World, id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let grid = rect(&world, "layout_lab_grid");
+        for id in [
+            "layout_lab_flex",
+            "layout_lab_surfaces",
+            "layout_lab_overlay_card",
+            "layout_lab_collection",
+        ] {
+            let card = rect(&world, id);
+            assert_eq!(card.x, grid.x, "{id}");
+            assert_eq!(card.w, grid.w, "{id}");
+        }
     }
 
     #[test]

@@ -582,7 +582,15 @@ fn compose_stage(paths: CurvePaths) -> Entity {
         View (
             id: "curve_text_stage_shell",
             width: Dimension::percent(100),
-            height: 360,
+            height: @id(curve_text_shell).height {
+                if curve_text_shell.height < Fixed::from_int(600) {
+                    250
+                } else if curve_text_shell.height < Fixed::from_int(720) {
+                    300
+                } else {
+                    360
+                }
+            },
             clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
@@ -677,10 +685,22 @@ fn compose_controls() -> Entity {
             id: "curve_text_controls",
             width: Dimension::percent(100),
             height: @id(curve_text_stage).width {
-                if curve_text_stage.width < Fixed::from_int(520) { 146 } else { 62 }
+                if curve_text_stage.width < Fixed::from_int(500) {
+                    146
+                } else if curve_text_stage.width < Fixed::from_int(720) {
+                    104
+                } else {
+                    62
+                }
             },
             min_height: @id(curve_text_stage).width {
-                if curve_text_stage.width < Fixed::from_int(520) { 146 } else { 62 }
+                if curve_text_stage.width < Fixed::from_int(500) {
+                    146
+                } else if curve_text_stage.width < Fixed::from_int(720) {
+                    104
+                } else {
+                    62
+                }
             },
             padding: Padding {
                 top: Dimension::px(10),
@@ -999,6 +1019,42 @@ mod tests {
             app.world.get::<Style>(nodes.primary).unwrap().font_size,
             Some(30)
         );
+    }
+
+    #[test]
+    fn controls_and_stage_share_the_available_height_at_medium_sizes() {
+        for (width, height, expected_controls, expected_stage) in
+            [(672, 666, 104, 300), (960, 540, 62, 250)]
+        {
+            let mut app = fixture();
+            let root = app.root.expect("root");
+            crate::ui::render_system::update_layout(
+                &mut app.world,
+                root,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+
+            let rect = |world: &World, id| {
+                world
+                    .get::<crate::ui::ComputedRect>(world.find_by_id(id).unwrap())
+                    .unwrap()
+                    .0
+            };
+            let shell = rect(&app.world, "curve_text_shell");
+            let stage = rect(&app.world, "curve_text_stage_shell");
+            let controls = rect(&app.world, "curve_text_controls");
+
+            assert_eq!(stage.h, Fixed::from_int(expected_stage), "{width}x{height}");
+            assert_eq!(
+                controls.h,
+                Fixed::from_int(expected_controls),
+                "{width}x{height}"
+            );
+            assert!(
+                controls.y + controls.h <= shell.y + shell.h,
+                "{width}x{height}: {controls:?} {shell:?}"
+            );
+        }
     }
 
     #[test]

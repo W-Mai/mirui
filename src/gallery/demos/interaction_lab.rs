@@ -292,7 +292,13 @@ fn compose_gesture_card() -> Entity {
         Column (
             id: "interaction_gestures",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(interaction_lab_grid).width {
+                if interaction_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 304,
             padding: Padding::all(14),
@@ -408,7 +414,13 @@ fn compose_state_card() -> Entity {
         Column (
             id: "interaction_states",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(interaction_lab_grid).width {
+                if interaction_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
@@ -535,7 +547,13 @@ fn compose_motion_card() -> Entity {
         Column (
             id: "interaction_motion",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(interaction_lab_grid).width {
+                if interaction_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
@@ -653,7 +671,13 @@ fn compose_controls_card() -> Entity {
         Column (
             id: "interaction_controls",
             grow: 1.0,
-            width: Dimension::percent(48),
+            width: @id(interaction_lab_grid).width {
+                if interaction_lab_grid.width < Fixed::from_int(560) {
+                    Dimension::percent(100)
+                } else {
+                    Dimension::percent(48)
+                }
+            },
             min_width: 250,
             min_height: 278,
             padding: Padding::all(14),
@@ -1056,6 +1080,33 @@ mod tests {
             let target = rect(&world, id);
             assert!(target.x >= gestures.x);
             assert!(target.x + target.w <= gestures.x + gestures.w);
+        }
+    }
+
+    #[test]
+    fn medium_portrait_cards_fill_the_single_column() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        let (mut world, parent) = fixture_tree();
+        update_layout(&mut world, parent, &Viewport::new(502, 900, Fixed::ONE));
+        let rect = |world: &World, id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let grid = rect(&world, "interaction_lab_grid");
+        for id in [
+            "interaction_gestures",
+            "interaction_states",
+            "interaction_motion",
+            "interaction_controls",
+        ] {
+            let card = rect(&world, id);
+            assert_eq!(card.x, grid.x, "{id}");
+            assert_eq!(card.w, grid.w, "{id}");
         }
     }
 
