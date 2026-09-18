@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Semantic button labels and input targets.** `Button("Label", ...)` creates a centered label with built-in control metrics, while `HitTarget` keeps ordinary layout containers transparent to pointer hover, press, and hit testing.
+- **Semantic button labels and input targets.** `Button("Label", ...)` creates a centered label with built-in control metrics; `HitTarget` controls event targeting while `InteractionFeedback` independently opts semantic controls into hover and press visuals.
 - **Layout-responsive DSL.** `@width`, `@height`, and named `@id(...).width` / `height` dependencies derive typed widget properties from computed geometry; `container: true` defines the nearest responsive scope, aliases expose concise local names, and undeclared or oversized dependency sets fail at compile time.
 - **Inspectable themes.** `ThemeInfo`, `ThemeId`, `ThemeCatalog`, `App::theme`, and the theme editing APIs expose borrowed identity and safe token mutation; `App::set_theme` accepts an owned palette, `ThemeId`, or static ID through one entry point.
 - **Unified image sources.** `Image` accepts texture tokens, borrowed/owned vector `Path` values, or typed `IconAsset` constants through `ImageSource` and renders static vector images without transformed command buffers.

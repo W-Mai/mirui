@@ -5,7 +5,7 @@ use crate::types::{Dimension, Rect};
 use crate::ui::layout::{AlignItems, JustifyContent, Padding};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::{HitTarget, Style};
+use crate::ui::{HitTarget, InteractionFeedback, Style};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ButtonSize {
@@ -167,11 +167,12 @@ fn button_render(
 }
 
 fn button_attach(world: &mut World, entity: Entity) {
-    let Some(metrics) = world
-        .get::<Button>(entity)
-        .and_then(|button| button.size.metrics())
-    else {
+    let Some(button) = world.get::<Button>(entity) else {
+        return;
+    };
+    let Some(metrics) = button.size.metrics() else {
         world.insert(entity, HitTarget);
+        world.insert(entity, InteractionFeedback);
         return;
     };
     if let Some(style) = world.get_mut::<Style>(entity) {
@@ -189,6 +190,7 @@ fn button_attach(world: &mut World, entity: Entity) {
         }
     }
     world.insert(entity, HitTarget);
+    world.insert(entity, InteractionFeedback);
 }
 
 pub fn view() -> View {
@@ -229,6 +231,18 @@ mod tests {
     }
 
     #[test]
+    fn attach_ignores_non_button_entities() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Style::default());
+
+        button_attach(&mut world, entity);
+
+        assert!(!world.has::<HitTarget>(entity));
+        assert!(!world.has::<InteractionFeedback>(entity));
+    }
+
+    #[test]
     fn attach_applies_regular_control_metrics_and_hit_target() {
         let mut world = World::new();
         let entity = styled_button(&mut world, Button::new(), Style::default());
@@ -246,6 +260,7 @@ mod tests {
         assert_eq!(style.layout.justify, JustifyContent::Center);
         assert_eq!(style.layout.align, AlignItems::Center);
         assert!(world.has::<HitTarget>(entity));
+        assert!(world.has::<InteractionFeedback>(entity));
     }
 
     #[test]
@@ -396,5 +411,6 @@ mod tests {
         assert_eq!(layout.justify, JustifyContent::FlexStart);
         assert_eq!(layout.align, AlignItems::FlexStart);
         assert!(world.has::<HitTarget>(entity));
+        assert!(world.has::<InteractionFeedback>(entity));
     }
 }

@@ -3,7 +3,7 @@ use crate::input::event::hit_test::hit_test;
 use crate::surface::DisplayInfo;
 use crate::types::Fixed;
 use crate::ui::dirty::Dirty;
-use crate::ui::{HitTarget, IgnoreHitTest, Parent, WidgetRoot};
+use crate::ui::{IgnoreHitTest, InteractionFeedback, Parent, WidgetRoot};
 
 /// Skip hover/press hit_test when PointerCursor hasn't moved since last
 /// frame. Without this, idle frames pay a full hit_test walk twice per
@@ -157,7 +157,7 @@ fn swap_markers(
             .find_map(|(entity, current)| {
                 (is_state(current)
                     && (!on_hit_path(world, new_target, entity)
-                        || world.get::<HitTarget>(entity).is_none()
+                        || world.get::<InteractionFeedback>(entity).is_none()
                         || world.get::<IgnoreHitTest>(entity).is_some()))
                 .then_some(entity)
             });
@@ -171,7 +171,7 @@ fn swap_markers(
     let mut current = new_target;
     while let Some(entity) = current {
         let parent = world.get::<Parent>(entity).map(|parent| parent.0);
-        if world.get::<HitTarget>(entity).is_some()
+        if world.get::<InteractionFeedback>(entity).is_some()
             && world.get::<IgnoreHitTest>(entity).is_none()
             && !world.get::<InteractionState>(entity).is_some_and(&is_state)
         {
@@ -190,7 +190,7 @@ mod tests {
     fn swap_marker_inserts_when_target_arrives() {
         let mut world = World::new();
         let e = world.spawn_empty();
-        world.insert(e, HitTarget);
+        world.insert(e, InteractionFeedback);
         swap_markers(
             &mut world,
             Some(e),
@@ -222,7 +222,7 @@ mod tests {
         let mut world = World::new();
         let a = world.spawn_empty();
         let b = world.spawn_empty();
-        world.insert(b, HitTarget);
+        world.insert(b, InteractionFeedback);
         world.insert(a, InteractionState::Hovered);
         swap_markers(
             &mut world,
@@ -241,7 +241,7 @@ mod tests {
     fn swap_marker_noop_when_target_unchanged() {
         let mut world = World::new();
         let e = world.spawn_empty();
-        world.insert(e, HitTarget);
+        world.insert(e, InteractionFeedback);
         world.insert(e, InteractionState::Hovered);
         assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
         swap_markers(
@@ -264,10 +264,10 @@ mod hover_press_e2e {
     use crate::types::{Dimension, Fixed};
     use crate::ui::layout::{LayoutStyle, Position};
     use crate::ui::widgets::Text;
-    use crate::ui::{Children, Parent, Style, Widget};
+    use crate::ui::{Children, HitTarget, InteractionFeedback, Parent, Style, Widget};
 
     #[test]
-    fn dsl_gesture_handler_marks_widget_as_hit_target() {
+    fn dsl_gesture_handler_marks_widget_without_control_feedback() {
         let mut world = World::new();
         world.insert_resource(crate::ui::IdMap::new());
         let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
@@ -284,6 +284,33 @@ mod hover_press_e2e {
         let target = world.get::<Children>(root).unwrap().0[0];
         assert!(world.has::<GestureHandler>(target));
         assert!(world.has::<HitTarget>(target));
+        assert!(!world.has::<InteractionFeedback>(target));
+    }
+
+    #[test]
+    fn row_and_column_gesture_delegates_stay_visually_neutral() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::IdMap::new());
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                Row (width: 32, height: 24) on Tap {}
+                Column (width: 32, height: 24) on Tap {}
+            }
+        };
+
+        let shell = world.get::<Children>(root).unwrap().0[0];
+        for &target in &world.get::<Children>(shell).unwrap().0 {
+            assert!(world.has::<GestureHandler>(target));
+            assert!(world.has::<HitTarget>(target));
+            assert!(!world.has::<InteractionFeedback>(target));
+        }
     }
 
     fn make_world_with_button() -> (World, Entity) {
@@ -405,9 +432,10 @@ mod hover_press_e2e {
     }
 
     #[test]
-    fn interaction_state_only_marks_hit_targets_on_bubble_path() {
+    fn interaction_state_only_marks_feedback_targets_on_bubble_path() {
         let (mut world, root, child) = make_world_with_text_child();
         world.insert(child, HitTarget);
+        world.insert(child, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
         assert_eq!(
@@ -443,7 +471,9 @@ mod hover_press_e2e {
         let (mut world, root, child) = make_world_with_text_child();
         world.insert(root, IgnoreHitTest);
         world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
         world.insert(child, HitTarget);
+        world.insert(child, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
         world.insert_resource(PointerCursor {
@@ -477,7 +507,9 @@ mod hover_press_e2e {
     fn marked_ancestor_shares_child_pressed_state() {
         let (mut world, root, child) = make_world_with_text_child();
         world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
         world.insert(child, HitTarget);
+        world.insert(child, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
         world.insert_resource(PointerCursor {
@@ -511,6 +543,7 @@ mod hover_press_e2e {
     fn hover_system_marks_pointer_target_when_not_down() {
         let (mut world, root) = make_world_with_button();
         world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         world.insert_resource(PointerCursor {
             x: Fixed::from_int(32),
@@ -529,6 +562,7 @@ mod hover_press_e2e {
     fn hover_system_clears_when_down() {
         let (mut world, root) = make_world_with_button();
         world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         world.insert(root, InteractionState::Hovered);
         world.insert_resource(PointerCursor {
@@ -545,6 +579,7 @@ mod hover_press_e2e {
     fn press_system_marks_when_down() {
         let (mut world, root) = make_world_with_button();
         world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         world.insert_resource(PointerCursor {
             x: Fixed::from_int(32),

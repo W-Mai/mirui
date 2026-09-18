@@ -8,15 +8,9 @@ pub use crate::ui::widgets::text_input::{CursorBlinkPhase, cursor_blink_system};
 // is the reason for the two-step copy instead of streaming.
 #[derive(Clone, Copy)]
 struct InputAttach {
+    component_filter: Option<core::any::TypeId>,
     attach: Option<crate::ui::view::ViewAttach>,
-    internal_gesture: InternalGesture,
-}
-
-#[derive(Clone, Copy)]
-enum InternalGesture {
-    None,
-    Any,
-    Component(core::any::TypeId),
+    has_internal_gesture: bool,
 }
 
 fn input_attach_plan(world: &World) -> alloc::vec::Vec<InputAttach> {
@@ -24,15 +18,12 @@ fn input_attach_plan(world: &World) -> alloc::vec::Vec<InputAttach> {
     if let Some(reg) = world.resource::<crate::ui::view::ViewRegistry>() {
         for view in reg.iter() {
             let attach = view.auto_attach();
-            let internal_gesture = match (view.internal_gesture(), view.component_filter()) {
-                (None, _) => InternalGesture::None,
-                (Some(_), None) => InternalGesture::Any,
-                (Some(_), Some(type_id)) => InternalGesture::Component(type_id),
-            };
-            if attach.is_some() || !matches!(internal_gesture, InternalGesture::None) {
+            let has_internal_gesture = view.internal_gesture().is_some();
+            if attach.is_some() || has_internal_gesture {
                 pending.push(InputAttach {
+                    component_filter: view.component_filter(),
                     attach,
-                    internal_gesture,
+                    has_internal_gesture,
                 });
             }
         }
@@ -43,14 +34,16 @@ fn input_attach_plan(world: &World) -> alloc::vec::Vec<InputAttach> {
 fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) {
     let mut has_internal_gesture = false;
     for hook in plan {
+        if hook
+            .component_filter
+            .is_some_and(|filter| !world.has_type(entity, filter))
+        {
+            continue;
+        }
         if let Some(attach) = hook.attach {
             attach(world, entity);
         }
-        has_internal_gesture |= match hook.internal_gesture {
-            InternalGesture::None => false,
-            InternalGesture::Any => true,
-            InternalGesture::Component(type_id) => world.has_type(entity, type_id),
-        };
+        has_internal_gesture |= hook.has_internal_gesture;
     }
 
     if has_internal_gesture
@@ -59,6 +52,9 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
             .is_some()
     {
         world.insert(entity, crate::ui::HitTarget);
+    }
+    if has_internal_gesture {
+        world.insert(entity, crate::ui::InteractionFeedback);
     }
 }
 
@@ -91,12 +87,12 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::types::{Fixed, Rect};
     use crate::ui::ComputedRect;
-    use crate::ui::HitTarget;
     use crate::ui::view::ViewRegistry;
     use crate::ui::widgets::button::Button;
     use crate::ui::widgets::checkbox::{Checkbox, checkbox_handler};
     use crate::ui::widgets::tabbar::{TabBar, tabbar_handler};
     use crate::ui::widgets::text_input::TextInput;
+    use crate::ui::{HitTarget, InteractionFeedback};
 
     #[test]
     fn tabbar_tap_picks_correct_tab() {
@@ -131,6 +127,21 @@ mod tests {
         attach_handlers_for(&mut world, entity);
 
         assert!(world.has::<HitTarget>(entity));
+        assert!(world.has::<InteractionFeedback>(entity));
+    }
+
+    #[test]
+    fn button_attach_plan_ignores_layout_entities() {
+        let mut world = World::default();
+        let mut registry = ViewRegistry::default();
+        registry.insert(crate::ui::widgets::button::view());
+        world.insert_resource(registry);
+        let entity = world.spawn_empty();
+
+        attach_handlers_for(&mut world, entity);
+
+        assert!(!world.has::<HitTarget>(entity));
+        assert!(!world.has::<InteractionFeedback>(entity));
     }
 
     #[test]
@@ -150,6 +161,7 @@ mod tests {
         attach_handlers_for(&mut world, e);
 
         assert!(world.has::<HitTarget>(e));
+        assert!(world.has::<InteractionFeedback>(e));
 
         let h = world.get::<GestureHandler>(e).expect("user handler stays");
         let installed = match h.on_gesture {
@@ -162,6 +174,19 @@ mod tests {
             core::ptr::eq(installed, user_handler as *const ()),
             "button attachment must preserve the user-supplied GestureHandler"
         );
+    }
+
+    #[test]
+    fn delegated_gesture_target_does_not_gain_control_feedback() {
+        let mut world = World::default();
+        world.insert_resource(ViewRegistry::default());
+        let entity = world.spawn_empty();
+        world.insert(entity, GestureHandler::from_fn(|_, _, _| false));
+
+        attach_handlers_for(&mut world, entity);
+
+        assert!(world.has::<HitTarget>(entity));
+        assert!(!world.has::<InteractionFeedback>(entity));
     }
 
     #[test]
@@ -181,6 +206,7 @@ mod tests {
         assert!(world.get::<Focusable>(e).is_some());
         assert!(world.get::<KeyHandler>(e).is_some());
         assert!(world.has::<HitTarget>(e));
+        assert!(world.has::<InteractionFeedback>(e));
         assert!(
             crate::ui::widgets::text_input::view()
                 .internal_gesture()
@@ -215,6 +241,8 @@ mod tests {
 
         assert!(world.has::<HitTarget>(slider));
         assert!(world.has::<HitTarget>(switch));
+        assert!(world.has::<InteractionFeedback>(slider));
+        assert!(world.has::<InteractionFeedback>(switch));
     }
 
     #[test]

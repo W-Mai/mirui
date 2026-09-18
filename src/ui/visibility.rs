@@ -9,6 +9,13 @@ pub struct Hidden;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HitTarget;
 
+/// Opts an input target into hover and press visual state.
+///
+/// Event delegation and visual feedback are separate: layout containers may
+/// receive gestures through [`HitTarget`] without changing their appearance.
+#[derive(crate::Component, Clone, Copy, Debug, Default)]
+pub struct InteractionFeedback;
+
 /// Marker that excludes the entity from hit-test only — layout and
 /// rendering still apply. Use for visual overlays (cursor, debug grids,
 /// drag ghosts) that must be drawn but should never intercept input.
