@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::{DrawRequest, FallbackRegion, RenderError, RenderRoute, Renderer};
-use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
-use crate::ui::layout::{LayoutNode, compute_layout};
+use crate::types::{Dimension, Fixed, Point, Rect, Transform, Transform3D, Viewport};
+use crate::ui::layout::{LayoutNode, LayoutStyle, compute_layout};
 use crate::ui::widgets::transform::WidgetTransform;
 use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 
@@ -373,7 +373,7 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
         return None;
     }
     let style = world.get::<Style>(entity)?;
-    let mut node = LayoutNode::new(style.layout);
+    let mut node = LayoutNode::new(layout_style(world, entity, style.layout));
     apply_text_intrinsic(world, entity, &mut node);
     apply_static_glyph_intrinsic(world, entity, style, &mut node);
 
@@ -394,7 +394,7 @@ fn refresh_layout_tree(world: &World, entity: Entity, node: &mut LayoutNode) -> 
     let Some(style) = world.get::<Style>(entity) else {
         return false;
     };
-    node.style = style.layout;
+    node.style = layout_style(world, entity, style.layout);
     node.intrinsic_width = None;
     node.intrinsic_height = None;
     apply_text_intrinsic(world, entity, node);
@@ -415,6 +415,28 @@ fn refresh_layout_tree(world: &World, entity: Entity, node: &mut LayoutNode) -> 
     }
     node.children.truncate(used);
     true
+}
+
+fn layout_style(world: &World, entity: Entity, mut layout: LayoutStyle) -> LayoutStyle {
+    if world.get::<super::RespectSafeArea>(entity).is_none() {
+        return layout;
+    }
+    let Some(insets) = world.resource::<crate::surface::SafeAreaInsets>().copied() else {
+        return layout;
+    };
+    layout.padding.top = safe_area_padding(layout.padding.top, insets.top);
+    layout.padding.right = safe_area_padding(layout.padding.right, insets.right);
+    layout.padding.bottom = safe_area_padding(layout.padding.bottom, insets.bottom);
+    layout.padding.left = safe_area_padding(layout.padding.left, insets.left);
+    layout
+}
+
+fn safe_area_padding(authored: Dimension, inset: Fixed) -> Dimension {
+    match authored {
+        Dimension::Px(value) => Dimension::Px(value.max(inset)),
+        Dimension::Auto | Dimension::Content => Dimension::Px(inset),
+        Dimension::Percent(_) => authored,
+    }
 }
 
 struct LaidOutText {
@@ -2477,6 +2499,56 @@ mod layout_snapshot_reuse_check {
         assert_eq!(snapshot.layout_tree.children.as_ptr(), tree_ptr);
         assert_eq!(snapshot.entities.as_ptr(), entities_ptr);
         assert_eq!(snapshot.entities, [root, first, second]);
+    }
+
+    #[test]
+    fn safe_area_is_minimum_root_padding() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let child = widget(&mut world, 10);
+        world.insert(root, Children(vec![child]));
+        world.insert(root, super::super::RespectSafeArea);
+        world.insert_resource(crate::surface::SafeAreaInsets {
+            top: Fixed::from_int(7),
+            right: Fixed::from_int(3),
+            bottom: Fixed::from_int(5),
+            left: Fixed::from_int(11),
+        });
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(child).unwrap().0,
+            Rect::new(11, 7, 10, 10)
+        );
+        assert_eq!(
+            world.get::<Style>(root).unwrap().layout.padding,
+            crate::ui::layout::Padding::default(),
+            "safe-area layout must not mutate authored style",
+        );
+    }
+
+    #[test]
+    fn authored_padding_larger_than_safe_area_is_preserved() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let child = widget(&mut world, 10);
+        world.insert(root, Children(vec![child]));
+        world.insert(root, super::super::RespectSafeArea);
+        world.get_mut::<Style>(root).unwrap().layout.padding = crate::ui::layout::Padding::all(13);
+        world.insert_resource(crate::surface::SafeAreaInsets {
+            top: Fixed::from_int(7),
+            right: Fixed::from_int(3),
+            bottom: Fixed::from_int(5),
+            left: Fixed::from_int(11),
+        });
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(child).unwrap().0,
+            Rect::new(13, 13, 10, 10)
+        );
     }
 
     #[test]

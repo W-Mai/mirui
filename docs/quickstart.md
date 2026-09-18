@@ -284,6 +284,8 @@ cargo generate W-Mai/mirui-templates ios --name hello-mirui-ios
 
 Android uses a NativeActivity entry point and builds for `aarch64-linux-android` through `cargo-apk`. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
 
+Mobile applications retain their world and renderer state across suspend and resume. Software-rendered hosts use native device density within an explicit framebuffer budget. `app.spawn_root()` keeps children inside the current safe area by default; fullscreen content can opt out with `app.spawn_root().ignore_safe_area().id()`.
+
 ## Skip the boilerplate
 
 The same templates this guide walks through by hand are published as a

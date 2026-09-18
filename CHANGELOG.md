@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Surface safe areas.** Mobile surfaces publish logical system insets, and application roots apply them as minimum content padding with an explicit fullscreen opt-out.
+
+### Changed
+
+- **Native-density software presentation.** Mobile software rendering selects the highest device-density framebuffer admitted by a 32 MiB default budget and avoids filtered presentation at exact native size.
+
+### Fixed
+
+- **Mobile lifecycle recovery.** Android and iOS hosts ignore stale window events, retain WGPU device identity across ordinary suspension, and recreate software presenters after same-size resume.
+
 ## [0.46.0] - 2026-09-18
 
 ### Added

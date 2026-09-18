@@ -6,8 +6,11 @@ use alloc::vec::Vec;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+pub use super::wgpu_surface::SoftwareRenderScale;
 use super::wgpu_surface::{MobileHost, MobileSurface, MobileSurfaceError, WgpuRuntime, WgpuState};
-use super::{BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, Surface};
+use super::{
+    BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, SafeAreaInsets, Surface,
+};
 use crate::core::cache::InspectCaches;
 use crate::render::factory::{RendererFactory, SwRendererFactory};
 use crate::render::texture::{ColorFormat, Texture};
@@ -54,15 +57,17 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SoftwareUploadConfig {
-    pub render_scale: Fixed,
+    /// Resolution policy for the retained software framebuffer.
+    pub render_scale: SoftwareRenderScale,
+    /// Maximum RGBA framebuffer storage admitted by this surface.
     pub framebuffer_budget_bytes: usize,
 }
 
 impl Default for SoftwareUploadConfig {
     fn default() -> Self {
         Self {
-            render_scale: Fixed::ONE,
-            framebuffer_budget_bytes: 16 * 1024 * 1024,
+            render_scale: SoftwareRenderScale::Device,
+            framebuffer_budget_bytes: 32 * 1024 * 1024,
         }
     }
 }
@@ -74,7 +79,7 @@ struct Presenter {
 }
 
 impl Presenter {
-    fn new(state: &WgpuState, width: u16, height: u16) -> Self {
+    fn new(state: &WgpuState, width: u16, height: u16, exact_size: bool) -> Self {
         let texture = state.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("mirui-mobile-sw-framebuffer"),
             size: wgpu::Extent3d {
@@ -92,8 +97,16 @@ impl Presenter {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("mirui-mobile-sw-sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: if exact_size {
+                wgpu::FilterMode::Nearest
+            } else {
+                wgpu::FilterMode::Linear
+            },
+            min_filter: if exact_size {
+                wgpu::FilterMode::Nearest
+            } else {
+                wgpu::FilterMode::Linear
+            },
             ..Default::default()
         });
         let bind_group_layout =
@@ -189,6 +202,7 @@ pub struct SoftwareUploadSurface {
     buffer: Vec<u8>,
     width: u16,
     height: u16,
+    render_scale: Fixed,
     presenter: Option<Presenter>,
     pending_present: bool,
 }
@@ -206,6 +220,7 @@ impl SoftwareUploadSurface {
             buffer: Vec::new(),
             width: 0,
             height: 0,
+            render_scale: Fixed::ONE,
             presenter: None,
             pending_present: false,
         };
@@ -225,17 +240,28 @@ impl SoftwareUploadSurface {
             Fixed::from_int(i32::try_from(window_size.width).unwrap_or(i32::MAX)) / device_scale;
         let logical_height =
             Fixed::from_int(i32::try_from(window_size.height).unwrap_or(i32::MAX)) / device_scale;
-        let (width, height, required) = super::wgpu_surface::software_buffer_layout(
-            logical_width,
-            logical_height,
-            self.config.render_scale,
-            self.config.framebuffer_budget_bytes,
-        )?;
-        if self.width != width || self.height != height {
+        let (render_scale, width, height, required) =
+            super::wgpu_surface::resolve_software_buffer_layout(
+                logical_width,
+                logical_height,
+                device_scale,
+                self.config.render_scale,
+                self.config.framebuffer_budget_bytes,
+            )?;
+        self.render_scale = render_scale;
+        if super::wgpu_surface::software_presenter_needs_rebuild(
+            self.width,
+            self.height,
+            width,
+            height,
+            self.presenter.is_some(),
+        ) {
             self.buffer.resize(required, 0);
             self.width = width;
             self.height = height;
-            self.presenter = Some(Presenter::new(state, width, height));
+            let exact_size =
+                u32::from(width) == state.config.width && u32::from(height) == state.config.height;
+            self.presenter = Some(Presenter::new(state, width, height, exact_size));
             self.pending_present = true;
         }
         Ok(())
@@ -360,17 +386,26 @@ impl MobileSurface for SoftwareUploadSurface {
 impl Surface for SoftwareUploadSurface {
     fn display_info(&self) -> DisplayInfo {
         let (width, height) =
-            super::logical_from_physical(self.width, self.height, self.config.render_scale);
+            super::logical_from_physical(self.width, self.height, self.render_scale);
         DisplayInfo {
             width,
             height,
-            scale: self.config.render_scale,
+            scale: self.render_scale,
             format: ColorFormat::RGBA8888,
         }
     }
 
     fn physical_size(&self) -> (u32, u32) {
         (u32::from(self.width), u32::from(self.height))
+    }
+
+    fn safe_area_insets(&self) -> SafeAreaInsets {
+        self.runtime
+            .state
+            .as_ref()
+            .map_or_else(SafeAreaInsets::default, |state| {
+                super::wgpu_surface::mobile_window_safe_area(&state.window)
+            })
     }
 
     fn flush(&mut self, area: PhysicalRect) {

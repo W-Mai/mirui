@@ -44,6 +44,15 @@ pub struct DisplayInfo {
     pub format: crate::render::texture::ColorFormat,
 }
 
+/// Logical padding required to keep UI content clear of system-owned screen areas.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SafeAreaInsets {
+    pub top: Fixed,
+    pub right: Fixed,
+    pub bottom: Fixed,
+    pub left: Fixed,
+}
+
 impl DisplayInfo {
     #[inline]
     pub fn viewport(&self) -> Viewport {
@@ -78,6 +87,11 @@ pub enum BackbufferPersistence {
 /// `SwRendererFactory`.
 pub trait Surface: crate::core::cache::InspectCaches {
     fn display_info(&self) -> DisplayInfo;
+
+    /// Current logical safe-area insets. Surfaces without cutouts or system overlays return zero.
+    fn safe_area_insets(&self) -> SafeAreaInsets {
+        SafeAreaInsets::default()
+    }
 
     /// Authoritative logical-to-physical mapping for this surface.
     fn viewport(&self) -> Viewport {

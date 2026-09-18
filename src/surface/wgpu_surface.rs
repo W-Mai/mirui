@@ -3,6 +3,7 @@
 use alloc::collections::VecDeque;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use alloc::string::{String, ToString};
+use core::ops::Deref;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use core::time::Duration;
 use std::sync::Arc;
@@ -17,6 +18,8 @@ use winit::keyboard::{Key, NamedKey};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
 
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+use super::SafeAreaInsets;
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface, logical_from_physical};
 use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
@@ -43,20 +46,78 @@ fn physical_to_logical(x: f64, y: f64, scale: f64) -> (Fixed, Fixed) {
     )
 }
 
+#[cfg(target_os = "android")]
+pub(crate) fn mobile_window_safe_area(window: &Window) -> SafeAreaInsets {
+    use winit::platform::android::WindowExtAndroid;
+
+    let content = window.content_rect();
+    if content.right <= content.left || content.bottom <= content.top {
+        return SafeAreaInsets::default();
+    }
+    let size = window.inner_size();
+    safe_area_from_physical(
+        size.width,
+        size.height,
+        Fixed::from_f32(window.scale_factor() as f32),
+        content.left,
+        content.top,
+        content.right,
+        content.bottom,
+    )
+}
+
+#[cfg(any(target_os = "android", test))]
+fn safe_area_from_physical(
+    width: u32,
+    height: u32,
+    scale: Fixed,
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+) -> SafeAreaInsets {
+    let width = i32::try_from(width).unwrap_or(i32::MAX);
+    let height = i32::try_from(height).unwrap_or(i32::MAX);
+    let scale = scale.max(Fixed::from_ratio(1, 4));
+    SafeAreaInsets {
+        top: Fixed::from_int(top.max(0)) / scale,
+        right: Fixed::from_int(width.saturating_sub(right).max(0)) / scale,
+        bottom: Fixed::from_int(height.saturating_sub(bottom).max(0)) / scale,
+        left: Fixed::from_int(left.max(0)) / scale,
+    }
+}
+
+#[cfg(target_os = "ios")]
+pub(crate) fn mobile_window_safe_area(_window: &Window) -> SafeAreaInsets {
+    SafeAreaInsets::default()
+}
+
 /// Live wgpu state — only present after the first `pump_app_events`
 /// has driven `ApplicationHandler::resumed`, which is where winit
 /// permits `create_window`.
-pub struct WgpuState {
-    pub window: Arc<Window>,
+pub struct WgpuDeviceContext {
     pub instance: wgpu::Instance,
-    pub surface: wgpu::Surface<'static>,
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+}
+
+pub struct WgpuState {
+    context: Arc<WgpuDeviceContext>,
+    pub window: Arc<Window>,
+    pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
     /// Multisampled color attachment. Mobile targets omit it when their
     /// render pipelines use a single sample.
     pub msaa: Option<wgpu::Texture>,
+}
+
+impl Deref for WgpuState {
+    type Target = WgpuDeviceContext;
+
+    fn deref(&self) -> &Self::Target {
+        &self.context
+    }
 }
 
 /// Surface capability required by the WGPU renderer.
@@ -77,6 +138,7 @@ struct WgpuHandler {
 }
 
 pub(crate) struct WgpuRuntime {
+    context: Option<Arc<WgpuDeviceContext>>,
     pub(crate) state: Option<WgpuState>,
     pub(crate) event_queue: VecDeque<InputEvent>,
     /// Last known cursor position, in logical pixels. Updated on
@@ -94,6 +156,7 @@ pub(crate) struct WgpuRuntime {
 impl WgpuRuntime {
     pub(crate) fn new() -> Self {
         Self {
+            context: None,
             state: None,
             event_queue: VecDeque::new(),
             last_cursor: (Fixed::ZERO, Fixed::ZERO),
@@ -102,9 +165,15 @@ impl WgpuRuntime {
     }
 
     pub(crate) fn resume(&mut self, window: Arc<Window>) {
-        if self.state.is_none() {
-            self.state = Some(create_wgpu_state(window));
+        if self.state.is_some() {
+            return;
         }
+        let state = match self.context.as_ref() {
+            Some(context) => create_wgpu_state_with_context(context.clone(), window),
+            None => create_wgpu_state(window),
+        };
+        self.context = Some(state.context.clone());
+        self.state = Some(state);
     }
 
     pub(crate) fn suspend(&mut self) {
@@ -291,8 +360,33 @@ pub(crate) fn create_wgpu_state(window: Arc<Window>) -> WgpuState {
         ..Default::default()
     }))
     .expect("wgpu request_device failed");
+    let context = Arc::new(WgpuDeviceContext {
+        instance,
+        adapter,
+        device,
+        queue,
+    });
+    configure_wgpu_state(context, window, surface)
+}
+
+fn create_wgpu_state_with_context(
+    context: Arc<WgpuDeviceContext>,
+    window: Arc<Window>,
+) -> WgpuState {
+    let surface = context
+        .instance
+        .create_surface(window.clone())
+        .expect("wgpu create_surface failed");
+    configure_wgpu_state(context, window, surface)
+}
+
+fn configure_wgpu_state(
+    context: Arc<WgpuDeviceContext>,
+    window: Arc<Window>,
+    surface: wgpu::Surface<'static>,
+) -> WgpuState {
     let size = window.inner_size();
-    let surface_caps = surface.get_capabilities(&adapter);
+    let surface_caps = surface.get_capabilities(&context.adapter);
     let surface_format = surface_caps
         .formats
         .iter()
@@ -323,15 +417,12 @@ pub(crate) fn create_wgpu_state(window: Arc<Window>) -> WgpuState {
         view_formats: alloc::vec![],
         desired_maximum_frame_latency: 2,
     };
-    surface.configure(&device, &config);
-    let msaa = create_msaa(&device, &config);
+    surface.configure(&context.device, &config);
+    let msaa = create_msaa(&context.device, &config);
     WgpuState {
+        context,
         window,
-        instance,
         surface,
-        adapter,
-        device,
-        queue,
         config,
         msaa,
     }
@@ -520,7 +611,18 @@ pub trait MobileSurface: Surface {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MobileSurfaceError {
     BufferSizeOverflow,
+    InvalidRenderScale,
     FramebufferBudget { required: usize, budget: usize },
+}
+
+/// Resolution policy for the software framebuffer uploaded to a mobile WGPU surface.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SoftwareRenderScale {
+    /// Use native device density, reduced only when required by the framebuffer budget.
+    #[default]
+    Device,
+    /// Require an explicit logical-to-physical scale.
+    Fixed(Fixed),
 }
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
@@ -530,7 +632,9 @@ pub(crate) fn software_buffer_layout(
     render_scale: Fixed,
     budget: usize,
 ) -> Result<(u16, u16, usize), MobileSurfaceError> {
-    let render_scale = render_scale.max(Fixed::from_ratio(1, 4));
+    if !render_scale.is_positive() {
+        return Err(MobileSurfaceError::InvalidRenderScale);
+    }
     let width = (logical_width * render_scale)
         .round()
         .to_int()
@@ -547,6 +651,70 @@ pub(crate) fn software_buffer_layout(
         return Err(MobileSurfaceError::FramebufferBudget { required, budget });
     }
     Ok((width, height, required))
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn resolve_software_buffer_layout(
+    logical_width: Fixed,
+    logical_height: Fixed,
+    native_scale: Fixed,
+    render_scale: SoftwareRenderScale,
+    budget: usize,
+) -> Result<(Fixed, u16, u16, usize), MobileSurfaceError> {
+    match render_scale {
+        SoftwareRenderScale::Fixed(scale) => {
+            software_buffer_layout(logical_width, logical_height, scale, budget)
+                .map(|(width, height, required)| (scale, width, height, required))
+        }
+        SoftwareRenderScale::Device => {
+            if !native_scale.is_positive() {
+                return Err(MobileSurfaceError::InvalidRenderScale);
+            }
+            if let Ok((width, height, required)) =
+                software_buffer_layout(logical_width, logical_height, native_scale, budget)
+            {
+                return Ok((native_scale, width, height, required));
+            }
+
+            let mut low = 64_i32;
+            let mut high = (native_scale.to_f32() * 256.0).floor() as i32;
+            let mut best = None;
+            while low <= high {
+                let middle = low + (high - low) / 2;
+                let scale = Fixed::from_ratio(middle, 256);
+                match software_buffer_layout(logical_width, logical_height, scale, budget) {
+                    Ok((width, height, required)) => {
+                        best = Some((scale, width, height, required));
+                        low = middle + 1;
+                    }
+                    Err(MobileSurfaceError::FramebufferBudget { .. }) => {
+                        high = middle - 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            best.ok_or_else(|| {
+                software_buffer_layout(
+                    logical_width,
+                    logical_height,
+                    Fixed::from_ratio(1, 4),
+                    budget,
+                )
+                .expect_err("minimum software scale must exceed the framebuffer budget")
+            })
+        }
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn software_presenter_needs_rebuild(
+    current_width: u16,
+    current_height: u16,
+    next_width: u16,
+    next_height: u16,
+    has_presenter: bool,
+) -> bool {
+    !has_presenter || current_width != next_width || current_height != next_height
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -646,6 +814,15 @@ impl Surface for MobileWgpuSurface {
     }
 
     fn flush(&mut self, _area: crate::types::PhysicalRect) {}
+
+    fn safe_area_insets(&self) -> SafeAreaInsets {
+        self.runtime
+            .state
+            .as_ref()
+            .map_or_else(SafeAreaInsets::default, |state| {
+                mobile_window_safe_area(&state.window)
+            })
+    }
 
     fn physical_size(&self) -> (u32, u32) {
         let state = self
@@ -806,13 +983,22 @@ where
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        if !window_event_is_current(Some(&window.id()), &window_id) {
+            return;
+        }
         let Some(app) = self.app.as_mut() else {
             return;
         };
         if matches!(event, WindowEvent::RedrawRequested) {
+            if app.is_suspended() {
+                return;
+            }
             if app.tick() {
                 event_loop.exit();
                 return;
@@ -835,6 +1021,11 @@ where
     }
 }
 
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
+    active.is_some_and(|active| active == incoming)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -853,6 +1044,26 @@ mod tests {
 
         assert!(runtime.event_queue.is_empty());
         assert!(runtime.pending_move.is_none());
+    }
+
+    #[test]
+    fn only_the_active_native_window_dispatches_events() {
+        assert!(window_event_is_current(Some(&7), &7));
+        assert!(!window_event_is_current(Some(&7), &8));
+        assert!(!window_event_is_current::<u8>(None, &7));
+    }
+
+    #[test]
+    fn physical_system_insets_are_reported_in_logical_pixels() {
+        assert_eq!(
+            safe_area_from_physical(1080, 2400, Fixed::from_int(3), 0, 72, 1080, 2256),
+            SafeAreaInsets {
+                top: Fixed::from_int(24),
+                right: Fixed::ZERO,
+                bottom: Fixed::from_int(48),
+                left: Fixed::ZERO,
+            }
+        );
     }
 
     #[test]
@@ -908,7 +1119,7 @@ mod tests {
     }
 
     #[test]
-    fn software_buffer_layout_clamps_non_positive_scale() {
+    fn software_buffer_layout_rejects_non_positive_scale() {
         assert_eq!(
             software_buffer_layout(
                 Fixed::from_int(400),
@@ -916,8 +1127,50 @@ mod tests {
                 Fixed::ZERO,
                 1024 * 1024,
             ),
-            Ok((100, 200, 100 * 200 * 4))
+            Err(MobileSurfaceError::InvalidRenderScale)
         );
+    }
+
+    #[test]
+    fn device_scale_uses_native_pixels_when_the_budget_allows() {
+        assert_eq!(
+            resolve_software_buffer_layout(
+                Fixed::from_int(360),
+                Fixed::from_int(800),
+                Fixed::from_int(3),
+                SoftwareRenderScale::Device,
+                32 * 1024 * 1024,
+            ),
+            Ok((Fixed::from_int(3), 1080, 2400, 1080 * 2400 * 4))
+        );
+    }
+
+    #[test]
+    fn device_scale_chooses_the_highest_q24_8_scale_inside_the_budget() {
+        let budget = 360 * 800 * 4;
+        let (scale, width, height, required) = resolve_software_buffer_layout(
+            Fixed::from_int(360),
+            Fixed::from_int(800),
+            Fixed::from_int(3),
+            SoftwareRenderScale::Device,
+            budget,
+        )
+        .unwrap();
+        assert_eq!(scale, Fixed::ONE);
+        assert_eq!((width, height, required), (360, 800, budget));
+    }
+
+    #[test]
+    fn resume_rebuilds_a_dropped_presenter_at_the_same_size() {
+        assert!(software_presenter_needs_rebuild(
+            1080, 2400, 1080, 2400, false
+        ));
+        assert!(!software_presenter_needs_rebuild(
+            1080, 2400, 1080, 2400, true
+        ));
+        assert!(software_presenter_needs_rebuild(
+            1080, 2400, 1200, 2400, true
+        ));
     }
 
     #[test]

@@ -52,6 +52,10 @@ use crate::ui::layout::LayoutStyle;
 
 pub struct Widget;
 
+/// Applies the surface safe area as minimum layout padding for this entity.
+#[derive(Clone, Copy, Debug, Default, crate::Component)]
+pub struct RespectSafeArea;
+
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RenderKey(pub u64);

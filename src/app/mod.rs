@@ -137,6 +137,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(FocusState::default());
         let info = backend.display_info();
         world.insert_resource(info);
+        world.insert_resource(backend.safe_area_insets());
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(ThemeCatalog::default());
         world.insert_resource(Theme::default());
@@ -414,7 +415,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Defaults: `grow: Fixed::ONE` (fills the viewport), background
     /// [`ColorToken::Surface`][crate::ui::theme::ColorToken::Surface],
     /// [`FlexDirection::Column`][crate::ui::layout::FlexDirection::Column],
-    /// and exclusion from pointer hit testing.
+    /// exclusion from pointer hit testing, and respect for the surface safe area.
     /// Chain [`RootBuilder::bg_color`] / [`RootBuilder::layout`] to
     /// override, then [`RootBuilder::id`] to finish:
     ///
@@ -433,6 +434,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             })
             .id();
         self.world.insert(entity, crate::ui::IgnoreHitTest);
+        self.world.insert(entity, crate::ui::RespectSafeArea);
         RootBuilder { app: self, entity }
     }
 
@@ -463,6 +465,19 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .resource_mut::<RenderViewport>()
             .expect("App always owns a RenderViewport")
             .0 = viewport;
+        let safe_area = self.backend.safe_area_insets();
+        let safe_area_changed = self
+            .world
+            .resource::<crate::surface::SafeAreaInsets>()
+            .is_none_or(|current| *current != safe_area);
+        if safe_area_changed {
+            self.world.insert_resource(safe_area);
+            self.world
+                .remove_resource::<crate::ui::render_system::LayoutSnapshot>();
+            if let Some(root) = self.root {
+                self.world.mark_subtree_dirty(root);
+            }
+        }
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
@@ -1043,6 +1058,14 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
         self
     }
 
+    /// Allow content to occupy the complete surface, including system-reserved areas.
+    pub fn ignore_safe_area(self) -> Self {
+        self.app
+            .world
+            .remove::<crate::ui::RespectSafeArea>(self.entity);
+        self
+    }
+
     /// Register the root via [`App::set_root`] and return its entity.
     pub fn id(self) -> Entity {
         self.app.set_root(self.entity);
@@ -1270,6 +1293,20 @@ mod swap_tests {
         let mut app = App::headless(64, 64);
         let root = app.spawn_root().id();
         assert!(app.world.get::<crate::ui::IgnoreHitTest>(root).is_some());
+    }
+
+    #[test]
+    fn spawned_root_respects_safe_area_by_default() {
+        let mut app = App::headless(64, 64);
+        let root = app.spawn_root().id();
+        assert!(app.world.get::<crate::ui::RespectSafeArea>(root).is_some());
+    }
+
+    #[test]
+    fn root_can_opt_out_of_safe_area() {
+        let mut app = App::headless(64, 64);
+        let root = app.spawn_root().ignore_safe_area().id();
+        assert!(app.world.get::<crate::ui::RespectSafeArea>(root).is_none());
     }
 
     #[test]

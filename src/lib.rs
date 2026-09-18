@@ -132,7 +132,7 @@ pub mod prelude {
     pub use crate::ecs::{Component, Entity, IntoBundle, MonoClock, World};
     pub use crate::render::font::FontToken;
     pub use crate::render::path::{Path, PathId};
-    pub use crate::surface::Surface;
+    pub use crate::surface::{SafeAreaInsets, Surface};
     pub use crate::text::{
         PathCaretHit, PathDirection, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
         TextPath,
@@ -145,7 +145,7 @@ pub mod prelude {
     pub use crate::ui::theme::{
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
-    pub use crate::ui::{HitTarget, InteractionFeedback, Style, Widget};
+    pub use crate::ui::{HitTarget, InteractionFeedback, RespectSafeArea, Style, Widget};
     pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{
