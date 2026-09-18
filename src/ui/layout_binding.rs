@@ -404,6 +404,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn dirty_layout_reconciles_bindings_before_rendering() {
+        let mut world = World::new();
+        let root = widget(&mut world, 300, 200);
+        let target = widget(&mut world, 20, 20);
+        world.insert(root, Children(vec![target]));
+        world.insert(target, Parent(root));
+        world.insert(
+            target,
+            SharedLayoutBinding::new(
+                &[LayoutDependency::entity(root, LayoutAxis::Width)],
+                |world, entity, values| {
+                    let _ = size_child(world, entity, values);
+                },
+            ),
+        );
+        world.insert(root, crate::ui::dirty::Dirty);
+        world.insert(target, crate::ui::dirty::Dirty);
+
+        let viewport = Viewport::new(300, 200, Fixed::ONE);
+        let mut plan = crate::ui::dirty::DirtyRegions::default();
+        crate::ui::render_system::collect_dirty_regions_into(
+            &mut world, root, &viewport, &mut plan,
+        );
+
+        assert_eq!(
+            world.get::<ComputedRect>(target).unwrap().0.w,
+            Fixed::from_int(150)
+        );
+        assert!(!plan.is_empty());
+    }
+
     fn oscillate(world: &mut World, target: Entity, _: &LayoutValues) -> bool {
         let probe = world.resource_mut::<Probe>().unwrap();
         probe.calls += 1;

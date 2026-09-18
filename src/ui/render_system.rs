@@ -1569,6 +1569,28 @@ fn render_full_with(
     )
 }
 
+fn reconcile_layout_snapshot(
+    world: &mut World,
+    root: Entity,
+    logical_w: u16,
+    logical_h: u16,
+) -> Option<Box<LayoutSnapshot>> {
+    const MAX_LAYOUT_PASSES: usize = 3;
+    for pass in 0..MAX_LAYOUT_PASSES {
+        let snapshot = compute_layout_snapshot(world, root, logical_w, logical_h)?;
+
+        let mut idx = 0;
+        write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
+        world.put_resource_box(snapshot);
+        let invoke = pass + 1 < MAX_LAYOUT_PASSES;
+        if !super::layout_binding::apply_layout_bindings(world, invoke) || !invoke {
+            return world.take_resource_box::<LayoutSnapshot>();
+        }
+        crate::core::reactive::flush_signal_dirty(world);
+    }
+    None
+}
+
 /// Compute layout and write ComputedRect to each entity (logical pixels).
 pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
@@ -1577,29 +1599,18 @@ pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
         cache.begin_frame();
     }
 
-    const MAX_LAYOUT_PASSES: usize = 3;
-    for pass in 0..MAX_LAYOUT_PASSES {
-        let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h) else {
-            return;
-        };
-
-        let mut idx = 0;
-        write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
-        crate::input::event::hit_test::update_hit_test_geometry(
-            world,
-            root,
-            logical_w,
-            logical_h,
-            &snapshot.layout_tree,
-            &snapshot.entities,
-        );
-        world.put_resource_box(snapshot);
-        let invoke = pass + 1 < MAX_LAYOUT_PASSES;
-        if !super::layout_binding::apply_layout_bindings(world, invoke) || !invoke {
-            return;
-        }
-        crate::core::reactive::flush_signal_dirty(world);
-    }
+    let Some(snapshot) = reconcile_layout_snapshot(world, root, logical_w, logical_h) else {
+        return;
+    };
+    crate::input::event::hit_test::update_hit_test_geometry(
+        world,
+        root,
+        logical_w,
+        logical_h,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+    );
+    world.put_resource_box(snapshot);
 }
 
 fn write_computed_rects(
@@ -2238,24 +2249,25 @@ pub(crate) fn collect_dirty_regions_into(
     }
 
     let visual_only = layout_dirty_count == 0;
-    let existing = visual_only
-        .then(|| world.take_resource_box::<LayoutSnapshot>())
-        .flatten()
+    let existing = world
+        .take_resource_box::<LayoutSnapshot>()
         .filter(|snapshot| snapshot.matches(root, logical_w, logical_h));
-    let Some(mut snapshot) = existing.or_else(|| {
+    let Some(mut snapshot) = (if visual_only {
+        existing.or_else(|| {
+            crate::trace_span!("dirty.layout", {
+                compute_layout_snapshot(world, root, logical_w, logical_h)
+            })
+        })
+    } else {
+        if let Some(snapshot) = existing {
+            world.put_resource_box(snapshot);
+        }
         crate::trace_span!("dirty.layout", {
-            compute_layout_snapshot(world, root, logical_w, logical_h)
+            reconcile_layout_snapshot(world, root, logical_w, logical_h)
         })
     }) else {
         return;
     };
-
-    let mut idx = 0;
-    if !visual_only {
-        crate::trace_span!("dirty.write_computed", {
-            write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx)
-        });
-    }
 
     let mut bounds = DirtyBounds {
         min_x: Fixed::from(logical_w),
@@ -2270,7 +2282,7 @@ pub(crate) fn collect_dirty_regions_into(
     snapshot.out_of_scroll_prev.clear();
     {
         crate::trace_span!("dirty.walk");
-        idx = 0;
+        let mut idx = 0;
         collect_dirty_walk(
             &snapshot.layout_tree,
             world,

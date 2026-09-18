@@ -1182,6 +1182,39 @@ mod tests {
     }
 
     #[test]
+    fn dirty_first_frame_reconciles_the_responsive_tree() {
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::dirty::DirtyRegions;
+        use crate::ui::render_system::collect_dirty_regions_into;
+
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets().with_default_systems();
+        let parent = app.spawn_root().id();
+        setup_app(&mut app, parent);
+        app.set_root(parent);
+        let viewport = Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+        collect_dirty_regions_into(&mut app.world, parent, &viewport, &mut plan);
+
+        let rect = |world: &World, id| {
+            world
+                .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                .unwrap()
+                .0
+        };
+        let gestures = rect(&app.world, "interaction_gestures");
+        let states = rect(&app.world, "interaction_states");
+        let motion = rect(&app.world, "interaction_motion");
+        let controls = rect(&app.world, "interaction_controls");
+        assert_eq!(gestures.y, states.y);
+        assert_eq!(motion.y, controls.y);
+        assert!(motion.y > gestures.y);
+        super::super::assert_text_layouts_fit(&app.world);
+        assert!(!plan.is_empty());
+    }
+
+    #[test]
     fn phone_viewport_stacks_cards_and_wraps_gesture_targets() {
         use crate::types::Viewport;
         use crate::ui::ComputedRect;
