@@ -12,10 +12,11 @@ the State demos in the gallery.
 
 1. [Primitives](#primitives)
 2. [Reactive attributes](#reactive-attributes)
-3. [Reactive control flow](#reactive-control-flow)
-4. [Lists: `walk`, index vs keyed](#lists)
-5. [The flush model](#the-flush-model)
-6. [Limits](#limits)
+3. [Layout-responsive attributes](#layout-responsive-attributes)
+4. [Reactive control flow](#reactive-control-flow)
+5. [Lists: `walk`, index vs keyed](#lists)
+6. [The flush model](#the-flush-model)
+7. [Limits](#limits)
 
 ## Primitives
 
@@ -85,6 +86,42 @@ ui! {
 ```
 
 To derive the geometry of one mutable path from signals, use `UiScope::bind_path`. The owner-bound effect edits the existing `PathId`, retains its allocation, and invalidates drawing and text consumers when its revision changes. See [`typography.md`](typography.md#derive-path-geometry-from-signals).
+
+## Layout-responsive attributes
+
+`$` reacts to application state. `@` reacts to computed layout geometry and lists every dependency in its head:
+
+```rust
+ui! {
+    Column (container: true) {
+        Text(
+            "Status",
+            font_size: @width {
+                if width < Fixed::from_int(520) { 18_u16 } else { 30_u16 }
+            },
+            padding: @(width, height) {
+                Padding::all(width.min(height) / 24)
+            }
+        )
+
+        View(
+            id: "stage",
+            width: Dimension::percent(100),
+            height: 180
+        )
+
+        Text(
+            "Stage label",
+            width: @id(stage).width { stage.width },
+            top: @id("stage").height as stage_height { stage_height / 8 }
+        )
+    }
+}
+```
+
+Bare `width` and `height` resolve to the nearest ancestor marked `container: true`. Named dependencies use the existing widget ID registry. String IDs require `as alias`; aliases are also available for identifier IDs and container geometry. One widget can declare up to 4 distinct dependencies, stored without a runtime allocation. Multiple responsive attributes on the same widget share one binding and one geometry snapshot.
+
+The binding runs after layout and may request one additional layout pass when it changes a layout property. The pass count is bounded, and unchanged derived values do not invalidate the widget. Continuous geometry that cannot be expressed as a widget property can use `UiScope::bind_layout` with explicit `LayoutDependency` values and caller-owned state.
 
 ## Reactive control flow
 

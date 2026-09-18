@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Layout-responsive DSL.** `@width`, `@height`, and named `@id(...).width` / `height` dependencies derive typed widget properties from computed geometry; `container: true` defines the nearest responsive scope, aliases expose concise local names, and undeclared or oversized dependency sets fail at compile time.
 - **Inspectable themes.** `ThemeInfo`, `ThemeId`, `ThemeCatalog`, `App::theme`, and the theme editing APIs expose borrowed identity and safe token mutation; `App::set_theme` accepts an owned palette, `ThemeId`, or static ID through one entry point.
 - **Unified image sources.** `Image` accepts texture tokens, borrowed/owned vector `Path` values, or typed `IconAsset` constants through `ImageSource` and renders static vector images without transformed command buffers.
 - `TouchAction` gives widgets compile-time-typed control over pointer-drag arbitration with ancestor scrollers while leaving wheel and rotary input unchanged.

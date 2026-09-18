@@ -53,6 +53,18 @@ impl<'w> UiScope<'w> {
         });
     }
 
+    pub fn bind_layout(
+        &mut self,
+        entity: Entity,
+        dependencies: &[crate::ui::LayoutDependency],
+        apply: impl Fn(&mut World, Entity, &crate::ui::LayoutValues) + 'static,
+    ) {
+        self.world.insert(
+            entity,
+            crate::ui::SharedLayoutBinding::new(dependencies, apply),
+        );
+    }
+
     pub fn bind_path(
         &mut self,
         path: crate::render::path::PathId,
@@ -180,9 +192,10 @@ mod tests {
         impl Property for BorderWidth {
             type Value = crate::types::Fixed;
 
-            fn apply(world: &mut World, entity: Entity, value: Self::Value) {
+            fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
                 world.get_mut::<Style>(entity).unwrap().border_width = value;
                 world.invalidate(entity);
+                true
             }
         }
 

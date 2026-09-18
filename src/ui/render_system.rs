@@ -1545,13 +1545,21 @@ pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
         cache.begin_frame();
     }
 
-    let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h) else {
-        return;
-    };
+    const MAX_LAYOUT_PASSES: usize = 3;
+    for pass in 0..MAX_LAYOUT_PASSES {
+        let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h) else {
+            return;
+        };
 
-    let mut idx = 0;
-    write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
-    world.put_resource_box(snapshot);
+        let mut idx = 0;
+        write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
+        world.put_resource_box(snapshot);
+        let invoke = pass + 1 < MAX_LAYOUT_PASSES;
+        if !super::layout_binding::apply_layout_bindings(world, invoke) || !invoke {
+            return;
+        }
+        crate::core::reactive::flush_signal_dirty(world);
+    }
 }
 
 fn write_computed_rects(

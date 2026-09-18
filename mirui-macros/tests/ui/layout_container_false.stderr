@@ -1,0 +1,5 @@
+error: `container` only accepts `true`
+  --> tests/ui/layout_container_false.rs:16:26
+   |
+16 |         View (container: false)
+   |                          ^^^^^

@@ -157,6 +157,26 @@ ui! {
 
 Powered by [xrune](https://github.com/W-Mai/xrune). Integer literals in attributes (`height: 40`) coerce to `Fixed` / `Dimension` via `Into`.
 
+Layout-responsive attributes declare the geometry they read. Bare `width` and `height` resolve against the nearest `container: true` ancestor; `id(name).width` and `id(name).height` reuse the existing named-ID registry. Up to 4 dependencies are stored inline, and undeclared values are rejected at compile time.
+
+```rust
+ui! {
+    Column (container: true) {
+        Text(
+            "Adaptive title",
+            font_size: @width {
+                if width < Fixed::from_int(520) { 18_u16 } else { 30_u16 }
+            },
+            padding: @(width, height) {
+                Padding::all(width.min(height) / 24)
+            }
+        )
+    }
+}
+```
+
+Use an alias when the expression should not expose an ID-shaped field: `@id(stage).width as stage_width { stage_width / 2 }`. `$` remains the signal-driven state binding syntax; `@` runs after layout geometry changes.
+
 ### Common attributes
 
 | Attribute | Type | Description |

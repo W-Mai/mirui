@@ -3,6 +3,7 @@ extern crate proc_macro;
 mod compose;
 mod compose_attr;
 mod diag;
+mod layout_reactive;
 mod vector;
 mod visit_id;
 
@@ -433,6 +434,32 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
     }
 }
 
+fn responsive_property(widget: &str, attr: &str) -> Option<&'static str> {
+    match attr {
+        "bg_color" => Some("BackgroundColor"),
+        "text_color" => Some("TextColor"),
+        "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
+        "font_size" => Some("FontSize"),
+        "width" => Some("Width"),
+        "min_width" => Some("MinWidth"),
+        "max_width" => Some("MaxWidth"),
+        "height" => Some("Height"),
+        "min_height" => Some("MinHeight"),
+        "max_height" => Some("MaxHeight"),
+        "padding" => Some("Padding"),
+        "row_gap" => Some("RowGap"),
+        "column_gap" => Some("ColumnGap"),
+        "left" => Some("Left"),
+        "top" => Some("Top"),
+        _ => None,
+    }
+}
+
+struct LayoutBind {
+    property: syn::Ident,
+    value: crate::layout_reactive::LayoutValue,
+}
+
 struct WidgetCmd {
     name: syn::Ident,
     kind: WidgetKind,
@@ -448,6 +475,7 @@ struct WidgetCmd {
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
+    layout_binds: Vec<LayoutBind>,
     children: Vec<Cmd>,
 }
 
@@ -462,6 +490,7 @@ struct ParsedAttrs {
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
+    layout_binds: Vec<LayoutBind>,
     user_set_direction: bool,
 }
 
@@ -530,13 +559,14 @@ impl MiruiRune {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut errors = Vec::new();
-        let component_inserts = Vec::new();
+        let mut component_inserts = Vec::new();
         let mut component_fields = Vec::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
         let mut reactive_binds: Vec<ReactiveBind> = Vec::new();
+        let mut layout_binds = Vec::new();
         let mut user_set_direction = false;
 
         let is_text_widget = widget_name == "Text";
@@ -598,6 +628,45 @@ impl MiruiRune {
                 .as_ref()
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
+
+            if crate::layout_reactive::is_layout_placeholder(&attr.value) {
+                match responsive_property(widget_name, &name) {
+                    Some(property) => {
+                        match crate::layout_reactive::LayoutValue::parse_expr(&attr.value) {
+                            Ok(Some(value)) => layout_binds.push(LayoutBind {
+                                property: syn::Ident::new(property, attr_span),
+                                value,
+                            }),
+                            Ok(None) => unreachable!("layout placeholder already checked"),
+                            Err(error) => errors.push(error.to_compile_error()),
+                        }
+                    }
+                    None => errors.push(
+                        syn::Error::new(
+                            attr_span,
+                            format!("`{name}` does not support layout-responsive `@` binding"),
+                        )
+                        .to_compile_error(),
+                    ),
+                }
+                continue;
+            }
+
+            if name == "container" {
+                match value {
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Bool(enabled),
+                        ..
+                    }) if enabled.value => {
+                        component_inserts.push(quote! { ::mirui::ui::LayoutContainer });
+                    }
+                    _ => errors.push(
+                        syn::Error::new_spanned(value, "`container` only accepts `true`")
+                            .to_compile_error(),
+                    ),
+                }
+                continue;
+            }
 
             // Must run before the Text / Component `text` routes below, or a
             // reactive `text` gets frozen as static content instead of bound.
@@ -751,6 +820,7 @@ impl MiruiRune {
             id_registrations,
             id_lookups,
             reactive_binds,
+            layout_binds,
             user_set_direction,
         }
     }
@@ -1068,6 +1138,54 @@ impl MiruiRune {
             tokens.extend(quote! {
                 mirui::core::reactive::with_world_scope(#world, || { #(#injections)* });
             });
+        }
+
+        if !cmd.layout_binds.is_empty() {
+            let mut dependencies = Vec::new();
+            for binding in &cmd.layout_binds {
+                for dependency in &binding.value.dependencies {
+                    if !dependencies
+                        .iter()
+                        .any(|candidate: &crate::layout_reactive::Dependency| {
+                            candidate.same_source(dependency)
+                        })
+                    {
+                        dependencies.push(dependency.clone());
+                    }
+                }
+            }
+            if dependencies.len() > 4 {
+                tokens.extend(
+                    syn::Error::new(
+                        cmd.layout_binds[0].property.span(),
+                        "layout-responsive properties on one widget use more than four distinct dependencies",
+                    )
+                    .to_compile_error(),
+                );
+            } else {
+                let emitted_dependencies = dependencies.iter().map(|dependency| dependency.emit());
+                let mut applies = Vec::new();
+                for binding in &cmd.layout_binds {
+                    let mut value = binding.value.clone();
+                    match value.emit_apply(&binding.property, &dependencies) {
+                        Ok(apply) => applies.push(apply),
+                        Err(error) => tokens.extend(error.to_compile_error()),
+                    }
+                }
+                tokens.extend(quote! {
+                    (#world).insert(
+                        #var,
+                        ::mirui::ui::LayoutBinding::new(
+                            const { &[#(#emitted_dependencies),*] },
+                            |__layout_world, __layout_target, __layout_values| {
+                                let mut __layout_changed = false;
+                                #(#applies)*
+                                __layout_changed
+                            },
+                        ),
+                    );
+                });
+            }
         }
 
         // Emit enchants — insert components
@@ -1829,6 +1947,7 @@ impl DsRune for MiruiRune {
             id_registrations: parsed.id_registrations,
             id_lookups,
             reactive_binds: parsed.reactive_binds,
+            layout_binds: parsed.layout_binds,
             children: my_children,
         });
 
@@ -2096,6 +2215,10 @@ pub fn ui(input: TokenStream) -> TokenStream {
         return expand_ui_fn_call(call).into();
     }
 
+    let input2 = match crate::layout_reactive::preprocess(input2) {
+        Ok(input) => input,
+        Err(error) => return error.to_compile_error().into(),
+    };
     let root = match syn::parse2::<DsRoot>(input2) {
         Ok(r) => r,
         Err(e) => return e.to_compile_error().into(),

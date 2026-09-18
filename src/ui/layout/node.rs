@@ -114,7 +114,7 @@ impl LayoutStyle {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Padding {
     pub top: Dimension,
     pub right: Dimension,
