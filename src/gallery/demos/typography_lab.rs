@@ -40,8 +40,13 @@ static WAVE_BASELINE: Path = path!(M 4 68 C 38 16 92 14 126 50 C 148 74 170 68 1
 
 #[derive(Default, crate::Component)]
 struct CaretOverlay {
-    target: &'static str,
+    target: Option<Entity>,
     probe: Option<Point>,
+}
+
+#[derive(Clone, Copy)]
+struct TypographyNodes {
+    path_overlay: Entity,
 }
 
 #[derive(crate::Component)]
@@ -209,7 +214,7 @@ fn caret_overlay_render(
     let Some(overlay) = world.get::<CaretOverlay>(entity) else {
         return;
     };
-    let Some(target) = world.find_by_id(overlay.target) else {
+    let Some(target) = overlay.target.filter(|target| world.is_alive(*target)) else {
         return;
     };
     let (Some(style), Some(handle), Some(resource)) = (
@@ -451,7 +456,10 @@ pub fn register_path(world: &mut World) -> PathId {
 }
 
 fn set_path_probe(world: &mut World, point: Point) {
-    let Some(entity) = world.find_by_id("typography_path_carets") else {
+    let Some(entity) = world
+        .resource::<TypographyNodes>()
+        .map(|nodes| nodes.path_overlay)
+    else {
         return;
     };
     let Some(overlay) = world.get_mut::<CaretOverlay>(entity) else {
@@ -901,7 +909,6 @@ pub fn build_widgets(wave_path: PathId) {
                         View (height: 78) {
                             CaretOverlay (
                                 id: "typography_path_carets",
-                                target: "typography_path_sample",
                                 position: Position::Absolute,
                                 left: 0,
                                 top: 0,
@@ -990,7 +997,6 @@ pub fn build_widgets(wave_path: PathId) {
                             )
                             CaretOverlay (
                                 id: "typography_carets",
-                                target: "typography_live_sample",
                                 position: Position::Absolute,
                                 left: 0,
                                 top: 0,
@@ -1111,6 +1117,18 @@ pub fn build_widgets(wave_path: PathId) {
             }
         }
     };
+    let path_overlay = bind_caret_overlay(
+        cx.world_mut(),
+        "typography_path_carets",
+        "typography_path_sample",
+    );
+    bind_caret_overlay(
+        cx.world_mut(),
+        "typography_carets",
+        "typography_live_sample",
+    );
+    cx.world_mut()
+        .insert_resource(TypographyNodes { path_overlay });
     let content = cx
         .world_mut()
         .find_by_id("typography_lab_document")
@@ -1123,6 +1141,20 @@ pub fn build_widgets(wave_path: PathId) {
         Fixed::from_int(18),
     );
     //~focus-end
+}
+
+fn bind_caret_overlay(
+    world: &mut World,
+    overlay_id: &'static str,
+    target_id: &'static str,
+) -> Entity {
+    let overlay = world.find_by_id(overlay_id).expect("caret overlay id");
+    let target = world.find_by_id(target_id).expect("caret target id");
+    world
+        .get_mut::<CaretOverlay>(overlay)
+        .expect("caret overlay component")
+        .target = Some(target);
+    overlay
 }
 
 #[cfg(feature = "std")]

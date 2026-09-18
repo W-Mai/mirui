@@ -198,11 +198,11 @@ impl LayoutValue {
             #(#values)*
             #[allow(unused_braces)]
             let __layout_computed = #body;
-            __layout_changed |= <::mirui::ui::property::prop::#property as ::mirui::ui::property::Property>::apply(
+            __layout_changed |= ::mirui::ui::property::apply_to_world::<::mirui::ui::property::prop::#property>(
                 __layout_world,
                 __layout_target,
                 ::core::convert::Into::into(__layout_computed),
-            );
+            ).changed();
         })
     }
 }

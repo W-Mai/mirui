@@ -120,6 +120,14 @@ struct InteractionModel {
     state: Signal<InteractionLabState>,
 }
 
+#[cfg(any(feature = "std", test))]
+#[derive(Clone, Copy)]
+struct InteractionNodes {
+    error: Entity,
+    disabled: Entity,
+    drag: Entity,
+}
+
 impl Default for InteractionModel {
     fn default() -> Self {
         Self {
@@ -200,14 +208,14 @@ fn model_signal(cx: &mut crate::ui::UiScope<'_>) -> Signal<InteractionLabState> 
 #[cfg(any(feature = "std", test))]
 fn sync_user_state(
     world: &mut World,
-    id: &'static str,
+    entity: Entity,
     enabled: bool,
     state: fn() -> UserState,
     matches: fn(&UserState) -> bool,
 ) {
-    let Some(entity) = world.find_by_id(id) else {
+    if !world.is_alive(entity) {
         return;
-    };
+    }
     let already = world.get::<UserState>(entity).is_some_and(matches);
     if already == enabled {
         return;
@@ -223,34 +231,34 @@ fn sync_user_state(
 #[cfg(any(feature = "std", test))]
 #[mirui_macros::system]
 fn sync_interaction_user_states(world: &mut World) {
-    let Some(state) = world
-        .resource::<InteractionModel>()
-        .map(|model| model.state.get_untracked())
-    else {
+    let (Some(state), Some(nodes)) = (
+        world
+            .resource::<InteractionModel>()
+            .map(|model| model.state.get_untracked()),
+        world.resource::<InteractionNodes>().copied(),
+    ) else {
         return;
     };
     sync_user_state(
         world,
-        "interaction_error_target",
+        nodes.error,
         state.errored,
         || UserState::Errored,
         |value| matches!(value, UserState::Errored),
     );
     sync_user_state(
         world,
-        "interaction_disabled_target",
+        nodes.disabled,
         state.disabled,
         || UserState::Disabled,
         |value| matches!(value, UserState::Disabled),
     );
-    if let Some(entity) = world.find_by_id("interaction_drag_target") {
-        crate::ui::set_position(
-            world,
-            entity,
-            Fixed::from_int(24) + state.drag_x,
-            Fixed::from_int(27) + state.drag_y,
-        );
-    }
+    crate::ui::set_position(
+        world,
+        nodes.drag,
+        Fixed::from_int(24) + state.drag_x,
+        Fixed::from_int(27) + state.drag_y,
+    );
 }
 
 #[compose]
@@ -886,6 +894,24 @@ pub fn build_widgets() {
             }
         }
     };
+    #[cfg(any(feature = "std", test))]
+    {
+        let nodes = InteractionNodes {
+            error: cx
+                .world_mut()
+                .find_by_id("interaction_error_target")
+                .expect("Interaction Lab error target"),
+            disabled: cx
+                .world_mut()
+                .find_by_id("interaction_disabled_target")
+                .expect("Interaction Lab disabled target"),
+            drag: cx
+                .world_mut()
+                .find_by_id("interaction_drag_target")
+                .expect("Interaction Lab drag target"),
+        };
+        cx.world_mut().insert_resource(nodes);
+    }
     let content = cx
         .world_mut()
         .find_by_id("interaction_lab_document")

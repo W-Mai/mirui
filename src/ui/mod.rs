@@ -391,6 +391,15 @@ fn set_position_inner(
     use crate::types::{Dimension, Fixed, Rect};
     use dirty::{Dirty, PrevRect};
 
+    let next_left = Dimension::Px(x);
+    let next_top = Dimension::Px(y);
+    if world
+        .get::<Style>(entity)
+        .is_some_and(|style| style.layout.left == next_left && style.layout.top == next_top)
+    {
+        return;
+    }
+
     if let Some(style) = world.get::<Style>(entity) {
         let l = &style.layout;
         let old_rect = Rect {
@@ -416,11 +425,31 @@ fn set_position_inner(
         }
     }
     if let Some(style) = world.get_mut::<Style>(entity) {
-        style.layout.left = Dimension::Px(x);
-        style.layout.top = Dimension::Px(y);
+        style.layout.left = next_left;
+        style.layout.top = next_top;
     }
     if mark_dirty {
         world.insert(entity, Dirty);
+    }
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+    use crate::ui::dirty::Dirty;
+
+    #[test]
+    fn unchanged_position_does_not_invalidate_widget() {
+        let mut world = crate::ecs::World::new();
+        let entity = world.spawn_empty();
+        let mut style = Style::default();
+        style.layout.left = crate::types::Dimension::px(12);
+        style.layout.top = crate::types::Dimension::px(24);
+        world.insert(entity, style);
+
+        set_position(&mut world, entity, 12, 24);
+
+        assert!(!world.has::<Dirty>(entity));
     }
 }
 

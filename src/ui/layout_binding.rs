@@ -375,9 +375,10 @@ mod tests {
 
     fn size_child(world: &mut World, target: Entity, values: &LayoutValues) -> bool {
         let width = Dimension::Px(values.get(0) / Fixed::from_int(2));
-        <crate::ui::property::prop::Width as crate::ui::property::Property>::apply(
+        crate::ui::property::apply_to_world::<crate::ui::property::prop::Width>(
             world, target, width,
         )
+        .changed()
     }
 
     #[test]

@@ -958,7 +958,7 @@ fn compose_orbit_stage() -> Entity {
     let stage_action = state_signal.clone();
     let focus_text = state_signal;
 
-    ui! {
+    let stage = ui! {
         Column (
             id: "orbit_console_stage",
             grow: 2.0,
@@ -966,12 +966,7 @@ fn compose_orbit_stage() -> Entity {
             min_height: Dimension::percent(48),
             padding: Padding::all(12),
             row_gap: 6,
-            bg_color: ${
-                {
-                    let _ = stage_visual.get().revision();
-                    SURFACE
-                }
-            },
+            bg_color: SURFACE,
             border_color: BORDER,
             border_width: 1,
             border_radius: 20,
@@ -1018,7 +1013,11 @@ fn compose_orbit_stage() -> Entity {
                 text_color: MINT
             )
         }
-    }
+    };
+    cx.bind_visual(stage, move || {
+        let _ = stage_visual.get().revision();
+    });
+    stage
 }
 
 #[compose]
@@ -1549,6 +1548,7 @@ mod tests {
             .expect("pulse mode id");
         let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
         world.remove::<Dirty>(stage);
+        world.remove::<crate::ui::dirty::VisualDirty>(stage);
         GestureHandler::trigger(
             &mut world,
             pulse,
@@ -1566,7 +1566,8 @@ mod tests {
                 .map(|button| button.normal_color.resolve(&Theme::dark())),
             Some(Theme::dark().resolve(VIOLET))
         );
-        assert!(world.has::<Dirty>(stage));
+        assert!(!world.has::<Dirty>(stage));
+        assert!(world.has::<crate::ui::dirty::VisualDirty>(stage));
     }
 
     #[test]

@@ -15,8 +15,21 @@ impl<T: alloc::string::ToString> IntoText for T {
 pub trait Property: 'static {
     type Value;
 
-    /// Applies the value and reports whether the property changed layout or visual state.
-    fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool;
+    /// Applies the value and classifies the invalidation it requires.
+    fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PropertyChange {
+    Unchanged,
+    Visual,
+    Layout,
+}
+
+impl PropertyChange {
+    pub const fn changed(self) -> bool {
+        !matches!(self, Self::Unchanged)
+    }
 }
 
 pub struct WidgetMut<'w> {
@@ -34,7 +47,7 @@ impl<'w> WidgetMut<'w> {
     }
 
     pub fn set<P: Property>(&mut self, value: P::Value) -> &mut Self {
-        let _ = P::apply(self.world, self.entity, value);
+        apply_to_world::<P>(self.world, self.entity, value);
         self
     }
 
@@ -54,14 +67,28 @@ impl World {
 pub fn apply<P: Property>(entity: Entity, value: P::Value) {
     crate::core::reactive::with_world(|world| {
         if world.is_alive(entity) && world.has::<crate::ui::Widget>(entity) {
-            let _ = P::apply(world, entity, value);
-            world.invalidate(entity);
+            apply_to_world::<P>(world, entity, value);
         }
     });
 }
 
+#[doc(hidden)]
+pub fn apply_to_world<P: Property>(
+    world: &mut World,
+    entity: Entity,
+    value: P::Value,
+) -> PropertyChange {
+    let change = P::apply(world, entity, value);
+    match change {
+        PropertyChange::Unchanged => {}
+        PropertyChange::Visual => world.invalidate_visual(entity),
+        PropertyChange::Layout => world.invalidate(entity),
+    }
+    change
+}
+
 pub mod prop {
-    use super::Property;
+    use super::{Property, PropertyChange};
     use crate::ecs::{Entity, World};
 
     pub struct TextPath;
@@ -87,7 +114,7 @@ pub mod prop {
     impl Property for TextContent {
         type Value = alloc::string::String;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             let is_button = world.has::<crate::ui::widgets::Button>(entity);
             if let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) {
                 text.set_content(value);
@@ -96,8 +123,7 @@ pub mod prop {
             } else {
                 world.insert(entity, crate::ui::widgets::Text::from(value));
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
@@ -106,17 +132,16 @@ pub mod prop {
             impl Property for $name {
                 type Value = $value;
 
-                fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+                fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
                     if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                         if style.$field == value {
-                            return false;
+                            return PropertyChange::Unchanged;
                         }
                         style.$field = value;
                     } else {
-                        return false;
+                        return PropertyChange::Unchanged;
                     }
-                    world.invalidate(entity);
-                    true
+                    PropertyChange::Visual
                 }
             }
         };
@@ -125,17 +150,16 @@ pub mod prop {
     impl Property for BackgroundColor {
         type Value = crate::ui::theme::ThemedColor;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                 if style.bg_color == Some(value) {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 style.bg_color = Some(value);
             } else {
-                return false;
+                return PropertyChange::Unchanged;
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Visual
         }
     }
 
@@ -144,80 +168,78 @@ pub mod prop {
     impl Property for ButtonNormalColor {
         type Value = crate::ui::theme::ThemedColor;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if let Some(button) = world.get_mut::<crate::ui::widgets::Button>(entity) {
                 if button.normal_color == value {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 button.normal_color = value;
             } else {
-                return false;
+                return PropertyChange::Unchanged;
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Visual
         }
     }
 
     impl Property for FontSize {
         type Value = u16;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                 if style.font_size == Some(value) {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 style.set_font_size(value);
             } else {
-                return false;
+                return PropertyChange::Unchanged;
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
     impl Property for Paragraph {
         type Value = crate::ui::widgets::ParagraphStyle;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) else {
-                return false;
+                return PropertyChange::Unchanged;
             };
+            if text.paragraph() == &value {
+                return PropertyChange::Unchanged;
+            }
             text.set_paragraph(value);
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
     impl Property for Direction {
         type Value = crate::ui::layout::FlexDirection;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             let Some(style) = world.get_mut::<crate::ui::Style>(entity) else {
-                return false;
+                return PropertyChange::Unchanged;
             };
             if style.layout.direction == value {
-                return false;
+                return PropertyChange::Unchanged;
             }
             style.layout.direction = value;
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
     impl Property for Width {
         type Value = crate::types::Dimension;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                 if style.layout.width == value {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 style.layout.width = value;
             } else {
-                return false;
+                return PropertyChange::Unchanged;
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
@@ -226,17 +248,16 @@ pub mod prop {
             impl Property for $name {
                 type Value = crate::types::Dimension;
 
-                fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+                fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
                     if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                         if style.layout.$field == value {
-                            return false;
+                            return PropertyChange::Unchanged;
                         }
                         style.layout.$field = value;
                     } else {
-                        return false;
+                        return PropertyChange::Unchanged;
                     }
-                    world.invalidate(entity);
-                    true
+                    PropertyChange::Layout
                 }
             }
         };
@@ -248,17 +269,16 @@ pub mod prop {
     impl Property for Height {
         type Value = crate::types::Dimension;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                 if style.layout.height == value {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 style.layout.height = value;
             } else {
-                return false;
+                return PropertyChange::Unchanged;
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
@@ -272,27 +292,26 @@ pub mod prop {
     impl Property for Padding {
         type Value = crate::ui::layout::Padding;
 
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
                 if style.layout.padding == value {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 style.layout.padding = value;
             } else {
-                return false;
+                return PropertyChange::Unchanged;
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 
     impl Property for TextPath {
         type Value = crate::text::TextPath;
 
-        fn apply(world: &mut World, entity: Entity, path: Self::Value) -> bool {
+        fn apply(world: &mut World, entity: Entity, path: Self::Value) -> PropertyChange {
             if let Some(current) = world.get::<crate::text::TextPath>(entity).copied() {
                 if current == path {
-                    return false;
+                    return PropertyChange::Unchanged;
                 }
                 if current.path() == path.path()
                     && current.subpath() == path.subpath()
@@ -303,8 +322,7 @@ pub mod prop {
                         == next_end - path.start() - path.offset()
                 {
                     world.insert(entity, path);
-                    world.invalidate_visual(entity);
-                    return true;
+                    return PropertyChange::Visual;
                 }
             }
 
@@ -324,8 +342,7 @@ pub mod prop {
             } else {
                 world.remove::<crate::text::path::TextPathSubscription>(entity);
             }
-            world.invalidate(entity);
-            true
+            PropertyChange::Layout
         }
     }
 }
@@ -338,6 +355,39 @@ mod tests {
     use crate::ui::dirty::Dirty;
     use crate::ui::widgets::{Button, ParagraphStyle, Text};
     use crate::ui::{Children, Widget};
+
+    #[test]
+    fn reactive_property_preserves_visual_only_invalidation() {
+        use crate::render::path::{Path, PathStore};
+        use crate::text::TextPath;
+
+        let mut world = World::new();
+        world.insert_resource(PathStore::new(1).unwrap());
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        let path = world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .insert(Path::new())
+            .unwrap();
+        world.widget_mut(entity).unwrap().text_path(
+            TextPath::new(path)
+                .with_range(crate::types::Fixed::ZERO..crate::types::Fixed::from_int(80)),
+        );
+        world.remove::<Dirty>(entity);
+
+        crate::core::reactive::with_world_scope(&mut world, || {
+            super::apply::<prop::TextPath>(
+                entity,
+                TextPath::new(path).with_range(
+                    crate::types::Fixed::from_int(12)..crate::types::Fixed::from_int(92),
+                ),
+            );
+        });
+
+        assert!(!world.has::<Dirty>(entity));
+        assert!(world.has::<crate::ui::dirty::VisualDirty>(entity));
+    }
 
     #[test]
     fn typed_property_updates_share_widget_mut() {
@@ -381,10 +431,10 @@ mod tests {
         world.insert(entity, Widget);
         world.insert(entity, crate::ui::Style::default());
 
-        <prop::Width as Property>::apply(&mut world, entity, Dimension::Auto);
+        apply_to_world::<prop::Width>(&mut world, entity, Dimension::Auto);
         assert!(!world.has::<Dirty>(entity));
 
-        <prop::Width as Property>::apply(&mut world, entity, Dimension::px(120));
+        apply_to_world::<prop::Width>(&mut world, entity, Dimension::px(120));
         assert!(world.has::<Dirty>(entity));
     }
 

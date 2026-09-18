@@ -132,9 +132,6 @@ impl CurveAction {
             Self::ToggleDirection => model.reversed.update(|value| *value = !*value),
             Self::TogglePaused => model.paused.update(|value| *value = !*value),
         }
-        if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-            mark_curve_stage_dirty(world, nodes.stage);
-        }
     }
 }
 
@@ -409,21 +406,6 @@ fn curve_stage_view() -> View {
     View::new("CurveStage", 60, curve_stage_render).with_filter::<CurveStage>()
 }
 
-fn update_curve_visual(world: &mut World, nodes: CurveNodes) {
-    mark_curve_stage_dirty(world, nodes.stage);
-}
-
-fn mark_curve_stage_dirty(world: &mut World, stage: Entity) {
-    if let Some(rect) = world
-        .get::<crate::ui::ComputedRect>(stage)
-        .map(|rect| rect.0)
-    {
-        world.invalidate_rect(rect);
-    } else {
-        world.invalidate_visual(stage);
-    }
-}
-
 fn bind_stage_layout(
     cx: &mut crate::ui::UiScope<'_>,
     nodes: CurveNodes,
@@ -488,19 +470,21 @@ fn curve_text_animation_system(world: &mut World) {
         return;
     }
     model.phase.set(phase);
-    if let Some(nodes) = world.resource::<CurveNodes>().copied() {
-        update_curve_visual(world, nodes);
-    }
 }
 
 const ROUTE_LABEL: &str = "POSED GLYPHS / BOUNDED FALLBACK";
 
-fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &CurveModel) {
+fn bind_curve_paths(
+    cx: &mut crate::ui::UiScope<'_>,
+    stage: Entity,
+    paths: CurvePaths,
+    model: &CurveModel,
+) {
     for (lane, path) in paths.ids.into_iter().enumerate() {
         let phase = model.phase.clone();
         let amplitude = model.amplitude.clone();
         let stage_size = model.stage_size.clone();
-        cx.bind_path(path, move |geometry| {
+        cx.bind_path_visual(stage, path, move |geometry| {
             let current_phase = phase.get();
             let stage_size = stage_size.get();
             let envelope = Fixed::from_ratio(17, 20)
@@ -821,8 +805,6 @@ fn build_widgets(paths: CurvePaths) {
         .resource::<CurveModel>()
         .cloned()
         .expect("Curve Text model");
-    bind_curve_paths(cx, paths, &model);
-
     //~focus-start
     let viewport = ui! {
         View (
@@ -863,6 +845,7 @@ fn build_widgets(paths: CurvePaths) {
             .find_by_id("curve_text_caption")
             .expect("Curve Text caption"),
     };
+    bind_curve_paths(cx, nodes.stage, paths, &model);
     bind_stage_layout(cx, nodes, paths, model);
     cx.world_mut().insert_resource(nodes);
     let content = cx

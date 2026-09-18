@@ -53,6 +53,16 @@ impl<'w> UiScope<'w> {
         });
     }
 
+    /// Marks a widget visually dirty when the observed reactive inputs change.
+    pub fn bind_visual(&mut self, entity: Entity, observe: impl Fn() + 'static) {
+        crate::core::reactive::with_world_scope(self.world, || {
+            crate::core::reactive::effect_with_widget(entity, move || {
+                observe();
+                crate::core::reactive::with_world(|world| world.invalidate_visual(entity));
+            });
+        });
+    }
+
     pub fn bind_layout(
         &mut self,
         entity: Entity,
@@ -70,6 +80,17 @@ impl<'w> UiScope<'w> {
         path: crate::render::path::PathId,
         bind: impl Fn(&mut crate::render::path::Path) + 'static,
     ) -> Result<(), crate::text::PathAccessError> {
+        self.bind_path_visual(self.parent, path, bind)
+    }
+
+    /// Rebuilds a mutable path from reactive inputs and invalidates the widget
+    /// that paints the path without forcing a layout pass.
+    pub fn bind_path_visual(
+        &mut self,
+        target: Entity,
+        path: crate::render::path::PathId,
+        bind: impl Fn(&mut crate::render::path::Path) + 'static,
+    ) -> Result<(), crate::text::PathAccessError> {
         let revision = self
             .world
             .resource::<crate::render::path::PathStore>()
@@ -82,13 +103,13 @@ impl<'w> UiScope<'w> {
             ));
         }
 
-        let owner = self.parent;
         crate::core::reactive::with_world_scope(self.world, || {
-            crate::core::reactive::effect_with_widget(owner, move || {
+            crate::core::reactive::effect_with_widget(target, move || {
                 crate::core::reactive::with_world(|world| {
                     if let Some(paths) = world.resource_mut::<crate::render::path::PathStore>() {
                         let _ = paths.edit(path, &bind);
                     }
+                    world.invalidate_visual(target);
                 });
             });
         });
@@ -179,6 +200,7 @@ mod tests {
             .commands()[1]
             .clone();
         assert_eq!(endpoint, PathCmd::LineTo(Point::new(24, 0)));
+        assert!(world.has::<crate::ui::dirty::VisualDirty>(root));
     }
 
     #[test]
@@ -192,10 +214,13 @@ mod tests {
         impl Property for BorderWidth {
             type Value = crate::types::Fixed;
 
-            fn apply(world: &mut World, entity: Entity, value: Self::Value) -> bool {
+            fn apply(
+                world: &mut World,
+                entity: Entity,
+                value: Self::Value,
+            ) -> crate::ui::property::PropertyChange {
                 world.get_mut::<Style>(entity).unwrap().border_width = value;
-                world.invalidate(entity);
-                true
+                crate::ui::property::PropertyChange::Visual
             }
         }
 
@@ -220,5 +245,29 @@ mod tests {
             world.get::<Style>(widget).unwrap().border_width,
             crate::types::Fixed::from_int(4)
         );
+    }
+
+    #[test]
+    fn visual_binding_does_not_invalidate_layout() {
+        use crate::core::reactive::{Signal, flush_signal_dirty};
+        use crate::ui::Widget;
+        use crate::ui::dirty::{Dirty, VisualDirty};
+
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let widget = world.spawn_empty();
+        world.insert(widget, Widget);
+        let revision = Signal::new(0u8);
+        let observed = revision.clone();
+        UiScope::new(&mut world, root).bind_visual(widget, move || {
+            let _ = observed.get();
+        });
+        world.remove::<VisualDirty>(widget);
+
+        revision.set(1);
+        flush_signal_dirty(&mut world);
+
+        assert!(world.has::<VisualDirty>(widget));
+        assert!(!world.has::<Dirty>(widget));
     }
 }
