@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-09-18
+
 ### Added
 
 - **Native mobile hosts.** Android NativeActivity and iOS application loops retain mirui state across suspend and resume, route touch and keyboard input through WGPU surfaces, and use single-sample mobile pipelines without an extra full-screen multisample attachment.
