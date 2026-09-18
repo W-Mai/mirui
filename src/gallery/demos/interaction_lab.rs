@@ -3,12 +3,15 @@ extern crate alloc;
 use alloc::format;
 
 use crate::input::event::BubbleControl;
+use crate::input::event::scroll::TouchAction;
 #[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::ui::UserState;
-use crate::ui::widgets::{Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput};
+use crate::ui::widgets::{
+    Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput, TextOverflow, TextWrap,
+};
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
 const BACKGROUND: ColorToken = ColorToken::Surface;
@@ -22,6 +25,27 @@ const BLUE: ColorToken = ColorToken::Secondary;
 const VIOLET: ColorToken = ColorToken::Tertiary;
 const GOLD: ColorToken = ColorToken::Success;
 const ERROR: ColorToken = ColorToken::Error;
+
+fn bounded_text(lines: u16) -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: if lines == 1 {
+            TextWrap::NoWrap
+        } else {
+            TextWrap::Word
+        },
+        overflow: TextOverflow::Ellipsis,
+        max_lines: Some(lines),
+        ..ParagraphStyle::default()
+    }
+}
+
+fn ellipsis_label() -> ParagraphStyle {
+    ParagraphStyle {
+        overflow: TextOverflow::Ellipsis,
+        max_lines: Some(1),
+        ..ParagraphStyle::label()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct InteractionLabState {
@@ -205,35 +229,45 @@ fn sync_interaction_user_states(world: &mut World) {
 #[compose]
 fn compose_header() -> Entity {
     ui! {
-        Row (
+        Column (
             id: "interaction_lab_header",
-            height: 62,
-            align: AlignItems::Center,
-            column_gap: 14
+            min_height: 96,
+            row_gap: 8
         ) {
-            View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
-            Column (grow: 1.0, row_gap: 3) {
-                Text ("INTERACTION LAB", font_size: 24, text_color: TEXT)
+            Row (height: 54, align: AlignItems::Center, column_gap: 14) {
+                View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
+                Column (grow: 1.0, min_width: 0, row_gap: 3) {
+                    Text (
+                        "INTERACTION LAB",
+                        width: Dimension::percent(100),
+                        font_size: 24,
+                        text_color: TEXT,
+                        paragraph: bounded_text(1)
+                    )
+                    Text (
+                        "gesture intent publishes actions · signals own visible state",
+                        width: Dimension::percent(100),
+                        min_height: 18,
+                        font_size: 13,
+                        text_color: MUTED,
+                        paragraph: bounded_text(2)
+                    )
+                }
+            }
+            Row (height: 30, justify: JustifyContent::FlexEnd) {
                 Text (
-                    "gesture intent publishes actions · signals own visible state",
-                    font_size: 13,
-                    text_color: MUTED
+                    "LIVE TIMELINE",
+                    width: 144,
+                    height: 30,
+                    bg_color: PANEL_ALT,
+                    border_color: BORDER,
+                    border_width: 1,
+                    border_radius: 15,
+                    font_size: 11,
+                    text_color: CYAN,
+                    paragraph: ParagraphStyle::label()
                 )
             }
-            Text (
-                "LIVE TIMELINE",
-                width: Dimension::percent(32),
-                min_width: 96,
-                max_width: 144,
-                height: 30,
-                bg_color: PANEL_ALT,
-                border_color: BORDER,
-                border_width: 1,
-                border_radius: 15,
-                font_size: 11,
-                text_color: CYAN,
-                paragraph: ParagraphStyle::label()
-            )
         }
     }
 }
@@ -260,21 +294,31 @@ fn compose_gesture_card() -> Entity {
             grow: 1.0,
             width: Dimension::percent(48),
             min_width: 250,
-            min_height: 278,
+            min_height: 304,
             padding: Padding::all(14),
             row_gap: 11,
+            clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("GESTURES · TAP COUNTS / LONG PRESS", font_size: 12, text_color: BLUE)
+            Text (
+                "GESTURES · TAP COUNTS / LONG PRESS",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: BLUE,
+                paragraph: bounded_text(2)
+            )
             Text (
                 text: $counter_text,
                 id: "interaction_gesture_status",
+                width: Dimension::percent(100),
                 height: 28,
                 font_size: 11,
-                text_color: TEXT
+                text_color: TEXT,
+                paragraph: bounded_text(1)
             )
             Row (
                 grow: 1.0,
@@ -344,9 +388,10 @@ fn compose_gesture_card() -> Entity {
             Text (
                 "Each callback emits one domain action; counters render from a Computed value.",
                 width: Dimension::percent(100),
-                height: 30,
+                min_height: 34,
                 font_size: 10,
-                text_color: MUTED
+                text_color: MUTED,
+                paragraph: bounded_text(2)
             )
         }
     }
@@ -368,17 +413,27 @@ fn compose_state_card() -> Entity {
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 10,
+            clip_children: true,
             bg_color: PANEL_ALT,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("STATE · HOVER / PRESS / ERROR / DISABLED", font_size: 11, text_color: GOLD)
-            Row (height: 66, column_gap: 7) {
+            Text (
+                "STATE · HOVER / PRESS / ERROR / DISABLED",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 11,
+                text_color: GOLD,
+                paragraph: bounded_text(2)
+            )
+            Row (height: 80, wrap: FlexWrap::Wrap, row_gap: 7, column_gap: 7) {
                 Text (
                     id: "interaction_hover_target",
                     "HOVER",
                     grow: 1.0,
+                    min_width: 70,
+                    height: 36,
                     bg_color: CYAN,
                     border_radius: 10,
                     font_size: 8,
@@ -389,6 +444,8 @@ fn compose_state_card() -> Entity {
                     id: "interaction_press_target",
                     "PRESS",
                     grow: 1.0,
+                    min_width: 70,
+                    height: 36,
                     bg_color: BLUE,
                     border_radius: 10,
                     font_size: 8,
@@ -399,6 +456,8 @@ fn compose_state_card() -> Entity {
                     id: "interaction_error_target",
                     "ERROR",
                     grow: 1.0,
+                    min_width: 70,
+                    height: 36,
                     bg_color: PANEL,
                     border_color: ERROR,
                     border_width: 1,
@@ -411,6 +470,8 @@ fn compose_state_card() -> Entity {
                     id: "interaction_disabled_target",
                     "DISABLED",
                     grow: 1.0,
+                    min_width: 70,
+                    height: 36,
                     bg_color: PANEL,
                     border_color: MUTED,
                     border_width: 1,
@@ -479,12 +540,20 @@ fn compose_motion_card() -> Entity {
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 9,
+            clip_children: true,
             bg_color: PANEL_ALT,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("MOTION · DRAG / DYNAMIC BUBBLING", font_size: 12, text_color: VIOLET)
+            Text (
+                "MOTION · DRAG / DYNAMIC BUBBLING",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: VIOLET,
+                paragraph: bounded_text(2)
+            )
             View (
                 id: "interaction_drag_stage",
                 height: 94,
@@ -551,9 +620,11 @@ fn compose_motion_card() -> Entity {
             Text (
                 text: $bubble_text,
                 id: "interaction_bubble_status",
+                width: Dimension::percent(100),
                 height: 24,
                 font_size: 10,
-                text_color: MUTED
+                text_color: MUTED,
+                paragraph: bounded_text(1)
             )
         }
     }
@@ -585,12 +656,20 @@ fn compose_controls_card() -> Entity {
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 12,
+            clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("CONTROLS · BUSINESS SIGNALS", font_size: 12, text_color: CYAN)
+            Text (
+                "CONTROLS · BUSINESS SIGNALS",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: CYAN,
+                paragraph: bounded_text(2)
+            )
             Row (height: 54, align: AlignItems::Center, column_gap: 14) {
                 Switch (
                     id: "interaction_switch",
@@ -601,7 +680,8 @@ fn compose_controls_card() -> Entity {
                     "Switch publishes its new value",
                     grow: 1.0,
                     font_size: 11,
-                    text_color: TEXT
+                    text_color: TEXT,
+                    paragraph: bounded_text(2)
                 )
             }
             Row (height: 54, align: AlignItems::Center, column_gap: 14) {
@@ -614,15 +694,18 @@ fn compose_controls_card() -> Entity {
                     "Checkbox shares the same state",
                     grow: 1.0,
                     font_size: 11,
-                    text_color: TEXT
+                    text_color: TEXT,
+                    paragraph: bounded_text(2)
                 )
             }
             Text (
                 text: $status_text,
                 id: "interaction_control_status",
+                width: Dimension::percent(100),
                 height: 28,
                 font_size: 10,
-                text_color: MUTED
+                text_color: MUTED,
+                paragraph: bounded_text(1)
             )
             Text (
                 id: "interaction_feedback_status",
@@ -632,7 +715,7 @@ fn compose_controls_card() -> Entity {
                 border_radius: 8,
                 font_size: 9,
                 text_color: ColorToken::OnPrimary,
-                paragraph: ParagraphStyle::label()
+                paragraph: ellipsis_label()
             )
         }
     }
@@ -641,30 +724,55 @@ fn compose_controls_card() -> Entity {
 #[compose]
 pub fn build_widgets() {
     //~focus-start
-    ui! {
-        Column (
+    let viewport = ui! {
+        View (
             id: "interaction_lab_shell",
             grow: 1.0,
-            padding: Padding::all(18),
-            row_gap: 12,
+            clip_children: true,
             bg_color: BACKGROUND
         ) {
-            compose_header ()
-            Row (
-                id: "interaction_lab_grid",
-                grow: 1.0,
-                wrap: FlexWrap::Wrap,
-                align: AlignItems::FlexStart,
-                row_gap: 12,
-                column_gap: 12
+            Column (
+                id: "interaction_lab_document",
+                width: Dimension::percent(100),
+                height: Dimension::Content,
+                min_height: Dimension::percent(100),
+                padding: Padding::all(18),
+                row_gap: 12
             ) {
-                compose_gesture_card ()
-                compose_state_card ()
-                compose_motion_card ()
-                compose_controls_card ()
+                compose_header ()
+                Row (
+                    id: "interaction_lab_grid",
+                    width: Dimension::percent(100),
+                    height: Dimension::Content,
+                    wrap: FlexWrap::Wrap,
+                    align: AlignItems::FlexStart,
+                    row_gap: 12,
+                    column_gap: 12
+                ) {
+                    compose_gesture_card ()
+                    compose_state_card ()
+                    compose_motion_card ()
+                    compose_controls_card ()
+                }
             }
         }
     };
+    let content = cx
+        .world_mut()
+        .find_by_id("interaction_lab_document")
+        .expect("Interaction Lab document");
+    super::lab_scroll::LabScroll::attach(
+        cx.world_mut(),
+        viewport,
+        content,
+        Fixed::from_int(1280),
+        Fixed::from_int(18),
+    );
+    let drag = cx
+        .world_mut()
+        .find_by_id("interaction_drag_target")
+        .expect("Interaction Lab drag target");
+    cx.world_mut().insert(drag, TouchAction::None);
     //~focus-end
 }
 
@@ -678,7 +786,8 @@ where
         app.world.insert_resource(InteractionModel::default());
     }
     app.add_plugin(InputFeedbackPlugin::new())
-        .add_system(sync_interaction_user_states::system());
+        .add_system(sync_interaction_user_states::system())
+        .add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, build_widgets);
 }
 
@@ -757,6 +866,12 @@ mod tests {
         assert!(world.has::<Switch>(world.find_by_id("interaction_switch").unwrap()));
         assert!(world.has::<Checkbox>(world.find_by_id("interaction_checkbox").unwrap()));
         assert!(world.has::<TextInput>(world.find_by_id("interaction_focus_target").unwrap()));
+        assert_eq!(
+            world
+                .get::<TouchAction>(world.find_by_id("interaction_drag_target").unwrap())
+                .copied(),
+            Some(TouchAction::None)
+        );
     }
 
     #[test]
@@ -943,6 +1058,41 @@ mod tests {
             let target = rect(&world, id);
             assert!(target.x >= gestures.x);
             assert!(target.x + target.w <= gestures.x + gestures.w);
+        }
+    }
+
+    #[test]
+    fn phone_scroll_extent_keeps_the_last_card_reachable() {
+        use crate::input::event::scroll::ScrollConfig;
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        for (width, height) in [(320, 568), (422, 600), (480, 320)] {
+            let (mut world, parent) = fixture_tree();
+            update_layout(
+                &mut world,
+                parent,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+            super::super::lab_scroll::LabScroll::sync_all(&mut world);
+
+            let shell = world.find_by_id("interaction_lab_shell").unwrap();
+            let controls = world.find_by_id("interaction_controls").unwrap();
+            let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
+            let controls_rect = world.get::<ComputedRect>(controls).unwrap().0;
+            let extent = world.get::<ScrollConfig>(shell).unwrap().content_height;
+            let max_offset = extent - shell_rect.h;
+
+            assert!(max_offset > Fixed::ZERO, "{width}x{height}");
+            assert!(
+                controls_rect.y + controls_rect.h - max_offset <= shell_rect.y + shell_rect.h,
+                "{width}x{height}: {controls_rect:?} {shell_rect:?} {extent:?}",
+            );
+            assert!(
+                controls_rect.y + controls_rect.h - max_offset > shell_rect.y,
+                "{width}x{height}: {controls_rect:?} {shell_rect:?} {extent:?}",
+            );
         }
     }
 }

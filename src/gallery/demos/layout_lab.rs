@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::ui::widgets::{Image, ParagraphStyle, Text};
+use crate::ui::widgets::{Image, ParagraphStyle, Text, TextOverflow, TextWrap};
 
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
@@ -13,6 +13,15 @@ const CYAN: ColorToken = ColorToken::Primary;
 const BLUE: ColorToken = ColorToken::Secondary;
 const VIOLET: ColorToken = ColorToken::Tertiary;
 const GOLD: ColorToken = ColorToken::Success;
+
+fn bounded_body(lines: u16) -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: TextWrap::Word,
+        overflow: TextOverflow::Ellipsis,
+        max_lines: Some(lines),
+        ..ParagraphStyle::default()
+    }
+}
 
 #[derive(Clone, Copy)]
 struct LayoutChip {
@@ -48,17 +57,28 @@ fn compose_header() -> Entity {
     ui! {
         Row (
             id: "layout_lab_header",
-            height: 62,
+            min_height: 70,
+            wrap: FlexWrap::Wrap,
             align: AlignItems::Center,
+            row_gap: 4,
             column_gap: 14
         ) {
             View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
-            Column (grow: 1.0, row_gap: 3) {
-                Text ("LAYOUT LAB", font_size: 24, text_color: TEXT)
+            Column (grow: 1.0, min_width: 150, row_gap: 3) {
+                Text (
+                    "LAYOUT LAB",
+                    width: Dimension::percent(100),
+                    font_size: 24,
+                    text_color: TEXT,
+                    paragraph: bounded_body(1)
+                )
                 Text (
                     "responsive composition · explicit geometry · one widget tree",
+                    width: Dimension::percent(100),
+                    min_height: 18,
                     font_size: 13,
-                    text_color: MUTED
+                    text_color: MUTED,
+                    paragraph: bounded_body(2)
                 )
             }
             Text (
@@ -87,15 +107,23 @@ fn compose_flex_card() -> Entity {
             grow: 1.0,
             width: Dimension::percent(48),
             min_width: 250,
-            min_height: 278,
+            min_height: 300,
             padding: Padding::all(14),
             row_gap: 10,
+            clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("FLEX · CONTENT → GROW → LIMITS", font_size: 12, text_color: BLUE)
+            Text (
+                "FLEX · CONTENT → GROW → LIMITS",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: BLUE,
+                paragraph: bounded_body(2)
+            )
             Row (
                 min_height: 70,
                 wrap: FlexWrap::Wrap,
@@ -143,7 +171,7 @@ fn compose_flex_card() -> Entity {
             Row (
                 id: "layout_lab_wrap",
                 wrap: FlexWrap::Wrap,
-                min_height: 86,
+                height: 100,
                 align: AlignItems::Center,
                 row_gap: 7,
                 column_gap: 7
@@ -165,8 +193,11 @@ fn compose_flex_card() -> Entity {
             }
             Text (
                 "The same row wraps when its minimum widths no longer fit.",
+                width: Dimension::percent(100),
+                min_height: 32,
                 font_size: 11,
-                text_color: MUTED
+                text_color: MUTED,
+                paragraph: bounded_body(2)
             )
         }
     }
@@ -183,12 +214,20 @@ fn compose_surface_card() -> Entity {
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 12,
+            clip_children: true,
             bg_color: PANEL_ALT,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("SURFACES · BORDER / RADIUS", font_size: 12, text_color: GOLD)
+            Text (
+                "SURFACES · BORDER / RADIUS",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: GOLD,
+                paragraph: bounded_body(2)
+            )
             Row (grow: 1.0, align: AlignItems::Center, justify: JustifyContent::SpaceEvenly) {
                 View (
                     id: "layout_lab_surface_round",
@@ -221,7 +260,8 @@ fn compose_surface_card() -> Entity {
                 width: Dimension::percent(100),
                 height: 28,
                 font_size: 11,
-                text_color: MUTED
+                text_color: MUTED,
+                paragraph: bounded_body(2)
             )
         }
     }
@@ -238,12 +278,20 @@ fn compose_overlay_card() -> Entity {
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 8,
+            clip_children: true,
             bg_color: PANEL_ALT,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("OVERLAY · ABSOLUTE IN A FLEX CARD", font_size: 12, text_color: VIOLET)
+            Text (
+                "OVERLAY · ABSOLUTE IN A FLEX CARD",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: VIOLET,
+                paragraph: bounded_body(2)
+            )
             View (
                 id: "layout_lab_overlay_stage",
                 grow: 1.0,
@@ -308,12 +356,20 @@ fn compose_collection_card() -> Entity {
             min_height: 278,
             padding: Padding::all(14),
             row_gap: 10,
+            clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("COMPOSITION · WALK / IF / IMAGE", font_size: 12, text_color: CYAN)
+            Text (
+                "COMPOSITION · WALK / IF / IMAGE",
+                width: Dimension::percent(100),
+                min_height: 28,
+                font_size: 12,
+                text_color: CYAN,
+                paragraph: bounded_body(2)
+            )
             Row (height: 82, align: AlignItems::Center, column_gap: 10) {
                 Image (
                     id: "layout_lab_image_flow",
@@ -324,13 +380,17 @@ fn compose_collection_card() -> Entity {
                 Column (grow: 1.0, row_gap: 6) {
                     Text (
                         "Typed image stays in flex flow.",
+                        width: Dimension::percent(100),
                         font_size: 12,
-                        text_color: TEXT
+                        text_color: TEXT,
+                        paragraph: bounded_body(2)
                     )
                     Text (
                         "Overlay reuses its resource.",
+                        width: Dimension::percent(100),
                         font_size: 11,
-                        text_color: MUTED
+                        text_color: MUTED,
+                        paragraph: bounded_body(2)
                     )
                 }
             }
@@ -358,30 +418,50 @@ fn compose_collection_card() -> Entity {
 #[compose]
 pub fn build_widgets() {
     //~focus-start
-    ui! {
-        Column (
+    let viewport = ui! {
+        View (
             id: "layout_lab_shell",
             grow: 1.0,
-            padding: Padding::all(18),
-            row_gap: 12,
+            clip_children: true,
             bg_color: BACKGROUND
         ) {
-            compose_header ()
-            Row (
-                id: "layout_lab_grid",
-                grow: 1.0,
-                wrap: FlexWrap::Wrap,
-                align: AlignItems::FlexStart,
-                row_gap: 12,
-                column_gap: 12
+            Column (
+                id: "layout_lab_document",
+                width: Dimension::percent(100),
+                height: Dimension::Content,
+                min_height: Dimension::percent(100),
+                padding: Padding::all(18),
+                row_gap: 12
             ) {
-                compose_flex_card ()
-                compose_surface_card ()
-                compose_overlay_card ()
-                compose_collection_card ()
+                compose_header ()
+                Row (
+                    id: "layout_lab_grid",
+                    width: Dimension::percent(100),
+                    height: Dimension::Content,
+                    wrap: FlexWrap::Wrap,
+                    align: AlignItems::FlexStart,
+                    row_gap: 12,
+                    column_gap: 12
+                ) {
+                    compose_flex_card ()
+                    compose_surface_card ()
+                    compose_overlay_card ()
+                    compose_collection_card ()
+                }
             }
         }
     };
+    let content = cx
+        .world_mut()
+        .find_by_id("layout_lab_document")
+        .expect("Layout Lab document");
+    super::lab_scroll::LabScroll::attach(
+        cx.world_mut(),
+        viewport,
+        content,
+        Fixed::from_int(1280),
+        Fixed::from_int(18),
+    );
     //~focus-end
 }
 
@@ -392,6 +472,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
+    app.add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, build_widgets);
 }
 
@@ -517,5 +598,43 @@ mod tests {
         let overlay = rect(&world, "layout_lab_overlay_stage");
         let absolute = rect(&world, "layout_lab_absolute");
         assert!(absolute.x + absolute.w <= overlay.x + overlay.w);
+    }
+
+    #[test]
+    fn phone_scroll_extent_ends_at_the_last_visible_descendant() {
+        use crate::input::event::scroll::ScrollConfig;
+        use crate::types::Viewport;
+        use crate::ui::ComputedRect;
+        use crate::ui::render_system::update_layout;
+
+        for (width, height) in [(320, 568), (422, 600), (480, 320)] {
+            let (mut world, parent) = fixture();
+            update_layout(
+                &mut world,
+                parent,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+            super::super::lab_scroll::LabScroll::sync_all(&mut world);
+
+            let shell = world.find_by_id("layout_lab_shell").unwrap();
+            let content = world.find_by_id("layout_lab_document").unwrap();
+            let last = world.find_by_id("layout_lab_collection").unwrap();
+            let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
+            let content_rect = world.get::<ComputedRect>(content).unwrap().0;
+            let last_rect = world.get::<ComputedRect>(last).unwrap().0;
+            let extent = world.get::<ScrollConfig>(shell).unwrap().content_height;
+            let max_offset = extent - shell_rect.h;
+
+            assert!(max_offset > Fixed::ZERO, "{width}x{height}");
+            assert!(
+                last_rect.y + last_rect.h - max_offset <= shell_rect.y + shell_rect.h,
+                "{width}x{height}: {last_rect:?} {shell_rect:?} {extent:?}",
+            );
+            assert!(
+                last_rect.y + last_rect.h - max_offset > shell_rect.y,
+                "{width}x{height}: {last_rect:?} {shell_rect:?} {extent:?}",
+            );
+            assert!(extent >= last_rect.y + last_rect.h - content_rect.y);
+        }
     }
 }

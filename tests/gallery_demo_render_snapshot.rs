@@ -244,7 +244,11 @@ fn render_typography_lab(
         mirui::gallery::demos::typography_lab::register_fonts(world);
         let wave_path = mirui::gallery::demos::typography_lab::register_path(world);
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::typography_lab::build_widgets(&mut cx, wave_path);
+        mirui::gallery::demos::typography_lab::build_widgets(
+            &mut cx,
+            wave_path,
+            mirui::gallery::demos::typography_lab::VIEWPORT.0,
+        );
     })
 }
 

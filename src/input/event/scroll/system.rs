@@ -540,8 +540,20 @@ pub fn scroll_inertia_system(world: &mut World) {
             }
         }
 
-        let nx = ss.x.as_ref().map(|s| s.value());
-        let ny = ss.y.as_ref().map(|s| s.value());
+        let nx = ss.x.as_ref().map(|s| {
+            if elastic {
+                s.value()
+            } else {
+                s.value().clamp(Fixed::ZERO, max_x)
+            }
+        });
+        let ny = ss.y.as_ref().map(|s| {
+            if elastic {
+                s.value()
+            } else {
+                s.value().clamp(Fixed::ZERO, max_y)
+            }
+        });
         (nx, ny, done)
     };
 
@@ -767,6 +779,68 @@ mod tests {
                 off >= Fixed::ZERO,
                 "spring drove offset negative: {:?}",
                 off
+            );
+        }
+    }
+
+    #[test]
+    fn elastic_false_inertia_never_paints_beyond_the_bottom_edge() {
+        use crate::ecs::World;
+        use crate::input::event::input::InputEvent;
+        use crate::input::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::ui::{ComputedRect, Widget};
+
+        let mut world = World::new();
+        world.insert_resource(ScrollDragState::default());
+        let target = world.spawn_empty();
+        world.insert(target, Widget);
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(0, 0, 128, 100)),
+        );
+        world.insert(
+            target,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(380),
+            },
+        );
+        world.insert(
+            target,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: false,
+                content_height: Fixed::from_int(500),
+                content_width: Fixed::ZERO,
+            },
+        );
+        if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.active = true;
+            state.resolved = true;
+            state.target = target;
+            state.last_resolved_target = Some(target);
+            state.vel_x = Fixed::ZERO;
+            state.vel_y = Fixed::from_int(8);
+        }
+        scroll_system(
+            &mut world,
+            target,
+            &InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(50),
+            },
+            128,
+            100,
+        );
+        world.insert_resource(crate::ecs::DeltaTimeMs(16));
+
+        for _ in 0..30 {
+            scroll_inertia_system(&mut world);
+            let offset = world.get::<ScrollOffset>(target).unwrap().y;
+            assert!(
+                offset <= Fixed::from_int(400),
+                "spring drove offset beyond the bottom edge: {offset:?}",
             );
         }
     }

@@ -1883,12 +1883,14 @@ fn collect_dirty_walk(
                 w: node.rect.w,
                 h: node.rect.h,
             };
-            my_scroll_op = Some(RegionShift {
-                area,
-                dx: blit_dx,
-                dy: blit_dy,
-            });
-            child_inside_scroll = true;
+            if blit_dx.abs() < area.w && blit_dy.abs() < area.h {
+                my_scroll_op = Some(RegionShift {
+                    area,
+                    dx: blit_dx,
+                    dy: blit_dy,
+                });
+                child_inside_scroll = true;
+            }
             if let Some(sd_mut) = world.get_mut::<crate::input::event::scroll::ScrollDelta>(entity)
             {
                 sd_mut.dx -= Fixed::from_int(dx_int);
@@ -6447,7 +6449,6 @@ mod scroll_plan_check {
     fn scroll_delta_positive_emits_negative_scroll_op_and_bottom_strip() {
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(128, 128));
-        world.insert(root, Dirty);
         let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
         world.insert(
             list,
@@ -6522,6 +6523,40 @@ mod scroll_plan_check {
             "expected top strip rect, got {:?}",
             plan.rects
         );
+    }
+
+    #[test]
+    fn scroll_delta_larger_than_viewport_forces_full_repaint_without_shift() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(160),
+            },
+        );
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(120),
+            },
+        );
+        world.insert(list, Dirty);
+
+        let plan = collect_dirty_regions(&mut world, root, &Viewport::new(128, 128, Fixed::ONE));
+
+        assert!(plan.shifts.is_empty());
+        assert!(plan.rects.iter().any(|rect| *rect
+            == Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(128),
+                Fixed::from_int(100),
+            )));
     }
 
     #[test]

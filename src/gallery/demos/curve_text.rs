@@ -13,7 +13,9 @@ use crate::render::path::{Path, PathCmd, PathId, PathStore};
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::view::{View, ViewCtx};
-use crate::ui::widgets::{ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextWrap};
+use crate::ui::widgets::{
+    ParagraphStyle, ShapingPolicy, Slider, Text, TextDirection, TextOverflow, TextWrap,
+};
 use crate::ui::{IgnoreHitTest, Theme};
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
@@ -34,6 +36,8 @@ const CYAN: ColorToken = ColorToken::Primary;
 const VIOLET: ColorToken = ColorToken::Tertiary;
 const GOLD: ColorToken = ColorToken::Success;
 const LANE_COLORS: [ColorToken; 3] = [CYAN, VIOLET, GOLD];
+const BASE_STAGE_WIDTH: Fixed = Fixed::from_int(916);
+const BASE_STAGE_HEIGHT: Fixed = Fixed::from_int(360);
 
 #[derive(Clone)]
 struct CurveModel {
@@ -42,6 +46,8 @@ struct CurveModel {
     speed: Signal<Fixed>,
     reversed: Signal<bool>,
     paused: Signal<bool>,
+    stage_width: Signal<Fixed>,
+    stage_height: Signal<Fixed>,
 }
 
 impl Default for CurveModel {
@@ -52,6 +58,8 @@ impl Default for CurveModel {
             speed: Signal::new(Fixed::from_int(64)),
             reversed: Signal::new(false),
             paused: Signal::new(false),
+            stage_width: Signal::new(BASE_STAGE_WIDTH),
+            stage_height: Signal::new(BASE_STAGE_HEIGHT),
         }
     }
 }
@@ -65,7 +73,43 @@ type CurveMotion = super::motion::BrakedPhase;
 
 #[derive(Clone, Copy)]
 struct CurveNodes {
+    header: Entity,
     stage: Entity,
+    controls: Entity,
+    primary: Entity,
+    multiscript: Entity,
+    caption: Entity,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CurveLayoutMetrics {
+    header_height: i32,
+    controls_height: i32,
+    primary_font_size: u16,
+    multiscript_font_size: u16,
+    caption_font_size: u16,
+}
+
+impl CurveLayoutMetrics {
+    fn for_width(width: Fixed) -> Self {
+        if width < Fixed::from_int(520) {
+            Self {
+                header_height: 104,
+                controls_height: 146,
+                primary_font_size: 18,
+                multiscript_font_size: 17,
+                caption_font_size: 10,
+            }
+        } else {
+            Self {
+                header_height: 104,
+                controls_height: 62,
+                primary_font_size: 30,
+                multiscript_font_size: 25,
+                caption_font_size: 14,
+            }
+        }
+    }
 }
 
 #[derive(Default, crate::Component)]
@@ -123,48 +167,75 @@ fn single_line(direction: TextDirection) -> ParagraphStyle {
     }
 }
 
-fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
+fn bounded_text(lines: u16) -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: if lines == 1 {
+            TextWrap::NoWrap
+        } else {
+            TextWrap::Word
+        },
+        overflow: TextOverflow::Ellipsis,
+        max_lines: Some(lines),
+        ..ParagraphStyle::default()
+    }
+}
+
+fn path_window_end(width: Fixed) -> Fixed {
+    (width * Fixed::from_ratio(89, 100)).max(Fixed::from_int(100))
+}
+
+fn lane_commands(
+    lane: usize,
+    phase: Fixed,
+    amplitude: Fixed,
+    stage_width: Fixed,
+    stage_height: Fixed,
+) -> [PathCmd; 3] {
     let lane_scale = match lane {
         0 => Fixed::ONE,
         1 => Fixed::from_ratio(3, 4),
         _ => Fixed::from_ratio(1, 2),
     };
     let lane_phase = phase + Fixed::from_int(lane as i32 * 71);
-    let wave = amplitude * lane_scale;
-    let (x0, x1, x2, x3, x4, base_y) = (34, 168, 316, 596, 744, 104 + lane as i32 * 106);
-    let base_y = Fixed::from_int(base_y);
+    let geometry_scale = (stage_width / BASE_STAGE_WIDTH)
+        .min(stage_height / BASE_STAGE_HEIGHT)
+        .max(Fixed::from_ratio(1, 4));
+    let wave = amplitude * lane_scale * geometry_scale;
+    let x = |value| stage_width * Fixed::from_ratio(value, 916);
+    let y = |value| stage_height * Fixed::from_ratio(value, 360);
+    let base_y = y(104 + lane as i32 * 106);
     let start = Point {
-        x: Fixed::from_int(x0),
+        x: x(34),
         y: base_y + Fixed::sin_deg(lane_phase - Fixed::from_int(38)) * wave / 3,
     };
     let middle = Point {
-        x: Fixed::from_int(456),
+        x: x(456),
         y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(124)) * wave / 2,
     };
     let end = Point {
-        x: Fixed::from_int(878),
+        x: x(878),
         y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(286)) * wave / 3,
     };
     [
         PathCmd::MoveTo(start),
         PathCmd::CubicTo {
             ctrl1: Point {
-                x: Fixed::from_int(x1),
+                x: x(168),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(12)) * wave,
             },
             ctrl2: Point {
-                x: Fixed::from_int(x2),
+                x: x(316),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(82)) * wave,
             },
             end: middle,
         },
         PathCmd::CubicTo {
             ctrl1: Point {
-                x: Fixed::from_int(x3),
+                x: x(596),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(168)) * wave,
             },
             ctrl2: Point {
-                x: Fixed::from_int(x4),
+                x: x(744),
                 y: base_y + Fixed::sin_deg(lane_phase + Fixed::from_int(238)) * wave,
             },
             end,
@@ -173,7 +244,13 @@ fn lane_commands(lane: usize, phase: Fixed, amplitude: Fixed) -> [PathCmd; 3] {
 }
 
 fn make_lane(lane: usize) -> Path {
-    let [start, first, second] = lane_commands(lane, Fixed::ZERO, Fixed::from_int(68));
+    let [start, first, second] = lane_commands(
+        lane,
+        Fixed::ZERO,
+        Fixed::from_int(68),
+        BASE_STAGE_WIDTH,
+        BASE_STAGE_HEIGHT,
+    );
     let mut path = Path::try_with_capacity(3).expect("curve path storage");
     let PathCmd::MoveTo(start) = start else {
         unreachable!();
@@ -189,8 +266,15 @@ fn make_lane(lane: usize) -> Path {
     path
 }
 
-fn update_lane(path: &mut Path, lane: usize, phase: Fixed, amplitude: Fixed) {
-    for (index, command) in lane_commands(lane, phase, amplitude)
+fn update_lane_for_stage(
+    path: &mut Path,
+    lane: usize,
+    phase: Fixed,
+    amplitude: Fixed,
+    stage_width: Fixed,
+    stage_height: Fixed,
+) {
+    for (index, command) in lane_commands(lane, phase, amplitude, stage_width, stage_height)
         .into_iter()
         .enumerate()
     {
@@ -354,6 +438,57 @@ fn mark_curve_stage_dirty(world: &mut World, stage: Entity) {
     }
 }
 
+fn sync_stage_metrics(world: &mut World, nodes: CurveNodes, model: &CurveModel) {
+    let Some(rect) = world
+        .get::<crate::ui::ComputedRect>(nodes.stage)
+        .map(|rect| rect.0)
+    else {
+        return;
+    };
+    let width = rect.w.max(Fixed::from_int(120));
+    let height = rect.h.max(Fixed::from_int(220));
+    if model.stage_width.get_untracked() == width && model.stage_height.get_untracked() == height {
+        return;
+    }
+    model.stage_width.set(width);
+    model.stage_height.set(height);
+
+    let metrics = CurveLayoutMetrics::for_width(width);
+    for (entity, height) in [
+        (nodes.header, metrics.header_height),
+        (nodes.controls, metrics.controls_height),
+    ] {
+        if let Some(style) = world.get_mut::<Style>(entity) {
+            style.layout.height = Dimension::px(height);
+            style.layout.min_height = Dimension::px(height);
+        }
+        world.invalidate(entity);
+    }
+    for (entity, size) in [
+        (nodes.primary, metrics.primary_font_size),
+        (nodes.multiscript, metrics.multiscript_font_size),
+        (nodes.caption, metrics.caption_font_size),
+    ] {
+        if let Some(style) = world.get_mut::<Style>(entity) {
+            style.set_font_size(size);
+        }
+    }
+    let Some(paths) = world.resource::<CurvePaths>().copied() else {
+        return;
+    };
+    let end = path_window_end(width);
+    for (entity, path) in [
+        (nodes.primary, paths.ids[0]),
+        (nodes.multiscript, paths.ids[1]),
+        (nodes.caption, paths.ids[2]),
+    ] {
+        if let Some(mut text) = world.widget_mut(entity) {
+            text.text_path(crate::text::TextPath::new(path).with_range(Fixed::ZERO..end));
+        }
+    }
+    world.invalidate(nodes.stage);
+}
+
 #[mirui_macros::system(order = ANIMATION)]
 fn curve_text_animation_system(world: &mut World) {
     const MAX_STEP_MS: u16 = 50;
@@ -362,6 +497,9 @@ fn curve_text_animation_system(world: &mut World) {
     let Some(model) = world.resource::<CurveModel>().cloned() else {
         return;
     };
+    if let Some(nodes) = world.resource::<CurveNodes>().copied() {
+        sync_stage_metrics(world, nodes, &model);
+    }
     let paused = model.paused.get_untracked();
     let reversed = model.reversed.get_untracked();
     let speed = model.speed.get_untracked();
@@ -400,12 +538,21 @@ fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &
     for (lane, path) in paths.ids.into_iter().enumerate() {
         let phase = model.phase.clone();
         let amplitude = model.amplitude.clone();
+        let stage_width = model.stage_width.clone();
+        let stage_height = model.stage_height.clone();
         cx.bind_path(path, move |geometry| {
             let current_phase = phase.get();
             let envelope = Fixed::from_ratio(17, 20)
                 + Fixed::sin_deg(current_phase / 3 + Fixed::from_int(lane as i32 * 37))
                     * Fixed::from_ratio(3, 20);
-            update_lane(geometry, lane, current_phase, amplitude.get() * envelope);
+            update_lane_for_stage(
+                geometry,
+                lane,
+                current_phase,
+                amplitude.get() * envelope,
+                stage_width.get(),
+                stage_height.get(),
+            );
         })
         .expect("mutable curve path");
     }
@@ -414,28 +561,45 @@ fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &
 #[compose]
 fn compose_header() -> Entity {
     ui! {
-        Row (height: 54, align: AlignItems::Center, column_gap: 12) {
-            View (width: 8, height: 38, bg_color: CYAN, border_radius: 4)
-            Column (grow: 1.0, row_gap: 2) {
-                Text (
-                    "KINETIC TYPE",
-                    height: 30,
-                    font: UI,
-                    font_size: 25,
-                    text_color: TEXT,
-                    paragraph: single_line(TextDirection::LeftToRight)
-                )
-                Text (
-                    "One shaped run · one retained path · continuous pose",
-                    font: UI,
-                    font_size: 12,
-                    text_color: MUTED,
-                    paragraph: single_line(TextDirection::LeftToRight)
-                )
+        Column (
+            id: "curve_text_header",
+            width: Dimension::percent(100),
+            height: 104,
+            row_gap: 6
+        ) {
+            Row (
+                width: Dimension::percent(100),
+                height: 62,
+                align: AlignItems::Center,
+                column_gap: 12
+            ) {
+                View (width: 8, height: 38, bg_color: CYAN, border_radius: 4)
+                Column (grow: 1.0, min_width: 150, row_gap: 2) {
+                    Text (
+                        "KINETIC TYPE",
+                        width: Dimension::percent(100),
+                        height: 30,
+                        font: UI,
+                        font_size: 25,
+                        text_color: TEXT,
+                        paragraph: bounded_text(1)
+                    )
+                    Text (
+                        "One shaped run · one retained path · continuous pose",
+                        width: Dimension::percent(100),
+                        height: 30,
+                        font: UI,
+                        font_size: 12,
+                        text_color: MUTED,
+                        paragraph: bounded_text(2)
+                    )
+                }
             }
             Text (
                 ROUTE_LABEL,
                 width: 248,
+                min_width: 170,
+                max_width: 248,
                 height: 30,
                 bg_color: PANEL_ALT,
                 border_color: BORDER,
@@ -455,8 +619,8 @@ fn compose_stage(paths: CurvePaths) -> Entity {
     ui! {
         View (
             id: "curve_text_stage_shell",
-            grow: 1.0,
-            min_height: 360,
+            width: Dimension::percent(100),
+            height: 360,
             clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
@@ -543,93 +707,109 @@ fn compose_controls() -> Entity {
     ui! {
         Row (
             id: "curve_text_controls",
-            height: 62,
+            width: Dimension::percent(100),
+            height: Dimension::Content,
+            min_height: 62,
             padding: Padding {
                 top: Dimension::px(10),
                 right: Dimension::px(12),
                 bottom: Dimension::px(10),
                 left: Dimension::px(12),
             },
+            wrap: FlexWrap::Wrap,
             align: AlignItems::Center,
+            row_gap: 8,
             column_gap: 10,
+            clip_children: true,
             bg_color: PANEL,
             border_color: BORDER,
             border_width: 1,
             border_radius: 14
         ) {
-            Text ("AMPLITUDE", width: 74, font: UI, font_size: 10, text_color: MUTED)
-            Slider (
-                id: "curve_text_amplitude",
-                width: 148,
-                height: 14,
-                min: Fixed::from_int(24),
-                max: Fixed::from_int(96),
-                value: Fixed::from_int(68),
-                track_color: BORDER,
-                fill_color: CYAN,
-                thumb_color: TEXT
-            ) on ValueChanged {
-                let _ = old;
-                CurveAction::SetAmplitude(*new).publish(ctx.world);
+            Row (grow: 1.0, min_width: 250, height: 34, align: AlignItems::Center, column_gap: 8) {
+                Text ("AMPLITUDE", width: 74, font: UI, font_size: 10, text_color: MUTED)
+                Slider (
+                    id: "curve_text_amplitude",
+                    grow: 1.0,
+                    min_width: 110,
+                    height: 14,
+                    min: Fixed::from_int(24),
+                    max: Fixed::from_int(96),
+                    value: Fixed::from_int(68),
+                    track_color: BORDER,
+                    fill_color: CYAN,
+                    thumb_color: TEXT
+                ) on ValueChanged {
+                    let _ = old;
+                    CurveAction::SetAmplitude(*new).publish(ctx.world);
+                }
+                Text (
+                    text: ${ format!("{}", amplitude_value.get().to_int()) },
+                    width: 28,
+                    font: UI,
+                    font_size: 11,
+                    text_color: TEXT,
+                    paragraph: bounded_text(1)
+                )
             }
-            Text (
-                text: ${ format!("{}", amplitude_value.get().to_int()) },
-                width: 28,
-                font: UI,
-                font_size: 11,
-                text_color: TEXT
-            )
-            Text ("SPEED", width: 46, font: UI, font_size: 10, text_color: MUTED)
-            Slider (
-                id: "curve_text_speed",
-                width: 132,
-                height: 14,
-                min: Fixed::from_int(20),
-                max: Fixed::from_int(120),
-                value: Fixed::from_int(64),
-                track_color: BORDER,
-                fill_color: VIOLET,
-                thumb_color: TEXT
-            ) on ValueChanged {
-                let _ = old;
-                CurveAction::SetSpeed(*new).publish(ctx.world);
+            Row (grow: 1.0, min_width: 210, height: 34, align: AlignItems::Center, column_gap: 8) {
+                Text ("SPEED", width: 46, font: UI, font_size: 10, text_color: MUTED)
+                Slider (
+                    id: "curve_text_speed",
+                    grow: 1.0,
+                    min_width: 100,
+                    height: 14,
+                    min: Fixed::from_int(20),
+                    max: Fixed::from_int(120),
+                    value: Fixed::from_int(64),
+                    track_color: BORDER,
+                    fill_color: VIOLET,
+                    thumb_color: TEXT
+                ) on ValueChanged {
+                    let _ = old;
+                    CurveAction::SetSpeed(*new).publish(ctx.world);
+                }
+                Text (
+                    text: ${ format!("{}", speed_value.get().to_int()) },
+                    width: 30,
+                    font: UI,
+                    font_size: 11,
+                    text_color: TEXT,
+                    paragraph: bounded_text(1)
+                )
             }
-            Text (
-                text: ${ format!("{}", speed_value.get().to_int()) },
-                width: 30,
-                font: UI,
-                font_size: 11,
-                text_color: TEXT
-            )
-            Text (
-                id: "curve_text_direction",
-                text: ${ if direction_label.get() { "REVERSE" } else { "FORWARD" } },
-                width: 96,
-                height: 34,
-                bg_color: PANEL_ALT,
-                border_color: VIOLET,
-                border_width: 1,
-                border_radius: 10,
-                font: UI,
-                font_size: 10,
-                text_color: VIOLET,
-                paragraph: ParagraphStyle::label()
-            ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
-            Text (
-                id: "curve_text_pause",
-                text: ${ if paused_label.get() { "RESUME" } else { "PAUSE" } },
-                grow: 1.0,
-                min_width: 82,
-                height: 34,
-                bg_color: PANEL_ALT,
-                border_color: CYAN,
-                border_width: 1,
-                border_radius: 10,
-                font: UI,
-                font_size: 10,
-                text_color: CYAN,
-                paragraph: ParagraphStyle::label()
-            ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
+            Row (grow: 1.0, min_width: 190, height: 34, column_gap: 8) {
+                Text (
+                    id: "curve_text_direction",
+                    text: ${ if direction_label.get() { "REVERSE" } else { "FORWARD" } },
+                    grow: 1.0,
+                    min_width: 92,
+                    height: 34,
+                    bg_color: PANEL_ALT,
+                    border_color: VIOLET,
+                    border_width: 1,
+                    border_radius: 10,
+                    font: UI,
+                    font_size: 10,
+                    text_color: VIOLET,
+                    paragraph: ParagraphStyle::label()
+                ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
+                Text (
+                    id: "curve_text_pause",
+                    text: ${ if paused_label.get() { "RESUME" } else { "PAUSE" } },
+                    grow: 1.0,
+                    min_width: 82,
+                    height: 34,
+                    bg_color: PANEL_ALT,
+                    border_color: CYAN,
+                    border_width: 1,
+                    border_radius: 10,
+                    font: UI,
+                    font_size: 10,
+                    text_color: CYAN,
+                    paragraph: ParagraphStyle::label()
+                ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
+            }
         }
     }
 }
@@ -644,19 +824,38 @@ fn build_widgets(paths: CurvePaths) {
     bind_curve_paths(cx, paths, &model);
 
     //~focus-start
-    ui! {
-        Column (
+    let viewport = ui! {
+        View (
             id: "curve_text_shell",
             grow: 1.0,
-            padding: Padding::all(22),
-            row_gap: 12,
+            clip_children: true,
             bg_color: BACKGROUND
         ) {
-            compose_header ()
-            compose_stage (paths)
-            compose_controls ()
+            Column (
+                id: "curve_text_document",
+                width: Dimension::percent(100),
+                height: Dimension::Content,
+                min_height: Dimension::percent(100),
+                padding: Padding::all(22),
+                row_gap: 12
+            ) {
+                compose_header ()
+                compose_stage (paths)
+                compose_controls ()
+            }
         }
     };
+    let content = cx
+        .world_mut()
+        .find_by_id("curve_text_document")
+        .expect("Curve Text document");
+    super::lab_scroll::LabScroll::attach(
+        cx.world_mut(),
+        viewport,
+        content,
+        Fixed::from_int(720),
+        Fixed::from_int(22),
+    );
     //~focus-end
 }
 
@@ -671,13 +870,21 @@ where
     app.world.insert_resource(CurveMotion::default());
     let paths = register_paths(&mut app.world);
     app.world.insert_resource(paths);
-    app.add_system(curve_text_animation_system::system());
+    app.add_system(curve_text_animation_system::system())
+        .add_system(super::lab_scroll::sync_lab_scroll_extents::system());
     app.compose(parent, |cx| build_widgets(cx, paths));
     let stage = app
         .world
         .find_by_id("curve_text_stage")
         .expect("Curve Text stage");
-    app.world.insert_resource(CurveNodes { stage });
+    app.world.insert_resource(CurveNodes {
+        header: app.world.find_by_id("curve_text_header").unwrap(),
+        stage,
+        controls: app.world.find_by_id("curve_text_controls").unwrap(),
+        primary: app.world.find_by_id("curve_text_primary").unwrap(),
+        multiscript: app.world.find_by_id("curve_text_multiscript").unwrap(),
+        caption: app.world.find_by_id("curve_text_caption").unwrap(),
+    });
 }
 
 #[cfg(feature = "std")]
@@ -734,6 +941,48 @@ mod tests {
     }
 
     #[test]
+    fn compact_layout_reserves_rows_for_wrapped_header_and_controls() {
+        let compact = CurveLayoutMetrics::for_width(Fixed::from_int(378));
+        let desktop = CurveLayoutMetrics::for_width(BASE_STAGE_WIDTH);
+
+        assert_eq!(compact.header_height, 104);
+        assert_eq!(compact.controls_height, 146);
+        assert!(compact.primary_font_size < desktop.primary_font_size);
+        assert_eq!(desktop.header_height, 104);
+        assert_eq!(desktop.controls_height, 62);
+    }
+
+    #[test]
+    fn responsive_text_window_stays_inside_every_scaled_lane() {
+        for width in [Fixed::from_int(120), Fixed::from_int(378), BASE_STAGE_WIDTH] {
+            for lane in 0..3 {
+                let mut path = make_lane(lane);
+                update_lane_for_stage(
+                    &mut path,
+                    lane,
+                    Fixed::ZERO,
+                    Fixed::from_int(68),
+                    width,
+                    BASE_STAGE_HEIGHT,
+                );
+                let mut segments = [crate::text::baseline::MeasuredSegment {
+                    end: Point::ZERO,
+                    end_distance: Fixed::ZERO,
+                }; 128];
+                let baseline = crate::text::baseline::PathMeasure::new(
+                    &path,
+                    0,
+                    crate::text::baseline::DEFAULT_TOLERANCE,
+                )
+                .unwrap()
+                .measure_into(&mut segments)
+                .unwrap();
+                assert!(path_window_end(width) <= baseline.length());
+            }
+        }
+    }
+
+    #[test]
     fn animated_lane_baseline_is_temporally_continuous() {
         let mut path = make_lane(0);
         let mut previous: Option<(Point, Point)> = None;
@@ -746,7 +995,14 @@ mod tests {
             let phase = Fixed::from_ratio(frame * 1_024, 1_000);
             let envelope =
                 Fixed::from_ratio(17, 20) + Fixed::sin_deg(phase / 3) * Fixed::from_ratio(3, 20);
-            update_lane(&mut path, 0, phase, Fixed::from_int(68) * envelope);
+            update_lane_for_stage(
+                &mut path,
+                0,
+                phase,
+                Fixed::from_int(68) * envelope,
+                BASE_STAGE_WIDTH,
+                BASE_STAGE_HEIGHT,
+            );
             let measure = crate::text::baseline::PathMeasure::new(
                 &path,
                 0,

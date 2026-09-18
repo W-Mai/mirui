@@ -915,7 +915,7 @@
       }
       .code-body::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
 
-      @media (max-width: 760px) {
+      @media (max-width: 760px), (max-width: 1000px) and (max-height: 500px) {
         .body {
           grid-template-columns: 1fr;
           grid-template-rows: 1fr;
@@ -1030,7 +1030,7 @@
         /* keep the sheet's bottom edge clear of the home indicator */
         .code-body pre { padding-bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px)); }
       }
-      @media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+      @media (max-width: 760px) and (prefers-reduced-motion: reduce), (max-width: 1000px) and (max-height: 500px) and (prefers-reduced-motion: reduce) {
         .code-panel, aside, .nav-backdrop { transition: none; }
       }
       @media (max-width: 420px) {
@@ -1261,7 +1261,7 @@
         const stageWrap = document.querySelector(".stage-wrap");
         const stageName = document.getElementById("stage-name");
         const stageSize = document.getElementById("stage-size");
-        const mobileQuery = window.matchMedia("(max-width: 760px)");
+        const mobileQuery = window.matchMedia("(max-width: 760px), (max-width: 1000px) and (max-height: 500px)");
         const portraitQuery = window.matchMedia("(orientation: portrait)");
 
         // ── Canvas sizing ──────────────────────────────────────
