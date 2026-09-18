@@ -308,14 +308,16 @@ fn compose_gesture_card() -> Entity {
             id: "interaction_gestures",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(560) {
+                if interaction_lab_grid.width < Fixed::from_int(800) {
                     Dimension::percent(100)
                 } else {
                     Dimension::percent(48)
                 }
             },
             min_width: 250,
-            min_height: 304,
+            min_height: @id(interaction_lab_grid).width {
+                if interaction_lab_grid.width < Fixed::from_int(400) { 340 } else { 304 }
+            },
             padding: Padding::all(14),
             row_gap: 11,
             clip_children: true,
@@ -335,8 +337,8 @@ fn compose_gesture_card() -> Entity {
             Row (
                 id: "interaction_gesture_status",
                 width: Dimension::percent(100),
-                height: @id(interaction_lab_grid).width {
-                    if interaction_lab_grid.width < Fixed::from_int(400) { 52 } else { 28 }
+                height: @id(interaction_gestures).width {
+                    if interaction_gestures.width < Fixed::from_int(400) { 52 } else { 28 }
                 },
                 wrap: FlexWrap::Wrap,
                 row_gap: 4,
@@ -345,7 +347,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_single_status",
                     text: ${ format!("single {}", single_text.get().single) },
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 86,
                     height: 24,
                     font_size: 11,
@@ -355,7 +363,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_double_status",
                     text: ${ format!("double {}", double_text.get().double) },
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 86,
                     height: 24,
                     font_size: 11,
@@ -365,7 +379,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_triple_status",
                     text: ${ format!("triple {}", triple_text.get().triple) },
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 86,
                     height: 24,
                     font_size: 11,
@@ -375,7 +395,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_long_status",
                     text: ${ format!("long {}", long_text.get().long) },
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 76,
                     height: 24,
                     font_size: 11,
@@ -384,8 +410,10 @@ fn compose_gesture_card() -> Entity {
                 )
             }
             Row (
-                grow: 1.0,
-                min_height: 86,
+                id: "interaction_gesture_targets",
+                height: @id(interaction_gestures).width {
+                    if interaction_gestures.width < Fixed::from_int(400) { 144 } else { 68 }
+                },
                 wrap: FlexWrap::Wrap,
                 align: AlignItems::Center,
                 row_gap: 8,
@@ -394,7 +422,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_single",
                     "1 TAP",
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 70,
                     height: 68,
                     bg_color: ColorToken::SurfaceVariant,
@@ -408,7 +442,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_double",
                     "2 TAP",
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 70,
                     height: 68,
                     bg_color: ColorToken::SurfaceVariant,
@@ -422,7 +462,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_triple",
                     "3 TAP",
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 70,
                     height: 68,
                     bg_color: ColorToken::SurfaceVariant,
@@ -436,7 +482,13 @@ fn compose_gesture_card() -> Entity {
                 Text (
                     id: "interaction_long",
                     "HOLD",
-                    grow: 1.0,
+                    width: @id(interaction_gestures).width {
+                        if interaction_gestures.width < Fixed::from_int(400) {
+                            Dimension::percent(48)
+                        } else {
+                            Dimension::percent(23)
+                        }
+                    },
                     min_width: 70,
                     height: 68,
                     bg_color: ColorToken::SurfaceVariant,
@@ -449,12 +501,13 @@ fn compose_gesture_card() -> Entity {
                 ) on LongPress { InteractionAction::Long.publish(&long_action); }
             }
             Text (
+                id: "interaction_gesture_caption",
                 "Each callback emits one domain action; counters render from a Computed value.",
                 width: Dimension::percent(100),
-                min_height: 34,
+                min_height: 48,
                 font_size: 10,
                 text_color: MUTED,
-                paragraph: bounded_text(2)
+                paragraph: bounded_text(3)
             )
         }
     }
@@ -472,7 +525,7 @@ fn compose_state_card() -> Entity {
             id: "interaction_states",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(560) {
+                if interaction_lab_grid.width < Fixed::from_int(800) {
                     Dimension::percent(100)
                 } else {
                     Dimension::percent(48)
@@ -605,7 +658,7 @@ fn compose_motion_card() -> Entity {
             id: "interaction_motion",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(560) {
+                if interaction_lab_grid.width < Fixed::from_int(800) {
                     Dimension::percent(100)
                 } else {
                     Dimension::percent(48)
@@ -720,7 +773,7 @@ fn compose_controls_card() -> Entity {
             id: "interaction_controls",
             grow: 1.0,
             width: @id(interaction_lab_grid).width {
-                if interaction_lab_grid.width < Fixed::from_int(560) {
+                if interaction_lab_grid.width < Fixed::from_int(800) {
                     Dimension::percent(100)
                 } else {
                     Dimension::percent(48)
@@ -1190,7 +1243,7 @@ mod tests {
         use crate::ui::ComputedRect;
         use crate::ui::render_system::update_layout;
 
-        for (width, height) in [(502, 900), (320, 568)] {
+        for (width, height) in [(672, 666), (666, 674), (502, 900), (320, 568)] {
             let mut app = App::headless(width, height);
             app.with_default_widgets().with_default_systems();
             let parent = app.spawn_root().id();
@@ -1218,6 +1271,22 @@ mod tests {
                 assert_eq!(card.x, grid.x, "{width}x{height}: {id}");
                 assert_eq!(card.w, grid.w, "{width}x{height}: {id}");
             }
+            let gestures = rect(&app.world, "interaction_gestures");
+            let status = rect(&app.world, "interaction_gesture_status");
+            let targets = rect(&app.world, "interaction_gesture_targets");
+            let caption = rect(&app.world, "interaction_gesture_caption");
+            assert!(
+                status.y + status.h <= targets.y,
+                "{width}x{height}: gesture status overlaps targets"
+            );
+            assert!(
+                targets.y + targets.h <= caption.y,
+                "{width}x{height}: gesture targets overlap caption"
+            );
+            assert!(
+                caption.y + caption.h <= gestures.y + gestures.h,
+                "{width}x{height}: gesture caption escapes card"
+            );
             super::super::assert_text_layouts_fit(&app.world);
         }
     }
