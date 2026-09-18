@@ -22,6 +22,14 @@ pub(crate) fn fit_logical_canvas(
 
 pub(crate) struct SceneReplayWorkspace(RefCell<Vec<u8>>);
 
+/// Prepares the retained scene replay buffer before rendering starts.
+///
+/// **Inserts**
+/// - resource: [`SceneReplayWorkspace`]
+/// - hooks:    `pre_render`
+#[cfg(feature = "std")]
+pub(crate) struct SceneReplayWorkspacePlugin;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SceneWorkspaceError {
     SizeOverflow,
@@ -81,18 +89,44 @@ impl SceneReplayWorkspace {
     }
 
     #[cfg(feature = "std")]
-    pub(crate) fn install(
-        world: &mut crate::ecs::World,
-        rect: crate::types::Rect,
-        scale: crate::types::Fixed,
+    fn prepare_viewport(
+        &mut self,
+        viewport: crate::types::Viewport,
     ) -> Result<(), SceneWorkspaceError> {
-        let bytes = Self::required_bytes(rect, scale)?;
-        if let Some(scratch) = world.resource_mut::<Self>() {
-            scratch.prepare(bytes);
-        } else {
-            world.insert_resource(Self::new(bytes));
-        }
+        let (width, height) = viewport.physical_size();
+        let bytes = usize::from(width)
+            .checked_mul(usize::from(height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or(SceneWorkspaceError::SizeOverflow)?;
+        self.prepare(bytes);
         Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<B, F> crate::app::plugin::Plugin<B, F> for SceneReplayWorkspacePlugin
+where
+    B: crate::surface::Surface,
+    F: crate::app::RendererFactory<B>,
+{
+    fn build(&mut self, app: &mut crate::app::App<B, F>) {
+        let mut workspace = SceneReplayWorkspace::new(0);
+        workspace
+            .prepare_viewport(app.viewport())
+            .expect("scene workspace viewport size is representable");
+        app.world.insert_resource(workspace);
+    }
+
+    fn pre_render(&mut self, world: &mut crate::ecs::World) {
+        let viewport = world
+            .resource::<crate::app::RenderViewport>()
+            .expect("App always owns a RenderViewport")
+            .0;
+        world
+            .resource_mut::<SceneReplayWorkspace>()
+            .expect("SceneReplayWorkspacePlugin owns its workspace")
+            .prepare_viewport(viewport)
+            .expect("scene workspace viewport size is representable");
     }
 }
 
@@ -144,5 +178,19 @@ mod tests {
             })
         );
         assert_eq!(scratch.0.get_mut().len(), required);
+    }
+
+    #[test]
+    fn viewport_preparation_tracks_physical_resize() {
+        let mut scratch = SceneReplayWorkspace::new(0);
+        scratch
+            .prepare_viewport(crate::types::Viewport::new(320, 180, Fixed::from_int(2)))
+            .unwrap();
+        assert_eq!(scratch.0.get_mut().len(), 320 * 180 * 4);
+
+        scratch
+            .prepare_viewport(crate::types::Viewport::new(640, 360, Fixed::ONE))
+            .unwrap();
+        assert_eq!(scratch.0.get_mut().len(), 640 * 360 * 4);
     }
 }

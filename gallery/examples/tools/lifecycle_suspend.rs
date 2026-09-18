@@ -26,6 +26,7 @@ use mirui::prelude::*;
 use mirui::render::factory::RendererFactory;
 use mirui::surface::Surface;
 use mirui::surface::sdl::SdlSurface;
+use mirui::ui::widgets::Text;
 
 #[derive(Clone)]
 struct LifecycleCounters {
@@ -87,7 +88,7 @@ fn build_ui(world: &mut World, parent: Entity, counters: LifecycleCounters) {
             justify: JustifyContent::Center,
             align: AlignItems::Center
         ) {
-            View (
+            Text (
                 height: 40,
                 text: ${
                     if state_label.get() {
@@ -97,26 +98,20 @@ fn build_ui(world: &mut World, parent: Entity, counters: LifecycleCounters) {
                     }
                 }
             )
-            View (
+            Text (
                 height: 32,
                 text: ${ alloc::format!("Ticks: {}", ticks_label.get()) }
             )
-            View (
+            Text (
                 height: 32,
                 text: ${ alloc::format!("on_suspend: {}", suspend_label.get()) }
             )
-            View (
+            Text (
                 height: 32,
                 text: ${ alloc::format!("on_resume: {}", resume_label.get()) }
             )
-            View (
-                height: 24,
-                text: "ENTER toggle suspend, ESC quit"
-            )
-            View (
-                height: 24,
-                text: "alt-tab / minimize to test AutoSuspendPlugin"
-            )
+            Text ("ENTER toggle suspend, ESC quit", height: 24)
+            Text ("alt-tab / minimize to test AutoSuspendPlugin", height: 24)
         }
     };
 }

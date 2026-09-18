@@ -65,7 +65,7 @@ ui! {
         world: &mut world
     :)
 
-    View (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
+    Text (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
 }
 ```
 
@@ -141,18 +141,18 @@ ui! {
 
     Column (grow: 1.0) {
         if ${ show.get() } {
-            View (text: "visible")
+            Text ("visible")
         } elif ${ other.get() } {
-            View (text: "alt")
+            Text ("alt")
         } else {
-            View (text: "hidden")
+            Text ("hidden")
         }
         match ${ state.get() } {
             Load::Loading => {
-                View (text: "loading")
+                Text ("loading")
             }
             Load::Ready(s) => {
-                View (text: s)
+                Text (s)
             }
         }
     }
@@ -174,7 +174,7 @@ let items = Signal::new(alloc::vec![/* … */]);
 
 Column (grow: 1.0) {
     walk ${ items.get() } with item {
-        View (text: item.name, bg_color: item.color, height: 28) {}
+        Text (item.name, bg_color: item.color, height: 28)
     }
 }
 ```
@@ -190,7 +190,7 @@ Two reconciliation strategies:
 
 ```rust
 walk ${ items.get() } with item by item.id {
-    View (text: item.name, height: 28) {}
+    Text (item.name, height: 28)
 }
 ```
 

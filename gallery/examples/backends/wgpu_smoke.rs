@@ -6,8 +6,8 @@
 use mirui::prelude::*;
 use mirui::render::wgpu::WgpuRendererFactory;
 use mirui::surface::wgpu_surface::WgpuSurface;
-use mirui::ui::widgets::Image;
 use mirui::ui::widgets::assets::IMG_THUMBS_UP;
+use mirui::ui::widgets::{Button, Image, Text};
 
 fn main() {
     let backend = WgpuSurface::new("mirui wgpu smoke", 480, 320);
@@ -33,25 +33,25 @@ fn main() {
         :)
 
         View (direction: FlexDirection::Column, grow: 1.0) {
-            View (
+            Text (
+                "Hello wgpu!",
                 bg_color: Color::rgb(88, 166, 255),
                 height: 40,
-                text: "Hello wgpu!",
                 border_radius: 8,
                 border_color: Color::rgb(255, 255, 255)
             )
             Row (direction: FlexDirection::Row, grow: 1.0) {
-                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6)
-                View (
-                    bg_color: Color::rgb(248, 81, 73),
+                Button ("OK", normal_color: Color::rgb(63, 185, 80), grow: 1.0, border_radius: 6)
+                Button (
+                    "Cancel",
+                    normal_color: Color::rgb(248, 81, 73),
                     grow: 1.0,
-                    text: "Cancel",
                     border_radius: 6
                 )
-                View (
-                    bg_color: Color::rgb(210, 168, 255),
+                Button (
+                    "Maybe",
+                    normal_color: Color::rgb(210, 168, 255),
                     grow: 1.0,
-                    text: "Maybe",
                     border_radius: 6
                 )
             }
@@ -61,10 +61,10 @@ fn main() {
             ) [
                 Image::new("thumbs_up"),
             ]
-            View (
+            Text (
+                "wgpu backend",
                 bg_color: Color::rgb(50, 50, 70),
-                height: 30,
-                text: "wgpu backend"
+                height: 30
             )
         }
     };

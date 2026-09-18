@@ -127,7 +127,7 @@ fn selectable_path(first: PathId, second: PathId) {
     ui! {
         Column () {
             Text("Live route", path: $selection)
-            View (text: "Switch", width: 80, height: 36) on Tap {
+            Button ("Switch", width: 80, height: 36) on Tap {
                 selected.update(|path| {
                     *path = if *path == first { second } else { first };
                 });

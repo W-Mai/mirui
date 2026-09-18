@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Native mobile hosts.** Android NativeActivity and iOS application loops retain mirui state across suspend and resume, route touch and keyboard input through WGPU surfaces, and use single-sample mobile pipelines without an extra full-screen multisample attachment.
+- **Bounded mobile software presentation.** A caller-configured software surface retains one RGBA framebuffer, uploads dirty regions through WGPU, rejects framebuffer sizes above its explicit memory budget, and preserves the last admitted buffer when a resize exceeds that budget.
+
 ## [0.45.0] - 2026-09-18
 
 ### Added

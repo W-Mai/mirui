@@ -1,8 +1,9 @@
-//! wgpu-backed Surface. Wraps a winit window driven by
-//! `pump_app_events` so mirui's polling main loop stays untouched.
+//! WGPU surfaces for desktop polling loops and native mobile event loops.
 
 use alloc::collections::VecDeque;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use alloc::string::{String, ToString};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use core::time::Duration;
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ use winit::event::{
 };
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
 
@@ -19,6 +21,27 @@ use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface, logical_fro
 use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
+
+fn touch_input_event(id: u64, phase: TouchPhase, x: Fixed, y: Fixed) -> Option<InputEvent> {
+    let id = u8::try_from(id).ok()?;
+    Some(match phase {
+        TouchPhase::Started => InputEvent::PointerDown { id, x, y },
+        TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
+        TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
+    })
+}
+
+fn physical_to_logical(x: f64, y: f64, scale: f64) -> (Fixed, Fixed) {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    (
+        Fixed::from_f32((x / scale) as f32),
+        Fixed::from_f32((y / scale) as f32),
+    )
+}
 
 /// Live wgpu state — only present after the first `pump_app_events`
 /// has driven `ApplicationHandler::resumed`, which is where winit
@@ -31,153 +54,81 @@ pub struct WgpuState {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
-    /// MSAA color attachment; render passes draw here and resolve to
-    /// the swapchain texture. Recreated on resize.
-    pub msaa: wgpu::Texture,
+    /// Multisampled color attachment. Mobile targets omit it when their
+    /// render pipelines use a single sample.
+    pub msaa: Option<wgpu::Texture>,
 }
 
+/// Surface capability required by the WGPU renderer.
+///
+/// Event-loop ownership is intentionally outside this trait so desktop and
+/// platform-owned mobile loops can share the same renderer.
+pub trait WgpuTarget: Surface {
+    fn state(&self) -> Option<&WgpuState>;
+
+    fn state_mut(&mut self) -> Option<&mut WgpuState>;
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct WgpuHandler {
     title: String,
     requested_size: (u32, u32),
-    state: Option<WgpuState>,
-    event_queue: VecDeque<InputEvent>,
+    runtime: WgpuRuntime,
+}
+
+pub(crate) struct WgpuRuntime {
+    pub(crate) state: Option<WgpuState>,
+    pub(crate) event_queue: VecDeque<InputEvent>,
     /// Last known cursor position, in logical pixels. Updated on
     /// every `CursorMoved` so `MouseInput` (which doesn't carry a
     /// position in winit 0.30) can attach one to the synthetic
     /// `PointerDown`/`PointerUp`.
-    last_cursor: (Fixed, Fixed),
+    pub(crate) last_cursor: (Fixed, Fixed),
     /// `Some` while a `PointerMove` is queued for emission this pump
     /// cycle. Only the latest position is sent — winit can fire
     /// CursorMoved 100+ times per gesture and dispatch_input is too
     /// expensive to walk that on every event.
-    pending_move: Option<(Fixed, Fixed)>,
+    pub(crate) pending_move: Option<(Fixed, Fixed)>,
 }
 
-impl WgpuHandler {
+impl WgpuRuntime {
+    pub(crate) fn new() -> Self {
+        Self {
+            state: None,
+            event_queue: VecDeque::new(),
+            last_cursor: (Fixed::ZERO, Fixed::ZERO),
+            pending_move: None,
+        }
+    }
+
+    pub(crate) fn resume(&mut self, window: Arc<Window>) {
+        if self.state.is_none() {
+            self.state = Some(create_wgpu_state(window));
+        }
+    }
+
+    pub(crate) fn suspend(&mut self) {
+        self.state = None;
+        self.event_queue.clear();
+        self.pending_move = None;
+    }
+
     /// winit hands every coordinate as `PhysicalPosition` (device
-    /// pixels). mirui hit-tests in logical points; divide by the
-    /// integer-rounded `scale_factor` to bridge.
+    /// pixels). mirui hit-tests in logical points.
     fn to_logical(&self, x: f64, y: f64) -> (Fixed, Fixed) {
         let scale = self
             .state
             .as_ref()
-            .map(|s| s.window.scale_factor().round().max(1.0))
+            .map(|s| s.window.scale_factor())
             .unwrap_or(1.0);
-        (
-            Fixed::from((x / scale) as i32),
-            Fixed::from((y / scale) as i32),
-        )
-    }
-}
-
-impl ApplicationHandler for WgpuHandler {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.state.is_some() {
-            return;
-        }
-
-        let attrs = Window::default_attributes()
-            .with_title(self.title.clone())
-            .with_inner_size(winit::dpi::LogicalSize::new(
-                self.requested_size.0,
-                self.requested_size.1,
-            ));
-        let window = Arc::new(
-            event_loop
-                .create_window(attrs)
-                .expect("winit create_window failed"),
-        );
-
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let surface = instance
-            .create_surface(window.clone())
-            .expect("wgpu create_surface failed");
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-        .expect("wgpu request_adapter failed");
-
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("mirui-wgpu-device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: wgpu::Trace::Off,
-            ..Default::default()
-        }))
-        .expect("wgpu request_device failed");
-
-        let size = window.inner_size();
-        let surface_caps = surface.get_capabilities(&adapter);
-        // Prefer unorm: mirui Color values are already sRGB-encoded
-        // bytes, and the renderer composites in that space. Picking
-        // an sRGB swap-chain format would re-encode and wash colours
-        // out by ~2× luminance.
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| !f.is_srgb())
-            .unwrap_or(surface_caps.formats[0]);
-
-        let config = wgpu::SurfaceConfiguration {
-            // COPY_SRC lets `copy_texture_to_buffer` read the live
-            // frame for effect widgets; COPY_DST lets `write_texture`
-            // push modified pixels back (BackgroundBlur in-place path).
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::COPY_DST,
-            format: surface_format,
-            width: size.width.max(1),
-            height: size.height.max(1),
-            // Mailbox > Immediate > Fifo: present without vsync stall when
-            // the driver supports it; Fifo is the universal fallback.
-            present_mode: if surface_caps
-                .present_modes
-                .contains(&wgpu::PresentMode::Mailbox)
-            {
-                wgpu::PresentMode::Mailbox
-            } else if surface_caps
-                .present_modes
-                .contains(&wgpu::PresentMode::Immediate)
-            {
-                wgpu::PresentMode::Immediate
-            } else {
-                wgpu::PresentMode::Fifo
-            },
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: alloc::vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &config);
-
-        let msaa = create_msaa(&device, &config);
-
-        self.state = Some(WgpuState {
-            window,
-            instance,
-            surface,
-            adapter,
-            device,
-            queue,
-            config,
-            msaa,
-        });
+        physical_to_logical(x, y, scale)
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
-        event: WindowEvent,
-    ) {
+    pub(crate) fn window_event(&mut self, event: WindowEvent) -> bool {
         match event {
             WindowEvent::CloseRequested => {
                 self.event_queue.push_back(InputEvent::Quit);
-                event_loop.exit();
+                true
             }
             WindowEvent::Resized(new_size) => {
                 if let Some(state) = self.state.as_mut() {
@@ -186,32 +137,31 @@ impl ApplicationHandler for WgpuHandler {
                     state.surface.configure(&state.device, &state.config);
                     state.msaa = create_msaa(&state.device, &state.config);
                 }
+                false
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let (x, y) = self.to_logical(position.x, position.y);
                 self.last_cursor = (x, y);
                 self.pending_move = Some((x, y));
+                false
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if button != MouseButton::Left {
-                    return;
+                if button == MouseButton::Left {
+                    let (x, y) = self.last_cursor;
+                    let event = match state {
+                        ElementState::Pressed => InputEvent::PointerDown { id: 0, x, y },
+                        ElementState::Released => InputEvent::PointerUp { id: 0, x, y },
+                    };
+                    self.event_queue.push_back(event);
                 }
-                let (x, y) = self.last_cursor;
-                let event = match state {
-                    ElementState::Pressed => InputEvent::PointerDown { id: 0, x, y },
-                    ElementState::Released => InputEvent::PointerUp { id: 0, x, y },
-                };
-                self.event_queue.push_back(event);
+                false
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                // mirui wheel units are line ticks; PixelDelta is logical points.
-                // 16 logical points matches macOS default line height.
-                // Keep right-swipe positive in mirui coordinates.
                 const PX_PER_LINE: f32 = 16.0;
                 let scale = self
                     .state
                     .as_ref()
-                    .map(|s| s.window.scale_factor().round().max(1.0))
+                    .map(|s| s.window.scale_factor())
                     .unwrap_or(1.0) as f32;
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (Fixed::from_f32(-x), Fixed::from_f32(y)),
@@ -227,16 +177,14 @@ impl ApplicationHandler for WgpuHandler {
                 let (x, y) = self.last_cursor;
                 self.event_queue
                     .push_back(InputEvent::Wheel { dx, dy, x, y });
+                false
             }
             WindowEvent::Touch(touch) => {
                 let (x, y) = self.to_logical(touch.location.x, touch.location.y);
-                let id = (touch.id & 0xff) as u8;
-                let event = match touch.phase {
-                    TouchPhase::Started => InputEvent::PointerDown { id, x, y },
-                    TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
-                    TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
-                };
-                self.event_queue.push_back(event);
+                if let Some(event) = touch_input_event(touch.id, touch.phase, x, y) {
+                    self.event_queue.push_back(event);
+                }
+                false
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -250,7 +198,7 @@ impl ApplicationHandler for WgpuHandler {
             } => {
                 use crate::input::event::input::*;
                 if state != ElementState::Pressed {
-                    return;
+                    return false;
                 }
                 let code = match &logical_key {
                     Key::Named(NamedKey::Backspace) => Some(KEY_BACKSPACE),
@@ -262,8 +210,7 @@ impl ApplicationHandler for WgpuHandler {
                     Key::Named(NamedKey::Enter) => Some(KEY_RETURN),
                     Key::Named(NamedKey::Escape) => {
                         self.event_queue.push_back(InputEvent::Quit);
-                        event_loop.exit();
-                        return;
+                        return true;
                     }
                     _ => None,
                 };
@@ -273,20 +220,124 @@ impl ApplicationHandler for WgpuHandler {
                         pressed: true,
                     });
                 }
-                // Printable text input — mirui currently consumes the first produced char.
-                if let Some(s) = text.as_ref() {
-                    if let Some(ch) = s.chars().next() {
-                        if !ch.is_control() {
-                            self.event_queue.push_back(InputEvent::CharInput { ch });
-                        }
-                    }
+                if let Some(s) = text.as_ref()
+                    && let Some(ch) = s.chars().next()
+                    && !ch.is_control()
+                {
+                    self.event_queue.push_back(InputEvent::CharInput { ch });
                 }
+                false
             }
-            _ => {}
+            _ => false,
         }
     }
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+impl ApplicationHandler for WgpuHandler {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.runtime.state.is_some() {
+            return;
+        }
+
+        let attrs = Window::default_attributes()
+            .with_title(self.title.clone())
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                self.requested_size.0,
+                self.requested_size.1,
+            ));
+        let window = Arc::new(
+            event_loop
+                .create_window(attrs)
+                .expect("winit create_window failed"),
+        );
+
+        self.runtime.resume(window);
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.runtime.suspend();
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if self.runtime.window_event(event) {
+            event_loop.exit();
+        }
+    }
+}
+
+pub(crate) fn create_wgpu_state(window: Arc<Window>) -> WgpuState {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let surface = instance
+        .create_surface(window.clone())
+        .expect("wgpu create_surface failed");
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+    }))
+    .expect("wgpu request_adapter failed");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("mirui-wgpu-device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+        memory_hints: wgpu::MemoryHints::Performance,
+        trace: wgpu::Trace::Off,
+        ..Default::default()
+    }))
+    .expect("wgpu request_device failed");
+    let size = window.inner_size();
+    let surface_caps = surface.get_capabilities(&adapter);
+    let surface_format = surface_caps
+        .formats
+        .iter()
+        .copied()
+        .find(|format| !format.is_srgb())
+        .unwrap_or(surface_caps.formats[0]);
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
+        format: surface_format,
+        width: size.width.max(1),
+        height: size.height.max(1),
+        present_mode: if surface_caps
+            .present_modes
+            .contains(&wgpu::PresentMode::Mailbox)
+        {
+            wgpu::PresentMode::Mailbox
+        } else if surface_caps
+            .present_modes
+            .contains(&wgpu::PresentMode::Immediate)
+        {
+            wgpu::PresentMode::Immediate
+        } else {
+            wgpu::PresentMode::Fifo
+        },
+        alpha_mode: surface_caps.alpha_modes[0],
+        view_formats: alloc::vec![],
+        desired_maximum_frame_latency: 2,
+    };
+    surface.configure(&device, &config);
+    let msaa = create_msaa(&device, &config);
+    WgpuState {
+        window,
+        instance,
+        surface,
+        adapter,
+        device,
+        queue,
+        config,
+        msaa,
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct WgpuSurface {
     event_loop: EventLoop<()>,
     handler: WgpuHandler,
@@ -298,15 +349,16 @@ pub struct WgpuSurface {
     pumped_this_frame: bool,
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl WgpuSurface {
     /// `None` only between `WgpuSurface::new` constructing the struct
     /// and `resumed` populating the wgpu device.
     pub fn state(&self) -> Option<&WgpuState> {
-        self.handler.state.as_ref()
+        self.handler.runtime.state.as_ref()
     }
 
     pub fn state_mut(&mut self) -> Option<&mut WgpuState> {
-        self.handler.state.as_mut()
+        self.handler.runtime.state.as_mut()
     }
 
     /// Open a window of the given logical size and stand up the wgpu
@@ -320,21 +372,18 @@ impl WgpuSurface {
             handler: WgpuHandler {
                 title: title.to_string(),
                 requested_size: (width as u32, height as u32),
-                state: None,
-                event_queue: VecDeque::new(),
-                last_cursor: (Fixed::ZERO, Fixed::ZERO),
-                pending_move: None,
+                runtime: WgpuRuntime::new(),
             },
             pumped_this_frame: false,
         };
 
         // winit creates windows from `resumed` only.
         let mut spins = 0;
-        while this.handler.state.is_none() && spins < 100 {
+        while this.handler.runtime.state.is_none() && spins < 100 {
             this.pump_once();
             spins += 1;
         }
-        if this.handler.state.is_none() {
+        if this.handler.runtime.state.is_none() {
             panic!("WgpuSurface: winit failed to deliver resumed within {spins} pumps");
         }
 
@@ -347,29 +396,48 @@ impl WgpuSurface {
     }
 }
 
-fn create_msaa(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wgpu::Texture {
-    device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("mirui-wgpu-msaa"),
-        size: wgpu::Extent3d {
-            width: config.width,
-            height: config.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: crate::render::wgpu::MSAA_SAMPLES,
-        dimension: wgpu::TextureDimension::D2,
-        format: config.format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
+fn create_msaa(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+) -> Option<wgpu::Texture> {
+    (crate::render::wgpu::MSAA_SAMPLES > 1).then(|| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-wgpu-msaa"),
+            size: wgpu::Extent3d {
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: crate::render::wgpu::MSAA_SAMPLES,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl InspectCaches for WgpuSurface {}
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+impl WgpuTarget for WgpuSurface {
+    fn state(&self) -> Option<&WgpuState> {
+        self.state()
+    }
+
+    fn state_mut(&mut self) -> Option<&mut WgpuState> {
+        self.state_mut()
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl Surface for WgpuSurface {
     fn display_info(&self) -> DisplayInfo {
         let state = self
             .handler
+            .runtime
             .state
             .as_ref()
             .expect("WgpuSurface state must be initialised by new()");
@@ -407,6 +475,7 @@ impl Surface for WgpuSurface {
     fn physical_size(&self) -> (u32, u32) {
         let state = self
             .handler
+            .runtime
             .state
             .as_ref()
             .expect("WgpuSurface state must be initialised by new()");
@@ -415,7 +484,7 @@ impl Surface for WgpuSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        if let Some(e) = self.handler.event_queue.pop_front() {
+        if let Some(e) = self.handler.runtime.event_queue.pop_front() {
             return Some(e);
         }
         if self.pumped_this_frame {
@@ -424,15 +493,452 @@ impl Surface for WgpuSurface {
         self.pumped_this_frame = true;
 
         self.pump_once();
-        if let Some((x, y)) = self.handler.pending_move.take() {
+        if let Some((x, y)) = self.handler.runtime.pending_move.take() {
             self.handler
+                .runtime
                 .event_queue
                 .push_back(InputEvent::PointerMove { id: 0, x, y });
         }
-        self.handler.event_queue.pop_front()
+        self.handler.runtime.event_queue.pop_front()
     }
 
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Transient
+    }
+}
+
+/// Surface lifecycle required by platform-owned mobile event loops.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub trait MobileSurface: Surface {
+    fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError>;
+
+    fn suspend_window(&mut self);
+
+    fn handle_window_event(&mut self, event: WindowEvent) -> bool;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MobileSurfaceError {
+    BufferSizeOverflow,
+    FramebufferBudget { required: usize, budget: usize },
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn software_buffer_layout(
+    logical_width: Fixed,
+    logical_height: Fixed,
+    render_scale: Fixed,
+    budget: usize,
+) -> Result<(u16, u16, usize), MobileSurfaceError> {
+    let render_scale = render_scale.max(Fixed::from_ratio(1, 4));
+    let width = (logical_width * render_scale)
+        .round()
+        .to_int()
+        .clamp(1, i32::from(u16::MAX)) as u16;
+    let height = (logical_height * render_scale)
+        .round()
+        .to_int()
+        .clamp(1, i32::from(u16::MAX)) as u16;
+    let required = usize::from(width)
+        .checked_mul(usize::from(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(MobileSurfaceError::BufferSizeOverflow)?;
+    if required > budget {
+        return Err(MobileSurfaceError::FramebufferBudget { required, budget });
+    }
+    Ok((width, height, required))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) struct SoftwareUploadRegion {
+    pub offset: usize,
+    pub bytes_per_row: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn software_upload_region(
+    buffer_width: u16,
+    buffer_height: u16,
+    area: crate::types::PhysicalRect,
+) -> Option<SoftwareUploadRegion> {
+    if area.is_empty() || area.right() > buffer_width || area.bottom() > buffer_height {
+        return None;
+    }
+    let bytes_per_row = u32::from(buffer_width).checked_mul(4)?;
+    let offset = usize::from(area.y())
+        .checked_mul(bytes_per_row as usize)?
+        .checked_add(usize::from(area.x()).checked_mul(4)?)?;
+    Some(SoftwareUploadRegion {
+        offset,
+        bytes_per_row,
+        width: u32::from(area.width()),
+        height: u32::from(area.height()),
+    })
+}
+
+/// Direct-WGPU surface driven by the native mobile application loop.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub struct MobileWgpuSurface {
+    runtime: WgpuRuntime,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl MobileWgpuSurface {
+    pub fn new(window: Arc<Window>) -> Self {
+        let mut runtime = WgpuRuntime::new();
+        runtime.resume(window);
+        Self { runtime }
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl InspectCaches for MobileWgpuSurface {}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl WgpuTarget for MobileWgpuSurface {
+    fn state(&self) -> Option<&WgpuState> {
+        self.runtime.state.as_ref()
+    }
+
+    fn state_mut(&mut self) -> Option<&mut WgpuState> {
+        self.runtime.state.as_mut()
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl MobileSurface for MobileWgpuSurface {
+    fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError> {
+        self.runtime.resume(window);
+        Ok(())
+    }
+
+    fn suspend_window(&mut self) {
+        self.runtime.suspend();
+    }
+
+    fn handle_window_event(&mut self, event: WindowEvent) -> bool {
+        self.runtime.window_event(event)
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl Surface for MobileWgpuSurface {
+    fn display_info(&self) -> DisplayInfo {
+        let state = self
+            .runtime
+            .state
+            .as_ref()
+            .expect("mobile WGPU surface is not resumed");
+        let size = state.window.inner_size();
+        let scale = Fixed::from_f32(state.window.scale_factor() as f32);
+        let physical_width = u16::try_from(size.width).unwrap_or(u16::MAX);
+        let physical_height = u16::try_from(size.height).unwrap_or(u16::MAX);
+        let (width, height) = logical_from_physical(physical_width, physical_height, scale);
+        DisplayInfo {
+            width,
+            height,
+            scale,
+            format: ColorFormat::RGBA8888,
+        }
+    }
+
+    fn flush(&mut self, _area: crate::types::PhysicalRect) {}
+
+    fn physical_size(&self) -> (u32, u32) {
+        let state = self
+            .runtime
+            .state
+            .as_ref()
+            .expect("mobile WGPU surface is not resumed");
+        let size = state.window.inner_size();
+        (size.width, size.height)
+    }
+
+    fn poll_event(&mut self) -> Option<InputEvent> {
+        if let Some((x, y)) = self.runtime.pending_move.take() {
+            self.runtime
+                .event_queue
+                .push_back(InputEvent::PointerMove { id: 0, x, y });
+        }
+        self.runtime.event_queue.pop_front()
+    }
+
+    fn persistence(&self) -> BackbufferPersistence {
+        BackbufferPersistence::Transient
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn wgpu_mobile_host<F, Build>(
+    title: impl Into<alloc::string::String>,
+    build: Build,
+) -> MobileHost<
+    MobileWgpuSurface,
+    F,
+    impl FnOnce(Arc<Window>) -> Result<MobileWgpuSurface, MobileSurfaceError>,
+    Build,
+>
+where
+    F: crate::render::factory::RendererFactory<MobileWgpuSurface> + 'static,
+    Build: FnOnce(MobileWgpuSurface) -> crate::app::App<MobileWgpuSurface, F> + 'static,
+{
+    MobileHost::new(title, |window| Ok(MobileWgpuSurface::new(window)), build)
+}
+
+/// Owns a mirui app inside the platform event loop.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub struct MobileHost<B, F, Create, Build>
+where
+    B: MobileSurface,
+    F: crate::render::factory::RendererFactory<B>,
+    Create: FnOnce(Arc<Window>) -> Result<B, MobileSurfaceError>,
+    Build: FnOnce(B) -> crate::app::App<B, F>,
+{
+    title: alloc::string::String,
+    create: Option<Create>,
+    build: Option<Build>,
+    app: Option<crate::app::App<B, F>>,
+    window: Option<Arc<Window>>,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl<B, F, Create, Build> MobileHost<B, F, Create, Build>
+where
+    B: MobileSurface + 'static,
+    F: crate::render::factory::RendererFactory<B> + 'static,
+    Create: FnOnce(Arc<Window>) -> Result<B, MobileSurfaceError> + 'static,
+    Build: FnOnce(B) -> crate::app::App<B, F> + 'static,
+{
+    pub fn new(title: impl Into<alloc::string::String>, create: Create, build: Build) -> Self {
+        Self {
+            title: title.into(),
+            create: Some(create),
+            build: Some(build),
+            app: None,
+            window: None,
+        }
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn run_android(mut self, android_app: winit::platform::android::activity::AndroidApp) -> ! {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+
+        let mut builder = EventLoop::builder();
+        builder.with_android_app(android_app);
+        let event_loop = builder.build().expect("winit Android event loop");
+        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop
+            .run_app(&mut self)
+            .expect("winit Android application loop");
+        unreachable!("mobile event loop returned")
+    }
+
+    #[cfg(target_os = "ios")]
+    pub fn run_ios(mut self) -> ! {
+        let event_loop = EventLoop::new().expect("winit iOS event loop");
+        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop
+            .run_app(&mut self)
+            .expect("winit iOS application loop");
+        unreachable!("mobile event loop returned")
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl<B, F, Create, Build> ApplicationHandler for MobileHost<B, F, Create, Build>
+where
+    B: MobileSurface + 'static,
+    F: crate::render::factory::RendererFactory<B> + 'static,
+    Create: FnOnce(Arc<Window>) -> Result<B, MobileSurfaceError> + 'static,
+    Build: FnOnce(B) -> crate::app::App<B, F> + 'static,
+{
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::Poll);
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+            return;
+        }
+        let window = Arc::new(
+            event_loop
+                .create_window(Window::default_attributes().with_title(self.title.clone()))
+                .expect("winit mobile window"),
+        );
+
+        if let Some(app) = self.app.as_mut() {
+            if let Err(error) = app.backend.resume_window(window.clone()) {
+                crate::warn!("mobile surface resume failed: {:?}", error);
+                event_loop.exit();
+                return;
+            }
+            app.resume();
+        } else {
+            let create = self
+                .create
+                .take()
+                .expect("mobile surface builder consumed once");
+            let surface = match create(window.clone()) {
+                Ok(surface) => surface,
+                Err(error) => {
+                    crate::warn!("mobile surface creation failed: {:?}", error);
+                    event_loop.exit();
+                    return;
+                }
+            };
+            let build = self.build.take().expect("mobile app builder consumed once");
+            self.app = Some(build(surface));
+        }
+        self.window = Some(window.clone());
+        window.request_redraw();
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(app) = self.app.as_mut() {
+            app.suspend();
+            app.backend.suspend_window();
+        }
+        self.window = None;
+        event_loop.set_control_flow(ControlFlow::Wait);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(app) = self.app.as_mut() else {
+            return;
+        };
+        if matches!(event, WindowEvent::RedrawRequested) {
+            if app.tick() {
+                event_loop.exit();
+                return;
+            }
+        } else if app.backend.handle_window_event(event) {
+            event_loop.exit();
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if self.app.as_ref().is_some_and(|app| !app.is_suspended())
+            && let Some(window) = self.window.as_ref()
+        {
+            window.request_redraw();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suspend_discards_input_bound_to_the_old_native_window() {
+        let mut runtime = WgpuRuntime::new();
+        runtime.event_queue.push_back(InputEvent::PointerDown {
+            id: 0,
+            x: Fixed::from_int(4),
+            y: Fixed::from_int(8),
+        });
+        runtime.pending_move = Some((Fixed::from_int(10), Fixed::from_int(12)));
+
+        runtime.suspend();
+
+        assert!(runtime.event_queue.is_empty());
+        assert!(runtime.pending_move.is_none());
+    }
+
+    #[test]
+    fn touch_ids_and_cancellation_preserve_pointer_semantics() {
+        let x = Fixed::from_int(7);
+        let y = Fixed::from_int(11);
+        assert!(matches!(
+            touch_input_event(3, TouchPhase::Started, x, y),
+            Some(InputEvent::PointerDown { id: 3, x: px, y: py }) if px == x && py == y
+        ));
+        assert!(matches!(
+            touch_input_event(3, TouchPhase::Cancelled, x, y),
+            Some(InputEvent::PointerUp { id: 3, x: px, y: py }) if px == x && py == y
+        ));
+        assert!(touch_input_event(256, TouchPhase::Moved, x, y).is_none());
+    }
+
+    #[test]
+    fn fractional_device_scale_preserves_logical_coordinates() {
+        assert_eq!(
+            physical_to_logical(3.0, 6.0, 1.5),
+            (Fixed::from_int(2), Fixed::from_int(4))
+        );
+        assert_eq!(
+            physical_to_logical(12.0, 20.0, 0.0),
+            (Fixed::from_int(12), Fixed::from_int(20))
+        );
+    }
+
+    #[test]
+    fn software_buffer_layout_applies_scale_and_budget() {
+        assert_eq!(
+            software_buffer_layout(
+                Fixed::from_int(390),
+                Fixed::from_int(844),
+                Fixed::ONE,
+                16 * 1024 * 1024,
+            ),
+            Ok((390, 844, 390 * 844 * 4))
+        );
+        assert_eq!(
+            software_buffer_layout(
+                Fixed::from_int(480),
+                Fixed::from_int(1024),
+                Fixed::from_int(3),
+                16 * 1024 * 1024,
+            ),
+            Err(MobileSurfaceError::FramebufferBudget {
+                required: 1440 * 3072 * 4,
+                budget: 16 * 1024 * 1024,
+            })
+        );
+    }
+
+    #[test]
+    fn software_buffer_layout_clamps_non_positive_scale() {
+        assert_eq!(
+            software_buffer_layout(
+                Fixed::from_int(400),
+                Fixed::from_int(800),
+                Fixed::ZERO,
+                1024 * 1024,
+            ),
+            Ok((100, 200, 100 * 200 * 4))
+        );
+    }
+
+    #[test]
+    fn software_upload_region_uses_full_stride_without_copying_rows() {
+        let area = crate::types::PhysicalRect::new(7, 5, 20, 9).unwrap();
+        assert_eq!(
+            software_upload_region(64, 32, area),
+            Some(SoftwareUploadRegion {
+                offset: 5 * 64 * 4 + 7 * 4,
+                bytes_per_row: 64 * 4,
+                width: 20,
+                height: 9,
+            })
+        );
+        assert!(
+            software_upload_region(
+                64,
+                32,
+                crate::types::PhysicalRect::new(60, 0, 8, 1).unwrap()
+            )
+            .is_none()
+        );
     }
 }

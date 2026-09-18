@@ -12,9 +12,8 @@ use mirui::prelude::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform};
 use mirui::ui::Theme;
-use mirui::ui::dirty::Dirty;
 use mirui::ui::theme::ColorToken;
-use mirui::ui::widgets::{BackgroundBlur, MirrorOf, TemporalMix};
+use mirui::ui::widgets::{BackgroundBlur, MirrorOf, TemporalMix, Text};
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Write;
@@ -55,7 +54,7 @@ fn animate_x(world: &mut World) {
         let span = Fixed::from_int(span_px);
         let tx = (bounce - Fixed::ONE / 2) * Fixed::from_int(2) * span;
         world.insert(e, WidgetTransform(Transform::translate(tx, Fixed::ZERO)));
-        world.insert(e, Dirty);
+        world.invalidate(e);
     }
 }
 
@@ -84,7 +83,7 @@ fn animate_color_flash(world: &mut World) {
         if let Some(style) = world.get_mut::<Style>(e) {
             style.bg_color = Some(color.into());
         }
-        world.insert(e, Dirty);
+        world.invalidate(e);
     }
 }
 
@@ -158,8 +157,8 @@ fn main() {
             width: 180,
             height: 50
         ) {
-            View (
-                text: "MirrorOf",
+            Text (
+                "MirrorOf",
                 text_color: ColorToken::OnPrimary,
                 position: Position::Absolute,
                 left: 12,
@@ -244,8 +243,8 @@ fn main() {
             world: &mut app.world
         :)
 
-        View (
-            text: "raw flash       TemporalMix",
+        Text (
+            "raw flash       TemporalMix",
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
             left: 30,
@@ -304,8 +303,8 @@ fn main() {
             world: &mut app.world
         :)
 
-        View (
-            text: "BackgroundBlur",
+        Text (
+            "BackgroundBlur",
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
             left: HALF_W + 30,

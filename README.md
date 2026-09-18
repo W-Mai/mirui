@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/mirui/badge.svg)](https://docs.rs/mirui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A `no_std`, ECS-driven UI framework for embedded, desktop, and WebAssembly. Renders with 24.8 fixed-point subpixel precision on a software rasterizer designed for MCUs without an FPU; optionally runs on top of SDL2 (CPU or hardware-accelerated) on desktop.
+A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and WebAssembly targets. Layout, hit testing, and draw geometry use Q24.8 fixed point before submission to the software rasterizer, SDL GPU, WGPU, Web Canvas, framebuffer, DRM, and NuttX backends.
 
 ![Orbit Console adapting between wide and compact layouts](docs/assets/orbit-console-responsive.webp)
 
@@ -25,8 +25,8 @@ A `no_std`, ECS-driven UI framework for embedded, desktop, and WebAssembly. Rend
 - **Input feedback** — opt-in `InputFeedbackPlugin` paints a cursor dot and a magnetic-membrane water drop responding to rotary / wheel / click input
 - **Dirty-flag partial refresh** — only re-renders changed regions; per-entity `Dirty` + `PrevRect` machinery
 - **HiDPI** — automatic scale factor propagation
-- **Plugins** — bundle clock, perf, input feedback into objects `App` drives through five lifecycle hooks
-- **Pluggable backends** — SDL2 CPU, SDL2 GPU (hardware-accelerated), `FramebufSurface` (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped), `compose_backend!` for routing commands through engines sharing one target
+- **Plugins** — bundle clocks, performance reporting, input feedback, and other cross-cutting behavior behind frame, input, suspend/resume, and shutdown hooks
+- **Pluggable backends** — software framebuffer, SDL2 CPU/GPU, WGPU, Web Canvas, Linux framebuffer/DRM, and NuttX; `compose_backend!` routes command classes through engines sharing one target
 - **Declarative DSL** — `ui!` macro for nested widget trees with attributes, enchants, walk loops, conditionals
 
 ## Quick Start
@@ -40,6 +40,7 @@ mirui = { version = "0.45", features = ["sdl"] }
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::ui::UiScope;
+use mirui::ui::widgets::{ParagraphStyle, Text};
 
 fn main() {
     let backend = SdlSurface::new("hello mirui", 480, 320);
@@ -59,16 +60,18 @@ fn main() {
 #[compose]
 fn build_root() {
     ui! {
-        column (direction: FlexDirection::Column, grow: 1.0) {
-            header (
+        Column (grow: 1.0) {
+            View (
                 bg_color: ColorToken::Primary,
                 text_color: ColorToken::OnPrimary,
                 height: 40,
-                text: "Hello mirui!",
-                border_radius: 8
-            ) {}
-            content (bg_color: ColorToken::SurfaceVariant, grow: 1.0) {}
-            footer (height: 30, text: "ECS + DSL") {}
+                border_radius: 8,
+                padding: Padding::all(10)
+            ) {
+                Text ("Hello mirui!")
+            }
+            View (bg_color: ColorToken::SurfaceVariant, grow: 1.0)
+            Text ("ECS + DSL", height: 30, paragraph: ParagraphStyle::label())
         }
     };
 }
@@ -80,7 +83,7 @@ fn build_root() {
 
 ### Other targets
 
-The snippet above runs on the SDL backend (desktop). mirui also runs bare-metal on RISC-V and ARM Cortex-M MCUs through `FramebufSurface`, and a Cargo workspace template ships UI code that builds on both desktop and embedded targets unchanged. See [`docs/quickstart.md`](docs/quickstart.md) for the full walkthrough, including ESP32-C3 wiring, the workspace layout, and a recipe for adding new target crates.
+The snippet above runs on the SDL backend. The same UI model runs in browsers through Web Canvas, on Android and iOS through WGPU or bounded software rasterization, on Linux framebuffer/DRM devices, on NuttX, and on bare-metal RISC-V or ARM Cortex-M MCUs through `FramebufSurface`. See [`docs/quickstart.md`](docs/quickstart.md) for the mobile, ESP32-C3, and multi-target workspace walkthrough.
 
 [`docs/typography.md`](docs/typography.md) covers text paths, static and mutable geometry, reactive path selection, signal-derived curves, and handler-driven edits.
 
@@ -132,9 +135,9 @@ ui! {
     :)
 
     // Widget with attributes
-    container (direction: FlexDirection::Column, grow: 1.0) {
-        header (text: "Header", height: 40) {}
-        body (grow: 1.0) {}
+    Column (grow: 1.0) {
+        Text ("Header", height: 40)
+        View (grow: 1.0)
     }
 
     // Enchants — attach extra ECS components to the spawned entity
@@ -145,12 +148,12 @@ ui! {
 
     // Iteration
     walk items.iter() with item {
-        row (text: item.name, bg_color: item.color) {}
+        Text (item.name, bg_color: item.color)
     }
 
     // Conditional
     if show_footer {
-        footer (text: "visible") {}
+        Text ("visible")
     }
 }
 ```
@@ -182,7 +185,7 @@ Use an alias when the expression should not expose an ID-shaped field: `@id(stag
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `bg_color` / `text_color` / `border_color` | `Color` or `ColorToken` | Solid colour or theme token |
-| `text` | `&str` | Text content |
+| `text` | `&str` | Content of text-bearing widgets |
 | `border_radius` / `border_width` | `Fixed` | Subpixel-accurate |
 | `width` / `height` | `Dimension` | `Px / Percent / Auto / Content` |
 | `grow` | `f32` | Flex grow factor |
@@ -286,7 +289,7 @@ ui! {
 
     Scroll (grow: 1.0) {
         walk items.iter() with item {
-            row (height: 60, bg_color: item.color, text: item.label) {}
+            Text (item.label, height: 60, bg_color: item.color)
         }
     }
 };

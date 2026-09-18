@@ -1,6 +1,17 @@
 use std::fs;
 use std::path::Path;
 
+fn visit_rust_sources(path: &Path, visit: &mut impl FnMut(&Path)) {
+    for entry in fs::read_dir(path).expect("source directory") {
+        let path = entry.expect("source entry").path();
+        if path.is_dir() {
+            visit_rust_sources(&path, visit);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            visit(&path);
+        }
+    }
+}
+
 fn container_text_attributes(source: &str) -> Vec<&'static str> {
     let mut violations = Vec::new();
     for widget in ["View", "Row", "Column"] {
@@ -49,23 +60,50 @@ fn container_text_attributes(source: &str) -> Vec<&'static str> {
 
 #[test]
 fn gallery_containers_do_not_carry_text_attributes() {
-    let demos = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gallery/demos");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut violations = Vec::new();
 
-    for entry in fs::read_dir(demos).expect("gallery demos directory") {
-        let path = entry.expect("gallery demo entry").path();
-        if path.extension().is_none_or(|extension| extension != "rs") {
-            continue;
-        }
-        let source = fs::read_to_string(&path).expect("gallery demo source");
-        for widget in container_text_attributes(&source) {
-            violations.push(format!("{}: {widget}", path.display()));
-        }
+    for directory in [
+        root.join("src/gallery/demos"),
+        root.join("gallery/examples"),
+    ] {
+        visit_rust_sources(&directory, &mut |path| {
+            let source = fs::read_to_string(&path).expect("gallery demo source");
+            for widget in container_text_attributes(&source) {
+                violations.push(format!("{}: {widget}", path.display()));
+            }
+        });
     }
 
     assert!(
         violations.is_empty(),
         "container text must use a Text child:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn public_documentation_uses_semantic_text_widgets() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut paths = vec![root.join("README.md")];
+    paths.extend(
+        fs::read_dir(root.join("docs"))
+            .expect("docs directory")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                (path.extension().is_some_and(|extension| extension == "md")).then_some(path)
+            }),
+    );
+    let mut violations = Vec::new();
+    for path in paths {
+        let source = fs::read_to_string(&path).expect("public documentation");
+        for widget in container_text_attributes(&source) {
+            violations.push(format!("{}: {widget}", path.display()));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "public examples must use semantic Text children:\n{}",
         violations.join("\n")
     );
 }

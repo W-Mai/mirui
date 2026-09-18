@@ -6,7 +6,6 @@ use mirui::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, DimPoint, Dimension, Fixed};
-use mirui::ui::dirty::Dirty;
 
 extern crate alloc;
 
@@ -31,7 +30,7 @@ fn tap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool 
         if let Some(style) = world.get_mut::<mirui::ui::Style>(entity) {
             style.set_bg_color(colors[(count as usize) % colors.len()]);
         }
-        world.insert(entity, Dirty);
+        world.invalidate(entity);
         true
     } else {
         false

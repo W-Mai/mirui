@@ -245,14 +245,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let scale = app.viewport().scale();
-    let (width, height) = app.viewport().logical_size();
-    crate::gallery::SceneReplayWorkspace::install(
-        &mut app.world,
-        Rect::new(0, 0, width, height),
-        scale,
-    )
-    .expect("Render Showcase scene workspace size is representable");
+    app.add_plugin(crate::gallery::SceneReplayWorkspacePlugin);
     app.with_widget(showcase_view());
     app.compose(parent, build_widgets);
 }

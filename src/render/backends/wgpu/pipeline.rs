@@ -446,9 +446,13 @@ fn build_pipeline(
     })
 }
 
-/// 4× MSAA — best compromise between quality and bandwidth on the
-/// integrated GPUs the wgpu backend targets first.
-pub const MSAA_SAMPLES: u32 = 4;
+/// Mobile targets avoid the extra full-resolution multisample attachment;
+/// desktop keeps 4× coverage for transformed geometry.
+pub const MSAA_SAMPLES: u32 = if cfg!(any(target_os = "android", target_os = "ios")) {
+    1
+} else {
+    4
+};
 
 /// Pick a `BlendState` for a given shader + composite mode. Blit-family
 /// shaders honour every supported mode; everything else stays on

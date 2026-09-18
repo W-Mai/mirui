@@ -22,6 +22,13 @@ use crate::ui::{Theme, ThemeCatalog, ThemeError, ThemeSource};
 
 pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 
+/// Viewport used by the frame currently entering layout and rendering.
+///
+/// Plugins can read this resource from `pre_render` without retaining a
+/// surface reference or duplicating platform resize state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RenderViewport(pub crate::types::Viewport);
+
 /// Main application entry point — ties World + Surface + Renderer factory together
 pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     pub world: World,
@@ -143,6 +150,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());
         world.insert_resource(crate::ui::dirty::ExactDirtyRegions::default());
+        world.insert_resource(RenderViewport(backend.viewport()));
         Self {
             world,
             backend,
@@ -450,15 +458,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    fn prepare_render(&mut self, viewport: crate::types::Viewport) {
+        self.world
+            .resource_mut::<RenderViewport>()
+            .expect("App always owns a RenderViewport")
+            .0 = viewport;
+        for plugin in &mut self.plugins {
+            plugin.pre_render(&mut self.world);
+        }
+    }
+
     /// Render one frame
     #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
-
-        for p in &mut self.plugins {
-            p.pre_render(&mut self.world);
-        }
+        self.prepare_render(transform);
 
         let layout_start = self.clock_ns();
 
@@ -806,10 +821,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn render_dirty(&mut self) -> Result<(), crate::render::RenderError> {
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
-
-        for p in &mut self.plugins {
-            p.pre_render(&mut self.world);
-        }
+        self.prepare_render(transform);
 
         let layout_start = self.clock_ns();
 

@@ -1,8 +1,7 @@
-//! mirui — a `no_std`, ECS-driven UI framework for embedded, desktop,
-//! and WebAssembly. Renders with 24.8 fixed-point subpixel
-//! precision on a software rasterizer designed for MCUs without an FPU;
-//! optionally runs on top of SDL2 (CPU or hardware-accelerated) on
-//! desktop.
+//! mirui — a `no_std`, ECS-driven UI framework for embedded, mobile,
+//! desktop, Linux, and WebAssembly targets. Layout, hit testing, and draw geometry
+//! use 24.8 fixed point before submission to the software framebuffer,
+//! SDL GPU, WGPU, Web Canvas, Linux framebuffer/DRM, and NuttX backends.
 //!
 //! # Quick Start
 //!
@@ -51,12 +50,12 @@
 //!
 //! # Other targets
 //!
-//! mirui also runs bare-metal on RISC-V and ARM Cortex-M MCUs through
-//! [`surface::framebuf::FramebufSurface`], and a Cargo workspace
-//! template builds the same UI code on both desktop and embedded
-//! targets unchanged. The full walkthrough — including ESP32-C3
-//! wiring, the workspace layout, and a recipe for adding new target
-//! crates — lives in [`docs/quickstart.md`][quickstart].
+//! mirui also runs in browsers through Web Canvas, on Android and iOS
+//! through direct WGPU or bounded software rasterization, on Linux
+//! framebuffer/DRM devices, on NuttX, and on bare-metal RISC-V and ARM
+//! Cortex-M MCUs through [`surface::framebuf::FramebufSurface`]. The
+//! mobile, ESP32-C3, and multi-target walkthrough lives in
+//! [`docs/quickstart.md`][quickstart].
 //!
 //! [quickstart]: https://github.com/W-Mai/mirui/blob/main/docs/quickstart.md
 //!

@@ -57,7 +57,7 @@ fn slide(world: &mut World) {
         let off_screen = Fixed::from_int(-MODAL_LEFT_FINAL - MODAL_W);
         let tx = off_screen * (Fixed::ONE - next_t);
         world.insert(e, WidgetTransform(Transform::translate(tx, Fixed::ZERO)));
-        world.insert(e, mirui::ui::dirty::Dirty);
+        world.invalidate(e);
     }
 }
 

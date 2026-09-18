@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::ui::widgets::{TabBar, TabContent};
+use mirui::ui::widgets::{ParagraphStyle, TabBar, TabContent, Text};
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -50,26 +50,23 @@ fn main() {
         ) [
             TabBar::new(3).with_indicator_height(3),
         ] {
-            View (
-                text: "Home",
+            Text (
+                "Home",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: ParagraphStyle::label()
             )
-            View (
-                text: "Search",
+            Text (
+                "Search",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: ParagraphStyle::label()
             )
-            View (
-                text: "Profile",
+            Text (
+                "Profile",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: ParagraphStyle::label()
             )
         }
     };
@@ -81,42 +78,39 @@ fn main() {
         :)
 
         View (width: 480, height: 160) {
-            View (
+            Text (
+                "Home page",
                 bg_color: Color::rgb(63, 185, 80),
-                text: "Home page",
                 text_color: Color::rgb(255, 255, 255),
                 width: 480,
                 height: 160,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: ParagraphStyle::label()
             ) [
                 TabContent {
                     tab_bar: tabs,
                     index: 0,
                 },
             ]
-            View (
+            Text (
+                "Search page",
                 bg_color: Color::rgb(255, 165, 80),
-                text: "Search page",
                 text_color: Color::rgb(255, 255, 255),
                 width: 480,
                 height: 160,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: ParagraphStyle::label()
             ) [
                 TabContent {
                     tab_bar: tabs,
                     index: 1,
                 },
             ]
-            View (
+            Text (
+                "Profile page",
                 bg_color: Color::rgb(210, 168, 255),
-                text: "Profile page",
                 text_color: Color::rgb(40, 40, 56),
                 width: 480,
                 height: 160,
-                align: AlignItems::Center,
-                justify: JustifyContent::Center
+                paragraph: ParagraphStyle::label()
             ) [
                 TabContent {
                     tab_bar: tabs,

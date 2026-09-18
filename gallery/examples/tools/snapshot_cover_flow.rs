@@ -13,7 +13,6 @@ use std::rc::Rc;
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
-use mirui::ui::dirty::Dirty;
 use mirui::ui::widgets::{Image, WidgetTransform3D};
 
 extern crate alloc;
@@ -73,9 +72,9 @@ fn layout_system(world: &mut World) {
                 Fixed::from_int(PERSPECTIVE),
             )),
         );
-        world.insert(e, Dirty);
+        world.invalidate(e);
     }
-    world.insert(carousel, Dirty);
+    world.invalidate(carousel);
 }
 
 fn write_ppm(path: &str, buf: &[u8], w: u32, h: u32) -> std::io::Result<()> {

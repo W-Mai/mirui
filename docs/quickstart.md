@@ -1,7 +1,6 @@
 # Quickstart
 
-How to go from zero to a running mirui application — desktop, embedded,
-or sharing UI code across both.
+How to go from zero to a running mirui application on desktop, mobile, WebAssembly, or embedded hardware while sharing the same UI model.
 
 This guide is the long-form companion to the README and the docs.rs
 crate-level introduction. It expects familiarity with `cargo` and
@@ -13,8 +12,9 @@ basic Rust, plus an SPI datasheet reading habit if you target an MCU.
 2. [Desktop SDL — five minutes from zero](#desktop-sdl)
 3. [ESP32-C3 embedded — fifteen minutes from zero](#esp32-c3-embedded)
 4. [Cargo workspace — share UI code across multiple targets](#cargo-workspace)
-5. [Skip the boilerplate with `cargo-generate`](#skip-the-boilerplate)
-6. [Where to go next](#where-to-go-next)
+5. [Android and iOS](#android-and-ios)
+6. [Skip the boilerplate with `cargo-generate`](#skip-the-boilerplate)
+7. [Where to go next](#where-to-go-next)
 
 ## Toolchain prerequisites
 
@@ -70,6 +70,7 @@ mirui = { version = "0.45", features = ["sdl"] }
 ```rust
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
+use mirui::ui::widgets::{ParagraphStyle, Text};
 
 fn main() {
     let backend = SdlSurface::new("hello mirui", 480, 320);
@@ -84,16 +85,18 @@ fn main() {
             world: &mut app.world
         :)
 
-        column (direction: FlexDirection::Column, grow: 1.0) {
-            header (
+        Column (grow: 1.0) {
+            View (
                 bg_color: ColorToken::Primary,
                 text_color: ColorToken::OnPrimary,
                 height: 40,
-                text: "Hello mirui!",
-                border_radius: 8
-            ) {}
-            content (bg_color: ColorToken::SurfaceVariant, grow: 1.0) {}
-            footer (height: 30, text: "ECS + DSL") {}
+                border_radius: 8,
+                padding: Padding::all(10)
+            ) {
+                Text ("Hello mirui!")
+            }
+            View (bg_color: ColorToken::SurfaceVariant, grow: 1.0)
+            Text ("ECS + DSL", height: 30, paragraph: ParagraphStyle::label())
         }
     };
 
@@ -241,11 +244,8 @@ pub fn build_ui(world: &mut World, parent: Entity) -> Entity {
             world: world
         :)
 
-        root (bg_color: ColorToken::Surface) {
-            hello (
-                text: "Hello mirui!",
-                text_color: ColorToken::OnSurface
-            ) {}
+        View (bg_color: ColorToken::Surface) {
+            Text ("Hello mirui!", text_color: ColorToken::OnSurface)
         }
     }
 }
@@ -273,6 +273,17 @@ Build it with `cargo build -p esp32s3`. Workspace membership is
 automatic — the glob picks the new directory up on the next `cargo`
 invocation.
 
+## Android and iOS
+
+The `android` and `ios` generator templates ask for a rendering path. `wgpu` submits mirui draw commands directly to the platform WGPU surface. `sw` retains one caller-budgeted RGBA framebuffer, rasterizes with the software backend, uploads dirty regions, and uses WGPU only for presentation. Both paths keep the `App`, ECS world, and reactive state alive across native suspend and resume while recreating the platform surface.
+
+```bash
+cargo generate W-Mai/mirui-templates android --name hello-mirui-android
+cargo generate W-Mai/mirui-templates ios --name hello-mirui-ios
+```
+
+Android uses a NativeActivity entry point and builds for `aarch64-linux-android` through `cargo-apk`. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
+
 ## Skip the boilerplate
 
 The same templates this guide walks through by hand are published as a
@@ -294,35 +305,26 @@ cargo generate W-Mai/mirui-templates esp32c3 --name hello-mirui-esp32c3
 
 # Multi-target Cargo workspace (app + targets/desktop + targets/esp32c3)
 cargo generate W-Mai/mirui-templates workspace --name my-app
+
+# Browser Canvas 2D
+cargo generate W-Mai/mirui-templates wasm --name hello-mirui-web
+
+# Android NativeActivity; choose WGPU or software rendering when prompted
+cargo generate W-Mai/mirui-templates android --name hello-mirui-android
+
+# iPhone and iPad Xcode project; choose WGPU or software rendering when prompted
+cargo generate W-Mai/mirui-templates ios --name hello-mirui-ios
 ```
 
-Each template asks for the project name and the mirui version, fills
-the Cargo manifests and source files in, and leaves you with a project
-that builds on the first `cargo build`.
-
-A `wasm` template is published alongside the others; it pins a future
-`web-canvas` Surface backend that has not landed yet, so it is a
-placeholder and will not build until that backend ships.
+Each template asks for the project name and the mirui version, fills the Cargo manifests and source files, and produces a buildable project. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
 
 ## Where to go next
 
-You have a running mirui app. The next steps depend on what you want to
-build:
+You have a running mirui app. The next steps depend on what you want to build:
 
-- **Add your own widget** — see the widget cookbook (planned for the
-  1.0 cycle) for the rendering, theme integration, and animation
-  contracts the built-in widgets follow.
-- **Drive your own LCD or touch IC** — the surface cookbook (planned)
-  walks through ST7789, GC9A01, FT6236, GT911, and the
-  `Surface` trait that ties them to mirui.
-- **React to state changes declaratively** — the state-management
-  story (planned for 1.0) layers `Signal<T>` / `Computed<T>` /
-  `Effect` over the existing ECS World.
-- **Persist user state across runs** — the lifecycle plugin (planned
-  for 1.0) ships `PersistencePlugin` plus pause / resume hooks for
-  embedded power management.
+- **Add your own widget** — inspect the built-in widgets and Gallery compositions for rendering, theme integration, typed properties, and animation contracts.
+- **Drive your own LCD or touch IC** — implement the `Surface` boundary and use the ESP32-C3 board integration in [`mirui-examples`](https://github.com/W-Mai/mirui-examples) as a complete framebuffer and input reference.
+- **React to state changes declaratively** — [`state-management.md`](state-management.md) covers `Signal<T>`, `Computed<T>`, `Effect`, DSL bindings, and lifecycle-safe disposal.
+- **Persist user state across runs** — the `persistence_counter` Gallery demo connects `PersistencePlugin` to lifecycle pause and resume hooks.
 
-Until those land, the working examples in
-[`gallery/examples/`](../gallery/examples/) and
-[`mirui-examples`](https://github.com/W-Mai/mirui-examples) are the
-most complete reference.
+The working examples in [`gallery/examples/`](../gallery/examples/) and [`mirui-examples`](https://github.com/W-Mai/mirui-examples) exercise the same public APIs across desktop, browser, and embedded targets.

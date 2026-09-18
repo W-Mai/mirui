@@ -16,8 +16,8 @@ use mirui::render::renderer::{DrawRequest, RenderError, Renderer};
 use mirui::render::sw::SwRenderer;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Viewport};
-use mirui::ui::widgets::Image;
 use mirui::ui::widgets::assets::*;
+use mirui::ui::widgets::{Image, ParagraphStyle, Text};
 use mirui_macros::{compose_backend, ui};
 
 const W: u16 = 480;
@@ -147,9 +147,10 @@ fn main() {
             View (
                 bg_color: Color::rgb(88, 166, 255),
                 height: 40,
-                text: "compose_backend DSL demo",
                 border_radius: 6
-            )
+            ) {
+                Text ("compose_backend DSL demo", paragraph: ParagraphStyle::label())
+            }
             walk drifters.iter() with d {
                 View (
                     position: Position::Absolute,

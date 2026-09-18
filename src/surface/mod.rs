@@ -28,6 +28,8 @@ pub mod slow;
 pub mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_surface;
+#[cfg(all(feature = "wgpu", any(target_os = "android", target_os = "ios")))]
+pub mod wgpu_upload;
 
 use crate::render::texture::Texture;
 use crate::types::{Fixed, PhysicalRect, Rect, Viewport};

@@ -18,7 +18,7 @@ use crate::render::renderer::{
     DrawRequest, FallbackRegion, RenderError, RenderFeature, RenderRoute, Renderer,
 };
 use crate::render::texture::Texture;
-use crate::surface::wgpu_surface::WgpuSurface;
+use crate::surface::wgpu_surface::WgpuTarget;
 use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport};
 
 use self::pipeline::{
@@ -143,17 +143,14 @@ impl Default for WgpuRendererFactory {
     }
 }
 
-impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
+impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
     type Renderer<'a>
-        = WgpuRenderer<'a>
+        = WgpuRenderer<'a, B>
     where
-        Self: 'a;
+        Self: 'a,
+        B: 'a;
 
-    fn make<'a>(
-        &'a mut self,
-        backend: &'a mut WgpuSurface,
-        transform: &Viewport,
-    ) -> WgpuRenderer<'a> {
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> WgpuRenderer<'a, B> {
         self.glyph_buffers.reset();
         if self.cache.is_none() || self.linear_sampler.is_none() || self.nearest_sampler.is_none() {
             let state = backend
@@ -190,9 +187,9 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
     }
 }
 
-pub struct WgpuRenderer<'a> {
+pub struct WgpuRenderer<'a, B: WgpuTarget> {
     factory: &'a mut WgpuRendererFactory,
-    surface: &'a mut WgpuSurface,
+    surface: &'a mut B,
     viewport: Viewport,
     frame: Option<Frame>,
     draw_failed: bool,
@@ -201,7 +198,7 @@ pub struct WgpuRenderer<'a> {
 struct Frame {
     surface_texture: wgpu::SurfaceTexture,
     swapchain_view: wgpu::TextureView,
-    msaa_view: wgpu::TextureView,
+    msaa_view: Option<wgpu::TextureView>,
     encoder: wgpu::CommandEncoder,
     /// One viewport uniform shared across the frame's draws.
     viewport_buf: wgpu::Buffer,
@@ -370,7 +367,7 @@ struct PosedGlyphRunDraw<'a> {
     projective: Transform3D,
 }
 
-impl WgpuRenderer<'_> {
+impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn draw_projective_validated(
         &mut self,
         cmd: &DrawCommand,
@@ -700,7 +697,8 @@ impl WgpuRenderer<'_> {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let msaa_view = state
             .msaa
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .as_ref()
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
         let encoder = state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -765,13 +763,17 @@ impl WgpuRenderer<'_> {
             })
         };
         {
+            let (view, resolve_target) = match frame.msaa_view.as_ref() {
+                Some(msaa_view) => (msaa_view, Some(&frame.swapchain_view)),
+                None => (&frame.swapchain_view, None),
+            };
             let mut pass = frame
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("mirui-frame-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
+                        view,
+                        resolve_target,
                         depth_slice: None,
                         ops: wgpu::Operations {
                             load,
@@ -1123,7 +1125,7 @@ impl WgpuRenderer<'_> {
     }
 }
 
-impl WgpuRenderer<'_> {
+impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn scissor_from_clip(&self, clip: &Rect) -> [u32; 4] {
         let state = self
             .surface
@@ -1192,7 +1194,7 @@ fn offset_point(p: &Point, tx: Fixed, ty: Fixed) -> Point {
     }
 }
 
-impl WgpuRenderer<'_> {
+impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn fill_path_transformed_inner(
         &mut self,
         path: &Path,
@@ -1210,7 +1212,7 @@ impl WgpuRenderer<'_> {
     }
 }
 
-impl WgpuRenderer<'_> {
+impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let state = self.surface.state()?;
         self.viewport
@@ -1330,7 +1332,7 @@ fn straight_rgba8(pixel: [u8; 4]) -> [u8; 4] {
     ]
 }
 
-impl WgpuRenderer<'_> {
+impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn fill_path_inner(
         &mut self,
         path: &Path,
@@ -2243,7 +2245,9 @@ mod route_tests {
             composite: CompositeMode::SourceOver,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&blit, Rect::new(0, 0, 1, 1))),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&blit, Rect::new(0, 0, 1, 1)),
+            ),
             Err(RenderError::InvalidTexture)
         );
     }
@@ -2267,7 +2271,9 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&fill, area)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&fill, area),
+            ),
             Err(RenderError::InvalidGeometry)
         );
     }
@@ -2294,7 +2300,9 @@ mod route_tests {
             dash: &dash,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&stroke, Rect::new(0, 0, 32, 32),)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&stroke, Rect::new(0, 0, 32, 32)),
+            ),
             Ok(RenderRoute::Native)
         );
     }
@@ -2382,7 +2390,9 @@ mod route_tests {
             fill_rule: FillRule::EvenOdd,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&push, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&push, clip),
+            ),
             Err(RenderError::Unsupported(RenderFeature::PathClip))
         );
 
@@ -2394,7 +2404,9 @@ mod route_tests {
             fill_rule: FillRule::NonZero,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&fill, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&fill, clip),
+            ),
             Ok(RenderRoute::Native)
         );
 
@@ -2414,7 +2426,9 @@ mod route_tests {
             fill_rule: FillRule::EvenOdd,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&gradient_fill, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&gradient_fill, clip),
+            ),
             Err(RenderError::Unsupported(RenderFeature::GradientPaint))
         );
 
@@ -2430,14 +2444,16 @@ mod route_tests {
             composite: CompositeMode::SourceOver,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&blit, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&blit, clip),
+            ),
             Ok(RenderRoute::Native)
         );
         let projected = DrawRequest::new(&blit, clip).with_projective(
             Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(120)),
         );
         assert_eq!(
-            WgpuRenderer::classify_request(&projected),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(&projected),
             Ok(RenderRoute::Native)
         );
 
@@ -2457,7 +2473,9 @@ mod route_tests {
             composite: CompositeMode::SourceOver,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&rounded_quad, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&rounded_quad, clip),
+            ),
             Ok(RenderRoute::Native)
         );
 
@@ -2472,7 +2490,9 @@ mod route_tests {
             composite: CompositeMode::Difference,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&difference, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&difference, clip),
+            ),
             Err(RenderError::Unsupported(RenderFeature::Composite(
                 CompositeMode::Difference
             )))
@@ -2491,7 +2511,9 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&fill, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&fill, clip),
+            ),
             Ok(RenderRoute::Native)
         );
 
@@ -2504,7 +2526,9 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            WgpuRenderer::classify_request(&DrawRequest::new(&line, clip)),
+            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
+                &DrawRequest::new(&line, clip),
+            ),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
     }
@@ -3426,7 +3450,7 @@ mod glyph_tests {
     }
 }
 
-impl WgpuRenderer<'_> {
+impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
@@ -4024,7 +4048,7 @@ impl WgpuRenderer<'_> {
     }
 }
 
-impl Renderer for WgpuRenderer<'_> {
+impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         WgpuRenderer::route(self, request)
     }
@@ -4086,7 +4110,7 @@ impl Renderer for WgpuRenderer<'_> {
     }
 }
 
-impl Drop for WgpuRenderer<'_> {
+impl<B: WgpuTarget> Drop for WgpuRenderer<'_, B> {
     // App drops the renderer without explicitly calling flush; submit
     // + present here so the frame reaches the screen.
     fn drop(&mut self) {
@@ -4096,7 +4120,7 @@ impl Drop for WgpuRenderer<'_> {
     }
 }
 
-impl Canvas for WgpuRenderer<'_> {
+impl<B: WgpuTarget> Canvas for WgpuRenderer<'_, B> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         self.fill_rect_inner(area, clip, color, radius, opa);
     }
