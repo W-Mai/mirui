@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Typed property invalidation.** Property implementations classify unchanged, visual-only, and layout changes once; imperative setters, reactive bindings, and layout-responsive expressions now preserve the same damage scope.
 - **Gallery retained-node updates.** Curve paths invalidate their drawing target through the binding API, while Interaction and Typography labs retain entity handles instead of resolving string IDs during live updates and rendering.
+- **Stable MIRX geometry costs.** VECTOR glyph and projective-matrix wire sizes come from their owning types, while Typography Lab describes projective fallback as caller-budgeted instead of presenting one demo allocation as a format limit.
 - **Stable position updates.** Writing an unchanged absolute position no longer marks the widget dirty on every system tick.
 - **Responsive dependency integrity.** Widget IDs reject conflicting entity registrations, named and container dependencies follow legal rebinding and reparenting, and acyclic binding chains reconcile according to their dependency count instead of a fixed three-pass limit.
 - **Text content-box layout.** Linear text measures, wraps, aligns, and renders inside widget padding, keeping compact control labels centered without changing path-text placement.

@@ -556,7 +556,7 @@ impl<'a> Scanner<'a> {
             self.skip_transform()?;
         }
         if bits & SLOT_PROJECTIVE != 0 {
-            self.cursor.take(72)?;
+            self.cursor.take(crate::types::Transform3D::WIRE_SIZE)?;
         }
         if bits & SLOT_OPACITY != 0 {
             let _ = self.cursor.u8()?;
@@ -630,11 +630,11 @@ impl<'a> Scanner<'a> {
                 if tag == TAG_POSED_GLYPH_RUN {
                     self.cursor.ensure_remaining(
                         count_usize
-                            .checked_mul(18)
+                            .checked_mul(GlyphPose::WIRE_SIZE)
                             .ok_or(VectorReadError::SizeOverflow)?,
                     )?;
                     for _ in 0..count_usize {
-                        let record = self.cursor.take(18)?;
+                        let record = self.cursor.take(GlyphPose::WIRE_SIZE)?;
                         let tangent = GlyphPose::new(
                             0,
                             crate::types::Point::ZERO,
@@ -649,7 +649,7 @@ impl<'a> Scanner<'a> {
                     }
                 } else {
                     let bytes = count_usize
-                        .checked_mul(18)
+                        .checked_mul(GlyphPlacement::WIRE_SIZE)
                         .ok_or(VectorReadError::SizeOverflow)?;
                     let _ = self.cursor.take(bytes)?;
                 }

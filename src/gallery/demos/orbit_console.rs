@@ -958,7 +958,7 @@ fn compose_orbit_stage() -> Entity {
     let stage_action = state_signal.clone();
     let focus_text = state_signal;
 
-    let stage = ui! {
+    ui! {
         Column (
             id: "orbit_console_stage",
             grow: 2.0,
@@ -1014,8 +1014,7 @@ fn compose_orbit_stage() -> Entity {
                 text_color: MINT
             )
         }
-    };
-    stage
+    }
 }
 
 #[compose]
@@ -1120,7 +1119,7 @@ fn compose_controls() -> Entity {
     let slider_action = state_signal.clone();
     let (pause_text, pause_action) = (state_signal.clone(), state_signal);
 
-    let controls = ui! {
+    ui! {
         Column (
             id: "orbit_console_controls",
             grow: 4.0,
@@ -1230,8 +1229,7 @@ fn compose_controls() -> Entity {
                 ) on Tap { ConsoleAction::TogglePaused.publish(&pause_action); }
             }
         }
-    };
-    controls
+    }
 }
 
 #[compose]

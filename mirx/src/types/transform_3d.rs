@@ -15,6 +15,8 @@ pub struct Transform3D {
 }
 
 impl Transform3D {
+    pub const WIRE_SIZE: usize = 9 * core::mem::size_of::<i64>();
+
     pub const IDENTITY: Self = Self {
         m00: Fixed64::ONE,
         m01: Fixed64::ZERO,

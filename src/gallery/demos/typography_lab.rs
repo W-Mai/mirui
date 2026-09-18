@@ -509,8 +509,10 @@ fn bounded_paragraph(lines: u16) -> ParagraphStyle {
 
 fn geometry_cost_label() -> alloc::string::String {
     format!(
-        "POSE {} B RAM / 18 B WIRE · MATRIX 72 B\nSW/WGPU NATIVE · SDL/WEB 320 KiB MAX",
-        core::mem::size_of::<textflow::placement::GlyphFrame>()
+        "POSE {} B RAM / {} B WIRE · MATRIX {} B\nNATIVE OR CALLER-BUDGETED FALLBACK",
+        core::mem::size_of::<textflow::placement::GlyphFrame>(),
+        mirx::scene::GlyphPose::WIRE_SIZE,
+        mirx::types::Transform3D::WIRE_SIZE,
     )
 }
 

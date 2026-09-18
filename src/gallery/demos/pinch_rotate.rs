@@ -11,7 +11,6 @@ use crate::prelude::*;
 use crate::types::DimPoint;
 use crate::types::{Fixed64, Transform};
 use crate::ui::icons::ICON_PLUS;
-use crate::ui::root_viewport;
 use crate::ui::theme::ThemedColor;
 use crate::ui::widgets::icon::Icon;
 use crate::ui::widgets::{ParagraphStyle, Text};
@@ -25,6 +24,7 @@ const BASE_W: i32 = 160;
 const BASE_H: i32 = 120;
 
 pub struct PinchTarget {
+    status: Signal<PinchStatus>,
     pub last_pinch: Fixed64,
     pub last_rotate: Fixed,
     pub visual_scale: Fixed,
@@ -35,19 +35,28 @@ pub struct PinchTarget {
     pub mode: &'static str,
 }
 
-fn status_line(
-    view_width: i32,
-    mode: &str,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PinchStatus {
+    mode: &'static str,
     scale_pct: i32,
     rotation_deg: i32,
     pinch_events: u32,
     rotate_events: u32,
-) -> alloc::string::String {
-    if view_width < 420 {
-        format!("{mode}  |  {scale_pct}%  |  {rotation_deg} DEG")
-    } else {
+}
+
+impl PinchStatus {
+    const IDLE: Self = Self {
+        mode: "IDLE",
+        scale_pct: 100,
+        rotation_deg: 0,
+        pinch_events: 0,
+        rotate_events: 0,
+    };
+
+    fn label(self) -> alloc::string::String {
         format!(
-            "{mode}  |  SCALE {scale_pct}%  |  ROT {rotation_deg} DEG  |  P{pinch_events} R{rotate_events}",
+            "{} · {}% · {} DEG · P{} R{}",
+            self.mode, self.scale_pct, self.rotation_deg, self.pinch_events, self.rotate_events
         )
     }
 }
@@ -55,6 +64,7 @@ fn status_line(
 fn refresh(world: &mut World, entity: Entity) {
     let snapshot = world.get::<PinchTarget>(entity).map(|t| {
         (
+            t.status.clone(),
             t.mode,
             t.visual_scale,
             t.visual_rotation,
@@ -62,7 +72,8 @@ fn refresh(world: &mut World, entity: Entity) {
             t.rotate_events,
         )
     });
-    let Some((mode, visual_scale, visual_rotation, pinch_events, rotate_events)) = snapshot else {
+    let Some((status, mode, visual_scale, visual_rotation, pinch_events, rotate_events)) = snapshot
+    else {
         return;
     };
 
@@ -73,27 +84,19 @@ fn refresh(world: &mut World, entity: Entity) {
 
     let visual_scale_pct = (visual_scale * Fixed::from_int(100)).to_int();
     let visual_rot_int = visual_rot_deg.to_int();
-    let view_width = root_viewport(world)
-        .map(|rect| rect.w.to_int())
-        .unwrap_or(i32::from(DEFAULT_VIEW.0));
-    let line = status_line(
-        view_width,
+    status.set(PinchStatus {
         mode,
-        visual_scale_pct,
-        visual_rot_int,
+        scale_pct: visual_scale_pct,
+        rotation_deg: visual_rot_int,
         pinch_events,
         rotate_events,
-    );
-    if let Some(status) = world.find_by_id("pinch_status") {
-        if let Some(text) = world.get_mut::<Text>(status) {
-            text.set_content(line);
-        }
-        world.invalidate(status);
-    }
+    });
 }
 
 #[compose]
 pub fn build_widgets() {
+    let status = Signal::new(PinchStatus::IDLE);
+    let status_text = status.clone();
     ui! {
         Column (
             grow: 1.0,
@@ -108,7 +111,7 @@ pub fn build_widgets() {
                 border_radius: 16
             ) {
                 Text (
-                    "IDLE  ·  SCALE 100%  ·  ROT 0°  ·  P0 R0",
+                    text: ${ status_text.get().label() },
                     grow: 1.0,
                     width: Dimension::percent(100),
                     height: 32,
@@ -124,7 +127,7 @@ pub fn build_widgets() {
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) {
-                pinch_target ()
+                pinch_target (status)
             }
             Text (
                 "TWO-POINTER GESTURE · LIVE TRANSFORM",
@@ -139,7 +142,7 @@ pub fn build_widgets() {
 }
 
 #[compose]
-fn pinch_target() -> Entity {
+fn pinch_target(status: Signal<PinchStatus>) -> Entity {
     //~focus-start
     ui! {
         View (
@@ -152,6 +155,7 @@ fn pinch_target() -> Entity {
             border_radius: 28
         ) [
             PinchTarget {
+                status,
                 last_pinch: Fixed64::ONE,
                 last_rotate: Fixed::ZERO,
                 visual_scale: Fixed::ONE,
@@ -282,6 +286,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::reactive::flush_signal_dirty;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
@@ -338,6 +343,14 @@ mod tests {
             world.get::<PinchTarget>(target).map(|t| t.mode),
             Some("EXPAND")
         );
+        flush_signal_dirty(&mut world);
+        assert!(
+            world
+                .get::<Text>(status)
+                .expect("status text")
+                .resolve(&world)
+                .contains("EXPAND")
+        );
         assert!(world.has::<WidgetTransform>(target));
         assert_eq!(
             world.get::<Text>(status).map(Text::paragraph),
@@ -380,11 +393,15 @@ mod tests {
 
     #[test]
     fn portrait_status_uses_the_compact_vocabulary() {
-        let compact = status_line(360, "ROTATE", 158, 25, 791, 3);
-        let landscape = status_line(480, "ROTATE", 158, 25, 791, 3);
+        let label = PinchStatus {
+            mode: "ROTATE",
+            scale_pct: 158,
+            rotation_deg: 25,
+            pinch_events: 791,
+            rotate_events: 3,
+        }
+        .label();
 
-        assert_eq!(compact, "ROTATE  |  158%  |  25 DEG");
-        assert!(landscape.contains("SCALE 158%"));
-        assert!(landscape.contains("ROT 25 DEG"));
+        assert_eq!(label, "ROTATE · 158% · 25 DEG · P791 R3");
     }
 }

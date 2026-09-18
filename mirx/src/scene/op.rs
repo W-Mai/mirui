@@ -58,6 +58,8 @@ pub struct GlyphPose {
 }
 
 impl GlyphPose {
+    pub const WIRE_SIZE: usize = 18;
+
     pub const fn new(glyph_id: u16, origin: Point, tangent: Point) -> Self {
         Self {
             glyph_id,
@@ -87,6 +89,8 @@ impl GlyphPose {
 }
 
 impl GlyphPlacement {
+    pub const WIRE_SIZE: usize = 18;
+
     pub const fn new(glyph_id: u16, origin: Point) -> Self {
         Self {
             glyph_id,

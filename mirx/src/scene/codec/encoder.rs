@@ -7,7 +7,10 @@ use super::{
     write_op, write_resource_ref, write_transform, write_transform_3d, write_varuint,
 };
 use crate::path::{Path, PathCmd};
-use crate::scene::{Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader, VectorReadError};
+use crate::scene::{
+    GlyphPlacement, GlyphPose, Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader,
+    VectorReadError,
+};
 
 /// Failure while encoding a canonical MIRX VECTOR payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -283,7 +286,7 @@ fn group_begin_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
         len.add(24)?;
     }
     if projective.is_some_and(|value| !value.is_identity()) {
-        len.add(72)?;
+        len.add(crate::types::Transform3D::WIRE_SIZE)?;
     }
     if opacity.is_some() {
         len.add(1)?;
@@ -375,7 +378,11 @@ fn op_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
             len.add(resource_ref_len(font)?)?;
             len.add(15)?;
             let count = checked_wire_len(glyphs.len())?;
-            len.add(wire_collection_len(glyphs.len(), varuint_len(count), 18)?)?;
+            len.add(wire_collection_len(
+                glyphs.len(),
+                varuint_len(count),
+                GlyphPlacement::WIRE_SIZE,
+            )?)?;
             if !transform.is_identity() {
                 len.add(24)?;
             }
@@ -396,7 +403,11 @@ fn op_len(op: &SceneOp) -> Result<usize, VectorEncodeError> {
             len.add(resource_ref_len(font)?)?;
             len.add(15)?;
             let count = checked_wire_len(glyphs.len())?;
-            len.add(wire_collection_len(glyphs.len(), varuint_len(count), 18)?)?;
+            len.add(wire_collection_len(
+                glyphs.len(),
+                varuint_len(count),
+                GlyphPose::WIRE_SIZE,
+            )?)?;
             if !transform.is_identity() {
                 len.add(24)?;
             }
@@ -887,7 +898,7 @@ mod tests {
         );
         assert_eq!(
             with_perspective.encoded_payload_len().unwrap(),
-            without.encoded_payload_len().unwrap() + 72
+            without.encoded_payload_len().unwrap() + Transform3D::WIRE_SIZE
         );
         assert_eq!(
             Scene::decode(&with_perspective.encode_payload().unwrap()).unwrap(),
@@ -916,7 +927,7 @@ mod tests {
         )]);
         assert_eq!(
             one.encoded_payload_len().unwrap(),
-            empty.encoded_payload_len().unwrap() + 18
+            empty.encoded_payload_len().unwrap() + crate::scene::GlyphPose::WIRE_SIZE
         );
 
         let invalid = make_scene(vec![crate::scene::GlyphPose::new(
