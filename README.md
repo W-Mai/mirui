@@ -33,7 +33,7 @@ A `no_std`, ECS-driven UI framework for embedded, desktop, and WebAssembly. Rend
 
 ```toml
 [dependencies]
-mirui = { version = "0.44", features = ["sdl"] }
+mirui = { version = "0.45", features = ["sdl"] }
 ```
 
 ```rust

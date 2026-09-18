@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-09-18
+
 ### Added
 
 - **Declarative retained scrolling.** `Scroll` creates a clipped column with the required input components, and zero `ScrollConfig` dimensions derive their extent from retained descendants without a demo-side synchronization system.

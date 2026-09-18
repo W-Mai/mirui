@@ -62,7 +62,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-mirui = { version = "0.44", features = ["sdl"] }
+mirui = { version = "0.45", features = ["sdl"] }
 ```
 
 `src/main.rs`:
@@ -222,7 +222,7 @@ default = []
 std = ["mirui/std"]
 
 [dependencies]
-mirui = { version = "0.44", default-features = false, features = ["quad-aa"] }
+mirui = { version = "0.45", default-features = false, features = ["quad-aa"] }
 ```
 
 `app/src/lib.rs`:
