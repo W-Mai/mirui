@@ -1,4 +1,4 @@
-use super::components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset};
+use super::components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset, TouchAction};
 use crate::anim::{BOUNCY, SMOOTH, Spring};
 use crate::ecs::{Entity, World};
 use crate::input::event::hit_test::hit_test;
@@ -139,13 +139,17 @@ pub fn scroll_system(
                 // delta sign: positive = user dragging content up (wants to scroll down)
                 let scroll_dx = -(*x - start_x);
                 let scroll_dy = -(*y - start_y);
-                let found = find_scroll_target_for_direction(
-                    world,
-                    hit_entity,
-                    gesture_dir,
-                    scroll_dx,
-                    scroll_dy,
-                );
+                let found = pointer_scroll_allowed(world, hit_entity, gesture_dir)
+                    .then(|| {
+                        find_scroll_target_for_direction(
+                            world,
+                            hit_entity,
+                            gesture_dir,
+                            scroll_dx,
+                            scroll_dy,
+                        )
+                    })
+                    .flatten();
 
                 if let Some(state) = world.resource_mut::<ScrollDragState>() {
                     state.resolved = true;
@@ -576,6 +580,22 @@ pub fn scroll_inertia_system(world: &mut World) {
     }
 }
 
+fn pointer_scroll_allowed(world: &World, start: Entity, gesture_dir: ScrollAxis) -> bool {
+    let mut current = start;
+    loop {
+        if let Some(action) = world.get::<TouchAction>(current).copied()
+            && action != TouchAction::Auto
+        {
+            return action.allows_scroll(gesture_dir);
+        }
+        if let Some(parent) = world.get::<crate::ui::Parent>(current) {
+            current = parent.0;
+        } else {
+            return true;
+        }
+    }
+}
+
 fn find_scroll_target_for_direction(
     world: &World,
     start: Entity,
@@ -792,6 +812,64 @@ mod tests {
             Some(target),
             "wheel scroll target lookup must resolve a vertical scroller from the hit entity",
         );
+    }
+
+    #[test]
+    fn nearest_touch_action_arbitrates_pointer_drag_axes() {
+        use crate::ecs::World;
+        use crate::input::event::scroll::TouchAction;
+        use crate::ui::Parent;
+
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(parent, Parent(root));
+        world.insert(child, Parent(parent));
+        world.insert(root, TouchAction::PanY);
+
+        assert!(pointer_scroll_allowed(&world, child, ScrollAxis::Vertical));
+        assert!(!pointer_scroll_allowed(
+            &world,
+            child,
+            ScrollAxis::Horizontal
+        ));
+
+        world.insert(parent, TouchAction::None);
+        assert!(!pointer_scroll_allowed(&world, child, ScrollAxis::Vertical));
+        assert!(!pointer_scroll_allowed(
+            &world,
+            child,
+            ScrollAxis::Horizontal
+        ));
+
+        world.insert(child, TouchAction::PanX);
+        assert!(pointer_scroll_allowed(
+            &world,
+            child,
+            ScrollAxis::Horizontal
+        ));
+        assert!(!pointer_scroll_allowed(&world, child, ScrollAxis::Vertical));
+    }
+
+    #[test]
+    fn auto_touch_action_preserves_ancestor_scroll_lookup() {
+        use crate::ecs::World;
+        use crate::input::event::scroll::TouchAction;
+        use crate::ui::Parent;
+
+        let mut world = World::new();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(child, Parent(parent));
+        world.insert(child, TouchAction::Auto);
+
+        assert!(pointer_scroll_allowed(&world, child, ScrollAxis::Vertical));
+        assert!(pointer_scroll_allowed(
+            &world,
+            child,
+            ScrollAxis::Horizontal
+        ));
     }
 
     #[test]
