@@ -277,6 +277,47 @@ mod tests {
     }
 
     #[test]
+    fn typed_icon_assets_feed_image_and_icon_widgets() {
+        use mirui::ui::icons::ICON_HOME;
+        use mirui::ui::widgets::{Icon, Image, ImageSource};
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Column {
+                Image (ICON_HOME) {}
+                Icon (path: ICON_HOME) {}
+            }
+        };
+
+        let image_entity = world.query::<Image>().collect()[0];
+        let icon_entity = world.query::<Icon>().collect()[0];
+        let ImageSource::Vector(image_path) = &world.get::<Image>(image_entity).unwrap().src else {
+            panic!("icon image source");
+        };
+        assert_eq!(
+            image_path.commands().as_ptr(),
+            ICON_HOME.path().commands().as_ptr()
+        );
+        assert_eq!(
+            world
+                .get::<Icon>(icon_entity)
+                .unwrap()
+                .path
+                .commands()
+                .as_ptr(),
+            ICON_HOME.path().commands().as_ptr()
+        );
+    }
+
+    #[test]
     fn row_widget_implies_row_direction() {
         use mirui::ui::Style;
         use mirui::ui::layout::FlexDirection;

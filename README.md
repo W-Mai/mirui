@@ -192,11 +192,11 @@ app.edit_theme(|theme| { theme.set(ColorToken::Primary, Color::rgb(96, 230, 214)
 
 ## Images
 
-`Image` accepts resource names and vector paths through the same `src` field. Static paths remain borrowed and are scaled during rendering without allocating transformed commands.
+`Image` accepts resource names, vector paths, and typed `IconAsset` values through the same `src` field. Static geometry remains borrowed and is scaled during rendering without allocating transformed commands.
 
 ```rust
 Image("avatar")
-Image(src: ICON_HOME.clone(), color: ColorToken::Primary, viewbox: 24)
+Image(src: ICON_HOME, color: ColorToken::Primary, viewbox: 24)
 ```
 
 ## Animation

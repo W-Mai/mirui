@@ -47,6 +47,12 @@ impl From<Path> for ImageSource {
     }
 }
 
+impl From<crate::ui::icons::IconAsset> for ImageSource {
+    fn from(value: crate::ui::icons::IconAsset) -> Self {
+        Self::Vector(value.into())
+    }
+}
+
 #[derive(crate::Component)]
 pub struct Image {
     pub src: ImageSource,
@@ -380,6 +386,12 @@ mod tests {
 
         static COMMANDS: &[PathCmd] = &[PathCmd::Close];
         let image = Image::new(Path::from_static(COMMANDS));
+        assert!(matches!(image.src, ImageSource::Vector(ref path) if path.is_borrowed()));
+    }
+
+    #[test]
+    fn new_accepts_typed_icon_assets_without_allocating_commands() {
+        let image = Image::new(crate::ui::icons::ICON_HOME);
         assert!(matches!(image.src, ImageSource::Vector(ref path) if path.is_borrowed()));
     }
 

@@ -9,7 +9,6 @@ use crate::ui::view::{View, ViewCtx};
 /// `scale` (e.g. through `mirui_macros::animate!`) so hover bounces
 /// don't replace the `Dimension::Percent` / `Auto` variant on `size`.
 #[derive(Clone, Debug, crate::Component)]
-#[non_exhaustive]
 pub struct Icon {
     pub path: Path,
     pub color: ThemedColor,
@@ -25,9 +24,9 @@ impl Default for Icon {
 }
 
 impl Icon {
-    pub fn new(path: Path) -> Self {
+    pub fn new(path: impl Into<Path>) -> Self {
         Self {
-            path,
+            path: path.into(),
             color: ThemedColor::Token(ColorToken::OnSurface),
             size: Dimension::Auto,
             viewbox: Fixed::from_int(24),

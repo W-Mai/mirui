@@ -2,8 +2,8 @@ extern crate alloc;
 
 use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 use crate::prelude::*;
-use crate::render::path::Path;
 use crate::ui;
+use crate::ui::icons::IconAsset;
 use crate::ui::icons::{
     ICON_ARROW_DOWN, ICON_ARROW_LEFT, ICON_ARROW_RIGHT, ICON_ARROW_UP, ICON_CHECK,
     ICON_CHEVRON_DOWN, ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT, ICON_CHEVRON_UP, ICON_CIRCLE,
@@ -24,28 +24,28 @@ mirui_macros::animate!(IconScale, |world, entity, value| {
     world.invalidate(entity);
 });
 
-fn icons() -> [(&'static Path, ColorToken); 20] {
+fn icons() -> [(IconAsset, ColorToken); 20] {
     [
-        (&ICON_HOME, ColorToken::Primary),
-        (&ICON_CHECK, ColorToken::Success),
-        (&ICON_CROSS, ColorToken::Error),
-        (&ICON_PLUS, ColorToken::OnSurface),
-        (&ICON_MINUS, ColorToken::OnSurface),
-        (&ICON_ARROW_LEFT, ColorToken::OnSurfaceVariant),
-        (&ICON_ARROW_RIGHT, ColorToken::OnSurfaceVariant),
-        (&ICON_ARROW_UP, ColorToken::OnSurfaceVariant),
-        (&ICON_ARROW_DOWN, ColorToken::OnSurfaceVariant),
-        (&ICON_CHEVRON_LEFT, ColorToken::Primary),
-        (&ICON_CHEVRON_RIGHT, ColorToken::Primary),
-        (&ICON_CHEVRON_UP, ColorToken::Primary),
-        (&ICON_CHEVRON_DOWN, ColorToken::Primary),
-        (&ICON_STAR, ColorToken::Primary),
-        (&ICON_HEART, ColorToken::Error),
-        (&ICON_PLAY, ColorToken::Success),
-        (&ICON_PAUSE, ColorToken::OnSurface),
-        (&ICON_STOP, ColorToken::Error),
-        (&ICON_CIRCLE, ColorToken::OnSurfaceVariant),
-        (&ICON_SQUARE, ColorToken::OnSurfaceVariant),
+        (ICON_HOME, ColorToken::Primary),
+        (ICON_CHECK, ColorToken::Success),
+        (ICON_CROSS, ColorToken::Error),
+        (ICON_PLUS, ColorToken::OnSurface),
+        (ICON_MINUS, ColorToken::OnSurface),
+        (ICON_ARROW_LEFT, ColorToken::OnSurfaceVariant),
+        (ICON_ARROW_RIGHT, ColorToken::OnSurfaceVariant),
+        (ICON_ARROW_UP, ColorToken::OnSurfaceVariant),
+        (ICON_ARROW_DOWN, ColorToken::OnSurfaceVariant),
+        (ICON_CHEVRON_LEFT, ColorToken::Primary),
+        (ICON_CHEVRON_RIGHT, ColorToken::Primary),
+        (ICON_CHEVRON_UP, ColorToken::Primary),
+        (ICON_CHEVRON_DOWN, ColorToken::Primary),
+        (ICON_STAR, ColorToken::Primary),
+        (ICON_HEART, ColorToken::Error),
+        (ICON_PLAY, ColorToken::Success),
+        (ICON_PAUSE, ColorToken::OnSurface),
+        (ICON_STOP, ColorToken::Error),
+        (ICON_CIRCLE, ColorToken::OnSurfaceVariant),
+        (ICON_SQUARE, ColorToken::OnSurfaceVariant),
     ]
 }
 
@@ -114,7 +114,7 @@ pub fn build_widgets() {
             ) {
                 walk table.iter() with cell {
                     Image (
-                        src: cell.0.clone(),
+                        src: cell.0,
                         color: ThemedColor::Token(cell.1),
                         viewbox: Fixed::from_int(24),
                         scale: Fixed::from_ratio(7, 6),
@@ -141,7 +141,7 @@ pub fn build_widgets() {
                 column_gap: 4
             ) {
                 Icon (
-                    path: ICON_HEART.clone(),
+                    path: ICON_HEART,
                     color: ThemedColor::Token(ColorToken::Error),
                     size: Dimension::Px(Fixed::from_int(34)),
                     grow: 1.0,
@@ -150,7 +150,7 @@ pub fn build_widgets() {
                     beat(),
                 ]
                 Icon (
-                    path: ICON_CIRCLE.clone(),
+                    path: ICON_CIRCLE,
                     color: ThemedColor::Token(ColorToken::Primary),
                     size: Dimension::Px(Fixed::from_int(34)),
                     grow: 1.0,
@@ -159,7 +159,7 @@ pub fn build_widgets() {
                     breathe(),
                 ]
                 Icon (
-                    path: ICON_STAR.clone(),
+                    path: ICON_STAR,
                     color: ThemedColor::Token(ColorToken::Success),
                     size: Dimension::Px(Fixed::from_int(34)),
                     grow: 1.0,
@@ -168,7 +168,7 @@ pub fn build_widgets() {
                     bounce(),
                 ]
                 Icon (
-                    path: ICON_PLAY.clone(),
+                    path: ICON_PLAY,
                     color: ThemedColor::Token(ColorToken::Primary),
                     size: Dimension::Px(Fixed::from_int(34)),
                     grow: 1.0,
@@ -177,7 +177,7 @@ pub fn build_widgets() {
                     beat(),
                 ]
                 Icon (
-                    path: ICON_PLUS.clone(),
+                    path: ICON_PLUS,
                     color: ThemedColor::Token(ColorToken::OnSurface),
                     size: Dimension::Px(Fixed::from_int(34)),
                     grow: 1.0,

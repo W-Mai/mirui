@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Inspectable themes.** `ThemeInfo`, `ThemeId`, `ThemeCatalog`, `App::theme`, and the theme editing APIs expose borrowed identity and safe token mutation; `App::set_theme` accepts an owned palette, `ThemeId`, or static ID through one entry point.
-- **Unified image sources.** `Image` accepts texture tokens or borrowed/owned vector `Path` values through `ImageSource` and renders static vector images without transformed command buffers.
+- **Unified image sources.** `Image` accepts texture tokens, borrowed/owned vector `Path` values, or typed `IconAsset` constants through `ImageSource` and renders static vector images without transformed command buffers.
 - `TouchAction` gives widgets compile-time-typed control over pointer-drag arbitration with ancestor scrollers while leaving wheel and rotary input unchanged.
 - **Typed widget properties.** `WidgetMut::set` routes imperative and reactive updates through monomorphized property markers; text-path subscriptions and damage classification no longer live on `World`.
 - **Compact widget workbench.** A native Gallery entry automates separate endless-list, controls, and live-theme tabs, with dedicated square, portrait, and landscape arrangements instead of scaling the desktop composition.

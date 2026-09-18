@@ -189,7 +189,7 @@ fn pinch_target() -> Entity {
         }
         {
             Icon (
-                path: ICON_PLUS.clone(),
+                path: ICON_PLUS,
                 color: ThemedColor::Token(ColorToken::OnPrimary),
                 size: Dimension::Px(Fixed::from_int(46)),
                 grow: 1.0,
