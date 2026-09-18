@@ -10,7 +10,8 @@ use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::ui::UserState;
 use crate::ui::widgets::{
-    Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput, TextOverflow, TextWrap,
+    Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput, TextOverflow,
+    TextVerticalAlign, TextWrap,
 };
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 
@@ -44,6 +45,16 @@ fn ellipsis_label() -> ParagraphStyle {
         overflow: TextOverflow::Ellipsis,
         max_lines: Some(1),
         ..ParagraphStyle::label()
+    }
+}
+
+fn status_text() -> ParagraphStyle {
+    ParagraphStyle {
+        wrap: TextWrap::NoWrap,
+        vertical_align: TextVerticalAlign::Center,
+        overflow: TextOverflow::Ellipsis,
+        max_lines: Some(1),
+        ..ParagraphStyle::default()
     }
 }
 
@@ -231,10 +242,18 @@ fn compose_header() -> Entity {
     ui! {
         Column (
             id: "interaction_lab_header",
-            min_height: 96,
+            min_height: @id(interaction_lab_document).width {
+                if interaction_lab_document.width < Fixed::from_int(400) { 116 } else { 96 }
+            },
             row_gap: 8
         ) {
-            Row (height: 54, align: AlignItems::Center, column_gap: 14) {
+            Row (
+                height: @id(interaction_lab_document).width {
+                    if interaction_lab_document.width < Fixed::from_int(400) { 74 } else { 54 }
+                },
+                align: AlignItems::Center,
+                column_gap: 14
+            ) {
                 View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
                 Column (grow: 1.0, min_width: 0, row_gap: 3) {
                     Text (
@@ -245,7 +264,7 @@ fn compose_header() -> Entity {
                         paragraph: bounded_text(1)
                     )
                     Text (
-                        "gesture intent publishes actions · signals own visible state",
+                        "gesture actions / signal-owned state",
                         width: Dimension::percent(100),
                         min_height: 18,
                         font_size: 13,
@@ -275,18 +294,14 @@ fn compose_header() -> Entity {
 #[compose]
 fn compose_gesture_card() -> Entity {
     let state = model_signal(cx);
-    let counter_state = state.clone();
+    let single_text = state.clone();
+    let double_text = state.clone();
+    let triple_text = state.clone();
+    let long_text = state.clone();
     let single_action = state.clone();
     let double_action = state.clone();
     let triple_action = state.clone();
     let long_action = state;
-    let counter_text = Computed::new(move || {
-        let value = counter_state.get();
-        format!(
-            "single {}  ·  double {}  ·  triple {}  ·  long {}",
-            value.single, value.double, value.triple, value.long
-        )
-    });
 
     ui! {
         Column (
@@ -310,22 +325,64 @@ fn compose_gesture_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "GESTURES · TAP COUNTS / LONG PRESS",
+                "GESTURES / TAP COUNTS / LONG PRESS",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
                 text_color: BLUE,
                 paragraph: bounded_text(2)
             )
-            Text (
-                text: $counter_text,
+            Row (
                 id: "interaction_gesture_status",
                 width: Dimension::percent(100),
-                height: 28,
-                font_size: 11,
-                text_color: TEXT,
-                paragraph: bounded_text(1)
-            )
+                height: @id(interaction_lab_grid).width {
+                    if interaction_lab_grid.width < Fixed::from_int(400) { 52 } else { 28 }
+                },
+                wrap: FlexWrap::Wrap,
+                row_gap: 4,
+                column_gap: 6
+            ) {
+                Text (
+                    id: "interaction_single_status",
+                    text: ${ format!("single {}", single_text.get().single) },
+                    grow: 1.0,
+                    min_width: 86,
+                    height: 24,
+                    font_size: 11,
+                    text_color: TEXT,
+                    paragraph: status_text()
+                )
+                Text (
+                    id: "interaction_double_status",
+                    text: ${ format!("double {}", double_text.get().double) },
+                    grow: 1.0,
+                    min_width: 86,
+                    height: 24,
+                    font_size: 11,
+                    text_color: TEXT,
+                    paragraph: status_text()
+                )
+                Text (
+                    id: "interaction_triple_status",
+                    text: ${ format!("triple {}", triple_text.get().triple) },
+                    grow: 1.0,
+                    min_width: 86,
+                    height: 24,
+                    font_size: 11,
+                    text_color: TEXT,
+                    paragraph: status_text()
+                )
+                Text (
+                    id: "interaction_long_status",
+                    text: ${ format!("long {}", long_text.get().long) },
+                    grow: 1.0,
+                    min_width: 76,
+                    height: 24,
+                    font_size: 11,
+                    text_color: TEXT,
+                    paragraph: status_text()
+                )
+            }
             Row (
                 grow: 1.0,
                 min_height: 86,
@@ -336,7 +393,7 @@ fn compose_gesture_card() -> Entity {
             ) {
                 Text (
                     id: "interaction_single",
-                    "1× TAP",
+                    "1 TAP",
                     grow: 1.0,
                     min_width: 70,
                     height: 68,
@@ -350,7 +407,7 @@ fn compose_gesture_card() -> Entity {
                 ) on Tap { InteractionAction::Single.publish(&single_action); }
                 Text (
                     id: "interaction_double",
-                    "2× TAP",
+                    "2 TAP",
                     grow: 1.0,
                     min_width: 70,
                     height: 68,
@@ -364,7 +421,7 @@ fn compose_gesture_card() -> Entity {
                 ) on Tap(2) { InteractionAction::Double.publish(&double_action); }
                 Text (
                     id: "interaction_triple",
-                    "3× TAP",
+                    "3 TAP",
                     grow: 1.0,
                     min_width: 70,
                     height: 68,
@@ -432,7 +489,7 @@ fn compose_state_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "STATE · HOVER / PRESS / ERROR / DISABLED",
+                "STATE / HOVER / PRESS / ERROR / DISABLED",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 11,
@@ -532,7 +589,7 @@ fn compose_motion_card() -> Entity {
     let bubble_text = Computed::new(move || {
         let value = bubble_state.get();
         format!(
-            "child {}  ·  parent {}  ·  {}",
+            "child {} / parent {} / {}",
             value.child_taps,
             value.parent_taps,
             if value.allow_bubble {
@@ -565,7 +622,7 @@ fn compose_motion_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "MOTION · DRAG / DYNAMIC BUBBLING",
+                "MOTION / DRAG / DYNAMIC BUBBLING",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -655,17 +712,8 @@ fn compose_controls_card() -> Entity {
     let state = model_signal(cx);
     let switch_action = state.clone();
     let checkbox_action = state.clone();
-    let status_state = state;
-    let status_text = Computed::new(move || {
-        let value = status_state.get();
-        format!(
-            "switch {} ({} changes)  ·  check {} ({} changes)",
-            if value.switch_on { "ON" } else { "OFF" },
-            value.switch_changes,
-            if value.checkbox_on { "ON" } else { "OFF" },
-            value.checkbox_changes
-        )
-    });
+    let switch_text = state.clone();
+    let checkbox_text = state;
 
     ui! {
         Column (
@@ -689,7 +737,7 @@ fn compose_controls_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "CONTROLS · BUSINESS SIGNALS",
+                "CONTROLS / BUSINESS SIGNALS",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -724,18 +772,54 @@ fn compose_controls_card() -> Entity {
                     paragraph: bounded_text(2)
                 )
             }
-            Text (
-                text: $status_text,
+            Row (
                 id: "interaction_control_status",
                 width: Dimension::percent(100),
-                height: 28,
-                font_size: 10,
-                text_color: MUTED,
-                paragraph: bounded_text(1)
-            )
+                height: @id(interaction_lab_grid).width {
+                    if interaction_lab_grid.width < Fixed::from_int(400) { 52 } else { 28 }
+                },
+                wrap: FlexWrap::Wrap,
+                row_gap: 4,
+                column_gap: 8
+            ) {
+                Text (
+                    id: "interaction_switch_status",
+                    text: ${
+                        let value = switch_text.get();
+                        format!(
+                            "switch {} / {} changes",
+                            if value.switch_on { "ON" } else { "OFF" },
+                            value.switch_changes
+                        )
+                    },
+                    grow: 1.0,
+                    min_width: 150,
+                    height: 24,
+                    font_size: 10,
+                    text_color: MUTED,
+                    paragraph: status_text()
+                )
+                Text (
+                    id: "interaction_checkbox_status",
+                    text: ${
+                        let value = checkbox_text.get();
+                        format!(
+                            "check {} / {} changes",
+                            if value.checkbox_on { "ON" } else { "OFF" },
+                            value.checkbox_changes
+                        )
+                    },
+                    grow: 1.0,
+                    min_width: 150,
+                    height: 24,
+                    font_size: 10,
+                    text_color: MUTED,
+                    paragraph: status_text()
+                )
+            }
             Text (
                 id: "interaction_feedback_status",
-                "CURSOR + ROTARY FEEDBACK · LIVE INPUT",
+                "CURSOR + ROTARY FEEDBACK / LIVE INPUT",
                 height: 32,
                 bg_color: ColorToken::Primary,
                 border_radius: 8,
@@ -915,12 +999,22 @@ mod tests {
             },
             3_000,
         );
+        flush_signal_dirty(&mut world);
 
         let state = state(&world);
         assert_eq!(
             (state.single, state.double, state.triple, state.long),
             (1, 1, 1, 1)
         );
+        for (id, expected) in [
+            ("interaction_single_status", "single 1"),
+            ("interaction_double_status", "double 1"),
+            ("interaction_triple_status", "triple 1"),
+            ("interaction_long_status", "long 1"),
+        ] {
+            let entity = world.find_by_id(id).unwrap();
+            assert_eq!(world.get::<Text>(entity).unwrap().resolve(&world), expected);
+        }
     }
 
     #[test]
@@ -996,6 +1090,13 @@ mod tests {
         assert!(state.switch_on);
         assert!(state.checkbox_on);
         assert_eq!((state.switch_changes, state.checkbox_changes), (1, 1));
+        for (id, expected) in [
+            ("interaction_switch_status", "switch ON / 1 changes"),
+            ("interaction_checkbox_status", "check ON / 1 changes"),
+        ] {
+            let entity = world.find_by_id(id).unwrap();
+            assert_eq!(world.get::<Text>(entity).unwrap().resolve(&world), expected);
+        }
     }
 
     #[test]
@@ -1089,24 +1190,35 @@ mod tests {
         use crate::ui::ComputedRect;
         use crate::ui::render_system::update_layout;
 
-        let (mut world, parent) = fixture_tree();
-        update_layout(&mut world, parent, &Viewport::new(502, 900, Fixed::ONE));
-        let rect = |world: &World, id| {
-            world
-                .get::<ComputedRect>(world.find_by_id(id).unwrap())
-                .unwrap()
-                .0
-        };
-        let grid = rect(&world, "interaction_lab_grid");
-        for id in [
-            "interaction_gestures",
-            "interaction_states",
-            "interaction_motion",
-            "interaction_controls",
-        ] {
-            let card = rect(&world, id);
-            assert_eq!(card.x, grid.x, "{id}");
-            assert_eq!(card.w, grid.w, "{id}");
+        for (width, height) in [(502, 900), (320, 568)] {
+            let mut app = App::headless(width, height);
+            app.with_default_widgets().with_default_systems();
+            let parent = app.spawn_root().id();
+            setup_app(&mut app, parent);
+            app.set_root(parent);
+            update_layout(
+                &mut app.world,
+                parent,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+            let rect = |world: &World, id| {
+                world
+                    .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                    .unwrap()
+                    .0
+            };
+            let grid = rect(&app.world, "interaction_lab_grid");
+            for id in [
+                "interaction_gestures",
+                "interaction_states",
+                "interaction_motion",
+                "interaction_controls",
+            ] {
+                let card = rect(&app.world, id);
+                assert_eq!(card.x, grid.x, "{width}x{height}: {id}");
+                assert_eq!(card.w, grid.w, "{width}x{height}: {id}");
+            }
+            super::super::assert_text_layouts_fit(&app.world);
         }
     }
 

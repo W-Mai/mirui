@@ -493,7 +493,7 @@ fn curve_text_animation_system(world: &mut World) {
     }
 }
 
-const ROUTE_LABEL: &str = "POSED GLYPHS · BOUNDED FALLBACK";
+const ROUTE_LABEL: &str = "POSED GLYPHS / BOUNDED FALLBACK";
 
 fn bind_curve_paths(cx: &mut crate::ui::UiScope<'_>, paths: CurvePaths, model: &CurveModel) {
     for (lane, path) in paths.ids.into_iter().enumerate() {
@@ -525,13 +525,19 @@ fn compose_header() -> Entity {
         Column (
             id: "curve_text_header",
             width: Dimension::percent(100),
-            height: 104,
-            min_height: 104,
+            height: @id(curve_text_document).width {
+                if curve_text_document.width < Fixed::from_int(520) { 124 } else { 108 }
+            },
+            min_height: @id(curve_text_document).width {
+                if curve_text_document.width < Fixed::from_int(520) { 124 } else { 108 }
+            },
             row_gap: 6
         ) {
             Row (
                 width: Dimension::percent(100),
-                height: 62,
+                height: @id(curve_text_document).width {
+                    if curve_text_document.width < Fixed::from_int(520) { 82 } else { 66 }
+                },
                 align: AlignItems::Center,
                 column_gap: 12
             ) {
@@ -540,16 +546,18 @@ fn compose_header() -> Entity {
                     Text (
                         "KINETIC TYPE",
                         width: Dimension::percent(100),
-                        height: 30,
+                        height: 34,
                         font: UI,
                         font_size: 25,
                         text_color: TEXT,
                         paragraph: bounded_text(1)
                     )
                     Text (
-                        "One shaped run · one retained path · continuous pose",
+                        "One shaped run / one retained path / continuous pose",
                         width: Dimension::percent(100),
-                        height: 30,
+                        height: @id(curve_text_document).width {
+                            if curve_text_document.width < Fixed::from_int(520) { 46 } else { 30 }
+                        },
                         font: UI,
                         font_size: 12,
                         text_color: MUTED,
@@ -609,7 +617,7 @@ fn compose_stage(paths: CurvePaths) -> Entity {
             ]
             Text (
                 id: "curve_text_primary",
-                "MIRUI · BEND SPACE, NOT GLYPHS",
+                "MIRUI / BEND SPACE, NOT GLYPHS",
                 path: crate::text::TextPath::new(paths.ids[0])
                     .with_range(Fixed::ZERO..Fixed::from_int(820)),
                 position: Position::Absolute,
@@ -628,7 +636,7 @@ fn compose_stage(paths: CurvePaths) -> Entity {
             ]
             Text (
                 id: "curve_text_multiscript",
-                "中文曲线排版 · مرحبا · ตั้ง",
+                "中文曲线排版 / مرحبا / ตั้ง",
                 path: crate::text::TextPath::new(paths.ids[1])
                     .with_range(Fixed::ZERO..Fixed::from_int(820)),
                 position: Position::Absolute,
@@ -647,7 +655,7 @@ fn compose_stage(paths: CurvePaths) -> Entity {
             ]
             Text (
                 id: "curve_text_caption",
-                "PATH REVISION → MEASURE → PLACE → FOUR BACKENDS",
+                "PATH REVISION > MEASURE > PLACE > FOUR BACKENDS",
                 path: crate::text::TextPath::new(paths.ids[2])
                     .with_range(Fixed::ZERO..Fixed::from_int(820)),
                 position: Position::Absolute,
@@ -998,6 +1006,7 @@ mod tests {
             app.world.get::<Style>(nodes.primary).unwrap().font_size,
             Some(18)
         );
+        super::super::assert_text_layouts_fit(&app.world);
         assert_eq!(
             app.world
                 .get::<crate::text::TextPath>(nodes.primary)
@@ -1054,6 +1063,7 @@ mod tests {
                 controls.y + controls.h <= shell.y + shell.h,
                 "{width}x{height}: {controls:?} {shell:?}"
             );
+            super::super::assert_text_layouts_fit(&app.world);
         }
     }
 

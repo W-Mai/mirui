@@ -61,6 +61,60 @@ pub mod widgets_compact;
 pub(super) const PROJECTIVE_SPIN_PHASE: crate::types::Fixed = crate::types::Fixed::from_ratio(1, 4);
 
 #[cfg(test)]
+pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
+    use alloc::vec::Vec;
+
+    use crate::text::TextLayoutHandle;
+    use crate::types::fixed::from_textflow;
+    use crate::ui::ComputedRect;
+    use crate::ui::widgets::{Text, TextOverflow, TextWrap};
+
+    let entities: Vec<_> = world.query::<Text>().collect();
+    let layouts = world
+        .resource::<crate::text::layout::TextLayoutResource>()
+        .expect("text layout resource")
+        .borrow();
+    for entity in entities {
+        if world.has::<crate::text::TextPath>(entity) {
+            continue;
+        }
+        let Some(rect) = world.get::<ComputedRect>(entity).map(|value| value.0) else {
+            continue;
+        };
+        let Some(handle) = world.get::<TextLayoutHandle>(entity).copied() else {
+            continue;
+        };
+        let text = world.get::<Text>(entity).expect("text entity");
+        let layout = layouts.get(handle).expect("live text layout");
+        let paragraph = text.paragraph();
+        if let Some(max_lines) = paragraph.max_lines {
+            assert!(
+                layout.lines().len() <= usize::from(max_lines),
+                "{:?} exceeds {max_lines} lines: {}",
+                entity,
+                text.resolve(world)
+            );
+        }
+        if paragraph.wrap != TextWrap::NoWrap || paragraph.overflow == TextOverflow::Ellipsis {
+            assert!(
+                from_textflow(layout.measure().width) <= rect.w,
+                "{:?} exceeds its width {:?}: {}",
+                entity,
+                rect.w,
+                text.resolve(world)
+            );
+        }
+        assert!(
+            from_textflow(layout.measure().height) <= rect.h,
+            "{:?} exceeds its height {:?}: {}",
+            entity,
+            rect.h,
+            text.resolve(world)
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

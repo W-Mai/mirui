@@ -75,7 +75,7 @@ fn compose_header() -> Entity {
                     paragraph: bounded_body(1)
                 )
                 Text (
-                    "responsive composition · explicit geometry · one widget tree",
+                    "responsive geometry / one widget tree",
                     width: Dimension::percent(100),
                     min_height: 18,
                     font_size: 13,
@@ -137,7 +137,7 @@ fn compose_flex_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "FLEX · CONTENT → GROW → LIMITS",
+                "FLEX / CONTENT > GROW > LIMITS",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -247,7 +247,7 @@ fn compose_surface_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "SURFACES · BORDER / RADIUS",
+                "SURFACES / BORDER / RADIUS",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -317,7 +317,7 @@ fn compose_overlay_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "OVERLAY · ABSOLUTE IN A FLEX CARD",
+                "OVERLAY / ABSOLUTE IN A FLEX CARD",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -401,7 +401,7 @@ fn compose_collection_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "COMPOSITION · WALK / IF / IMAGE",
+                "COMPOSITION / WALK / IF / IMAGE",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -645,24 +645,35 @@ mod tests {
         use crate::ui::ComputedRect;
         use crate::ui::render_system::update_layout;
 
-        let (mut world, parent) = fixture();
-        update_layout(&mut world, parent, &Viewport::new(539, 734, Fixed::ONE));
-        let rect = |world: &World, id| {
-            world
-                .get::<ComputedRect>(world.find_by_id(id).unwrap())
-                .unwrap()
-                .0
-        };
-        let grid = rect(&world, "layout_lab_grid");
-        for id in [
-            "layout_lab_flex",
-            "layout_lab_surfaces",
-            "layout_lab_overlay_card",
-            "layout_lab_collection",
-        ] {
-            let card = rect(&world, id);
-            assert_eq!(card.x, grid.x, "{id}");
-            assert_eq!(card.w, grid.w, "{id}");
+        for (width, height) in [(539, 734), (320, 568)] {
+            let mut app = App::headless(width, height);
+            app.with_default_widgets().with_default_systems();
+            let parent = app.spawn_root().id();
+            setup_app(&mut app, parent);
+            app.set_root(parent);
+            update_layout(
+                &mut app.world,
+                parent,
+                &Viewport::new(width, height, Fixed::ONE),
+            );
+            let rect = |world: &World, id| {
+                world
+                    .get::<ComputedRect>(world.find_by_id(id).unwrap())
+                    .unwrap()
+                    .0
+            };
+            let grid = rect(&app.world, "layout_lab_grid");
+            for id in [
+                "layout_lab_flex",
+                "layout_lab_surfaces",
+                "layout_lab_overlay_card",
+                "layout_lab_collection",
+            ] {
+                let card = rect(&app.world, id);
+                assert_eq!(card.x, grid.x, "{width}x{height}: {id}");
+                assert_eq!(card.w, grid.w, "{width}x{height}: {id}");
+            }
+            super::super::assert_text_layouts_fit(&app.world);
         }
     }
 
