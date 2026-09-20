@@ -28,6 +28,7 @@ pub mod life;
 pub mod life_compact;
 pub mod lumen_lab;
 pub mod marble_play;
+pub mod moss_study;
 mod motion;
 pub mod nested_scroll;
 pub mod niche;
