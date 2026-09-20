@@ -42,6 +42,23 @@ impl Direction {
         }
     }
 
+    #[cfg(feature = "persistence")]
+    pub(crate) const fn try_from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Up),
+            1 => Some(Self::Right),
+            2 => Some(Self::Down),
+            3 => Some(Self::Left),
+            4 => Some(Self::Wait),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) const fn wire_code(self) -> u8 {
+        self.code()
+    }
+
     const fn delta(self) -> (i8, i8) {
         match self {
             Self::Up => (0, -1),
@@ -183,6 +200,16 @@ pub(crate) enum EchoMessage {
     Undone,
     Won,
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EchoCommand {
+    Step(Direction),
+    Rewind,
+    Restart,
+    Clear,
+    Undo,
+    Continue,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -574,6 +601,17 @@ impl EchoModel {
         }
         self.peek_ghost = ghost;
         ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    pub(crate) fn apply_command(&mut self, command: EchoCommand) -> ChangeSet {
+        match command {
+            EchoCommand::Step(direction) => self.step(direction),
+            EchoCommand::Rewind => self.rewind(),
+            EchoCommand::Restart => self.restart(),
+            EchoCommand::Clear => self.clear_room(),
+            EchoCommand::Undo => self.undo(),
+            EchoCommand::Continue => self.continue_archive(),
+        }
     }
 }
 

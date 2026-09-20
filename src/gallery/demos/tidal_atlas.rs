@@ -6,8 +6,10 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::font::register_play_font;
 use crate::gallery::play::paint::PlayPainter;
+#[cfg(feature = "persistence")]
+use crate::gallery::play::storage::{ReplayKind, TidalReplayLog, replay_tide};
 use crate::gallery::play::tidal::{
-    BOARD_SIZE, Perk, TideLevel, TideMessage, TideModal, TideModel, Tile,
+    BOARD_SIZE, Perk, TideCommand, TideLevel, TideMessage, TideModal, TideModel, Tile,
 };
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::TouchAction;
@@ -72,6 +74,42 @@ impl TideNodes {
             .resource_mut::<TideModel>()
             .map(update)
             .unwrap_or(ChangeSet::NONE);
+        Self::apply_changes(world, changes);
+    }
+
+    fn dispatch(world: &mut World, command: TideCommand) {
+        #[cfg(feature = "persistence")]
+        if world
+            .resource::<TidalReplayLog>()
+            .is_none_or(TidalReplayLog::is_full)
+        {
+            return;
+        }
+        let changes = world
+            .resource_mut::<TideModel>()
+            .map(|model| model.apply_command(command))
+            .unwrap_or(ChangeSet::NONE);
+        #[cfg(feature = "persistence")]
+        if changes.contains(ChangeSet::PERSISTENCE) {
+            let recorded = world
+                .resource_mut::<TidalReplayLog>()
+                .is_some_and(|log| log.record_tide(command).is_ok());
+            debug_assert!(recorded);
+        }
+        Self::apply_changes(world, changes);
+    }
+
+    fn dispatch_pending(world: &mut World) {
+        let Some((index, choice)) = world
+            .resource::<TideModel>()
+            .and_then(|model| model.pending().map(|index| (index, model.choice())))
+        else {
+            return;
+        };
+        Self::dispatch(world, TideCommand::Place { index, choice });
+    }
+
+    fn apply_changes(world: &mut World, changes: ChangeSet) {
         if changes.contains(ChangeSet::VISUAL)
             && let Some(surface) = world.resource::<Self>().map(|nodes| nodes.surface)
         {
@@ -941,7 +979,7 @@ fn build_widgets() {
                 pressed_color: ACCENT,
                 text_color: TEXT,
                 border_radius: 5
-            ) on Tap { TideNodes::update(ctx.world, TideModel::reroll); }
+            ) on Tap { TideNodes::dispatch(ctx.world, TideCommand::Reroll); }
             Button (
                 "撤销",
                 id: "tide_undo",
@@ -956,7 +994,7 @@ fn build_widgets() {
                 pressed_color: ACCENT,
                 text_color: TEXT,
                 border_radius: 5
-            ) on Tap { TideNodes::update(ctx.world, TideModel::undo); }
+            ) on Tap { TideNodes::dispatch(ctx.world, TideCommand::Undo); }
             Button (
                 "航行图",
                 id: "tide_voyage",
@@ -986,7 +1024,7 @@ fn build_widgets() {
                 pressed_color: PAPER,
                 text_color: DARK,
                 border_radius: 5
-            ) on Tap { TideNodes::update(ctx.world, TideModel::place_pending); }
+            ) on Tap { TideNodes::dispatch_pending(ctx.world); }
             Button (
                 "取消",
                 id: "tide_cancel_result",
@@ -1143,7 +1181,12 @@ fn build_widgets() {
                     border_radius: 5
                 ) on Tap {
                     let perk = perk_offer(ctx.world, 0);
-                    TideNodes::update(ctx.world, |model| model.continue_voyage(Some(perk)));
+                    TideNodes::dispatch(
+                        ctx.world,
+                        TideCommand::Continue {
+                            perk: Some(perk),
+                        },
+                    );
                 }
                 Button (
                     "学说二",
@@ -1161,7 +1204,12 @@ fn build_widgets() {
                     border_radius: 5
                 ) on Tap {
                     let perk = perk_offer(ctx.world, 1);
-                    TideNodes::update(ctx.world, |model| model.continue_voyage(Some(perk)));
+                    TideNodes::dispatch(
+                        ctx.world,
+                        TideCommand::Continue {
+                            perk: Some(perk),
+                        },
+                    );
                 }
                 Button (
                     "学说三",
@@ -1179,7 +1227,12 @@ fn build_widgets() {
                     border_radius: 5
                 ) on Tap {
                     let perk = perk_offer(ctx.world, 2);
-                    TideNodes::update(ctx.world, |model| model.continue_voyage(Some(perk)));
+                    TideNodes::dispatch(
+                        ctx.world,
+                        TideCommand::Continue {
+                            perk: Some(perk),
+                        },
+                    );
                 }
                 Button (
                     "完成四岛航行",
@@ -1195,7 +1248,14 @@ fn build_widgets() {
                     pressed_color: PAPER,
                     text_color: DARK,
                     border_radius: 6
-                ) on Tap { TideNodes::update(ctx.world, |model| model.continue_voyage(None)); }
+                ) on Tap {
+                    TideNodes::dispatch(
+                        ctx.world,
+                        TideCommand::Continue {
+                            perk: None,
+                        },
+                    );
+                }
                 Text (
                     "",
                     id: "tide_voyage_0",
@@ -1255,7 +1315,13 @@ where
     F: RendererFactory<B>,
 {
     register_play_font(&mut app.world);
-    app.world.insert_resource(TideModel::default());
+    let model = TideModel::default();
+    app.world.insert_resource(model);
+    #[cfg(feature = "persistence")]
+    app.world
+        .insert_resource(TidalReplayLog::new(ReplayKind::Tidal, 4096));
+    #[cfg(feature = "persistence")]
+    install_persistence(app);
     app.with_widget(surface_view()).with_widget(modal_view());
     app.compose(parent, build_widgets);
     let find = |id| app.world.find_by_id(id).expect("Tidal Atlas node");
@@ -1309,6 +1375,38 @@ where
     TideNodes::sync(&mut app.world);
 }
 
+#[cfg(feature = "persistence")]
+fn install_persistence<B, F>(app: &mut App<B, F>)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    use crate::core::persistence::PersistencePlugin;
+    use crate::gallery::play::storage::gallery_storage;
+
+    let plugin = PersistencePlugin::new(gallery_storage("mirui_tidal_atlas.bin"))
+        .bytes(
+            "tidal_atlas/replay",
+            |world| {
+                world
+                    .resource::<TidalReplayLog>()
+                    .map(|log| log.encode_vec())
+            },
+            |world, bytes| {
+                let Ok(log) = TidalReplayLog::decode(bytes, ReplayKind::Tidal) else {
+                    return;
+                };
+                let Ok(model) = replay_tide(&log) else {
+                    return;
+                };
+                world.insert_resource(log);
+                world.insert_resource(model);
+            },
+        )
+        .autosave_every_ms(1000);
+    app.add_plugin(plugin);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1353,5 +1451,20 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn persistent_commands_append_to_the_replay_log() {
+        let mut app = App::headless(480, 320);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        setup_app(&mut app, root);
+        let index = (0..BOARD_SIZE)
+            .find(|index| app.world.resource::<TideModel>().unwrap().valid(*index))
+            .unwrap() as u8;
+        TideNodes::dispatch(&mut app.world, TideCommand::Place { index, choice: 0 });
+        assert_eq!(app.world.resource::<TidalReplayLog>().unwrap().len(), 1);
+        assert_eq!(app.world.resource::<TideModel>().unwrap().turn(), 1);
     }
 }

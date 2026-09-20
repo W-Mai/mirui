@@ -149,6 +149,21 @@ impl Perk {
     const fn bit(self) -> u8 {
         1 << self as u8
     }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) const fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Forest),
+            1 => Some(Self::Water),
+            2 => Some(Self::Town),
+            3 => Some(Self::Star),
+            4 => Some(Self::Levee),
+            5 => Some(Self::Lagoon),
+            6 => Some(Self::Beacon),
+            7 => Some(Self::Survey),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,6 +230,14 @@ pub(crate) enum TideMessage {
     Undone,
     Settled(bool),
     Complete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TideCommand {
+    Place { index: u8, choice: u8 },
+    Reroll,
+    Undo,
+    Continue { perk: Option<Perk> },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -692,13 +715,6 @@ impl TideModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn place_pending(&mut self) -> ChangeSet {
-        let Some(index) = self.pending else {
-            return ChangeSet::NONE;
-        };
-        self.place(index, self.choice)
-    }
-
     pub(crate) fn place(&mut self, index: u8, choice: u8) -> ChangeSet {
         let index_usize = usize::from(index);
         if self.state.settled || self.state.complete || choice >= 3 || !self.valid(index_usize) {
@@ -815,6 +831,15 @@ impl TideModel {
             self.make_island();
         }
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+    }
+
+    pub(crate) fn apply_command(&mut self, command: TideCommand) -> ChangeSet {
+        match command {
+            TideCommand::Place { index, choice } => self.place(index, choice),
+            TideCommand::Reroll => self.reroll(),
+            TideCommand::Undo => self.undo(),
+            TideCommand::Continue { perk } => self.continue_voyage(perk),
+        }
     }
 }
 

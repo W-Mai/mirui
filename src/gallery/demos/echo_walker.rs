@@ -5,10 +5,13 @@ use alloc::{format, string::String};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::echo::{
-    BEAT_LIMIT, BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoMessage, EchoModal, EchoModel,
+    BEAT_LIMIT, BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoCommand, EchoMessage, EchoModal,
+    EchoModel,
 };
 use crate::gallery::play::font::register_play_font;
 use crate::gallery::play::paint::PlayPainter;
+#[cfg(feature = "persistence")]
+use crate::gallery::play::storage::{EchoReplayLog, ReplayKind, replay_echo};
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::plugin::Plugin;
@@ -65,6 +68,32 @@ impl EchoNodes {
             .resource_mut::<EchoModel>()
             .map(update)
             .unwrap_or(ChangeSet::NONE);
+        Self::apply_changes(world, changes);
+    }
+
+    fn dispatch(world: &mut World, command: EchoCommand) {
+        #[cfg(feature = "persistence")]
+        if world
+            .resource::<EchoReplayLog>()
+            .is_none_or(EchoReplayLog::is_full)
+        {
+            return;
+        }
+        let changes = world
+            .resource_mut::<EchoModel>()
+            .map(|model| model.apply_command(command))
+            .unwrap_or(ChangeSet::NONE);
+        #[cfg(feature = "persistence")]
+        if changes.contains(ChangeSet::PERSISTENCE) {
+            let recorded = world
+                .resource_mut::<EchoReplayLog>()
+                .is_some_and(|log| log.record_echo(command).is_ok());
+            debug_assert!(recorded);
+        }
+        Self::apply_changes(world, changes);
+    }
+
+    fn apply_changes(world: &mut World, changes: ChangeSet) {
         if changes.contains(ChangeSet::VISUAL)
             && let Some(nodes) = world.resource::<Self>().copied()
         {
@@ -543,7 +572,7 @@ fn surface_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> b
         _ => None,
     };
     if let Some(direction) = direction {
-        EchoNodes::update(world, |model| model.step(direction));
+        EchoNodes::dispatch(world, EchoCommand::Step(direction));
     }
     true
 }
@@ -556,13 +585,13 @@ struct EchoKeyboardPlugin;
 
 fn handle_key(world: &mut World, ch: char) -> bool {
     match ch {
-        'w' | 'W' => EchoNodes::update(world, |model| model.step(Direction::Up)),
-        'a' | 'A' => EchoNodes::update(world, |model| model.step(Direction::Left)),
-        's' | 'S' => EchoNodes::update(world, |model| model.step(Direction::Down)),
-        'd' | 'D' => EchoNodes::update(world, |model| model.step(Direction::Right)),
-        ' ' => EchoNodes::update(world, |model| model.step(Direction::Wait)),
-        'r' | 'R' => EchoNodes::update(world, EchoModel::rewind),
-        'u' | 'U' => EchoNodes::update(world, EchoModel::undo),
+        'w' | 'W' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Up)),
+        'a' | 'A' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Left)),
+        's' | 'S' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Down)),
+        'd' | 'D' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Right)),
+        ' ' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Wait)),
+        'r' | 'R' => EchoNodes::dispatch(world, EchoCommand::Rewind),
+        'u' | 'U' => EchoNodes::dispatch(world, EchoCommand::Undo),
         _ => return false,
     }
     true
@@ -706,7 +735,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, |model| model.step(Direction::Up)); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Step(Direction::Up)); }
             Button (
                 "←",
                 position: Position::Absolute,
@@ -720,7 +749,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, |model| model.step(Direction::Left)); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Step(Direction::Left)); }
             Button (
                 "·",
                 position: Position::Absolute,
@@ -734,7 +763,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, |model| model.step(Direction::Wait)); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Step(Direction::Wait)); }
             Button (
                 "→",
                 position: Position::Absolute,
@@ -748,7 +777,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, |model| model.step(Direction::Right)); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Step(Direction::Right)); }
             Button (
                 "↓",
                 position: Position::Absolute,
@@ -762,7 +791,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, |model| model.step(Direction::Down)); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Step(Direction::Down)); }
             Button (
                 "RECORD ECHO",
                 id: "echo_rewind",
@@ -777,7 +806,7 @@ fn build_widgets() {
                 pressed_color: RUST,
                 text_color: BACKGROUND,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, EchoModel::rewind); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Rewind); }
             Button (
                 "UNDO",
                 id: "echo_undo",
@@ -792,7 +821,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, EchoModel::undo); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Undo); }
             Button (
                 "RETRY",
                 id: "echo_restart",
@@ -807,7 +836,7 @@ fn build_widgets() {
                 pressed_color: LINE,
                 text_color: TEXT,
                 border_radius: 4
-            ) on Tap { EchoNodes::update(ctx.world, EchoModel::restart); }
+            ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Restart); }
             Button (
                 "TAPES",
                 id: "echo_tapes",
@@ -1006,7 +1035,7 @@ fn build_widgets() {
                     pressed_color: RUST,
                     text_color: BACKGROUND,
                     border_radius: 4
-                ) on Tap { EchoNodes::update(ctx.world, EchoModel::continue_archive); }
+                ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Continue); }
                 Button (
                     "CLEAR ROOM",
                     id: "echo_modal_secondary",
@@ -1021,7 +1050,7 @@ fn build_widgets() {
                     pressed_color: LINE,
                     text_color: TEXT,
                     border_radius: 4
-                ) on Tap { EchoNodes::update(ctx.world, EchoModel::clear_room); }
+                ) on Tap { EchoNodes::dispatch(ctx.world, EchoCommand::Clear); }
             }
         }
     };
@@ -1034,6 +1063,11 @@ where
 {
     register_play_font(&mut app.world);
     app.world.insert_resource(EchoModel::default());
+    #[cfg(feature = "persistence")]
+    app.world
+        .insert_resource(EchoReplayLog::new(ReplayKind::Echo, 2718));
+    #[cfg(feature = "persistence")]
+    install_persistence(app);
     app.with_widget(surface_view()).with_widget(modal_view());
     app.add_plugin(EchoKeyboardPlugin);
     app.compose(parent, build_widgets);
@@ -1066,6 +1100,38 @@ where
     };
     app.world.insert_resource(nodes);
     EchoNodes::sync(&mut app.world);
+}
+
+#[cfg(feature = "persistence")]
+fn install_persistence<B, F>(app: &mut App<B, F>)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    use crate::core::persistence::PersistencePlugin;
+    use crate::gallery::play::storage::gallery_storage;
+
+    let plugin = PersistencePlugin::new(gallery_storage("mirui_echo_walker.bin"))
+        .bytes(
+            "echo_walker/replay",
+            |world| {
+                world
+                    .resource::<EchoReplayLog>()
+                    .map(|log| log.encode_vec())
+            },
+            |world, bytes| {
+                let Ok(log) = EchoReplayLog::decode(bytes, ReplayKind::Echo) else {
+                    return;
+                };
+                let Ok(model) = replay_echo(&log) else {
+                    return;
+                };
+                world.insert_resource(log);
+                world.insert_resource(model);
+            },
+        )
+        .autosave_every_ms(1000);
+    app.add_plugin(plugin);
 }
 
 #[cfg(test)]
@@ -1114,5 +1180,7 @@ mod tests {
         setup_app(&mut app, root);
         assert!(handle_key(&mut app.world, ' '));
         assert_eq!(app.world.resource::<EchoModel>().unwrap().tick(), 1);
+        #[cfg(feature = "persistence")]
+        assert_eq!(app.world.resource::<EchoReplayLog>().unwrap().len(), 1);
     }
 }
