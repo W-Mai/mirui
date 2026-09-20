@@ -209,6 +209,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     fixed_palette!(signal_scope);
     fixed_palette!(marble_play);
     fixed_palette!(lumen_lab);
+    fixed_palette!(pixel_loom);
     responsive!(niche);
     responsive!(i18n);
     responsive!(animation);

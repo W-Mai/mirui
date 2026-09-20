@@ -15,6 +15,7 @@ gallery::register_demos! {
 
     ("marble_play",          "Marble Play",          "Play",        marble_play,          480, 320),
     ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab,            480, 320),
+    ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom,           480, 320),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),

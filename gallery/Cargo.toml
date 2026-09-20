@@ -211,6 +211,10 @@ name = "lumen_lab_snapshot"
 path = "examples/tools/lumen_lab_snapshot.rs"
 
 [[example]]
+name = "pixel_loom_snapshot"
+path = "examples/tools/pixel_loom_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 

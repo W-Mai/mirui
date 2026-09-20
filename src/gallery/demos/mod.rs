@@ -37,6 +37,7 @@ pub mod orbit_console;
 pub mod particles;
 pub mod persistence_counter;
 pub mod pinch_rotate;
+pub mod pixel_loom;
 pub mod render_showcase;
 pub mod scroll;
 pub mod shapes;
