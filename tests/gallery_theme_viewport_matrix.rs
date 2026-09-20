@@ -216,6 +216,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     fixed_palette!(module_factory);
     fixed_palette!(orbital_mission);
     fixed_palette!(tidal_atlas);
+    fixed_palette!(echo_walker);
     responsive!(niche);
     responsive!(i18n);
     responsive!(animation);

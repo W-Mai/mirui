@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Module Factory demo.** Three finite production orders combine transactional grid editing, bounded undo and telemetry rings, conservative material transfer, explicit backpressure, and fixed-step processing in a 480 × 320 Gallery surface.
 - **Orbital Mission demo.** Three fixed-step trajectory tasks combine bounded maneuver planning, caller-owned prediction, finite trail and telemetry rings, and explicit sampling windows in a 480 × 320 Gallery surface.
 - **Tidal Atlas demo.** Four deterministic islands combine terrain-aware placement, forecast scoring, seasonal tides, inherited doctrines, and fixed-capacity undo in a 480 × 320 Gallery surface.
+- **Echo Walker demo.** Twelve generated rooms combine recorded routes, periodic gates, persistent fragments, and fixed-capacity undo in a 480 × 320 Gallery surface.
 - **Declarative drag cancellation.** `on DragCancel` handlers participate in the typed `ui!` gesture syntax for transactional interactions.
 
 ## [0.46.2] - 2026-09-20

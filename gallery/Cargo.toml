@@ -239,6 +239,10 @@ name = "tidal_atlas_snapshot"
 path = "examples/tools/tidal_atlas_snapshot.rs"
 
 [[example]]
+name = "echo_walker_snapshot"
+path = "examples/tools/echo_walker_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 

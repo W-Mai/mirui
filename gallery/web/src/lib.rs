@@ -22,6 +22,7 @@ gallery::register_demos! {
     ("module_factory",       "Module Factory",       "Play",        module_factory,       480, 320),
     ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission,      480, 320),
     ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas,          480, 320),
+    ("echo_walker",          "Echo Walker",          "Play",        echo_walker,          480, 320),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),

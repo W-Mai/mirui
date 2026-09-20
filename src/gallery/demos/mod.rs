@@ -10,6 +10,7 @@ pub mod cover_flow;
 pub mod curve_text;
 pub mod curve_text_compact;
 pub mod custom_view;
+pub mod echo_walker;
 pub mod effect_glass;
 pub mod effect_panels;
 pub mod fill_rules;

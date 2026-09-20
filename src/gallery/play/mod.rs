@@ -3,6 +3,7 @@ pub(crate) mod audio;
 pub(crate) mod change;
 pub(crate) mod circuit;
 pub(crate) mod clock;
+pub(crate) mod echo;
 pub(crate) mod factory;
 pub(crate) mod font;
 pub(crate) mod input;
