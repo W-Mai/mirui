@@ -9,6 +9,7 @@ pub(crate) mod input;
 pub(crate) mod lumen;
 pub(crate) mod marble;
 pub(crate) mod moss;
+pub(crate) mod orbit;
 pub(crate) mod paint;
 pub(crate) mod pixel;
 pub(crate) mod post;

@@ -214,6 +214,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     fixed_palette!(pocket_post);
     fixed_palette!(logic_circuit);
     fixed_palette!(module_factory);
+    fixed_palette!(orbital_mission);
     responsive!(niche);
     responsive!(i18n);
     responsive!(animation);
