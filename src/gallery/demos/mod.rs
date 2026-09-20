@@ -39,6 +39,7 @@ pub mod particles;
 pub mod persistence_counter;
 pub mod pinch_rotate;
 pub mod pixel_loom;
+pub mod pocket_post;
 pub mod render_showcase;
 pub mod scroll;
 pub mod shapes;
