@@ -2,6 +2,8 @@
 pub(crate) mod audio;
 pub(crate) mod change;
 pub(crate) mod clock;
+pub(crate) mod font;
 pub(crate) mod input;
+pub(crate) mod lumen;
 pub(crate) mod marble;
 pub(crate) mod paint;

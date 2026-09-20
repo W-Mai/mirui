@@ -207,6 +207,10 @@ name = "interaction_lab_snapshot"
 path = "examples/tools/interaction_lab_snapshot.rs"
 
 [[example]]
+name = "lumen_lab_snapshot"
+path = "examples/tools/lumen_lab_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 

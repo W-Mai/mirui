@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Marble Play sequencer.** Per-pad pitch and timbre controls, a continuous 55–160 BPM transport, quantized collision voices, pad-wide polyphony control, output compression, and user-recorded loops turn physical contacts into a bounded rhythm instrument without a permanent backing track.
 - **Transactional pointer cancellation.** Surface cancellation and application suspension terminate active pointer work through `PointerCancel` and `DragCancel`; cancelled scroll gestures stop without seeding inertial motion.
 - **Marble Play demo.** A bounded fixed-point physics toy combines live marble simulation, transactional pad editing, scene presets, semantic controls, and allocation-stable visual feedback in a 480 × 320 Gallery surface.
+- **Lumen Lab demo.** Five bounded mirror-routing puzzles combine integer ray tracing, fixed-capacity undo, modal level selection, hints, and an optional allocation-free light chase in a 480 × 320 Gallery surface.
 - **Declarative drag cancellation.** `on DragCancel` handlers participate in the typed `ui!` gesture syntax for transactional interactions.
 
 ## [0.46.2] - 2026-09-20
