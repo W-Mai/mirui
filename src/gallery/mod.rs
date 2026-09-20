@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 pub mod demos;
+pub(crate) mod play;
 pub mod showcase_theme;
 
 pub(crate) fn fit_logical_canvas(

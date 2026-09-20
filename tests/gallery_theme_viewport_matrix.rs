@@ -207,6 +207,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     responsive!(interaction_lab);
     compact!(kinetic_console);
     fixed_palette!(signal_scope);
+    fixed_palette!(marble_play);
     responsive!(niche);
     responsive!(i18n);
     responsive!(animation);

@@ -148,6 +148,39 @@ mod tests {
     }
 
     #[test]
+    fn drag_cancel_is_available_to_dsl_handlers() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () on DragCancel { fire(); } {}
+        };
+
+        let target = world
+            .query::<GestureHandler>()
+            .collect()
+            .into_iter()
+            .next()
+            .expect("DragCancel handler");
+        bubble_dispatch_at(
+            &mut world,
+            &GestureEvent::DragCancel {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            },
+            100,
+        );
+        assert_eq!(fired(), 1);
+    }
+
+    #[test]
     fn form_b_destructured_x_y_in_scope() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();

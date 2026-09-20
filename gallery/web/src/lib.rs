@@ -13,6 +13,8 @@ gallery::register_demos! {
 
     ("signal_scope",         "Signal Scope",         "Product",     signal_scope,         800, 480),
 
+    ("marble_play",          "Marble Play",          "Play",        marble_play,          480, 320),
+
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),
 

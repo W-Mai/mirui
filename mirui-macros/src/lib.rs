@@ -103,7 +103,14 @@ fn classify_widget_name(name: &syn::Ident) -> WidgetKind {
 fn is_known_gesture_event(name: &str) -> bool {
     matches!(
         name,
-        "Tap" | "LongPress" | "DragStart" | "DragMove" | "DragEnd" | "Pinch" | "Rotate"
+        "Tap"
+            | "LongPress"
+            | "DragStart"
+            | "DragMove"
+            | "DragEnd"
+            | "DragCancel"
+            | "Pinch"
+            | "Rotate"
     )
 }
 
@@ -182,7 +189,7 @@ fn lookup_business_event(widget: &str, event: &str) -> Option<&'static BusinessE
 
 fn gesture_event_fields(name: &str) -> &'static [&'static str] {
     match name {
-        "Tap" | "LongPress" | "DragStart" => &["x", "y", "target"],
+        "Tap" | "LongPress" | "DragStart" | "DragCancel" => &["x", "y", "target"],
         "DragMove" => &["x", "y", "dx", "dy", "target"],
         "DragEnd" => &["x", "y", "vx", "vy", "target"],
         "Pinch" => &["x", "y", "scale_delta", "target"],
@@ -980,7 +987,7 @@ impl MiruiRune {
                         format!(
                             "unknown event `{event_name}` for widget `{widget_name}`; \
                              expected a GestureEvent variant (Tap, LongPress, DragStart, \
-                             DragMove, DragEnd, Pinch, Rotate) or a business event"
+                             DragMove, DragEnd, DragCancel, Pinch, Rotate) or a business event"
                         ),
                     )
                     .to_compile_error(),

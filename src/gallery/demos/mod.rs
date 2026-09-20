@@ -26,6 +26,7 @@ pub mod layout_lab;
 pub mod lazy_list;
 pub mod life;
 pub mod life_compact;
+pub mod marble_play;
 mod motion;
 pub mod nested_scroll;
 pub mod niche;
