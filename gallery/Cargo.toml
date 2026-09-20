@@ -227,6 +227,10 @@ name = "logic_circuit_snapshot"
 path = "examples/tools/logic_circuit_snapshot.rs"
 
 [[example]]
+name = "module_factory_snapshot"
+path = "examples/tools/module_factory_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 

@@ -29,6 +29,7 @@ pub mod life_compact;
 pub mod logic_circuit;
 pub mod lumen_lab;
 pub mod marble_play;
+pub mod module_factory;
 pub mod moss_study;
 mod motion;
 pub mod nested_scroll;
