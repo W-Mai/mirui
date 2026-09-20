@@ -18,6 +18,7 @@ gallery::register_demos! {
     ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom,           480, 320),
     ("moss_study",           "Moss Study",           "Play",        moss_study,           480, 320),
     ("pocket_post",          "Pocket Post",          "Play",        pocket_post,          480, 320),
+    ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit,        480, 320),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),

@@ -223,6 +223,10 @@ name = "pocket_post_snapshot"
 path = "examples/tools/pocket_post_snapshot.rs"
 
 [[example]]
+name = "logic_circuit_snapshot"
+path = "examples/tools/logic_circuit_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 

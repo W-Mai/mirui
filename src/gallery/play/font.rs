@@ -2,6 +2,8 @@ use crate::ecs::World;
 use crate::render::font::{Font, FontManager, FontToken};
 
 const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
+#[cfg(test)]
+const FONT_CHARSET: &str = include_str!("../demos/assets/play_charset.txt");
 
 pub(crate) fn register_play_font(world: &mut World) {
     let Some(manager) = world.resource::<FontManager>() else {
@@ -27,12 +29,12 @@ mod tests {
     use mirx::font::FontRepresentationKind;
 
     #[test]
-    fn play_font_covers_lumen_labels_and_small_sizes() {
+    fn play_font_covers_declared_charset_and_small_sizes() {
         let provider =
             MirxFontProvider::from_mirx(FONT_BYTES, &mirx::reader::PayloadLimits::HOST).unwrap();
-        for scalar in
-            "第一束光折返航线绕过岛屿交错最后公里提示重新摆放追撤销关卡镜片方向切换等待点亮次旋转已"
-                .chars()
+        for scalar in FONT_CHARSET
+            .chars()
+            .filter(|scalar| !scalar.is_whitespace())
         {
             assert!(provider.map_char(scalar).is_some(), "missing {scalar}");
         }

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pixel Loom demo.** A four-frame pixel editor combines nibble-packed artwork, transactional mirrored strokes, fixed-capacity undo, three templates, onion skinning, and allocation-stable playback in a 480 × 320 Gallery surface.
 - **Moss Study demo.** A finite B3/S23 cellular garden combines age-aware rendering, transactional brushes, rotatable glider stamps, deterministic seeds, fixed-capacity undo, and bounded evolution timing in a 480 × 320 Gallery surface.
 - **Pocket Post demo.** Three bounded parcels follow fixed-point routes whose switch decisions lock at junction crossings, with deterministic manifests, fixed-step dispatch, capped streak scoring, keyboard controls, and modal shift summaries in a 480 × 320 Gallery surface.
+- **Logic Circuit demo.** Three finite combinational-logic tasks provide transactional wiring, atomic cycle rejection, bounded undo and trace rings, exhaustive truth-table verification, and cancellable gate movement in a 480 × 320 Gallery surface.
 - **Declarative drag cancellation.** `on DragCancel` handlers participate in the typed `ui!` gesture syntax for transactional interactions.
 
 ## [0.46.2] - 2026-09-20

@@ -26,6 +26,7 @@ pub mod layout_lab;
 pub mod lazy_list;
 pub mod life;
 pub mod life_compact;
+pub mod logic_circuit;
 pub mod lumen_lab;
 pub mod marble_play;
 pub mod moss_study;
