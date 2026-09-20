@@ -1,6 +1,6 @@
 [package]
 name = "mirx"
-version = "0.46.1"
+version = "0.46.2"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Benign X <1341398182@qq.com>"]

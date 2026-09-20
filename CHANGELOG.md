@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.2] - 2026-09-20
+
 ### Fixed
 
 - **Mobile control gestures.** Fractional-density displays preserve the layout coordinate extent during hit testing; touch jitter uses radial device-independent slop, the threshold-crossing sample reaches drag handlers, and horizontal sliders retain their drag axis inside scrollable layouts.
