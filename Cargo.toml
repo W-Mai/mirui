@@ -65,6 +65,9 @@ persistence = ["dep:serde", "dep:postcard"]
 # cycles should `default-features = false`.
 quad-aa = []
 gallery = []
+audio = []
+web-audio = ["audio", "web-canvas"]
+sdl-audio = ["audio", "sdl"]
 
 [dependencies.sdl2]
 version = "0.37"
@@ -168,6 +171,15 @@ web-sys = { version = "0.3.99", optional = true, features = [
     "EventTarget",
     "Event",
     "Storage",
+    "AudioContext",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioParam",
+    "BaseAudioContext",
+    "DynamicsCompressorNode",
+    "GainNode",
+    "OscillatorNode",
+    "OscillatorType",
     "console",
 ] }
 js-sys = { version = "0.3.99", optional = true }

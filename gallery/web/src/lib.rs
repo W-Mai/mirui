@@ -109,6 +109,12 @@ fn selected_theme_id(demo: &gallery::DemoEntry) -> &'static str {
 fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
     let mut app = gallery::assemble_app(backend, gallery::configured_factory());
     app.add_plugin(gallery::mirui::app::plugins::StdInstantClockPlugin);
+    if demo.slug == "marble_play" {
+        app.add_plugin(gallery::mirui::app::plugins::AudioPlugin::new(
+            gallery::mirui::audio::WebAudioSink::new(),
+            gallery::mirui::gallery::demos::marble_play::audio_bank(),
+        ));
+    }
     let root = {
         let mut setup = gallery::Setup { app: &mut app };
         (demo.setup)(&mut setup)

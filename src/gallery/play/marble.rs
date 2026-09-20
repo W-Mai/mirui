@@ -8,8 +8,11 @@ pub(crate) const MAX_PADS: usize = 6;
 pub(crate) const MAX_PARTICLES: usize = 24;
 pub(crate) const MAX_RINGS: usize = 8;
 pub(crate) const TRAIL_LEN: usize = 6;
+const MAX_SOUND_EVENTS: usize = 8;
+const MAX_RECORDED_NOTES: usize = 64;
 
 pub(crate) const PALETTE: [u32; 6] = [0xb4eabd, 0xc6b0ef, 0xeed984, 0xeeac8b, 0xa0d2e8, 0xd5eba0];
+pub(crate) const PAD_PITCHES: [u8; 10] = [60, 62, 64, 67, 69, 72, 74, 76, 79, 81];
 
 const STEP: Fixed64 = Fixed64::from_ratio(1, 120);
 const RAILS: [(i64, i64, i64, i64); 4] = [
@@ -97,6 +100,38 @@ pub(crate) struct Pad {
     pub(crate) color: u32,
     pub(crate) bounce: Fixed64,
     pub(crate) pulse: Fixed64,
+    pub(crate) pitch: u8,
+    pub(crate) timbre: PadTimbre,
+    last_hit: Fixed64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(crate) enum PadTimbre {
+    Mallet,
+    Synth,
+    Bass,
+    Drum,
+}
+
+impl PadTimbre {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Mallet => "MALLET",
+            Self::Synth => "SYNTH",
+            Self::Bass => "BASS",
+            Self::Drum => "DRUM",
+        }
+    }
+
+    const fn next(self) -> Self {
+        match self {
+            Self::Mallet => Self::Synth,
+            Self::Synth => Self::Bass,
+            Self::Bass => Self::Drum,
+            Self::Drum => Self::Mallet,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -134,6 +169,26 @@ struct Drag {
     position: Option<DragTransaction<Vec2>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MarbleSound {
+    Pad {
+        slot: u8,
+        pitch: u8,
+        timbre: PadTimbre,
+        gain: u8,
+        delay_ms: u16,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RecordedNote {
+    step: u8,
+    slot: u8,
+    pitch: u8,
+    timbre: PadTimbre,
+    gain: u8,
+}
+
 #[derive(Debug)]
 pub(crate) struct MarbleModel {
     pub(crate) page: Page,
@@ -153,6 +208,9 @@ pub(crate) struct MarbleModel {
     pub(crate) flash: Fixed64,
     pub(crate) tilt: Vec2,
     pub(crate) target: Vec2,
+    pub(crate) recording: bool,
+    pub(crate) looping: bool,
+    pub(crate) bpm: u16,
     pub(crate) toast: &'static str,
     pub(crate) toast_left: Fixed64,
     sim_time: Fixed64,
@@ -163,6 +221,15 @@ pub(crate) struct MarbleModel {
     clock: BoundedClock,
     ring_cursor: usize,
     particle_cursor: usize,
+    sounds: [Option<MarbleSound>; MAX_SOUND_EVENTS],
+    sound_len: u8,
+    transport_steps: Fixed64,
+    last_audio_step: u32,
+    record_start_step: u32,
+    loop_start_step: u32,
+    loop_length_steps: u8,
+    recorded: [Option<RecordedNote>; MAX_RECORDED_NOTES],
+    recorded_len: u8,
 }
 
 impl Default for MarbleModel {
@@ -191,6 +258,9 @@ impl MarbleModel {
             flash: Fixed64::ZERO,
             tilt: Vec2::default(),
             target: Vec2::default(),
+            recording: false,
+            looping: false,
+            bpm: 96,
             toast: "",
             toast_left: Fixed64::ZERO,
             sim_time: Fixed64::ZERO,
@@ -201,6 +271,15 @@ impl MarbleModel {
             clock: BoundedClock::new(120, 60, 8),
             ring_cursor: 0,
             particle_cursor: 0,
+            sounds: [None; MAX_SOUND_EVENTS],
+            sound_len: 0,
+            transport_steps: Fixed64::ZERO,
+            last_audio_step: 0,
+            record_start_step: 0,
+            loop_start_step: 0,
+            loop_length_steps: 16,
+            recorded: [None; MAX_RECORDED_NOTES],
+            recorded_len: 0,
         };
         model.reset_scene(0);
         model.toast = "";
@@ -234,6 +313,8 @@ impl MarbleModel {
         self.running()
             || self.toast_left.is_positive()
             || self.flash.is_positive()
+            || self.recording
+            || self.looping
             || self
                 .pads
                 .iter()
@@ -261,6 +342,7 @@ impl MarbleModel {
         self.cancel_input();
         self.scene = index.min(THEMES.len() - 1);
         self.gravity = self.theme().gravity;
+        self.bpm = [96, 72, 128][self.scene];
         self.pads = [None; MAX_PADS];
         self.balls = [None; MAX_BALLS];
         self.rings = [None; MAX_RINGS];
@@ -271,6 +353,34 @@ impl MarbleModel {
             (240, 161, 21),
             (107, 211, 18),
             (368, 205, 19),
+        ];
+        const PITCHES: [[u8; 5]; 3] = [
+            [72, 67, 76, 60, 74],
+            [60, 67, 64, 60, 62],
+            [72, 79, 64, 60, 81],
+        ];
+        const TIMBRES: [[PadTimbre; 5]; 3] = [
+            [
+                PadTimbre::Mallet,
+                PadTimbre::Mallet,
+                PadTimbre::Mallet,
+                PadTimbre::Drum,
+                PadTimbre::Mallet,
+            ],
+            [
+                PadTimbre::Synth,
+                PadTimbre::Synth,
+                PadTimbre::Mallet,
+                PadTimbre::Bass,
+                PadTimbre::Synth,
+            ],
+            [
+                PadTimbre::Synth,
+                PadTimbre::Mallet,
+                PadTimbre::Bass,
+                PadTimbre::Drum,
+                PadTimbre::Synth,
+            ],
         ];
         for (slot, (x, y, radius)) in poses.into_iter().enumerate() {
             let color = PALETTE[if self.scene == 1 {
@@ -286,6 +396,9 @@ impl MarbleModel {
                 color,
                 bounce: Fixed64::from_ratio(11, 10),
                 pulse: Fixed64::ZERO,
+                pitch: PITCHES[self.scene][slot],
+                timbre: TIMBRES[self.scene][slot],
+                last_hit: Fixed64::from_int(-99),
             });
         }
         self.selected = 0;
@@ -300,6 +413,11 @@ impl MarbleModel {
         self.clock.reset();
         self.ring_cursor = 0;
         self.particle_cursor = 0;
+        self.sounds = [None; MAX_SOUND_EVENTS];
+        self.sound_len = 0;
+        self.stop_recording();
+        self.transport_steps = Fixed64::ZERO;
+        self.last_audio_step = 0;
         for (x, y, vx, vy) in [
             (74, 83, 82, 25),
             (221, 115, 66, 21),
@@ -330,6 +448,27 @@ impl MarbleModel {
         }
         self.paused = !self.paused;
         self.clock.reset();
+        ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    pub(crate) fn toggle_recording(&mut self) -> ChangeSet {
+        if self.recording {
+            self.finish_recording(true);
+        } else if self.looping {
+            self.stop_recording();
+            self.notify("LOOP STOPPED / FREE PLAY");
+        } else {
+            if self.page != Page::Play {
+                let _ = self.set_page(Page::Play);
+            }
+            self.paused = false;
+            self.recorded = [None; MAX_RECORDED_NOTES];
+            self.recorded_len = 0;
+            self.recording = true;
+            self.looping = false;
+            self.record_start_step = self.current_audio_step();
+            self.notify("RECORD 4 BARS / PLAY THE PADS");
+        }
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -406,6 +545,9 @@ impl MarbleModel {
             color: PALETTE[5],
             bounce: Fixed64::from_ratio(11, 10),
             pulse: Fixed64::ZERO,
+            pitch: 72,
+            timbre: PadTimbre::Mallet,
+            last_hit: Fixed64::from_int(-99),
         };
         pad.pos = Self::bounded(&pad, position);
         if self.pads.iter().flatten().any(|other| {
@@ -509,6 +651,41 @@ impl MarbleModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
+    pub(crate) fn adjust_pitch(&mut self, direction: i8) -> ChangeSet {
+        let current = self.selected_pad().pitch;
+        let nearest = PAD_PITCHES
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, pitch)| pitch.abs_diff(current))
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+        let next = if direction < 0 {
+            nearest.saturating_sub(1)
+        } else {
+            (nearest + 1).min(PAD_PITCHES.len() - 1)
+        };
+        if let Some(pad) = self.pads[self.selected].as_mut() {
+            pad.pitch = PAD_PITCHES[next];
+        }
+        self.pulse(self.selected, false);
+        self.emit_pad_sound(self.selected, 190, true);
+        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+    }
+
+    pub(crate) fn cycle_timbre(&mut self) -> ChangeSet {
+        if let Some(pad) = self.pads[self.selected].as_mut() {
+            pad.timbre = pad.timbre.next();
+        }
+        self.pulse(self.selected, false);
+        self.emit_pad_sound(self.selected, 190, true);
+        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+    }
+
+    pub(crate) fn set_bpm(&mut self, value: Fixed64) -> ChangeSet {
+        self.bpm = (value + Fixed64::from_ratio(1, 2)).to_int().clamp(55, 160) as u16;
+        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+    }
+
     pub(crate) fn toggle_trails(&mut self) -> ChangeSet {
         self.trails = !self.trails;
         if !self.trails {
@@ -550,6 +727,7 @@ impl MarbleModel {
         if let Some(slot) = slot {
             self.selected = slot;
             self.pulse(slot, false);
+            self.emit_pad_sound(slot, 190, true);
         }
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
@@ -604,13 +782,24 @@ impl MarbleModel {
     }
 
     pub(crate) fn pulse(&mut self, slot: usize, count: bool) {
+        self.pulse_with_gain(slot, count, 165);
+    }
+
+    fn pulse_with_gain(&mut self, slot: usize, count: bool, gain: u8) {
         let Some(mut pad) = self.pads[slot] else {
             return;
         };
+        if count {
+            if self.sim_time - pad.last_hit <= Fixed64::from_ratio(105, 1_000) {
+                return;
+            }
+            pad.last_hit = self.sim_time;
+        }
         pad.pulse = Fixed64::ONE;
         self.pads[slot] = Some(pad);
         if count {
             self.hits = self.hits.saturating_add(1);
+            self.emit_pad_sound(slot, gain, false);
         }
         if !self.feedback {
             return;
@@ -660,7 +849,81 @@ impl MarbleModel {
         }
     }
 
+    fn emit_sound(&mut self, sound: MarbleSound) {
+        let index = usize::from(self.sound_len);
+        if index < MAX_SOUND_EVENTS {
+            self.sounds[index] = Some(sound);
+            self.sound_len += 1;
+        }
+    }
+
+    fn emit_pad_sound(&mut self, slot: usize, gain: u8, manual: bool) {
+        let Some(mut pad) = self.pads[slot] else {
+            return;
+        };
+        if manual {
+            pad.last_hit = self.sim_time;
+            self.pads[slot] = Some(pad);
+        }
+        let current = self.transport_steps;
+        let step = if manual {
+            self.current_audio_step()
+        } else {
+            let floor = self.current_audio_step();
+            let ceiling = if current > Fixed64::from_int(i64::from(floor)) {
+                floor.saturating_add(1)
+            } else {
+                floor
+            };
+            ceiling.div_ceil(2) * 2
+        };
+        let delay_ms = if manual {
+            0
+        } else {
+            ((Fixed64::from_int(i64::from(step)) - current) * Fixed64::from_int(15_000)
+                / Fixed64::from_int(i64::from(self.bpm.max(1)))
+                + Fixed64::from_ratio(1, 2))
+            .to_int()
+            .clamp(0, i64::from(u16::MAX)) as u16
+        };
+        if self.recording && step >= self.record_start_step {
+            let relative = step - self.record_start_step;
+            let same_step = self.recorded[..usize::from(self.recorded_len)]
+                .iter()
+                .flatten()
+                .filter(|note| u32::from(note.step) == relative)
+                .count();
+            let index = usize::from(self.recorded_len);
+            if relative < 64 && index < MAX_RECORDED_NOTES && same_step < 4 {
+                self.recorded[index] = Some(RecordedNote {
+                    step: relative as u8,
+                    slot: slot as u8,
+                    pitch: pad.pitch,
+                    timbre: pad.timbre,
+                    gain,
+                });
+                self.recorded_len += 1;
+            }
+        }
+        self.emit_sound(MarbleSound::Pad {
+            slot: slot as u8,
+            pitch: pad.pitch,
+            timbre: pad.timbre,
+            gain,
+            delay_ms,
+        });
+    }
+
+    pub(crate) fn take_sounds(&mut self) -> [Option<MarbleSound>; MAX_SOUND_EVENTS] {
+        let sounds = self.sounds;
+        self.sounds = [None; MAX_SOUND_EVENTS];
+        self.sound_len = 0;
+        sounds
+    }
+
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
+        self.transport_steps +=
+            Fixed64::from_ratio(i64::from(elapsed_ms) * i64::from(self.bpm), 15_000);
         let active = self.running();
         let steps = self.clock.steps(elapsed_ms, active);
         for _ in 0..steps {
@@ -695,11 +958,91 @@ impl MarbleModel {
         if self.toast_left.is_zero() {
             self.toast = "";
         }
-        if animated {
+        let audio_model_changed = self.advance_audio();
+        if audio_model_changed {
+            ChangeSet::MODEL | ChangeSet::VISUAL
+        } else if animated {
             ChangeSet::VISUAL
         } else {
             ChangeSet::NONE
         }
+    }
+
+    pub(crate) fn transport_beat(&self) -> usize {
+        (self.current_audio_step() as usize / 4) % 16
+    }
+
+    fn current_audio_step(&self) -> u32 {
+        self.transport_steps.to_int().max(0) as u32
+    }
+
+    fn advance_audio(&mut self) -> bool {
+        let current = self.current_audio_step();
+        let mut model_changed = false;
+        if self.recording && current >= self.record_start_step.saturating_add(64) {
+            self.finish_recording(false);
+            model_changed = true;
+        }
+        if self.looping && current > self.last_audio_step {
+            let first = self
+                .last_audio_step
+                .saturating_add(1)
+                .max(current.saturating_sub(15));
+            for step in first..=current {
+                if step < self.loop_start_step {
+                    continue;
+                }
+                let local =
+                    ((step - self.loop_start_step) % u32::from(self.loop_length_steps)) as u8;
+                for index in 0..usize::from(self.recorded_len) {
+                    let Some(note) = self.recorded[index] else {
+                        continue;
+                    };
+                    if note.step == local {
+                        if let Some(pad) = self.pads[usize::from(note.slot)].as_mut() {
+                            pad.pulse = pad.pulse.max(Fixed64::from_ratio(65, 100));
+                        }
+                        self.emit_sound(MarbleSound::Pad {
+                            slot: note.slot,
+                            pitch: note.pitch,
+                            timbre: note.timbre,
+                            gain: (u16::from(note.gain) * 174 / 255) as u8,
+                            delay_ms: 0,
+                        });
+                    }
+                }
+            }
+        }
+        self.last_audio_step = current;
+        model_changed
+    }
+
+    fn finish_recording(&mut self, early: bool) {
+        let current = self.current_audio_step();
+        let elapsed = current.saturating_sub(self.record_start_step).max(1);
+        self.recording = false;
+        if self.recorded_len == 0 {
+            self.stop_recording();
+            self.notify("NO NOTES RECORDED / TAP A PAD");
+            return;
+        }
+        self.loop_length_steps = if early {
+            elapsed.div_ceil(16).clamp(1, 4) as u8 * 16
+        } else {
+            64
+        };
+        self.looping = true;
+        self.loop_start_step = current.div_ceil(4) * 4;
+        self.last_audio_step = current;
+        self.notify("LOOP PLAYING / LIVE NOTES STAY ACTIVE");
+    }
+
+    fn stop_recording(&mut self) {
+        self.recording = false;
+        self.looping = false;
+        self.recorded = [None; MAX_RECORDED_NOTES];
+        self.recorded_len = 0;
+        self.loop_length_steps = 16;
     }
 
     fn physics_step(&mut self) {
@@ -724,6 +1067,7 @@ impl MarbleModel {
         let gy = self.gravity * Fixed64::from_int(150) + self.tilt.y * Fixed64::from_int(200);
         let drag = Fixed64::ONE - Fixed64::from_ratio(18, 1_000) * STEP;
         let mut collisions = [0_u8; MAX_PADS];
+        let mut collision_gain = [0_u8; MAX_PADS];
         for ball in self.balls.iter_mut().flatten() {
             ball.velocity.x = (ball.velocity.x + gx * STEP) * drag;
             ball.velocity.y = (ball.velocity.y + gy * STEP) * drag;
@@ -767,6 +1111,9 @@ impl MarbleModel {
                         if self.sim_time - ball.cooldown[slot] > Fixed64::from_ratio(13, 100) {
                             ball.cooldown[slot] = self.sim_time;
                             collisions[slot] = collisions[slot].saturating_add(1);
+                            let impact = normal_speed.abs().to_int();
+                            collision_gain[slot] = collision_gain[slot]
+                                .max((110 + impact * 3 / 5).clamp(120, 255) as u8);
                         }
                     }
                 }
@@ -799,7 +1146,7 @@ impl MarbleModel {
         }
         for (slot, count) in collisions.into_iter().enumerate() {
             for _ in 0..count {
-                self.pulse(slot, true);
+                self.pulse_with_gain(slot, true, collision_gain[slot]);
             }
         }
     }
@@ -912,7 +1259,7 @@ mod tests {
             let _ = model.drop_ball();
         }
         for _ in 0..100 {
-            model.pulse(0, true);
+            model.pulse(0, false);
         }
         assert_eq!(model.ball_count(), MAX_BALLS);
         assert_eq!(model.rings.iter().flatten().count(), MAX_RINGS);
@@ -1023,5 +1370,117 @@ mod tests {
         assert!(page.contains(ChangeSet::LAYOUT));
         let tick = model.advance_ms(16);
         assert!(!tick.contains(ChangeSet::LAYOUT));
+    }
+
+    #[test]
+    fn sound_events_use_bounded_storage_and_drain_atomically() {
+        let mut model = MarbleModel::new();
+        for _ in 0..(MAX_SOUND_EVENTS + 5) {
+            model.emit_pad_sound(0, 180, true);
+        }
+        assert_eq!(
+            model.take_sounds().into_iter().flatten().count(),
+            MAX_SOUND_EVENTS
+        );
+        assert!(model.take_sounds().into_iter().all(|sound| sound.is_none()));
+    }
+
+    #[test]
+    fn pad_collision_cooldown_suppresses_dense_polyphony() {
+        let mut model = MarbleModel::new();
+        let _ = model.take_sounds();
+        model.pulse(0, true);
+        model.pulse(0, true);
+        assert_eq!(model.take_sounds().into_iter().flatten().count(), 1);
+        model.sim_time += Fixed64::from_ratio(11, 100);
+        model.pulse(0, true);
+        assert_eq!(model.take_sounds().into_iter().flatten().count(), 1);
+    }
+
+    #[test]
+    fn recorded_pad_events_loop_only_after_recording_finishes() {
+        let mut model = MarbleModel::new();
+        let _ = model.take_sounds();
+        let _ = model.toggle_recording();
+        model.transport_steps = Fixed64::from_int(i64::from(model.record_start_step + 1));
+        model.emit_pad_sound(2, 180, true);
+        let recorded = model.recorded[0].unwrap();
+        let _ = model.take_sounds();
+        assert!(model.recording);
+        assert!(!model.looping);
+
+        model.pads[2].as_mut().unwrap().pitch = 60;
+        model.pads[2].as_mut().unwrap().timbre = PadTimbre::Drum;
+
+        let _ = model.toggle_recording();
+        assert!(!model.recording);
+        assert!(model.looping);
+        model.transport_steps = Fixed64::from_int(i64::from(model.loop_start_step + 1));
+        model.last_audio_step = model.loop_start_step;
+        model.advance_audio();
+        assert_eq!(
+            model.take_sounds()[0],
+            Some(MarbleSound::Pad {
+                slot: 2,
+                pitch: recorded.pitch,
+                timbre: recorded.timbre,
+                gain: (u16::from(recorded.gain) * 174 / 255) as u8,
+                delay_ms: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn empty_recording_never_enters_loop_playback() {
+        let mut model = MarbleModel::new();
+        let _ = model.toggle_recording();
+        let _ = model.toggle_recording();
+        assert!(!model.recording);
+        assert!(!model.looping);
+    }
+
+    #[test]
+    fn pad_pitch_and_timbre_controls_emit_current_sound() {
+        let mut model = MarbleModel::new();
+        let old_pitch = model.selected_pad().pitch;
+        let old_timbre = model.selected_pad().timbre;
+        let _ = model.take_sounds();
+        let _ = model.adjust_pitch(1);
+        assert!(model.selected_pad().pitch > old_pitch);
+        assert!(matches!(
+            model.take_sounds()[0],
+            Some(MarbleSound::Pad { pitch, .. }) if pitch == model.selected_pad().pitch
+        ));
+        let _ = model.cycle_timbre();
+        assert_ne!(model.selected_pad().timbre, old_timbre);
+        assert!(matches!(
+            model.take_sounds()[0],
+            Some(MarbleSound::Pad { timbre, .. }) if timbre == model.selected_pad().timbre
+        ));
+    }
+
+    #[test]
+    fn bpm_change_preserves_transport_phase() {
+        let mut model = MarbleModel::new();
+        let _ = model.advance_ms(625);
+        let before = model.transport_steps;
+        let step = model.current_audio_step();
+        let _ = model.set_bpm(Fixed64::from_int(120));
+        assert_eq!(model.transport_steps, before);
+        assert_eq!(model.current_audio_step(), step);
+        let _ = model.advance_ms(125);
+        assert_eq!(model.current_audio_step(), step + 1);
+    }
+
+    #[test]
+    fn collision_audio_is_scheduled_on_the_even_step_grid() {
+        let mut model = MarbleModel::new();
+        model.transport_steps = Fixed64::from_ratio(1, 2);
+        let _ = model.take_sounds();
+        model.emit_pad_sound(0, 180, false);
+        assert!(matches!(
+            model.take_sounds()[0],
+            Some(MarbleSound::Pad { delay_ms, .. }) if delay_ms > 200 && delay_ms < 250
+        ));
     }
 }

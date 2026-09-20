@@ -26,6 +26,7 @@ A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and We
 - **Dirty-flag partial refresh** — only re-renders changed regions; per-entity `Dirty` + `PrevRect` machinery
 - **HiDPI** — automatic scale factor propagation
 - **Plugins** — bundle clocks, performance reporting, input feedback, and other cross-cutting behavior behind frame, input, suspend/resume, and shutdown hooks
+- **Audio** — optional fixed-capacity commands, static scores, parameterized tones, integer PCM mixing, Web Audio and SDL sinks, and caller-owned embedded output
 - **Pluggable backends** — software framebuffer, SDL2 CPU/GPU, WGPU, Web Canvas, Linux framebuffer/DRM, and NuttX; `compose_backend!` routes command classes through engines sharing one target
 - **Declarative DSL** — `ui!` macro for nested widget trees with attributes, enchants, walk loops, conditionals
 

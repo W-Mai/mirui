@@ -6,10 +6,15 @@ publish = false
 
 [features]
 default = ["sdl"]
-sdl = ["mirui/sdl", "dep:sdl2"]
-sdl-gpu = ["mirui/sdl-gpu", "dep:sdl2"]
+sdl = ["mirui/sdl", "mirui/sdl-audio", "dep:sdl2"]
+sdl-gpu = ["mirui/sdl-gpu", "mirui/sdl-audio", "dep:sdl2"]
 wgpu = ["mirui/wgpu"]
-web-canvas = ["mirui/web-canvas", "dep:wasm-bindgen", "dep:web-sys"]
+web-canvas = [
+    "mirui/web-canvas",
+    "mirui/web-audio",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+]
 linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
 perf = ["mirui/perf"]

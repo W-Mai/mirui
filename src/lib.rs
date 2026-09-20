@@ -78,6 +78,8 @@
 //!   wgpu / web_canvas / Linux / NuttX implementations.
 //! - [`text`]: bounded Unicode layout, shaping contracts, and font-format adapters.
 //! - [`anim`]: easing, springs, motion components.
+//! - `audio` (feature `audio`): fixed-capacity commands, static scores,
+//!   parameterized tones, sinks, and integer PCM mixing.
 //! - [`types`]: Color / Dimension / Fixed / Point / Rect / Transform / Viewport.
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -90,6 +92,8 @@ extern crate self as mirui;
 
 pub mod anim;
 pub mod app;
+#[cfg(feature = "audio")]
+pub mod audio;
 pub mod core;
 pub mod ecs;
 pub mod input;

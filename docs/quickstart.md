@@ -120,6 +120,23 @@ add the Homebrew lib path:
 export LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"
 ```
 
+### Optional audio
+
+Use `sdl-audio` on desktop or `web-audio` in the browser. Both features install the same fixed-capacity command resource through `AudioPlugin`; bare-metal applications can fill a caller-owned PCM buffer with `AudioMixer` or implement `AudioSink` for an I2S/DMA driver.
+
+```rust
+use mirui::app::plugins::AudioPlugin;
+use mirui::audio::{AudioBank, AudioBus, AudioTone, SdlAudioSink, Waveform};
+
+static AUDIO: AudioBank = AudioBank::new(&[]);
+
+app.add_plugin(AudioPlugin::new(SdlAudioSink::new(), &AUDIO));
+
+if let Some(audio) = app.world.resource_mut::<AudioBus>() {
+    audio.tone(AudioTone::new(72, Waveform::Sine, 240, 190));
+}
+```
+
 ## ESP32-C3 embedded
 
 The embedded path takes a hardware kit, an SPI display, and a USB cable.

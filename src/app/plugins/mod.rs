@@ -1,3 +1,5 @@
+#[cfg(feature = "audio")]
+pub mod audio;
 pub mod auto_suspend;
 pub mod budget;
 pub mod cache_report;
@@ -9,6 +11,8 @@ pub mod perf_report;
 #[cfg(feature = "std")]
 pub mod std_clock;
 
+#[cfg(feature = "audio")]
+pub use audio::AudioPlugin;
 pub use auto_suspend::AutoSuspendPlugin;
 pub use budget::{BudgetReportPlugin, BudgetViolation};
 pub use cache_report::{CacheReport, CacheReportPlugin};
