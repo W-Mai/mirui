@@ -1,7 +1,10 @@
 use crate::ecs::World;
 use crate::render::command::DrawCommand;
 use crate::render::font::{Font, FontManager, FontToken};
+use crate::render::path::Path;
+use crate::render::raster::FillRule;
 use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+use crate::render::scene::{LineCap, LineJoin, Paint};
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
@@ -59,6 +62,25 @@ impl<'a> InstrumentPainter<'a> {
         });
     }
 
+    pub(super) fn border(
+        &mut self,
+        area: Rect,
+        color: Color,
+        width: Fixed,
+        radius: Fixed,
+        opacity: u8,
+    ) {
+        self.draw(&DrawCommand::Border {
+            area,
+            transform: self.transform,
+            quad: None,
+            color,
+            width,
+            radius,
+            opa: opacity,
+        });
+    }
+
     pub(super) fn dot(&mut self, center: Point, radius: Fixed, color: Color, opacity: u8) {
         self.fill(
             Rect::new(center.x - radius, center.y - radius, radius * 2, radius * 2),
@@ -83,6 +105,46 @@ impl<'a> InstrumentPainter<'a> {
             color,
             width,
             opa: opacity,
+        });
+    }
+
+    pub(super) fn stroke_path(
+        &mut self,
+        path: &Path,
+        transform: Transform,
+        color: Color,
+        width: Fixed,
+        opacity: u8,
+        dash: &[Fixed],
+    ) {
+        let paint = Paint::Color(color.into());
+        self.draw(&DrawCommand::StrokePath {
+            path,
+            transform: self.transform.compose(&transform),
+            paint: &paint,
+            width,
+            opa: opacity,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            miter_limit: Fixed::from_int(4),
+            dash,
+        });
+    }
+
+    pub(super) fn fill_path(
+        &mut self,
+        path: &Path,
+        transform: Transform,
+        color: Color,
+        opacity: u8,
+    ) {
+        let paint = Paint::Color(color.into());
+        self.draw(&DrawCommand::FillPath {
+            path,
+            transform: self.transform.compose(&transform),
+            paint: &paint,
+            opa: opacity,
+            fill_rule: FillRule::NonZero,
         });
     }
 
