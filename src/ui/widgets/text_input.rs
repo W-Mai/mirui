@@ -1,6 +1,6 @@
 use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
-use crate::input::event::focus::{FocusState, Focusable, KeyHandler};
+use crate::input::event::focus::{FocusState, Focusable, KeyHandler, TextEditable};
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
@@ -30,7 +30,7 @@ pub struct TextInputHandler {
     pub on_event: BusinessCallback<TextInputEvent>,
 }
 
-/// Single-line ASCII text input with a fixed-capacity buffer.
+/// Single-line UTF-8 text input with a fixed-capacity buffer.
 ///
 /// `buffer[..len]` are the live characters and `cursor` is the insertion
 /// point in `0..=len`.
@@ -91,23 +91,27 @@ impl TextInput {
         if !(32..=126).contains(&ch) {
             return false;
         }
-        if self.len as usize >= TEXT_INPUT_CAP {
+        self.insert_char(char::from(ch))
+    }
+
+    pub fn insert_char(&mut self, ch: char) -> bool {
+        if ch.is_control() {
             return false;
         }
         let pos = self.cursor as usize;
         let end = self.len as usize;
-        if pos > end {
+        let encoded_len = ch.len_utf8();
+        if pos > end || end.saturating_add(encoded_len) > TEXT_INPUT_CAP {
             return false;
         }
-        // Shift right.
         let mut i = end;
         while i > pos {
-            self.buffer[i] = self.buffer[i - 1];
+            self.buffer[i + encoded_len - 1] = self.buffer[i - 1];
             i -= 1;
         }
-        self.buffer[pos] = ch;
-        self.len += 1;
-        self.cursor += 1;
+        ch.encode_utf8(&mut self.buffer[pos..pos + encoded_len]);
+        self.len += encoded_len as u8;
+        self.cursor += encoded_len as u8;
         true
     }
 
@@ -115,15 +119,19 @@ impl TextInput {
         if self.cursor == 0 {
             return false;
         }
-        let pos = self.cursor as usize - 1;
+        let mut pos = self.cursor as usize - 1;
+        while pos > 0 && is_utf8_continuation(self.buffer[pos]) {
+            pos -= 1;
+        }
         let end = self.len as usize;
+        let removed = self.cursor as usize - pos;
         let mut i = pos;
-        while i + 1 < end {
-            self.buffer[i] = self.buffer[i + 1];
+        while i + removed < end {
+            self.buffer[i] = self.buffer[i + removed];
             i += 1;
         }
-        self.len -= 1;
-        self.cursor -= 1;
+        self.len -= removed as u8;
+        self.cursor = pos as u8;
         true
     }
 
@@ -133,24 +141,36 @@ impl TextInput {
         }
         let pos = self.cursor as usize;
         let end = self.len as usize;
+        let mut next = pos + 1;
+        while next < end && is_utf8_continuation(self.buffer[next]) {
+            next += 1;
+        }
+        let removed = next - pos;
         let mut i = pos;
-        while i + 1 < end {
-            self.buffer[i] = self.buffer[i + 1];
+        while i + removed < end {
+            self.buffer[i] = self.buffer[i + removed];
             i += 1;
         }
-        self.len -= 1;
+        self.len -= removed as u8;
         true
     }
 
     pub fn move_left(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
+            while self.cursor > 0 && is_utf8_continuation(self.buffer[self.cursor as usize]) {
+                self.cursor -= 1;
+            }
         }
     }
 
     pub fn move_right(&mut self) {
         if (self.cursor as usize) < (self.len as usize) {
             self.cursor += 1;
+            while self.cursor < self.len && is_utf8_continuation(self.buffer[self.cursor as usize])
+            {
+                self.cursor += 1;
+            }
         }
     }
 
@@ -170,6 +190,10 @@ impl TextInput {
             handler: None,
         }
     }
+}
+
+const fn is_utf8_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
 }
 
 impl Default for TextInput {
@@ -472,9 +496,7 @@ fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) 
         let mut content_changed = false;
         let visual_changed = match event {
             InputEvent::CharInput { ch } => {
-                if (*ch as u32) < 128 {
-                    content_changed = ti.insert(*ch as u8);
-                }
+                content_changed = ti.insert_char(*ch);
                 content_changed
             }
             InputEvent::Key { code, pressed } if *pressed => match *code {
@@ -536,6 +558,9 @@ fn text_input_attach(world: &mut World, entity: Entity) {
     }
     if world.get::<Focusable>(entity).is_none() {
         world.insert(entity, Focusable);
+    }
+    if world.get::<TextEditable>(entity).is_none() {
+        world.insert(entity, TextEditable);
     }
     if world.get::<KeyHandler>(entity).is_none() {
         world.insert(
@@ -772,6 +797,37 @@ mod tests {
         assert!(ti.delete_forward());
         assert_eq!(ti.as_str(), "bc");
         assert_eq!(ti.cursor, 0);
+    }
+
+    #[test]
+    fn utf8_editing_keeps_the_cursor_on_scalar_boundaries() {
+        let mut ti = TextInput::new();
+        assert!(ti.insert_char('A'));
+        assert!(ti.insert_char('中'));
+        assert!(ti.insert_char('🙂'));
+        assert_eq!(ti.as_str(), "A中🙂");
+        assert_eq!(ti.cursor, 8);
+
+        ti.move_left();
+        assert_eq!(ti.cursor, 4);
+        assert!(ti.backspace());
+        assert_eq!(ti.as_str(), "A🙂");
+        assert_eq!(ti.cursor, 1);
+
+        assert!(ti.delete_forward());
+        assert_eq!(ti.as_str(), "A");
+        assert_eq!(ti.cursor, 1);
+    }
+
+    #[test]
+    fn utf8_insert_rejects_a_scalar_that_exceeds_the_byte_capacity() {
+        let mut ti = TextInput::new();
+        for _ in 0..(TEXT_INPUT_CAP - 1) {
+            assert!(ti.insert(b'a'));
+        }
+        assert!(!ti.insert_char('中'));
+        assert_eq!(ti.len as usize, TEXT_INPUT_CAP - 1);
+        assert_eq!(ti.as_str().len(), TEXT_INPUT_CAP - 1);
     }
 
     #[test]

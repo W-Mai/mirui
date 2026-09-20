@@ -136,6 +136,15 @@ impl SwScratch {
             mask.as_ptr() as usize,
         )
     }
+
+    #[cfg(test)]
+    pub(crate) fn has_no_retained_buffers(&self) -> bool {
+        self.flatten_buf.capacity() == 0
+            && self.scanline_acc.capacity() == 0
+            && self.stroke_rail.capacity() == 0
+            && self.clip_recycled.capacity() == 0
+            && self.clip_mask_buf.capacity() == 0
+    }
 }
 
 impl<'a> SwRenderer<'a> {

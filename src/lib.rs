@@ -130,6 +130,7 @@ pub mod prelude {
     pub use crate::app::{App, RendererFactory};
     pub use crate::core::reactive::{Computed, Effect, Signal};
     pub use crate::ecs::{Component, Entity, IntoBundle, MonoClock, World};
+    pub use crate::input::event::focus::{Focusable, TextEditable};
     pub use crate::render::font::FontToken;
     pub use crate::render::path::{Path, PathId};
     pub use crate::surface::{SafeAreaInsets, Surface};

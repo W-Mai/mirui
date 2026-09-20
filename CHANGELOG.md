@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Signal Scope demo.** A responsive fixed-point oscilloscope combines live controls, deterministic dual-channel animation, and lossless LZ4-compressed MIRX artwork across native and Web Gallery targets.
 - **Surface safe areas.** Mobile surfaces publish logical system insets, and application roots apply them as minimum content padding with an explicit fullscreen opt-out.
+- **Native text editing.** Focused editable widgets control the mobile software keyboard, and fixed-capacity text input accepts UTF-8 scalar input without hidden allocation.
+- **Memory pressure hooks.** Native memory warnings release reconstructible renderer and layout caches while preserving application state and notify plugins through `Plugin::on_memory_warning`.
 
 ### Changed
 
@@ -18,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Mobile lifecycle recovery.** Android and iOS hosts ignore stale window events, retain WGPU device identity across ordinary suspension, and recreate software presenters after same-size resume.
+- **Mobile lifecycle recovery.** Android and iOS hosts ignore stale window events, retain WGPU device identity across ordinary suspension, recreate software presenters after same-size resume, and recover boundedly from outdated or lost WGPU surfaces.
+- **Mobile input identity.** Opaque native touch identifiers map to stable compact pointer slots until each contact ends instead of being truncated to one byte.
+- **iOS drawable geometry.** Full-surface rendering and logical safe-area insets use one physical coordinate model across resize and density changes.
 
 ## [0.46.0] - 2026-09-18
 

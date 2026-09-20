@@ -284,7 +284,11 @@ cargo generate W-Mai/mirui-templates ios --name hello-mirui-ios
 
 Android uses a NativeActivity entry point and builds for `aarch64-linux-android` through `cargo-apk`. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
 
-Mobile applications retain their world and renderer state across suspend and resume. Software-rendered hosts use native device density within an explicit framebuffer budget. `app.spawn_root()` keeps children inside the current safe area by default; fullscreen content can opt out with `app.spawn_root().ignore_safe_area().id()`.
+Mobile applications retain their world and renderer state across suspend and resume. Touch contacts are mapped to stable compact pointer IDs for their full lifetime, and a focused `TextInput` opens the native software keyboard while preserving UTF-8 text delivered by native input events. Custom editors can opt into the same behavior by attaching both `Focusable` and `TextEditable`.
+
+Software-rendered hosts use native device density within an explicit framebuffer budget. Resize admission is transactional: an allocation or budget failure leaves the last valid framebuffer active. WGPU acquisition recovers once from outdated or lost surfaces and skips transient timeout or occlusion frames. Native memory warnings release reconstructible text, path-placement, offscreen, software-raster, and GPU caches while preserving application state; plugins can release their own caches through `Plugin::on_memory_warning`.
+
+`app.spawn_root()` keeps children inside the current safe area by default; fullscreen content can opt out with `app.spawn_root().ignore_safe_area().id()`. iOS renders against the full drawable while publishing logical safe-area insets separately, so edge-to-edge backgrounds and inset content share one coordinate space.
 
 ## Skip the boilerplate
 

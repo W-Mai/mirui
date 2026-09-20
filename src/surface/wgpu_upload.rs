@@ -7,7 +7,9 @@ use winit::event::WindowEvent;
 use winit::window::Window;
 
 pub use super::wgpu_surface::SoftwareRenderScale;
-use super::wgpu_surface::{MobileHost, MobileSurface, MobileSurfaceError, WgpuRuntime, WgpuState};
+use super::wgpu_surface::{
+    MobileEventFlow, MobileHost, MobileSurface, MobileSurfaceError, WgpuRuntime, WgpuState,
+};
 use super::{
     BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, SafeAreaInsets, Surface,
 };
@@ -234,7 +236,7 @@ impl SoftwareUploadSurface {
             .state
             .as_ref()
             .expect("software upload surface is not resumed");
-        let window_size = state.window.inner_size();
+        let window_size = super::wgpu_surface::mobile_window_drawable_size(&state.window);
         let device_scale = Fixed::from_f32(state.window.scale_factor() as f32);
         let logical_width =
             Fixed::from_int(i32::try_from(window_size.width).unwrap_or(i32::MAX)) / device_scale;
@@ -248,20 +250,35 @@ impl SoftwareUploadSurface {
                 self.config.render_scale,
                 self.config.framebuffer_budget_bytes,
             )?;
-        self.render_scale = render_scale;
-        if super::wgpu_surface::software_presenter_needs_rebuild(
+        let dimensions_changed = self.width != width || self.height != height;
+        let needs_rebuild = super::wgpu_surface::software_presenter_needs_rebuild(
             self.width,
             self.height,
             width,
             height,
             self.presenter.is_some(),
-        ) {
-            self.buffer.resize(required, 0);
-            self.width = width;
-            self.height = height;
+        ) || self.render_scale != render_scale;
+        if needs_rebuild {
+            let next_buffer = if dimensions_changed {
+                let mut buffer = Vec::new();
+                buffer
+                    .try_reserve_exact(required)
+                    .map_err(|_| MobileSurfaceError::Allocation)?;
+                buffer.resize(required, 0);
+                Some(buffer)
+            } else {
+                None
+            };
             let exact_size =
                 u32::from(width) == state.config.width && u32::from(height) == state.config.height;
-            self.presenter = Some(Presenter::new(state, width, height, exact_size));
+            let presenter = Presenter::new(state, width, height, exact_size);
+            if let Some(buffer) = next_buffer {
+                self.buffer = buffer;
+            }
+            self.width = width;
+            self.height = height;
+            self.render_scale = render_scale;
+            self.presenter = Some(presenter);
             self.pending_present = true;
         }
         Ok(())
@@ -309,16 +326,14 @@ impl SoftwareUploadSurface {
         if !self.pending_present {
             return;
         }
+        let Some(surface_texture) = self.runtime.acquire_surface_texture() else {
+            return;
+        };
         let Some(state) = self.runtime.state.as_ref() else {
             return;
         };
         let Some(presenter) = self.presenter.as_ref() else {
             return;
-        };
-        let surface_texture = match state.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
-            _ => return,
         };
         let view = surface_texture
             .texture
@@ -370,16 +385,23 @@ impl MobileSurface for SoftwareUploadSurface {
         self.pending_present = false;
     }
 
-    fn handle_window_event(&mut self, event: WindowEvent) -> bool {
+    fn handle_window_event(
+        &mut self,
+        event: WindowEvent,
+    ) -> Result<MobileEventFlow, MobileSurfaceError> {
         let resized = matches!(
             event,
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
         );
         let exit = self.runtime.window_event(event);
-        if resized && let Err(error) = self.resize_storage() {
-            crate::warn!("software upload resize failed: {:?}", error);
+        if resized {
+            self.resize_storage()?;
         }
-        exit
+        Ok(if exit {
+            MobileEventFlow::Exit
+        } else {
+            MobileEventFlow::Continue
+        })
     }
 }
 

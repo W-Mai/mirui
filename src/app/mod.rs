@@ -388,6 +388,33 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.suspended
     }
 
+    /// Releases reconstructible caches while preserving application state.
+    pub fn handle_memory_warning(&mut self) {
+        if let Some(pool) = self.world.resource::<OffscreenBufferPool>() {
+            pool.trim_memory();
+        }
+        if let Some(layouts) = self
+            .world
+            .resource::<crate::text::layout::TextLayoutResource>()
+        {
+            layouts.trim_memory();
+        }
+        if let Some(paths) = self
+            .world
+            .resource::<crate::text::baseline::PathBaselineResource>()
+        {
+            paths.trim_memory();
+        }
+        self.factory.trim_memory();
+        for plugin in &mut self.plugins {
+            plugin.on_memory_warning(&mut self.world);
+        }
+        self.needs_full_first_frame = true;
+        if let Some(root) = self.root {
+            self.world.invalidate(root);
+        }
+    }
+
     fn clock_ns(&self) -> u64 {
         self.world
             .resource::<crate::ecs::MonoClock>()
@@ -1363,6 +1390,7 @@ mod lifecycle_tests {
         on_start: u32,
         on_suspend: u32,
         on_resume: u32,
+        on_memory_warning: u32,
     }
 
     struct TracePlugin {
@@ -1383,6 +1411,9 @@ mod lifecycle_tests {
         }
         fn on_resume(&mut self, _world: &mut World) {
             self.trace.borrow_mut().on_resume += 1;
+        }
+        fn on_memory_warning(&mut self, _world: &mut World) {
+            self.trace.borrow_mut().on_memory_warning += 1;
         }
     }
 
@@ -1446,5 +1477,22 @@ mod lifecycle_tests {
         let t = trace.borrow();
         assert_eq!(t.on_suspend, 1);
         assert_eq!(t.on_resume, 1);
+    }
+
+    #[test]
+    fn memory_warning_preserves_state_and_notifies_plugins() {
+        let (mut app, trace) = fresh();
+        let root = app.spawn_root().id();
+        app.set_root(root);
+        let path = app
+            .paths()
+            .insert(crate::render::path::Path::new())
+            .unwrap();
+
+        app.handle_memory_warning();
+
+        assert_eq!(trace.borrow().on_memory_warning, 1);
+        assert!(app.paths().with(path, |_| ()).is_ok());
+        assert_eq!(app.root, Some(root));
     }
 }

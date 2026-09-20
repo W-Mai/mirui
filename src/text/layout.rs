@@ -178,6 +178,11 @@ impl TextLayoutResource {
     pub fn borrow_mut(&self) -> RefMut<'_, TextLayoutCache> {
         self.0.borrow_mut()
     }
+
+    pub(crate) fn trim_memory(&self) {
+        let limits = self.0.borrow().limits();
+        *self.0.borrow_mut() = TextLayoutCache::new(limits);
+    }
 }
 
 impl TextLayoutCache {

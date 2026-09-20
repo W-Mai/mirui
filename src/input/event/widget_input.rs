@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn text_input_attach_installs_focus_and_key_handler() {
-        use crate::input::event::focus::{Focusable, KeyHandler};
+        use crate::input::event::focus::{Focusable, KeyHandler, TextEditable};
 
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
@@ -204,6 +204,7 @@ mod tests {
         attach_handlers_for(&mut world, e);
 
         assert!(world.get::<Focusable>(e).is_some());
+        assert!(world.get::<TextEditable>(e).is_some());
         assert!(world.get::<KeyHandler>(e).is_some());
         assert!(world.has::<HitTarget>(e));
         assert!(world.has::<InteractionFeedback>(e));

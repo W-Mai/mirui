@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
 use winit::event::{
-    ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
+    ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
 };
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
@@ -25,13 +25,72 @@ use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
-fn touch_input_event(id: u64, phase: TouchPhase, x: Fixed, y: Fixed) -> Option<InputEvent> {
-    let id = u8::try_from(id).ok()?;
-    Some(match phase {
-        TouchPhase::Started => InputEvent::PointerDown { id, x, y },
-        TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
-        TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
-    })
+const MAX_NATIVE_TOUCHES: usize = 16;
+
+struct NativeTouchMap<const N: usize> {
+    native_ids: [u64; N],
+    occupied: u32,
+}
+
+impl<const N: usize> NativeTouchMap<N> {
+    const fn new() -> Self {
+        Self {
+            native_ids: [0; N],
+            occupied: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.occupied = 0;
+    }
+
+    fn resolve(&self, native_id: u64) -> Option<usize> {
+        self.native_ids
+            .iter()
+            .enumerate()
+            .position(|(slot, candidate)| self.is_occupied(slot) && *candidate == native_id)
+    }
+
+    fn start(&mut self, native_id: u64) -> Option<usize> {
+        if let Some(slot) = self.resolve(native_id) {
+            return Some(slot);
+        }
+        let slot = (0..N).find(|slot| !self.is_occupied(*slot))?;
+        self.native_ids[slot] = native_id;
+        self.occupied |= 1_u32.checked_shl(slot as u32)?;
+        Some(slot)
+    }
+
+    fn is_occupied(&self, slot: usize) -> bool {
+        1_u32
+            .checked_shl(slot as u32)
+            .is_some_and(|mask| self.occupied & mask != 0)
+    }
+
+    fn input_event(
+        &mut self,
+        native_id: u64,
+        phase: TouchPhase,
+        x: Fixed,
+        y: Fixed,
+    ) -> Option<InputEvent> {
+        let slot = match phase {
+            TouchPhase::Started => self.start(native_id)?,
+            TouchPhase::Moved | TouchPhase::Ended | TouchPhase::Cancelled => {
+                self.resolve(native_id)?
+            }
+        };
+        let id = u8::try_from(slot).ok()?;
+        let event = match phase {
+            TouchPhase::Started => InputEvent::PointerDown { id, x, y },
+            TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
+            TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
+        };
+        if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+            self.occupied &= !1_u32.checked_shl(slot as u32).unwrap_or(0);
+        }
+        Some(event)
+    }
 }
 
 fn physical_to_logical(x: f64, y: f64, scale: f64) -> (Fixed, Fixed) {
@@ -46,6 +105,14 @@ fn physical_to_logical(x: f64, y: f64, scale: f64) -> (Fixed, Fixed) {
     )
 }
 
+fn enqueue_text(queue: &mut VecDeque<InputEvent>, text: &str) {
+    queue.extend(
+        text.chars()
+            .filter(|ch| !ch.is_control())
+            .map(|ch| InputEvent::CharInput { ch }),
+    );
+}
+
 #[cfg(target_os = "android")]
 pub(crate) fn mobile_window_safe_area(window: &Window) -> SafeAreaInsets {
     use winit::platform::android::WindowExtAndroid;
@@ -54,7 +121,7 @@ pub(crate) fn mobile_window_safe_area(window: &Window) -> SafeAreaInsets {
     if content.right <= content.left || content.bottom <= content.top {
         return SafeAreaInsets::default();
     }
-    let size = window.inner_size();
+    let size = mobile_window_drawable_size(window);
     safe_area_from_physical(
         size.width,
         size.height,
@@ -66,7 +133,7 @@ pub(crate) fn mobile_window_safe_area(window: &Window) -> SafeAreaInsets {
     )
 }
 
-#[cfg(any(target_os = "android", test))]
+#[cfg(any(target_os = "android", target_os = "ios", test))]
 fn safe_area_from_physical(
     width: u32,
     height: u32,
@@ -88,8 +155,34 @@ fn safe_area_from_physical(
 }
 
 #[cfg(target_os = "ios")]
-pub(crate) fn mobile_window_safe_area(_window: &Window) -> SafeAreaInsets {
-    SafeAreaInsets::default()
+pub(crate) fn mobile_window_safe_area(window: &Window) -> SafeAreaInsets {
+    let outer = mobile_window_drawable_size(window);
+    let inner = window.inner_size();
+    let position = window.inner_position().unwrap_or_default();
+    safe_area_from_physical(
+        outer.width,
+        outer.height,
+        Fixed::from_f32(window.scale_factor() as f32),
+        position.x,
+        position.y,
+        position
+            .x
+            .saturating_add(i32::try_from(inner.width).unwrap_or(i32::MAX)),
+        position
+            .y
+            .saturating_add(i32::try_from(inner.height).unwrap_or(i32::MAX)),
+    )
+}
+
+pub(crate) fn mobile_window_drawable_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
+    #[cfg(target_os = "ios")]
+    {
+        window.outer_size()
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        window.inner_size()
+    }
 }
 
 /// Live wgpu state — only present after the first `pump_app_events`
@@ -128,6 +221,14 @@ pub trait WgpuTarget: Surface {
     fn state(&self) -> Option<&WgpuState>;
 
     fn state_mut(&mut self) -> Option<&mut WgpuState>;
+
+    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+        match self.state()?.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Some(texture),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -151,6 +252,8 @@ pub(crate) struct WgpuRuntime {
     /// CursorMoved 100+ times per gesture and dispatch_input is too
     /// expensive to walk that on every event.
     pub(crate) pending_move: Option<(Fixed, Fixed)>,
+    native_touches: NativeTouchMap<MAX_NATIVE_TOUCHES>,
+    reconfigure_before_acquire: bool,
 }
 
 impl WgpuRuntime {
@@ -161,6 +264,8 @@ impl WgpuRuntime {
             event_queue: VecDeque::new(),
             last_cursor: (Fixed::ZERO, Fixed::ZERO),
             pending_move: None,
+            native_touches: NativeTouchMap::new(),
+            reconfigure_before_acquire: false,
         }
     }
 
@@ -180,6 +285,68 @@ impl WgpuRuntime {
         self.state = None;
         self.event_queue.clear();
         self.pending_move = None;
+        self.native_touches.clear();
+        self.reconfigure_before_acquire = false;
+    }
+
+    fn reconfigure_surface(&mut self) -> bool {
+        let Some(state) = self.state.as_mut() else {
+            return false;
+        };
+        let size = mobile_window_drawable_size(&state.window);
+        state.config.width = size.width.max(1);
+        state.config.height = size.height.max(1);
+        state.surface.configure(&state.device, &state.config);
+        state.msaa = create_msaa(&state.device, &state.config);
+        self.reconfigure_before_acquire = false;
+        true
+    }
+
+    fn recreate_surface(&mut self) -> bool {
+        let Some(previous) = self.state.take() else {
+            return false;
+        };
+        let context = previous.context.clone();
+        let window = previous.window.clone();
+        drop(previous);
+        self.state = Some(create_wgpu_state_with_context(context, window));
+        self.reconfigure_before_acquire = false;
+        true
+    }
+
+    pub(crate) fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+        if self.reconfigure_before_acquire && !self.reconfigure_surface() {
+            return None;
+        }
+        let mut retried = false;
+        loop {
+            let acquired = self.state.as_ref()?.surface.get_current_texture();
+            match acquired {
+                wgpu::CurrentSurfaceTexture::Success(texture) => return Some(texture),
+                wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                    self.reconfigure_before_acquire = true;
+                    return Some(texture);
+                }
+                wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                    return None;
+                }
+                wgpu::CurrentSurfaceTexture::Outdated if !retried => {
+                    retried = true;
+                    if !self.reconfigure_surface() {
+                        return None;
+                    }
+                }
+                wgpu::CurrentSurfaceTexture::Lost if !retried => {
+                    retried = true;
+                    if !self.recreate_surface() {
+                        return None;
+                    }
+                }
+                wgpu::CurrentSurfaceTexture::Outdated
+                | wgpu::CurrentSurfaceTexture::Lost
+                | wgpu::CurrentSurfaceTexture::Validation => return None,
+            }
+        }
     }
 
     /// winit hands every coordinate as `PhysicalPosition` (device
@@ -206,6 +373,18 @@ impl WgpuRuntime {
                     state.surface.configure(&state.device, &state.config);
                     state.msaa = create_msaa(&state.device, &state.config);
                 }
+                self.reconfigure_before_acquire = false;
+                false
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if let Some(state) = self.state.as_mut() {
+                    let new_size = mobile_window_drawable_size(&state.window);
+                    state.config.width = new_size.width.max(1);
+                    state.config.height = new_size.height.max(1);
+                    state.surface.configure(&state.device, &state.config);
+                    state.msaa = create_msaa(&state.device, &state.config);
+                }
+                self.reconfigure_before_acquire = false;
                 false
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -250,7 +429,7 @@ impl WgpuRuntime {
             }
             WindowEvent::Touch(touch) => {
                 let (x, y) = self.to_logical(touch.location.x, touch.location.y);
-                if let Some(event) = touch_input_event(touch.id, touch.phase, x, y) {
+                if let Some(event) = self.native_touches.input_event(touch.id, touch.phase, x, y) {
                     self.event_queue.push_back(event);
                 }
                 false
@@ -277,7 +456,7 @@ impl WgpuRuntime {
                     Key::Named(NamedKey::Home) => Some(KEY_HOME),
                     Key::Named(NamedKey::End) => Some(KEY_END),
                     Key::Named(NamedKey::Enter) => Some(KEY_RETURN),
-                    Key::Named(NamedKey::Escape) => {
+                    Key::Named(NamedKey::Escape | NamedKey::BrowserBack) => {
                         self.event_queue.push_back(InputEvent::Quit);
                         return true;
                     }
@@ -289,12 +468,13 @@ impl WgpuRuntime {
                         pressed: true,
                     });
                 }
-                if let Some(s) = text.as_ref()
-                    && let Some(ch) = s.chars().next()
-                    && !ch.is_control()
-                {
-                    self.event_queue.push_back(InputEvent::CharInput { ch });
+                if let Some(text) = text.as_ref() {
+                    enqueue_text(&mut self.event_queue, text);
                 }
+                false
+            }
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                enqueue_text(&mut self.event_queue, &text);
                 false
             }
             _ => false,
@@ -385,7 +565,7 @@ fn configure_wgpu_state(
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
 ) -> WgpuState {
-    let size = window.inner_size();
+    let size = mobile_window_drawable_size(&window);
     let surface_caps = surface.get_capabilities(&context.adapter);
     let surface_format = surface_caps
         .formats
@@ -521,6 +701,10 @@ impl WgpuTarget for WgpuSurface {
     fn state_mut(&mut self) -> Option<&mut WgpuState> {
         self.state_mut()
     }
+
+    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+        self.handler.runtime.acquire_surface_texture()
+    }
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -532,7 +716,7 @@ impl Surface for WgpuSurface {
             .state
             .as_ref()
             .expect("WgpuSurface state must be initialised by new()");
-        let size = state.window.inner_size();
+        let size = mobile_window_drawable_size(&state.window);
         let scale_int = state
             .window
             .scale_factor()
@@ -570,7 +754,7 @@ impl Surface for WgpuSurface {
             .state
             .as_ref()
             .expect("WgpuSurface state must be initialised by new()");
-        let size = state.window.inner_size();
+        let size = mobile_window_drawable_size(&state.window);
         (size.width, size.height)
     }
 
@@ -605,11 +789,21 @@ pub trait MobileSurface: Surface {
 
     fn suspend_window(&mut self);
 
-    fn handle_window_event(&mut self, event: WindowEvent) -> bool;
+    fn handle_window_event(
+        &mut self,
+        event: WindowEvent,
+    ) -> Result<MobileEventFlow, MobileSurfaceError>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MobileEventFlow {
+    Continue,
+    Exit,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MobileSurfaceError {
+    Allocation,
     BufferSizeOverflow,
     InvalidRenderScale,
     FramebufferBudget { required: usize, budget: usize },
@@ -774,6 +968,10 @@ impl WgpuTarget for MobileWgpuSurface {
     fn state_mut(&mut self) -> Option<&mut WgpuState> {
         self.runtime.state.as_mut()
     }
+
+    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+        self.runtime.acquire_surface_texture()
+    }
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -787,8 +985,15 @@ impl MobileSurface for MobileWgpuSurface {
         self.runtime.suspend();
     }
 
-    fn handle_window_event(&mut self, event: WindowEvent) -> bool {
-        self.runtime.window_event(event)
+    fn handle_window_event(
+        &mut self,
+        event: WindowEvent,
+    ) -> Result<MobileEventFlow, MobileSurfaceError> {
+        Ok(if self.runtime.window_event(event) {
+            MobileEventFlow::Exit
+        } else {
+            MobileEventFlow::Continue
+        })
     }
 }
 
@@ -800,7 +1005,7 @@ impl Surface for MobileWgpuSurface {
             .state
             .as_ref()
             .expect("mobile WGPU surface is not resumed");
-        let size = state.window.inner_size();
+        let size = mobile_window_drawable_size(&state.window);
         let scale = Fixed::from_f32(state.window.scale_factor() as f32);
         let physical_width = u16::try_from(size.width).unwrap_or(u16::MAX);
         let physical_height = u16::try_from(size.height).unwrap_or(u16::MAX);
@@ -830,7 +1035,7 @@ impl Surface for MobileWgpuSurface {
             .state
             .as_ref()
             .expect("mobile WGPU surface is not resumed");
-        let size = state.window.inner_size();
+        let size = mobile_window_drawable_size(&state.window);
         (size.width, size.height)
     }
 
@@ -879,6 +1084,7 @@ where
     build: Option<Build>,
     app: Option<crate::app::App<B, F>>,
     window: Option<Arc<Window>>,
+    ime_allowed: bool,
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -896,6 +1102,21 @@ where
             build: Some(build),
             app: None,
             window: None,
+            ime_allowed: false,
+        }
+    }
+
+    fn sync_text_input(&mut self) {
+        let requested = self
+            .app
+            .as_ref()
+            .is_some_and(|app| crate::input::event::focus::text_input_requested(&app.world));
+        if requested == self.ime_allowed {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.set_ime_allowed(requested);
+            self.ime_allowed = requested;
         }
     }
 
@@ -972,12 +1193,24 @@ where
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        if self.ime_allowed {
+            if let Some(window) = self.window.as_ref() {
+                window.set_ime_allowed(false);
+            }
+            self.ime_allowed = false;
+        }
         if let Some(app) = self.app.as_mut() {
             app.suspend();
             app.backend.suspend_window();
         }
         self.window = None;
         event_loop.set_control_flow(ControlFlow::Wait);
+    }
+
+    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(app) = self.app.as_mut() {
+            app.handle_memory_warning();
+        }
     }
 
     fn window_event(
@@ -1003,9 +1236,20 @@ where
                 event_loop.exit();
                 return;
             }
-        } else if app.backend.handle_window_event(event) {
-            event_loop.exit();
-            return;
+            self.sync_text_input();
+        } else {
+            match app.backend.handle_window_event(event) {
+                Ok(MobileEventFlow::Continue) => {}
+                Ok(MobileEventFlow::Exit) => {
+                    event_loop.exit();
+                    return;
+                }
+                Err(error) => {
+                    crate::warn!("mobile surface event failed: {:?}", error);
+                    event_loop.exit();
+                    return;
+                }
+            }
         }
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -1067,18 +1311,43 @@ mod tests {
     }
 
     #[test]
-    fn touch_ids_and_cancellation_preserve_pointer_semantics() {
+    fn opaque_touch_ids_map_to_stable_compact_slots() {
+        let mut touches = NativeTouchMap::<2>::new();
         let x = Fixed::from_int(7);
         let y = Fixed::from_int(11);
+        let native = 0x0000_7fff_1234_5678;
         assert!(matches!(
-            touch_input_event(3, TouchPhase::Started, x, y),
-            Some(InputEvent::PointerDown { id: 3, x: px, y: py }) if px == x && py == y
+            touches.input_event(native, TouchPhase::Started, x, y),
+            Some(InputEvent::PointerDown { id: 0, x: px, y: py }) if px == x && py == y
         ));
         assert!(matches!(
-            touch_input_event(3, TouchPhase::Cancelled, x, y),
-            Some(InputEvent::PointerUp { id: 3, x: px, y: py }) if px == x && py == y
+            touches.input_event(native, TouchPhase::Moved, x, y),
+            Some(InputEvent::PointerMove { id: 0, x: px, y: py }) if px == x && py == y
         ));
-        assert!(touch_input_event(256, TouchPhase::Moved, x, y).is_none());
+        assert!(matches!(
+            touches.input_event(native, TouchPhase::Cancelled, x, y),
+            Some(InputEvent::PointerUp { id: 0, x: px, y: py }) if px == x && py == y
+        ));
+        assert!(matches!(
+            touches.input_event(native + 1, TouchPhase::Started, x, y),
+            Some(InputEvent::PointerDown { id: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn touch_map_preserves_established_contacts_when_full() {
+        let mut touches = NativeTouchMap::<2>::new();
+        let x = Fixed::ZERO;
+        let y = Fixed::ZERO;
+        assert!(touches.input_event(10, TouchPhase::Started, x, y).is_some());
+        assert!(touches.input_event(20, TouchPhase::Started, x, y).is_some());
+        assert!(touches.input_event(30, TouchPhase::Started, x, y).is_none());
+        assert!(matches!(
+            touches.input_event(20, TouchPhase::Moved, x, y),
+            Some(InputEvent::PointerMove { id: 1, .. })
+        ));
+        touches.clear();
+        assert!(touches.input_event(20, TouchPhase::Moved, x, y).is_none());
     }
 
     #[test]
@@ -1091,6 +1360,25 @@ mod tests {
             physical_to_logical(12.0, 20.0, 0.0),
             (Fixed::from_int(12), Fixed::from_int(20))
         );
+    }
+
+    #[test]
+    fn text_event_translation_keeps_every_committed_scalar() {
+        let mut queue = VecDeque::new();
+        enqueue_text(&mut queue, "A中\n🙂");
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InputEvent::CharInput { ch: 'A' })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InputEvent::CharInput { ch: '中' })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InputEvent::CharInput { ch: '🙂' })
+        ));
+        assert!(queue.is_empty());
     }
 
     #[test]

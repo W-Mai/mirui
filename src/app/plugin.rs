@@ -18,7 +18,7 @@ use crate::surface::{InputEvent, Surface};
 /// - system:   <names + slot, or "none">
 /// - view:     <names + priority, or "none">
 /// - entity:   <markers + spawn timing, or "none">
-/// - hooks:    <`on_event` / `pre_render` / `post_render` / `on_quit`, or "none">
+/// - hooks:    <`on_event` / `pre_render` / `post_render` / lifecycle hooks, or "none">
 /// ```
 ///
 /// Users reading `add_plugin(...)` can then tell what changes in their
@@ -61,6 +61,10 @@ where
     /// Counterpart to `on_suspend`; runs when `App::resume` flips `is_suspended`
     /// back to false, before the next tick.
     fn on_resume(&mut self, _world: &mut World) {}
+
+    /// Runs after reconstructible framework caches are released in response
+    /// to a native memory warning.
+    fn on_memory_warning(&mut self, _world: &mut World) {}
 
     fn on_quit(&mut self, _world: &mut World) {}
 

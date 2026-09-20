@@ -217,6 +217,11 @@ impl OffscreenBufferPool {
         self.next_cache_revision.set(revision.checked_add(1)?);
         Some(revision)
     }
+
+    pub(crate) fn trim_memory(&self) {
+        self.cache.borrow_mut().cache_mut().clear();
+        self.last_format.set(None);
+    }
 }
 
 impl Default for OffscreenBufferPool {

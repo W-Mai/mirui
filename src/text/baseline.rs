@@ -1042,6 +1042,12 @@ impl PathBaselineCache {
         self.frame = self.frame.wrapping_add(1).max(1);
     }
 
+    fn trim_memory(&mut self) {
+        self.entries = Vec::new();
+        self.segments = Vec::new();
+        self.frame = 0;
+    }
+
     fn resolve<'a>(
         &'a mut self,
         key: MeasurementKey,
@@ -1371,6 +1377,12 @@ impl<T> FrameArena<T> {
     fn begin_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1).max(1);
     }
+
+    fn trim_memory(&mut self) {
+        self.entries = Vec::new();
+        self.values = Vec::new();
+        self.frame = 0;
+    }
 }
 
 impl<T: Copy + Default> FrameArena<T> {
@@ -1530,6 +1542,11 @@ impl PathPlacementCache {
         self.carets.begin_frame();
     }
 
+    fn trim_memory(&mut self) {
+        self.glyphs.trim_memory();
+        self.carets.trim_memory();
+    }
+
     fn resolve_glyphs<'a>(
         &'a mut self,
         key: PlacementKey,
@@ -1602,6 +1619,12 @@ impl PathBaselineResource {
         let runtime = &mut *self.0.borrow_mut();
         runtime.baselines.begin_frame();
         runtime.placements.begin_frame();
+    }
+
+    pub(crate) fn trim_memory(&self) {
+        let runtime = &mut *self.0.borrow_mut();
+        runtime.baselines.trim_memory();
+        runtime.placements.trim_memory();
     }
 
     #[cfg(test)]

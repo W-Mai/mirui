@@ -185,6 +185,20 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
             draw_failed: false,
         }
     }
+
+    fn trim_memory(&mut self) {
+        self.cache = None;
+        self.tessellator = FillTessellator::new();
+        self.stroke_tessellator = StrokeTessellator::new();
+        self.stroke_scratch = StrokeScratch::new();
+        self.texture_pool = new_pool();
+        self.scalar_surface_pool = new_scalar_surface_pool();
+        self.scalar_samples = alloc::vec::Vec::new();
+        self.glyph_instances = alloc::vec::Vec::new();
+        self.glyph_buffers = GlyphBufferArena::new();
+        self.linear_sampler = None;
+        self.nearest_sampler = None;
+    }
 }
 
 pub struct WgpuRenderer<'a, B: WgpuTarget> {
@@ -683,15 +697,13 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if self.frame.is_some() {
             return true;
         }
+        let Some(surface_texture) = self.surface.acquire_surface_texture() else {
+            return false;
+        };
         let state = self
             .surface
             .state()
             .expect("WgpuSurface state missing in begin_frame");
-        let surface_texture = match state.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-            _ => return false,
-        };
         let swapchain_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
