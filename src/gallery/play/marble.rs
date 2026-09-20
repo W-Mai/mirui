@@ -1250,6 +1250,7 @@ mod tests {
         assert_eq!(model.ball_count(), 5);
         assert_eq!(model.pad_count(), 5);
         assert_eq!(model.page, Page::Play);
+        assert!(core::mem::size_of::<MarbleModel>() <= 5 * 1024);
     }
 
     #[test]

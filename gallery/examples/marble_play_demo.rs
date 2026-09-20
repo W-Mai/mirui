@@ -1,5 +1,6 @@
 fn main() {
-    gallery::run("mirui — Marble Play", 480, 320, |setup| {
+    let (width, height) = mirui::gallery::demos::marble_play::VIEWPORT;
+    gallery::run("mirui — Marble Play", width, height, |setup| {
         #[cfg(all(any(feature = "sdl", feature = "sdl-gpu"), not(target_arch = "wasm32")))]
         setup.app.add_plugin(mirui::app::plugins::AudioPlugin::new(
             mirui::audio::SdlAudioSink::new(),

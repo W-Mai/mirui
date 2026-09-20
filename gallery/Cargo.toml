@@ -44,14 +44,17 @@ web-sys = { version = "0.3.99", optional = true, features = [
 [[example]]
 name = "compose_backend_demo"
 path = "examples/backends/compose_backend_demo.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "compose_backend_dsl"
 path = "examples/backends/compose_backend_dsl.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "sdl_smoke"
 path = "examples/backends/sdl_smoke.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "sdl_gpu_demo"
@@ -85,10 +88,12 @@ path = "examples/tools/effect_demo_snapshot.rs"
 [[example]]
 name = "hello_sdl"
 path = "examples/tools/hello_sdl.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "layout_demo"
 path = "examples/tools/layout_demo.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "lazy_list_snapshot"
@@ -105,10 +110,12 @@ path = "examples/tools/perf_bench.rs"
 [[example]]
 name = "perf_collect"
 path = "examples/tools/perf_collect.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "sim_input_demo"
 path = "examples/tools/sim_input_demo.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "snapshot_cover_flow"
@@ -129,10 +136,12 @@ path = "examples/tools/theme_swap_snapshot.rs"
 [[example]]
 name = "widget_demo"
 path = "examples/tools/widget_demo.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "zorder_baseline"
 path = "examples/tools/zorder_baseline.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "sdf_label_snapshot"
@@ -207,6 +216,10 @@ name = "interaction_lab_snapshot"
 path = "examples/tools/interaction_lab_snapshot.rs"
 
 [[example]]
+name = "marble_play_snapshot"
+path = "examples/tools/marble_play_snapshot.rs"
+
+[[example]]
 name = "lumen_lab_snapshot"
 path = "examples/tools/lumen_lab_snapshot.rs"
 
@@ -245,6 +258,7 @@ path = "examples/tools/echo_walker_snapshot.rs"
 [[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
+required-features = ["sdl"]
 
 [[example]]
 name = "persistence_counter_demo"

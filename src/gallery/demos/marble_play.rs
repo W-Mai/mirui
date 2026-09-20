@@ -26,6 +26,8 @@ use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Switch, Text, TextAlign};
 use alloc::format;
 
+pub const VIEWPORT: (u16, u16) = (480, 320);
+
 #[derive(crate::Component, Default)]
 struct MarbleBoard;
 

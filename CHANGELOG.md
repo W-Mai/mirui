@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Afterhours replay persistence.** Tidal Atlas and Echo Walker record bounded command logs with a versioned wire header, CRC-32 validation, caller-provided encoding storage, atomic semantic replay, and Gallery persistence adapters.
 - **Declarative drag cancellation.** `on DragCancel` handlers participate in the typed `ui!` gesture syntax for transactional interactions.
 
+### Fixed
+
+- **Gallery backend example gating.** SDL-only diagnostic examples declare their required feature so pure WGPU and Web Canvas example matrices compile without unrelated SDL imports.
+
 ## [0.46.2] - 2026-09-20
 
 ### Fixed

@@ -31,6 +31,8 @@ Layout Lab, Typography Lab and Interaction Lab group related framework capabilit
 
 The Product group contains Signal Scope, an interactive instrument surface with allocation-stable custom drawing, responsive controls and lossless MIRX artwork.
 
+The Play group contains ten complete 480×320 applications with bounded models, fixed-step simulation, backend-neutral drawing, touch controls, and standalone native launchers. Tidal Atlas and Echo Walker also exercise versioned command-log persistence through the Gallery storage adapter.
+
 The source panel reads the selected scenario module directly. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
 
 ## Build for release
@@ -44,20 +46,11 @@ Output lands in `gallery/web/dist/`.
 
 ## A note on artifact size
 
-`trunk serve` and bare `trunk build` use the **dev** profile:
-`opt-level = 0`, debug symbols retained, no `strip` / `lto`. The wasm
-comes out around 3.5 MB — fast to rebuild (~2.4 s incremental), large
-on disk. That size is dev-only and never shipped.
+`trunk serve` and bare `trunk build` use the **dev** profile with `opt-level = 0`, debug symbols retained, and no `strip` or LTO. Development artifacts prioritize rebuild speed and are not deployment-size references.
 
-`trunk build --release` uses the workspace `[profile.release]`
-(`opt-level = "z"`, `lto = true`, `codegen-units = 1`, `strip = true`,
-`panic = "abort"`). The wasm drops to ~410 KB, ~166 KB gzipped — the
-size a server actually serves. Incremental release rebuilds take ~6 s.
+`trunk build --release` uses the workspace `[profile.release]` with `opt-level = "z"`, LTO, one codegen unit, stripped symbols, and aborting panics. Measure the emitted `.wasm` after every Gallery feature batch because embedded fonts, artwork, and complete application modules intentionally remain in the single browser artifact.
 
-`wasm-opt` runs only in `--release` and needs `--all-features` to
-accept the bulk-memory / sign-extension ops that rustc emits by
-default for wasm32 since 1.82; that flag is wired in
-`index.html`'s `data-wasm-opt-params`.
+`wasm-opt` runs only in `--release` and needs `--all-features` to accept the bulk-memory and sign-extension operations emitted by current wasm32 Rust toolchains; `index.html` supplies that flag through `data-wasm-opt-params`.
 
 ## Adding a demo
 
