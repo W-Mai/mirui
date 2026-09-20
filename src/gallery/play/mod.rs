@@ -13,3 +13,4 @@ pub(crate) mod orbit;
 pub(crate) mod paint;
 pub(crate) mod pixel;
 pub(crate) mod post;
+pub(crate) mod tidal;

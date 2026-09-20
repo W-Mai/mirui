@@ -64,6 +64,7 @@ pub mod tabbar;
 pub mod text_input;
 pub mod theme_swap;
 pub mod three_body;
+pub mod tidal_atlas;
 pub mod transform;
 pub mod typography_lab;
 pub mod vector_mandala;

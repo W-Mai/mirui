@@ -235,6 +235,10 @@ name = "orbital_mission_snapshot"
 path = "examples/tools/orbital_mission_snapshot.rs"
 
 [[example]]
+name = "tidal_atlas_snapshot"
+path = "examples/tools/tidal_atlas_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 
