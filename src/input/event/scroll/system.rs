@@ -321,6 +321,42 @@ pub(crate) fn scroll_system_with_target(
                 state.last_y = *y;
             }
         }
+        InputEvent::PointerCancel { .. } | InputEvent::AppSuspend => {
+            let target = world
+                .resource::<ScrollDragState>()
+                .filter(|state| state.active && state.resolved)
+                .map(|state| state.target);
+
+            if let Some(target) = target {
+                let bounds = scroll_bounds(world, target).unwrap_or_default();
+                let mut applied_dx = Fixed::ZERO;
+                let mut applied_dy = Fixed::ZERO;
+                if let Some(offset) = world.get_mut::<ScrollOffset>(target) {
+                    let old_x = offset.x;
+                    let old_y = offset.y;
+                    offset.x = offset.x.clamp(Fixed::ZERO, bounds.max_x);
+                    offset.y = offset.y.clamp(Fixed::ZERO, bounds.max_y);
+                    applied_dx = offset.x - old_x;
+                    applied_dy = offset.y - old_y;
+                }
+                accumulate_scroll_delta(world, target, applied_dx, applied_dy);
+                if applied_dx != Fixed::ZERO || applied_dy != Fixed::ZERO {
+                    world.insert(target, crate::ui::dirty::Dirty);
+                }
+            }
+
+            if let Some(spring) = world.resource_mut::<ScrollSpring>() {
+                spring.x = None;
+                spring.y = None;
+                spring.target_entity = None;
+            }
+            if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                state.active = false;
+                state.resolved = false;
+                state.vel_x = Fixed::ZERO;
+                state.vel_y = Fixed::ZERO;
+            }
+        }
         InputEvent::PointerUp { .. } => {
             let (vel_x, vel_y, target_entity, dir, elastic) = {
                 let Some(state) = world.resource::<ScrollDragState>() else {
@@ -920,6 +956,69 @@ mod tests {
                 off
             );
         }
+    }
+
+    #[test]
+    fn pointer_cancel_stops_drag_without_inertia() {
+        use crate::ui::{ComputedRect, Widget};
+
+        let mut world = World::new();
+        world.insert_resource(ScrollDragState::default());
+        world.insert_resource(ScrollSpring::default());
+        let target = world.spawn_empty();
+        world.insert(target, Widget);
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(0, 0, 128, 100)),
+        );
+        world.insert(
+            target,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(40),
+            },
+        );
+        world.insert(
+            target,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: true,
+                content_height: Fixed::from_int(500),
+                content_width: Fixed::ZERO,
+            },
+        );
+        if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.active = true;
+            state.resolved = true;
+            state.target = target;
+            state.vel_y = Fixed::from_int(8);
+        }
+
+        scroll_system(
+            &mut world,
+            target,
+            &InputEvent::PointerCancel {
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(50),
+            },
+            128,
+            100,
+        );
+
+        let state = world.resource::<ScrollDragState>().unwrap();
+        assert!(!state.active);
+        assert!(!state.resolved);
+        assert_eq!(state.vel_x, Fixed::ZERO);
+        assert_eq!(state.vel_y, Fixed::ZERO);
+        let spring = world.resource::<ScrollSpring>().unwrap();
+        assert!(spring.x.is_none());
+        assert!(spring.y.is_none());
+        assert!(spring.target_entity.is_none());
+        assert_eq!(
+            world.get::<ScrollOffset>(target).unwrap().y,
+            Fixed::from_int(40)
+        );
     }
 
     #[test]

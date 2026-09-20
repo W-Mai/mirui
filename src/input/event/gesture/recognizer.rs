@@ -74,13 +74,20 @@ impl GestureRecognizer {
         events_out: &mut GestureEvents,
     ) {
         if self.scroll_claimed {
-            if matches!(event, InputEvent::PointerUp { .. }) {
-                if let InputEvent::PointerUp { id, .. } = event {
+            if matches!(
+                event,
+                InputEvent::PointerUp { .. } | InputEvent::PointerCancel { .. }
+            ) {
+                if let InputEvent::PointerUp { id, .. } | InputEvent::PointerCancel { id, .. } =
+                    event
+                {
                     self.release_finger(*id);
                 }
                 if self.active_count() == 0 {
                     self.reset();
                 }
+            } else if matches!(event, InputEvent::AppSuspend) {
+                self.reset();
             }
             return;
         }
@@ -93,6 +100,8 @@ impl GestureRecognizer {
                 self.on_move(*id, *x, *y, elapsed_ms, events_out)
             }
             InputEvent::PointerUp { id, x, y } => self.on_up(*id, *x, *y, elapsed_ms, events_out),
+            InputEvent::PointerCancel { id, x, y } => self.on_cancel(*id, *x, *y, events_out),
+            InputEvent::AppSuspend => self.cancel_active(events_out),
             _ => {}
         }
     }
@@ -259,6 +268,32 @@ impl GestureRecognizer {
             }
             GestureState::Idle => {}
         }
+    }
+
+    fn on_cancel(&mut self, id: u8, x: Fixed, y: Fixed, events_out: &mut GestureEvents) {
+        if self.find_slot(id).is_none() {
+            return;
+        }
+        if self.state == GestureState::Dragging
+            && let Some(target) = self.target
+        {
+            events_out.push(GestureEvent::DragCancel { x, y, target });
+        }
+        self.reset();
+    }
+
+    fn cancel_active(&mut self, events_out: &mut GestureEvents) {
+        let finger = self.fingers.iter().find(|finger| finger.active).copied();
+        if self.state == GestureState::Dragging
+            && let (Some(target), Some(finger)) = (self.target, finger)
+        {
+            events_out.push(GestureEvent::DragCancel {
+                x: finger.current_x,
+                y: finger.current_y,
+                target,
+            });
+        }
+        self.reset();
     }
 
     fn capture_multi_baseline(&mut self) {

@@ -22,7 +22,7 @@ pub struct PointerCursor {
     pub x: Fixed,
     pub y: Fixed,
     pub down: bool,
-    /// Bumps on every PointerDown / PointerUp; PointerMove leaves it.
+    /// Bumps on every pointer press, release, or cancellation.
     pub event_seq: u32,
 }
 
@@ -64,7 +64,7 @@ pub fn dispatch_input(
             next.y = *y;
             world.insert_resource(next);
         }
-        InputEvent::PointerUp { x, y, .. } => {
+        InputEvent::PointerUp { x, y, .. } | InputEvent::PointerCancel { x, y, .. } => {
             let mut next = world
                 .resource::<PointerCursor>()
                 .copied()
@@ -74,6 +74,17 @@ pub fn dispatch_input(
             next.down = false;
             next.event_seq = next.event_seq.wrapping_add(1);
             world.insert_resource(next);
+        }
+        InputEvent::AppSuspend => {
+            let mut next = world
+                .resource::<PointerCursor>()
+                .copied()
+                .unwrap_or_default();
+            if next.down {
+                next.down = false;
+                next.event_seq = next.event_seq.wrapping_add(1);
+                world.insert_resource(next);
+            }
         }
         _ => {}
     }
@@ -344,6 +355,37 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, UserState::Errored);
         assert!(!entity_or_ancestor_disabled(&world, e));
+    }
+
+    #[test]
+    fn pointer_cancel_releases_cursor_and_advances_sequence() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert_resource(PointerCursor {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            down: true,
+            event_seq: 7,
+        });
+
+        dispatch_input(
+            &mut world,
+            root,
+            &InputEvent::PointerCancel {
+                id: 0,
+                x: Fixed::from_int(12),
+                y: Fixed::from_int(18),
+            },
+            10,
+            64,
+            64,
+        );
+
+        let cursor = world.resource::<PointerCursor>().unwrap();
+        assert_eq!(cursor.x, Fixed::from_int(12));
+        assert_eq!(cursor.y, Fixed::from_int(18));
+        assert!(!cursor.down);
+        assert_eq!(cursor.event_seq, 8);
     }
 
     mod dual_channel {

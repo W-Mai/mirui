@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Transactional pointer cancellation.** Surface cancellation and application suspension terminate active pointer work through `PointerCancel` and `DragCancel`; cancelled scroll gestures stop without seeding inertial motion.
+
 ## [0.46.2] - 2026-09-20
 
 ### Fixed

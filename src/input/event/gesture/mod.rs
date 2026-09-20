@@ -200,6 +200,75 @@ mod tests {
         );
     }
 
+    fn cancel(rec: &mut GestureRecognizer, id: u8, x: i32, y: i32, t: u32, ev: &mut GestureEvents) {
+        rec.update(
+            &InputEvent::PointerCancel {
+                id,
+                x: Fixed::from_int(x),
+                y: Fixed::from_int(y),
+            },
+            t,
+            None,
+            ev,
+        );
+    }
+
+    #[test]
+    fn pending_cancel_never_becomes_a_tap_and_resets_the_recognizer() {
+        let mut rec = GestureRecognizer::new();
+        let mut events = GestureEvents::new();
+        let target = entity(21);
+
+        down(&mut rec, 0, 10, 10, 0, Some(target), &mut events);
+        cancel(&mut rec, 0, 10, 10, 20, &mut events);
+        assert!(events.buffer.is_empty());
+        assert_eq!(rec.state, GestureState::Idle);
+
+        down(&mut rec, 0, 10, 10, 30, Some(target), &mut events);
+        up(&mut rec, 0, 10, 10, 40, &mut events);
+        assert!(matches!(
+            events.buffer.as_slice(),
+            [GestureEvent::Tap { .. }]
+        ));
+    }
+
+    #[test]
+    fn active_drag_cancel_emits_cancel_without_end() {
+        let mut rec = GestureRecognizer::new();
+        let mut events = GestureEvents::new();
+        let target = entity(22);
+
+        down(&mut rec, 0, 10, 10, 0, Some(target), &mut events);
+        motion(&mut rec, 0, 30, 10, 10, &mut events);
+        events.clear();
+        cancel(&mut rec, 0, 34, 12, 20, &mut events);
+
+        assert!(matches!(
+            events.buffer.as_slice(),
+            [GestureEvent::DragCancel { target: actual, .. }] if *actual == target
+        ));
+        assert_eq!(rec.state, GestureState::Idle);
+    }
+
+    #[test]
+    fn suspend_cancels_active_drag_at_last_position() {
+        let mut rec = GestureRecognizer::new();
+        let mut events = GestureEvents::new();
+        let target = entity(23);
+
+        down(&mut rec, 0, 5, 7, 0, Some(target), &mut events);
+        motion(&mut rec, 0, 25, 27, 10, &mut events);
+        events.clear();
+        rec.update(&InputEvent::AppSuspend, 20, None, &mut events);
+
+        assert!(matches!(
+            events.buffer.as_slice(),
+            [GestureEvent::DragCancel { x, y, .. }]
+                if *x == Fixed::from_int(25) && *y == Fixed::from_int(27)
+        ));
+        assert_eq!(rec.state, GestureState::Idle);
+    }
+
     #[test]
     fn pinch_recognised_when_distance_grows() {
         let mut rec = GestureRecognizer::new();

@@ -165,7 +165,7 @@ fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Liste
         canvas,
         queue,
         "pointercancel",
-        |id, x, y| InputEvent::PointerUp { id, x, y },
+        |id, x, y| InputEvent::PointerCancel { id, x, y },
     ));
     listeners.push(leave_listener(canvas, queue));
     listeners.push(wheel_listener(canvas, queue));

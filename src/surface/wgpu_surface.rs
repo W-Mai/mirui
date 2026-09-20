@@ -84,7 +84,8 @@ impl<const N: usize> NativeTouchMap<N> {
         let event = match phase {
             TouchPhase::Started => InputEvent::PointerDown { id, x, y },
             TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
-            TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
+            TouchPhase::Ended => InputEvent::PointerUp { id, x, y },
+            TouchPhase::Cancelled => InputEvent::PointerCancel { id, x, y },
         };
         if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
             self.occupied &= !1_u32.checked_shl(slot as u32).unwrap_or(0);
@@ -1326,7 +1327,7 @@ mod tests {
         ));
         assert!(matches!(
             touches.input_event(native, TouchPhase::Cancelled, x, y),
-            Some(InputEvent::PointerUp { id: 0, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerCancel { id: 0, x: px, y: py }) if px == x && py == y
         ));
         assert!(matches!(
             touches.input_event(native + 1, TouchPhase::Started, x, y),

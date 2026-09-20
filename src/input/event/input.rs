@@ -43,6 +43,11 @@ pub enum InputEvent {
         x: Fixed,
         y: Fixed,
     },
+    PointerCancel {
+        id: u8,
+        x: Fixed,
+        y: Fixed,
+    },
     Rotary {
         id: u8,
         delta: i16,

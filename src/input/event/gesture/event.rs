@@ -32,6 +32,11 @@ pub enum GestureEvent {
         vy: Fixed,
         target: Entity,
     },
+    DragCancel {
+        x: Fixed,
+        y: Fixed,
+        target: Entity,
+    },
     Pinch {
         x: Fixed,
         y: Fixed,
@@ -54,6 +59,7 @@ impl GestureEvent {
             | Self::DragStart { target, .. }
             | Self::DragMove { target, .. }
             | Self::DragEnd { target, .. }
+            | Self::DragCancel { target, .. }
             | Self::Pinch { target, .. }
             | Self::Rotate { target, .. } => *target,
         }
