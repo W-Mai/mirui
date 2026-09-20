@@ -61,10 +61,20 @@ pub struct BlitUniform {
     pub alpha: [f32; 4],
 }
 
+pub const PATH_GRADIENT_STOP_CAPACITY: usize = 8;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
-pub struct PathTintUniform {
+pub struct PathPaintUniform {
+    pub kind_spread_count: [u32; 4],
     pub color: [f32; 4],
+    pub inverse_row_0: [f32; 4],
+    pub inverse_row_1: [f32; 4],
+    pub geometry_0: [f32; 4],
+    pub geometry_1: [f32; 4],
+    pub stop_offsets_0: [f32; 4],
+    pub stop_offsets_1: [f32; 4],
+    pub stop_colors: [[f32; 4]; PATH_GRADIENT_STOP_CAPACITY],
 }
 
 #[repr(C)]
@@ -531,8 +541,8 @@ const _: () = {
     assert!(core::mem::size_of::<ViewportUniform>() == 16);
     assert!(core::mem::size_of::<RectUniform>() == 48);
     assert!(core::mem::size_of::<BlitUniform>() == 48);
-    // Must match `PathTint` in shader/path.wgsl.
-    assert!(core::mem::size_of::<PathTintUniform>() == 16);
+    // Must match `PathPaint` in shader/path.wgsl and one dynamic-uniform slot.
+    assert!(core::mem::size_of::<PathPaintUniform>() == 256);
     assert!(core::mem::size_of::<GlyphUniform>() == 80);
     assert!(core::mem::size_of::<GlyphInstance>() == 40);
     // Must match `VertexIn` in shader/blit_quad.wgsl

@@ -734,7 +734,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         }
                         if let Some(root) = self.root {
                             let (lw, lh) = *logical.get_or_insert_with(|| {
-                                self.backend.display_info().viewport().logical_size()
+                                let info = self.backend.display_info();
+                                (info.width, info.height)
                             });
                             let now_ms = (self.clock_ns() / 1_000_000) as u32;
                             crate::input::event::dispatch_input(
@@ -1277,6 +1278,113 @@ mod dirty_plan_reuse_check {
         assert!(last.0.is_empty());
         assert_eq!(app.dirty_plan.rects.as_ptr(), scratch_ptr);
         assert_eq!(last.0.rects.as_ptr(), last_rects_ptr);
+    }
+}
+
+#[cfg(test)]
+mod fractional_scale_input_check {
+    use super::*;
+    use crate::core::cache::InspectCaches;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
+    use crate::render::factory::SwRendererFactory;
+    use crate::render::texture::Texture;
+    use crate::surface::framebuf::FramebufSurface;
+    use crate::surface::{DisplayInfo, FramebufferAccess, InputEvent};
+    use crate::types::{Dimension, Fixed, PhysicalRect};
+    use crate::ui::builder::WidgetBuilder;
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::{Children, HitTarget, Parent};
+    use alloc::collections::VecDeque;
+
+    type FlushFn = fn(&[u8], PhysicalRect);
+
+    struct QueuedSurface {
+        framebuffer: FramebufSurface<FlushFn>,
+        events: VecDeque<InputEvent>,
+    }
+
+    impl QueuedSurface {
+        fn new(physical_w: u16, physical_h: u16, scale: Fixed) -> Self {
+            fn flush(_: &[u8], _: PhysicalRect) {}
+            Self {
+                framebuffer: FramebufSurface::with_scale(physical_w, physical_h, scale, flush),
+                events: VecDeque::new(),
+            }
+        }
+    }
+
+    impl InspectCaches for QueuedSurface {}
+
+    impl Surface for QueuedSurface {
+        fn display_info(&self) -> DisplayInfo {
+            self.framebuffer.display_info()
+        }
+
+        fn physical_size(&self) -> (u32, u32) {
+            self.framebuffer.physical_size()
+        }
+
+        fn flush(&mut self, area: PhysicalRect) {
+            self.framebuffer.flush(area);
+        }
+
+        fn poll_event(&mut self) -> Option<InputEvent> {
+            self.events.pop_front()
+        }
+    }
+
+    impl FramebufferAccess for QueuedSurface {
+        fn framebuffer(&mut self) -> Texture<'_> {
+            self.framebuffer.framebuffer()
+        }
+    }
+
+    #[derive(Default)]
+    struct TapCount(u8);
+
+    fn count_tap(world: &mut World, _: Entity, event: &GestureEvent) -> bool {
+        if matches!(event, GestureEvent::Tap { .. }) {
+            world.resource_mut::<TapCount>().unwrap().0 += 1;
+        }
+        true
+    }
+
+    #[test]
+    fn fractional_scale_input_uses_the_layout_logical_size() {
+        let surface = QueuedSurface::new(128, 277, Fixed::from_f32(3.25));
+        let mut app = App::with_factory(surface, SwRendererFactory::new());
+        app.with_default_widgets().with_default_systems();
+        app.world.insert_resource(TapCount::default());
+        let root = app.spawn_root().id();
+        let target = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                width: Dimension::px(32),
+                height: Dimension::px(32),
+                ..LayoutStyle::default()
+            })
+            .id();
+        app.world.insert(target, HitTarget);
+        app.world.insert(target, GestureHandler::from_fn(count_tap));
+        app.world.insert(target, Parent(root));
+        app.world.get_mut::<Children>(root).unwrap().0.push(target);
+
+        app.render().unwrap();
+        app.backend.events.extend([
+            InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+        ]);
+        app.tick();
+
+        assert_eq!(app.world.resource::<TapCount>().unwrap().0, 1);
     }
 }
 

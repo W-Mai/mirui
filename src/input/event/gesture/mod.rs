@@ -78,8 +78,9 @@ mod tests {
             None,
             &mut events,
         );
-        assert_eq!(events.buffer.len(), 1);
+        assert_eq!(events.buffer.len(), 2);
         assert!(matches!(events.buffer[0], GestureEvent::DragStart { .. }));
+        assert!(matches!(events.buffer[1], GestureEvent::DragMove { .. }));
 
         events.clear();
         rec.update(
@@ -108,6 +109,23 @@ mod tests {
         );
         assert_eq!(events.buffer.len(), 1);
         assert!(matches!(events.buffer[0], GestureEvent::DragEnd { .. }));
+    }
+
+    #[test]
+    fn diagonal_touch_jitter_stays_a_tap() {
+        let mut rec = GestureRecognizer::new();
+        let mut events = GestureEvents::new();
+        let target = entity(20);
+
+        down(&mut rec, 0, 50, 50, 0, Some(target), &mut events);
+        motion(&mut rec, 0, 57, 57, 40, &mut events);
+        assert!(events.buffer.is_empty());
+        up(&mut rec, 0, 57, 57, 80, &mut events);
+
+        assert!(matches!(
+            events.buffer.as_slice(),
+            [GestureEvent::Tap { .. }]
+        ));
     }
 
     #[test]
@@ -249,7 +267,7 @@ mod tests {
         down(&mut rec, 0, 0, 0, 0, Some(target), &mut events);
         motion(&mut rec, 0, 50, 0, 10, &mut events);
         assert!(matches!(
-            events.buffer.last(),
+            events.buffer.first(),
             Some(GestureEvent::DragStart { .. })
         ));
         events.clear();

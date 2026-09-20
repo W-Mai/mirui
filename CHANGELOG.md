@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mobile control gestures.** Fractional-density displays preserve the layout coordinate extent during hit testing; touch jitter uses radial device-independent slop, the threshold-crossing sample reaches drag handlers, and horizontal sliders retain their drag axis inside scrollable layouts.
+- **WGPU bitmap text.** One-bit coverage atlases use nearest sampling while antialiased coverage and signed-distance fonts retain filtered sampling.
+- **WGPU path gradients.** Linear and two-circle radial path fills evaluate MIRX units, transforms, spread modes, and bounded stops in the fragment shader without a software readback pass.
+
 ## [0.46.1] - 2026-09-20
 
 ### Added

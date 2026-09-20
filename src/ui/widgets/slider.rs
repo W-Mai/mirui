@@ -286,8 +286,7 @@ fn emit_slider_event(world: &mut World, entity: Entity, event: &SliderEvent) {
 }
 
 fn slider_attach(world: &mut World, entity: Entity) {
-    let _ = world;
-    let _ = entity;
+    world.insert(entity, crate::input::event::scroll::TouchAction::PanY);
 }
 
 pub fn view() -> View {
@@ -481,5 +480,18 @@ mod tests {
         assert!(world.has::<Slider>(e));
         assert!(!world.has::<SliderHandler>(e));
         assert!(!world.has::<crate::ui::Style>(e));
+    }
+
+    #[test]
+    fn attach_keeps_horizontal_drag_for_the_slider() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+
+        slider_attach(&mut world, entity);
+
+        assert_eq!(
+            world.get::<crate::input::event::scroll::TouchAction>(entity),
+            Some(&crate::input::event::scroll::TouchAction::PanY)
+        );
     }
 }

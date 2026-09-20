@@ -22,8 +22,9 @@ use crate::surface::wgpu_surface::WgpuTarget;
 use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport};
 
 use self::pipeline::{
-    BlitQuadVertex, BlitUniform, GlyphInstance, GlyphUniform, PathTintUniform, PipelineCache,
-    PipelineKey, QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
+    BlitQuadVertex, BlitUniform, GlyphInstance, GlyphUniform, PATH_GRADIENT_STOP_CAPACITY,
+    PathPaintUniform, PipelineCache, PipelineKey, QuadSdfUniform, QuadSdfVertex, RectUniform,
+    ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{
     CachedScalarSurface, CachedTexture, ScalarSurfaceKey, ScalarSurfacePool, TextureKey,
@@ -47,6 +48,213 @@ fn paint_color(paint: &Paint) -> Color {
             .map(|stop| stop.color.into())
             .unwrap_or(Color::rgba(0, 0, 0, 0)),
     }
+}
+
+fn gradient_stops(paint: &Paint) -> Option<&[mirx::scene::GradientStop]> {
+    match paint {
+        Paint::Color(_) => None,
+        Paint::LinearGradient(gradient) => Some(&gradient.stops),
+        Paint::RadialGradient(gradient) => Some(&gradient.stops),
+    }
+}
+
+fn gradient_spread_code(spread: mirx::scene::SpreadMode) -> u32 {
+    match spread {
+        mirx::scene::SpreadMode::Pad => 0,
+        mirx::scene::SpreadMode::Repeat => 1,
+        mirx::scene::SpreadMode::Reflect => 2,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GradientAffine {
+    m00: f32,
+    m01: f32,
+    tx: f32,
+    m10: f32,
+    m11: f32,
+    ty: f32,
+}
+
+impl GradientAffine {
+    fn from_draw(transform: Transform) -> Self {
+        Self {
+            m00: transform.m00.to_f32(),
+            m01: transform.m01.to_f32(),
+            tx: transform.tx.to_f32(),
+            m10: transform.m10.to_f32(),
+            m11: transform.m11.to_f32(),
+            ty: transform.ty.to_f32(),
+        }
+    }
+
+    fn from_paint(transform: mirx::types::Transform) -> Self {
+        Self {
+            m00: Fixed::from(transform.m00).to_f32(),
+            m01: Fixed::from(transform.m01).to_f32(),
+            tx: Fixed::from(transform.tx).to_f32(),
+            m10: Fixed::from(transform.m10).to_f32(),
+            m11: Fixed::from(transform.m11).to_f32(),
+            ty: Fixed::from(transform.ty).to_f32(),
+        }
+    }
+
+    fn compose(self, other: Self) -> Self {
+        Self {
+            m00: self.m00 * other.m00 + self.m01 * other.m10,
+            m01: self.m00 * other.m01 + self.m01 * other.m11,
+            tx: self.m00 * other.tx + self.m01 * other.ty + self.tx,
+            m10: self.m10 * other.m00 + self.m11 * other.m10,
+            m11: self.m10 * other.m01 + self.m11 * other.m11,
+            ty: self.m10 * other.tx + self.m11 * other.ty + self.ty,
+        }
+    }
+
+    fn inverse(self) -> Option<Self> {
+        let determinant = self.m00 * self.m11 - self.m01 * self.m10;
+        if determinant == 0.0 || !determinant.is_finite() {
+            return None;
+        }
+        let inverse = determinant.recip();
+        Some(Self {
+            m00: self.m11 * inverse,
+            m01: -self.m01 * inverse,
+            tx: (self.m01 * self.ty - self.m11 * self.tx) * inverse,
+            m10: -self.m10 * inverse,
+            m11: self.m00 * inverse,
+            ty: (self.m10 * self.tx - self.m00 * self.ty) * inverse,
+        })
+    }
+}
+
+fn gradient_inverse(
+    draw: Transform,
+    bbox: Rect,
+    units: mirx::scene::GradientUnits,
+    paint: mirx::types::Transform,
+) -> Result<GradientAffine, RenderError> {
+    let units = match units {
+        mirx::scene::GradientUnits::UserSpaceOnUse => {
+            GradientAffine::from_draw(Transform::IDENTITY)
+        }
+        mirx::scene::GradientUnits::ObjectBoundingBox => {
+            if bbox.w <= Fixed::ZERO || bbox.h <= Fixed::ZERO {
+                return Err(RenderError::InvalidGeometry);
+            }
+            GradientAffine {
+                m00: bbox.w.to_f32(),
+                m01: 0.0,
+                tx: bbox.x.to_f32(),
+                m10: 0.0,
+                m11: bbox.h.to_f32(),
+                ty: bbox.y.to_f32(),
+            }
+        }
+    };
+    GradientAffine::from_draw(draw)
+        .compose(units)
+        .compose(GradientAffine::from_paint(paint))
+        .inverse()
+        .ok_or(RenderError::InvalidGeometry)
+}
+
+fn solid_path_paint_uniform(color: Color, opacity: u8) -> PathPaintUniform {
+    PathPaintUniform {
+        color: [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+            color.a as f32 / 255.0 * opacity as f32 / 255.0,
+        ],
+        ..PathPaintUniform::default()
+    }
+}
+
+fn path_paint_uniform(
+    path: &Path,
+    draw: Transform,
+    paint: &Paint,
+    opacity: u8,
+) -> Result<PathPaintUniform, RenderError> {
+    let mut uniform = PathPaintUniform::default();
+    match paint {
+        Paint::Color(color) => {
+            let color: Color = (*color).into();
+            return Ok(solid_path_paint_uniform(color, opacity));
+        }
+        Paint::LinearGradient(gradient) => {
+            let start = Point::new(Fixed::from(gradient.start.x), Fixed::from(gradient.start.y));
+            let end = Point::new(Fixed::from(gradient.end.x), Fixed::from(gradient.end.y));
+            if start == end {
+                return Err(RenderError::InvalidGeometry);
+            }
+            let bbox = path.bbox().ok_or(RenderError::InvalidGeometry)?;
+            let inverse = gradient_inverse(draw, bbox, gradient.units, gradient.transform)?;
+            uniform.kind_spread_count[0] = 1;
+            uniform.kind_spread_count[1] = gradient_spread_code(gradient.spread);
+            uniform.inverse_row_0 = [inverse.m00, inverse.m01, inverse.tx, 0.0];
+            uniform.inverse_row_1 = [inverse.m10, inverse.m11, inverse.ty, 0.0];
+            uniform.geometry_0 = [
+                start.x.to_f32(),
+                start.y.to_f32(),
+                end.x.to_f32(),
+                end.y.to_f32(),
+            ];
+        }
+        Paint::RadialGradient(gradient) => {
+            let center = Point::new(
+                Fixed::from(gradient.center.x),
+                Fixed::from(gradient.center.y),
+            );
+            let focal = Point::new(Fixed::from(gradient.focal.x), Fixed::from(gradient.focal.y));
+            let radius = Fixed::from(gradient.radius);
+            let focal_radius = Fixed::from(gradient.focal_radius);
+            if radius < Fixed::ZERO
+                || focal_radius < Fixed::ZERO
+                || (center == focal && radius == focal_radius)
+            {
+                return Err(RenderError::InvalidGeometry);
+            }
+            let bbox = path.bbox().ok_or(RenderError::InvalidGeometry)?;
+            let inverse = gradient_inverse(draw, bbox, gradient.units, gradient.transform)?;
+            uniform.kind_spread_count[0] = 2;
+            uniform.kind_spread_count[1] = gradient_spread_code(gradient.spread);
+            uniform.inverse_row_0 = [inverse.m00, inverse.m01, inverse.tx, 0.0];
+            uniform.inverse_row_1 = [inverse.m10, inverse.m11, inverse.ty, 0.0];
+            uniform.geometry_0 = [
+                center.x.to_f32(),
+                center.y.to_f32(),
+                radius.to_f32(),
+                focal_radius.to_f32(),
+            ];
+            uniform.geometry_1 = [focal.x.to_f32(), focal.y.to_f32(), 0.0, 0.0];
+        }
+    }
+
+    let stops = gradient_stops(paint).expect("gradient paint has stops");
+    if !mirx::scene::GradientStop::sequence_is_valid(stops) {
+        return Err(RenderError::InvalidGeometry);
+    }
+    if stops.len() > PATH_GRADIENT_STOP_CAPACITY {
+        return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
+    }
+    uniform.kind_spread_count[2] = stops.len() as u32;
+    for (index, stop) in stops.iter().enumerate() {
+        let offset = Fixed::from(stop.offset).to_f32();
+        if index < 4 {
+            uniform.stop_offsets_0[index] = offset;
+        } else {
+            uniform.stop_offsets_1[index - 4] = offset;
+        }
+        let color: Color = stop.color.into();
+        uniform.stop_colors[index] = [
+            color.r as f32 / 255.0,
+            color.g as f32 / 255.0,
+            color.b as f32 / 255.0,
+            color.a as f32 / 255.0 * opacity as f32 / 255.0,
+        ];
+    }
+    Ok(uniform)
 }
 
 fn quad_projection_valid(width: Fixed, height: Fixed, quad: &[Point; 4]) -> bool {
@@ -216,7 +424,7 @@ struct Frame {
     encoder: wgpu::CommandEncoder,
     /// One viewport uniform shared across the frame's draws.
     viewport_buf: wgpu::Buffer,
-    /// Per-draw uniforms (rect / tint) packed back-to-back. `set_bind_group`
+    /// Per-draw uniforms packed back-to-back. `set_bind_group`
     /// dynamic offsets index into this single buffer.
     uniform_arena: wgpu::Buffer,
     /// Bytes already written; advances by `UNIFORM_ALIGN` per draw.
@@ -237,8 +445,7 @@ struct Frame {
 const UNIFORM_ARENA_SIZE: u64 = 1024 * 1024;
 
 /// Most desktop / mobile GPUs require 256-byte alignment for dynamic
-/// uniform offsets. `RectUniform` is 48 B, `PathTintUniform` is 16 B —
-/// align up to the limit so any device accepts the offset.
+/// uniform offsets. The path paint occupies one full aligned slot.
 const UNIFORM_ALIGN: u32 = 256;
 const GLYPHS_PER_BATCH: usize = 2_048;
 const GLYPH_BUFFER_CAPACITY: usize = GLYPHS_PER_BATCH * 2;
@@ -351,6 +558,21 @@ struct GlyphBatchKey {
     surface: ScalarSurfaceKey,
     shader: ShaderKind,
     spread: u16,
+    sampling: GlyphSampling,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GlyphSampling {
+    Linear,
+    Nearest,
+}
+
+const fn glyph_sampling(shader: ShaderKind, bits: u8) -> GlyphSampling {
+    if matches!(shader, ShaderKind::GlyphCoverage) && bits == 1 {
+        GlyphSampling::Nearest
+    } else {
+        GlyphSampling::Linear
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -518,7 +740,26 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 composite,
                 CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
             ),
-            DrawCommand::FillPath { paint, .. } | DrawCommand::StrokePath { paint, .. } => {
+            DrawCommand::FillPath {
+                path,
+                transform,
+                paint,
+                opa,
+                ..
+            } => {
+                if matches!(paint, Paint::Color(_)) {
+                    false
+                } else if !request.projective.is_identity() {
+                    return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
+                } else {
+                    match path_paint_uniform(path, *transform, paint, *opa) {
+                        Ok(_) => false,
+                        Err(RenderError::Unsupported(RenderFeature::GradientPaint)) => true,
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            DrawCommand::StrokePath { paint, .. } => {
                 if !matches!(paint, Paint::LinearGradient(_) | Paint::RadialGradient(_)) {
                     false
                 } else if !request.projective.is_identity() {
@@ -613,10 +854,14 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                     return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
                 }
             }
-            DrawCommand::FillPath { paint, .. } => {
-                if !matches!(paint, Paint::Color(_)) {
-                    return Err(RenderError::Unsupported(RenderFeature::GradientPaint));
-                }
+            DrawCommand::FillPath {
+                path,
+                transform,
+                paint,
+                opa,
+                ..
+            } => {
+                path_paint_uniform(path, *transform, paint, *opa)?;
             }
             DrawCommand::Blit { composite, .. } => {
                 if matches!(
@@ -1216,10 +1461,13 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         opa: u8,
         fill_rule: FillRule,
     ) {
-        let color = paint_color(paint);
+        let Ok(paint_uniform) = path_paint_uniform(path, *cmd_tf, paint, opa) else {
+            self.draw_failed = true;
+            return;
+        };
         self.factory.tessellator.fill(path, Some(cmd_tf), fill_rule);
         let mesh = self.factory.tessellator.take_mesh();
-        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &color, opa);
+        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
         self.factory.tessellator.restore_mesh(mesh);
     }
 }
@@ -1349,13 +1597,17 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         fill_rule: FillRule,
     ) {
+        let Ok(paint_uniform) = path_paint_uniform(path, Transform::IDENTITY, paint, opa) else {
+            self.draw_failed = true;
+            return;
+        };
         self.factory.tessellator.fill(path, None, fill_rule);
         let mesh = self.factory.tessellator.take_mesh();
-        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
+        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
         self.factory.tessellator.restore_mesh(mesh);
     }
 
@@ -1401,7 +1653,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 .stroke_tessellator
                 .stroke(path, transform, spec);
             let mesh = self.factory.stroke_tessellator.take_mesh();
-            self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
+            let paint_uniform = solid_path_paint_uniform(*color, opa);
+            self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
             self.factory.stroke_tessellator.restore_mesh(mesh);
             return;
         }
@@ -1410,7 +1663,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             .tessellator
             .fill(outline, None, FillRule::NonZero);
         let mesh = self.factory.tessellator.take_mesh();
-        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, color, opa);
+        let paint_uniform = solid_path_paint_uniform(*color, opa);
+        self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
         self.factory.tessellator.restore_mesh(mesh);
     }
 
@@ -1419,8 +1673,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         verts: &[lyon::math::Point],
         indices: &[u32],
         clip: &Rect,
-        color: &Color,
-        opa: u8,
+        paint_uniform: &PathPaintUniform,
     ) {
         if verts.is_empty() || indices.is_empty() {
             return;
@@ -1433,15 +1686,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return;
         }
 
-        let tint_uniform = PathTintUniform {
-            color: [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0 * opa as f32 / 255.0,
-            ],
-        };
-        let Some(offset) = self.push_uniform(&tint_uniform) else {
+        let Some(offset) = self.push_uniform(paint_uniform) else {
             self.draw_failed = true;
             return;
         };
@@ -1494,9 +1739,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                             resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                                 buffer: &frame.uniform_arena,
                                 offset: 0,
-                                size: core::num::NonZeroU64::new(
-                                    core::mem::size_of::<PathTintUniform>() as u64,
-                                ),
+                                size: core::num::NonZeroU64::new(core::mem::size_of::<
+                                    PathPaintUniform,
+                                >()
+                                    as u64),
                             }),
                         },
                     ],
@@ -1952,6 +2198,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 surface: ScalarSurfaceKey::new(font.face_id(), font.revision(), raster.surface),
                 shader,
                 spread,
+                sampling: glyph_sampling(shader, bits),
             };
             if active.map(|batch| batch.key) != Some(key)
                 || self.factory.glyph_instances.len() >= GLYPHS_PER_BATCH
@@ -2124,11 +2371,18 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             .cache
             .as_mut()
             .expect("PipelineCache must be initialised before glyph batch");
-        let sampler = self
-            .factory
-            .linear_sampler
-            .as_ref()
-            .expect("linear sampler must be initialised before glyph batch");
+        let sampler = match batch.key.sampling {
+            GlyphSampling::Linear => self
+                .factory
+                .linear_sampler
+                .as_ref()
+                .expect("linear sampler must be initialised before glyph batch"),
+            GlyphSampling::Nearest => self
+                .factory
+                .nearest_sampler
+                .as_ref()
+                .expect("nearest sampler must be initialised before glyph batch"),
+        };
         let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mirui-glyph-bind-group"),
             layout: &cache.glyph_bgl,
@@ -2215,7 +2469,183 @@ fn append_glyph_instance(
 mod route_tests {
     use super::*;
     use crate::render::texture::ColorFormat;
-    use mirx::scene::{GradientUnits, LinearGradient, SpreadMode};
+    use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
+
+    static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn render_radial_path() -> Option<alloc::vec::Vec<u8>> {
+        const SIZE: u32 = 64;
+        let _gpu = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("mirui-path-gradient-device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+            ..Default::default()
+        }))
+        .ok()?;
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-path-gradient-target"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let msaa = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("mirui-path-gradient-msaa"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: MSAA_SAMPLES,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let path = Path::rect((-1).into(), (-1).into(), 2.into(), 2.into());
+        let paint = Paint::RadialGradient(RadialGradient {
+            center: Point::new(Fixed::HALF, Fixed::HALF).into(),
+            radius: Fixed::HALF.into(),
+            focal: Point::new(Fixed::HALF, Fixed::HALF).into(),
+            focal_radius: Fixed::ZERO.into(),
+            stops: alloc::borrow::Cow::Owned(alloc::vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(255, 255, 255),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(0, 0, 0),
+                },
+            ]),
+            spread: SpreadMode::Pad,
+            units: GradientUnits::ObjectBoundingBox,
+            transform: mirx::types::Transform::IDENTITY,
+        });
+        let transform = Transform::translate(Fixed::from_int(32), Fixed::from_int(32))
+            .compose(&Transform::scale(Fixed::from_int(32), Fixed::from_int(32)));
+        let uniform = path_paint_uniform(&path, transform, &paint, 255).ok()?;
+        let viewport = ViewportUniform {
+            size: [SIZE as f32, SIZE as f32],
+            _pad: [0.0; 2],
+        };
+        let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-path-gradient-viewport"),
+            contents: bytemuck::bytes_of(&viewport),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-path-gradient-uniform"),
+            contents: bytemuck::bytes_of(&uniform),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let vertices = [[0.0f32, 0.0], [64.0, 0.0], [64.0, 64.0], [0.0, 64.0]];
+        let indices = [0u32, 1, 2, 0, 2, 3];
+        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-path-gradient-vertices"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mirui-path-gradient-indices"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let mut pipelines = PipelineCache::new(&device);
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-path-gradient-bind-group"),
+            layout: &pipelines.path_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &uniform_buf,
+                        offset: 0,
+                        size: core::num::NonZeroU64::new(
+                            core::mem::size_of::<PathPaintUniform>() as u64
+                        ),
+                    }),
+                },
+            ],
+        });
+        let pipeline = pipelines.get_or_build(
+            &device,
+            PipelineKey {
+                shader: ShaderKind::Path,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                composite: CompositeMode::SourceOver,
+            },
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let msaa_view = msaa.create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("mirui-path-gradient-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &msaa_view,
+                    resolve_target: Some(&target_view),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[0]);
+            pass.set_vertex_buffer(0, vertex_buf.slice(..));
+            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..6, 0, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        wgpu_readback_rgba8(
+            &device,
+            &queue,
+            &target,
+            wgpu::TextureFormat::Rgba8Unorm,
+            0,
+            0,
+            SIZE,
+            SIZE,
+        )
+    }
+
+    #[test]
+    fn radial_path_gradient_varies_across_fragments() {
+        let Some(pixels) = render_radial_path() else {
+            return;
+        };
+        let sample = |x: usize, y: usize| pixels[(y * 64 + x) * 4];
+        assert!(sample(32, 32) > 240);
+        assert!(sample(4, 32) < 64);
+    }
 
     #[test]
     fn readback_restores_straight_alpha_and_target_edits_replace_pixels() {
@@ -2422,16 +2852,26 @@ mod route_tests {
             Ok(RenderRoute::Native)
         );
 
+        let gradient_path = Path::rect(0.into(), 0.into(), 10.into(), 10.into());
         let gradient = Paint::LinearGradient(LinearGradient {
             start: Point::ZERO.into(),
             end: Point::new(10, 0).into(),
-            stops: alloc::borrow::Cow::Borrowed(&[]),
+            stops: alloc::borrow::Cow::Owned(alloc::vec![
+                GradientStop {
+                    offset: mirx::types::Fixed::ZERO,
+                    color: mirx::types::Color::rgb(0, 0, 0),
+                },
+                GradientStop {
+                    offset: mirx::types::Fixed::ONE,
+                    color: mirx::types::Color::rgb(255, 255, 255),
+                },
+            ]),
             spread: SpreadMode::Pad,
             units: GradientUnits::UserSpaceOnUse,
             transform: Transform::IDENTITY.into(),
         });
         let gradient_fill = DrawCommand::FillPath {
-            path: &path,
+            path: &gradient_path,
             transform: Transform::IDENTITY,
             paint: &gradient,
             opa: 255,
@@ -2441,7 +2881,7 @@ mod route_tests {
             WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
                 &DrawRequest::new(&gradient_fill, clip),
             ),
-            Err(RenderError::Unsupported(RenderFeature::GradientPaint))
+            Ok(RenderRoute::Native)
         );
 
         let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
@@ -2882,6 +3322,22 @@ mod glyph_tests {
     use crate::render::font::{FontSurfaceId, GlyphSurface};
 
     static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn one_bit_coverage_uses_crisp_sampling() {
+        assert_eq!(
+            glyph_sampling(ShaderKind::GlyphCoverage, 1),
+            GlyphSampling::Nearest
+        );
+        assert_eq!(
+            glyph_sampling(ShaderKind::GlyphCoverage, 8),
+            GlyphSampling::Linear
+        );
+        assert_eq!(
+            glyph_sampling(ShaderKind::GlyphSdf, 1),
+            GlyphSampling::Linear
+        );
+    }
 
     #[test]
     fn uniform_arena_rollover_starts_after_the_last_slot() {
@@ -3803,9 +4259,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 fill_rule,
                 ..
             } => {
-                let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, &color, *opa, *fill_rule);
+                    self.fill_path_inner(path, clip, paint, *opa, *fill_rule);
                 } else {
                     let translate = crate::types::Transform::translate(tx, ty);
                     self.fill_path_transformed_inner(
@@ -4145,8 +4600,7 @@ impl<B: WgpuTarget> Canvas for WgpuRenderer<'_, B> {
         opa: u8,
         fill_rule: crate::render::raster::FillRule,
     ) {
-        let color = paint_color(paint);
-        self.fill_path_inner(path, clip, &color, opa, fill_rule);
+        self.fill_path_inner(path, clip, paint, opa, fill_rule);
     }
 
     fn stroke_path(

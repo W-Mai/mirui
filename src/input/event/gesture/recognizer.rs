@@ -19,7 +19,7 @@ pub(super) enum GestureState {
     MultiActive,
 }
 
-const DRAG_THRESHOLD: i32 = 10;
+const DRAG_THRESHOLD: Fixed = Fixed::from_int(12);
 const LONG_PRESS_MS: u16 = 500;
 /// 5% relative distance change wakes Pinch. Q24.8: 0.05 * 256 ≈ 13.
 const PINCH_THRESHOLD: Fixed = Fixed::from_ratio(13, 256);
@@ -172,14 +172,21 @@ impl GestureRecognizer {
         match self.state {
             GestureState::Pending => {
                 let f0 = self.fingers[0];
-                let dx = (f0.current_x - f0.start_x).to_int().abs();
-                let dy = (f0.current_y - f0.start_y).to_int().abs();
-                if dx + dy > DRAG_THRESHOLD {
+                let dx = f0.current_x - f0.start_x;
+                let dy = f0.current_y - f0.start_y;
+                if dist(dx, dy) > DRAG_THRESHOLD {
                     self.state = GestureState::Dragging;
                     if let Some(target) = self.target {
                         events_out.push(GestureEvent::DragStart {
                             x: f0.start_x,
                             y: f0.start_y,
+                            target,
+                        });
+                        events_out.push(GestureEvent::DragMove {
+                            x: f0.current_x,
+                            y: f0.current_y,
+                            dx,
+                            dy,
                             target,
                         });
                     }
