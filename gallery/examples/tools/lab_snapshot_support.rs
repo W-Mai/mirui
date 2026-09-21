@@ -28,5 +28,9 @@ pub fn run(output_name: &str, viewport: (u16, u16), setup: impl FnOnce(&mut Snap
         .next()
         .map(|value| value.parse().expect("viewport height"))
         .unwrap_or(viewport.1);
-    snapshot_render::render(&output, (width, height), setup);
+    snapshot_render::render(&output, (width, height), false, |app| {
+        let root = app.spawn_root().id();
+        setup(app, root);
+        root
+    });
 }

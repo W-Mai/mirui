@@ -19,7 +19,7 @@ linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
 perf = ["mirui/perf"]
 persistence = ["mirui/persistence"]
-snapshot = ["mirui/std"]
+snapshot = ["mirui/std", "persistence"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
@@ -269,8 +269,8 @@ name = "atlas_restoration_snapshot"
 path = "examples/tools/atlas_restoration_snapshot.rs"
 
 [[example]]
-name = "play_previews_snapshot"
-path = "examples/tools/play_previews_snapshot.rs"
+name = "demo_previews_snapshot"
+path = "examples/tools/demo_previews_snapshot.rs"
 required-features = ["snapshot"]
 
 [[example]]

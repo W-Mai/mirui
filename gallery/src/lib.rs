@@ -43,20 +43,6 @@ pub struct DemoEntry {
     pub source: &'static str,
 }
 
-#[doc(hidden)]
-pub fn push_demo_nav_link(out: &mut String, demo: &DemoEntry, dark_theme: &str, light_theme: &str) {
-    let bound = |value: Option<u16>| value.map(|value| value.to_string()).unwrap_or_default();
-    out.push_str(&format!(
-        "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-min-w=\"{min_width}\" data-min-h=\"{min_height}\" data-max-w=\"{max_width}\" data-max-h=\"{max_height}\" data-theme-dark=\"{dark_theme}\" data-theme-light=\"{light_theme}\">{label}</a>",
-        slug = demo.slug,
-        label = demo.label,
-        min_width = bound(demo.size.min_width),
-        min_height = bound(demo.size.min_height),
-        max_width = bound(demo.size.max_width),
-        max_height = bound(demo.size.max_height),
-    ));
-}
-
 const FOCUS_START: &str = "//~focus-start";
 const FOCUS_END: &str = "//~focus-end";
 
@@ -122,7 +108,7 @@ macro_rules! register_demos {
                     },
                     source: include_str!(concat!(
                         env!("CARGO_MANIFEST_DIR"),
-                        "/../../src/gallery/demos/",
+                        "/../src/gallery/demos/",
                         stringify!($module),
                         ".rs"
                     )),
@@ -133,7 +119,111 @@ macro_rules! register_demos {
         pub fn lookup_demo(slug: &str) -> Option<&'static $crate::DemoEntry> {
             DEMOS.iter().find(|d| d.slug == slug)
         }
+
+        pub fn setup_demo<B, F>(
+            slug: &str,
+            app: &mut $crate::mirui::app::App<B, F>,
+        ) -> Option<$crate::mirui::ecs::Entity>
+        where
+            B: $crate::mirui::surface::Surface,
+            F: $crate::mirui::app::RendererFactory<B>,
+        {
+            match slug {
+                $(
+                    $slug => {
+                        let parent = app.spawn_root().id();
+                        $crate::mirui::gallery::demos::$module::setup_app(app, parent);
+                        Some(parent)
+                    }
+                )*
+                _ => None,
+            }
+        }
     };
+}
+
+#[cfg(any(feature = "web-canvas", feature = "snapshot"))]
+register_demos! {
+    ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console),
+    ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab),
+    ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab),
+    ("curve_text",           "Kinetic Type",         "Showcase",    curve_text),
+    ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact),
+    ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab),
+    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console),
+
+    ("signal_scope",         "Signal Scope",         "Product",     signal_scope),
+
+    ("marble_play",          "Marble Play",          "Play",        marble_play),
+    ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab),
+    ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom),
+    ("moss_study",           "Moss Study",           "Play",        moss_study),
+    ("pocket_post",          "Pocket Post",          "Play",        pocket_post),
+    ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit),
+    ("module_factory",       "Module Factory",       "Play",        module_factory),
+    ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission),
+    ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas),
+    ("echo_walker",          "Echo Walker",          "Play",        echo_walker),
+    ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons),
+    ("folding_ark",          "Folding Ark",          "Play",        folding_ark),
+    ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration),
+
+    ("niche",                "niche slots (@name)",  "Basics",      niche),
+    ("i18n",                 "i18n locale toggle",   "Basics",      i18n),
+
+    ("animation",            "tween + ping pong",    "Animation",   animation),
+    ("three_body",           "three body",           "Animation",   three_body),
+    ("life",                 "game of life",         "Animation",   life),
+    ("life_compact",         "life compact",         "Animation",   life_compact),
+    ("particles",            "particles",            "Animation",   particles),
+    ("butterfly",            "butterfly",            "Animation",   butterfly),
+    ("shapes",               "shapes",               "Animation",   shapes),
+    ("subpixel",             "subpixel motion",      "Animation",   subpixel),
+    ("spatial_anim",         "spatial anim",         "Animation",   spatial_anim),
+    ("transform",            "transform",            "Animation",   transform),
+    ("image_flip",           "image flip 3d",        "Animation",   image_flip),
+    ("flip_card",            "flip card",            "Animation",   flip_card),
+    ("book_flip",            "book flip",            "Animation",   book_flip),
+
+    ("effect_panels",        "effect panels",        "Effects",     effect_panels),
+    ("effect_glass",         "effect glass",         "Effects",     effect_glass),
+    ("offscreen",            "offscreen render",     "Effects",     offscreen),
+    ("offscreen_modal",      "offscreen modal",      "Effects",     offscreen_modal),
+    ("custom_view",          "custom view (Diamond)","Effects",     custom_view),
+    ("vector_mandala",       "vector mandala",       "Effects",     vector_mandala),
+    ("icon",                 "icon set",             "Effects",     icon),
+    ("composite",            "blit composite modes", "Effects",     composite),
+    ("gradient",             "gradient paint",       "Effects",     gradient),
+    ("stroke_styles",        "stroke styles",        "Effects",     stroke_styles),
+    ("clip_path",            "clip path",            "Effects",     clip_path),
+    ("fill_rules",           "fill rules",           "Effects",     fill_rules),
+    ("blur_filter",          "blur filter",          "Effects",     blur_filter),
+    ("render_showcase",      "render showcase",      "Effects",     render_showcase),
+
+    ("pinch_rotate",         "pinch + rotate",       "Interaction", pinch_rotate),
+
+    ("state_counter",        "reactive counter",     "State",       state_counter),
+    ("state_computed",       "reactive computed",    "State",       state_computed),
+    ("state_effect",         "reactive effect",      "State",       state_effect),
+    ("state_form",           "reactive form",        "State",       state_form),
+    ("state_todo",           "reactive todo",        "State",       state_todo),
+    ("state_show",           "reactive if / match",  "State",       state_show),
+    ("state_list",           "reactive walk list",   "State",       state_list),
+    ("state_keyed",          "keyed walk reorder",   "State",       state_keyed),
+    ("persistence_counter",  "persistence counter",  "State",       persistence_counter),
+
+    ("scroll",               "scroll",               "Scroll",      scroll),
+    ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll),
+    ("lazy_list",            "lazy list",            "Scroll",      lazy_list),
+    ("cover_flow",           "cover flow",           "Scroll",      cover_flow),
+
+    ("slider_value_changed", "slider valueChanged",  "Components",  slider_value_changed),
+    ("tabbar",               "tabbar",               "Components",  tabbar),
+    ("text_input",           "text input",           "Components",  text_input),
+    ("theme_swap",           "theme swap",           "Components",  theme_swap),
+    ("widgets",              "widgets",              "Components",  widgets),
+    ("widgets_compact",      "widgets compact",      "Components",  widgets_compact),
+    ("builder_form",         "builder API (no DSL)", "Components",  builder_form),
 }
 
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
@@ -432,25 +522,33 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{DemoEntry, extract_focus, push_demo_nav_link};
-    use mirui::gallery::DemoSize;
+    use super::extract_focus;
 
+    #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
     #[test]
-    fn navigation_links_serialize_optional_demo_bounds() {
-        let demo = DemoEntry {
-            slug: "bounded",
-            label: "Bounded",
-            category: "Test",
-            size: DemoSize::constraints(Some(120), None, Some(640), Some(480)),
-            setup: |_| unreachable!(),
-            source: "",
-        };
-        let mut html = String::new();
-        push_demo_nav_link(&mut html, &demo, "dark", "light");
-        assert_eq!(
-            html,
-            "<a href=\"?demo=bounded\" data-demo=\"bounded\" data-min-w=\"120\" data-min-h=\"\" data-max-w=\"640\" data-max-h=\"480\" data-theme-dark=\"dark\" data-theme-light=\"light\">Bounded</a>"
-        );
+    fn demo_catalog_has_unique_slugs_and_valid_bounds() {
+        use super::DEMOS;
+        use std::collections::HashSet;
+
+        assert_eq!(DEMOS.len(), 71);
+        let mut slugs = HashSet::new();
+        for demo in DEMOS {
+            assert!(slugs.insert(demo.slug), "duplicate slug: {}", demo.slug);
+            assert!(!demo.label.is_empty());
+            assert!(!demo.category.is_empty());
+            assert!(
+                demo.size.min_width.is_some()
+                    || demo.size.min_height.is_some()
+                    || demo.size.max_width.is_some()
+                    || demo.size.max_height.is_some()
+            );
+            if let (Some(min), Some(max)) = (demo.size.min_width, demo.size.max_width) {
+                assert!(min <= max, "invalid width bounds for {}", demo.slug);
+            }
+            if let (Some(min), Some(max)) = (demo.size.min_height, demo.size.max_height) {
+                assert!(min <= max, "invalid height bounds for {}", demo.slug);
+            }
+        }
     }
 
     #[test]

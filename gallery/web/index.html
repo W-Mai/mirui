@@ -45,7 +45,7 @@
     <link data-trunk rel="copy-file" href="site.webmanifest" />
     <link data-trunk rel="copy-file" href="favicon.svg" />
     <link data-trunk rel="copy-file" href="../../docs/assets/orbit-console.png" />
-    <link data-trunk rel="copy-dir" href="../../target/gallery-site/play-previews" />
+    <link data-trunk rel="copy-dir" href="../../target/gallery-site/demo-previews" />
     <script>
       /* Resolve the theme BEFORE first paint so the page shell never flashes
          the wrong mode while the wasm canvas picks its own initial theme.
@@ -64,8 +64,8 @@
         }
 
         var params = new URLSearchParams(location.search);
-        var galleryMode = params.has("demo") || params.get("backend_parity") === "1";
-        document.documentElement.setAttribute("data-mode", galleryMode ? "gallery" : "home");
+        var focusMode = params.has("demo") || params.get("backend_parity") === "1";
+        document.documentElement.setAttribute("data-mode", focusMode ? "focus" : "home");
 
         var language = "";
         try { language = localStorage.getItem("mirui-language") || ""; } catch (_) {}
@@ -1140,12 +1140,12 @@
           <div class="hero-runtime" id="hero-runtime" data-stage-panel tabindex="0" aria-label="Featured demos; drag or use the arrow keys to change demo">
             <button class="hero-preview hero-preview-prev" id="hero-preview-prev" type="button" aria-label="Previous featured demo">
               <span class="hero-preview-bar"><span id="hero-preview-prev-name">TWIN BEACONS</span><span id="hero-preview-prev-index">05 / 05</span></span>
-              <img id="hero-preview-prev-image" src="play-previews/twin_beacons.png" draggable="false" alt="Twin Beacons preview" />
+              <img id="hero-preview-prev-image" src="demo-previews/twin_beacons.png" draggable="false" alt="Twin Beacons preview" />
               <span class="hero-preview-open" aria-hidden="true">↙</span>
             </button>
             <button class="hero-preview hero-preview-next" id="hero-preview-next" type="button" aria-label="Next featured demo">
               <span class="hero-preview-bar"><span id="hero-preview-next-name">FOLDING ARK</span><span id="hero-preview-next-index">02 / 05</span></span>
-              <img id="hero-preview-next-image" src="play-previews/folding_ark.png" draggable="false" alt="Folding Ark preview" />
+              <img id="hero-preview-next-image" src="demo-previews/folding_ark.png" draggable="false" alt="Folding Ark preview" />
               <span class="hero-preview-open" aria-hidden="true">↗</span>
             </button>
             <div class="hero-source-card" aria-hidden="true">
@@ -1174,11 +1174,11 @@
             </div>
           </div>
           <div class="play-toolbar">
-            <div class="play-filters" role="group" aria-label="Demo categories">
-              <button class="play-filter active" type="button" data-filter="all" data-i18n="filter.all">All</button>
-              <button class="play-filter" type="button" data-filter="puzzle" data-i18n="filter.puzzle">Puzzle</button>
-              <button class="play-filter" type="button" data-filter="strategy" data-i18n="filter.strategy">Strategy</button>
-              <button class="play-filter" type="button" data-filter="creative" data-i18n="filter.creative">Creative</button>
+            <div class="play-filters" role="tablist" aria-label="Game categories">
+              <button class="play-filter active" id="play-tab-all" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="true" data-filter="all" data-i18n="filter.all">All</button>
+              <button class="play-filter" id="play-tab-puzzle" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="puzzle" data-i18n="filter.puzzle">Puzzle</button>
+              <button class="play-filter" id="play-tab-strategy" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="strategy" data-i18n="filter.strategy">Strategy</button>
+              <button class="play-filter" id="play-tab-creative" type="button" role="tab" aria-controls="play-tabpanel" aria-selected="false" tabindex="-1" data-filter="creative" data-i18n="filter.creative">Creative</button>
             </div>
             <label class="play-search">
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -1186,71 +1186,85 @@
             </label>
             <span class="play-count" id="play-count" aria-live="polite">13 / 13</span>
           </div>
+          <div class="demo-grid-viewport" id="play-tabpanel" role="tabpanel" aria-labelledby="play-tab-all">
           <div class="demo-grid" id="demo-grid">
             <article class="demo-card" data-category="creative" data-search="marble play playground audio gravity game 弹珠 音乐 重力 游乐场">
-              <div class="game-cover"><img src="play-previews/marble_play.png" loading="eager" draggable="false" alt="Marble Play preview"/><span class="cover-index">01 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/marble_play.png" loading="eager" draggable="false" alt="Marble Play preview"/><span class="cover-index">01 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="marble_play"><strong data-i18n="game.marble">Marble Playground</strong><small>MARBLE PLAY</small></button><button class="card-source" type="button" data-open-source-demo="marble_play" aria-label="Open Marble Play source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="puzzle" data-search="twin beacons puzzle 双子 信标 解谜">
-              <div class="game-cover"><img src="play-previews/twin_beacons.png" loading="lazy" draggable="false" alt="Twin Beacons preview"/><span class="cover-index">02 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/twin_beacons.png" loading="lazy" draggable="false" alt="Twin Beacons preview"/><span class="cover-index">02 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="twin_beacons"><strong data-i18n="game.twin">Twin Beacons</strong><small>TWIN BEACONS</small></button><button class="card-source" type="button" data-open-source-demo="twin_beacons" aria-label="Open Twin Beacons source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="strategy" data-search="tidal atlas strategy 潮汐 群岛 策略">
-              <div class="game-cover"><img src="play-previews/tidal_atlas.png" loading="lazy" draggable="false" alt="Tidal Atlas preview"/><span class="cover-index">03 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/tidal_atlas.png" loading="lazy" draggable="false" alt="Tidal Atlas preview"/><span class="cover-index">03 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="tidal_atlas"><strong data-i18n="game.tidal">Tidal Atlas</strong><small>TIDAL ATLAS</small></button><button class="card-source" type="button" data-open-source-demo="tidal_atlas" aria-label="Open Tidal Atlas source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="puzzle" data-search="echo walker puzzle 回声 行者 解谜">
-              <div class="game-cover"><img src="play-previews/echo_walker.png" loading="lazy" draggable="false" alt="Echo Walker preview"/><span class="cover-index">04 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/echo_walker.png" loading="lazy" draggable="false" alt="Echo Walker preview"/><span class="cover-index">04 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="echo_walker"><strong data-i18n="game.echo">Echo Walker</strong><small>ECHO WALKER</small></button><button class="card-source" type="button" data-open-source-demo="echo_walker" aria-label="Open Echo Walker source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="creative" data-search="pixel loom creative 像素 织机 创作">
-              <div class="game-cover"><img src="play-previews/pixel_loom.png" loading="lazy" draggable="false" alt="Pixel Loom preview"/><span class="cover-index">05 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/pixel_loom.png" loading="lazy" draggable="false" alt="Pixel Loom preview"/><span class="cover-index">05 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="pixel_loom"><strong data-i18n="game.loom">Pixel Loom</strong><small>PIXEL LOOM</small></button><button class="card-source" type="button" data-open-source-demo="pixel_loom" aria-label="Open Pixel Loom source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="puzzle" data-search="lumen light lab puzzle optics 光路 实验室 解谜">
-              <div class="game-cover"><img src="play-previews/lumen_lab.png" loading="lazy" draggable="false" alt="Lumen Lab preview"/><span class="cover-index">06 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/lumen_lab.png" loading="lazy" draggable="false" alt="Lumen Lab preview"/><span class="cover-index">06 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="lumen_lab"><strong data-i18n="game.lumen">Lumen Lab</strong><small>LUMEN LAB</small></button><button class="card-source" type="button" data-open-source-demo="lumen_lab" aria-label="Open Lumen Lab source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="puzzle" data-search="folding ark puzzle 折叠 方舟 解谜">
-              <div class="game-cover"><img src="play-previews/folding_ark.png" loading="lazy" draggable="false" alt="Folding Ark preview"/><span class="cover-index">07 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/folding_ark.png" loading="lazy" draggable="false" alt="Folding Ark preview"/><span class="cover-index">07 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="folding_ark"><strong data-i18n="game.ark">Folding Ark</strong><small>FOLDING ARK</small></button><button class="card-source" type="button" data-open-source-demo="folding_ark" aria-label="Open Folding Ark source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="puzzle" data-search="atlas restoration puzzle star map 星图 修复 解谜">
-              <div class="game-cover"><img src="play-previews/atlas_restoration.png" loading="lazy" draggable="false" alt="Atlas Restoration preview"/><span class="cover-index">08 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/atlas_restoration.png" loading="lazy" draggable="false" alt="Atlas Restoration preview"/><span class="cover-index">08 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="atlas_restoration"><strong data-i18n="game.atlas">Atlas Restoration</strong><small>ATLAS RESTORATION</small></button><button class="card-source" type="button" data-open-source-demo="atlas_restoration" aria-label="Open Atlas Restoration source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="strategy" data-search="module factory strategy 模块 工厂 策略">
-              <div class="game-cover"><img src="play-previews/module_factory.png" loading="lazy" draggable="false" alt="Module Factory preview"/><span class="cover-index">09 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/module_factory.png" loading="lazy" draggable="false" alt="Module Factory preview"/><span class="cover-index">09 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="module_factory"><strong data-i18n="game.factory">Module Factory</strong><small>MODULE FACTORY</small></button><button class="card-source" type="button" data-open-source-demo="module_factory" aria-label="Open Module Factory source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="creative" data-search="orbital mission creative orbit 轨道 任务 创作">
-              <div class="game-cover"><img src="play-previews/orbital_mission.png" loading="lazy" draggable="false" alt="Orbital Mission preview"/><span class="cover-index">10 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/orbital_mission.png" loading="lazy" draggable="false" alt="Orbital Mission preview"/><span class="cover-index">10 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="orbital_mission"><strong data-i18n="game.orbit">Orbital Mission</strong><small>ORBITAL MISSION</small></button><button class="card-source" type="button" data-open-source-demo="orbital_mission" aria-label="Open Orbital Mission source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="creative" data-search="logic circuit creative 逻辑 电路 创作">
-              <div class="game-cover"><img src="play-previews/logic_circuit.png" loading="lazy" draggable="false" alt="Logic Circuit preview"/><span class="cover-index">11 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/logic_circuit.png" loading="lazy" draggable="false" alt="Logic Circuit preview"/><span class="cover-index">11 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="logic_circuit"><strong data-i18n="game.circuit">Logic Circuit</strong><small>LOGIC CIRCUIT</small></button><button class="card-source" type="button" data-open-source-demo="logic_circuit" aria-label="Open Logic Circuit source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="creative" data-search="moss study lab ecosystem creative 苔藓 生态 创作">
-              <div class="game-cover"><img src="play-previews/moss_study.png" loading="lazy" draggable="false" alt="Moss Study preview"/><span class="cover-index">12 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/moss_study.png" loading="lazy" draggable="false" alt="Moss Study preview"/><span class="cover-index">12 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="moss_study"><strong data-i18n="game.moss">Moss Study</strong><small>MOSS STUDY</small></button><button class="card-source" type="button" data-open-source-demo="moss_study" aria-label="Open Moss Study source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
             </article>
             <article class="demo-card" data-category="strategy" data-search="pocket post switchyard strategy 轨道 邮局 策略">
-              <div class="game-cover"><img src="play-previews/pocket_post.png" loading="lazy" draggable="false" alt="Pocket Post preview"/><span class="cover-index">13 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><span aria-hidden="true">↗</span></button></div>
+              <div class="game-cover"><img src="demo-previews/pocket_post.png" loading="lazy" draggable="false" alt="Pocket Post preview"/><span class="cover-index">13 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><span aria-hidden="true">↗</span></button></div>
               <div class="card-footer"><button class="card-title" type="button" data-open-demo="pocket_post"><strong data-i18n="game.post">Pocket Post</strong><small>POCKET POST</small></button><button class="card-source" type="button" data-open-source-demo="pocket_post" aria-label="Open Pocket Post source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
             </article>
+          </div>
             <p class="home-empty" id="home-empty" hidden data-i18n="play.empty">No games match this search.</p>
           </div>
-          <div class="all-demos-row"><button class="site-cta" type="button" data-open-demo="orbit_console"><span data-i18n="play.all">Open the complete Gallery</span><span aria-hidden="true">→</span></button></div>
+        </section>
+
+        <section class="home-section catalog-section" id="demos">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker" data-i18n="catalog.kicker">02 / Demos</div>
+              <h2 class="section-title"><span data-i18n="catalog.title">Explore</span><span class="signal">.</span></h2>
+            </div>
+            <p class="section-intro" data-i18n="catalog.intro">Components, rendering, motion, effects, state, and scrolling.</p>
+          </div>
+          <nav class="catalog-nav" id="catalog-nav" role="tablist" aria-label="Demo categories"></nav>
+          <div class="catalog-groups" id="catalog-groups"></div>
+          <p class="home-empty" id="catalog-empty" hidden data-i18n="catalog.empty">No demos match this search.</p>
         </section>
 
         <section class="build-section" id="build">
           <div class="build-inner">
             <div class="build-grid">
               <div class="build-copy">
-                <div class="section-kicker" data-i18n="build.kicker">02 / One model, many surfaces</div>
+                <div class="section-kicker" data-i18n="build.kicker">03 / Multiple targets</div>
                 <h2><span data-i18n="build.title1">Build once.</span><br/><span data-i18n="build.title2">Route precisely</span><span style="color:var(--site-blue)">.</span></h2>
-                <p data-i18n="build.body">Fixed-point geometry, typed components, reactive state, and backend composition keep the same UI model useful from a 128×128 display to a desktop GPU.</p>
+                <p data-i18n="build.body">Fixed-point geometry, typed components, reactive state, and backend composition carry the same UI model from memory-constrained devices to desktop GPU rendering.</p>
                 <div class="capability-list">
                   <span data-i18n="build.cap1">Q24.8 layout + hit testing</span>
                   <span data-i18n="build.cap2">no_std + alloc core</span>
@@ -1283,7 +1297,7 @@
         <section class="home-section" id="targets">
           <div class="section-head">
             <div>
-              <div class="section-kicker" data-i18n="targets.kicker">03 / Runtime targets</div>
+              <div class="section-kicker" data-i18n="targets.kicker">04 / Runtime targets</div>
               <h2 class="section-title"><span data-i18n="targets.title">Everywhere</span><span class="signal">.</span></h2>
             </div>
             <p class="section-intro" data-i18n="targets.intro">The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.</p>
@@ -1309,8 +1323,8 @@
       </footer>
     </div>
 
-    <div class="layout">
-      <header class="topbar">
+    <section class="demo-focus" id="demo-focus">
+      <header class="focus-toolbar">
         <div class="brand-row">
           <span class="brand-mark" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -1320,20 +1334,13 @@
             </svg>
           </span>
           <span class="brand-text">
-            <h1 data-i18n="gallery.title">mirui · gallery</h1>
-            <div class="tag" data-i18n="gallery.tag">subpixel UI · no_std · wasm</div>
+            <h1 id="focus-title">mirui</h1>
           </span>
         </div>
-        <button class="icon-btn" id="gallery-home" type="button" title="Back to home" aria-label="Back to home">
-          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="m3 8 6-5 6 5v7H3V8Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 15v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-        </button>
-        <button class="icon-btn nav-toggle" id="nav-toggle" type="button" title="Choose demo" aria-label="Choose demo" aria-expanded="false">
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
+        <button class="icon-btn focus-back" id="focus-back" type="button" title="Back to home" aria-label="Back to home">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M14.5 9h-11M8 3.5 2.5 9 8 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="topbar-spacer"></div>
-        <span class="live-chip" aria-hidden="true"><span class="dot"></span><span data-i18n="gallery.rendering">rendering</span></span>
         <button class="icon-btn language-toggle" type="button" aria-label="Switch language">中</button>
         <button class="theme-toggle" id="theme-toggle" type="button" title="Switch to light theme" aria-label="Toggle light / dark theme">
           <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1351,27 +1358,9 @@
           <span class="gh-label">W-Mai/mirui</span>
         </a>
       </header>
-      <div class="body">
-        <aside>
-          <div class="nav-search">
-            <svg class="glass" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-            <input id="nav-filter" type="text" placeholder="Filter demos…" data-i18n-placeholder="gallery.filter" autocomplete="off" spellcheck="false" aria-label="Filter demos" />
-            <button class="clear" id="nav-filter-clear" type="button" title="Clear filter" aria-label="Clear filter">
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
-          <div id="nav">
-            <div class="nav-empty" data-i18n="gallery.noMatch">No demos match that filter.</div>
-          </div>
-        </aside>
-        <button class="nav-backdrop" id="nav-backdrop" type="button" aria-label="Close demo selector"></button>
+      <div class="focus-body">
         <main data-stage-panel>
-          <div class="stage-wrap" id="gallery-stage-host">
+          <div class="stage-wrap" id="focus-stage-host">
             <div class="stage" id="stage">
               <div class="stage-meta">
                 <span class="name" id="stage-name">—</span>
@@ -1432,7 +1421,7 @@
           </div>
         </main>
       </div>
-    </div>
+    </section>
     <script>
       (function () {
         const copy = {
@@ -1441,17 +1430,18 @@
             "hero.kicker": "PLAY / GAMES & INSTRUMENTS", "hero.line1": "Small screens.", "hero.line2": "Big play",
             "hero.play": "Play now", "hero.source": "Read the source",
             "play.kicker": "01 / Games", "play.title": "Play",
-            "play.search": "Search games", "play.empty": "No games match this search.", "play.all": "Open the complete Gallery",
+            "play.search": "Search demos", "play.empty": "No games match this search.",
+            "catalog.kicker": "02 / Demos", "catalog.title": "Explore", "catalog.intro": "Components, rendering, motion, effects, state, and scrolling.", "catalog.empty": "No demos match this search.",
             "filter.all": "All", "filter.puzzle": "Puzzle", "filter.strategy": "Strategy", "filter.creative": "Creative",
             "genre.puzzle": "Puzzle", "genre.strategy": "Strategy", "genre.creative": "Creative",
             "game.marble": "Marble Playground", "game.twin": "Twin Beacons", "game.tidal": "Tidal Atlas", "game.echo": "Echo Walker",
             "game.loom": "Pixel Loom", "game.lumen": "Lumen Lab", "game.ark": "Folding Ark", "game.atlas": "Atlas Restoration",
             "game.factory": "Module Factory", "game.orbit": "Orbital Mission", "game.circuit": "Logic Circuit", "game.moss": "Moss Study", "game.post": "Pocket Post",
             "card.showcase": "Showcase", "card.product": "Product", "card.play": "Play", "card.typography": "Typography", "card.interaction": "Interaction", "card.compact": "Compact",
-            "build.kicker": "02 / One model, many surfaces", "build.title1": "Build once.", "build.title2": "Route precisely",
-            "build.body": "Fixed-point geometry, typed components, reactive state, and backend composition keep the same UI model useful from a 128×128 display to a desktop GPU.",
+            "build.kicker": "03 / Multiple targets", "build.title1": "Build once.", "build.title2": "Route precisely",
+            "build.body": "Fixed-point geometry, typed components, reactive state, and backend composition carry the same UI model from memory-constrained devices to desktop GPU rendering.",
             "build.cap1": "Q24.8 layout + hit testing", "build.cap2": "no_std + alloc core", "build.cap3": "Shaped and path text", "build.cap4": "Software + GPU routes",
-            "targets.kicker": "03 / Runtime targets", "targets.title": "Everywhere",
+            "targets.kicker": "04 / Runtime targets", "targets.title": "Everywhere",
             "targets.intro": "The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.",
             "target.embedded": "Embedded", "target.mobile": "Mobile", "target.desktop": "Desktop", "target.web": "Web",
             "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
@@ -1466,18 +1456,19 @@
             "hero.kicker": "PLAY / 游戏与仪器", "hero.line1": "小屏幕。", "hero.line2": "大游戏",
             "hero.play": "开始玩", "hero.source": "查看源码",
             "play.kicker": "01 / 游戏", "play.title": "开玩",
-            "play.search": "搜索游戏", "play.empty": "没有匹配的游戏。", "play.all": "打开完整 Gallery",
+            "play.search": "搜索 Demo", "play.empty": "没有匹配的游戏。",
+            "catalog.kicker": "02 / Demo", "catalog.title": "继续看", "catalog.intro": "组件、渲染、动画、特效、状态与滚动。", "catalog.empty": "没有匹配的 Demo。",
             "filter.all": "全部", "filter.puzzle": "解谜", "filter.strategy": "策略", "filter.creative": "创作",
             "genre.puzzle": "解谜", "genre.strategy": "策略", "genre.creative": "创作",
             "game.marble": "弹珠游乐场", "game.twin": "双子信标", "game.tidal": "潮汐群岛", "game.echo": "回声行者",
             "game.loom": "像素织机", "game.lumen": "光路实验室", "game.ark": "折叠方舟", "game.atlas": "星图修复局",
             "game.factory": "模块工厂", "game.orbit": "轨道任务台", "game.circuit": "逻辑电路台", "game.moss": "微型生态瓶", "game.post": "轨道邮局",
             "card.showcase": "展示", "card.product": "产品", "card.play": "游戏", "card.typography": "文字排版", "card.interaction": "交互", "card.compact": "紧凑",
-            "build.kicker": "02 / 一套模型，多种表面", "build.title1": "构建一次。", "build.title2": "精确分流",
-            "build.body": "定点几何、类型化组件、响应式状态与后端组合，让同一套 UI 模型覆盖 128×128 显示屏和桌面 GPU。",
+            "build.kicker": "03 / 多端运行", "build.title1": "构建一次。", "build.title2": "精确分流",
+            "build.body": "定点几何、类型化组件、响应式状态与后端组合，让同一套 UI 模型从受限内存设备延伸到桌面 GPU 渲染。",
             "build.cap1": "Q24.8 布局与命中测试", "build.cap2": "no_std + alloc 核心", "build.cap3": "塑形与路径文本", "build.cap4": "软件与 GPU 路由",
-            "targets.kicker": "03 / 运行目标", "targets.title": "全平台",
-            "targets.intro": "同一棵组件树可以到达受控内存的软件光栅、原生 GPU、浏览器 Canvas 与直接显示表面。",
+            "targets.kicker": "04 / 运行目标", "targets.title": "全平台",
+            "targets.intro": "同一份组件树可由软件光栅、原生 GPU、浏览器 Canvas 或直接显示设备渲染。",
             "target.embedded": "嵌入式", "target.mobile": "移动端", "target.desktop": "桌面", "target.web": "Web",
             "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
@@ -1499,7 +1490,10 @@
           }
           for (const node of document.querySelectorAll("[data-i18n-placeholder]")) {
             const value = copy[next][node.dataset.i18nPlaceholder];
-            if (value) node.placeholder = value;
+            if (value) {
+              node.placeholder = value;
+              node.setAttribute("aria-label", value);
+            }
           }
           for (const button of document.querySelectorAll(".language-toggle")) {
             button.textContent = next === "zh" ? "EN" : "中";
@@ -1526,130 +1520,31 @@
         const params = new URLSearchParams(location.search);
         const defaultDemo = wasmBindings.default_demo_slug();
         const homeDemo = wasmBindings.home_demo_slug();
-        let siteMode = document.documentElement.dataset.mode === "gallery" ? "gallery" : "home";
+        const catalog = JSON.parse(wasmBindings.demo_catalog_json());
+        const demosBySlug = new Map(catalog.map((demo) => [demo.slug, demo]));
+        let siteMode = document.documentElement.dataset.mode === "focus" ? "focus" : "home";
         let activeSlug = params.get("demo") || (siteMode === "home" ? homeDemo : defaultDemo);
-
-        const navEl = document.getElementById("nav");
-        navEl.innerHTML = wasmBindings.nav_html();
-
-        // Re-insert the "no match" placeholder the wasm HTML just overwrote,
-        // and tag each category header with its demo count for the badge.
-        const navEmpty = document.createElement("div");
-        navEmpty.className = "nav-empty";
-        navEmpty.dataset.i18n = "gallery.noMatch";
-        navEmpty.textContent = window.miruiLanguage.t("gallery.noMatch");
-        navEl.appendChild(navEmpty);
-
-        for (const cat of navEl.querySelectorAll(".cat")) {
-          const row = cat.nextElementSibling;
-          const count = row && row.classList.contains("cat-row")
-            ? row.querySelectorAll("a").length
-            : 0;
-          cat.setAttribute("data-count", String(count));
-        }
-
-        let activeLink = navEl.querySelector(`a[data-demo="${CSS.escape(activeSlug)}"]`);
-        if (!activeLink) {
-          // Unknown ?demo= slug: the wasm fell back to the default, so align the
-          // page (active link, title, source, URL) with what's running.
+        let activeDemo = demosBySlug.get(activeSlug);
+        if (!activeDemo) {
           activeSlug = defaultDemo;
-          activeLink = navEl.querySelector(`a[data-demo="${CSS.escape(defaultDemo)}"]`);
-          const fallbackMode = siteMode === "gallery" ? "gallery" : "home";
-          const fallbackUrl = fallbackMode === "gallery" ? "?demo=" + activeSlug : location.pathname;
-          history.replaceState({ mode: fallbackMode, demo: activeSlug }, "", fallbackUrl);
+          activeDemo = demosBySlug.get(defaultDemo);
+          const fallbackUrl = siteMode === "focus" ? "?demo=" + activeSlug : location.pathname;
+          history.replaceState({ mode: siteMode, demo: activeSlug }, "", fallbackUrl);
         }
-        if (activeLink) activeLink.classList.add("active");
-
-        // ── Client-side demo filter ────────────────────────────
-        // Operates purely over the existing nav <a> nodes: hides
-        // non-matching links and collapses categories that end up empty.
-        // Never touches .active or routing (hrefs stay intact).
-        const filterInput = document.getElementById("nav-filter");
-        const filterWrap = filterInput.closest(".nav-search");
-        const filterClear = document.getElementById("nav-filter-clear");
-
-        function applyFilter(raw) {
-          const q = raw.trim().toLowerCase();
-          filterWrap.classList.toggle("has-text", q.length > 0);
-          let anyVisible = false;
-
-          for (const cat of navEl.querySelectorAll(".cat")) {
-            const row = cat.nextElementSibling;
-            if (!row || !row.classList.contains("cat-row")) continue;
-            let catVisible = 0;
-            for (const link of row.querySelectorAll("a")) {
-              const hay = (link.textContent + " " + (link.dataset.demo || "")).toLowerCase();
-              const hit = q === "" || hay.includes(q);
-              link.hidden = !hit;
-              link.classList.toggle("filter-hit", hit && q !== "");
-              if (hit) { catVisible++; anyVisible = true; }
-            }
-            cat.hidden = catVisible === 0;
-            row.hidden = catVisible === 0;
-          }
-          navEl.classList.toggle("is-empty", !anyVisible);
-        }
-
-        filterInput.addEventListener("input", () => applyFilter(filterInput.value));
-        filterClear.addEventListener("click", () => {
-          filterInput.value = "";
-          applyFilter("");
-          filterInput.focus();
-        });
-        filterInput.addEventListener("keydown", (e) => {
-          if (e.key === "Escape" && filterInput.value) {
-            e.preventDefault();
-            filterInput.value = "";
-            applyFilter("");
-          }
-        });
-
-        const navPanel = document.querySelector(".body > aside");
-        const bodyShell = document.querySelector(".body");
-        const navToggle = document.getElementById("nav-toggle");
-        const navBackdrop = document.getElementById("nav-backdrop");
         const mobileQuery = window.matchMedia("(max-width: 760px), (max-width: 1000px) and (max-height: 500px)");
-
-        function setNavOpen(open) {
-          if (mobileQuery.matches) {
-            bodyShell.classList.remove("nav-collapsed");
-            navPanel.classList.toggle("open", open);
-            navBackdrop.classList.toggle("open", open);
-          } else {
-            navPanel.classList.remove("open");
-            navBackdrop.classList.remove("open");
-            bodyShell.classList.toggle("nav-collapsed", !open);
-          }
-          navToggle.setAttribute("aria-expanded", String(open));
-        }
-
-        function navIsOpen() {
-          return mobileQuery.matches
-            ? navPanel.classList.contains("open")
-            : !bodyShell.classList.contains("nav-collapsed");
-        }
-
-        navToggle.addEventListener("click", () => setNavOpen(!navIsOpen()));
-        navBackdrop.addEventListener("click", () => setNavOpen(false));
-        document.addEventListener("keydown", (event) => {
-          if (event.key !== "Escape") return;
-          if (document.activeElement === filterInput && filterInput.value) return;
-          setNavOpen(false);
-        });
-        mobileQuery.addEventListener("change", () => setNavOpen(!mobileQuery.matches));
-        setNavOpen(!mobileQuery.matches);
 
         const canvas = document.getElementById("mirui");
         const stage = document.getElementById("stage");
-        const galleryStageHost = document.getElementById("gallery-stage-host");
+        const focusStageHost = document.getElementById("focus-stage-host");
         const homeStageHost = document.getElementById("home-stage-host");
-        const galleryStagePanel = galleryStageHost.closest("[data-stage-panel]");
+        const focusStagePanel = focusStageHost.closest("[data-stage-panel]");
         const homeStagePanel = homeStageHost.closest("[data-stage-panel]");
         if (siteMode === "home") homeStageHost.appendChild(stage);
         function activeStagePanel() {
-          return stage.closest("[data-stage-panel]") || galleryStagePanel;
+          return stage.closest("[data-stage-panel]") || focusStagePanel;
         }
         const stageName = document.getElementById("stage-name");
+        const focusTitle = document.getElementById("focus-title");
         const stageSize = document.getElementById("stage-size");
         const resetBtn = document.getElementById("reset-btn");
         const rotateBtn = document.getElementById("rotate-btn");
@@ -1663,15 +1558,15 @@
           return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
         }
 
-        function sizeContract(link) {
+        function sizeContract(demo) {
           if (params.get("backend_parity") === "1") {
             return { minWidth: 640, minHeight: 390, maxWidth: 640, maxHeight: 390 };
           }
           return {
-            minWidth: optionalBound(link && link.dataset.minW),
-            minHeight: optionalBound(link && link.dataset.minH),
-            maxWidth: optionalBound(link && link.dataset.maxW),
-            maxHeight: optionalBound(link && link.dataset.maxH),
+            minWidth: optionalBound(demo && demo.minWidth),
+            minHeight: optionalBound(demo && demo.minHeight),
+            maxWidth: optionalBound(demo && demo.maxWidth),
+            maxHeight: optionalBound(demo && demo.maxHeight),
           };
         }
 
@@ -1726,7 +1621,7 @@
           };
         }
 
-        let demoContract = sizeContract(activeLink);
+        let demoContract = sizeContract(activeDemo);
         let orientationSwapped = false;
         let currentSize = null;
 
@@ -1788,9 +1683,9 @@
           };
         }
 
-        if (activeLink) {
-          stageName.textContent = activeLink.textContent;
-          activeLink.scrollIntoView({ block: "nearest" });
+        if (activeDemo) {
+          stageName.textContent = activeDemo.label;
+          focusTitle.textContent = activeDemo.label;
         }
         if (params.get("backend_parity") === "1") {
           stageName.textContent = "Backend Parity";
@@ -1930,7 +1825,7 @@
             applyCanvasSize(resolveCanvasSize());
           });
         });
-        fitObserver.observe(galleryStagePanel);
+        fitObserver.observe(focusStagePanel);
         fitObserver.observe(homeStagePanel);
 
         function adoptDeviceOrientation() {
@@ -1959,8 +1854,8 @@
           return document.documentElement.getAttribute("data-theme") !== "light";
         }
         function syncCanvasTheme(dark) {
-          const id = activeLink
-            ? activeLink.dataset[dark ? "themeDark" : "themeLight"]
+          const id = activeDemo
+            ? activeDemo[dark ? "darkTheme" : "lightTheme"]
             : (dark ? "dark" : "light");
           try { wasmBindings.set_theme(id); } catch (_) {}
         }
@@ -2248,13 +2143,13 @@
         });
 
         // ── One live stage, two presentation modes ─────────────
-        // The canvas and running App survive every landing/Gallery change.
+        // The canvas and running App survive every homepage/focus change.
         // Only the stage subtree moves between hosts; demo switches reuse
         // the backend through the wasm registry.
         function switchDemo(slug) {
           if (!slug || slug === activeSlug) return false;
-          const link = navEl.querySelector(`a[data-demo="${CSS.escape(slug)}"]`);
-          if (!link) return false;
+          const demo = demosBySlug.get(slug);
+          if (!demo) return false;
 
           try {
             wasmBindings.switch_demo(slug);
@@ -2264,16 +2159,14 @@
             return false;
           }
 
-          if (activeLink) activeLink.classList.remove("active");
-          link.classList.add("active");
-          activeLink = link;
+          activeDemo = demo;
           activeSlug = slug;
 
-          stageName.textContent = link.textContent;
-          demoContract = sizeContract(link);
+          stageName.textContent = demo.label;
+          focusTitle.textContent = demo.label;
+          demoContract = sizeContract(demo);
           adoptPortraitOrientation();
           applyCanvasSize(resolveCanvasSize());
-          if (mobileQuery.matches) setNavOpen(false);
 
           loadSource(slug);
           applyFocusState();
@@ -2284,10 +2177,10 @@
         let homeScrollY = 0;
 
         function applySiteMode(mode, restoreScroll = true) {
-          const next = mode === "gallery" ? "gallery" : "home";
-          if (next === "gallery") {
+          const next = mode === "focus" ? "focus" : "home";
+          if (next === "focus") {
             if (siteMode === "home") homeScrollY = window.scrollY;
-            galleryStageHost.appendChild(stage);
+            focusStageHost.appendChild(stage);
           } else {
             setDrawer(false);
             homeStageHost.appendChild(stage);
@@ -2296,11 +2189,11 @@
           document.documentElement.dataset.mode = next;
           document.title = next === "home"
             ? "mirui — fixed-point UI from embedded to WebAssembly"
-            : `${stageName.textContent} — mirui gallery`;
+            : `${stageName.textContent} — mirui`;
           requestAnimationFrame(() => {
             adoptPortraitOrientation();
             applyCanvasSize(resolveCanvasSize());
-            if (next === "gallery") {
+            if (next === "focus") {
               canvas.focus({ preventScroll: true });
             } else if (restoreScroll) {
               window.scrollTo({ top: homeScrollY, behavior: "instant" });
@@ -2326,14 +2219,16 @@
           }
         }
 
-        function openGallery(slug, push, sourceOpen = false) {
+        function openDemo(slug, push, sourceOpen = false) {
           const requestedSlug = slug || activeSlug;
           const demoChanged = switchDemo(requestedSlug);
-          const modeChanged = siteMode !== "gallery";
-          runViewTransition(() => applySiteMode("gallery"));
+          const modeChanged = siteMode !== "focus";
+          const fromHome = siteMode === "home";
+          if (fromHome) homeScrollY = window.scrollY;
+          runViewTransition(() => applySiteMode("focus"));
           if (push && (demoChanged || modeChanged || !location.search.includes("demo="))) {
             history.pushState(
-              { mode: "gallery", demo: activeSlug },
+              { mode: "focus", demo: activeSlug, fromHome, scrollY: homeScrollY },
               "",
               "?demo=" + encodeURIComponent(activeSlug),
             );
@@ -2341,11 +2236,10 @@
           if (sourceOpen) requestAnimationFrame(() => setDrawer(true));
         }
 
-        function openHome(push, slug = activeSlug) {
-          switchDemo(slug);
+        function openHome(push) {
           runViewTransition(() => applySiteMode("home"));
           if (push) {
-            history.pushState({ mode: "home", demo: activeSlug }, "", location.pathname);
+            history.replaceState({ mode: "home", demo: activeSlug, scrollY: homeScrollY }, "", location.pathname);
           }
         }
 
@@ -2363,18 +2257,18 @@
         function featureAt(index) {
           const normalized = (index + featureSlugs.length) % featureSlugs.length;
           const slug = featureSlugs[normalized];
-          const link = navEl.querySelector(`a[data-demo="${CSS.escape(slug)}"]`);
+          const demo = demosBySlug.get(slug);
           return {
             index: normalized,
             slug,
-            name: link ? link.textContent.trim() : slug,
+            name: demo ? demo.label : slug,
           };
         }
 
         function updateHeroPreview(element, feature, side) {
           element.dataset.featureDemo = feature.slug;
           element.setAttribute("aria-label", `${side} featured demo: ${feature.name}`);
-          element.querySelector("img").src = `play-previews/${feature.slug}.png`;
+          element.querySelector("img").src = `demo-previews/${feature.slug}.png`;
           element.querySelector("img").alt = `${feature.name} preview`;
           element.querySelector(".hero-preview-bar span:first-child").textContent = feature.name.toUpperCase();
           element.querySelector(".hero-preview-bar span:last-child").textContent = `${String(feature.index + 1).padStart(2, "0")} / ${String(featureSlugs.length).padStart(2, "0")}`;
@@ -2386,7 +2280,7 @@
             button.classList.toggle("active", active);
             button.setAttribute("aria-pressed", String(active));
           }
-          featureName.textContent = activeLink ? activeLink.textContent : activeSlug;
+          featureName.textContent = activeDemo ? activeDemo.label : activeSlug;
           if (featureHandoff) return;
           const current = featureSlugs.indexOf(activeSlug);
           const index = current < 0 ? 0 : current;
@@ -2477,30 +2371,298 @@
         updateFeatureSelection();
 
         for (const button of document.querySelectorAll("[data-open-demo]")) {
-          button.addEventListener("click", () => openGallery(button.dataset.openDemo, true));
+          button.addEventListener("click", () => openDemo(button.dataset.openDemo, true));
         }
         for (const button of document.querySelectorAll("[data-open-current]")) {
-          button.addEventListener("click", () => openGallery(activeSlug, true));
+          button.addEventListener("click", () => openDemo(activeSlug, true));
         }
         for (const button of document.querySelectorAll("[data-open-source]")) {
-          button.addEventListener("click", () => openGallery(activeSlug, true, true));
+          button.addEventListener("click", () => openDemo(activeSlug, true, true));
         }
         for (const button of document.querySelectorAll("[data-open-source-demo]")) {
-          button.addEventListener("click", () => openGallery(button.dataset.openSourceDemo, true, true));
+          button.addEventListener("click", () => openDemo(button.dataset.openSourceDemo, true, true));
         }
 
-        document.getElementById("gallery-home").addEventListener("click", () => openHome(true));
+        document.getElementById("focus-back").addEventListener("click", () => {
+          if (history.state && history.state.fromHome) history.back();
+          else openHome(true);
+        });
 
         // ── Landing filters and mobile navigation ──────────────
         const playSearch = document.getElementById("play-search");
         const playFilters = Array.from(document.querySelectorAll(".play-filter"));
+        const playViewport = document.getElementById("play-tabpanel");
+        const demoGrid = document.getElementById("demo-grid");
         const demoCards = Array.from(document.querySelectorAll(".demo-card"));
         const homeEmpty = document.getElementById("home-empty");
         const playCount = document.getElementById("play-count");
-        let playCategory = "all";
+        const catalogNav = document.getElementById("catalog-nav");
+        const catalogGroups = document.getElementById("catalog-groups");
+        const catalogEmpty = document.getElementById("catalog-empty");
+        let playCategory = playFilters[0].dataset.filter;
 
-        function applyPlayFilter() {
+        function demoSizeLabel(demo) {
+          const fixed = demo.minWidth !== null && demo.minHeight !== null
+            && demo.minWidth === demo.maxWidth && demo.minHeight === demo.maxHeight;
+          if (fixed) return `${demo.minWidth} × ${demo.minHeight}`;
+          const width = demo.minWidth === null && demo.maxWidth === null
+            ? "auto"
+            : `${demo.minWidth ?? "…"}–${demo.maxWidth ?? "…"}`;
+          const height = demo.minHeight === null && demo.maxHeight === null
+            ? "auto"
+            : `${demo.minHeight ?? "…"}–${demo.maxHeight ?? "…"}`;
+          return `${width} × ${height}`;
+        }
+
+        const categoryGroups = [];
+        const groupedCatalog = new Map();
+        for (const demo of catalog) {
+          if (demo.category === "Play") continue;
+          if (!groupedCatalog.has(demo.category)) groupedCatalog.set(demo.category, []);
+          groupedCatalog.get(demo.category).push(demo);
+        }
+        for (const [category, demos] of groupedCatalog) {
+          const categoryIndex = categoryGroups.length;
+          const anchor = `catalog-${category.toLowerCase()}`;
+          const navButton = document.createElement("button");
+          navButton.type = "button";
+          navButton.id = `${anchor}-tab`;
+          navButton.setAttribute("role", "tab");
+          navButton.setAttribute("aria-controls", anchor);
+          navButton.setAttribute("aria-selected", String(categoryIndex === 0));
+          navButton.tabIndex = categoryIndex === 0 ? 0 : -1;
+          navButton.textContent = `${category} ${demos.length}`;
+          navButton.addEventListener("click", () => selectCatalog(categoryIndex));
+          navButton.addEventListener("keydown", (event) => {
+            let nextIndex = null;
+            if (event.key === "ArrowRight") nextIndex = (categoryIndex + 1) % categoryGroups.length;
+            if (event.key === "ArrowLeft") nextIndex = (categoryIndex - 1 + categoryGroups.length) % categoryGroups.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = categoryGroups.length - 1;
+            if (nextIndex === null) return;
+            event.preventDefault();
+            selectCatalog(nextIndex, true);
+          });
+          catalogNav.appendChild(navButton);
+
+          const section = document.createElement("section");
+          section.className = "catalog-group";
+          section.id = anchor;
+          section.setAttribute("role", "tabpanel");
+          section.setAttribute("aria-labelledby", navButton.id);
+          section.hidden = categoryIndex !== 0;
+          const head = document.createElement("header");
+          head.className = "catalog-group-head";
+          const title = document.createElement("h3");
+          title.textContent = category;
+          const count = document.createElement("span");
+          count.textContent = `${String(demos.length).padStart(2, "0")} DEMOS`;
+          head.append(title, count);
+          const grid = document.createElement("div");
+          grid.className = "catalog-grid";
+
+          const cards = [];
+          for (const demo of demos) {
+            const card = document.createElement("article");
+            card.className = "catalog-card";
+            card.dataset.search = `${demo.label} ${demo.slug} ${demo.category}`.toLowerCase();
+            card.dataset.fixedSquare = String(
+              demo.minWidth !== null && demo.minWidth === demo.maxWidth
+                && demo.minHeight !== null && demo.minHeight === demo.maxHeight
+                && demo.minWidth === demo.minHeight,
+            );
+
+            const cover = document.createElement("div");
+            cover.className = "catalog-cover";
+            const image = document.createElement("img");
+            image.src = `demo-previews/${demo.slug}.png`;
+            image.loading = "lazy";
+            image.draggable = false;
+            image.alt = `${demo.label} preview`;
+            const open = document.createElement("button");
+            open.className = "catalog-open";
+            open.type = "button";
+            open.setAttribute("aria-label", `Open ${demo.label}`);
+            open.addEventListener("click", () => openDemo(demo.slug, true));
+            cover.append(image, open);
+
+            const info = document.createElement("div");
+            info.className = "catalog-info";
+            const name = document.createElement("button");
+            name.className = "catalog-title-button";
+            name.type = "button";
+            name.addEventListener("click", () => openDemo(demo.slug, true));
+            const strong = document.createElement("strong");
+            strong.textContent = demo.label;
+            const size = document.createElement("small");
+            size.textContent = demoSizeLabel(demo);
+            name.append(strong, size);
+            const source = document.createElement("button");
+            source.className = "catalog-source";
+            source.type = "button";
+            source.textContent = "</>";
+            source.setAttribute("aria-label", `Open ${demo.label} source`);
+            source.addEventListener("click", () => openDemo(demo.slug, true, true));
+            info.append(name, source);
+            card.append(cover, info);
+            grid.appendChild(card);
+            cards.push(card);
+          }
+
+          section.append(head, grid);
+          catalogGroups.appendChild(section);
+          categoryGroups.push({ section, cards, button: navButton });
+        }
+
+        let activeCatalogIndex = 0;
+        let catalogTransitionRevision = 0;
+
+        function updateCatalogTabState(index, focusTab) {
+          for (let itemIndex = 0; itemIndex < categoryGroups.length; itemIndex++) {
+            const active = itemIndex === index;
+            const button = categoryGroups[itemIndex].button;
+            button.setAttribute("aria-selected", String(active));
+            button.tabIndex = active ? 0 : -1;
+          }
+          const activeButton = categoryGroups[index]?.button;
+          activeButton?.scrollIntoView({ behavior: motionEnabled ? "smooth" : "instant", block: "nearest", inline: "center" });
+          if (focusTab) activeButton?.focus({ preventScroll: true });
+        }
+
+        function applyCatalogFilter(index = activeCatalogIndex) {
           const query = playSearch.value.trim().toLowerCase();
+          const group = categoryGroups[index];
+          let visible = 0;
+          if (group) {
+            for (const card of group.cards) {
+              const hit = !query || card.dataset.search.includes(query);
+              card.hidden = !hit;
+              if (hit) visible++;
+            }
+          }
+          catalogEmpty.hidden = visible !== 0;
+        }
+
+        async function selectCatalog(index, focusTab = false) {
+          if (index < 0 || index >= categoryGroups.length) return;
+          if (index === activeCatalogIndex) {
+            updateCatalogTabState(index, focusTab);
+            return;
+          }
+
+          const revision = ++catalogTransitionRevision;
+          const previousIndex = activeCatalogIndex;
+          const direction = index > previousIndex ? 1 : -1;
+          const outgoing = categoryGroups[previousIndex].section;
+          const incoming = categoryGroups[index].section;
+
+          for (const animation of catalogGroups.getAnimations({ subtree: true })) animation.cancel();
+          for (let itemIndex = 0; itemIndex < categoryGroups.length; itemIndex++) {
+            const section = categoryGroups[itemIndex].section;
+            section.classList.remove("catalog-group-transitioning");
+            section.style.removeProperty("transform");
+            section.style.removeProperty("opacity");
+            section.hidden = itemIndex !== previousIndex;
+          }
+          catalogGroups.style.removeProperty("height");
+
+          activeCatalogIndex = index;
+          applyCatalogFilter(index);
+          updateCatalogTabState(index, focusTab);
+          incoming.hidden = false;
+
+          if (!motionEnabled) {
+            outgoing.hidden = true;
+            return;
+          }
+
+          const startHeight = outgoing.offsetHeight;
+          incoming.classList.add("catalog-group-transitioning");
+          const endHeight = incoming.offsetHeight;
+          catalogGroups.style.height = `${startHeight}px`;
+
+          const duration = 340;
+          const easing = "cubic-bezier(.22,.78,.2,1)";
+          const outgoingAnimation = outgoing.animate([
+            { opacity: 1, transform: "translateX(0)" },
+            { opacity: 0, transform: `translateX(${-direction * 7}%)` },
+          ], { duration, easing, fill: "both" });
+          const incomingAnimation = incoming.animate([
+            { opacity: 0, transform: `translateX(${direction * 9}%)` },
+            { opacity: 1, transform: "translateX(0)" },
+          ], { duration, easing, fill: "both" });
+          const heightAnimation = catalogGroups.animate([
+            { height: `${startHeight}px` },
+            { height: `${endHeight}px` },
+          ], { duration, easing, fill: "both" });
+
+          await Promise.allSettled([
+            outgoingAnimation.finished,
+            incomingAnimation.finished,
+            heightAnimation.finished,
+          ]);
+          if (revision !== catalogTransitionRevision) return;
+
+          outgoingAnimation.cancel();
+          incomingAnimation.cancel();
+          heightAnimation.cancel();
+          outgoing.hidden = true;
+          incoming.classList.remove("catalog-group-transitioning");
+          incoming.style.removeProperty("transform");
+          incoming.style.removeProperty("opacity");
+          catalogGroups.style.removeProperty("height");
+        }
+
+        let catalogPointerStart = null;
+        let catalogSwipeConsumed = false;
+        catalogGroups.addEventListener("pointerdown", (event) => {
+          if (!event.isPrimary) return;
+          catalogPointerStart = { x: event.clientX, y: event.clientY };
+          catalogSwipeConsumed = false;
+        });
+        catalogGroups.addEventListener("pointerup", (event) => {
+          if (!catalogPointerStart || !event.isPrimary) return;
+          const deltaX = event.clientX - catalogPointerStart.x;
+          const deltaY = event.clientY - catalogPointerStart.y;
+          catalogPointerStart = null;
+          if (Math.abs(deltaX) < 44 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+          catalogSwipeConsumed = true;
+          const nextIndex = deltaX < 0
+            ? Math.min(activeCatalogIndex + 1, categoryGroups.length - 1)
+            : Math.max(activeCatalogIndex - 1, 0);
+          selectCatalog(nextIndex);
+          window.setTimeout(() => { catalogSwipeConsumed = false; }, 0);
+        });
+        catalogGroups.addEventListener("pointercancel", () => { catalogPointerStart = null; });
+        catalogGroups.addEventListener("click", (event) => {
+          if (!catalogSwipeConsumed) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }, true);
+
+        let activePlayIndex = 0;
+        let renderedPlayIndex = 0;
+        let playTransitionRevision = 0;
+
+        function updatePlayTabState(index, focusTab) {
+          for (let itemIndex = 0; itemIndex < playFilters.length; itemIndex++) {
+            const active = itemIndex === index;
+            const button = playFilters[itemIndex];
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-selected", String(active));
+            button.tabIndex = active ? 0 : -1;
+          }
+          const activeButton = playFilters[index];
+          playViewport.setAttribute("aria-labelledby", activeButton.id);
+          activeButton.scrollIntoView({ behavior: motionEnabled ? "smooth" : "instant", block: "nearest", inline: "center" });
+          if (focusTab) activeButton.focus({ preventScroll: true });
+        }
+
+        function renderPlayFilter() {
+          const query = playSearch.value.trim().toLowerCase();
+          const categoryCards = playCategory === "all"
+            ? demoCards
+            : demoCards.filter((card) => card.dataset.category === playCategory);
           let visible = 0;
           for (const card of demoCards) {
             const categoryMatch = playCategory === "all" || card.dataset.category === playCategory;
@@ -2509,21 +2671,114 @@
             if (!card.hidden) visible++;
           }
           homeEmpty.hidden = visible !== 0;
-          playCount.textContent = `${String(visible).padStart(2, "0")} / ${demoCards.length}`;
+          playCount.textContent = `${visible} / ${categoryCards.length}`;
         }
 
-        for (const button of playFilters) {
-          button.setAttribute("aria-pressed", String(button.classList.contains("active")));
-          button.addEventListener("click", () => {
-            playCategory = button.dataset.filter;
-            for (const peer of playFilters) {
-              const active = peer === button;
-              peer.classList.toggle("active", active);
-              peer.setAttribute("aria-pressed", String(active));
-            }
-            applyPlayFilter();
+        function applyPlayFilter() {
+          playTransitionRevision++;
+          for (const animation of playViewport.getAnimations({ subtree: true })) animation.cancel();
+          playViewport.style.removeProperty("height");
+          renderedPlayIndex = activePlayIndex;
+          playCategory = playFilters[activePlayIndex].dataset.filter;
+          renderPlayFilter();
+          applyCatalogFilter();
+        }
+
+        async function selectPlayCategory(index, focusTab = false) {
+          if (index < 0 || index >= playFilters.length) return;
+          if (index === activePlayIndex) {
+            updatePlayTabState(index, focusTab);
+            return;
+          }
+
+          const revision = ++playTransitionRevision;
+          const previousIndex = renderedPlayIndex;
+          const direction = index > previousIndex ? 1 : -1;
+          activePlayIndex = index;
+          updatePlayTabState(index, focusTab);
+
+          for (const animation of playViewport.getAnimations({ subtree: true })) animation.cancel();
+          playViewport.style.removeProperty("height");
+          if (!motionEnabled) {
+            renderedPlayIndex = index;
+            playCategory = playFilters[index].dataset.filter;
+            renderPlayFilter();
+            return;
+          }
+
+          const startHeight = playViewport.offsetHeight;
+          playViewport.style.height = `${startHeight}px`;
+          const duration = 280;
+          const easing = "cubic-bezier(.22,.78,.2,1)";
+          const outgoingAnimation = demoGrid.animate([
+            { opacity: 1, transform: "translateX(0)" },
+            { opacity: 0, transform: `translateX(${-direction * 6}%)` },
+          ], { duration: 150, easing: "ease-in", fill: "both" });
+          await Promise.allSettled([outgoingAnimation.finished]);
+          if (revision !== playTransitionRevision) return;
+          outgoingAnimation.cancel();
+
+          renderedPlayIndex = index;
+          playCategory = playFilters[index].dataset.filter;
+          renderPlayFilter();
+          const endHeight = demoGrid.offsetHeight + (homeEmpty.hidden ? 0 : homeEmpty.offsetHeight);
+          const incomingAnimation = demoGrid.animate([
+            { opacity: 0, transform: `translateX(${direction * 8}%)` },
+            { opacity: 1, transform: "translateX(0)" },
+          ], { duration, easing, fill: "both" });
+          const heightAnimation = playViewport.animate([
+            { height: `${startHeight}px` },
+            { height: `${endHeight}px` },
+          ], { duration, easing, fill: "both" });
+          await Promise.allSettled([incomingAnimation.finished, heightAnimation.finished]);
+          if (revision !== playTransitionRevision) return;
+          incomingAnimation.cancel();
+          heightAnimation.cancel();
+          playViewport.style.removeProperty("height");
+        }
+
+        for (let index = 0; index < playFilters.length; index++) {
+          const button = playFilters[index];
+          button.addEventListener("click", () => selectPlayCategory(index));
+          button.addEventListener("keydown", (event) => {
+            let nextIndex = null;
+            if (event.key === "ArrowRight") nextIndex = (index + 1) % playFilters.length;
+            if (event.key === "ArrowLeft") nextIndex = (index - 1 + playFilters.length) % playFilters.length;
+            if (event.key === "Home") nextIndex = 0;
+            if (event.key === "End") nextIndex = playFilters.length - 1;
+            if (nextIndex === null) return;
+            event.preventDefault();
+            selectPlayCategory(nextIndex, true);
           });
         }
+
+        let playPointerStart = null;
+        let playSwipeConsumed = false;
+        playViewport.addEventListener("pointerdown", (event) => {
+          if (!event.isPrimary) return;
+          playPointerStart = { x: event.clientX, y: event.clientY };
+          playSwipeConsumed = false;
+        });
+        playViewport.addEventListener("pointerup", (event) => {
+          if (!playPointerStart || !event.isPrimary) return;
+          const deltaX = event.clientX - playPointerStart.x;
+          const deltaY = event.clientY - playPointerStart.y;
+          playPointerStart = null;
+          if (Math.abs(deltaX) < 44 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) return;
+          playSwipeConsumed = true;
+          const nextIndex = deltaX < 0
+            ? Math.min(activePlayIndex + 1, playFilters.length - 1)
+            : Math.max(activePlayIndex - 1, 0);
+          selectPlayCategory(nextIndex);
+          window.setTimeout(() => { playSwipeConsumed = false; }, 0);
+        });
+        playViewport.addEventListener("pointercancel", () => { playPointerStart = null; });
+        playViewport.addEventListener("click", (event) => {
+          if (!playSwipeConsumed) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }, true);
+
         playSearch.addEventListener("input", applyPlayFilter);
         applyPlayFilter();
 
@@ -2607,24 +2862,18 @@
           });
         }
 
-        // Intercept sidebar clicks → switch in place instead of navigating.
-        navEl.addEventListener("click", (e) => {
-          const link = e.target.closest("a[data-demo]");
-          if (!link || !navEl.contains(link)) return;
-          e.preventDefault();
-          if (mobileQuery.matches) setNavOpen(false);
-          openGallery(link.dataset.demo, true);
-        });
-
         // Back / forward restores both the selected demo and presentation mode.
         window.addEventListener("popstate", (e) => {
           const locationParams = new URLSearchParams(location.search);
           const mode = (e.state && e.state.mode)
-            || (locationParams.has("demo") || locationParams.get("backend_parity") === "1" ? "gallery" : "home");
+            || (locationParams.has("demo") || locationParams.get("backend_parity") === "1" ? "focus" : "home");
           const slug = (e.state && e.state.demo)
             || locationParams.get("demo")
             || (mode === "home" ? activeSlug || homeDemo : defaultDemo);
           switchDemo(slug);
+          if (mode === "home" && Number.isFinite(e.state && e.state.scrollY)) {
+            homeScrollY = e.state.scrollY;
+          }
           applySiteMode(mode);
           if (mode === "home" && location.hash) {
             requestAnimationFrame(() => document.querySelector(location.hash)?.scrollIntoView({ block: "start" }));
@@ -2632,17 +2881,12 @@
         });
 
         function refreshLocalizedControls() {
-          filterInput.placeholder = window.miruiLanguage.t("gallery.filter");
-          filterInput.setAttribute("aria-label", filterInput.placeholder);
-          navEmpty.textContent = window.miruiLanguage.t("gallery.noMatch");
           copyLabel.textContent = copyBtn.classList.contains("copied")
             ? window.miruiLanguage.t("gallery.copied")
             : window.miruiLanguage.t("gallery.copy");
-          const homeButton = document.getElementById("gallery-home");
+          const homeButton = document.getElementById("focus-back");
           homeButton.title = window.miruiLanguage.t("gallery.backHome");
           homeButton.setAttribute("aria-label", homeButton.title);
-          navToggle.title = window.miruiLanguage.t("gallery.choose");
-          navToggle.setAttribute("aria-label", navToggle.title);
           applyCanvasSize(currentSize || resolveCanvasSize());
           renderSource();
           applyTheme(isDark(), false);
@@ -2652,15 +2896,15 @@
 
         // Seed history without rewriting the canonical landing URL.
         if (siteMode === "home") {
-          const sectionHash = ["#home", "#play", "#build"].includes(location.hash) ? location.hash : "";
-          history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname + sectionHash);
+          const sectionHash = ["#home", "#play", "#demos", "#build", "#targets"].includes(location.hash) ? location.hash : "";
+          history.replaceState({ mode: "home", demo: activeSlug, scrollY: 0 }, "", location.pathname + sectionHash);
           applySiteMode("home", false);
           if (sectionHash) {
             requestAnimationFrame(() => document.querySelector(sectionHash)?.scrollIntoView({ block: "start" }));
           }
         } else {
-          history.replaceState({ mode: "gallery", demo: activeSlug }, "", location.search || ("?demo=" + encodeURIComponent(activeSlug)));
-          applySiteMode("gallery", false);
+          history.replaceState({ mode: "focus", demo: activeSlug, fromHome: false, scrollY: 0 }, "", location.search || ("?demo=" + encodeURIComponent(activeSlug)));
+          applySiteMode("focus", false);
         }
       });
     </script>

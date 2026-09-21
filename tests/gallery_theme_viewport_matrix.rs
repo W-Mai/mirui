@@ -102,7 +102,7 @@ fn assert_theme_pair(
 }
 
 fn registered_modules() -> BTreeSet<&'static str> {
-    include_str!("../gallery/web/src/lib.rs")
+    include_str!("../gallery/src/lib.rs")
         .lines()
         .filter_map(|line| {
             let line = line.trim();

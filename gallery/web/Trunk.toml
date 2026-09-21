@@ -5,7 +5,7 @@ dist = "dist"
 [[hooks]]
 stage = "pre_build"
 command = "sh"
-command_arguments = ["./generate-play-previews.sh"]
+command_arguments = ["./generate-demo-previews.sh"]
 
 [serve]
 addresses = ["127.0.0.1"]

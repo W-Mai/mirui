@@ -22,18 +22,27 @@ fn write_png(path: &Path, width: u16, height: u16, pixels: &[u8]) {
     writer.write_image_data(pixels).expect("write PNG pixels");
 }
 
-pub fn render(output: &Path, viewport: (u16, u16), setup: impl FnOnce(&mut SnapshotApp, Entity)) {
+pub fn render(
+    output: &Path,
+    viewport: (u16, u16),
+    allow_partial: bool,
+    setup: impl FnOnce(&mut SnapshotApp) -> Entity,
+) {
     let (width, height) = viewport;
     let flush: fn(&[u8], PhysicalRect) = |_, _| {};
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, flush);
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let root = app.spawn_root().id();
-    setup(&mut app, root);
+    let root = setup(&mut app);
     app.set_root(root);
     app.systems.run_all(&mut app.world);
-    app.render().unwrap();
+    if let Err(error) = app.render() {
+        if !allow_partial {
+            panic!("snapshot render failed: {error:?}");
+        }
+        eprintln!("partial snapshot {}: {error:?}", output.display());
+    }
 
     let texture = app.backend.framebuffer();
     assert_eq!(texture.stride, usize::from(width) * 4);
