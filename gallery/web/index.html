@@ -711,6 +711,7 @@
 
       #mirui {
         display: block;
+        margin-inline: auto;
         background: var(--well);
         border-radius: var(--r2);
         box-shadow: 0 0 0 1px var(--line-soft) inset;
@@ -1303,6 +1304,8 @@
         const resetBtn = document.getElementById("reset-btn");
         const rotateBtn = document.getElementById("rotate-btn");
         const portraitQuery = window.matchMedia("(orientation: portrait)");
+        const defaultFixedCanvasMaxScale = 1.5;
+        const defaultFixedCanvasInset = () => mobileQuery.matches ? 12 : 24;
 
         // ── Canvas sizing ──────────────────────────────────────
         function optionalBound(value) {
@@ -1362,6 +1365,15 @@
           };
         }
 
+        function defaultFixedCanvasBounds() {
+          const available = availableCanvasBounds();
+          const inset = defaultFixedCanvasInset();
+          return {
+            width: Math.max(1, available.width - inset * 2),
+            height: Math.max(1, available.height - inset * 2),
+          };
+        }
+
         let demoContract = sizeContract(activeLink);
         let orientationSwapped = false;
         let currentSize = null;
@@ -1390,9 +1402,15 @@
           const fixed = fixedLogicalSize(contract);
           if (fixed) {
             const available = availableCanvasBounds();
+            const automatic = !requested || !requested.displayWidth || !requested.displayHeight;
+            const fittingBounds = automatic ? defaultFixedCanvasBounds() : available;
             let scale = requested && requested.displayWidth && requested.displayHeight
               ? Math.min(requested.displayWidth / fixed.width, requested.displayHeight / fixed.height)
-              : Math.min(available.width / fixed.width, available.height / fixed.height);
+              : Math.min(
+                  fittingBounds.width / fixed.width,
+                  fittingBounds.height / fixed.height,
+                  defaultFixedCanvasMaxScale,
+                );
             const minimumScale = Math.max(1 / fixed.width, 1 / fixed.height);
             const maximumScale = Math.min(available.width / fixed.width, available.height / fixed.height);
             scale = Math.max(minimumScale, Math.min(maximumScale, scale));
