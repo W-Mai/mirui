@@ -198,6 +198,34 @@ mod backend {
 pub use backend::{assemble_app, configured_factory, grab_canvas};
 
 #[cfg(all(
+    feature = "snapshot",
+    not(feature = "wgpu"),
+    not(feature = "sdl-gpu"),
+    not(feature = "sdl"),
+    not(feature = "linux-fb"),
+    not(feature = "linux-drm"),
+    not(all(feature = "web-canvas", target_arch = "wasm32")),
+))]
+mod backend {
+    use super::*;
+    use mirui::app::SwRendererFactory;
+    use mirui::render::texture::ColorFormat;
+    use mirui::surface::framebuf::FramebufSurface;
+    use mirui::types::PhysicalRect;
+
+    pub type ActiveSurface = FramebufSurface<fn(&[u8], PhysicalRect)>;
+    pub type ActiveFactory = SwRendererFactory;
+
+    pub fn build_app(_title: &str, width: u16, height: u16) -> App<ActiveSurface> {
+        let flush: fn(&[u8], PhysicalRect) = |_, _| {};
+        let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, flush);
+        let mut app = App::new(backend);
+        app.with_default_widgets().with_default_systems();
+        app
+    }
+}
+
+#[cfg(all(
     feature = "wgpu",
     not(all(feature = "web-canvas", target_arch = "wasm32"))
 ))]

@@ -45,6 +45,7 @@
     <link data-trunk rel="copy-file" href="site.webmanifest" />
     <link data-trunk rel="copy-file" href="favicon.svg" />
     <link data-trunk rel="copy-file" href="../../docs/assets/orbit-console.png" />
+    <link data-trunk rel="copy-dir" href="../../target/gallery-site/play-previews" />
     <script>
       /* Resolve the theme BEFORE first paint so the page shell never flashes
          the wrong mode while the wasm canvas picks its own initial theme.
@@ -61,6 +62,19 @@
         } catch (_) {
           document.documentElement.setAttribute("data-theme", "dark");
         }
+
+        var params = new URLSearchParams(location.search);
+        var galleryMode = params.has("demo") || params.get("backend_parity") === "1";
+        document.documentElement.setAttribute("data-mode", galleryMode ? "gallery" : "home");
+
+        var language = "";
+        try { language = localStorage.getItem("mirui-language") || ""; } catch (_) {}
+        if (language !== "zh" && language !== "en") {
+          var preferred = (navigator.languages && navigator.languages[0]) || navigator.language || "en";
+          language = preferred.toLowerCase().startsWith("zh") ? "zh" : "en";
+        }
+        document.documentElement.setAttribute("data-language", language);
+        document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
       })();
     </script>
     <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--all-features" />
@@ -1060,8 +1074,241 @@
         .topbar .gh { padding: 5px 9px; }
       }
     </style>
+    <link data-trunk rel="css" href="landing.css" />
   </head>
   <body>
+    <div class="site-home" id="site-home">
+      <header class="site-header">
+        <a class="site-logo" href="/" data-home-link aria-label="mirui home">
+          <span class="site-logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>mirui</span><sup>rs</sup>
+        </a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a class="active" href="#home"><span class="nav-disc" aria-hidden="true"></span><span data-i18n="nav.home">Home</span></a>
+          <a href="#play"><span aria-hidden="true">▶</span><span data-i18n="nav.play">Play</span></a>
+          <a href="#build"><span aria-hidden="true">&lt;/&gt;</span><span data-i18n="nav.build">Build</span></a>
+          <a href="https://docs.rs/mirui" target="_blank" rel="noopener"><span aria-hidden="true">▤</span><span data-i18n="nav.docs">Docs</span></a>
+        </nav>
+        <div class="site-actions">
+          <button class="site-action language-toggle hide-tiny" type="button" aria-label="Switch language">中</button>
+          <button class="site-action theme-toggle" type="button" aria-label="Toggle light and dark theme">
+            <svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19.07 4.93l-1.77 1.77M6.7 17.3l-1.77 1.77M19.07 19.07l-1.77-1.77M6.7 6.7 4.93 4.93" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            <svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button class="site-action desktop-only" id="motion-toggle" type="button" aria-label="Pause page motion" aria-pressed="true"><span aria-hidden="true">∿</span></button>
+          <button class="site-action desktop-only" id="site-search-trigger" type="button" aria-label="Search demos"><svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5"/><path d="m12 12 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+          <a class="site-action desktop-only" href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener" aria-label="GitHub repository">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          </a>
+          <button class="site-action site-menu-toggle" id="site-menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false">
+            <svg width="17" height="17" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 5h13M2.5 9h13M2.5 13h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+      <nav class="site-mobile-menu" id="site-mobile-menu" aria-label="Mobile navigation">
+        <a href="#home" data-i18n="nav.home">Home</a>
+        <a href="#play" data-i18n="nav.play">Play</a>
+        <a href="#build" data-i18n="nav.build">Build</a>
+        <a href="https://docs.rs/mirui" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
+        <a href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+
+      <main class="site-main">
+        <section class="home-hero" id="home">
+          <div class="hero-copy">
+            <div class="hero-kicker" data-i18n="hero.kicker">PLAY / GAMES &amp; INSTRUMENTS</div>
+            <h1 class="hero-title"><span data-i18n="hero.line1">Small screens.</span><span><span data-i18n="hero.line2">Big play</span><span class="signal">.</span></span></h1>
+            <div class="hero-actions">
+              <button class="site-cta primary" type="button" data-open-current><span aria-hidden="true">▶</span><span data-i18n="hero.play">Play now</span><span aria-hidden="true">↗</span></button>
+              <button class="site-cta" type="button" data-open-source><span aria-hidden="true">&lt;/&gt;</span><span data-i18n="hero.source">Read the source</span></button>
+            </div>
+            <div class="hero-feature-nav" aria-label="Featured demos">
+              <button class="hero-step" id="feature-prev" type="button" aria-label="Previous featured demo">←</button>
+              <button class="feature-dot active" type="button" data-feature-demo="marble_play" aria-label="Marble Play"></button>
+              <button class="feature-dot" type="button" data-feature-demo="folding_ark" aria-label="Folding Ark"></button>
+              <button class="feature-dot" type="button" data-feature-demo="tidal_atlas" aria-label="Tidal Atlas"></button>
+              <button class="feature-dot" type="button" data-feature-demo="pixel_loom" aria-label="Pixel Loom"></button>
+              <button class="feature-dot" type="button" data-feature-demo="twin_beacons" aria-label="Twin Beacons"></button>
+              <button class="hero-step" id="feature-next" type="button" aria-label="Next featured demo">→</button>
+              <span class="feature-name" id="feature-name">Marble Play</span>
+            </div>
+          </div>
+          <div class="hero-runtime" id="hero-runtime" data-stage-panel tabindex="0" aria-label="Featured demos; drag or use the arrow keys to change demo">
+            <button class="hero-preview hero-preview-prev" id="hero-preview-prev" type="button" aria-label="Previous featured demo">
+              <span class="hero-preview-bar"><span id="hero-preview-prev-name">TWIN BEACONS</span><span id="hero-preview-prev-index">05 / 05</span></span>
+              <img id="hero-preview-prev-image" src="play-previews/twin_beacons.png" draggable="false" alt="Twin Beacons preview" />
+              <span class="hero-preview-open" aria-hidden="true">↙</span>
+            </button>
+            <button class="hero-preview hero-preview-next" id="hero-preview-next" type="button" aria-label="Next featured demo">
+              <span class="hero-preview-bar"><span id="hero-preview-next-name">FOLDING ARK</span><span id="hero-preview-next-index">02 / 05</span></span>
+              <img id="hero-preview-next-image" src="play-previews/folding_ark.png" draggable="false" alt="Folding Ark preview" />
+              <span class="hero-preview-open" aria-hidden="true">↗</span>
+            </button>
+            <div class="hero-source-card" aria-hidden="true">
+              <strong>{ }</strong><i></i><i></i><span>□ SOURCE</span>
+            </div>
+            <div class="hero-device-card" aria-hidden="true">
+              <span>▦</span><small>□ DEVICE</small>
+            </div>
+            <span class="hero-scene-plus hero-scene-plus-top" aria-hidden="true">＋</span>
+            <span class="hero-scene-plus hero-scene-plus-bottom" aria-hidden="true">＋</span>
+            <span class="hero-scene-drag" aria-hidden="true">← &nbsp; DRAG &nbsp; →</span>
+            <span class="hero-scene-burst" aria-hidden="true">✳</span>
+            <div class="home-stage-host" id="home-stage-host"></div>
+          </div>
+        </section>
+
+        <div class="signal-band" aria-hidden="true">
+          <div class="signal-track"><span>PLAY · BUILD · SHAPE · RENDER · REPEAT</span><span>PLAY · BUILD · SHAPE · RENDER · REPEAT</span></div>
+        </div>
+
+        <section class="home-section" id="play">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker" data-i18n="play.kicker">01 / Games</div>
+              <h2 class="section-title"><span data-i18n="play.title">Play</span><span class="signal">.</span></h2>
+            </div>
+          </div>
+          <div class="play-toolbar">
+            <div class="play-filters" role="group" aria-label="Demo categories">
+              <button class="play-filter active" type="button" data-filter="all" data-i18n="filter.all">All</button>
+              <button class="play-filter" type="button" data-filter="puzzle" data-i18n="filter.puzzle">Puzzle</button>
+              <button class="play-filter" type="button" data-filter="strategy" data-i18n="filter.strategy">Strategy</button>
+              <button class="play-filter" type="button" data-filter="creative" data-i18n="filter.creative">Creative</button>
+            </div>
+            <label class="play-search">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              <input id="play-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search games" data-i18n-placeholder="play.search" aria-label="Search games" />
+            </label>
+            <span class="play-count" id="play-count" aria-live="polite">13 / 13</span>
+          </div>
+          <div class="demo-grid" id="demo-grid">
+            <article class="demo-card" data-category="creative" data-search="marble play playground audio gravity game 弹珠 音乐 重力 游乐场">
+              <div class="game-cover"><img src="play-previews/marble_play.png" loading="eager" draggable="false" alt="Marble Play preview"/><span class="cover-index">01 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="marble_play" aria-label="Open Marble Play"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="marble_play"><strong data-i18n="game.marble">Marble Playground</strong><small>MARBLE PLAY</small></button><button class="card-source" type="button" data-open-source-demo="marble_play" aria-label="Open Marble Play source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="puzzle" data-search="twin beacons puzzle 双子 信标 解谜">
+              <div class="game-cover"><img src="play-previews/twin_beacons.png" loading="lazy" draggable="false" alt="Twin Beacons preview"/><span class="cover-index">02 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="twin_beacons" aria-label="Open Twin Beacons"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="twin_beacons"><strong data-i18n="game.twin">Twin Beacons</strong><small>TWIN BEACONS</small></button><button class="card-source" type="button" data-open-source-demo="twin_beacons" aria-label="Open Twin Beacons source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="strategy" data-search="tidal atlas strategy 潮汐 群岛 策略">
+              <div class="game-cover"><img src="play-previews/tidal_atlas.png" loading="lazy" draggable="false" alt="Tidal Atlas preview"/><span class="cover-index">03 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="tidal_atlas" aria-label="Open Tidal Atlas"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="tidal_atlas"><strong data-i18n="game.tidal">Tidal Atlas</strong><small>TIDAL ATLAS</small></button><button class="card-source" type="button" data-open-source-demo="tidal_atlas" aria-label="Open Tidal Atlas source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="puzzle" data-search="echo walker puzzle 回声 行者 解谜">
+              <div class="game-cover"><img src="play-previews/echo_walker.png" loading="lazy" draggable="false" alt="Echo Walker preview"/><span class="cover-index">04 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="echo_walker" aria-label="Open Echo Walker"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="echo_walker"><strong data-i18n="game.echo">Echo Walker</strong><small>ECHO WALKER</small></button><button class="card-source" type="button" data-open-source-demo="echo_walker" aria-label="Open Echo Walker source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="creative" data-search="pixel loom creative 像素 织机 创作">
+              <div class="game-cover"><img src="play-previews/pixel_loom.png" loading="lazy" draggable="false" alt="Pixel Loom preview"/><span class="cover-index">05 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pixel_loom" aria-label="Open Pixel Loom"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="pixel_loom"><strong data-i18n="game.loom">Pixel Loom</strong><small>PIXEL LOOM</small></button><button class="card-source" type="button" data-open-source-demo="pixel_loom" aria-label="Open Pixel Loom source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="puzzle" data-search="lumen light lab puzzle optics 光路 实验室 解谜">
+              <div class="game-cover"><img src="play-previews/lumen_lab.png" loading="lazy" draggable="false" alt="Lumen Lab preview"/><span class="cover-index">06 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="lumen_lab" aria-label="Open Lumen Lab"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="lumen_lab"><strong data-i18n="game.lumen">Lumen Lab</strong><small>LUMEN LAB</small></button><button class="card-source" type="button" data-open-source-demo="lumen_lab" aria-label="Open Lumen Lab source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="puzzle" data-search="folding ark puzzle 折叠 方舟 解谜">
+              <div class="game-cover"><img src="play-previews/folding_ark.png" loading="lazy" draggable="false" alt="Folding Ark preview"/><span class="cover-index">07 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="folding_ark" aria-label="Open Folding Ark"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="folding_ark"><strong data-i18n="game.ark">Folding Ark</strong><small>FOLDING ARK</small></button><button class="card-source" type="button" data-open-source-demo="folding_ark" aria-label="Open Folding Ark source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="puzzle" data-search="atlas restoration puzzle star map 星图 修复 解谜">
+              <div class="game-cover"><img src="play-previews/atlas_restoration.png" loading="lazy" draggable="false" alt="Atlas Restoration preview"/><span class="cover-index">08 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="atlas_restoration" aria-label="Open Atlas Restoration"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="atlas_restoration"><strong data-i18n="game.atlas">Atlas Restoration</strong><small>ATLAS RESTORATION</small></button><button class="card-source" type="button" data-open-source-demo="atlas_restoration" aria-label="Open Atlas Restoration source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.puzzle">Puzzle</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="strategy" data-search="module factory strategy 模块 工厂 策略">
+              <div class="game-cover"><img src="play-previews/module_factory.png" loading="lazy" draggable="false" alt="Module Factory preview"/><span class="cover-index">09 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="module_factory" aria-label="Open Module Factory"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="module_factory"><strong data-i18n="game.factory">Module Factory</strong><small>MODULE FACTORY</small></button><button class="card-source" type="button" data-open-source-demo="module_factory" aria-label="Open Module Factory source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="creative" data-search="orbital mission creative orbit 轨道 任务 创作">
+              <div class="game-cover"><img src="play-previews/orbital_mission.png" loading="lazy" draggable="false" alt="Orbital Mission preview"/><span class="cover-index">10 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="orbital_mission" aria-label="Open Orbital Mission"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="orbital_mission"><strong data-i18n="game.orbit">Orbital Mission</strong><small>ORBITAL MISSION</small></button><button class="card-source" type="button" data-open-source-demo="orbital_mission" aria-label="Open Orbital Mission source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="creative" data-search="logic circuit creative 逻辑 电路 创作">
+              <div class="game-cover"><img src="play-previews/logic_circuit.png" loading="lazy" draggable="false" alt="Logic Circuit preview"/><span class="cover-index">11 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="logic_circuit" aria-label="Open Logic Circuit"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="logic_circuit"><strong data-i18n="game.circuit">Logic Circuit</strong><small>LOGIC CIRCUIT</small></button><button class="card-source" type="button" data-open-source-demo="logic_circuit" aria-label="Open Logic Circuit source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="creative" data-search="moss study lab ecosystem creative 苔藓 生态 创作">
+              <div class="game-cover"><img src="play-previews/moss_study.png" loading="lazy" draggable="false" alt="Moss Study preview"/><span class="cover-index">12 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="moss_study" aria-label="Open Moss Study"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="moss_study"><strong data-i18n="game.moss">Moss Study</strong><small>MOSS STUDY</small></button><button class="card-source" type="button" data-open-source-demo="moss_study" aria-label="Open Moss Study source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.creative">Creative</span><span>480 × 320</span></div>
+            </article>
+            <article class="demo-card" data-category="strategy" data-search="pocket post switchyard strategy 轨道 邮局 策略">
+              <div class="game-cover"><img src="play-previews/pocket_post.png" loading="lazy" draggable="false" alt="Pocket Post preview"/><span class="cover-index">13 / PLAY</span><button class="card-cover-button" type="button" data-open-demo="pocket_post" aria-label="Open Pocket Post"><span aria-hidden="true">↗</span></button></div>
+              <div class="card-footer"><button class="card-title" type="button" data-open-demo="pocket_post"><strong data-i18n="game.post">Pocket Post</strong><small>POCKET POST</small></button><button class="card-source" type="button" data-open-source-demo="pocket_post" aria-label="Open Pocket Post source">&lt;/&gt;</button></div><div class="card-meta"><span data-i18n="genre.strategy">Strategy</span><span>480 × 320</span></div>
+            </article>
+            <p class="home-empty" id="home-empty" hidden data-i18n="play.empty">No games match this search.</p>
+          </div>
+          <div class="all-demos-row"><button class="site-cta" type="button" data-open-demo="orbit_console"><span data-i18n="play.all">Open the complete Gallery</span><span aria-hidden="true">→</span></button></div>
+        </section>
+
+        <section class="build-section" id="build">
+          <div class="build-inner">
+            <div class="build-grid">
+              <div class="build-copy">
+                <div class="section-kicker" data-i18n="build.kicker">02 / One model, many surfaces</div>
+                <h2><span data-i18n="build.title1">Build once.</span><br/><span data-i18n="build.title2">Route precisely</span><span style="color:var(--site-blue)">.</span></h2>
+                <p data-i18n="build.body">Fixed-point geometry, typed components, reactive state, and backend composition keep the same UI model useful from a 128×128 display to a desktop GPU.</p>
+                <div class="capability-list">
+                  <span data-i18n="build.cap1">Q24.8 layout + hit testing</span>
+                  <span data-i18n="build.cap2">no_std + alloc core</span>
+                  <span data-i18n="build.cap3">Shaped and path text</span>
+                  <span data-i18n="build.cap4">Software + GPU routes</span>
+                </div>
+              </div>
+              <div class="code-card" aria-label="mirui DSL example">
+                <div class="code-card-head"><span>ui! / responsive composition</span><span>Rust</span></div>
+                <pre><code><span class="macro">ui!</span> {
+    <span class="type">Column</span> (container: <span class="kw">true</span>, grow: <span class="num">1.0</span>) {
+        <span class="type">Text</span>(
+            <span class="str">"Signal ready"</span>,
+            font_size: @width {
+                <span class="kw">if</span> width &lt; <span class="type">Fixed</span>::from_int(<span class="num">520</span>) {
+                    <span class="num">18_u16</span>
+                } <span class="kw">else</span> {
+                    <span class="num">30_u16</span>
+                }
+            }
+        )
+        <span class="type">Slider</span>(grow: <span class="num">1.0</span>)
+    }
+};</code></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="home-section" id="targets">
+          <div class="section-head">
+            <div>
+              <div class="section-kicker" data-i18n="targets.kicker">03 / Runtime targets</div>
+              <h2 class="section-title"><span data-i18n="targets.title">Everywhere</span><span class="signal">.</span></h2>
+            </div>
+            <p class="section-intro" data-i18n="targets.intro">The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.</p>
+          </div>
+          <div class="target-strip">
+            <article><small>01</small><h3 data-i18n="target.embedded">Embedded</h3><p>ESP32-C3 · STM32 · Cortex-M</p></article>
+            <article><small>02</small><h3 data-i18n="target.mobile">Mobile</h3><p>Android · iOS</p></article>
+            <article><small>03</small><h3 data-i18n="target.desktop">Desktop</h3><p>WGPU · SDL GPU · software</p></article>
+            <article><small>04</small><h3>Linux</h3><p>framebuffer · DRM · NuttX</p></article>
+            <article><small>05</small><h3 data-i18n="target.web">Web</h3><p>Web Canvas · WebAssembly</p></article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p class="footer-wordmark">mirui<span style="color:var(--site-blue)">.</span></p>
+        <nav class="footer-links" aria-label="Project links">
+          <a href="https://crates.io/crates/mirui" target="_blank" rel="noopener">crates.io</a>
+          <a href="https://docs.rs/mirui" target="_blank" rel="noopener">docs.rs</a>
+          <a href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/W-Mai/mirui/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+        </nav>
+      </footer>
+    </div>
+
     <div class="layout">
       <header class="topbar">
         <div class="brand-row">
@@ -1073,17 +1320,21 @@
             </svg>
           </span>
           <span class="brand-text">
-            <h1>mirui · gallery</h1>
-            <div class="tag">subpixel UI · no_std · wasm</div>
+            <h1 data-i18n="gallery.title">mirui · gallery</h1>
+            <div class="tag" data-i18n="gallery.tag">subpixel UI · no_std · wasm</div>
           </span>
         </div>
+        <button class="icon-btn" id="gallery-home" type="button" title="Back to home" aria-label="Back to home">
+          <svg width="15" height="15" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="m3 8 6-5 6 5v7H3V8Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 15v-4h4v4" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-btn nav-toggle" id="nav-toggle" type="button" title="Choose demo" aria-label="Choose demo" aria-expanded="false">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </button>
         <div class="topbar-spacer"></div>
-        <span class="live-chip" aria-hidden="true"><span class="dot"></span>rendering</span>
+        <span class="live-chip" aria-hidden="true"><span class="dot"></span><span data-i18n="gallery.rendering">rendering</span></span>
+        <button class="icon-btn language-toggle" type="button" aria-label="Switch language">中</button>
         <button class="theme-toggle" id="theme-toggle" type="button" title="Switch to light theme" aria-label="Toggle light / dark theme">
           <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/>
@@ -1107,7 +1358,7 @@
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
               <path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            <input id="nav-filter" type="text" placeholder="Filter demos…" autocomplete="off" spellcheck="false" aria-label="Filter demos" />
+            <input id="nav-filter" type="text" placeholder="Filter demos…" data-i18n-placeholder="gallery.filter" autocomplete="off" spellcheck="false" aria-label="Filter demos" />
             <button class="clear" id="nav-filter-clear" type="button" title="Clear filter" aria-label="Clear filter">
               <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -1115,12 +1366,12 @@
             </button>
           </div>
           <div id="nav">
-            <div class="nav-empty">No demos match that filter.</div>
+            <div class="nav-empty" data-i18n="gallery.noMatch">No demos match that filter.</div>
           </div>
         </aside>
         <button class="nav-backdrop" id="nav-backdrop" type="button" aria-label="Close demo selector"></button>
-        <main>
-          <div class="stage-wrap">
+        <main data-stage-panel>
+          <div class="stage-wrap" id="gallery-stage-host">
             <div class="stage" id="stage">
               <div class="stage-meta">
                 <span class="name" id="stage-name">—</span>
@@ -1149,7 +1400,7 @@
               <svg class="chev" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <span class="vlabel">Source</span>
+              <span class="vlabel" data-i18n="gallery.source">Source</span>
             </div>
             <div class="code-inner">
               <div class="code-head" id="code-head" title="Click to close the source panel">
@@ -1170,7 +1421,7 @@
                       <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
                       <path d="M3.5 10.5H3a1.5 1.5 0 0 1-1.5-1.5V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" stroke-width="1.4"/>
                     </svg>
-                    <span class="label">Copy</span>
+                    <span class="label" data-i18n="gallery.copy">Copy</span>
                   </button>
                 </span>
               </div>
@@ -1183,10 +1434,100 @@
       </div>
     </div>
     <script>
+      (function () {
+        const copy = {
+          en: {
+            "nav.home": "Home", "nav.play": "Play", "nav.build": "Build", "nav.docs": "Docs",
+            "hero.kicker": "PLAY / GAMES & INSTRUMENTS", "hero.line1": "Small screens.", "hero.line2": "Big play",
+            "hero.play": "Play now", "hero.source": "Read the source",
+            "play.kicker": "01 / Games", "play.title": "Play",
+            "play.search": "Search games", "play.empty": "No games match this search.", "play.all": "Open the complete Gallery",
+            "filter.all": "All", "filter.puzzle": "Puzzle", "filter.strategy": "Strategy", "filter.creative": "Creative",
+            "genre.puzzle": "Puzzle", "genre.strategy": "Strategy", "genre.creative": "Creative",
+            "game.marble": "Marble Playground", "game.twin": "Twin Beacons", "game.tidal": "Tidal Atlas", "game.echo": "Echo Walker",
+            "game.loom": "Pixel Loom", "game.lumen": "Lumen Lab", "game.ark": "Folding Ark", "game.atlas": "Atlas Restoration",
+            "game.factory": "Module Factory", "game.orbit": "Orbital Mission", "game.circuit": "Logic Circuit", "game.moss": "Moss Study", "game.post": "Pocket Post",
+            "card.showcase": "Showcase", "card.product": "Product", "card.play": "Play", "card.typography": "Typography", "card.interaction": "Interaction", "card.compact": "Compact",
+            "build.kicker": "02 / One model, many surfaces", "build.title1": "Build once.", "build.title2": "Route precisely",
+            "build.body": "Fixed-point geometry, typed components, reactive state, and backend composition keep the same UI model useful from a 128×128 display to a desktop GPU.",
+            "build.cap1": "Q24.8 layout + hit testing", "build.cap2": "no_std + alloc core", "build.cap3": "Shaped and path text", "build.cap4": "Software + GPU routes",
+            "targets.kicker": "03 / Runtime targets", "targets.title": "Everywhere",
+            "targets.intro": "The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.",
+            "target.embedded": "Embedded", "target.mobile": "Mobile", "target.desktop": "Desktop", "target.web": "Web",
+            "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
+            "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
+            "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
+            "gallery.backHome": "Back to home", "gallery.choose": "Choose demo", "gallery.themeLight": "Switch to light theme", "gallery.themeDark": "Switch to dark theme",
+            "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size",
+            "gallery.noSource": "No source available for"
+          },
+          zh: {
+            "nav.home": "首页", "nav.play": "体验", "nav.build": "构建", "nav.docs": "文档",
+            "hero.kicker": "PLAY / 游戏与仪器", "hero.line1": "小屏幕。", "hero.line2": "大游戏",
+            "hero.play": "开始玩", "hero.source": "查看源码",
+            "play.kicker": "01 / 游戏", "play.title": "开玩",
+            "play.search": "搜索游戏", "play.empty": "没有匹配的游戏。", "play.all": "打开完整 Gallery",
+            "filter.all": "全部", "filter.puzzle": "解谜", "filter.strategy": "策略", "filter.creative": "创作",
+            "genre.puzzle": "解谜", "genre.strategy": "策略", "genre.creative": "创作",
+            "game.marble": "弹珠游乐场", "game.twin": "双子信标", "game.tidal": "潮汐群岛", "game.echo": "回声行者",
+            "game.loom": "像素织机", "game.lumen": "光路实验室", "game.ark": "折叠方舟", "game.atlas": "星图修复局",
+            "game.factory": "模块工厂", "game.orbit": "轨道任务台", "game.circuit": "逻辑电路台", "game.moss": "微型生态瓶", "game.post": "轨道邮局",
+            "card.showcase": "展示", "card.product": "产品", "card.play": "游戏", "card.typography": "文字排版", "card.interaction": "交互", "card.compact": "紧凑",
+            "build.kicker": "02 / 一套模型，多种表面", "build.title1": "构建一次。", "build.title2": "精确分流",
+            "build.body": "定点几何、类型化组件、响应式状态与后端组合，让同一套 UI 模型覆盖 128×128 显示屏和桌面 GPU。",
+            "build.cap1": "Q24.8 布局与命中测试", "build.cap2": "no_std + alloc 核心", "build.cap3": "塑形与路径文本", "build.cap4": "软件与 GPU 路由",
+            "targets.kicker": "03 / 运行目标", "targets.title": "全平台",
+            "targets.intro": "同一棵组件树可以到达受控内存的软件光栅、原生 GPU、浏览器 Canvas 与直接显示表面。",
+            "target.embedded": "嵌入式", "target.mobile": "移动端", "target.desktop": "桌面", "target.web": "Web",
+            "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
+            "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
+            "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
+            "gallery.backHome": "返回首页", "gallery.choose": "选择 Demo", "gallery.themeLight": "切换到亮色主题", "gallery.themeDark": "切换到暗色主题",
+            "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸",
+            "gallery.noSource": "没有可用源码："
+          }
+        };
+
+        function apply(language, persist) {
+          const next = language === "zh" ? "zh" : "en";
+          const root = document.documentElement;
+          root.dataset.language = next;
+          root.lang = next === "zh" ? "zh-CN" : "en";
+          for (const node of document.querySelectorAll("[data-i18n]")) {
+            const value = copy[next][node.dataset.i18n];
+            if (value) node.textContent = value;
+          }
+          for (const node of document.querySelectorAll("[data-i18n-placeholder]")) {
+            const value = copy[next][node.dataset.i18nPlaceholder];
+            if (value) node.placeholder = value;
+          }
+          for (const button of document.querySelectorAll(".language-toggle")) {
+            button.textContent = next === "zh" ? "EN" : "中";
+            button.title = next === "zh" ? "Switch to English" : "切换到中文";
+            button.setAttribute("aria-label", button.title);
+          }
+          if (persist) {
+            try { localStorage.setItem("mirui-language", next); } catch (_) {}
+          }
+          document.dispatchEvent(new CustomEvent("mirui-language-change", { detail: { language: next } }));
+        }
+
+        function current() { return document.documentElement.dataset.language === "zh" ? "zh" : "en"; }
+        function t(key) { return copy[current()][key] || copy.en[key] || key; }
+        window.miruiLanguage = { apply, current, t };
+        apply(current(), false);
+        for (const button of document.querySelectorAll(".language-toggle")) {
+          button.addEventListener("click", () => apply(current() === "zh" ? "en" : "zh", true));
+        }
+      })();
+    </script>
+    <script>
       window.addEventListener("TrunkApplicationStarted", () => {
         const params = new URLSearchParams(location.search);
         const defaultDemo = wasmBindings.default_demo_slug();
-        let activeSlug = params.get("demo") || defaultDemo;
+        const homeDemo = wasmBindings.home_demo_slug();
+        let siteMode = document.documentElement.dataset.mode === "gallery" ? "gallery" : "home";
+        let activeSlug = params.get("demo") || (siteMode === "home" ? homeDemo : defaultDemo);
 
         const navEl = document.getElementById("nav");
         navEl.innerHTML = wasmBindings.nav_html();
@@ -1195,7 +1536,8 @@
         // and tag each category header with its demo count for the badge.
         const navEmpty = document.createElement("div");
         navEmpty.className = "nav-empty";
-        navEmpty.textContent = "No demos match that filter.";
+        navEmpty.dataset.i18n = "gallery.noMatch";
+        navEmpty.textContent = window.miruiLanguage.t("gallery.noMatch");
         navEl.appendChild(navEmpty);
 
         for (const cat of navEl.querySelectorAll(".cat")) {
@@ -1212,7 +1554,9 @@
           // page (active link, title, source, URL) with what's running.
           activeSlug = defaultDemo;
           activeLink = navEl.querySelector(`a[data-demo="${CSS.escape(defaultDemo)}"]`);
-          history.replaceState({ demo: activeSlug }, "", "?demo=" + activeSlug);
+          const fallbackMode = siteMode === "gallery" ? "gallery" : "home";
+          const fallbackUrl = fallbackMode === "gallery" ? "?demo=" + activeSlug : location.pathname;
+          history.replaceState({ mode: fallbackMode, demo: activeSlug }, "", fallbackUrl);
         }
         if (activeLink) activeLink.classList.add("active");
 
@@ -1297,8 +1641,14 @@
 
         const canvas = document.getElementById("mirui");
         const stage = document.getElementById("stage");
-        const stageWrap = document.querySelector(".stage-wrap");
-        const mainPanel = stageWrap.parentElement;
+        const galleryStageHost = document.getElementById("gallery-stage-host");
+        const homeStageHost = document.getElementById("home-stage-host");
+        const galleryStagePanel = galleryStageHost.closest("[data-stage-panel]");
+        const homeStagePanel = homeStageHost.closest("[data-stage-panel]");
+        if (siteMode === "home") homeStageHost.appendChild(stage);
+        function activeStagePanel() {
+          return stage.closest("[data-stage-panel]") || galleryStagePanel;
+        }
         const stageName = document.getElementById("stage-name");
         const stageSize = document.getElementById("stage-size");
         const resetBtn = document.getElementById("reset-btn");
@@ -1349,8 +1699,10 @@
         }
 
         function availableCanvasBounds() {
+          const mainPanel = activeStagePanel();
+          const sizePanel = mainPanel === homeStagePanel ? homeStageHost : mainPanel;
           const stageStyle = getComputedStyle(stage);
-          const mainStyle = getComputedStyle(mainPanel);
+          const mainStyle = getComputedStyle(sizePanel);
           const meta = stage.querySelector(".stage-meta");
           const horizontal = parseFloat(stageStyle.paddingLeft) + parseFloat(stageStyle.paddingRight)
             + parseFloat(stageStyle.borderLeftWidth) + parseFloat(stageStyle.borderRightWidth);
@@ -1358,9 +1710,9 @@
             + parseFloat(stageStyle.borderTopWidth) + parseFloat(stageStyle.borderBottomWidth)
             + meta.offsetHeight + parseFloat(getComputedStyle(meta).marginBottom);
           return {
-            width: Math.max(1, mainPanel.clientWidth
+            width: Math.max(1, sizePanel.clientWidth
               - parseFloat(mainStyle.paddingLeft) - parseFloat(mainStyle.paddingRight) - horizontal),
-            height: Math.max(1, mainPanel.clientHeight
+            height: Math.max(1, sizePanel.clientHeight
               - parseFloat(mainStyle.paddingTop) - parseFloat(mainStyle.paddingBottom) - vertical),
           };
         }
@@ -1460,8 +1812,9 @@
             : logical;
           rotateBtn.disabled = size.fixed;
           rotateBtn.title = size.fixed
-            ? "This demo has a fixed logical canvas"
-            : "Swap portrait and landscape";
+            ? window.miruiLanguage.t("gallery.fixed")
+            : window.miruiLanguage.t("gallery.rotate");
+          resetBtn.title = window.miruiLanguage.t("gallery.reset");
           stage.classList.toggle("narrow", displayWidth < 240);
           currentSize = { ...size, displayWidth, displayHeight };
         }
@@ -1577,7 +1930,8 @@
             applyCanvasSize(resolveCanvasSize());
           });
         });
-        fitObserver.observe(mainPanel);
+        fitObserver.observe(galleryStagePanel);
+        fitObserver.observe(homeStagePanel);
 
         function adoptDeviceOrientation() {
           adoptPortraitOrientation();
@@ -1593,7 +1947,7 @@
         // the concrete theme ID used by the canvas.
         // here so the canvas honours an explicit stored preference too and
         // page + canvas are guaranteed to agree from the first frame.
-        const themeToggle = document.getElementById("theme-toggle");
+        const themeToggles = Array.from(document.querySelectorAll(".theme-toggle"));
         const themeQuery = window.matchMedia
           ? window.matchMedia("(prefers-color-scheme: dark)")
           : null;
@@ -1612,7 +1966,12 @@
         }
         function applyTheme(dark, persist) {
           document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
-          themeToggle.title = dark ? "Switch to light theme" : "Switch to dark theme";
+          for (const button of themeToggles) {
+            button.title = dark
+              ? window.miruiLanguage.t("gallery.themeLight")
+              : window.miruiLanguage.t("gallery.themeDark");
+            button.setAttribute("aria-label", button.title);
+          }
           syncCanvasTheme(dark);
           if (persist) {
             try { localStorage.setItem("mirui-theme", dark ? "dark" : "light"); } catch (_) {}
@@ -1623,9 +1982,9 @@
         // Align the canvas with whatever the head script resolved.
         applyTheme(isDark(), false);
 
-        themeToggle.addEventListener("click", () => {
-          applyTheme(!isDark(), true);
-        });
+        for (const button of themeToggles) {
+          button.addEventListener("click", () => applyTheme(!isDark(), true));
+        }
 
         // Follow the OS only while the user hasn't made an explicit choice.
         if (themeQuery) {
@@ -1810,7 +2169,7 @@
             document.getElementById("code").innerHTML = highlightRust(src);
             copyBtn.disabled = false;
           } else {
-            codeBody.innerHTML = `<div class="code-empty">No source available for <code>${escapeHtml(activeSlug)}</code>.</div>`;
+            codeBody.innerHTML = `<div class="code-empty">${escapeHtml(window.miruiLanguage.t("gallery.noSource"))} <code>${escapeHtml(activeSlug)}</code>.</div>`;
             copyBtn.disabled = true;
           }
         }
@@ -1852,11 +2211,11 @@
             document.body.removeChild(ta);
           }
           copyBtn.classList.add("copied");
-          copyLabel.textContent = "Copied!";
+          copyLabel.textContent = window.miruiLanguage.t("gallery.copied");
           clearTimeout(copyResetTimer);
           copyResetTimer = setTimeout(() => {
             copyBtn.classList.remove("copied");
-            copyLabel.textContent = "Copy";
+            copyLabel.textContent = window.miruiLanguage.t("gallery.copy");
           }, 1400);
         });
 
@@ -1888,22 +2247,21 @@
           if (codePanel.classList.contains("open")) setDrawer(false);
         });
 
-        // ── In-place demo switching (no page reload) ───────────
-        // wasmBindings.switch_demo(slug) rebuilds the running demo on the
-        // same canvas. We then move the .active class, retarget the stage
-        // meta + canvas size, reload the source panel, and push the URL —
-        // all without rebuilding nav, so sidebar scroll + filter persist.
-        function switchDemo(slug, push) {
-          if (!slug || slug === activeSlug) return;
+        // ── One live stage, two presentation modes ─────────────
+        // The canvas and running App survive every landing/Gallery change.
+        // Only the stage subtree moves between hosts; demo switches reuse
+        // the backend through the wasm registry.
+        function switchDemo(slug) {
+          if (!slug || slug === activeSlug) return false;
           const link = navEl.querySelector(`a[data-demo="${CSS.escape(slug)}"]`);
-          if (!link) return;
+          if (!link) return false;
 
           try {
             wasmBindings.switch_demo(slug);
           } catch (err) {
             // Unknown slug or wasm teardown error — bail without disturbing
             // the current demo or UI state.
-            return;
+            return false;
           }
 
           if (activeLink) activeLink.classList.remove("active");
@@ -1919,10 +2277,334 @@
 
           loadSource(slug);
           applyFocusState();
+          updateFeatureSelection();
+          return true;
+        }
 
-          if (push) {
-            history.pushState({ demo: slug }, "", "?demo=" + encodeURIComponent(slug));
+        let homeScrollY = 0;
+
+        function applySiteMode(mode, restoreScroll = true) {
+          const next = mode === "gallery" ? "gallery" : "home";
+          if (next === "gallery") {
+            if (siteMode === "home") homeScrollY = window.scrollY;
+            galleryStageHost.appendChild(stage);
+          } else {
+            setDrawer(false);
+            homeStageHost.appendChild(stage);
           }
+          siteMode = next;
+          document.documentElement.dataset.mode = next;
+          document.title = next === "home"
+            ? "mirui — fixed-point UI from embedded to WebAssembly"
+            : `${stageName.textContent} — mirui gallery`;
+          requestAnimationFrame(() => {
+            adoptPortraitOrientation();
+            applyCanvasSize(resolveCanvasSize());
+            if (next === "gallery") {
+              canvas.focus({ preventScroll: true });
+            } else if (restoreScroll) {
+              window.scrollTo({ top: homeScrollY, behavior: "instant" });
+            }
+          });
+        }
+
+        const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+        let motionEnabled = (() => {
+          try {
+            const stored = localStorage.getItem("mirui-motion");
+            if (stored === "off") return false;
+            if (stored === "on") return true;
+          } catch (_) {}
+          return !reducedMotionQuery.matches;
+        })();
+
+        function runViewTransition(update) {
+          if (motionEnabled && document.startViewTransition) {
+            document.startViewTransition(update);
+          } else {
+            update();
+          }
+        }
+
+        function openGallery(slug, push, sourceOpen = false) {
+          const requestedSlug = slug || activeSlug;
+          const demoChanged = switchDemo(requestedSlug);
+          const modeChanged = siteMode !== "gallery";
+          runViewTransition(() => applySiteMode("gallery"));
+          if (push && (demoChanged || modeChanged || !location.search.includes("demo="))) {
+            history.pushState(
+              { mode: "gallery", demo: activeSlug },
+              "",
+              "?demo=" + encodeURIComponent(activeSlug),
+            );
+          }
+          if (sourceOpen) requestAnimationFrame(() => setDrawer(true));
+        }
+
+        function openHome(push, slug = activeSlug) {
+          switchDemo(slug);
+          runViewTransition(() => applySiteMode("home"));
+          if (push) {
+            history.pushState({ mode: "home", demo: activeSlug }, "", location.pathname);
+          }
+        }
+
+        const featureName = document.getElementById("feature-name");
+        const featureButtons = Array.from(document.querySelectorAll("[data-feature-demo]"));
+        const heroRuntime = document.getElementById("hero-runtime");
+        const heroPreviewPrev = document.getElementById("hero-preview-prev");
+        const heroPreviewNext = document.getElementById("hero-preview-next");
+        const featureSlugs = featureButtons.map((button) => button.dataset.featureDemo);
+        let featureSwitchTimer = 0;
+        let featureSwitching = false;
+        let featureHandoff = false;
+        let featureDrag = null;
+
+        function featureAt(index) {
+          const normalized = (index + featureSlugs.length) % featureSlugs.length;
+          const slug = featureSlugs[normalized];
+          const link = navEl.querySelector(`a[data-demo="${CSS.escape(slug)}"]`);
+          return {
+            index: normalized,
+            slug,
+            name: link ? link.textContent.trim() : slug,
+          };
+        }
+
+        function updateHeroPreview(element, feature, side) {
+          element.dataset.featureDemo = feature.slug;
+          element.setAttribute("aria-label", `${side} featured demo: ${feature.name}`);
+          element.querySelector("img").src = `play-previews/${feature.slug}.png`;
+          element.querySelector("img").alt = `${feature.name} preview`;
+          element.querySelector(".hero-preview-bar span:first-child").textContent = feature.name.toUpperCase();
+          element.querySelector(".hero-preview-bar span:last-child").textContent = `${String(feature.index + 1).padStart(2, "0")} / ${String(featureSlugs.length).padStart(2, "0")}`;
+        }
+
+        function updateFeatureSelection() {
+          for (const button of featureButtons) {
+            const active = button.dataset.featureDemo === activeSlug;
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-pressed", String(active));
+          }
+          featureName.textContent = activeLink ? activeLink.textContent : activeSlug;
+          if (featureHandoff) return;
+          const current = featureSlugs.indexOf(activeSlug);
+          const index = current < 0 ? 0 : current;
+          updateHeroPreview(heroPreviewPrev, featureAt(index - 1), "Previous");
+          updateHeroPreview(heroPreviewNext, featureAt(index + 1), "Next");
+        }
+
+        function selectFeature(slug, direction = 0) {
+          if (!slug || slug === activeSlug || featureSwitching) return;
+          featureSwitching = true;
+          window.clearTimeout(featureSwitchTimer);
+          const current = featureSlugs.indexOf(activeSlug);
+          const target = featureSlugs.indexOf(slug);
+          if (!direction && current >= 0 && target >= 0) direction = target > current ? 1 : -1;
+          heroRuntime.classList.remove("switch-next", "switch-prev");
+          heroRuntime.classList.add("switching", direction < 0 ? "switch-prev" : "switch-next");
+          featureSwitchTimer = window.setTimeout(() => {
+            featureHandoff = true;
+            switchDemo(slug);
+            featureHandoff = false;
+            history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname);
+            heroRuntime.classList.remove("switching");
+            heroRuntime.classList.add("handoff");
+            featureSwitchTimer = window.setTimeout(() => {
+              heroRuntime.classList.add("resetting");
+              updateFeatureSelection();
+              heroRuntime.classList.remove("handoff", "switch-next", "switch-prev");
+              requestAnimationFrame(() => {
+                heroRuntime.classList.remove("resetting");
+                featureSwitching = false;
+              });
+            }, motionEnabled ? 240 : 0);
+          }, motionEnabled ? 320 : 0);
+        }
+
+        function stepFeature(direction) {
+          const current = featureButtons.findIndex((button) => button.dataset.featureDemo === activeSlug);
+          const index = current < 0 ? 0 : current;
+          const next = (index + direction + featureButtons.length) % featureButtons.length;
+          selectFeature(featureButtons[next].dataset.featureDemo, direction);
+        }
+
+        for (const button of featureButtons) {
+          button.addEventListener("click", () => selectFeature(button.dataset.featureDemo));
+        }
+        document.getElementById("feature-prev").addEventListener("click", () => stepFeature(-1));
+        document.getElementById("feature-next").addEventListener("click", () => stepFeature(1));
+        heroPreviewPrev.addEventListener("click", () => selectFeature(heroPreviewPrev.dataset.featureDemo, -1));
+        heroPreviewNext.addEventListener("click", () => selectFeature(heroPreviewNext.dataset.featureDemo, 1));
+        heroRuntime.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowLeft") { event.preventDefault(); stepFeature(-1); }
+          if (event.key === "ArrowRight") { event.preventDefault(); stepFeature(1); }
+        });
+        heroRuntime.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || event.target.closest("button") || event.target.closest("canvas")) return;
+          featureDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, dx: 0, captured: false };
+        });
+        heroRuntime.addEventListener("pointermove", (event) => {
+          if (!featureDrag || featureDrag.id !== event.pointerId) return;
+          const dx = event.clientX - featureDrag.x;
+          const dy = event.clientY - featureDrag.y;
+          if (!featureDrag.captured && Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 12) {
+            featureDrag = null;
+            return;
+          }
+          if (!featureDrag.captured && Math.abs(dx) > 9) {
+            heroRuntime.setPointerCapture(event.pointerId);
+            heroRuntime.classList.add("dragging");
+            featureDrag.captured = true;
+          }
+          if (featureDrag.captured) {
+            featureDrag.dx = dx;
+            heroRuntime.style.setProperty("--hero-drag", `${Math.max(-72, Math.min(72, dx * 0.34))}px`);
+          }
+        });
+        function finishFeatureDrag(event, cancelled = false) {
+          if (!featureDrag || featureDrag.id !== event.pointerId) return;
+          const { captured, dx } = featureDrag;
+          featureDrag = null;
+          heroRuntime.classList.remove("dragging");
+          heroRuntime.style.removeProperty("--hero-drag");
+          if (!captured) return;
+          try { heroRuntime.releasePointerCapture(event.pointerId); } catch (_) {}
+          if (!cancelled && Math.abs(dx) > 46) stepFeature(dx < 0 ? 1 : -1);
+        }
+        heroRuntime.addEventListener("pointerup", (event) => finishFeatureDrag(event));
+        heroRuntime.addEventListener("pointercancel", (event) => finishFeatureDrag(event, true));
+        updateFeatureSelection();
+
+        for (const button of document.querySelectorAll("[data-open-demo]")) {
+          button.addEventListener("click", () => openGallery(button.dataset.openDemo, true));
+        }
+        for (const button of document.querySelectorAll("[data-open-current]")) {
+          button.addEventListener("click", () => openGallery(activeSlug, true));
+        }
+        for (const button of document.querySelectorAll("[data-open-source]")) {
+          button.addEventListener("click", () => openGallery(activeSlug, true, true));
+        }
+        for (const button of document.querySelectorAll("[data-open-source-demo]")) {
+          button.addEventListener("click", () => openGallery(button.dataset.openSourceDemo, true, true));
+        }
+
+        document.getElementById("gallery-home").addEventListener("click", () => openHome(true));
+
+        // ── Landing filters and mobile navigation ──────────────
+        const playSearch = document.getElementById("play-search");
+        const playFilters = Array.from(document.querySelectorAll(".play-filter"));
+        const demoCards = Array.from(document.querySelectorAll(".demo-card"));
+        const homeEmpty = document.getElementById("home-empty");
+        const playCount = document.getElementById("play-count");
+        let playCategory = "all";
+
+        function applyPlayFilter() {
+          const query = playSearch.value.trim().toLowerCase();
+          let visible = 0;
+          for (const card of demoCards) {
+            const categoryMatch = playCategory === "all" || card.dataset.category === playCategory;
+            const searchMatch = !query || card.dataset.search.toLowerCase().includes(query);
+            card.hidden = !(categoryMatch && searchMatch);
+            if (!card.hidden) visible++;
+          }
+          homeEmpty.hidden = visible !== 0;
+          playCount.textContent = `${String(visible).padStart(2, "0")} / ${demoCards.length}`;
+        }
+
+        for (const button of playFilters) {
+          button.setAttribute("aria-pressed", String(button.classList.contains("active")));
+          button.addEventListener("click", () => {
+            playCategory = button.dataset.filter;
+            for (const peer of playFilters) {
+              const active = peer === button;
+              peer.classList.toggle("active", active);
+              peer.setAttribute("aria-pressed", String(active));
+            }
+            applyPlayFilter();
+          });
+        }
+        playSearch.addEventListener("input", applyPlayFilter);
+        applyPlayFilter();
+
+        const motionToggle = document.getElementById("motion-toggle");
+        function applyMotionState(enabled, persist) {
+          motionEnabled = Boolean(enabled);
+          document.documentElement.classList.toggle("site-motion-off", !motionEnabled);
+          motionToggle.setAttribute("aria-pressed", String(motionEnabled));
+          motionToggle.setAttribute("aria-label", motionEnabled ? "Pause page motion" : "Resume page motion");
+          if (persist) {
+            try { localStorage.setItem("mirui-motion", motionEnabled ? "on" : "off"); } catch (_) {}
+          }
+        }
+        motionToggle.addEventListener("click", () => applyMotionState(!motionEnabled, true));
+        reducedMotionQuery.addEventListener("change", (event) => {
+          let stored = null;
+          try { stored = localStorage.getItem("mirui-motion"); } catch (_) {}
+          if (stored === null) applyMotionState(!event.matches, false);
+        });
+        applyMotionState(motionEnabled, false);
+
+        const searchTrigger = document.getElementById("site-search-trigger");
+        function focusGameSearch() {
+          document.getElementById("play").scrollIntoView({ behavior: motionEnabled ? "smooth" : "instant", block: "start" });
+          window.setTimeout(() => playSearch.focus({ preventScroll: true }), motionEnabled ? 420 : 0);
+        }
+        searchTrigger.addEventListener("click", focusGameSearch);
+        document.addEventListener("keydown", (event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && siteMode === "home") {
+            event.preventDefault();
+            focusGameSearch();
+          }
+        });
+
+        const revealTargets = document.querySelectorAll(".section-head, .demo-card, .build-grid, .target-strip");
+        document.documentElement.classList.add("site-motion-ready");
+        for (const target of revealTargets) target.classList.add("reveal");
+        if ("IntersectionObserver" in window) {
+          const revealObserver = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              entry.target.classList.add("in-view");
+              revealObserver.unobserve(entry.target);
+            }
+          }, { threshold: 0.06 });
+          for (const target of revealTargets) revealObserver.observe(target);
+
+          const sectionObserver = new IntersectionObserver((entries) => {
+            const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+            if (!visible) return;
+            for (const link of document.querySelectorAll(".site-nav a[href^='#']")) {
+              const active = link.getAttribute("href") === `#${visible.target.id}`;
+              link.classList.toggle("active", active);
+              if (active) link.setAttribute("aria-current", "location");
+              else link.removeAttribute("aria-current");
+            }
+          }, { rootMargin: "-25% 0px -60%", threshold: [0, 0.2, 0.6] });
+          for (const section of document.querySelectorAll("#home, #play, #build")) sectionObserver.observe(section);
+        } else {
+          for (const target of revealTargets) target.classList.add("in-view");
+        }
+
+        const siteMenuToggle = document.getElementById("site-menu-toggle");
+        const siteMobileMenu = document.getElementById("site-mobile-menu");
+        function setSiteMenu(open) {
+          siteMobileMenu.classList.toggle("open", open);
+          siteMenuToggle.setAttribute("aria-expanded", String(open));
+        }
+        siteMenuToggle.addEventListener("click", () => setSiteMenu(!siteMobileMenu.classList.contains("open")));
+        for (const link of siteMobileMenu.querySelectorAll("a")) {
+          link.addEventListener("click", () => setSiteMenu(false));
+        }
+        for (const link of document.querySelectorAll(".site-nav a[href^='#'], .site-mobile-menu a[href^='#']")) {
+          link.addEventListener("click", (event) => {
+            const id = link.getAttribute("href").slice(1);
+            const section = document.getElementById(id);
+            if (!section) return;
+            event.preventDefault();
+            history.replaceState({ mode: "home", demo: activeSlug }, "", `#${id}`);
+            section.scrollIntoView({ behavior: motionEnabled ? "smooth" : "instant", block: "start" });
+          });
         }
 
         // Intercept sidebar clicks → switch in place instead of navigating.
@@ -1931,19 +2613,55 @@
           if (!link || !navEl.contains(link)) return;
           e.preventDefault();
           if (mobileQuery.matches) setNavOpen(false);
-          switchDemo(link.dataset.demo, true);
+          openGallery(link.dataset.demo, true);
         });
 
-        // Back / forward navigate demos in place (no reload).
+        // Back / forward restores both the selected demo and presentation mode.
         window.addEventListener("popstate", (e) => {
+          const locationParams = new URLSearchParams(location.search);
+          const mode = (e.state && e.state.mode)
+            || (locationParams.has("demo") || locationParams.get("backend_parity") === "1" ? "gallery" : "home");
           const slug = (e.state && e.state.demo)
-            || new URLSearchParams(location.search).get("demo")
-            || defaultDemo;
-          switchDemo(slug, false);
+            || locationParams.get("demo")
+            || (mode === "home" ? activeSlug || homeDemo : defaultDemo);
+          switchDemo(slug);
+          applySiteMode(mode);
+          if (mode === "home" && location.hash) {
+            requestAnimationFrame(() => document.querySelector(location.hash)?.scrollIntoView({ block: "start" }));
+          }
         });
 
-        // Seed history so the first back press returns to the entry demo.
-        history.replaceState({ demo: activeSlug }, "", location.search || ("?demo=" + encodeURIComponent(activeSlug)));
+        function refreshLocalizedControls() {
+          filterInput.placeholder = window.miruiLanguage.t("gallery.filter");
+          filterInput.setAttribute("aria-label", filterInput.placeholder);
+          navEmpty.textContent = window.miruiLanguage.t("gallery.noMatch");
+          copyLabel.textContent = copyBtn.classList.contains("copied")
+            ? window.miruiLanguage.t("gallery.copied")
+            : window.miruiLanguage.t("gallery.copy");
+          const homeButton = document.getElementById("gallery-home");
+          homeButton.title = window.miruiLanguage.t("gallery.backHome");
+          homeButton.setAttribute("aria-label", homeButton.title);
+          navToggle.title = window.miruiLanguage.t("gallery.choose");
+          navToggle.setAttribute("aria-label", navToggle.title);
+          applyCanvasSize(currentSize || resolveCanvasSize());
+          renderSource();
+          applyTheme(isDark(), false);
+        }
+        document.addEventListener("mirui-language-change", refreshLocalizedControls);
+        refreshLocalizedControls();
+
+        // Seed history without rewriting the canonical landing URL.
+        if (siteMode === "home") {
+          const sectionHash = ["#home", "#play", "#build"].includes(location.hash) ? location.hash : "";
+          history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname + sectionHash);
+          applySiteMode("home", false);
+          if (sectionHash) {
+            requestAnimationFrame(() => document.querySelector(sectionHash)?.scrollIntoView({ block: "start" }));
+          }
+        } else {
+          history.replaceState({ mode: "gallery", demo: activeSlug }, "", location.search || ("?demo=" + encodeURIComponent(activeSlug)));
+          applySiteMode("gallery", false);
+        }
       });
     </script>
   </body>

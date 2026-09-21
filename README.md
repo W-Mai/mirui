@@ -8,9 +8,7 @@ A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and We
 
 ![Orbit Console adapting between wide and compact layouts](docs/assets/orbit-console-responsive.webp)
 
-[Open the interactive gallery](https://mirui.rs/) or run `cargo run -p gallery --example orbit_console_demo` locally.
-
-The Gallery Play group contains thirteen complete 480×320 applications: Marble Play, Lumen Lab, Pixel Loom, Moss Study, Pocket Post, Logic Circuit, Module Factory, Orbital Mission, Tidal Atlas, Echo Walker, Twin Beacons, Folding Ark, and Atlas Restoration. Every application also has a standalone `<name>_demo` launcher. Tidal Atlas and Echo Walker use versioned command-log persistence; Twin Beacons, Folding Ark, and Atlas Restoration use independent versioned fixed-size saves.
+[Open mirui.rs](https://mirui.rs/) to run the browser demos, inspect their Rust source, and browse the Play applications. Run a native example with `cargo run -p gallery --example orbit_console_demo --release --features wgpu`.
 
 ## Features
 

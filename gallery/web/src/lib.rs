@@ -92,6 +92,7 @@ use core::cell::RefCell;
 
 type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFactory>;
 const DEFAULT_DEMO: &str = "orbit_console";
+const HOME_DEMO: &str = "marble_play";
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };
@@ -154,7 +155,7 @@ pub fn start() {
     console_error_panic_hook::set_once();
 
     DARK.with(|d| d.set(prefers_dark()));
-    let slug = read_demo_query().unwrap_or_else(|| DEFAULT_DEMO.to_string());
+    let slug = read_demo_query().unwrap_or_else(|| HOME_DEMO.to_string());
     let backend = gallery::grab_canvas();
     let app = if backend_parity_enabled() {
         build_backend_parity_app(backend)
@@ -171,6 +172,11 @@ pub fn start() {
 #[wasm_bindgen]
 pub fn default_demo_slug() -> String {
     DEFAULT_DEMO.to_string()
+}
+
+#[wasm_bindgen]
+pub fn home_demo_slug() -> String {
+    HOME_DEMO.to_string()
 }
 
 #[wasm_bindgen]

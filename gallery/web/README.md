@@ -1,6 +1,6 @@
-# gallery-web — `web-canvas` backend gallery
+# mirui.rs — Web Canvas site
 
-All registered `mirui::gallery::demos` run on a `<canvas>` through the `web-canvas` backend, driven by `requestAnimationFrame`. The sidebar nav is generated from the `register_demos!` table in `src/lib.rs`.
+The root route presents the mirui.rs homepage with one live `<canvas>`, featured Play applications, generated preview cards, source inspection, and links to the complete demo registry. `?demo=<slug>` opens the selected demo workspace directly. Both routes share the same `web-canvas` backend, `requestAnimationFrame` driver, and application instance. Demo routes are generated from the `register_demos!` table in `src/lib.rs`.
 
 ## Prerequisites
 
@@ -9,9 +9,7 @@ rustup target add wasm32-unknown-unknown
 cargo install --locked trunk
 ```
 
-`trunk` bundles the wasm build, runs `wasm-bindgen` and `wasm-opt`,
-serves the page, and live-reloads on file changes — no manual
-`wasm-bindgen` / `python -m http.server` steps.
+`trunk` bundles the Wasm build, runs `wasm-bindgen` and `wasm-opt`, serves the page, and reloads it after source changes. No separate bindgen or static-file server step is required.
 
 ## Develop
 
@@ -20,18 +18,17 @@ cd gallery/web
 trunk serve
 ```
 
-Opens a dev server at <http://127.0.0.1:8080/?demo=orbit_console>, rebuilds and reloads the browser on edits. Orbit Console is the default; pick another demo with `?demo=<slug>`.
+This opens <http://127.0.0.1:8080/> and starts Marble Play in the live stage. Use `?demo=orbit_console` or another registered slug to open a demo directly.
 
-The watcher includes the gallery, mirui, mirx, and macro sources outside this
-directory, so backend and demo edits rebuild the running WebAssembly bundle.
+The watcher includes the gallery, mirui, mirx, and macro sources outside this directory, so backend and demo edits rebuild the running WebAssembly bundle.
 
-## Gallery structure
+## Site structure
 
-Layout Lab, Typography Lab and Interaction Lab group related framework capabilities into responsive, inspectable scenarios. Focused entries remain for subsystems with distinct runtime behavior, including scrolling, animation, effects, text input and specialized controls.
+The homepage keeps one application live while neighboring featured cards use generated previews. Selecting a card reuses the live canvas instead of creating another renderer or application instance.
 
-The Product group contains Signal Scope, an interactive instrument surface with allocation-stable custom drawing, responsive controls and lossless MIRX artwork.
+The Play section contains thirteen fixed 480×320 applications. Each application has a standalone native launcher, and the same setup function drives its Web Canvas route and generated card image.
 
-The Play group contains thirteen complete 480×320 applications with bounded models, backend-neutral drawing, touch controls, and standalone native launchers. Tidal Atlas and Echo Walker exercise versioned command-log persistence through the Gallery storage adapter; Twin Beacons, Folding Ark, and Atlas Restoration use independent versioned fixed-size saves.
+The demo workspace groups the remaining entries by their registry category and retains the canvas size controls, source panel, theme selection, and query-string routes.
 
 The source panel reads the selected scenario module directly. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
 
@@ -43,6 +40,8 @@ trunk build --release
 ```
 
 Output lands in `gallery/web/dist/`.
+
+The Trunk pre-build hook renders the Play card previews through the software backend. Generated PNG files live under `target/gallery-site/play-previews` and are copied into `dist`; preview bitmaps are not stored in the source tree. Unchanged Rust sources reuse the generated set on subsequent builds.
 
 ## A note on artifact size
 
@@ -62,4 +61,4 @@ Add one line to the `register_demos!` invocation in `src/lib.rs`:
 
 The demo module declares its supported canvas contract with `pub const DEMO_SIZE: DemoSize`. `DemoSize::fixed(480, 320)` preserves a 480×320 logical viewport and scales its displayed canvas uniformly, `DemoSize::range(320, 240, 1024, 720)` supplies responsive bounds, and `DemoSize::constraints` accepts one-sided optional bounds. At least one bound must be present.
 
-The sidebar entry and query-string route derive from the registry row, while canvas sizing derives from the module-owned contract. The demo body must already exist at `mirui::gallery::demos::my_module` with a `setup_app(app, parent)`.
+The navigation entry and query-string route derive from the registry row, while canvas sizing derives from the module-owned contract. The demo body must already exist at `mirui::gallery::demos::my_module` with a `setup_app(app, parent)`.

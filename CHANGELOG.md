@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **mirui.rs homepage.** A responsive Play catalog combines one live Web Canvas, layered featured-demo navigation, source inspection, theme and language controls, and build-generated preview images that remain outside the source tree.
 - **Demo-owned Gallery sizes.** Optional minimum and maximum width and height contracts define responsive canvases, while equal bounds retain a fixed logical viewport and uniformly scale rendering and input to the displayed canvas.
 - **Bounded audio runtime.** Feature-gated command queues, static cue banks, parameterized tones, fixed-voice integer mixing, lifecycle-aware plugins, Web Audio scheduling, SDL callbacks, and a caller-owned embedded output seam add sound without enabling heap growth in the real-time path.
 - **Marble Play sequencer.** Per-pad pitch and timbre controls, a continuous 55–160 BPM transport, quantized collision voices, pad-wide polyphony control, output compression, and user-recorded loops turn physical contacts into a bounded rhythm instrument without a permanent backing track.
