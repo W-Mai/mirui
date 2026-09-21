@@ -1087,6 +1087,7 @@
           <a class="active" href="#home"><span class="nav-disc" aria-hidden="true"></span><span data-i18n="nav.home">Home</span></a>
           <a href="#play"><span aria-hidden="true">▶</span><span data-i18n="nav.play">Play</span></a>
           <a href="#build"><span aria-hidden="true">&lt;/&gt;</span><span data-i18n="nav.build">Build</span></a>
+          <a href="#start"><span aria-hidden="true">↗</span><span data-i18n="nav.start">Start</span></a>
           <a href="https://docs.rs/mirui" target="_blank" rel="noopener"><span aria-hidden="true">▤</span><span data-i18n="nav.docs">Docs</span></a>
         </nav>
         <div class="site-actions">
@@ -1113,6 +1114,7 @@
         <a href="#home" data-i18n="nav.home">Home</a>
         <a href="#play" data-i18n="nav.play">Play</a>
         <a href="#build" data-i18n="nav.build">Build</a>
+        <a href="#start" data-i18n="nav.start">Start</a>
         <a href="https://docs.rs/mirui" target="_blank" rel="noopener" data-i18n="nav.docs">Docs</a>
         <a href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">GitHub</a>
       </nav>
@@ -1125,6 +1127,7 @@
             <div class="hero-actions">
               <button class="site-cta primary" type="button" data-open-current><span aria-hidden="true">▶</span><span data-i18n="hero.play">Play now</span><span aria-hidden="true">↗</span></button>
               <button class="site-cta" type="button" data-open-source><span aria-hidden="true">&lt;/&gt;</span><span data-i18n="hero.source">Read the source</span></button>
+              <a class="site-cta" href="#start"><span aria-hidden="true">＋</span><span data-i18n="hero.start">Start a project</span><span aria-hidden="true">↓</span></a>
             </div>
             <div class="hero-feature-nav" aria-label="Featured demos">
               <button class="hero-step" id="feature-prev" type="button" aria-label="Previous featured demo">←</button>
@@ -1289,23 +1292,72 @@
                   <span data-i18n="build.cap4">Software + GPU routes</span>
                 </div>
               </div>
-              <div class="code-card" aria-label="mirui DSL example">
-                <div class="code-card-head"><span>ui! / responsive composition</span><span>Rust</span></div>
-                <pre><code><span class="macro">ui!</span> {
-    <span class="type">Column</span> (container: <span class="kw">true</span>, grow: <span class="num">1.0</span>) {
-        <span class="type">Text</span>(
-            <span class="str">"Signal ready"</span>,
-            font_size: @width {
-                <span class="kw">if</span> width &lt; <span class="type">Fixed</span>::from_int(<span class="num">520</span>) {
-                    <span class="num">18_u16</span>
-                } <span class="kw">else</span> {
-                    <span class="num">30_u16</span>
-                }
-            }
-        )
-        <span class="type">Slider</span>(grow: <span class="num">1.0</span>)
-    }
-};</code></pre>
+              <div class="build-demo" id="build-demo" tabindex="0" aria-label="Interactive mirui composition walkthrough">
+                <div class="build-card-stack" id="build-card-stack">
+                  <article class="build-demo-card build-code-card is-active" data-build-panel="0" role="button" tabindex="0" aria-label="Show composition card">
+                    <div class="build-card-head"><span>01 / COMPOSE</span><span>ui! · RUST</span></div>
+                    <pre><code><span class="macro">ui!</span> {
+  <span class="type">Column</span>(container: <span class="kw">true</span>, grow: <span class="num">1.0</span>) {
+    <span class="type">Text</span>(
+      <span class="str">"Signal ready"</span>,
+      font_size: @width {
+        <span class="kw">if</span> width &lt; <span class="type">Fixed</span>::from_int(<span class="num">520</span>) {
+          <span class="num">18_u16</span>
+        } <span class="kw">else</span> { <span class="num">30_u16</span> }
+      }
+    )
+    <span class="type">Slider</span>(grow: <span class="num">1.0</span>)
+  }
+}</code></pre>
+                  </article>
+
+                  <article class="build-demo-card build-responsive-card is-next" data-build-panel="1" role="button" tabindex="0" aria-label="Show responsive layout card">
+                    <div class="build-card-head"><span>02 / RESPOND</span><span>128 → 1024</span></div>
+                    <div class="build-responsive-body">
+                      <div class="build-screen build-screen-compact">
+                        <span class="build-screen-label">128</span>
+                        <strong>72</strong>
+                        <i></i><i></i><i></i><i></i>
+                      </div>
+                      <div class="build-screen build-screen-mobile">
+                        <span class="build-screen-label">390</span>
+                        <small>SIGNAL</small><strong>72.4</strong>
+                        <div class="build-wave"><i></i><i></i><i></i><i></i><i></i></div>
+                      </div>
+                      <div class="build-screen build-screen-wide">
+                        <span class="build-screen-label">1024</span>
+                        <div><small>SIGNAL READY</small><strong>72.4</strong></div>
+                        <div class="build-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                      </div>
+                    </div>
+                    <p class="build-card-note">ONE TREE · THREE CONSTRAINT SETS</p>
+                  </article>
+
+                  <article class="build-demo-card build-route-card is-prev" data-build-panel="2" role="button" tabindex="0" aria-label="Show renderer routing card">
+                    <div class="build-card-head"><span>03 / ROUTE</span><span>SCENE DISPATCH</span></div>
+                    <div class="build-route-map">
+                      <div class="build-route-source"><small>RETAINED</small><strong>UI TREE</strong></div>
+                      <span class="build-route-connector" aria-hidden="true"></span>
+                      <div class="build-route-scene"><small>NORMALIZED</small><strong>SCENE</strong><span>COMMANDS</span></div>
+                      <span class="build-route-branches" aria-hidden="true"><i></i><i></i><i></i></span>
+                      <div class="build-route-target"><small>BOUNDED</small><strong>SOFTWARE</strong><span>RGB565</span></div>
+                      <div class="build-route-target"><small>NATIVE</small><strong>GPU</strong><span>WGPU</span></div>
+                      <div class="build-route-target"><small>BROWSER</small><strong>WEB</strong><span>CANVAS</span></div>
+                    </div>
+                    <p class="build-card-note">ONE SCENE · CAPABILITY-BASED BACKEND ROUTING</p>
+                  </article>
+                </div>
+
+                <div class="build-demo-controls">
+                  <button id="build-demo-prev" type="button" aria-label="Previous build card">←</button>
+                  <span class="build-demo-readout"><b id="build-demo-title">Compose</b><small id="build-demo-meta">typed UI · reactive values</small></span>
+                  <span class="build-demo-dots" role="tablist" aria-label="Build walkthrough cards">
+                    <button type="button" role="tab" data-build-dot="0" aria-label="Compose" aria-selected="true"></button>
+                    <button type="button" role="tab" data-build-dot="1" aria-label="Respond" aria-selected="false"></button>
+                    <button type="button" role="tab" data-build-dot="2" aria-label="Route" aria-selected="false"></button>
+                  </span>
+                  <button id="build-demo-next" type="button" aria-label="Next build card">→</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1327,6 +1379,60 @@
             <article><small>05</small><h3 data-i18n="target.web">Web</h3><p>Web Canvas · WebAssembly</p></article>
           </div>
         </section>
+
+        <section class="start-section" id="start">
+          <div class="start-inner">
+            <div class="start-head">
+              <div>
+                <div class="section-kicker" data-i18n="start.kicker">05 / Getting Started</div>
+                <h2><span data-i18n="start.title1">Open a terminal.</span><br/><span data-i18n="start.title2">Make it yours</span><span class="signal">.</span></h2>
+              </div>
+              <p data-i18n="start.intro">Add mirui to an existing crate, or generate a ready-to-run project for desktop, browser, mobile, and embedded targets.</p>
+            </div>
+
+            <div class="start-grid">
+              <article class="start-card start-crate-card">
+                <div class="start-card-top"><span>01 / CRATE</span><span>crates.io</span></div>
+                <div class="start-card-body">
+                  <span class="start-card-mark" aria-hidden="true">＋</span>
+                  <div>
+                    <h3 data-i18n="start.crateTitle">Add mirui</h3>
+                    <p data-i18n="start.crateBody">Use the library directly when the runtime and window integration already exist.</p>
+                  </div>
+                </div>
+                <div class="start-command">
+                  <code>cargo add mirui</code>
+                  <button type="button" data-copy-command="cargo add mirui" aria-label="Copy cargo add command">COPY</button>
+                </div>
+                <a class="start-link" href="https://docs.rs/mirui" target="_blank" rel="noopener"><span data-i18n="start.docs">Read the API docs</span><span aria-hidden="true">↗</span></a>
+              </article>
+
+              <article class="start-card start-template-card">
+                <div class="start-card-top"><span>02 / SCAFFOLD</span><span>GitHub</span></div>
+                <div class="start-template-title">
+                  <div>
+                    <small>W-Mai /</small>
+                    <h3>mirui-templates</h3>
+                  </div>
+                  <a href="https://github.com/W-Mai/mirui-templates" target="_blank" rel="noopener" aria-label="Open mirui-templates repository">↗</a>
+                </div>
+                <p class="start-template-copy" data-i18n="start.templateBody">Generate a focused target or a shared workspace with desktop, WebAssembly, ESP32-C3, Android, and iOS applications.</p>
+                <div class="start-command start-command-stack">
+                  <code><span>cargo install cargo-generate</span><span>cargo generate W-Mai/mirui-templates workspace --name hello-mirui</span></code>
+                  <button type="button" data-copy-command="cargo install cargo-generate&#10;cargo generate W-Mai/mirui-templates workspace --name hello-mirui" aria-label="Copy template commands">COPY</button>
+                </div>
+                <nav class="template-targets" aria-label="Available mirui templates">
+                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/sdl-only" target="_blank" rel="noopener">SDL</a>
+                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/wasm" target="_blank" rel="noopener">WASM</a>
+                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/workspace" target="_blank" rel="noopener">WORKSPACE</a>
+                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/android" target="_blank" rel="noopener">ANDROID</a>
+                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/ios" target="_blank" rel="noopener">iOS</a>
+                  <a href="https://github.com/W-Mai/mirui-templates/tree/main/templates/esp32c3" target="_blank" rel="noopener">ESP32-C3</a>
+                </nav>
+              </article>
+            </div>
+          </div>
+        </section>
       </main>
 
       <footer class="site-footer">
@@ -1335,6 +1441,7 @@
           <a href="https://crates.io/crates/mirui" target="_blank" rel="noopener">crates.io</a>
           <a href="https://docs.rs/mirui" target="_blank" rel="noopener">docs.rs</a>
           <a href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/W-Mai/mirui-templates" target="_blank" rel="noopener">Templates</a>
           <a href="https://github.com/W-Mai/mirui/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
         </nav>
       </footer>
@@ -1443,9 +1550,9 @@
       (function () {
         const copy = {
           en: {
-            "nav.home": "Home", "nav.play": "Play", "nav.build": "Build", "nav.docs": "Docs",
+            "nav.home": "Home", "nav.play": "Play", "nav.build": "Build", "nav.start": "Start", "nav.docs": "Docs",
             "hero.kicker": "PLAY / GAMES & INSTRUMENTS", "hero.line1": "Small screens.", "hero.line2": "Big play",
-            "hero.play": "Play now", "hero.source": "Read the source",
+            "hero.play": "Play now", "hero.source": "Read the source", "hero.start": "Start a project",
             "play.kicker": "01 / Games", "play.title": "Play",
             "play.search": "Search demos", "play.empty": "No games match this search.",
             "catalog.kicker": "02 / Demos", "catalog.title": "Explore", "catalog.intro": "Components, rendering, motion, effects, state, and scrolling.", "catalog.empty": "No demos match this search.",
@@ -1461,6 +1568,10 @@
             "targets.kicker": "04 / Runtime targets", "targets.title": "Everywhere",
             "targets.intro": "The same component tree reaches bounded software rasterization, native GPU paths, browser canvas, and direct display surfaces.",
             "target.embedded": "Embedded", "target.mobile": "Mobile", "target.desktop": "Desktop", "target.web": "Web",
+            "start.kicker": "05 / Getting Started", "start.title1": "Open a terminal.", "start.title2": "Make it yours",
+            "start.intro": "Add mirui to an existing crate, or generate a ready-to-run project for desktop, browser, mobile, and embedded targets.",
+            "start.crateTitle": "Add mirui", "start.crateBody": "Use the library directly when the runtime and window integration already exist.",
+            "start.docs": "Read the API docs", "start.templateBody": "Generate a focused target or a shared workspace with desktop, WebAssembly, ESP32-C3, Android, and iOS applications.",
             "gallery.title": "mirui · gallery", "gallery.tag": "subpixel UI · no_std · wasm",
             "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
             "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
@@ -1469,9 +1580,9 @@
             "gallery.noSource": "No source available for"
           },
           zh: {
-            "nav.home": "首页", "nav.play": "体验", "nav.build": "构建", "nav.docs": "文档",
+            "nav.home": "首页", "nav.play": "体验", "nav.build": "构建", "nav.start": "开始", "nav.docs": "文档",
             "hero.kicker": "PLAY / 游戏与仪器", "hero.line1": "小屏幕。", "hero.line2": "大游戏",
-            "hero.play": "开始玩", "hero.source": "查看源码",
+            "hero.play": "开始玩", "hero.source": "查看源码", "hero.start": "创建项目",
             "play.kicker": "01 / 游戏", "play.title": "开玩",
             "play.search": "搜索 Demo", "play.empty": "没有匹配的游戏。",
             "catalog.kicker": "02 / Demo", "catalog.title": "继续看", "catalog.intro": "组件、渲染、动画、特效、状态与滚动。", "catalog.empty": "没有匹配的 Demo。",
@@ -1487,6 +1598,10 @@
             "targets.kicker": "04 / 运行目标", "targets.title": "全平台",
             "targets.intro": "同一份组件树可由软件光栅、原生 GPU、浏览器 Canvas 或直接显示设备渲染。",
             "target.embedded": "嵌入式", "target.mobile": "移动端", "target.desktop": "桌面", "target.web": "Web",
+            "start.kicker": "05 / GETTING STARTED", "start.title1": "打开终端。", "start.title2": "开始构建",
+            "start.intro": "把 mirui 加入现有 crate，或者直接生成可运行的桌面、浏览器、移动端与嵌入式工程。",
+            "start.crateTitle": "加入 mirui", "start.crateBody": "已经有运行时和窗口集成时，直接把 mirui 作为依赖接入。",
+            "start.docs": "查看 API 文档", "start.templateBody": "生成单一目标工程，或创建同时包含桌面、WebAssembly、ESP32-C3、Android 与 iOS 的共享 workspace。",
             "gallery.title": "mirui · Gallery", "gallery.tag": "亚像素 UI · no_std · wasm",
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
             "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
@@ -2535,6 +2650,102 @@
           button.addEventListener("click", () => openDemo(button.dataset.openSourceDemo, true, true, button));
         }
 
+        const buildDemo = document.getElementById("build-demo");
+        const buildCardStack = document.getElementById("build-card-stack");
+        const buildCards = Array.from(document.querySelectorAll("[data-build-panel]"));
+        const buildDots = Array.from(document.querySelectorAll("[data-build-dot]"));
+        const buildDemoTitle = document.getElementById("build-demo-title");
+        const buildDemoMeta = document.getElementById("build-demo-meta");
+        const buildPanelCopy = [
+          ["Compose", "typed UI · reactive values"],
+          ["Respond", "one tree · changing constraints"],
+          ["Route", "software · GPU · Web"],
+        ];
+        let activeBuildPanel = 0;
+        let buildSwipeStart = null;
+        let suppressBuildClick = false;
+
+        function selectBuildPanel(index) {
+          activeBuildPanel = (index + buildCards.length) % buildCards.length;
+          for (const card of buildCards) {
+            const cardIndex = Number(card.dataset.buildPanel);
+            const distance = (cardIndex - activeBuildPanel + buildCards.length) % buildCards.length;
+            card.classList.toggle("is-active", distance === 0);
+            card.classList.toggle("is-next", distance === 1);
+            card.classList.toggle("is-prev", distance === buildCards.length - 1);
+            card.setAttribute("aria-pressed", String(distance === 0));
+          }
+          for (const dot of buildDots) {
+            dot.setAttribute("aria-selected", String(Number(dot.dataset.buildDot) === activeBuildPanel));
+          }
+          buildDemoTitle.textContent = buildPanelCopy[activeBuildPanel][0];
+          buildDemoMeta.textContent = buildPanelCopy[activeBuildPanel][1];
+        }
+
+        function stepBuildPanel(direction) {
+          selectBuildPanel(activeBuildPanel + direction);
+        }
+
+        for (const card of buildCards) {
+          card.addEventListener("click", () => {
+            if (suppressBuildClick) return;
+            selectBuildPanel(Number(card.dataset.buildPanel));
+          });
+          card.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            selectBuildPanel(Number(card.dataset.buildPanel));
+          });
+        }
+        for (const dot of buildDots) {
+          dot.addEventListener("click", () => selectBuildPanel(Number(dot.dataset.buildDot)));
+        }
+        document.getElementById("build-demo-prev").addEventListener("click", () => stepBuildPanel(-1));
+        document.getElementById("build-demo-next").addEventListener("click", () => stepBuildPanel(1));
+        buildDemo.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          stepBuildPanel(event.key === "ArrowRight" ? 1 : -1);
+        });
+        buildCardStack.addEventListener("pointerdown", (event) => {
+          buildSwipeStart = event.clientX;
+        });
+        buildCardStack.addEventListener("pointerup", (event) => {
+          if (buildSwipeStart === null) return;
+          const distance = event.clientX - buildSwipeStart;
+          buildSwipeStart = null;
+          if (Math.abs(distance) < 42) return;
+          suppressBuildClick = true;
+          stepBuildPanel(distance < 0 ? 1 : -1);
+          window.setTimeout(() => { suppressBuildClick = false; }, 0);
+        });
+        buildCardStack.addEventListener("pointercancel", () => { buildSwipeStart = null; });
+        selectBuildPanel(0);
+
+        for (const button of document.querySelectorAll("[data-copy-command]")) {
+          button.addEventListener("click", async () => {
+            const command = button.dataset.copyCommand;
+            try {
+              await navigator.clipboard.writeText(command);
+            } catch (_) {
+              const textarea = document.createElement("textarea");
+              textarea.value = command;
+              textarea.style.position = "fixed";
+              textarea.style.opacity = "0";
+              document.body.appendChild(textarea);
+              textarea.select();
+              try { document.execCommand("copy"); } catch (_) {}
+              textarea.remove();
+            }
+            button.classList.add("is-copied");
+            button.textContent = "COPIED";
+            window.setTimeout(() => {
+              button.classList.remove("is-copied");
+              button.textContent = "COPY";
+            }, 1400);
+          });
+        }
+
         document.getElementById("focus-back").addEventListener("click", () => {
           if (history.state && history.state.fromHome) history.back();
           else openHome(true);
@@ -2965,7 +3176,7 @@
           }
         });
 
-        const revealTargets = document.querySelectorAll(".section-head, .demo-card, .build-grid, .target-strip");
+        const revealTargets = document.querySelectorAll(".section-head, .demo-card, .build-grid, .target-strip, .start-head, .start-card");
         document.documentElement.classList.add("site-motion-ready");
         for (const target of revealTargets) target.classList.add("reveal");
         if ("IntersectionObserver" in window) {
@@ -2988,7 +3199,7 @@
               else link.removeAttribute("aria-current");
             }
           }, { rootMargin: "-25% 0px -60%", threshold: [0, 0.2, 0.6] });
-          for (const section of document.querySelectorAll("#home, #play, #build")) sectionObserver.observe(section);
+          for (const section of document.querySelectorAll("#home, #play, #build, #start")) sectionObserver.observe(section);
         } else {
           for (const target of revealTargets) target.classList.add("in-view");
         }
@@ -3057,7 +3268,7 @@
 
         // Seed history without rewriting the canonical landing URL.
         if (siteMode === "home") {
-          const sectionHash = ["#home", "#play", "#demos", "#build", "#targets"].includes(location.hash) ? location.hash : "";
+          const sectionHash = ["#home", "#play", "#demos", "#build", "#targets", "#start"].includes(location.hash) ? location.hash : "";
           history.replaceState({ mode: "home", demo: activeSlug, scrollY: 0 }, "", location.pathname + sectionHash);
           applySiteMode("home", false);
           if (sectionHash) {

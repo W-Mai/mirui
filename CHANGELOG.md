@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Interactive homepage build walkthrough.** A keyboard-, pointer-, and touch-operated card stack connects typed composition, responsive constraints, and renderer routing with motion-aware transitions.
+- **Homepage getting-started path.** Navigation and hero actions lead to crate installation, API documentation, and the `mirui-templates` generator commands for SDL, WebAssembly, workspace, Android, iOS, and ESP32-C3 projects.
 - **mirui.rs homepage.** A responsive Play catalog combines one live Web Canvas, layered featured-demo navigation, category tabs, source inspection, theme and language controls, and build-generated previews for the complete 71-demo registry. Selecting a card opens the live demo in a focused presentation without a separate Gallery page.
 - **Demo-owned Gallery sizes.** Optional minimum and maximum width and height contracts define responsive canvases, while equal bounds retain a fixed logical viewport and uniformly scale rendering and input to the displayed canvas.
 - **Bounded audio runtime.** Feature-gated command queues, static cue banks, parameterized tones, fixed-voice integer mixing, lifecycle-aware plugins, Web Audio scheduling, SDL callbacks, and a caller-owned embedded output seam add sound without enabling heap growth in the real-time path.
