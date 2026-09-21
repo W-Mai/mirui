@@ -1,5 +1,7 @@
 extern crate alloc;
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 320);
+
 use alloc::format;
 
 #[cfg(feature = "std")]

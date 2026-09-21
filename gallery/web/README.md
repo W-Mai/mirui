@@ -57,11 +57,9 @@ Output lands in `gallery/web/dist/`.
 Add one line to the `register_demos!` invocation in `src/lib.rs`:
 
 ```rust
-("my_slug", "my label", "Category", my_module, 480, 320),
+("my_slug", "my label", "Category", my_module),
 ```
 
-Append `false` after the registered height when a demo must remain at its native size instead of filling spare Gallery space.
+The demo module declares its supported canvas contract with `pub const DEMO_SIZE: DemoSize`. `DemoSize::fixed(480, 320)` preserves a 480×320 logical viewport and scales its displayed canvas uniformly, `DemoSize::range(320, 240, 1024, 720)` supplies responsive bounds, and `DemoSize::constraints` accepts one-sided optional bounds. At least one bound must be present.
 
-The sidebar entry, query-string route, and canvas sizing all derive
-from that row. The demo body must already exist at
-`mirui::gallery::demos::my_module` with a `setup_app(app, parent)`.
+The sidebar entry and query-string route derive from the registry row, while canvas sizing derives from the module-owned contract. The demo body must already exist at `mirui::gallery::demos::my_module` with a `setup_app(app, parent)`.

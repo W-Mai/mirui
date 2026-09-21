@@ -38,11 +38,23 @@ pub struct DemoEntry {
     pub slug: &'static str,
     pub label: &'static str,
     pub category: &'static str,
-    pub width: u16,
-    pub height: u16,
-    pub allow_upscale: bool,
+    pub size: mirui::gallery::DemoSize,
     pub setup: fn(&mut Setup<'_>) -> Entity,
     pub source: &'static str,
+}
+
+#[doc(hidden)]
+pub fn push_demo_nav_link(out: &mut String, demo: &DemoEntry, dark_theme: &str, light_theme: &str) {
+    let bound = |value: Option<u16>| value.map(|value| value.to_string()).unwrap_or_default();
+    out.push_str(&format!(
+        "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-min-w=\"{min_width}\" data-min-h=\"{min_height}\" data-max-w=\"{max_width}\" data-max-h=\"{max_height}\" data-theme-dark=\"{dark_theme}\" data-theme-light=\"{light_theme}\">{label}</a>",
+        slug = demo.slug,
+        label = demo.label,
+        min_width = bound(demo.size.min_width),
+        min_height = bound(demo.size.min_height),
+        max_width = bound(demo.size.max_width),
+        max_height = bound(demo.size.max_height),
+    ));
 }
 
 const FOCUS_START: &str = "//~focus-start";
@@ -95,16 +107,14 @@ pub fn extract_focus(src: &str) -> String {
 
 #[macro_export]
 macro_rules! register_demos {
-    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident, $w:literal, $h:literal $(, $allow_upscale:literal)? ) ),* $(,)? ) => {
+    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident) ),* $(,)? ) => {
         pub const DEMOS: &[$crate::DemoEntry] = &[
             $(
                 $crate::DemoEntry {
                     slug: $slug,
                     label: $label,
                     category: $category,
-                    width: $w,
-                    height: $h,
-                    allow_upscale: $crate::register_demos!(@allow_upscale $($allow_upscale)?),
+                    size: $crate::mirui::gallery::demos::$module::DEMO_SIZE,
                     setup: |setup| {
                         let parent = setup.app.spawn_root().id();
                         $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
@@ -123,14 +133,6 @@ macro_rules! register_demos {
         pub fn lookup_demo(slug: &str) -> Option<&'static $crate::DemoEntry> {
             DEMOS.iter().find(|d| d.slug == slug)
         }
-    };
-
-    (@allow_upscale $allow_upscale:literal) => {
-        $allow_upscale
-    };
-
-    (@allow_upscale) => {
-        true
     };
 }
 
@@ -402,7 +404,26 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::extract_focus;
+    use super::{DemoEntry, extract_focus, push_demo_nav_link};
+    use mirui::gallery::DemoSize;
+
+    #[test]
+    fn navigation_links_serialize_optional_demo_bounds() {
+        let demo = DemoEntry {
+            slug: "bounded",
+            label: "Bounded",
+            category: "Test",
+            size: DemoSize::constraints(Some(120), None, Some(640), Some(480)),
+            setup: |_| unreachable!(),
+            source: "",
+        };
+        let mut html = String::new();
+        push_demo_nav_link(&mut html, &demo, "dark", "light");
+        assert_eq!(
+            html,
+            "<a href=\"?demo=bounded\" data-demo=\"bounded\" data-min-w=\"120\" data-min-h=\"\" data-max-w=\"640\" data-max-h=\"480\" data-theme-dark=\"dark\" data-theme-light=\"light\">Bounded</a>"
+        );
+    }
 
     #[test]
     fn no_markers_returns_full_source() {

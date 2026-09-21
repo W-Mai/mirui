@@ -109,7 +109,10 @@ fn registered_modules() -> BTreeSet<&'static str> {
             if !line.starts_with("(\"") {
                 return None;
             }
-            line.split(',').nth(3).map(str::trim)
+            line.split(',')
+                .nth(3)
+                .map(str::trim)
+                .map(|module| module.trim_end_matches(")"))
         })
         .collect()
 }

@@ -11,6 +11,8 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::DimPoint;
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(128, 128);
+
 #[cfg(test)]
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::{View, ViewCtx};

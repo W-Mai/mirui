@@ -496,6 +496,8 @@ pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
     )
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(512, 512);
+
 #[cfg(test)]
 mod tests {
     use super::*;

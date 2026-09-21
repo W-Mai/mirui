@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Demo-owned Gallery sizes.** Optional minimum and maximum width and height contracts define responsive canvases, while equal bounds retain a fixed logical viewport and uniformly scale rendering and input to the displayed canvas.
 - **Bounded audio runtime.** Feature-gated command queues, static cue banks, parameterized tones, fixed-voice integer mixing, lifecycle-aware plugins, Web Audio scheduling, SDL callbacks, and a caller-owned embedded output seam add sound without enabling heap growth in the real-time path.
 - **Marble Play sequencer.** Per-pad pitch and timbre controls, a continuous 55–160 BPM transport, quantized collision voices, pad-wide polyphony control, output compression, and user-recorded loops turn physical contacts into a bounded rhythm instrument without a permanent backing track.
 - **Transactional pointer cancellation.** Surface cancellation and application suspension terminate active pointer work through `PointerCancel` and `DragCancel`; cancelled scroll gestures stop without seeding inertial motion.
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Desktop Gallery navigation.** The header menu now collapses and restores the desktop navigator, with active demos refitted to the resulting stage space.
 - **Gallery backend example gating.** SDL-only diagnostic examples declare their required feature so pure WGPU and Web Canvas example matrices compile without unrelated SDL imports.
 
 ## [0.46.2] - 2026-09-20

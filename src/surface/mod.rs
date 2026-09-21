@@ -178,6 +178,73 @@ pub(crate) const fn saturating_u16_from_u32(value: u32) -> u16 {
     }
 }
 
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CanvasMetrics {
+    pub logical_width: u16,
+    pub logical_height: u16,
+    pub physical_width: u32,
+    pub physical_height: u32,
+    pub scale: Fixed,
+}
+
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+pub(crate) fn canvas_metrics(
+    display_width: u16,
+    display_height: u16,
+    device_scale: Fixed,
+    logical_size: Option<(u16, u16)>,
+) -> CanvasMetrics {
+    let display_width = display_width.max(1);
+    let display_height = display_height.max(1);
+    let device_scale = device_scale.max(Fixed::ONE);
+    let (logical_width, logical_height, scale) = match logical_size {
+        Some((logical_width, logical_height)) => {
+            let logical_width = logical_width.max(1);
+            let logical_height = logical_height.max(1);
+            let display_scale = (Fixed::from(display_width) / Fixed::from(logical_width))
+                .min(Fixed::from(display_height) / Fixed::from(logical_height))
+                .max(Fixed::from_ratio(1, 256));
+            (logical_width, logical_height, device_scale * display_scale)
+        }
+        None => (display_width, display_height, device_scale),
+    };
+    let physical_width = (Fixed::from(logical_width) * scale).round().to_int().max(1) as u32;
+    let physical_height = (Fixed::from(logical_height) * scale)
+        .round()
+        .to_int()
+        .max(1) as u32;
+    CanvasMetrics {
+        logical_width,
+        logical_height,
+        physical_width,
+        physical_height,
+        scale,
+    }
+}
+
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+pub(crate) fn canvas_axis_scale(display_extent: Fixed, logical_extent: Option<u16>) -> Fixed {
+    logical_extent.map_or(Fixed::ONE, |logical_extent| {
+        Fixed::from(logical_extent) / display_extent.max(Fixed::ONE)
+    })
+}
+
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+pub(crate) fn canvas_axis_coordinate(
+    display_coordinate: Fixed,
+    display_extent: Fixed,
+    logical_extent: Option<u16>,
+) -> Fixed {
+    let Some(logical_extent) = logical_extent else {
+        return display_coordinate;
+    };
+    (crate::types::Fixed64::from_fixed(display_coordinate)
+        * crate::types::Fixed64::from_int(i64::from(logical_extent))
+        / crate::types::Fixed64::from_fixed(display_extent.max(Fixed::ONE)))
+    .to_fixed()
+}
+
 /// A [`Surface`] that exposes a CPU-accessible framebuffer as a [`Texture`].
 ///
 /// `SwRendererFactory` blanket-implements `RendererFactory` for any
@@ -231,5 +298,44 @@ mod tests {
         assert_eq!(saturating_u16(-1), 0);
         assert_eq!(saturating_u16(i32::MAX), u16::MAX);
         assert_eq!(saturating_u16_from_u32(u32::MAX), u16::MAX);
+    }
+
+    #[test]
+    fn responsive_canvas_uses_its_display_size_as_the_logical_viewport() {
+        assert_eq!(
+            canvas_metrics(360, 240, Fixed::from_int(2), None),
+            CanvasMetrics {
+                logical_width: 360,
+                logical_height: 240,
+                physical_width: 720,
+                physical_height: 480,
+                scale: Fixed::from_int(2),
+            }
+        );
+    }
+
+    #[test]
+    fn fixed_canvas_preserves_logical_size_and_scales_its_backing_store() {
+        assert_eq!(
+            canvas_metrics(360, 240, Fixed::from_int(2), Some((480, 320)),),
+            CanvasMetrics {
+                logical_width: 480,
+                logical_height: 320,
+                physical_width: 720,
+                physical_height: 480,
+                scale: Fixed::from_ratio(3, 2),
+            }
+        );
+    }
+
+    #[test]
+    fn fixed_canvas_input_maps_back_to_logical_coordinates() {
+        let scale = canvas_axis_scale(Fixed::from_int(360), Some(480));
+        assert_eq!(scale, Fixed::from_ratio(4, 3));
+        assert_eq!(
+            canvas_axis_coordinate(Fixed::from_int(180), Fixed::from_int(360), Some(480),),
+            Fixed::from_int(240)
+        );
+        assert_eq!(canvas_axis_scale(Fixed::from_int(360), None), Fixed::ONE);
     }
 }

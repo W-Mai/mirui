@@ -113,6 +113,8 @@ fn pick_storage() -> crate::core::storage::StorageHandle {
     crate::core::storage::FileStorage::open(path).into_handle()
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(320, 240);
+
 #[cfg(test)]
 mod tests {
     use super::*;

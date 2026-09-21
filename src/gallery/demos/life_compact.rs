@@ -147,6 +147,8 @@ where
     install(app, parent);
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(128, 128);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -174,6 +174,9 @@ pub enum DemoRunMode {
     Capture,
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize =
+    crate::gallery::DemoSize::range(320, 320, 1024, 640);
+
 #[cfg(test)]
 struct ConsoleNodes;
 

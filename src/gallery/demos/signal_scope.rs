@@ -1103,6 +1103,8 @@ where
     app.compose(parent, build_widgets);
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::range(320, 240, 800, 480);
+
 #[cfg(test)]
 mod tests {
     use super::*;

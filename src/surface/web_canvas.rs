@@ -8,7 +8,7 @@ use alloc::collections::VecDeque;
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -27,6 +27,7 @@ use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
 type EventQueue = Rc<RefCell<VecDeque<InputEvent>>>;
+type LogicalSize = Rc<Cell<Option<(u16, u16)>>>;
 
 /// Owned by the surface so `Drop` runs `removeEventListener`.
 struct Listener {
@@ -35,13 +36,14 @@ struct Listener {
     closure: Closure<dyn FnMut(JsValue)>,
 }
 
-/// The backing store is sized to `logical × devicePixelRatio`; the
-/// CSS box stays in logical pixels.
+/// The backing store tracks the logical viewport, device scale, and optional
+/// uniform CSS display scale.
 pub struct WebCanvasSurface {
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
     backbuffer: BackbufferInvalidation,
     event_queue: EventQueue,
+    logical_size: LogicalSize,
     _listeners: Vec<Listener>,
 }
 
@@ -49,7 +51,8 @@ impl WebCanvasSurface {
     /// `canvas` must already be in the DOM with its CSS size set —
     /// mirui only owns the backing store and the 2D context state.
     pub fn new(canvas: HtmlCanvasElement) -> Self {
-        let (css_w, css_h, scale, _) = sync_canvas_size(&canvas);
+        let logical_size = Rc::new(Cell::new(None));
+        let (css_w, css_h, scale, _) = sync_canvas_size(&canvas, logical_size.get());
         let ctx = canvas
             .get_context("2d")
             .expect("canvas.getContext failed")
@@ -58,13 +61,14 @@ impl WebCanvasSurface {
             .expect("getContext('2d') returned a non-2d context");
 
         let event_queue: EventQueue = Rc::new(RefCell::new(VecDeque::new()));
-        let listeners = attach_listeners(&canvas, &event_queue);
+        let listeners = attach_listeners(&canvas, &event_queue, &logical_size);
 
         Self {
             canvas,
             ctx,
             backbuffer: BackbufferInvalidation::new((css_w, css_h, scale)),
             event_queue,
+            logical_size,
             _listeners: listeners,
         }
     }
@@ -76,6 +80,10 @@ impl WebCanvasSurface {
 
     pub fn canvas(&self) -> &HtmlCanvasElement {
         &self.canvas
+    }
+
+    pub fn set_logical_size(&self, size: Option<(u16, u16)>) {
+        self.logical_size.set(size);
     }
 }
 
@@ -97,7 +105,7 @@ impl Surface for WebCanvasSurface {
     fn display_info(&self) -> DisplayInfo {
         // Re-sync each query so window resizes / OS zoom are picked up
         // without a dedicated `resize` listener.
-        let (css_w, css_h, scale, reset) = sync_canvas_size(&self.canvas);
+        let (css_w, css_h, scale, reset) = sync_canvas_size(&self.canvas, self.logical_size.get());
         self.backbuffer.observe((css_w, css_h, scale), reset);
         DisplayInfo {
             width: css_w,
@@ -126,49 +134,72 @@ impl Surface for WebCanvasSurface {
 /// `set_width` / `set_height` blank the backing store on every
 /// assignment, so the `if !=` guards skip same-size frames.
 /// Fractional DPR is preserved to match the rendered extent.
-fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed, bool) {
+fn sync_canvas_size(
+    canvas: &HtmlCanvasElement,
+    logical_size: Option<(u16, u16)>,
+) -> (u16, u16, Fixed, bool) {
     let window = web_sys::window().expect("no global `window`");
     let dpr = window.device_pixel_ratio().max(1.0);
-    let css_w = crate::surface::saturating_u16(canvas.client_width().max(1));
-    let css_h = crate::surface::saturating_u16(canvas.client_height().max(1));
-    let phys_w = (css_w as f64 * dpr).round() as u32;
-    let phys_h = (css_h as f64 * dpr).round() as u32;
-    let reset = canvas.width() != phys_w || canvas.height() != phys_h;
-    if canvas.width() != phys_w {
-        canvas.set_width(phys_w);
+    let display_width = crate::surface::saturating_u16(canvas.client_width().max(1));
+    let display_height = crate::surface::saturating_u16(canvas.client_height().max(1));
+    let metrics = crate::surface::canvas_metrics(
+        display_width,
+        display_height,
+        Fixed::from_f32(dpr as f32),
+        logical_size,
+    );
+    let reset =
+        canvas.width() != metrics.physical_width || canvas.height() != metrics.physical_height;
+    if canvas.width() != metrics.physical_width {
+        canvas.set_width(metrics.physical_width);
     }
-    if canvas.height() != phys_h {
-        canvas.set_height(phys_h);
+    if canvas.height() != metrics.physical_height {
+        canvas.set_height(metrics.physical_height);
     }
-    let scale = Fixed::from_f32(dpr as f32);
-    (css_w, css_h, scale, reset)
+    (
+        metrics.logical_width,
+        metrics.logical_height,
+        metrics.scale,
+        reset,
+    )
 }
 
-fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Listener> {
+fn attach_listeners(
+    canvas: &HtmlCanvasElement,
+    queue: &EventQueue,
+    logical_size: &LogicalSize,
+) -> Vec<Listener> {
     let mut listeners = Vec::with_capacity(8);
     listeners.push(pointer_listener(
         canvas,
         queue,
+        logical_size,
         "pointerdown",
         |id, x, y| InputEvent::PointerDown { id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
+        logical_size,
         "pointermove",
         |id, x, y| InputEvent::PointerMove { id, x, y },
     ));
-    listeners.push(pointer_listener(canvas, queue, "pointerup", |id, x, y| {
-        InputEvent::PointerUp { id, x, y }
-    }));
     listeners.push(pointer_listener(
         canvas,
         queue,
+        logical_size,
+        "pointerup",
+        |id, x, y| InputEvent::PointerUp { id, x, y },
+    ));
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        logical_size,
         "pointercancel",
         |id, x, y| InputEvent::PointerCancel { id, x, y },
     ));
     listeners.push(leave_listener(canvas, queue));
-    listeners.push(wheel_listener(canvas, queue));
+    listeners.push(wheel_listener(canvas, queue, logical_size));
     listeners.push(keyboard_listener(canvas, queue, "keydown", true));
     listeners.push(keyboard_listener(canvas, queue, "keyup", false));
     listeners
@@ -177,6 +208,7 @@ fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Liste
 fn pointer_listener(
     canvas: &HtmlCanvasElement,
     queue: &EventQueue,
+    logical_size: &LogicalSize,
     name: &str,
     map: fn(u8, Fixed, Fixed) -> InputEvent,
 ) -> Listener {
@@ -185,6 +217,7 @@ fn pointer_listener(
     let capture_on_down = name == "pointerdown";
     let canvas_for_capture = canvas.clone();
     let canvas_for_rect = canvas.clone();
+    let logical_size = logical_size.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: PointerEvent = raw.unchecked_into();
         evt.prevent_default();
@@ -196,10 +229,15 @@ fn pointer_listener(
         // `offset_x/y` is relative to the canvas backing-store box, which
         // diverges from the CSS box once the canvas is resized (or pointer
         // capture is held); `client_x/y - rect` is the reliable CSS-space
-        // coordinate, matching the touch path.
+        // coordinate. Fixed logical canvases then map that CSS position back
+        // into the demo's retained viewport.
         let rect = canvas_for_rect.get_bounding_client_rect();
-        let x = Fixed::from_int((evt.client_x() as f64 - rect.left()).round() as i32);
-        let y = Fixed::from_int((evt.client_y() as f64 - rect.top()).round() as i32);
+        let (x, y, _, _) = map_event_coordinates(
+            &rect,
+            evt.client_x() as f64,
+            evt.client_y() as f64,
+            logical_size.get(),
+        );
         q.borrow_mut().push_back(map(id, x, y));
     });
     register_listener(canvas.clone().into(), name, closure)
@@ -240,17 +278,28 @@ fn leave_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
     register_listener(canvas.clone().into(), "pointerleave", closure)
 }
 
-fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
+fn wheel_listener(
+    canvas: &HtmlCanvasElement,
+    queue: &EventQueue,
+    logical_size: &LogicalSize,
+) -> Listener {
     let q = queue.clone();
+    let canvas_for_rect = canvas.clone();
+    let logical_size = logical_size.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: WheelEvent = raw.unchecked_into();
         evt.prevent_default();
-        let x = Fixed::from_int(evt.offset_x());
-        let y = Fixed::from_int(evt.offset_y());
+        let rect = canvas_for_rect.get_bounding_client_rect();
+        let (x, y, scale_x, scale_y) = map_event_coordinates(
+            &rect,
+            evt.client_x() as f64,
+            evt.client_y() as f64,
+            logical_size.get(),
+        );
         // Wheel pixels → scroll-system detents (step = 20). Divisor 4
         // lands an active drag at a comfortable magnitude.
-        let dx_units = evt.delta_x() / 4.0;
-        let dy_units = evt.delta_y() / 4.0;
+        let dx_units = evt.delta_x() * scale_x / 4.0;
+        let dy_units = evt.delta_y() * scale_y / 4.0;
         let dx = Fixed::from_f32(dx_units as f32);
         // DOM `deltaY > 0` = content scrolls down; flip to match
         // `scroll_system`'s convention. `dx` keeps the browser sign.
@@ -258,6 +307,34 @@ fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
         q.borrow_mut().push_back(InputEvent::Wheel { dx, dy, x, y });
     });
     register_listener(canvas.clone().into(), "wheel", closure)
+}
+
+fn map_event_coordinates(
+    rect: &web_sys::DomRect,
+    client_x: f64,
+    client_y: f64,
+    logical_size: Option<(u16, u16)>,
+) -> (Fixed, Fixed, f64, f64) {
+    let (logical_width, logical_height) =
+        logical_size.map_or((None, None), |(width, height)| (Some(width), Some(height)));
+    let scale_x =
+        crate::surface::canvas_axis_scale(Fixed::from_f32(rect.width() as f32), logical_width);
+    let scale_y =
+        crate::surface::canvas_axis_scale(Fixed::from_f32(rect.height() as f32), logical_height);
+    (
+        crate::surface::canvas_axis_coordinate(
+            Fixed::from_f32((client_x - rect.left()) as f32),
+            Fixed::from_f32(rect.width() as f32),
+            logical_width,
+        ),
+        crate::surface::canvas_axis_coordinate(
+            Fixed::from_f32((client_y - rect.top()) as f32),
+            Fixed::from_f32(rect.height() as f32),
+            logical_height,
+        ),
+        f64::from(scale_x.to_f32()),
+        f64::from(scale_y.to_f32()),
+    )
 }
 
 fn keyboard_listener(

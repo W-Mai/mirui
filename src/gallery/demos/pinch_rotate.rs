@@ -283,6 +283,8 @@ where
     app.add_plugin(StdInstantClockPlugin);
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 360);
+
 #[cfg(test)]
 mod tests {
     use super::*;

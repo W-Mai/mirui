@@ -177,23 +177,33 @@ fn gallery_theme_ownership_stays_with_theme_studies() {
 }
 
 #[test]
-fn native_compact_demos_are_not_registered_as_stretchable() {
-    let registry = include_str!("../gallery/web/src/lib.rs");
-    for slug in [
-        "curve_text_compact",
-        "kinetic_console",
-        "effect_glass",
-        "life_compact",
-        "widgets_compact",
+fn native_compact_demos_declare_fixed_logical_canvases() {
+    for (module, size) in [
+        (
+            "curve_text_compact",
+            mirui::gallery::demos::curve_text_compact::DEMO_SIZE,
+        ),
+        (
+            "kinetic_console",
+            mirui::gallery::demos::kinetic_console::DEMO_SIZE,
+        ),
+        (
+            "effect_glass",
+            mirui::gallery::demos::effect_glass::DEMO_SIZE,
+        ),
+        (
+            "life_compact",
+            mirui::gallery::demos::life_compact::DEMO_SIZE,
+        ),
+        (
+            "widgets_compact",
+            mirui::gallery::demos::widgets_compact::DEMO_SIZE,
+        ),
     ] {
-        let entry = registry
-            .lines()
-            .find(|line| line.contains(&format!("(\"{slug}\"")))
-            .unwrap_or_else(|| panic!("compact demo `{slug}` must be registered"));
-        let compact: String = entry.split_whitespace().collect();
-        assert!(
-            compact.contains(",128,128,false),"),
-            "compact demo `{slug}` must retain its native 128 x 128 canvas"
+        assert_eq!(
+            size.fixed_size(),
+            Some((128, 128)),
+            "compact demo `{module}` must retain its native logical canvas"
         );
     }
 }

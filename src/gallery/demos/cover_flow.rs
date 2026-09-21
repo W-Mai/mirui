@@ -229,6 +229,8 @@ where
     app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(640, 360);
+
 #[cfg(test)]
 mod tests {
     use super::*;

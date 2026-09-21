@@ -3,86 +3,86 @@
 use wasm_bindgen::prelude::*;
 
 gallery::register_demos! {
-    ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console,        1024, 640),
-    ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab,           1024, 720),
-    ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab,       1024, 720),
-    ("curve_text",           "Kinetic Type",         "Showcase",    curve_text,            960, 540),
-    ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact,    128, 128, false),
-    ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab,      1024, 720),
-    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console,      128, 128, false),
+    ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console),
+    ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab),
+    ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab),
+    ("curve_text",           "Kinetic Type",         "Showcase",    curve_text),
+    ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact),
+    ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab),
+    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console),
 
-    ("signal_scope",         "Signal Scope",         "Product",     signal_scope,         800, 480),
+    ("signal_scope",         "Signal Scope",         "Product",     signal_scope),
 
-    ("marble_play",          "Marble Play",          "Play",        marble_play,          480, 320),
-    ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab,            480, 320),
-    ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom,           480, 320),
-    ("moss_study",           "Moss Study",           "Play",        moss_study,           480, 320),
-    ("pocket_post",          "Pocket Post",          "Play",        pocket_post,          480, 320),
-    ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit,        480, 320),
-    ("module_factory",       "Module Factory",       "Play",        module_factory,       480, 320),
-    ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission,      480, 320),
-    ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas,          480, 320),
-    ("echo_walker",          "Echo Walker",          "Play",        echo_walker,          480, 320),
-    ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons,         480, 320),
-    ("folding_ark",          "Folding Ark",          "Play",        folding_ark,          480, 320),
-    ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration,    480, 320),
+    ("marble_play",          "Marble Play",          "Play",        marble_play),
+    ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab),
+    ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom),
+    ("moss_study",           "Moss Study",           "Play",        moss_study),
+    ("pocket_post",          "Pocket Post",          "Play",        pocket_post),
+    ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit),
+    ("module_factory",       "Module Factory",       "Play",        module_factory),
+    ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission),
+    ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas),
+    ("echo_walker",          "Echo Walker",          "Play",        echo_walker),
+    ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons),
+    ("folding_ark",          "Folding Ark",          "Play",        folding_ark),
+    ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration),
 
-    ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
-    ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),
+    ("niche",                "niche slots (@name)",  "Basics",      niche),
+    ("i18n",                 "i18n locale toggle",   "Basics",      i18n),
 
-    ("animation",            "tween + ping pong",    "Animation",   animation,            320, 180),
-    ("three_body",           "three body",           "Animation",   three_body,           480, 320),
-    ("life",                 "game of life",         "Animation",   life,                 640, 640),
-    ("life_compact",         "life compact",          "Animation",   life_compact,         128, 128, false),
-    ("particles",            "particles",            "Animation",   particles,            480, 320),
-    ("butterfly",            "butterfly",            "Animation",   butterfly,            480, 480),
-    ("shapes",               "shapes",               "Animation",   shapes,               480, 480),
-    ("subpixel",             "subpixel motion",      "Animation",   subpixel,             480, 320),
-    ("spatial_anim",         "spatial anim",         "Animation",   spatial_anim,         400, 300),
-    ("transform",            "transform",            "Animation",   transform,            480, 320),
-    ("image_flip",           "image flip 3d",        "Animation",   image_flip,           480, 320),
-    ("flip_card",            "flip card",            "Animation",   flip_card,            480, 320),
-    ("book_flip",            "book flip",            "Animation",   book_flip,            640, 360),
+    ("animation",            "tween + ping pong",    "Animation",   animation),
+    ("three_body",           "three body",           "Animation",   three_body),
+    ("life",                 "game of life",         "Animation",   life),
+    ("life_compact",         "life compact",          "Animation",   life_compact),
+    ("particles",            "particles",            "Animation",   particles),
+    ("butterfly",            "butterfly",            "Animation",   butterfly),
+    ("shapes",               "shapes",               "Animation",   shapes),
+    ("subpixel",             "subpixel motion",      "Animation",   subpixel),
+    ("spatial_anim",         "spatial anim",         "Animation",   spatial_anim),
+    ("transform",            "transform",            "Animation",   transform),
+    ("image_flip",           "image flip 3d",        "Animation",   image_flip),
+    ("flip_card",            "flip card",            "Animation",   flip_card),
+    ("book_flip",            "book flip",            "Animation",   book_flip),
 
-    ("effect_panels",        "effect panels",        "Effects",     effect_panels,        360, 560),
-    ("effect_glass",         "effect glass",         "Effects",     effect_glass,         128, 128, false),
-    ("offscreen",            "offscreen render",     "Effects",     offscreen,            360, 360),
-    ("offscreen_modal",      "offscreen modal",      "Effects",     offscreen_modal,      360, 360),
-    ("custom_view",          "custom view (Diamond)","Effects",     custom_view,          480, 200),
-    ("vector_mandala",       "vector mandala",       "Effects",     vector_mandala,       512, 512),
-    ("icon",                 "icon set",             "Effects",     icon,                 540, 320),
-    ("composite",            "blit composite modes", "Effects",     composite,            720, 360),
-    ("gradient",             "gradient paint",       "Effects",     gradient,             480, 320),
-    ("stroke_styles",        "stroke styles",        "Effects",     stroke_styles,        480, 360),
-    ("clip_path",            "clip path",            "Effects",     clip_path,            320, 320),
-    ("fill_rules",           "fill rules",           "Effects",     fill_rules,           400, 240),
-    ("blur_filter",          "blur filter",          "Effects",     blur_filter,          480, 240),
-    ("render_showcase",      "render showcase",      "Effects",     render_showcase,      640, 660),
+    ("effect_panels",        "effect panels",        "Effects",     effect_panels),
+    ("effect_glass",         "effect glass",         "Effects",     effect_glass),
+    ("offscreen",            "offscreen render",     "Effects",     offscreen),
+    ("offscreen_modal",      "offscreen modal",      "Effects",     offscreen_modal),
+    ("custom_view",          "custom view (Diamond)","Effects",     custom_view),
+    ("vector_mandala",       "vector mandala",       "Effects",     vector_mandala),
+    ("icon",                 "icon set",             "Effects",     icon),
+    ("composite",            "blit composite modes", "Effects",     composite),
+    ("gradient",             "gradient paint",       "Effects",     gradient),
+    ("stroke_styles",        "stroke styles",        "Effects",     stroke_styles),
+    ("clip_path",            "clip path",            "Effects",     clip_path),
+    ("fill_rules",           "fill rules",           "Effects",     fill_rules),
+    ("blur_filter",          "blur filter",          "Effects",     blur_filter),
+    ("render_showcase",      "render showcase",      "Effects",     render_showcase),
 
-    ("pinch_rotate",         "pinch + rotate",       "Interaction", pinch_rotate,         480, 360),
+    ("pinch_rotate",         "pinch + rotate",       "Interaction", pinch_rotate),
 
-    ("state_counter",        "reactive counter",     "State",       state_counter,        360, 240),
-    ("state_computed",       "reactive computed",    "State",       state_computed,       360, 240),
-    ("state_effect",         "reactive effect",      "State",       state_effect,         360, 260),
-    ("state_form",           "reactive form",        "State",       state_form,           360, 280),
-    ("state_todo",           "reactive todo",        "State",       state_todo,           320, 280),
-    ("state_show",           "reactive if / match",  "State",       state_show,           320, 240),
-    ("state_list",           "reactive walk list",   "State",       state_list,           320, 320),
-    ("state_keyed",          "keyed walk reorder",   "State",       state_keyed,          320, 320),
-    ("persistence_counter",  "persistence counter",  "State",       persistence_counter,  320, 240),
+    ("state_counter",        "reactive counter",     "State",       state_counter),
+    ("state_computed",       "reactive computed",    "State",       state_computed),
+    ("state_effect",         "reactive effect",      "State",       state_effect),
+    ("state_form",           "reactive form",        "State",       state_form),
+    ("state_todo",           "reactive todo",        "State",       state_todo),
+    ("state_show",           "reactive if / match",  "State",       state_show),
+    ("state_list",           "reactive walk list",   "State",       state_list),
+    ("state_keyed",          "keyed walk reorder",   "State",       state_keyed),
+    ("persistence_counter",  "persistence counter",  "State",       persistence_counter),
 
-    ("scroll",               "scroll",               "Scroll",      scroll,               480, 320),
-    ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll,        480, 400),
-    ("lazy_list",            "lazy list",            "Scroll",      lazy_list,            320, 320),
-    ("cover_flow",           "cover flow",           "Scroll",      cover_flow,           640, 360),
+    ("scroll",               "scroll",               "Scroll",      scroll),
+    ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll),
+    ("lazy_list",            "lazy list",            "Scroll",      lazy_list),
+    ("cover_flow",           "cover flow",           "Scroll",      cover_flow),
 
-    ("slider_value_changed", "slider valueChanged",  "Components",  slider_value_changed, 720, 320),
-    ("tabbar",               "tabbar",               "Components",  tabbar,               480, 320),
-    ("text_input",           "text input",           "Components",  text_input,           480, 200),
-    ("theme_swap",           "theme swap",           "Components",  theme_swap,           480, 320),
-    ("widgets",              "widgets",              "Components",  widgets,              512, 512),
-    ("widgets_compact",      "widgets compact",      "Components",  widgets_compact,      128, 128, false),
-    ("builder_form",         "builder API (no DSL)", "Components",  builder_form,         320, 200),
+    ("slider_value_changed", "slider valueChanged",  "Components",  slider_value_changed),
+    ("tabbar",               "tabbar",               "Components",  tabbar),
+    ("text_input",           "text input",           "Components",  text_input),
+    ("theme_swap",           "theme swap",           "Components",  theme_swap),
+    ("widgets",              "widgets",              "Components",  widgets),
+    ("widgets_compact",      "widgets compact",      "Components",  widgets_compact),
+    ("builder_form",         "builder API (no DSL)", "Components",  builder_form),
 }
 
 extern crate alloc;
@@ -208,6 +208,16 @@ pub fn switch_demo(slug: &str) {
     *cell.borrow_mut() = Some(app);
 }
 
+#[wasm_bindgen]
+pub fn set_canvas_logical_size(width: u16, height: u16) {
+    let cell = APP.with(|slot| slot.borrow().clone());
+    let Some(cell) = cell else { return };
+    if let Some(app) = cell.borrow().as_ref() {
+        let size = (width > 0 && height > 0).then_some((width, height));
+        app.backend.set_logical_size(size);
+    }
+}
+
 fn read_demo_query() -> Option<String> {
     let search = web_sys::window()?.location().search().ok()?;
     let trimmed = search.trim_start_matches('?');
@@ -264,14 +274,7 @@ pub fn nav_html() -> String {
             prev_cat = d.category;
         }
         let (dark_theme, light_theme) = theme_ids_for(d);
-        out.push_str(&alloc::format!(
-            "<a href=\"?demo={slug}\" data-demo=\"{slug}\" data-w=\"{w}\" data-h=\"{h}\" data-upscale=\"{upscale}\" data-theme-dark=\"{dark_theme}\" data-theme-light=\"{light_theme}\">{label}</a>",
-            slug = d.slug,
-            label = d.label,
-            w = d.width,
-            h = d.height,
-            upscale = d.allow_upscale,
-        ));
+        gallery::push_demo_nav_link(&mut out, d, dark_theme, light_theme);
     }
     if !prev_cat.is_empty() {
         out.push_str("</div>");

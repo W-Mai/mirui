@@ -132,6 +132,8 @@ pub fn clip_path_view() -> View {
     View::new("ClipPath", 60, clip_path_render).with_filter::<ClipPath>()
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(320, 320);
+
 #[cfg(test)]
 mod tests {
     use super::*;

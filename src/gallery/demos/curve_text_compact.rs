@@ -3,6 +3,8 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::render::font::FontToken;
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(128, 128);
+
 #[cfg(test)]
 use crate::render::path::PathCmd;
 use crate::render::path::{Path, PathId, PathStore};

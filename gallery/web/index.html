@@ -317,7 +317,7 @@
         background: var(--raised);
       }
       .topbar .theme-toggle:active { transform: translateY(1px); }
-      .nav-toggle { display: none; }
+      .nav-toggle { display: inline-flex; width: 34px; height: 34px; padding: 0; }
       /* dark = default → offer the sun (switch to light); hide the moon.
          in light mode the .light-active class flips which glyph shows. */
       .topbar .theme-toggle .ico-moon { display: none; }
@@ -356,11 +356,13 @@
          ══════════════════════════════════════════════════════════ */
       .body {
         display: grid;
-        grid-template-columns: 276px 1fr;
+        grid-template-columns: 276px minmax(0, 1fr);
         min-height: 0;
         min-width: 0;
         overflow: hidden;
+        transition: grid-template-columns 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
       }
+      .body.nav-collapsed { grid-template-columns: 0 minmax(0, 1fr); }
       .nav-backdrop { display: none; }
 
       /* ── LEFT: the navigator (the first-class demo selector) ── */
@@ -369,8 +371,17 @@
         display: flex;
         flex-direction: column;
         min-height: 0;
+        min-width: 0;
+        overflow: hidden;
         border-right: 1px solid var(--line);
         background: var(--panel);
+        transition: visibility 0s linear 0s;
+      }
+      .body.nav-collapsed aside {
+        visibility: hidden;
+        pointer-events: none;
+        border-right-width: 0;
+        transition-delay: 0.24s;
       }
 
       /* sticky filter field — client-side over the nav <a> nodes */
@@ -920,6 +931,7 @@
           grid-template-columns: 1fr;
           grid-template-rows: 1fr;
         }
+        .body.nav-collapsed { grid-template-columns: 1fr; }
         aside {
           position: fixed;
           z-index: 60;
@@ -931,6 +943,12 @@
           box-shadow: 18px 0 48px -24px rgba(0,0,0,0.82);
           transform: translateX(-102%);
           transition: transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+        .body.nav-collapsed aside {
+          visibility: visible;
+          pointer-events: auto;
+          border-right-width: 1px;
+          transition-delay: 0s;
         }
         aside.open { transform: translateX(0); }
         .nav-backdrop {
@@ -946,7 +964,6 @@
           transition: opacity 0.2s ease;
         }
         .nav-backdrop.open { opacity: 1; pointer-events: auto; }
-        .nav-toggle { display: inline-flex; width: 34px; height: 34px; padding: 0; }
         .topbar { height: 48px; padding: 0 var(--s4); gap: var(--s3); }
         .live-chip { display: none; }
         main {
@@ -1032,6 +1049,10 @@
       }
       @media (max-width: 760px) and (prefers-reduced-motion: reduce), (max-width: 1000px) and (max-height: 500px) and (prefers-reduced-motion: reduce) {
         .code-panel, aside, .nav-backdrop { transition: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .body { transition: none; }
+        .body.nav-collapsed aside { transition-delay: 0s; }
       }
       @media (max-width: 420px) {
         .topbar .gh span.gh-label { display: none; }
@@ -1239,52 +1260,94 @@
         });
 
         const navPanel = document.querySelector(".body > aside");
+        const bodyShell = document.querySelector(".body");
         const navToggle = document.getElementById("nav-toggle");
         const navBackdrop = document.getElementById("nav-backdrop");
+        const mobileQuery = window.matchMedia("(max-width: 760px), (max-width: 1000px) and (max-height: 500px)");
 
         function setNavOpen(open) {
-          navPanel.classList.toggle("open", open);
-          navBackdrop.classList.toggle("open", open);
+          if (mobileQuery.matches) {
+            bodyShell.classList.remove("nav-collapsed");
+            navPanel.classList.toggle("open", open);
+            navBackdrop.classList.toggle("open", open);
+          } else {
+            navPanel.classList.remove("open");
+            navBackdrop.classList.remove("open");
+            bodyShell.classList.toggle("nav-collapsed", !open);
+          }
           navToggle.setAttribute("aria-expanded", String(open));
         }
 
-        navToggle.addEventListener("click", () => setNavOpen(!navPanel.classList.contains("open")));
+        function navIsOpen() {
+          return mobileQuery.matches
+            ? navPanel.classList.contains("open")
+            : !bodyShell.classList.contains("nav-collapsed");
+        }
+
+        navToggle.addEventListener("click", () => setNavOpen(!navIsOpen()));
         navBackdrop.addEventListener("click", () => setNavOpen(false));
         document.addEventListener("keydown", (event) => {
           if (event.key !== "Escape") return;
           if (document.activeElement === filterInput && filterInput.value) return;
           setNavOpen(false);
         });
+        mobileQuery.addEventListener("change", () => setNavOpen(!mobileQuery.matches));
+        setNavOpen(!mobileQuery.matches);
 
         const canvas = document.getElementById("mirui");
         const stage = document.getElementById("stage");
         const stageWrap = document.querySelector(".stage-wrap");
+        const mainPanel = stageWrap.parentElement;
         const stageName = document.getElementById("stage-name");
         const stageSize = document.getElementById("stage-size");
-        const mobileQuery = window.matchMedia("(max-width: 760px), (max-width: 1000px) and (max-height: 500px)");
+        const resetBtn = document.getElementById("reset-btn");
+        const rotateBtn = document.getElementById("rotate-btn");
         const portraitQuery = window.matchMedia("(orientation: portrait)");
 
         // ── Canvas sizing ──────────────────────────────────────
-        // mirui re-reads the viewport each frame, so changing both the
-        // attribute size and the CSS size is all that's needed; the wasm
-        // render loop picks up the new dimensions on its own.
-        const MIN_SIZE = 120;
-        const MAX_MANUAL_SIZE = 4096;
-        // Only the CSS box is ours; the wasm surface re-reads clientWidth
-        // each frame and owns canvas.width/height (logical × DPR). Writing
-        // the attributes here would fight that sync and blank the backing
-        // store mid-drag.
-        function applyCanvasSize(w, h) {
-          w = Math.round(w);
-          h = Math.round(h);
-          canvas.style.width = `${w}px`;
-          canvas.style.height = `${h}px`;
-          stageSize.textContent = `${w} × ${h}`;
-          stage.classList.toggle("narrow", w < 240);
+        function optionalBound(value) {
+          const parsed = Number.parseInt(value, 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        }
+
+        function sizeContract(link) {
+          if (params.get("backend_parity") === "1") {
+            return { minWidth: 640, minHeight: 390, maxWidth: 640, maxHeight: 390 };
+          }
+          return {
+            minWidth: optionalBound(link && link.dataset.minW),
+            minHeight: optionalBound(link && link.dataset.minH),
+            maxWidth: optionalBound(link && link.dataset.maxW),
+            maxHeight: optionalBound(link && link.dataset.maxH),
+          };
+        }
+
+        function swapContract(contract) {
+          return {
+            minWidth: contract.minHeight,
+            minHeight: contract.minWidth,
+            maxWidth: contract.maxHeight,
+            maxHeight: contract.maxWidth,
+          };
+        }
+
+        function fixedLogicalSize(contract) {
+          if (contract.minWidth === null || contract.minHeight === null
+            || contract.maxWidth === null || contract.maxHeight === null) return null;
+          if (contract.minWidth !== contract.maxWidth
+            || contract.minHeight !== contract.maxHeight) return null;
+          return { width: contract.minWidth, height: contract.minHeight };
+        }
+
+        function clampAxis(value, minimum, maximum) {
+          if (minimum !== null) value = Math.max(minimum, value);
+          if (maximum !== null) value = Math.min(maximum, value);
+          return Math.max(1, value);
         }
 
         function availableCanvasBounds() {
           const stageStyle = getComputedStyle(stage);
+          const mainStyle = getComputedStyle(mainPanel);
           const meta = stage.querySelector(".stage-meta");
           const horizontal = parseFloat(stageStyle.paddingLeft) + parseFloat(stageStyle.paddingRight)
             + parseFloat(stageStyle.borderLeftWidth) + parseFloat(stageStyle.borderRightWidth);
@@ -1292,70 +1355,106 @@
             + parseFloat(stageStyle.borderTopWidth) + parseFloat(stageStyle.borderBottomWidth)
             + meta.offsetHeight + parseFloat(getComputedStyle(meta).marginBottom);
           return {
-            width: Math.max(MIN_SIZE, stageWrap.clientWidth - horizontal),
-            height: Math.max(MIN_SIZE, stageWrap.clientHeight - vertical),
+            width: Math.max(1, mainPanel.clientWidth
+              - parseFloat(mainStyle.paddingLeft) - parseFloat(mainStyle.paddingRight) - horizontal),
+            height: Math.max(1, mainPanel.clientHeight
+              - parseFloat(mainStyle.paddingTop) - parseFloat(mainStyle.paddingBottom) - vertical),
           };
         }
 
-        function fitDimensions(width, height, allowUpscale) {
-          const bounds = availableCanvasBounds();
-          const scale = Math.min(
-            allowUpscale ? Number.POSITIVE_INFINITY : 1,
-            bounds.width / width,
-            bounds.height / height,
-          );
+        let demoContract = sizeContract(activeLink);
+        let orientationSwapped = false;
+        let currentSize = null;
+
+        function orientedContract() {
+          return orientationSwapped ? swapContract(demoContract) : demoContract;
+        }
+
+        function contractReference(contract) {
           return {
-            width: Math.max(MIN_SIZE, Math.round(width * scale)),
-            height: Math.max(MIN_SIZE, Math.round(height * scale)),
+            width: contract.maxWidth ?? contract.minWidth ?? 1,
+            height: contract.maxHeight ?? contract.minHeight ?? 1,
           };
         }
 
-        let initW = 480;
-        let initH = 320;
+        function adoptPortraitOrientation() {
+          orientationSwapped = false;
+          if (fixedLogicalSize(demoContract)) return;
+          if (!mobileQuery.matches || !portraitQuery.matches) return;
+          const reference = contractReference(demoContract);
+          orientationSwapped = reference.width > reference.height;
+        }
+
+        function resolveCanvasSize(requested = null) {
+          const contract = orientedContract();
+          const fixed = fixedLogicalSize(contract);
+          if (fixed) {
+            const available = availableCanvasBounds();
+            let scale = requested && requested.displayWidth && requested.displayHeight
+              ? Math.min(requested.displayWidth / fixed.width, requested.displayHeight / fixed.height)
+              : Math.min(available.width / fixed.width, available.height / fixed.height);
+            const minimumScale = Math.max(1 / fixed.width, 1 / fixed.height);
+            const maximumScale = Math.min(available.width / fixed.width, available.height / fixed.height);
+            scale = Math.max(minimumScale, Math.min(maximumScale, scale));
+            return {
+              fixed: true,
+              logicalWidth: fixed.width,
+              logicalHeight: fixed.height,
+              displayWidth: fixed.width * scale,
+              displayHeight: fixed.height * scale,
+              scale,
+            };
+          }
+          const available = availableCanvasBounds();
+          const width = clampAxis(requested ? requested.width : available.width, contract.minWidth, contract.maxWidth);
+          const height = clampAxis(requested ? requested.height : available.height, contract.minHeight, contract.maxHeight);
+          return {
+            fixed: false,
+            logicalWidth: width,
+            logicalHeight: height,
+            displayWidth: width,
+            displayHeight: height,
+            scale: 1,
+          };
+        }
+
         if (activeLink) {
           stageName.textContent = activeLink.textContent;
-          const w = parseInt(activeLink.dataset.w, 10);
-          const h = parseInt(activeLink.dataset.h, 10);
-          if (Number.isFinite(w) && Number.isFinite(h)) {
-            initW = w;
-            initH = h;
-          }
           activeLink.scrollIntoView({ block: "nearest" });
         }
         if (params.get("backend_parity") === "1") {
           stageName.textContent = "Backend Parity";
-          initW = 640;
-          initH = 390;
         }
-        let allowUpscale = params.get("backend_parity") === "1"
-          || !activeLink
-          || activeLink.dataset.upscale !== "false";
-        let preferredW = initW;
-        let preferredH = initH;
+        adoptPortraitOrientation();
 
-        function resetPreferredOrientation() {
-          preferredW = initW;
-          preferredH = initH;
-          if (mobileQuery.matches && portraitQuery.matches && preferredW > preferredH) {
-            [preferredW, preferredH] = [preferredH, preferredW];
-          }
+        function applyCanvasSize(size) {
+          const displayWidth = Math.max(1, size.displayWidth);
+          const displayHeight = Math.max(1, size.displayHeight);
+          canvas.style.width = `${displayWidth}px`;
+          canvas.style.height = `${displayHeight}px`;
+          wasmBindings.set_canvas_logical_size(
+            size.fixed ? Math.round(size.logicalWidth) : 0,
+            size.fixed ? Math.round(size.logicalHeight) : 0,
+          );
+          const logical = `${Math.round(size.logicalWidth)} × ${Math.round(size.logicalHeight)}`;
+          stageSize.textContent = size.fixed && Math.abs(size.scale - 1) >= 0.005
+            ? `${logical} · ${size.scale.toFixed(2)}×`
+            : logical;
+          rotateBtn.disabled = size.fixed;
+          rotateBtn.title = size.fixed
+            ? "This demo has a fixed logical canvas"
+            : "Swap portrait and landscape";
+          stage.classList.toggle("narrow", displayWidth < 240);
+          currentSize = { ...size, displayWidth, displayHeight };
         }
 
-        function preferredCanvasSize() {
-          return mobileQuery.matches
-            ? fitDimensions(preferredW, preferredH, allowUpscale)
-            : { width: preferredW, height: preferredH };
-        }
-
-        resetPreferredOrientation();
-        const initialSize = preferredCanvasSize();
-        applyCanvasSize(initialSize.width, initialSize.height);
+        applyCanvasSize(resolveCanvasSize());
 
         // ── Resize ring ────────────────────────────────────────
         // Center-scaling: <main> already flex-centers the stage, so growing
         // the canvas symmetrically keeps it centered. The ring extends
         // outward from the bottom-right corner; we track pointer delta and
-        // clamp to [MIN_SIZE, viewport bounds].
+        // resolve the gesture through the active demo's size contract.
         const ring = document.getElementById("resize-ring");
         let resizing = false;
         let startX = 0;
@@ -1368,9 +1467,8 @@
           resizing = true;
           startX = e.clientX;
           startY = e.clientY;
-          const r = canvas.getBoundingClientRect();
-          startW = r.width;
-          startH = r.height;
+          startW = currentSize.displayWidth;
+          startH = currentSize.displayHeight;
           stage.classList.add("resizing");
           ring.setPointerCapture(e.pointerId);
         });
@@ -1380,9 +1478,12 @@
           // The stage is centered while it fits, so it grows from the middle: the corner
           // moves half the width delta. Double the delta so the corner tracks
           // the pointer 1:1 while the box stays centered.
-          const nextW = Math.min(MAX_MANUAL_SIZE, Math.max(MIN_SIZE, startW + (e.clientX - startX) * 2));
-          const nextH = Math.min(MAX_MANUAL_SIZE, Math.max(MIN_SIZE, startH + (e.clientY - startY) * 2));
-          applyCanvasSize(nextW, nextH);
+          const nextW = startW + (e.clientX - startX) * 2;
+          const nextH = startH + (e.clientY - startY) * 2;
+          const request = fixedLogicalSize(orientedContract())
+            ? { displayWidth: nextW, displayHeight: nextH }
+            : { width: nextW, height: nextH };
+          applyCanvasSize(resolveCanvasSize(request));
         });
 
         function endResize(e) {
@@ -1401,18 +1502,18 @@
         // frame, so animating style.width/height (not a CSS transition it
         // can't observe) makes the demo re-flow smoothly to the target.
         let resetRAF = null;
-        function animateCanvasSize(targetW, targetH) {
+        function animateCanvasSize(target) {
           if (resetRAF) cancelAnimationFrame(resetRAF);
           if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-            applyCanvasSize(targetW, targetH);
+            applyCanvasSize(target);
             resetRAF = null;
             return;
           }
-          const r = canvas.getBoundingClientRect();
-          const fromW = r.width;
-          const fromH = r.height;
-          if (Math.abs(fromW - targetW) < 1 && Math.abs(fromH - targetH) < 1) {
-            applyCanvasSize(targetW, targetH);
+          const fromW = currentSize.displayWidth;
+          const fromH = currentSize.displayHeight;
+          if (Math.abs(fromW - target.displayWidth) < 1
+            && Math.abs(fromH - target.displayHeight) < 1) {
+            applyCanvasSize(target);
             return;
           }
           const dur = 280;
@@ -1421,7 +1522,16 @@
           const step = (now) => {
             const t = Math.min(1, (now - start) / dur);
             const k = ease(t);
-            applyCanvasSize(fromW + (targetW - fromW) * k, fromH + (targetH - fromH) * k);
+            const displayWidth = fromW + (target.displayWidth - fromW) * k;
+            const displayHeight = fromH + (target.displayHeight - fromH) * k;
+            applyCanvasSize({
+              ...target,
+              logicalWidth: target.fixed ? target.logicalWidth : displayWidth,
+              logicalHeight: target.fixed ? target.logicalHeight : displayHeight,
+              displayWidth,
+              displayHeight,
+              scale: target.fixed ? displayWidth / target.logicalWidth : 1,
+            });
             if (t < 1) {
               resetRAF = requestAnimationFrame(step);
             } else {
@@ -1431,36 +1541,29 @@
           resetRAF = requestAnimationFrame(step);
         }
 
-        const resetBtn = document.getElementById("reset-btn");
         resetBtn.addEventListener("click", () => {
-          resetPreferredOrientation();
-          const target = preferredCanvasSize();
-          animateCanvasSize(target.width, target.height);
+          adoptPortraitOrientation();
+          animateCanvasSize(resolveCanvasSize());
         });
 
-        const rotateBtn = document.getElementById("rotate-btn");
         rotateBtn.addEventListener("click", () => {
-          [preferredW, preferredH] = [preferredH, preferredW];
-          const target = preferredCanvasSize();
-          animateCanvasSize(target.width, target.height);
+          orientationSwapped = !orientationSwapped;
+          animateCanvasSize(resolveCanvasSize());
         });
 
         let fitFrame = null;
         const fitObserver = new ResizeObserver(() => {
-          if (!mobileQuery.matches) return;
           if (fitFrame) cancelAnimationFrame(fitFrame);
           fitFrame = requestAnimationFrame(() => {
             fitFrame = null;
-            const target = preferredCanvasSize();
-            applyCanvasSize(target.width, target.height);
+            applyCanvasSize(resolveCanvasSize());
           });
         });
-        fitObserver.observe(stageWrap);
+        fitObserver.observe(mainPanel);
 
         function adoptDeviceOrientation() {
-          resetPreferredOrientation();
-          const target = preferredCanvasSize();
-          animateCanvasSize(target.width, target.height);
+          adoptPortraitOrientation();
+          animateCanvasSize(resolveCanvasSize());
         }
         mobileQuery.addEventListener("change", adoptDeviceOrientation);
         portraitQuery.addEventListener("change", adoptDeviceOrientation);
@@ -1791,17 +1894,10 @@
           activeSlug = slug;
 
           stageName.textContent = link.textContent;
-          const w = parseInt(link.dataset.w, 10);
-          const h = parseInt(link.dataset.h, 10);
-          if (Number.isFinite(w) && Number.isFinite(h)) {
-            initW = w;
-            initH = h;
-          }
-          allowUpscale = link.dataset.upscale !== "false";
-          resetPreferredOrientation();
-          const target = preferredCanvasSize();
-          applyCanvasSize(target.width, target.height);
-          setNavOpen(false);
+          demoContract = sizeContract(link);
+          adoptPortraitOrientation();
+          applyCanvasSize(resolveCanvasSize());
+          if (mobileQuery.matches) setNavOpen(false);
 
           loadSource(slug);
           applyFocusState();
@@ -1816,7 +1912,7 @@
           const link = e.target.closest("a[data-demo]");
           if (!link || !navEl.contains(link)) return;
           e.preventDefault();
-          setNavOpen(false);
+          if (mobileQuery.matches) setNavOpen(false);
           switchDemo(link.dataset.demo, true);
         });
 

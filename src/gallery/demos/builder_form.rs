@@ -126,6 +126,8 @@ where
     build_widgets(&mut app.world, parent);
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(320, 200);
+
 #[cfg(test)]
 mod tests {
     use super::*;

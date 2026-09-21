@@ -1134,6 +1134,8 @@ where
     app.add_plugin(plugin);
 }
 
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 320);
+
 #[cfg(test)]
 mod tests {
     use super::*;

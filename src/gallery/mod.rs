@@ -5,6 +5,92 @@ pub mod demos;
 pub(crate) mod play;
 pub mod showcase_theme;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DemoSize {
+    pub min_width: Option<u16>,
+    pub min_height: Option<u16>,
+    pub max_width: Option<u16>,
+    pub max_height: Option<u16>,
+}
+
+impl DemoSize {
+    pub const fn constraints(
+        min_width: Option<u16>,
+        min_height: Option<u16>,
+        max_width: Option<u16>,
+        max_height: Option<u16>,
+    ) -> Self {
+        assert!(
+            min_width.is_some()
+                || min_height.is_some()
+                || max_width.is_some()
+                || max_height.is_some(),
+            "a demo size needs at least one bound"
+        );
+        if let Some(value) = min_width {
+            assert!(value > 0, "minimum width must be positive");
+        }
+        if let Some(value) = min_height {
+            assert!(value > 0, "minimum height must be positive");
+        }
+        if let Some(value) = max_width {
+            assert!(value > 0, "maximum width must be positive");
+        }
+        if let Some(value) = max_height {
+            assert!(value > 0, "maximum height must be positive");
+        }
+        if let (Some(minimum), Some(maximum)) = (min_width, max_width) {
+            assert!(minimum <= maximum, "minimum width exceeds maximum width");
+        }
+        if let (Some(minimum), Some(maximum)) = (min_height, max_height) {
+            assert!(minimum <= maximum, "minimum height exceeds maximum height");
+        }
+        Self {
+            min_width,
+            min_height,
+            max_width,
+            max_height,
+        }
+    }
+
+    pub const fn fixed(width: u16, height: u16) -> Self {
+        Self::constraints(Some(width), Some(height), Some(width), Some(height))
+    }
+
+    pub const fn at_most(width: u16, height: u16) -> Self {
+        Self::constraints(None, None, Some(width), Some(height))
+    }
+
+    pub const fn at_least(width: u16, height: u16) -> Self {
+        Self::constraints(Some(width), Some(height), None, None)
+    }
+
+    pub const fn range(min_width: u16, min_height: u16, max_width: u16, max_height: u16) -> Self {
+        Self::constraints(
+            Some(min_width),
+            Some(min_height),
+            Some(max_width),
+            Some(max_height),
+        )
+    }
+
+    pub const fn fixed_size(self) -> Option<(u16, u16)> {
+        match (
+            self.min_width,
+            self.min_height,
+            self.max_width,
+            self.max_height,
+        ) {
+            (Some(min_width), Some(min_height), Some(max_width), Some(max_height))
+                if min_width == max_width && min_height == max_height =>
+            {
+                Some((min_width, min_height))
+            }
+            _ => None,
+        }
+    }
+}
+
 pub(crate) fn fit_logical_canvas(
     rect: crate::types::Rect,
     parent: crate::types::Transform,
@@ -135,6 +221,40 @@ where
 mod tests {
     use super::*;
     use crate::types::{Fixed, Rect};
+
+    #[test]
+    fn demo_sizes_retain_optional_bounds_and_derive_fixed_canvases() {
+        assert_eq!(
+            DemoSize::constraints(Some(120), None, Some(640), Some(480)),
+            DemoSize {
+                min_width: Some(120),
+                min_height: None,
+                max_width: Some(640),
+                max_height: Some(480),
+            }
+        );
+        assert_eq!(DemoSize::fixed(480, 320).fixed_size(), Some((480, 320)));
+        assert_eq!(DemoSize::at_most(480, 320).fixed_size(), None);
+        assert_eq!(DemoSize::range(320, 240, 1024, 720).fixed_size(), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "a demo size needs at least one bound")]
+    fn demo_size_rejects_an_unbounded_contract() {
+        let _ = DemoSize::constraints(None, None, None, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "minimum width exceeds maximum width")]
+    fn demo_size_rejects_an_inverted_width_range() {
+        let _ = DemoSize::constraints(Some(481), None, Some(480), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "maximum height must be positive")]
+    fn demo_size_rejects_zero_bounds() {
+        let _ = DemoSize::constraints(None, None, None, Some(0));
+    }
 
     #[test]
     fn logical_canvas_is_centered_and_contained() {
