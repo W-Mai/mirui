@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Orbital Mission demo.** Three fixed-step trajectory tasks combine bounded maneuver planning, caller-owned prediction, finite trail and telemetry rings, and explicit sampling windows in a 480 × 320 Gallery surface.
 - **Tidal Atlas demo.** Four deterministic islands combine terrain-aware placement, forecast scoring, seasonal tides, inherited doctrines, and fixed-capacity undo in a 480 × 320 Gallery surface.
 - **Echo Walker demo.** Twelve generated rooms combine recorded routes, periodic gates, persistent fragments, and fixed-capacity undo in a 480 × 320 Gallery surface.
+- **Twin Beacons demo.** Thirty-six paired-grid puzzles combine synchronized movement, direction mappings, keyed doors, fixed-capacity replay, exact bounded hints, and an independent versioned save in a 480 × 320 Gallery surface.
+- **Folding Ark demo.** Thirty-six compact folding puzzles combine one-cell and two-cell poses, fragile floors, bridge switches, seals, fixed-capacity replay, exact bounded hints, and an independent versioned save in a 480 × 320 Gallery surface.
+- **Atlas Restoration demo.** Thirty-six nonograms combine sizes from 5 × 5 through 10 × 10, givens, continuous strokes, fixed-capacity undo, clues, checks, hints, and an independent versioned save in a 480 × 320 Gallery surface.
+- **MIRX grayscale font generation.** `cargo xtask gen-mirx font --format gray` recognizes the current `icu` coverage artifact name when moving the generated file to its requested output path.
 - **Afterhours replay persistence.** Tidal Atlas and Echo Walker record bounded command logs with a versioned wire header, CRC-32 validation, caller-provided encoding storage, atomic semantic replay, and Gallery persistence adapters.
 - **Declarative drag cancellation.** `on DragCancel` handlers participate in the typed `ui!` gesture syntax for transactional interactions.
 

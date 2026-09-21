@@ -127,7 +127,7 @@ pub fn run(args: &[String]) -> Result {
         .ok_or("--ttf has no file stem")?
         .to_string_lossy()
         .into_owned();
-    let suffix = if format == "gray" { "gray" } else { "sdf" };
+    let suffix = if format == "gray" { "coverage" } else { "sdf" };
     let generated = out_dir.join(format!("{stem}_{suffix}_{size}.mirx"));
 
     if generated != out {

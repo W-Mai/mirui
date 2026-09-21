@@ -31,7 +31,7 @@ Layout Lab, Typography Lab and Interaction Lab group related framework capabilit
 
 The Product group contains Signal Scope, an interactive instrument surface with allocation-stable custom drawing, responsive controls and lossless MIRX artwork.
 
-The Play group contains ten complete 480×320 applications with bounded models, fixed-step simulation, backend-neutral drawing, touch controls, and standalone native launchers. Tidal Atlas and Echo Walker also exercise versioned command-log persistence through the Gallery storage adapter.
+The Play group contains thirteen complete 480×320 applications with bounded models, backend-neutral drawing, touch controls, and standalone native launchers. Tidal Atlas and Echo Walker exercise versioned command-log persistence through the Gallery storage adapter; Twin Beacons, Folding Ark, and Atlas Restoration use independent versioned fixed-size saves.
 
 The source panel reads the selected scenario module directly. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
 

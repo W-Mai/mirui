@@ -38,6 +38,21 @@ mod tests {
         {
             assert!(provider.map_char(scalar).is_some(), "missing {scalar}");
         }
+        for source in [
+            include_str!("twin.rs"),
+            include_str!("fold.rs"),
+            include_str!("picture.rs"),
+            include_str!("../demos/twin_beacons.rs"),
+            include_str!("../demos/folding_ark.rs"),
+            include_str!("../demos/atlas_restoration.rs"),
+        ] {
+            for scalar in source
+                .chars()
+                .filter(|scalar| !scalar.is_ascii() && !scalar.is_whitespace())
+            {
+                assert!(provider.map_char(scalar).is_some(), "missing {scalar}");
+            }
+        }
         let glyph = provider.map_char('光').unwrap();
         for size in [10, 12] {
             let raster = provider.raster(glyph, size, size).unwrap();

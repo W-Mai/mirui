@@ -256,6 +256,18 @@ name = "echo_walker_snapshot"
 path = "examples/tools/echo_walker_snapshot.rs"
 
 [[example]]
+name = "twin_beacons_snapshot"
+path = "examples/tools/twin_beacons_snapshot.rs"
+
+[[example]]
+name = "folding_ark_snapshot"
+path = "examples/tools/folding_ark_snapshot.rs"
+
+[[example]]
+name = "atlas_restoration_snapshot"
+path = "examples/tools/atlas_restoration_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 required-features = ["sdl"]

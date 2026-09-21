@@ -10,7 +10,7 @@ A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and We
 
 [Open the interactive gallery](https://mirui.rs/) or run `cargo run -p gallery --example orbit_console_demo` locally.
 
-The Gallery Play group contains ten complete 480×320 applications: Marble Play, Lumen Lab, Pixel Loom, Moss Study, Pocket Post, Logic Circuit, Module Factory, Orbital Mission, Tidal Atlas, and Echo Walker. Every application also has a standalone `<name>_demo` launcher; Tidal Atlas and Echo Walker include versioned command-log persistence.
+The Gallery Play group contains thirteen complete 480×320 applications: Marble Play, Lumen Lab, Pixel Loom, Moss Study, Pocket Post, Logic Circuit, Module Factory, Orbital Mission, Tidal Atlas, Echo Walker, Twin Beacons, Folding Ark, and Atlas Restoration. Every application also has a standalone `<name>_demo` launcher. Tidal Atlas and Echo Walker use versioned command-log persistence; Twin Beacons, Folding Ark, and Atlas Restoration use independent versioned fixed-size saves.
 
 ## Features
 

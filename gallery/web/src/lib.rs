@@ -23,6 +23,9 @@ gallery::register_demos! {
     ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission,      480, 320),
     ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas,          480, 320),
     ("echo_walker",          "Echo Walker",          "Play",        echo_walker,          480, 320),
+    ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons,         480, 320),
+    ("folding_ark",          "Folding Ark",          "Play",        folding_ark,          480, 320),
+    ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration,    480, 320),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche,                480, 320),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n,                 480, 320),
