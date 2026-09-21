@@ -1170,6 +1170,7 @@ html[data-mode="focus"] .stage { view-transition-name: live-stage; }
 
 .cover-index {
   position: absolute;
+  z-index: 2;
   left: 11px;
   top: 11px;
   padding: 7px 9px;
@@ -1180,31 +1181,44 @@ html[data-mode="focus"] .stage { view-transition-name: live-stage; }
   font: 650 9px/1 var(--font-mono);
   letter-spacing: 0.1em;
   backdrop-filter: blur(10px);
+  pointer-events: none;
 }
 
 .card-cover-button {
   position: absolute;
-  right: 11px;
-  bottom: 11px;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 11px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: #1d2215;
+  cursor: pointer;
+}
+
+.card-cover-button span {
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
-  border: 0;
   border-radius: 50%;
   background: var(--site-lime);
-  color: #1d2215;
   font: 750 20px/1 var(--font-ui);
-  cursor: pointer;
   box-shadow: 0 12px 25px -14px #000;
   transition: transform 200ms cubic-bezier(.22, 1, .36, 1), background 200ms ease;
 }
 
-.card-cover-button:hover,
-.card-cover-button:focus-visible {
+.card-cover-button:hover span,
+.card-cover-button:focus-visible span {
   transform: rotate(8deg) scale(1.08);
+}
+
+.card-cover-button:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--site-blue) 44%, transparent);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .card-footer {
