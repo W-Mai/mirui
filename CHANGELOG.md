@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.3] - 2026-09-21
+
 ### Added
 
 - **Interactive homepage build walkthrough.** A keyboard-, pointer-, and touch-operated card stack connects typed composition, responsive constraints, and renderer routing with motion-aware transitions.
