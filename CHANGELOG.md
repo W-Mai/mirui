@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gallery focus transitions.** Live demos return to the originating hero or catalog card, preserve the homepage scroll position, and keep a stable viewport width throughout the reciprocal transition.
+- **Gallery source layout and themes.** The source panel now reserves responsive desktop or mobile space and recenters the canvas within the remainder; navigation contrast and the light-theme background grid remain visible in both themes.
 - **Desktop Gallery navigation.** The header menu now collapses and restores the desktop navigator, with active demos refitted to the resulting stage space.
 - **Gallery backend example gating.** SDL-only diagnostic examples declare their required feature so pure WGPU and Web Canvas example matrices compile without unrelated SDL imports.
 

@@ -1595,7 +1595,7 @@
 
         function availableCanvasBounds() {
           const mainPanel = activeStagePanel();
-          const sizePanel = mainPanel === homeStagePanel ? homeStageHost : mainPanel;
+          const sizePanel = mainPanel === homeStagePanel ? homeStageHost : focusStageHost;
           const stageStyle = getComputedStyle(stage);
           const mainStyle = getComputedStyle(sizePanel);
           const meta = stage.querySelector(".stage-meta");
@@ -1825,7 +1825,7 @@
             applyCanvasSize(resolveCanvasSize());
           });
         });
-        fitObserver.observe(focusStagePanel);
+        fitObserver.observe(focusStageHost);
         fitObserver.observe(homeStagePanel);
 
         function adoptDeviceOrientation() {
@@ -2121,9 +2121,11 @@
         const codePanel = document.getElementById("code-panel");
         const codeHandle = document.getElementById("code-handle");
         const codeHead = document.getElementById("code-head");
+        const focusMain = codePanel.parentElement;
 
         function setDrawer(open) {
           codePanel.classList.toggle("open", open);
+          focusMain.classList.toggle("source-open", open);
           codeHandle.setAttribute("aria-expanded", String(open));
         }
         codeHandle.addEventListener("click", () => {
@@ -2190,13 +2192,14 @@
           document.title = next === "home"
             ? "mirui — fixed-point UI from embedded to WebAssembly"
             : `${stageName.textContent} — mirui`;
+          if (next === "home" && restoreScroll) {
+            window.scrollTo({ top: homeScrollY, behavior: "instant" });
+          }
           requestAnimationFrame(() => {
             adoptPortraitOrientation();
             applyCanvasSize(resolveCanvasSize());
             if (next === "focus") {
               canvas.focus({ preventScroll: true });
-            } else if (restoreScroll) {
-              window.scrollTo({ top: homeScrollY, behavior: "instant" });
             }
           });
         }
@@ -2211,21 +2214,66 @@
           return !reducedMotionQuery.matches;
         })();
 
-        function runViewTransition(update) {
-          if (motionEnabled && document.startViewTransition) {
-            document.startViewTransition(update);
-          } else {
-            update();
-          }
+        let homeTransitionTarget = stage;
+
+        function homeOriginFor(trigger) {
+          const card = trigger && trigger.closest(".demo-card, .catalog-card");
+          return card && card.querySelector(".game-cover, .catalog-cover") || stage;
         }
 
-        function openDemo(slug, push, sourceOpen = false) {
+        function clearTransitionOrigin(element) {
+          if (element && element !== stage) element.classList.remove("transition-origin");
+          stage.classList.remove("transition-detached");
+        }
+
+        function runViewTransition(update, options = {}) {
+          const from = options.from && options.from !== stage ? options.from : null;
+          const to = options.to && options.to !== stage ? options.to : null;
+          if (!motionEnabled || !document.startViewTransition) {
+            clearTransitionOrigin(from);
+            clearTransitionOrigin(to);
+            update();
+            return;
+          }
+
+          if (from) {
+            stage.classList.add("transition-detached");
+            from.classList.add("transition-origin");
+          }
+          const transition = document.startViewTransition(() => {
+            clearTransitionOrigin(from);
+            update();
+            if (to) {
+              stage.classList.add("transition-detached");
+              to.classList.add("transition-origin");
+            }
+          });
+          transition.finished.then(
+            () => clearTransitionOrigin(to),
+            () => clearTransitionOrigin(to),
+          );
+        }
+
+        function openDemo(slug, push, sourceOpen = false, trigger = null) {
           const requestedSlug = slug || activeSlug;
           const demoChanged = switchDemo(requestedSlug);
           const modeChanged = siteMode !== "focus";
           const fromHome = siteMode === "home";
-          if (fromHome) homeScrollY = window.scrollY;
-          runViewTransition(() => applySiteMode("focus"));
+          if (fromHome) {
+            homeScrollY = window.scrollY;
+            homeTransitionTarget = homeOriginFor(trigger);
+            if (push) {
+              history.replaceState(
+                { mode: "home", demo: activeSlug, scrollY: homeScrollY },
+                "",
+                location.pathname + location.hash,
+              );
+            }
+          }
+          runViewTransition(
+            () => applySiteMode("focus"),
+            { from: fromHome ? homeTransitionTarget : null },
+          );
           if (push && (demoChanged || modeChanged || !location.search.includes("demo="))) {
             history.pushState(
               { mode: "focus", demo: activeSlug, fromHome, scrollY: homeScrollY },
@@ -2237,7 +2285,7 @@
         }
 
         function openHome(push) {
-          runViewTransition(() => applySiteMode("home"));
+          runViewTransition(() => applySiteMode("home"), { to: homeTransitionTarget });
           if (push) {
             history.replaceState({ mode: "home", demo: activeSlug, scrollY: homeScrollY }, "", location.pathname);
           }
@@ -2371,16 +2419,16 @@
         updateFeatureSelection();
 
         for (const button of document.querySelectorAll("[data-open-demo]")) {
-          button.addEventListener("click", () => openDemo(button.dataset.openDemo, true));
+          button.addEventListener("click", () => openDemo(button.dataset.openDemo, true, false, button));
         }
         for (const button of document.querySelectorAll("[data-open-current]")) {
-          button.addEventListener("click", () => openDemo(activeSlug, true));
+          button.addEventListener("click", () => openDemo(activeSlug, true, false, button));
         }
         for (const button of document.querySelectorAll("[data-open-source]")) {
-          button.addEventListener("click", () => openDemo(activeSlug, true, true));
+          button.addEventListener("click", () => openDemo(activeSlug, true, true, button));
         }
         for (const button of document.querySelectorAll("[data-open-source-demo]")) {
-          button.addEventListener("click", () => openDemo(button.dataset.openSourceDemo, true, true));
+          button.addEventListener("click", () => openDemo(button.dataset.openSourceDemo, true, true, button));
         }
 
         document.getElementById("focus-back").addEventListener("click", () => {
@@ -2483,7 +2531,7 @@
             open.className = "catalog-open";
             open.type = "button";
             open.setAttribute("aria-label", `Open ${demo.label}`);
-            open.addEventListener("click", () => openDemo(demo.slug, true));
+            open.addEventListener("click", () => openDemo(demo.slug, true, false, open));
             cover.append(image, open);
 
             const info = document.createElement("div");
@@ -2491,7 +2539,7 @@
             const name = document.createElement("button");
             name.className = "catalog-title-button";
             name.type = "button";
-            name.addEventListener("click", () => openDemo(demo.slug, true));
+            name.addEventListener("click", () => openDemo(demo.slug, true, false, name));
             const strong = document.createElement("strong");
             strong.textContent = demo.label;
             const size = document.createElement("small");
@@ -2502,7 +2550,7 @@
             source.type = "button";
             source.textContent = "</>";
             source.setAttribute("aria-label", `Open ${demo.label} source`);
-            source.addEventListener("click", () => openDemo(demo.slug, true, true));
+            source.addEventListener("click", () => openDemo(demo.slug, true, true, source));
             info.append(name, source);
             card.append(cover, info);
             grid.appendChild(card);
@@ -2874,7 +2922,16 @@
           if (mode === "home" && Number.isFinite(e.state && e.state.scrollY)) {
             homeScrollY = e.state.scrollY;
           }
-          applySiteMode(mode);
+          if (mode !== siteMode) {
+            runViewTransition(
+              () => applySiteMode(mode),
+              mode === "home"
+                ? { to: homeTransitionTarget }
+                : { from: homeTransitionTarget },
+            );
+          } else {
+            applySiteMode(mode);
+          }
           if (mode === "home" && location.hash) {
             requestAnimationFrame(() => document.querySelector(location.hash)?.scrollIntoView({ block: "start" }));
           }
