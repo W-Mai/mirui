@@ -1163,7 +1163,24 @@
         </section>
 
         <div class="signal-band" aria-hidden="true">
-          <div class="signal-track"><span>PLAY · BUILD · SHAPE · RENDER · REPEAT</span><span>PLAY · BUILD · SHAPE · RENDER · REPEAT</span></div>
+          <div class="signal-track">
+            <div class="signal-loop">
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+            </div>
+            <div class="signal-loop">
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+              <span class="signal-sequence"><b>↗ PLAY</b><b>✳ MAKE</b><b>⌘ CODE</b><b>◎ REPEAT</b></span>
+            </div>
+          </div>
         </div>
 
         <section class="home-section" id="play">
@@ -2301,6 +2318,7 @@
         let featureSwitching = false;
         let featureHandoff = false;
         let featureDrag = null;
+        let featureFlight = null;
 
         function featureAt(index) {
           const normalized = (index + featureSlugs.length) % featureSlugs.length;
@@ -2322,6 +2340,56 @@
           element.querySelector(".hero-preview-bar span:last-child").textContent = `${String(feature.index + 1).padStart(2, "0")} / ${String(featureSlugs.length).padStart(2, "0")}`;
         }
 
+        function updateHeroSides(index) {
+          updateHeroPreview(heroPreviewPrev, featureAt(index - 1), "Previous");
+          updateHeroPreview(heroPreviewNext, featureAt(index + 1), "Next");
+        }
+
+        function createFeatureFlight(direction) {
+          const source = direction < 0 ? heroPreviewPrev : heroPreviewNext;
+          const flight = source.cloneNode(true);
+          flight.removeAttribute("id");
+          for (const node of flight.querySelectorAll("[id]")) node.removeAttribute("id");
+          flight.removeAttribute("data-feature-demo");
+          flight.setAttribute("aria-hidden", "true");
+          flight.tabIndex = -1;
+          flight.classList.add(
+            "hero-preview-flight",
+            direction < 0 ? "hero-preview-flight-prev" : "hero-preview-flight-next",
+          );
+          heroRuntime.appendChild(flight);
+          void flight.offsetWidth;
+          return flight;
+        }
+
+        function clearFeatureFlight() {
+          if (featureFlight) featureFlight.remove();
+          featureFlight = null;
+        }
+
+        function prepareFeatureRotationGeometry(direction) {
+          if (!featureFlight) return;
+          const runtimeRect = heroRuntime.getBoundingClientRect();
+          const stageRect = stage.getBoundingClientRect();
+          const sideRect = (direction < 0 ? heroPreviewNext : heroPreviewPrev).getBoundingClientRect();
+          if (!runtimeRect.width || !runtimeRect.height || !stageRect.width || !stageRect.height) return;
+          const stageCenterX = stageRect.left + stageRect.width / 2;
+          const stageCenterY = stageRect.top + stageRect.height / 2;
+          const runtimeCenterX = runtimeRect.left + runtimeRect.width / 2;
+          const runtimeCenterY = runtimeRect.top + runtimeRect.height / 2;
+          featureFlight.style.setProperty("--hero-flight-x", `${stageCenterX - runtimeCenterX}px`);
+          featureFlight.style.setProperty("--hero-flight-y", `${stageCenterY - runtimeCenterY}px`);
+          featureFlight.style.setProperty("--hero-flight-scale-x", stageRect.width / featureFlight.offsetWidth);
+          featureFlight.style.setProperty("--hero-flight-scale-y", stageRect.height / featureFlight.offsetHeight);
+
+          const sideCenterX = sideRect.left + sideRect.width / 2;
+          const sideCenterY = sideRect.top + sideRect.height / 2;
+          homeStageHost.style.setProperty("--hero-stage-x", `${sideCenterX - stageCenterX}px`);
+          homeStageHost.style.setProperty("--hero-stage-y", `${sideCenterY - stageCenterY}px`);
+          homeStageHost.style.setProperty("--hero-stage-scale-x", sideRect.width / stageRect.width);
+          homeStageHost.style.setProperty("--hero-stage-scale-y", sideRect.height / stageRect.height);
+        }
+
         function updateFeatureSelection() {
           for (const button of featureButtons) {
             const active = button.dataset.featureDemo === activeSlug;
@@ -2332,36 +2400,72 @@
           if (featureHandoff) return;
           const current = featureSlugs.indexOf(activeSlug);
           const index = current < 0 ? 0 : current;
-          updateHeroPreview(heroPreviewPrev, featureAt(index - 1), "Previous");
-          updateHeroPreview(heroPreviewNext, featureAt(index + 1), "Next");
+          updateHeroSides(index);
         }
 
         function selectFeature(slug, direction = 0) {
           if (!slug || slug === activeSlug || featureSwitching) return;
-          featureSwitching = true;
-          window.clearTimeout(featureSwitchTimer);
           const current = featureSlugs.indexOf(activeSlug);
           const target = featureSlugs.indexOf(slug);
           if (!direction && current >= 0 && target >= 0) direction = target > current ? 1 : -1;
+
+          if (!motionEnabled) {
+            switchDemo(slug);
+            history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname);
+            return;
+          }
+
+          featureSwitching = true;
+          window.clearTimeout(featureSwitchTimer);
+          clearFeatureFlight();
+          featureFlight = createFeatureFlight(direction);
+          updateHeroPreview(featureFlight, featureAt(target < 0 ? 0 : target), "Selected");
+          prepareFeatureRotationGeometry(direction);
+          const targetIndex = target < 0 ? 0 : target;
+          const oldFeature = current >= 0
+            ? featureAt(current)
+            : { index: targetIndex, slug: activeSlug, name: activeDemo ? activeDemo.label : activeSlug };
+          const incoming = direction < 0 ? heroPreviewPrev : heroPreviewNext;
+          incoming.classList.add(
+            direction < 0 ? "hero-preview-incoming-prev" : "hero-preview-incoming-next",
+          );
+          updateHeroPreview(
+            incoming,
+            featureAt(targetIndex + (direction < 0 ? -1 : 1)),
+            direction < 0 ? "Previous" : "Next",
+          );
+          void incoming.offsetWidth;
           heroRuntime.classList.remove("switch-next", "switch-prev");
           heroRuntime.classList.add("switching", direction < 0 ? "switch-prev" : "switch-next");
           featureSwitchTimer = window.setTimeout(() => {
+            updateHeroPreview(
+              direction < 0 ? heroPreviewNext : heroPreviewPrev,
+              oldFeature,
+              direction < 0 ? "Next" : "Previous",
+            );
+            heroRuntime.classList.add("handoff");
             featureHandoff = true;
             switchDemo(slug);
             featureHandoff = false;
             history.replaceState({ mode: "home", demo: activeSlug }, "", location.pathname);
             heroRuntime.classList.remove("switching");
-            heroRuntime.classList.add("handoff");
-            featureSwitchTimer = window.setTimeout(() => {
-              heroRuntime.classList.add("resetting");
-              updateFeatureSelection();
-              heroRuntime.classList.remove("handoff", "switch-next", "switch-prev");
-              requestAnimationFrame(() => {
-                heroRuntime.classList.remove("resetting");
+            requestAnimationFrame(() => {
+              heroRuntime.classList.add("stage-ready");
+              featureSwitchTimer = window.setTimeout(() => {
+                clearFeatureFlight();
+                heroPreviewPrev.classList.remove("hero-preview-incoming-prev");
+                heroPreviewNext.classList.remove("hero-preview-incoming-next");
+                heroRuntime.classList.remove(
+                  "handoff",
+                  "stage-ready",
+                  "switch-next",
+                  "switch-prev",
+                );
+                updateFeatureSelection();
                 featureSwitching = false;
-              });
-            }, motionEnabled ? 240 : 0);
-          }, motionEnabled ? 320 : 0);
+              }, 180);
+            });
+          }, 520);
         }
 
         function stepFeature(direction) {

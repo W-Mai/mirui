@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gallery featured-demo carousel.** Previous, live and next cards now travel directly between measured physical slots while a new side preview enters from outside the stack. Static and live content exchange only after reaching identical bounds, avoiding both a hard handoff and a second positional transition. Decorative hero labels no longer enter browser text selection.
 - **Gallery focus transitions.** Live demos return to the originating hero or catalog card, preserve the homepage scroll position, and keep a stable viewport width throughout the reciprocal transition.
 - **Gallery source layout and themes.** The source panel now reserves responsive desktop or mobile space and recenters the canvas within the remainder; navigation contrast and the light-theme background grid remain visible in both themes.
 - **Desktop Gallery navigation.** The header menu now collapses and restores the desktop navigator, with active demos refitted to the resulting stage space.
