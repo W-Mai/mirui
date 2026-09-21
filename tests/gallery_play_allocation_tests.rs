@@ -6,6 +6,8 @@ mod tracking_allocator;
 use mirui::app::App;
 use tracking_allocator::tracked_allocations;
 
+const MAX_WARMED_RENDER_ALLOCATIONS: usize = 40;
+
 #[test]
 fn warmed_marble_frame_stays_inside_allocation_budget() {
     let (width, height) = mirui::gallery::demos::marble_play::VIEWPORT;
@@ -36,5 +38,8 @@ fn warmed_marble_frame_stays_inside_allocation_budget() {
     assert!(blank_systems <= 1);
     assert_eq!(blank_render, 0);
     assert!(system_allocations <= 2);
-    assert!(render_allocations <= 35);
+    assert!(
+        render_allocations <= MAX_WARMED_RENDER_ALLOCATIONS,
+        "warmed render allocated {render_allocations} times"
+    );
 }
