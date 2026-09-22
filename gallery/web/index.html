@@ -121,6 +121,8 @@
         /* warm marker reserved for the live/recording dot only */
         --live: #46e5d0;
         --good: #7bdcff;
+        --warning: #ffc857;
+        --warning-edge: rgba(255, 200, 87, 0.48);
 
         /* ── Spacing scale (4px base) ── */
         --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
@@ -184,6 +186,8 @@
 
         --live: #0d9488;
         --good: #1f8fd6;
+        --warning: #b7791f;
+        --warning-edge: rgba(183, 121, 31, 0.48);
 
         --lift-hero: 0 1px 0 rgba(255,255,255,0.6) inset,
                      0 18px 44px -26px rgba(31,45,61,0.30),
@@ -708,6 +712,19 @@
       }
       .icon-btn:active,
       .copy-btn:active { transform: translateY(1px); }
+      .audio-toggle[hidden] { display: none; }
+      .audio-toggle[data-muted="false"] {
+        color: var(--signal);
+        border-color: var(--signal-edge);
+      }
+      .audio-toggle[data-muted="true"] {
+        color: var(--warning);
+        border-color: var(--warning-edge);
+      }
+      .audio-toggle[data-muted="false"][data-ready="false"] {
+        color: var(--warning);
+        border-color: var(--warning-edge);
+      }
       .icon-btn svg,
       .copy-btn svg { display: block; }
       .icon-btn.on {
@@ -1490,6 +1507,16 @@
                 <span class="name" id="stage-name">—</span>
                 <span class="meta-right">
                   <span class="size" id="stage-size">—</span>
+                  <button class="icon-btn audio-toggle" id="audio-btn" type="button" hidden aria-pressed="false" title="Enable sound" aria-label="Enable sound">
+                    <svg class="audio-on" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M2.5 6.2v3.6h2.2l3 2.5V3.7l-3 2.5H2.5Z" fill="currentColor"/>
+                      <path d="M10 5.5a3.4 3.4 0 0 1 0 5M11.7 3.8a5.8 5.8 0 0 1 0 8.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                    <svg class="audio-off" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M2.5 6.2v3.6h2.2l3 2.5V3.7l-3 2.5H2.5Z" fill="currentColor"/>
+                      <path d="m10.3 6 3.2 4M13.5 6l-3.2 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  </button>
                   <button class="icon-btn" id="rotate-btn" type="button" title="Swap portrait and landscape" aria-label="Swap portrait and landscape">
                     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M5 2.5h6.5a2 2 0 0 1 2 2V11M11 13.5H4.5a2 2 0 0 1-2-2V5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
@@ -1576,7 +1603,7 @@
             "gallery.filter": "Filter demos…", "gallery.noMatch": "No demos match that filter.", "gallery.rendering": "rendering",
             "gallery.source": "Source", "gallery.copy": "Copy", "gallery.copied": "Copied!",
             "gallery.backHome": "Back to home", "gallery.choose": "Choose demo", "gallery.themeLight": "Switch to light theme", "gallery.themeDark": "Switch to dark theme",
-            "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size",
+            "gallery.rotate": "Swap portrait and landscape", "gallery.fixed": "This demo has a fixed logical canvas", "gallery.reset": "Reset canvas size", "gallery.audioOn": "Mute sound", "gallery.audioOff": "Enable sound", "gallery.audioUnlock": "Click to enable sound",
             "gallery.noSource": "No source available for"
           },
           zh: {
@@ -1606,7 +1633,7 @@
             "gallery.filter": "筛选 Demo…", "gallery.noMatch": "没有匹配的 Demo。", "gallery.rendering": "渲染中",
             "gallery.source": "源码", "gallery.copy": "复制", "gallery.copied": "已复制",
             "gallery.backHome": "返回首页", "gallery.choose": "选择 Demo", "gallery.themeLight": "切换到亮色主题", "gallery.themeDark": "切换到暗色主题",
-            "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸",
+            "gallery.rotate": "交换横屏与竖屏", "gallery.fixed": "此 Demo 使用固定逻辑画布", "gallery.reset": "重置画布尺寸", "gallery.audioOn": "关闭声音", "gallery.audioOff": "打开声音", "gallery.audioUnlock": "点击启用声音",
             "gallery.noSource": "没有可用源码："
           }
         };
@@ -1680,6 +1707,7 @@
         const stageSize = document.getElementById("stage-size");
         const resetBtn = document.getElementById("reset-btn");
         const rotateBtn = document.getElementById("rotate-btn");
+        const audioBtn = document.getElementById("audio-btn");
         const portraitQuery = window.matchMedia("(orientation: portrait)");
         const defaultFixedCanvasMaxScale = 1.5;
         const defaultFixedCanvasInset = () => mobileQuery.matches ? 12 : 24;
@@ -1846,6 +1874,68 @@
           currentSize = { ...size, displayWidth, displayHeight };
         }
 
+        function storedAudioMuted() {
+          try {
+            const value = localStorage.getItem("mirui-audio-muted");
+            return value === "true" || value === "false" ? value === "true" : null;
+          } catch (_) {
+            return null;
+          }
+        }
+
+        function syncAudioControl() {
+          let available = false;
+          try { available = wasmBindings.audio_available(); } catch (_) {}
+          audioBtn.hidden = !available;
+          if (!available) return;
+          let muted = true;
+          try { muted = wasmBindings.audio_muted(); } catch (_) {}
+          let ready = false;
+          try { ready = wasmBindings.audio_ready(); } catch (_) {}
+          audioBtn.dataset.muted = String(muted);
+          audioBtn.dataset.ready = String(ready);
+          audioBtn.setAttribute("aria-pressed", String(!muted));
+          const label = window.miruiLanguage.t(
+            muted ? "gallery.audioOff" : (ready ? "gallery.audioOn" : "gallery.audioUnlock")
+          );
+          audioBtn.title = label;
+          audioBtn.setAttribute("aria-label", label);
+          audioBtn.querySelector(".audio-on").style.display = muted ? "none" : "block";
+          audioBtn.querySelector(".audio-off").style.display = muted ? "block" : "none";
+        }
+
+        function applyStoredAudioPreference() {
+          const muted = storedAudioMuted();
+          if (muted !== null) {
+            try { wasmBindings.set_audio_muted(muted); } catch (_) {}
+          }
+          syncAudioControl();
+        }
+
+        audioBtn.addEventListener("click", () => {
+          let muted = true;
+          let ready = false;
+          try { muted = wasmBindings.audio_muted(); } catch (_) {}
+          try { ready = wasmBindings.audio_ready(); } catch (_) {}
+          if (!muted && !ready) {
+            try { wasmBindings.notify_audio_interaction(); } catch (_) {}
+          } else {
+            try { muted = wasmBindings.toggle_audio_muted(); } catch (_) {}
+          }
+          try { localStorage.setItem("mirui-audio-muted", String(muted)); } catch (_) {}
+          syncAudioControl();
+        });
+
+        function unlockPreferredAudio() {
+          if (audioBtn.hidden || audioBtn.dataset.muted !== "false") return;
+          try { wasmBindings.notify_audio_interaction(); } catch (_) {}
+        }
+
+        document.addEventListener("pointerdown", unlockPreferredAudio, { capture: true });
+        document.addEventListener("keydown", unlockPreferredAudio, { capture: true });
+        window.setInterval(syncAudioControl, 120);
+
+        applyStoredAudioPreference();
         applyCanvasSize(resolveCanvasSize());
 
         // ── Resize ring ────────────────────────────────────────
@@ -2301,6 +2391,7 @@
           demoContract = sizeContract(demo);
           adoptPortraitOrientation();
           applyCanvasSize(resolveCanvasSize());
+          applyStoredAudioPreference();
 
           loadSource(slug);
           applyFocusState();
@@ -3260,6 +3351,7 @@
           homeButton.title = window.miruiLanguage.t("gallery.backHome");
           homeButton.setAttribute("aria-label", homeButton.title);
           applyCanvasSize(currentSize || resolveCanvasSize());
+          syncAudioControl();
           renderSource();
           applyTheme(isDark(), false);
         }

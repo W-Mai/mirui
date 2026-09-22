@@ -172,6 +172,7 @@ web-sys = { version = "0.3.99", optional = true, features = [
     "Event",
     "Storage",
     "AudioContext",
+    "AudioContextState",
     "AudioDestinationNode",
     "AudioNode",
     "AudioParam",

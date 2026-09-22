@@ -3,7 +3,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "audio")]
-use crate::audio::{AudioBus, AudioTone, Waveform};
+use crate::audio::{AudioBus, AudioOutputState, AudioTone, Waveform};
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::fit_logical_canvas;
 #[cfg(feature = "audio")]
@@ -97,13 +97,6 @@ impl MarbleNodes {
         };
         let page = model.page;
         let paused = model.paused;
-        #[cfg(feature = "audio")]
-        let audio_state = world
-            .resource::<AudioBus>()
-            .map(|audio| (true, audio.is_muted()))
-            .unwrap_or((false, false));
-        #[cfg(not(feature = "audio"))]
-        let audio_state = (false, false);
         const MARBLE_COUNTS: [&str; 9] = [
             "0 MARBLES",
             "1 MARBLE",
@@ -182,18 +175,7 @@ impl MarbleNodes {
             }
             world.invalidate(entity);
         }
-        for entity in [nodes.audio, nodes.record] {
-            if audio_state.0 {
-                world.remove::<Hidden>(entity);
-            } else if !world.has::<Hidden>(entity) {
-                world.insert(entity, Hidden);
-            }
-            world.invalidate(entity);
-        }
-        if let Some(label) = world.get_mut::<Text>(nodes.audio) {
-            label.set_content(if audio_state.1 { "SOUND" } else { "ON" });
-        }
-        world.invalidate(nodes.audio);
+        Self::sync_audio(world);
         for (entity, text) in nodes.counts.into_iter().zip(counts) {
             if let Some(label) = world.get_mut::<Text>(entity) {
                 label.set_content(text);
@@ -282,6 +264,43 @@ impl MarbleNodes {
             world.invalidate_visual(entity);
         }
     }
+
+    fn sync_audio(world: &mut World) {
+        let Some(nodes) = world.resource::<Self>().copied() else {
+            return;
+        };
+        #[cfg(feature = "audio")]
+        let audio_state = world
+            .resource::<AudioBus>()
+            .map(|audio| {
+                (
+                    true,
+                    audio.is_muted(),
+                    audio.state() == AudioOutputState::Ready,
+                )
+            })
+            .unwrap_or((false, false, false));
+        #[cfg(not(feature = "audio"))]
+        let audio_state = (false, false, false);
+        for entity in [nodes.audio, nodes.record] {
+            if audio_state.0 {
+                world.remove::<Hidden>(entity);
+            } else if !world.has::<Hidden>(entity) {
+                world.insert(entity, Hidden);
+            }
+            world.invalidate(entity);
+        }
+        if let Some(label) = world.get_mut::<Text>(nodes.audio) {
+            label.set_content(if audio_state.1 {
+                "SOUND"
+            } else if audio_state.2 {
+                "ON"
+            } else {
+                "WAIT"
+            });
+        }
+        world.invalidate(nodes.audio);
+    }
 }
 
 fn pitch_label(pitch: u8) -> &'static str {
@@ -348,6 +367,30 @@ fn toggle_audio(world: &mut World) {
         }
     }
     MarbleNodes::sync(world);
+}
+
+/// Apply a mute change coming from the host shell. The in-canvas control also
+/// previews the selected pad when sound is enabled; keeping that behavior here
+/// makes external and internal controls observable in the same way.
+pub fn set_external_audio(world: &mut World, muted: bool) {
+    #[cfg(not(feature = "audio"))]
+    let _ = muted;
+    #[cfg(feature = "audio")]
+    if let Some(audio) = world.resource_mut::<AudioBus>() {
+        let was_muted = audio.is_muted();
+        let _ = audio.set_muted(muted);
+        if was_muted && !muted {
+            if let Some((pitch, timbre)) = world.resource::<MarbleModel>().map(|model| {
+                let pad = model.selected_pad();
+                (pad.pitch, pad.timbre)
+            }) {
+                if let Some(audio) = world.resource_mut::<AudioBus>() {
+                    submit_pad_sound(audio, pitch, timbre, 190, 0);
+                }
+            }
+        }
+    }
+    MarbleNodes::sync_audio(world);
 }
 
 const MUTED: Color = Color::rgb(137, 156, 123);
@@ -828,6 +871,7 @@ fn board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 fn marble_tick_system(world: &mut World) {
     let elapsed = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
     MarbleNodes::update(world, |model| model.advance_ms(elapsed));
+    MarbleNodes::sync_audio(world);
 }
 
 fn symmetric_padding(vertical: i32, horizontal: i32) -> Padding {
@@ -1596,6 +1640,27 @@ mod tests {
         assert!(world.query::<Text>().collect().len() >= 4);
         assert!(world.query::<Button>().collect().len() >= 6);
         assert_eq!(world.query::<MarbleBoard>().collect().len(), 1);
+    }
+
+    #[cfg(feature = "audio")]
+    #[test]
+    fn audio_display_tracks_external_bus_changes() {
+        let mut world = fixture();
+        world.insert_resource(AudioBus::<32>::new());
+        MarbleNodes::sync_audio(&mut world);
+        let audio = world.find_by_id("marble_audio").unwrap();
+        assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "WAIT");
+
+        world
+            .resource_mut::<AudioBus>()
+            .unwrap()
+            .set_state(AudioOutputState::Ready);
+        MarbleNodes::sync_audio(&mut world);
+        assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "ON");
+
+        world.resource_mut::<AudioBus>().unwrap().set_muted(true);
+        MarbleNodes::sync_audio(&mut world);
+        assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "SOUND");
     }
 
     #[test]

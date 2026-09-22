@@ -366,6 +366,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    /// Notify plugins that a platform host control received an explicit user
+    /// interaction. This is separate from widget input dispatch so host UI
+    /// controls can unlock platform services without triggering a demo.
+    pub fn notify_host_interaction(&mut self) {
+        for plugin in &mut self.plugins {
+            plugin.on_host_interaction(&mut self.world);
+        }
+    }
+
     pub fn suspend(&mut self) {
         if !self.suspended {
             self.suspended = true;
@@ -488,22 +497,33 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     fn prepare_render(&mut self, viewport: crate::types::Viewport) {
-        self.world
-            .resource_mut::<RenderViewport>()
-            .expect("App always owns a RenderViewport")
-            .0 = viewport;
+        let viewport_changed = {
+            let current = self
+                .world
+                .resource_mut::<RenderViewport>()
+                .expect("App always owns a RenderViewport");
+            let changed = current.0 != viewport;
+            current.0 = viewport;
+            changed
+        };
         let safe_area = self.backend.safe_area_insets();
         let safe_area_changed = self
             .world
             .resource::<crate::surface::SafeAreaInsets>()
             .is_none_or(|current| *current != safe_area);
-        if safe_area_changed {
-            self.world.insert_resource(safe_area);
+        if viewport_changed || safe_area_changed {
+            // Computed rects and the retained layout snapshot are expressed
+            // in the previous logical viewport. A browser CSS resize (or a
+            // native display reconfiguration) must invalidate them before
+            // the next input event is hit-tested.
             self.world
                 .remove_resource::<crate::ui::render_system::LayoutSnapshot>();
             if let Some(root) = self.root {
                 self.world.mark_subtree_dirty(root);
             }
+        }
+        if safe_area_changed {
+            self.world.insert_resource(safe_area);
         }
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
@@ -1278,6 +1298,30 @@ mod dirty_plan_reuse_check {
         assert!(last.0.is_empty());
         assert_eq!(app.dirty_plan.rects.as_ptr(), scratch_ptr);
         assert_eq!(last.0.rects.as_ptr(), last_rects_ptr);
+    }
+
+    #[test]
+    fn viewport_change_invalidates_retained_layout_snapshot() {
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.world.insert(root, Dirty);
+        app.render().unwrap();
+        assert!(
+            app.world
+                .resource::<crate::ui::render_system::LayoutSnapshot>()
+                .is_some()
+        );
+
+        let current = app.world.resource::<RenderViewport>().unwrap().0;
+        app.prepare_render(crate::types::Viewport::new(64, 32, current.scale()));
+
+        assert!(
+            app.world
+                .resource::<crate::ui::render_system::LayoutSnapshot>()
+                .is_none()
+        );
+        assert!(app.world.has::<Dirty>(root));
     }
 }
 

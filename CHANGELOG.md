@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Web Gallery viewport input.** Retained layout geometry is invalidated when the browser viewport or safe area changes, keeping pointer hit testing aligned after resize.
+- **Web Gallery audio controls.** External and in-canvas mute state stay synchronized, browser audio activation reports its pending state, and remembered preferences wait for a trusted interaction before playback.
+
 ## [0.46.3] - 2026-09-21
 
 ### Added

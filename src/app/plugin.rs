@@ -53,6 +53,11 @@ where
         false
     }
 
+    /// Runs for an explicit host interaction that is not dispatched to a
+    /// widget tree, such as a browser shell control. Plugins may use this to
+    /// satisfy platform activation requirements without fabricating input.
+    fn on_host_interaction(&mut self, _world: &mut World) {}
+
     /// `App::suspend` calls this after flipping `is_suspended` to true. The
     /// suspend itself stops further `tick` work; plugins typically use the
     /// hook to flush state, release timers, or persist to storage.

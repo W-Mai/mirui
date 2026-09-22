@@ -7,6 +7,7 @@ extern crate alloc;
 
 use alloc::rc::Rc;
 use core::cell::RefCell;
+use gallery::mirui::audio::{AudioBus, AudioOutputState};
 
 type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFactory>;
 const DEFAULT_DEMO: &str = "orbit_console";
@@ -140,6 +141,74 @@ pub fn set_canvas_logical_size(width: u16, height: u16) {
         let size = (width > 0 && height > 0).then_some((width, height));
         app.backend.set_logical_size(size);
     }
+}
+
+fn with_active_app<R>(f: impl FnOnce(&mut WebApp) -> R) -> Option<R> {
+    let cell = APP.with(|slot| slot.borrow().clone())?;
+    let mut app = cell.borrow_mut();
+    let app = app.as_mut()?;
+    Some(f(app))
+}
+
+fn with_audio_bus<R>(f: impl FnOnce(&mut AudioBus<32>) -> R) -> Option<R> {
+    with_active_app(|app| {
+        let bus = app.world.resource_mut::<AudioBus<32>>()?;
+        Some(f(bus))
+    })?
+}
+
+#[wasm_bindgen]
+pub fn audio_available() -> bool {
+    with_active_app(|app| app.world.resource::<AudioBus<32>>().is_some()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn audio_muted() -> bool {
+    with_audio_bus(|bus| bus.is_muted()).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn audio_ready() -> bool {
+    with_audio_bus(|bus| bus.state() == AudioOutputState::Ready).unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn notify_audio_interaction() {
+    let _ = with_active_app(|app| app.notify_host_interaction());
+}
+
+#[wasm_bindgen]
+pub fn set_audio_muted(muted: bool) -> bool {
+    with_active_app(|app| {
+        if !muted {
+            app.notify_host_interaction();
+        }
+        gallery::mirui::gallery::demos::marble_play::set_external_audio(&mut app.world, muted);
+        app.world
+            .resource::<AudioBus<32>>()
+            .map(AudioBus::is_muted)
+            .unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+#[wasm_bindgen]
+pub fn toggle_audio_muted() -> bool {
+    with_active_app(|app| {
+        let muted = app
+            .world
+            .resource::<AudioBus<32>>()
+            .is_some_and(AudioBus::is_muted);
+        if muted {
+            app.notify_host_interaction();
+        }
+        gallery::mirui::gallery::demos::marble_play::set_external_audio(&mut app.world, !muted);
+        app.world
+            .resource::<AudioBus<32>>()
+            .map(AudioBus::is_muted)
+            .unwrap_or(false)
+    })
+    .unwrap_or(false)
 }
 
 fn read_demo_query() -> Option<String> {

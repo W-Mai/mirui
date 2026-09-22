@@ -36,6 +36,19 @@ impl<S: AudioSink, const N: usize> AudioPlugin<S, N> {
             bus.set_state(self.sink.state());
         }
     }
+
+    fn unlock_if_needed(&mut self, world: &mut World) {
+        if matches!(
+            self.sink.state(),
+            AudioOutputState::Starting | AudioOutputState::Locked
+        ) {
+            if self.sink.unlock().is_err() {
+                Self::mark_failure(world);
+            } else {
+                self.sync_state(world);
+            }
+        }
+    }
 }
 
 impl<B, F, S, const N: usize> Plugin<B, F> for AudioPlugin<S, N>
@@ -59,19 +72,14 @@ where
             event,
             InputEvent::PointerDown { .. } | InputEvent::Key { pressed: true, .. }
         );
-        if unlock
-            && matches!(
-                self.sink.state(),
-                AudioOutputState::Starting | AudioOutputState::Locked
-            )
-        {
-            if self.sink.unlock().is_err() {
-                Self::mark_failure(world);
-            } else {
-                self.sync_state(world);
-            }
+        if unlock {
+            self.unlock_if_needed(world);
         }
         false
+    }
+
+    fn on_host_interaction(&mut self, world: &mut World) {
+        self.unlock_if_needed(world);
     }
 
     fn pre_render(&mut self, world: &mut World) {
@@ -235,5 +243,18 @@ mod tests {
         assert_eq!(trace.suspends, 1);
         assert_eq!(trace.resumes, 1);
         assert_eq!(trace.stops, 1);
+    }
+
+    #[test]
+    fn host_interaction_unlocks_without_dispatching_widget_input() {
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        let mut app = app();
+        app.add_plugin(AudioPlugin::<_, 4>::with_capacity(
+            MockSink(trace.clone()),
+            &BANK,
+        ));
+        app.notify_host_interaction();
+        assert_eq!(trace.borrow().unlocks, 1);
+        assert_eq!(trace.borrow().commands, 0);
     }
 }

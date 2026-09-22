@@ -1,4 +1,7 @@
-use web_sys::{AudioContext, DynamicsCompressorNode, GainNode, OscillatorNode, OscillatorType};
+use web_sys::{
+    AudioContext, AudioContextState, DynamicsCompressorNode, GainNode, OscillatorNode,
+    OscillatorType,
+};
 
 use super::{
     AudioBank, AudioCommand, AudioOutputState, AudioSink, AudioTone, CueId, Score, Waveform,
@@ -73,6 +76,27 @@ impl WebAudioSink {
         self.compressor = Some(compressor);
         self.apply_master_gain()?;
         Ok(())
+    }
+
+    fn observed_state(&self) -> AudioOutputState {
+        match self.state {
+            AudioOutputState::Locked | AudioOutputState::Ready => {
+                if self
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.state() == AudioContextState::Running)
+                {
+                    AudioOutputState::Ready
+                } else {
+                    AudioOutputState::Locked
+                }
+            }
+            state => state,
+        }
+    }
+
+    fn refresh_state(&mut self) {
+        self.state = self.observed_state();
     }
 
     fn apply_master_gain(&self) -> Result<(), wasm_bindgen::JsValue> {
@@ -266,11 +290,13 @@ impl AudioSink for WebAudioSink {
         if let Some(context) = &self.context {
             let _ = context.resume()?;
         }
-        self.state = AudioOutputState::Ready;
+        self.state = AudioOutputState::Locked;
+        self.refresh_state();
         Ok(())
     }
 
     fn update(&mut self) -> Result<(), Self::Error> {
+        self.refresh_state();
         if self.state == AudioOutputState::Ready {
             self.pump_loops()?;
         }
@@ -317,7 +343,8 @@ impl AudioSink for WebAudioSink {
     fn resume(&mut self) -> Result<(), Self::Error> {
         if let Some(context) = &self.context {
             let _ = context.resume()?;
-            self.state = AudioOutputState::Ready;
+            self.state = AudioOutputState::Locked;
+            self.refresh_state();
         } else {
             self.state = AudioOutputState::Locked;
         }
@@ -335,6 +362,6 @@ impl AudioSink for WebAudioSink {
     }
 
     fn state(&self) -> AudioOutputState {
-        self.state
+        self.observed_state()
     }
 }
