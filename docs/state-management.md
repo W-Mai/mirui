@@ -41,9 +41,9 @@ Effect::new(move || {
 });
 ```
 
-- `Signal<T>` is the source of truth. `get()` / `with()` subscribe the
-  current reader (an effect, a computed, or a reactive binding). `set()` /
-  `update()` mark subscribers dirty.
+- `Signal<T>` can own state or publish a small projection of an authoritative
+  model. `get()` / `with()` subscribe the current reader (an effect, a computed,
+  or a reactive binding). `set()` / `update()` mark subscribers dirty.
 - `Computed<T>` derives a value lazily: it only recomputes when one of its
   inputs changed, and only when read.
 - `Effect` runs a closure now and again whenever the signals it read change.
@@ -72,7 +72,16 @@ ui! {
 When `label` changes, only that attribute updates — the widget is not
 rebuilt. Reactive binding is supported on `text`, `path`, `visible`,
 `bg_color`, `text_color`, `render_key`, `font_size`, `direction`, `width`,
-`height`, `Button.normal_color`, `Text.paragraph`, and `ProgressBar.value`.
+`height`, `Button.normal_color`, `Text.paragraph`, `ProgressBar.value`,
+`Slider.value`, and `Switch.on`.
+
+Reactive `Slider.value` clamps to the control range and does not emit a
+`ValueChanged` event when the model updates it. Reactive `Switch.on` starts
+the switch animation when the model changes its state without emitting
+`Toggled`. User input still emits those events. A large simulation model can
+stay in a World resource while a small scalar signal drives its labels,
+visibility, colors, and controls; Marble Play uses this split without copying
+physics arrays into reactive state.
 
 `attr: $signal` is shorthand for `attr: ${ signal.get() }`.
 

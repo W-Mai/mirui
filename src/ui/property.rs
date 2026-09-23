@@ -120,6 +120,8 @@ pub mod prop {
     pub struct MaxHeight;
     pub struct Padding;
     pub struct ProgressValue;
+    pub struct SliderValue;
+    pub struct SwitchOn;
     pub struct RowGap;
     pub struct ColumnGap;
     pub struct Left;
@@ -129,6 +131,18 @@ pub mod prop {
         type Value = alloc::string::String;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if world
+                .get::<crate::ui::widgets::Text>(entity)
+                .is_some_and(|text| {
+                    matches!(
+                        text.content(),
+                        crate::ui::widgets::text::TextContent::Plain(current)
+                            if current.as_ref() == value
+                    )
+                })
+            {
+                return PropertyChange::Unchanged;
+            }
             let is_button = world.has::<crate::ui::widgets::Button>(entity);
             if let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) {
                 text.set_content(value);
@@ -234,6 +248,34 @@ pub mod prop {
             }
             progress.value = value;
             PropertyChange::Visual
+        }
+    }
+
+    impl Property for SliderValue {
+        type Value = crate::types::Fixed;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            let Some(slider) = world.get_mut::<crate::ui::widgets::Slider>(entity) else {
+                return PropertyChange::Unchanged;
+            };
+            let value = value.clamp(slider.min, slider.max);
+            if slider.value == value {
+                return PropertyChange::Unchanged;
+            }
+            slider.value = value;
+            PropertyChange::Visual
+        }
+    }
+
+    impl Property for SwitchOn {
+        type Value = bool;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if crate::ui::widgets::switch::set_switch_on(world, entity, value) {
+                PropertyChange::Visual
+            } else {
+                PropertyChange::Unchanged
+            }
         }
     }
 
@@ -422,9 +464,9 @@ pub mod prop {
 mod tests {
     use super::*;
     use crate::core::reactive::{Signal, flush_signal_dirty};
-    use crate::types::Dimension;
+    use crate::types::{Dimension, Fixed, Rect};
     use crate::ui::dirty::{Dirty, VisualDirty};
-    use crate::ui::widgets::{Button, ParagraphStyle, ProgressBar, Text};
+    use crate::ui::widgets::{Button, ParagraphStyle, ProgressBar, Slider, Switch, Text};
     use crate::ui::{Children, Parent, Widget};
 
     #[test]
@@ -539,6 +581,115 @@ mod tests {
             PropertyChange::Visual
         );
         assert_eq!(world.get::<ProgressBar>(progress).unwrap().value, 0.5);
+    }
+
+    #[test]
+    fn slider_projection_clamps_and_skips_unchanged_values() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(entity, Slider::new(Fixed::ZERO, Fixed::from_int(10)));
+
+        assert_eq!(
+            apply_to_world::<prop::SliderValue>(&mut world, entity, Fixed::from_int(20)),
+            PropertyChange::Visual
+        );
+        assert_eq!(
+            world.get::<Slider>(entity).unwrap().value,
+            Fixed::from_int(10)
+        );
+        world.remove::<VisualDirty>(entity);
+        assert_eq!(
+            apply_to_world::<prop::SliderValue>(&mut world, entity, Fixed::from_int(11)),
+            PropertyChange::Unchanged
+        );
+        assert!(!world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn unchanged_plain_text_does_not_invalidate_layout() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(entity, Text::from("ready"));
+
+        assert_eq!(
+            apply_to_world::<prop::TextContent>(&mut world, entity, "ready".into()),
+            PropertyChange::Unchanged
+        );
+        assert!(!world.has::<Dirty>(entity));
+
+        assert_eq!(
+            apply_to_world::<prop::TextContent>(&mut world, entity, "running".into()),
+            PropertyChange::Layout
+        );
+        assert!(world.has::<Dirty>(entity));
+    }
+
+    #[test]
+    fn switch_projection_animates_external_changes_without_restarting() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(entity, Switch::new());
+        world.insert(entity, crate::ui::ComputedRect(Rect::new(0, 0, 54, 24)));
+
+        assert_eq!(
+            apply_to_world::<prop::SwitchOn>(&mut world, entity, true),
+            PropertyChange::Visual
+        );
+        assert!(world.get::<Switch>(entity).unwrap().on);
+        assert!(world.has::<crate::ui::widgets::switch::AnimateSwitchBgT>(entity));
+        assert!(world.has::<crate::ui::widgets::switch::AnimateThumbX>(entity));
+        assert_eq!(
+            apply_to_world::<prop::SwitchOn>(&mut world, entity, true),
+            PropertyChange::Unchanged
+        );
+    }
+
+    #[test]
+    fn slider_and_switch_dsl_bindings_follow_signals() {
+        let mut world = World::new();
+        world.insert_resource(crate::ui::IdMap::new());
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+        let level = Signal::new(Fixed::from_int(3));
+        let enabled = Signal::new(false);
+        let bound_level = level.clone();
+        let bound_enabled = enabled.clone();
+
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+            Column () {
+                Slider(
+                    min: Fixed::ZERO,
+                    max: Fixed::from_int(10),
+                    value: ${ bound_level.get() }
+                )
+                Switch(on: ${ bound_enabled.get() })
+            }
+        };
+
+        let column = world.get::<Children>(root).unwrap().0[0];
+        let controls = &world.get::<Children>(column).unwrap().0;
+        let slider = controls[0];
+        let switch = controls[1];
+        assert_eq!(
+            world.get::<Slider>(slider).unwrap().value,
+            Fixed::from_int(3)
+        );
+        assert!(!world.get::<Switch>(switch).unwrap().on);
+
+        level.set(Fixed::from_int(7));
+        enabled.set(true);
+        flush_signal_dirty(&mut world);
+        assert_eq!(
+            world.get::<Slider>(slider).unwrap().value,
+            Fixed::from_int(7)
+        );
+        assert!(world.get::<Switch>(switch).unwrap().on);
     }
 
     #[test]

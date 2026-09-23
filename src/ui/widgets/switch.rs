@@ -282,27 +282,39 @@ pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureE
         return false;
     }
 
-    let on_now = {
+    let Some(on_now) = world.get::<Switch>(entity).map(|s| !s.on) else {
+        return false;
+    };
+    set_switch_on(world, entity, on_now);
+    emit_switch_event(world, entity, &SwitchEvent::Toggled { now: on_now });
+    world.insert(entity, Dirty);
+    true
+}
+
+pub(crate) fn set_switch_on(world: &mut World, entity: Entity, on_now: bool) -> bool {
+    let old_on = {
         let Some(s) = world.get_mut::<Switch>(entity) else {
             return false;
         };
-        s.toggle();
-        s.on
+        if s.on == on_now {
+            return false;
+        }
+        let old = s.on;
+        s.on = on_now;
+        old
     };
-
-    emit_switch_event(world, entity, &SwitchEvent::Toggled { now: on_now });
 
     let target_t = if on_now { Fixed::ONE } else { Fixed::ZERO };
     let cur_t = world
         .get::<SwitchBgT>(entity)
         .map(|t| t.0)
-        .unwrap_or_else(|| if on_now { Fixed::ZERO } else { Fixed::ONE });
-    world.insert(
-        entity,
-        AnimateSwitchBgT(Spring::new(cur_t, target_t, 250, Fixed::ZERO).into()),
-    );
+        .unwrap_or_else(|| if old_on { Fixed::ONE } else { Fixed::ZERO });
 
     if let Some(rect) = world.get::<ComputedRect>(entity).map(|r| r.0) {
+        world.insert(
+            entity,
+            AnimateSwitchBgT(Spring::new(cur_t, target_t, 250, Fixed::ZERO).into()),
+        );
         let target_x = if on_now {
             on_thumb_x(&rect)
         } else {
@@ -312,19 +324,21 @@ pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureE
             .get::<AnimatedThumbX>(entity)
             .map(|x| x.0)
             .unwrap_or_else(|| {
-                if on_now {
-                    off_thumb_x(&rect)
-                } else {
+                if old_on {
                     on_thumb_x(&rect)
+                } else {
+                    off_thumb_x(&rect)
                 }
             });
         world.insert(
             entity,
             AnimateThumbX(Spring::new(cur_x, target_x, 200, Fixed::ZERO).into()),
         );
+    } else {
+        world.insert(entity, SwitchBgT(target_t));
+        world.remove::<AnimateSwitchBgT>(entity);
+        world.remove::<AnimateThumbX>(entity);
     }
-
-    world.insert(entity, Dirty);
     true
 }
 

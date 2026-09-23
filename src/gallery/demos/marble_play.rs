@@ -11,7 +11,6 @@ use crate::gallery::play::audio::MARBLE_AUDIO_BANK;
 use crate::gallery::play::change::ChangeSet;
 #[cfg(feature = "audio")]
 use crate::gallery::play::marble::MarbleSound;
-#[cfg(feature = "audio")]
 use crate::gallery::play::marble::PadTimbre;
 use crate::gallery::play::marble::{MarbleModel, PAD_PITCHES, Page, THEMES, Theme};
 use crate::gallery::play::paint::PlayPainter;
@@ -21,7 +20,6 @@ use crate::prelude::*;
 use crate::render::renderer::Renderer;
 use crate::types::Fixed64;
 use crate::ui::ComputedRect;
-use crate::ui::Hidden;
 use crate::ui::view::{View, ViewCtx};
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Switch, Text, TextAlign};
 use alloc::format;
@@ -32,238 +30,173 @@ pub const VIEWPORT: (u16, u16) = (480, 320);
 struct MarbleBoard;
 
 #[derive(Clone, Copy)]
-struct MarbleNodes {
-    board: Entity,
-    pause: Entity,
-    record: Entity,
-    status: Entity,
-    counts: [Entity; 2],
-    readout: Entity,
-    properties: Entity,
-    add: Entity,
-    remove: Entity,
-    inspector: Entity,
-    bounce: Entity,
-    radius: Entity,
-    pitch: Entity,
-    timbre: Entity,
-    nav: [Entity; 4],
-    scene_labels: [Entity; 6],
-    setting_labels: [Entity; 4],
-    setting_controls: [Entity; 4],
+struct MarbleBoardEntity(Entity);
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct MarbleUiState {
+    page: Page,
+    paused: bool,
+    recording: bool,
+    looping: bool,
+    ball_count: u8,
+    pad_count: u8,
+    pad_letter: u8,
+    gravity: Fixed,
+    hits: u32,
+    radius: Fixed,
+    bounce: Fixed,
+    pitch: u8,
+    timbre: PadTimbre,
+    bpm: u16,
+    trails: bool,
+    feedback: bool,
+    inspector: bool,
+    add_mode: bool,
 }
 
-impl MarbleNodes {
-    fn update(world: &mut World, update: impl FnOnce(&mut MarbleModel) -> ChangeSet) {
-        let (changes, sounds) = world
-            .resource_mut::<MarbleModel>()
-            .map(|model| {
-                let changes = update(model);
-                (changes, model.take_sounds())
-            })
-            .unwrap_or((ChangeSet::NONE, [None; 8]));
-        #[cfg(feature = "audio")]
-        if let Some(audio) = world.resource_mut::<AudioBus>() {
-            for sound in sounds.into_iter().flatten() {
-                let MarbleSound::Pad {
-                    pitch,
-                    timbre,
-                    gain,
-                    delay_ms,
-                    ..
-                } = sound;
-                submit_pad_sound(audio, pitch, timbre, gain, delay_ms);
-            }
-        }
-        #[cfg(not(feature = "audio"))]
-        let _ = sounds;
-        if changes.contains(ChangeSet::VISUAL)
-            && let Some(board) = world.resource::<Self>().map(|nodes| nodes.board)
-        {
-            world.invalidate_visual(board);
-        }
-        if changes.contains(ChangeSet::MODEL) {
-            Self::sync(world);
-        }
-    }
-
-    fn sync(world: &mut World) {
-        let Some(nodes) = world.resource::<Self>().copied() else {
-            return;
-        };
-        let Some(model) = world.resource::<MarbleModel>() else {
-            return;
-        };
-        let page = model.page;
-        let paused = model.paused;
-        const MARBLE_COUNTS: [&str; 9] = [
-            "0 MARBLES",
-            "1 MARBLE",
-            "2 MARBLES",
-            "3 MARBLES",
-            "4 MARBLES",
-            "5 MARBLES",
-            "6 MARBLES",
-            "7 MARBLES",
-            "8 MARBLES",
-        ];
-        const PAD_COUNTS: [&str; 7] = [
-            "0 PADS", "1 PAD", "2 PADS", "3 PADS", "4 PADS", "5 PADS", "6 PADS",
-        ];
-        let counts = [
-            MARBLE_COUNTS[model.ball_count()],
-            PAD_COUNTS[model.pad_count()],
-        ];
-        let status = match page {
-            Page::Play if paused => "HOLD · PHYSICS PAUSED",
-            Page::Play => "LIVE · DRAG EMPTY SPACE TO TILT",
-            Page::Edit if model.add_mode => "EDIT · TAP EMPTY SPACE TO ADD",
-            Page::Edit => "EDIT · DRAG A PAD TO MOVE",
-            Page::Scenes => "SCENES · CHOOSE A LITTLE WORLD",
-            Page::Settings => "SETTINGS · SESSION ONLY",
-        };
-        let readout = match page {
-            Page::Play => format!(
-                "PAD {} · {:.2} g · {} HITS",
-                model.selected_pad().letter as char,
-                model.gravity.to_f32(),
-                model.hits
-            ),
-            Page::Edit => format!(
-                "PAD {} · RADIUS {} · BOUNCE {:.2}",
-                model.selected_pad().letter as char,
-                model.selected_pad().radius.to_int(),
-                model.selected_pad().bounce.to_f32()
-            ),
-            Page::Scenes => "PRESETS RESET LAYOUT AND MARBLES".into(),
-            Page::Settings => "GRAVITY · TRAILS · FEEDBACK".into(),
-        };
-        let inspector_open = model.inspector;
-        let gravity = model.gravity.to_fixed();
-        let toggles = [model.trails, model.feedback];
-        let bounce = model.selected_pad().bounce.to_fixed();
-        let radius = model.selected_pad().radius.to_fixed();
-        let pitch = pitch_label(model.selected_pad().pitch);
-        let timbre = model.selected_pad().timbre.label();
-        let bpm = model.bpm;
-        let text_updates = [
-            (
-                nodes.pause,
-                if paused { "PLAY".into() } else { "HOLD".into() },
-            ),
-            (nodes.status, status.into()),
-            (nodes.readout, readout),
-            (nodes.pitch, pitch.into()),
-            (nodes.timbre, timbre.into()),
-            (nodes.setting_labels[1], format!("TEMPO · {bpm} BPM")),
-            (
-                nodes.record,
-                if model.recording {
-                    "DONE".into()
-                } else if model.looping {
-                    "STOP".into()
-                } else {
-                    "REC".into()
-                },
-            ),
-        ];
-        let _ = model;
-        for (entity, text) in text_updates {
-            if let Some(label) = world.get_mut::<Text>(entity) {
-                label.set_content(text);
-            }
-            world.invalidate(entity);
-        }
-        for (entity, text) in nodes.counts.into_iter().zip(counts) {
-            if let Some(label) = world.get_mut::<Text>(entity) {
-                label.set_content(text);
-            }
-            world.invalidate(entity);
-        }
-        for (index, entity) in nodes.nav.into_iter().enumerate() {
-            let active = index == page as usize;
-            if let Some(button) = world.get_mut::<Button>(entity) {
-                button.normal_color = if active {
-                    Color::rgb(217, 248, 138).into()
-                } else {
-                    Color::rgb(34, 47, 37).into()
-                };
-            }
-            let label = world
-                .get::<crate::ui::Children>(entity)
-                .and_then(|children| children.0.first())
-                .copied();
-            if let Some(label) = label {
-                if let Some(style) = world.get_mut::<Style>(label) {
-                    style.text_color = if active {
-                        Color::rgb(48, 69, 41).into()
-                    } else {
-                        TEXT.into()
-                    };
-                }
-                world.invalidate_visual(label);
-            }
-            world.invalidate_visual(entity);
-        }
-        for entity in [nodes.properties, nodes.add, nodes.remove] {
-            if page == Page::Edit {
-                world.remove::<Hidden>(entity);
-            } else if !world.has::<Hidden>(entity) {
-                world.insert(entity, Hidden);
-            }
-            world.invalidate(entity);
-        }
-        if inspector_open {
-            world.remove::<Hidden>(nodes.inspector);
-        } else if !world.has::<Hidden>(nodes.inspector) {
-            world.insert(nodes.inspector, Hidden);
-        }
-        for (entity, value) in [(nodes.bounce, bounce), (nodes.radius, radius)] {
-            if let Some(slider) = world.get_mut::<Slider>(entity) {
-                slider.value = value;
-            }
-            world.invalidate_visual(entity);
-        }
-        world.invalidate(nodes.inspector);
-        for entity in nodes.scene_labels {
-            if page == Page::Scenes {
-                world.remove::<Hidden>(entity);
-            } else if !world.has::<Hidden>(entity) {
-                world.insert(entity, Hidden);
-            }
-            world.invalidate(entity);
-        }
-        for entity in nodes.setting_labels {
-            if page == Page::Settings {
-                world.remove::<Hidden>(entity);
-            } else if !world.has::<Hidden>(entity) {
-                world.insert(entity, Hidden);
-            }
-            world.invalidate(entity);
-        }
-        for entity in nodes.setting_controls {
-            if page == Page::Settings {
-                world.remove::<Hidden>(entity);
-            } else if !world.has::<Hidden>(entity) {
-                world.insert(entity, Hidden);
-            }
-            world.invalidate(entity);
-        }
-        if let Some(slider) = world.get_mut::<Slider>(nodes.setting_controls[0]) {
-            slider.value = gravity;
-        }
-        if let Some(slider) = world.get_mut::<Slider>(nodes.setting_controls[1]) {
-            slider.value = Fixed::from_int(i32::from(bpm));
-        }
-        for (entity, on) in nodes.setting_controls[2..].iter().copied().zip(toggles) {
-            if let Some(switch) = world.get_mut::<Switch>(entity) {
-                switch.on = on;
-            }
-            world.invalidate_visual(entity);
+impl MarbleUiState {
+    fn from_model(model: &MarbleModel) -> Self {
+        let pad = model.selected_pad();
+        Self {
+            page: model.page,
+            paused: model.paused,
+            recording: model.recording,
+            looping: model.looping,
+            ball_count: model.ball_count() as u8,
+            pad_count: model.pad_count() as u8,
+            pad_letter: pad.letter,
+            gravity: model.gravity.to_fixed(),
+            hits: model.hits,
+            radius: pad.radius.to_fixed(),
+            bounce: pad.bounce.to_fixed(),
+            pitch: pad.pitch,
+            timbre: pad.timbre,
+            bpm: model.bpm,
+            trails: model.trails,
+            feedback: model.feedback,
+            inspector: model.inspector,
+            add_mode: model.add_mode,
         }
     }
 }
 
+struct MarbleUiSignal(Signal<MarbleUiState>);
+
+fn marble_ui() -> MarbleUiState {
+    crate::core::reactive::with_world(|world| {
+        world
+            .resource::<MarbleUiSignal>()
+            .map(|state| state.0.get())
+    })
+    .flatten()
+    .expect("Marble UI signal must be installed before composition")
+}
+
+fn marble_status(state: MarbleUiState) -> &'static str {
+    match state.page {
+        Page::Play if state.paused => "HOLD · PHYSICS PAUSED",
+        Page::Play => "LIVE · DRAG EMPTY SPACE TO TILT",
+        Page::Edit if state.add_mode => "EDIT · TAP EMPTY SPACE TO ADD",
+        Page::Edit => "EDIT · DRAG A PAD TO MOVE",
+        Page::Scenes => "SCENES · CHOOSE A LITTLE WORLD",
+        Page::Settings => "SETTINGS · SESSION ONLY",
+    }
+}
+
+fn marble_readout(state: MarbleUiState) -> alloc::string::String {
+    match state.page {
+        Page::Play => format!(
+            "PAD {} · {:.2} g · {} HITS",
+            state.pad_letter as char,
+            state.gravity.to_f32(),
+            state.hits
+        ),
+        Page::Edit => format!(
+            "PAD {} · RADIUS {} · BOUNCE {:.2}",
+            state.pad_letter as char,
+            state.radius.to_int(),
+            state.bounce.to_f32()
+        ),
+        Page::Scenes => "PRESETS RESET LAYOUT AND MARBLES".into(),
+        Page::Settings => "GRAVITY · TRAILS · FEEDBACK".into(),
+    }
+}
+
+fn marble_count(count: u8) -> &'static str {
+    const LABELS: [&str; 9] = [
+        "0 MARBLES",
+        "1 MARBLE",
+        "2 MARBLES",
+        "3 MARBLES",
+        "4 MARBLES",
+        "5 MARBLES",
+        "6 MARBLES",
+        "7 MARBLES",
+        "8 MARBLES",
+    ];
+    LABELS[usize::from(count)]
+}
+
+fn pad_count(count: u8) -> &'static str {
+    const LABELS: [&str; 7] = [
+        "0 PADS", "1 PAD", "2 PADS", "3 PADS", "4 PADS", "5 PADS", "6 PADS",
+    ];
+    LABELS[usize::from(count)]
+}
+
+fn nav_color(page: Page, active: Page) -> Color {
+    if page == active {
+        Color::rgb(217, 248, 138)
+    } else {
+        Color::rgb(34, 47, 37)
+    }
+}
+
+fn nav_text_color(page: Page, active: Page) -> Color {
+    if page == active {
+        Color::rgb(48, 69, 41)
+    } else {
+        TEXT
+    }
+}
+
+fn update_marble(world: &mut World, update: impl FnOnce(&mut MarbleModel) -> ChangeSet) {
+    let Some((changes, sounds, ui)) = world.resource_mut::<MarbleModel>().map(|model| {
+        let changes = update(model);
+        (
+            changes,
+            model.take_sounds(),
+            MarbleUiState::from_model(model),
+        )
+    }) else {
+        return;
+    };
+    #[cfg(feature = "audio")]
+    if let Some(audio) = world.resource_mut::<AudioBus>() {
+        for sound in sounds.into_iter().flatten() {
+            let MarbleSound::Pad {
+                pitch,
+                timbre,
+                gain,
+                delay_ms,
+                ..
+            } = sound;
+            submit_pad_sound(audio, pitch, timbre, gain, delay_ms);
+        }
+    }
+    #[cfg(not(feature = "audio"))]
+    let _ = sounds;
+    if changes.contains(ChangeSet::VISUAL)
+        && let Some(board) = world.resource::<MarbleBoardEntity>().map(|board| board.0)
+    {
+        world.invalidate_visual(board);
+    }
+    if let Some(state) = world.resource::<MarbleUiSignal>()
+        && state.0.get_untracked() != ui
+    {
+        state.0.set(ui);
+    }
+}
 #[cfg(feature = "audio")]
 fn audio_state() -> Option<AudioState> {
     crate::core::reactive::with_world(|world| {
@@ -839,7 +772,7 @@ fn board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
     let Some(point) = event_point(world, entity, x, y) else {
         return false;
     };
-    MarbleNodes::update(world, |model| match action {
+    update_marble(world, |model| match action {
         0 => model.begin_board_drag(point),
         1 => model.move_board_drag(point),
         2 => model.end_board_drag(false),
@@ -866,7 +799,7 @@ fn board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 #[mirui_macros::system(order = ANIMATION)]
 fn marble_tick_system(world: &mut World) {
     let elapsed = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
-    MarbleNodes::update(world, |model| model.advance_ms(elapsed));
+    update_marble(world, |model| model.advance_ms(elapsed));
 }
 
 fn symmetric_padding(vertical: i32, horizontal: i32) -> Padding {
@@ -902,7 +835,7 @@ fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Button (
-                    "HOLD",
+                    text: ${ if marble_ui().paused { "PLAY" } else { "HOLD" } },
                     id: "marble_pause",
                     size: ButtonSize::Compact,
                     width: 52,
@@ -912,7 +845,7 @@ fn build_widgets() {
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::toggle_pause); }
+                ) on Tap { update_marble(ctx.world, MarbleModel::toggle_pause); }
                 Button (
                     id: "marble_audio",
                     size: ButtonSize::Compact,
@@ -927,7 +860,10 @@ fn build_widgets() {
                     border_radius: 6
                 ) on Tap { toggle_audio(ctx.world); }
                 Button (
-                    "REC",
+                    text: ${
+                        let state = marble_ui();
+                        if state.recording { "DONE" } else if state.looping { "STOP" } else { "REC" }
+                    },
                     id: "marble_record",
                     size: ButtonSize::Compact,
                     width: 44,
@@ -938,7 +874,7 @@ fn build_widgets() {
                     text_color: TEXT,
                     visible: ${ audio_visible() },
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::toggle_recording); }
+                ) on Tap { update_marble(ctx.world, MarbleModel::toggle_recording); }
                 Button (
                     "+",
                     size: ButtonSize::Compact,
@@ -949,7 +885,7 @@ fn build_widgets() {
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::drop_ball); }
+                ) on Tap { update_marble(ctx.world, MarbleModel::drop_ball); }
             }
             Row (
                 height: 23,
@@ -958,7 +894,7 @@ fn build_widgets() {
                 column_gap: 10
             ) {
                 Text (
-                    "LIVE · DRAG EMPTY SPACE TO TILT",
+                    text: ${ marble_status(marble_ui()) },
                     id: "marble_status",
                     grow: 1.0,
                     height: 17,
@@ -967,7 +903,7 @@ fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "5 MARBLES",
+                    text: ${ marble_count(marble_ui().ball_count) },
                     id: "marble_marble_count",
                     width: 74,
                     height: 17,
@@ -976,7 +912,7 @@ fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::End)
                 )
                 Text (
-                    "5 PADS",
+                    text: ${ pad_count(marble_ui().pad_count) },
                     id: "marble_pad_count",
                     width: 52,
                     height: 17,
@@ -997,6 +933,7 @@ fn build_widgets() {
                 Text (
                     "DAYDREAM",
                     id: "marble_scene_0_name",
+                    visible: ${ marble_ui().page == Page::Scenes },
                     position: Position::Absolute,
                     left: 32,
                     top: 118,
@@ -1009,6 +946,7 @@ fn build_widgets() {
                 Text (
                     "SOFT GREEN",
                     id: "marble_scene_0_sub",
+                    visible: ${ marble_ui().page == Page::Scenes },
                     position: Position::Absolute,
                     left: 32,
                     top: 139,
@@ -1021,6 +959,7 @@ fn build_widgets() {
                 Text (
                     "AFTER HOURS",
                     id: "marble_scene_1_name",
+                    visible: ${ marble_ui().page == Page::Scenes },
                     position: Position::Absolute,
                     left: 183,
                     top: 118,
@@ -1033,6 +972,7 @@ fn build_widgets() {
                 Text (
                     "BLUE GREY",
                     id: "marble_scene_1_sub",
+                    visible: ${ marble_ui().page == Page::Scenes },
                     position: Position::Absolute,
                     left: 183,
                     top: 139,
@@ -1045,6 +985,7 @@ fn build_widgets() {
                 Text (
                     "ZERO GRAVITY",
                     id: "marble_scene_2_name",
+                    visible: ${ marble_ui().page == Page::Scenes },
                     position: Position::Absolute,
                     left: 334,
                     top: 118,
@@ -1057,6 +998,7 @@ fn build_widgets() {
                 Text (
                     "COOL BLUE",
                     id: "marble_scene_2_sub",
+                    visible: ${ marble_ui().page == Page::Scenes },
                     position: Position::Absolute,
                     left: 334,
                     top: 139,
@@ -1069,6 +1011,7 @@ fn build_widgets() {
                 Text (
                     "GRAVITY",
                     id: "marble_setting_gravity",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 42,
                     top: 15,
@@ -1079,8 +1022,9 @@ fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "TEMPO · 96 BPM",
+                    text: ${ format!("TEMPO · {} BPM", marble_ui().bpm) },
                     id: "marble_setting_bpm",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 42,
                     top: 65,
@@ -1093,6 +1037,7 @@ fn build_widgets() {
                 Text (
                     "TRAILS · 6 POINTS PER MARBLE",
                     id: "marble_setting_trails",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 42,
                     top: 122,
@@ -1105,6 +1050,7 @@ fn build_widgets() {
                 Text (
                     "FEEDBACK · RINGS / PARTICLES",
                     id: "marble_setting_feedback",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 42,
                     top: 157,
@@ -1116,6 +1062,7 @@ fn build_widgets() {
                 )
                 Slider (
                     id: "marble_setting_gravity_control",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 42,
                     top: 29,
@@ -1123,13 +1070,14 @@ fn build_widgets() {
                     height: 28,
                     min: Fixed::ZERO,
                     max: Fixed::from_ratio(16, 10),
-                    value: Fixed::from_ratio(8, 10),
+                    value: ${ marble_ui().gravity },
                     track_color: Color::rgb(69, 87, 70),
                     fill_color: Color::rgb(217, 248, 138),
                     thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { MarbleNodes::update(ctx.world, |model| model.set_gravity(Fixed64::from_fixed(*new))); }
+                ) on ValueChanged { update_marble(ctx.world, |model| model.set_gravity(Fixed64::from_fixed(*new))); }
                 Slider (
                     id: "marble_setting_bpm_control",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 42,
                     top: 79,
@@ -1137,24 +1085,25 @@ fn build_widgets() {
                     height: 28,
                     min: Fixed::from_int(55),
                     max: Fixed::from_int(160),
-                    value: Fixed::from_int(96),
+                    value: ${ Fixed::from_int(i32::from(marble_ui().bpm)) },
                     track_color: Color::rgb(69, 87, 70),
                     fill_color: Color::rgb(198, 176, 239),
                     thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { MarbleNodes::update(ctx.world, |model| model.set_bpm(Fixed64::from_fixed(*new))); }
+                ) on ValueChanged { update_marble(ctx.world, |model| model.set_bpm(Fixed64::from_fixed(*new))); }
                 Switch (
                     id: "marble_setting_trails_control",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 370,
                     top: 121,
                     width: 54,
                     height: 24,
-                    on: true,
+                    on: ${ marble_ui().trails },
                     on_color: Color::rgb(217, 248, 138),
                     off_color: Color::rgb(69, 87, 70),
                     thumb_color: Color::rgb(23, 34, 28)
                 ) on Toggled {
-                    MarbleNodes::update(
+                    update_marble(
                         ctx.world,
                         |model| {
                             if model.trails != *now { model.toggle_trails() } else { ChangeSet::NONE }
@@ -1163,17 +1112,18 @@ fn build_widgets() {
                 }
                 Switch (
                     id: "marble_setting_feedback_control",
+                    visible: ${ marble_ui().page == Page::Settings },
                     position: Position::Absolute,
                     left: 370,
                     top: 156,
                     width: 54,
                     height: 24,
-                    on: true,
+                    on: ${ marble_ui().feedback },
                     on_color: Color::rgb(217, 248, 138),
                     off_color: Color::rgb(69, 87, 70),
                     thumb_color: Color::rgb(23, 34, 28)
                 ) on Toggled {
-                    MarbleNodes::update(
+                    update_marble(
                         ctx.world,
                         |model| {
                             if model.feedback != *now {
@@ -1192,7 +1142,7 @@ fn build_widgets() {
                 column_gap: 6
             ) {
                 Text (
-                    "PAD A · BOUNDED FIXED-POINT PHYSICS",
+                    text: ${ marble_readout(marble_ui()) },
                     id: "marble_readout",
                     grow: 1.0,
                     height: 22,
@@ -1203,6 +1153,7 @@ fn build_widgets() {
                 Button (
                     "PROPS",
                     id: "marble_properties",
+                    visible: ${ marble_ui().page == Page::Edit },
                     size: ButtonSize::Compact,
                     width: 52,
                     height: 23,
@@ -1211,10 +1162,11 @@ fn build_widgets() {
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_inspector(true)); }
+                ) on Tap { update_marble(ctx.world, |model| model.set_inspector(true)); }
                 Button (
                     "ADD",
                     id: "marble_add",
+                    visible: ${ marble_ui().page == Page::Edit },
                     size: ButtonSize::Compact,
                     width: 46,
                     height: 23,
@@ -1223,10 +1175,11 @@ fn build_widgets() {
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::toggle_add_mode); }
+                ) on Tap { update_marble(ctx.world, MarbleModel::toggle_add_mode); }
                 Button (
                     "REMOVE",
                     id: "marble_remove",
+                    visible: ${ marble_ui().page == Page::Edit },
                     size: ButtonSize::Compact,
                     width: 62,
                     height: 23,
@@ -1235,7 +1188,7 @@ fn build_widgets() {
                     pressed_color: Color::rgb(238, 172, 139),
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::remove_selected); }
+                ) on Tap { update_marble(ctx.world, MarbleModel::remove_selected); }
             }
             Row (
                 height: 34,
@@ -1250,11 +1203,11 @@ fn build_widgets() {
                     grow: 1.0,
                     height: 26,
                     font_size: 8,
-                    normal_color: Color::rgb(217, 248, 138),
+                    normal_color: ${ nav_color(marble_ui().page, Page::Play) },
                     pressed_color: Color::rgb(217, 248, 138),
-                    text_color: Color::rgb(48, 69, 41),
+                    text_color: ${ nav_text_color(marble_ui().page, Page::Play) },
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_page(Page::Play)); }
+                ) on Tap { update_marble(ctx.world, |model| model.set_page(Page::Play)); }
                 Button (
                     "EDIT",
                     id: "marble_nav_edit",
@@ -1262,11 +1215,11 @@ fn build_widgets() {
                     grow: 1.0,
                     height: 26,
                     font_size: 8,
-                    normal_color: Color::rgb(34, 47, 37),
+                    normal_color: ${ nav_color(marble_ui().page, Page::Edit) },
                     pressed_color: Color::rgb(217, 248, 138),
-                    text_color: TEXT,
+                    text_color: ${ nav_text_color(marble_ui().page, Page::Edit) },
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_page(Page::Edit)); }
+                ) on Tap { update_marble(ctx.world, |model| model.set_page(Page::Edit)); }
                 Button (
                     "SCENES",
                     id: "marble_nav_scenes",
@@ -1274,11 +1227,11 @@ fn build_widgets() {
                     grow: 1.0,
                     height: 26,
                     font_size: 8,
-                    normal_color: Color::rgb(34, 47, 37),
+                    normal_color: ${ nav_color(marble_ui().page, Page::Scenes) },
                     pressed_color: Color::rgb(217, 248, 138),
-                    text_color: TEXT,
+                    text_color: ${ nav_text_color(marble_ui().page, Page::Scenes) },
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_page(Page::Scenes)); }
+                ) on Tap { update_marble(ctx.world, |model| model.set_page(Page::Scenes)); }
                 Button (
                     "SETTINGS",
                     id: "marble_nav_settings",
@@ -1286,14 +1239,15 @@ fn build_widgets() {
                     grow: 1.0,
                     height: 26,
                     font_size: 8,
-                    normal_color: Color::rgb(34, 47, 37),
+                    normal_color: ${ nav_color(marble_ui().page, Page::Settings) },
                     pressed_color: Color::rgb(217, 248, 138),
-                    text_color: TEXT,
+                    text_color: ${ nav_text_color(marble_ui().page, Page::Settings) },
                     border_radius: 6
-                ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_page(Page::Settings)); }
+                ) on Tap { update_marble(ctx.world, |model| model.set_page(Page::Settings)); }
             }
             View (
                 id: "marble_inspector",
+                visible: ${ marble_ui().inspector },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -1336,7 +1290,7 @@ fn build_widgets() {
                             pressed_color: Color::rgb(217, 248, 138),
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_inspector(false)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.set_inspector(false)); }
                     }
                     Text (
                         "COLOR",
@@ -1354,7 +1308,7 @@ fn build_widgets() {
                             normal_color: Color::rgb(180, 234, 189),
                             pressed_color: Color::rgb(180, 234, 189),
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_color(0)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.set_color(0)); }
                         Button (
                             "",
                             size: ButtonSize::Custom,
@@ -1363,7 +1317,7 @@ fn build_widgets() {
                             normal_color: Color::rgb(198, 176, 239),
                             pressed_color: Color::rgb(198, 176, 239),
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_color(1)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.set_color(1)); }
                         Button (
                             "",
                             size: ButtonSize::Custom,
@@ -1372,7 +1326,7 @@ fn build_widgets() {
                             normal_color: Color::rgb(238, 217, 132),
                             pressed_color: Color::rgb(238, 217, 132),
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_color(2)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.set_color(2)); }
                         Button (
                             "",
                             size: ButtonSize::Custom,
@@ -1381,7 +1335,7 @@ fn build_widgets() {
                             normal_color: Color::rgb(238, 172, 139),
                             pressed_color: Color::rgb(238, 172, 139),
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_color(3)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.set_color(3)); }
                         Button (
                             "",
                             size: ButtonSize::Custom,
@@ -1390,7 +1344,7 @@ fn build_widgets() {
                             normal_color: Color::rgb(160, 210, 232),
                             pressed_color: Color::rgb(160, 210, 232),
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.set_color(4)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.set_color(4)); }
                     }
                     Row (height: 24, align: AlignItems::Center, column_gap: 6) {
                         Text (
@@ -1411,9 +1365,9 @@ fn build_widgets() {
                             pressed_color: Color::rgb(217, 248, 138),
                             text_color: TEXT,
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.adjust_pitch(-1)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.adjust_pitch(-1)); }
                         Text (
-                            "C5",
+                            text: ${ pitch_label(marble_ui().pitch) },
                             id: "marble_pitch",
                             grow: 1.0,
                             height: 18,
@@ -1431,7 +1385,7 @@ fn build_widgets() {
                             pressed_color: Color::rgb(217, 248, 138),
                             text_color: TEXT,
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, |model| model.adjust_pitch(1)); }
+                        ) on Tap { update_marble(ctx.world, |model| model.adjust_pitch(1)); }
                     }
                     Row (height: 24, align: AlignItems::Center, column_gap: 6) {
                         Text (
@@ -1443,7 +1397,7 @@ fn build_widgets() {
                             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                         )
                         Button (
-                            "MALLET",
+                            text: ${ marble_ui().timbre.label() },
                             id: "marble_timbre",
                             size: ButtonSize::Compact,
                             grow: 1.0,
@@ -1453,7 +1407,7 @@ fn build_widgets() {
                             pressed_color: Color::rgb(198, 176, 239),
                             text_color: TEXT,
                             border_radius: 5
-                        ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::cycle_timbre); }
+                        ) on Tap { update_marble(ctx.world, MarbleModel::cycle_timbre); }
                     }
                     Text (
                         "BOUNCE",
@@ -1467,11 +1421,11 @@ fn build_widgets() {
                         height: 20,
                         min: Fixed::from_ratio(7, 10),
                         max: Fixed::from_ratio(14, 10),
-                        value: Fixed::from_ratio(11, 10),
+                        value: ${ marble_ui().bounce },
                         track_color: Color::rgb(69, 87, 70),
                         fill_color: Color::rgb(217, 248, 138),
                         thumb_color: Color::rgb(225, 233, 214)
-                    ) on ValueChanged { MarbleNodes::update(ctx.world, |model| model.set_bounce(Fixed64::from_fixed(*new))); }
+                    ) on ValueChanged { update_marble(ctx.world, |model| model.set_bounce(Fixed64::from_fixed(*new))); }
                     Text (
                         "RADIUS",
                         height: 12,
@@ -1484,11 +1438,11 @@ fn build_widgets() {
                         height: 20,
                         min: Fixed::from_int(13),
                         max: Fixed::from_int(23),
-                        value: Fixed::from_int(18),
+                        value: ${ marble_ui().radius },
                         track_color: Color::rgb(69, 87, 70),
                         fill_color: Color::rgb(217, 248, 138),
                         thumb_color: Color::rgb(225, 233, 214)
-                    ) on ValueChanged { MarbleNodes::update(ctx.world, |model| model.set_radius(Fixed64::from_fixed(*new))); }
+                    ) on ValueChanged { update_marble(ctx.world, |model| model.set_radius(Fixed64::from_fixed(*new))); }
                 }
             }
         }
@@ -1504,62 +1458,21 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(board_view());
     app.world.insert_resource(MarbleModel::new());
+    let initial_ui = MarbleUiState::from_model(app.world.resource::<MarbleModel>().unwrap());
+    app.world
+        .insert_resource(MarbleUiSignal(Signal::new(initial_ui)));
     app.add_system(marble_tick_system::system());
     app.compose(parent, build_widgets);
-    let find = |id| {
-        app.world
-            .find_by_id(id)
-            .unwrap_or_else(|| panic!("missing {id}"))
-    };
-    let nodes = MarbleNodes {
-        board: find("marble_play_board"),
-        pause: find("marble_pause"),
-        record: find("marble_record"),
-        status: find("marble_status"),
-        counts: [find("marble_marble_count"), find("marble_pad_count")],
-        readout: find("marble_readout"),
-        properties: find("marble_properties"),
-        add: find("marble_add"),
-        remove: find("marble_remove"),
-        inspector: find("marble_inspector"),
-        bounce: find("marble_bounce"),
-        radius: find("marble_radius"),
-        pitch: find("marble_pitch"),
-        timbre: find("marble_timbre"),
-        nav: [
-            find("marble_nav_play"),
-            find("marble_nav_edit"),
-            find("marble_nav_scenes"),
-            find("marble_nav_settings"),
-        ],
-        scene_labels: [
-            find("marble_scene_0_name"),
-            find("marble_scene_0_sub"),
-            find("marble_scene_1_name"),
-            find("marble_scene_1_sub"),
-            find("marble_scene_2_name"),
-            find("marble_scene_2_sub"),
-        ],
-        setting_labels: [
-            find("marble_setting_gravity"),
-            find("marble_setting_bpm"),
-            find("marble_setting_trails"),
-            find("marble_setting_feedback"),
-        ],
-        setting_controls: [
-            find("marble_setting_gravity_control"),
-            find("marble_setting_bpm_control"),
-            find("marble_setting_trails_control"),
-            find("marble_setting_feedback_control"),
-        ],
-    };
-    app.world.insert_resource(nodes);
+    let board = app
+        .world
+        .find_by_id("marble_play_board")
+        .expect("Marble board");
+    app.world.insert_resource(MarbleBoardEntity(board));
     #[cfg(feature = "audio")]
     if let Some(audio) = app.world.resource_mut::<AudioBus>() {
         let _ = audio.set_master_gain(107);
         let _ = audio.set_muted(true);
     }
-    MarbleNodes::sync(&mut app.world);
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 320);
@@ -1568,7 +1481,7 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(
 mod tests {
     use super::*;
     use crate::ui::view::ViewRegistry;
-    use crate::ui::{Children, IdMap, UiScope};
+    use crate::ui::{Children, Hidden, IdMap, UiScope};
 
     fn fixture() -> World {
         let mut world = World::new();
@@ -1577,6 +1490,8 @@ mod tests {
         world.insert_resource(registry);
         world.insert_resource(IdMap::new());
         world.insert_resource(MarbleModel::new());
+        let initial_ui = MarbleUiState::from_model(world.resource::<MarbleModel>().unwrap());
+        world.insert_resource(MarbleUiSignal(Signal::new(initial_ui)));
         #[cfg(feature = "audio")]
         {
             let bus = AudioBus::<32>::new();
@@ -1587,51 +1502,8 @@ mod tests {
         let root = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, root);
         build_widgets(&mut cx);
-        let entity = world.find_by_id("marble_play_board").unwrap();
-        let find = |id| world.find_by_id(id).unwrap();
-        world.insert_resource(MarbleNodes {
-            board: entity,
-            pause: find("marble_pause"),
-            record: find("marble_record"),
-            status: find("marble_status"),
-            counts: [find("marble_marble_count"), find("marble_pad_count")],
-            readout: find("marble_readout"),
-            properties: find("marble_properties"),
-            add: find("marble_add"),
-            remove: find("marble_remove"),
-            inspector: find("marble_inspector"),
-            bounce: find("marble_bounce"),
-            radius: find("marble_radius"),
-            pitch: find("marble_pitch"),
-            timbre: find("marble_timbre"),
-            nav: [
-                find("marble_nav_play"),
-                find("marble_nav_edit"),
-                find("marble_nav_scenes"),
-                find("marble_nav_settings"),
-            ],
-            scene_labels: [
-                find("marble_scene_0_name"),
-                find("marble_scene_0_sub"),
-                find("marble_scene_1_name"),
-                find("marble_scene_1_sub"),
-                find("marble_scene_2_name"),
-                find("marble_scene_2_sub"),
-            ],
-            setting_labels: [
-                find("marble_setting_gravity"),
-                find("marble_setting_bpm"),
-                find("marble_setting_trails"),
-                find("marble_setting_feedback"),
-            ],
-            setting_controls: [
-                find("marble_setting_gravity_control"),
-                find("marble_setting_bpm_control"),
-                find("marble_setting_trails_control"),
-                find("marble_setting_feedback_control"),
-            ],
-        });
-        MarbleNodes::sync(&mut world);
+        let board = world.find_by_id("marble_play_board").unwrap();
+        world.insert_resource(MarbleBoardEntity(board));
         assert!(world.get::<Children>(root).is_some());
         world
     }
@@ -1642,6 +1514,98 @@ mod tests {
         assert!(world.query::<Text>().collect().len() >= 4);
         assert!(world.query::<Button>().collect().len() >= 6);
         assert_eq!(world.query::<MarbleBoard>().collect().len(), 1);
+    }
+
+    #[test]
+    fn ui_projection_follows_page_selection_and_scene_reset() {
+        let mut world = fixture();
+        let properties = world.find_by_id("marble_properties").unwrap();
+        let scene_label = world.find_by_id("marble_scene_0_name").unwrap();
+        let gravity = world.find_by_id("marble_setting_gravity_control").unwrap();
+        let bpm = world.find_by_id("marble_setting_bpm_control").unwrap();
+        let pitch = world.find_by_id("marble_pitch").unwrap();
+        assert!(world.has::<Hidden>(properties));
+        assert!(world.has::<Hidden>(scene_label));
+
+        update_marble(&mut world, |model| model.set_page(Page::Edit));
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(!world.has::<Hidden>(properties));
+
+        update_marble(&mut world, |model| model.adjust_pitch(1));
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        let selected_pitch = world
+            .resource::<MarbleModel>()
+            .unwrap()
+            .selected_pad()
+            .pitch;
+        assert_eq!(
+            world.get::<Text>(pitch).unwrap().resolve(&world),
+            pitch_label(selected_pitch)
+        );
+
+        update_marble(&mut world, |model| model.set_page(Page::Scenes));
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(world.has::<Hidden>(properties));
+        assert!(!world.has::<Hidden>(scene_label));
+
+        update_marble(&mut world, |model| model.reset_scene(2));
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(world.has::<Hidden>(scene_label));
+        assert_eq!(
+            world.get::<Slider>(gravity).unwrap().value,
+            THEMES[2].gravity.to_fixed()
+        );
+        assert_eq!(
+            world.get::<Slider>(bpm).unwrap().value,
+            Fixed::from_int(128)
+        );
+    }
+
+    #[test]
+    fn ui_projection_tracks_visual_only_hit_changes() {
+        let mut world = fixture();
+        let readout = world.find_by_id("marble_readout").unwrap();
+        update_marble(&mut world, |model| {
+            model.hits += 1;
+            ChangeSet::VISUAL
+        });
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(
+            world
+                .get::<Text>(readout)
+                .unwrap()
+                .resolve(&world)
+                .contains("1 HITS")
+        );
+    }
+
+    #[test]
+    fn ui_projection_updates_switches_without_widget_events() {
+        let mut world = fixture();
+        let trails = world.find_by_id("marble_setting_trails_control").unwrap();
+        assert!(world.get::<Switch>(trails).unwrap().on);
+        update_marble(&mut world, MarbleModel::toggle_trails);
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(!world.get::<Switch>(trails).unwrap().on);
+        assert!(!world.resource::<MarbleModel>().unwrap().trails);
+    }
+
+    #[test]
+    fn nav_tap_updates_model_and_bound_page() {
+        let mut world = fixture();
+        let edit = world.find_by_id("marble_nav_edit").unwrap();
+        let properties = world.find_by_id("marble_properties").unwrap();
+        crate::input::event::bubble_dispatch(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: edit,
+            },
+        );
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert_eq!(world.resource::<MarbleModel>().unwrap().page, Page::Edit);
+        assert!(!world.has::<Hidden>(properties));
     }
 
     #[cfg(feature = "audio")]

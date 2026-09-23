@@ -10,9 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
+- **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 
 ### Fixed
 
+- **Marble Play state display.** Page controls, pad properties, counts, and settings follow a compact model projection without a hand-written widget synchronization pass; collision hit counts update with visual-only physics changes.
 - **Web Gallery viewport input.** Retained layout geometry is invalidated when the browser viewport or safe area changes, keeping pointer hit testing aligned after resize.
 - **Web Gallery audio controls.** External and in-canvas mute state stay synchronized, browser audio activation reports its pending state, and remembered preferences wait for a trusted interaction before playback.
 

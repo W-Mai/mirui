@@ -441,6 +441,8 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "paragraph" if widget == "Text" => Some("Paragraph"),
         "path" if widget == "Text" => Some("TextPath"),
         "value" if widget == "ProgressBar" => Some("ProgressValue"),
+        "value" if widget == "Slider" => Some("SliderValue"),
+        "on" if widget == "Switch" => Some("SwitchOn"),
         _ => None,
     }
 }
