@@ -33,8 +33,8 @@ rustup target add riscv32imc-unknown-none-elf
 cargo install espflash
 ```
 
-For the workspace template that mixes desktop and embedded crates, the
-above two are enough — no nightly required.
+The desktop and ESP32-C3 targets in the workspace template use stable
+Rust; browser and mobile targets need their respective toolchains.
 
 ## Desktop SDL
 
@@ -201,7 +201,9 @@ which to override for a custom backend.
 When the same UI code should drive both a desktop window and an MCU
 panel, put the UI in a shared library crate and let one binary crate
 per target consume it. mirui ships a Cargo workspace template that
-sets this up; you can also build it by hand.
+sets this up; you can also build it by hand. The layout below shows
+the desktop and ESP32-C3 targets only. The generated workspace also
+includes WebAssembly, Android, and iOS targets.
 
 Layout:
 
@@ -228,10 +230,13 @@ Root `Cargo.toml`:
 [workspace]
 resolver = "2"
 members = ["app", "targets/*"]
+default-members = ["app", "targets/desktop"]
 ```
 
 The `targets/*` glob means a new target crate dropped into
 `targets/<name>/` is picked up without editing the workspace manifest.
+Plain `cargo check` at the root checks the shared app and desktop target;
+build each other target with its own platform toolchain and target triple.
 
 `app/Cargo.toml`:
 
@@ -330,7 +335,7 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/desk
 # Single-target ESP32-C3
 cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/esp32c3 --name hello-mirui-esp32c3
 
-# Multi-target Cargo workspace (app + targets/desktop + targets/esp32c3)
+# Multi-target Cargo workspace (shared app + desktop, WebAssembly, ESP32-C3, Android, and iOS targets)
 cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name my-app
 
 # Browser Canvas 2D
@@ -343,7 +348,7 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/andr
 cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios --name hello-mirui-ios
 ```
 
-Each template asks for the project name and the mirui version, fills the Cargo manifests and source files, and produces a buildable project. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
+`--name` supplies the project name. The generator asks for the mirui version and, where applicable, the rendering backend, then fills the Cargo manifests and source files. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
 
 ## Where to go next
 
