@@ -299,8 +299,8 @@ invocation.
 The `android` and `ios` generator templates ask for a rendering path. `wgpu` submits mirui draw commands directly to the platform WGPU surface. `sw` retains one caller-budgeted RGBA framebuffer, rasterizes with the software backend, uploads dirty regions, and uses WGPU only for presentation. Both paths keep the `App`, ECS world, and reactive state alive across native suspend and resume while recreating the platform surface.
 
 ```bash
-cargo generate W-Mai/mirui-templates android --name hello-mirui-android
-cargo generate W-Mai/mirui-templates ios --name hello-mirui-ios
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/android --name hello-mirui-android
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios --name hello-mirui-ios
 ```
 
 Android uses a NativeActivity entry point and builds for `aarch64-linux-android` through `cargo-apk`. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
@@ -324,23 +324,23 @@ cargo install cargo-generate
 Generate a project from any of the templates:
 
 ```bash
-# Single-target SDL
-cargo generate W-Mai/mirui-templates sdl-only --name hello-mirui
+# Desktop; choose WGPU or SDL when prompted
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/desktop --name hello-mirui
 
 # Single-target ESP32-C3
-cargo generate W-Mai/mirui-templates esp32c3 --name hello-mirui-esp32c3
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/esp32c3 --name hello-mirui-esp32c3
 
 # Multi-target Cargo workspace (app + targets/desktop + targets/esp32c3)
-cargo generate W-Mai/mirui-templates workspace --name my-app
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/workspace --name my-app
 
 # Browser Canvas 2D
-cargo generate W-Mai/mirui-templates wasm --name hello-mirui-web
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/wasm --name hello-mirui-web
 
 # Android NativeActivity; choose WGPU or software rendering when prompted
-cargo generate W-Mai/mirui-templates android --name hello-mirui-android
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/android --name hello-mirui-android
 
 # iPhone and iPad Xcode project; choose WGPU or software rendering when prompted
-cargo generate W-Mai/mirui-templates ios --name hello-mirui-ios
+cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios --name hello-mirui-ios
 ```
 
 Each template asks for the project name and the mirui version, fills the Cargo manifests and source files, and produces a buildable project. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
