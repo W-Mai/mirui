@@ -88,14 +88,13 @@ impl World {
         }
     }
 
-    /// Sweep `Dirty` from the subtree at `root`. Call before hiding the
-    /// subtree so the marker doesn't strand once the walker stops
-    /// descending through it.
+    /// Sweep layout and visual dirty markers from a subtree before hiding it.
     pub fn clear_subtree_dirty(&mut self, root: Entity) {
         use crate::ui::Children;
         let mut stack = alloc::vec![root];
         while let Some(entity) = stack.pop() {
             self.remove::<Dirty>(entity);
+            self.remove::<VisualDirty>(entity);
             if let Some(children) = self.get::<Children>(entity) {
                 stack.extend(children.0.iter().copied());
             }

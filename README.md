@@ -248,6 +248,7 @@ Plugins package cross-cutting behaviour. Each plugin's docstring lists what it i
 | `PerfReportPlugin` | resource: `PerfAccum`; hook: `post_render` |
 | `FpsSummaryPlugin` | hook: `post_render` |
 | `InputFeedbackPlugin` | resources: `InputFeedback`, `InputFeedbackInput`; systems: cursor + rotary feedback; views: cursor (pri 90), rotary (pri 91); entities: `OverlayCursor` (lazy), `OverlayRotary` (eager); hooks: `on_event`, `pre_render` |
+| `AudioPlugin` (`audio` feature) | resources: `AudioBus<N>`, `AudioStateSignal`; hooks: `on_event`, `pre_render`, suspend, resume, quit |
 
 Custom plugin:
 

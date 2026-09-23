@@ -137,6 +137,10 @@ if let Some(audio) = app.world.resource_mut::<AudioBus>() {
 }
 ```
 
+`AudioPlugin` also inserts `AudioStateSignal`. Clone this read-only resource
+into a reactive `ui!` binding to display mute and output status; the bus
+remains the source of truth for commands and control changes.
+
 ## ESP32-C3 embedded
 
 The embedded path takes a hardware kit, an SPI display, and a USB cable.

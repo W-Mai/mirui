@@ -70,8 +70,9 @@ ui! {
 ```
 
 When `label` changes, only that attribute updates — the widget is not
-rebuilt. Reactive binding is supported on `text`, `path`, `bg_color`,
-`text_color`, `width`, and `height`.
+rebuilt. Reactive binding is supported on `text`, `path`, `visible`,
+`bg_color`, `text_color`, `render_key`, `font_size`, `direction`, `width`,
+`height`, `Button.normal_color`, `Text.paragraph`, and `ProgressBar.value`.
 
 `attr: $signal` is shorthand for `attr: ${ signal.get() }`.
 
@@ -200,10 +201,10 @@ lighter for plain append/drop-tail.
 ## The flush model
 
 Setting a signal does not update widgets immediately. It marks subscribers
-dirty and enqueues them. Once per frame, after systems and before render,
+dirty and enqueues them. Before layout, after systems and plugin updates,
 `flush_signal_dirty` drains the queue: dirty effects re-run, dirty widgets
-get re-rendered. Reactivity is tick-driven, consistent with the rest of the
-framework — there is no background thread.
+get re-rendered. This also happens for an explicit `App::render` call; there
+is no background thread.
 
 A reactive binding's first run applies its initial value at construction
 (inside the `ui!` build), so the first frame already shows the correct

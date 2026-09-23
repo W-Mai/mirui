@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
+
 ### Fixed
 
 - **Web Gallery viewport input.** Retained layout geometry is invalidated when the browser viewport or safe area changes, keeping pointer hit testing aligned after resize.

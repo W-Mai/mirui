@@ -82,7 +82,18 @@ pub fn apply_to_world<P: Property>(
     match change {
         PropertyChange::Unchanged => {}
         PropertyChange::Visual => world.invalidate_visual(entity),
-        PropertyChange::Layout => world.invalidate(entity),
+        PropertyChange::Layout => {
+            if world.has::<crate::ui::Hidden>(entity) {
+                if let Some(parent) = world
+                    .get::<crate::ui::Parent>(entity)
+                    .map(|parent| parent.0)
+                {
+                    world.invalidate(parent);
+                }
+            } else {
+                world.invalidate(entity);
+            }
+        }
     }
     change
 }
@@ -93,6 +104,7 @@ pub mod prop {
 
     pub struct TextPath;
     pub struct TextContent;
+    pub struct Visible;
     pub struct BackgroundColor;
     pub struct TextColor;
     pub struct ButtonNormalColor;
@@ -107,6 +119,7 @@ pub mod prop {
     pub struct MinHeight;
     pub struct MaxHeight;
     pub struct Padding;
+    pub struct ProgressValue;
     pub struct RowGap;
     pub struct ColumnGap;
     pub struct Left;
@@ -123,6 +136,32 @@ pub mod prop {
                 world.insert(entity, crate::ui::widgets::Text::label(value));
             } else {
                 world.insert(entity, crate::ui::widgets::Text::from(value));
+            }
+            PropertyChange::Layout
+        }
+    }
+
+    impl Property for Visible {
+        type Value = bool;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            let currently_visible = world.get::<crate::ui::Hidden>(entity).is_none();
+            if currently_visible == value {
+                return PropertyChange::Unchanged;
+            }
+            world.remove_resource::<crate::ui::render_system::LayoutSnapshot>();
+            if value {
+                world.remove::<crate::ui::Hidden>(entity);
+                world.mark_subtree_dirty(entity);
+            } else {
+                if let Some(rect) = world
+                    .get::<crate::ui::ComputedRect>(entity)
+                    .map(|rect| rect.0)
+                {
+                    world.invalidate_rect(rect);
+                }
+                world.insert(entity, crate::ui::Hidden);
+                world.clear_subtree_dirty(entity);
             }
             PropertyChange::Layout
         }
@@ -178,6 +217,22 @@ pub mod prop {
             } else {
                 return PropertyChange::Unchanged;
             }
+            PropertyChange::Visual
+        }
+    }
+
+    impl Property for ProgressValue {
+        type Value = f32;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            let Some(progress) = world.get_mut::<crate::ui::widgets::ProgressBar>(entity) else {
+                return PropertyChange::Unchanged;
+            };
+            let value = value.clamp(0.0, 1.0);
+            if (progress.value - value).abs() <= f32::EPSILON {
+                return PropertyChange::Unchanged;
+            }
+            progress.value = value;
             PropertyChange::Visual
         }
     }
@@ -368,9 +423,9 @@ mod tests {
     use super::*;
     use crate::core::reactive::{Signal, flush_signal_dirty};
     use crate::types::Dimension;
-    use crate::ui::dirty::Dirty;
-    use crate::ui::widgets::{Button, ParagraphStyle, Text};
-    use crate::ui::{Children, Widget};
+    use crate::ui::dirty::{Dirty, VisualDirty};
+    use crate::ui::widgets::{Button, ParagraphStyle, ProgressBar, Text};
+    use crate::ui::{Children, Parent, Widget};
 
     #[test]
     fn render_key_invalidates_visuals_only_when_it_changes() {
@@ -444,6 +499,46 @@ mod tests {
         assert_eq!(layout.width, Dimension::from(240));
         assert_eq!(layout.height, Dimension::from(120));
         assert_eq!(layout.min_height, Dimension::from(80));
+    }
+
+    #[test]
+    fn reactive_projection_properties_update_semantic_widgets() {
+        let mut world = World::new();
+        let parent = world.spawn_empty();
+        world.insert(parent, Widget);
+        let visible = world.spawn_empty();
+        world.insert(visible, Widget);
+        world.insert(visible, Parent(parent));
+        let child = world.spawn_empty();
+        world.insert(child, Widget);
+        world.insert(child, Dirty);
+        world.insert(child, VisualDirty);
+        world.insert(visible, Children(alloc::vec![child]));
+        assert_eq!(
+            apply_to_world::<prop::Visible>(&mut world, visible, false),
+            PropertyChange::Layout
+        );
+        assert!(world.has::<crate::ui::Hidden>(visible));
+        assert!(!world.has::<Dirty>(visible));
+        assert!(!world.has::<Dirty>(child));
+        assert!(!world.has::<VisualDirty>(child));
+        assert!(world.has::<Dirty>(parent));
+        assert_eq!(
+            apply_to_world::<prop::Visible>(&mut world, visible, true),
+            PropertyChange::Layout
+        );
+        assert!(!world.has::<crate::ui::Hidden>(visible));
+        assert!(world.has::<Dirty>(visible));
+        assert!(world.has::<Dirty>(child));
+
+        let progress = world.spawn_empty();
+        world.insert(progress, Widget);
+        world.insert(progress, ProgressBar::new());
+        assert_eq!(
+            apply_to_world::<prop::ProgressValue>(&mut world, progress, 0.5),
+            PropertyChange::Visual
+        );
+        assert_eq!(world.get::<ProgressBar>(progress).unwrap().value, 0.5);
     }
 
     #[test]

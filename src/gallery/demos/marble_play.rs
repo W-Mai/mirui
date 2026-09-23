@@ -3,7 +3,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "audio")]
-use crate::audio::{AudioBus, AudioOutputState, AudioTone, Waveform};
+use crate::audio::{AudioBus, AudioOutputState, AudioState, AudioStateSignal, AudioTone, Waveform};
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::fit_logical_canvas;
 #[cfg(feature = "audio")]
@@ -35,7 +35,6 @@ struct MarbleBoard;
 struct MarbleNodes {
     board: Entity,
     pause: Entity,
-    audio: Entity,
     record: Entity,
     status: Entity,
     counts: [Entity; 2],
@@ -175,7 +174,6 @@ impl MarbleNodes {
             }
             world.invalidate(entity);
         }
-        Self::sync_audio(world);
         for (entity, text) in nodes.counts.into_iter().zip(counts) {
             if let Some(label) = world.get_mut::<Text>(entity) {
                 label.set_content(text);
@@ -264,42 +262,40 @@ impl MarbleNodes {
             world.invalidate_visual(entity);
         }
     }
+}
 
-    fn sync_audio(world: &mut World) {
-        let Some(nodes) = world.resource::<Self>().copied() else {
-            return;
+#[cfg(feature = "audio")]
+fn audio_state() -> Option<AudioState> {
+    crate::core::reactive::with_world(|world| {
+        world
+            .resource::<AudioStateSignal>()
+            .map(AudioStateSignal::get)
+    })
+    .flatten()
+}
+
+fn audio_label() -> &'static str {
+    #[cfg(feature = "audio")]
+    if let Some(state) = audio_state() {
+        return if state.muted {
+            "SOUND"
+        } else if state.output == AudioOutputState::Ready {
+            "ON"
+        } else {
+            "WAIT"
         };
-        #[cfg(feature = "audio")]
-        let audio_state = world
-            .resource::<AudioBus>()
-            .map(|audio| {
-                (
-                    true,
-                    audio.is_muted(),
-                    audio.state() == AudioOutputState::Ready,
-                )
-            })
-            .unwrap_or((false, false, false));
-        #[cfg(not(feature = "audio"))]
-        let audio_state = (false, false, false);
-        for entity in [nodes.audio, nodes.record] {
-            if audio_state.0 {
-                world.remove::<Hidden>(entity);
-            } else if !world.has::<Hidden>(entity) {
-                world.insert(entity, Hidden);
-            }
-            world.invalidate(entity);
-        }
-        if let Some(label) = world.get_mut::<Text>(nodes.audio) {
-            label.set_content(if audio_state.1 {
-                "SOUND"
-            } else if audio_state.2 {
-                "ON"
-            } else {
-                "WAIT"
-            });
-        }
-        world.invalidate(nodes.audio);
+    }
+    "SOUND"
+}
+
+fn audio_visible() -> bool {
+    #[cfg(feature = "audio")]
+    {
+        audio_state().is_some()
+    }
+    #[cfg(not(feature = "audio"))]
+    {
+        false
     }
 }
 
@@ -352,6 +348,8 @@ pub fn audio_bank() -> &'static crate::audio::AudioBank {
 }
 
 fn toggle_audio(world: &mut World) {
+    #[cfg(not(feature = "audio"))]
+    let _ = world;
     #[cfg(feature = "audio")]
     {
         let preview = world.resource::<MarbleModel>().map(|model| {
@@ -366,7 +364,6 @@ fn toggle_audio(world: &mut World) {
             }
         }
     }
-    MarbleNodes::sync(world);
 }
 
 /// Apply a mute change coming from the host shell. The in-canvas control also
@@ -374,7 +371,7 @@ fn toggle_audio(world: &mut World) {
 /// makes external and internal controls observable in the same way.
 pub fn set_external_audio(world: &mut World, muted: bool) {
     #[cfg(not(feature = "audio"))]
-    let _ = muted;
+    let _ = (world, muted);
     #[cfg(feature = "audio")]
     if let Some(audio) = world.resource_mut::<AudioBus>() {
         let was_muted = audio.is_muted();
@@ -390,7 +387,6 @@ pub fn set_external_audio(world: &mut World, muted: bool) {
             }
         }
     }
-    MarbleNodes::sync_audio(world);
 }
 
 const MUTED: Color = Color::rgb(137, 156, 123);
@@ -871,7 +867,6 @@ fn board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 fn marble_tick_system(world: &mut World) {
     let elapsed = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
     MarbleNodes::update(world, |model| model.advance_ms(elapsed));
-    MarbleNodes::sync_audio(world);
 }
 
 fn symmetric_padding(vertical: i32, horizontal: i32) -> Padding {
@@ -919,7 +914,6 @@ fn build_widgets() {
                     border_radius: 6
                 ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::toggle_pause); }
                 Button (
-                    "SOUND",
                     id: "marble_audio",
                     size: ButtonSize::Compact,
                     width: 50,
@@ -928,6 +922,8 @@ fn build_widgets() {
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
+                    text: ${ audio_label() },
+                    visible: ${ audio_visible() },
                     border_radius: 6
                 ) on Tap { toggle_audio(ctx.world); }
                 Button (
@@ -940,6 +936,7 @@ fn build_widgets() {
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(238, 172, 139),
                     text_color: TEXT,
+                    visible: ${ audio_visible() },
                     border_radius: 6
                 ) on Tap { MarbleNodes::update(ctx.world, MarbleModel::toggle_recording); }
                 Button (
@@ -1517,7 +1514,6 @@ where
     let nodes = MarbleNodes {
         board: find("marble_play_board"),
         pause: find("marble_pause"),
-        audio: find("marble_audio"),
         record: find("marble_record"),
         status: find("marble_status"),
         counts: [find("marble_marble_count"), find("marble_pad_count")],
@@ -1581,6 +1577,13 @@ mod tests {
         world.insert_resource(registry);
         world.insert_resource(IdMap::new());
         world.insert_resource(MarbleModel::new());
+        #[cfg(feature = "audio")]
+        {
+            let bus = AudioBus::<32>::new();
+            let state = AudioState::from_bus(&bus);
+            world.insert_resource(bus);
+            world.insert_resource(AudioStateSignal::new(state));
+        }
         let root = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, root);
         build_widgets(&mut cx);
@@ -1589,7 +1592,6 @@ mod tests {
         world.insert_resource(MarbleNodes {
             board: entity,
             pause: find("marble_pause"),
-            audio: find("marble_audio"),
             record: find("marble_record"),
             status: find("marble_status"),
             counts: [find("marble_marble_count"), find("marble_pad_count")],
@@ -1646,20 +1648,24 @@ mod tests {
     #[test]
     fn audio_display_tracks_external_bus_changes() {
         let mut world = fixture();
-        world.insert_resource(AudioBus::<32>::new());
-        MarbleNodes::sync_audio(&mut world);
         let audio = world.find_by_id("marble_audio").unwrap();
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(world.get::<Hidden>(audio).is_none());
         assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "WAIT");
 
         world
             .resource_mut::<AudioBus>()
             .unwrap()
             .set_state(AudioOutputState::Ready);
-        MarbleNodes::sync_audio(&mut world);
+        let state = AudioState::from_bus(world.resource::<AudioBus<32>>().unwrap());
+        world.resource::<AudioStateSignal>().unwrap().publish(state);
+        crate::core::reactive::flush_signal_dirty(&mut world);
         assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "ON");
 
         world.resource_mut::<AudioBus>().unwrap().set_muted(true);
-        MarbleNodes::sync_audio(&mut world);
+        let state = AudioState::from_bus(world.resource::<AudioBus<32>>().unwrap());
+        world.resource::<AudioStateSignal>().unwrap().publish(state);
+        crate::core::reactive::flush_signal_dirty(&mut world);
         assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "SOUND");
     }
 

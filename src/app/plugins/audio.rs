@@ -1,6 +1,8 @@
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
-use crate::audio::{AudioBank, AudioBus, AudioOutputState, AudioSink};
+use crate::audio::{
+    AudioBank, AudioBus, AudioOutputState, AudioSink, AudioState, AudioStateSignal,
+};
 use crate::ecs::World;
 use crate::surface::{InputEvent, Surface};
 
@@ -8,6 +10,7 @@ use crate::surface::{InputEvent, Surface};
 ///
 /// **Inserts**
 /// - resource: `AudioBus<N>`
+/// - resource: `AudioStateSignal`
 /// - hooks:    `on_event` / `pre_render` / `on_suspend` / `on_resume` / `on_quit`
 pub struct AudioPlugin<S: AudioSink, const N: usize = 32> {
     sink: S,
@@ -29,12 +32,23 @@ impl<S: AudioSink, const N: usize> AudioPlugin<S, N> {
         if let Some(bus) = world.resource_mut::<AudioBus<N>>() {
             bus.record_failure();
         }
+        Self::publish_state(world);
+    }
+
+    fn publish_state(world: &World) {
+        let Some(snapshot) = world.resource::<AudioBus<N>>().map(AudioState::from_bus) else {
+            return;
+        };
+        if let Some(signal) = world.resource::<AudioStateSignal>() {
+            signal.publish(snapshot);
+        }
     }
 
     fn sync_state(&self, world: &mut World) {
         if let Some(bus) = world.resource_mut::<AudioBus<N>>() {
             bus.set_state(self.sink.state());
         }
+        Self::publish_state(world);
     }
 
     fn unlock_if_needed(&mut self, world: &mut World) {
@@ -65,6 +79,12 @@ where
             bus.set_state(self.sink.state());
         }
         app.world.insert_resource(bus);
+        let snapshot = app
+            .world
+            .resource::<AudioBus<N>>()
+            .map(AudioState::from_bus)
+            .expect("AudioPlugin inserts its bus before publishing state");
+        app.world.insert_resource(AudioStateSignal::new(snapshot));
     }
 
     fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
@@ -135,6 +155,7 @@ mod tests {
     use super::*;
     use crate::app::SwRendererFactory;
     use crate::audio::{AudioCommand, AudioCue, CueId, NoteEvent, Score, Waveform};
+    use crate::core::reactive::Effect;
     use crate::surface::framebuf::FramebufSurface;
     use crate::types::{Fixed, PhysicalRect};
 
@@ -256,5 +277,25 @@ mod tests {
         app.notify_host_interaction();
         assert_eq!(trace.borrow().unlocks, 1);
         assert_eq!(trace.borrow().commands, 0);
+    }
+
+    #[test]
+    fn render_publishes_audio_state_before_layout() {
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        let mut app = app();
+        app.with_default_widgets();
+        app.add_plugin(AudioPlugin::<_, 4>::with_capacity(MockSink(trace), &BANK));
+        let state = app.world.resource::<AudioStateSignal>().unwrap().clone();
+        let observed = Rc::new(RefCell::new(AudioOutputState::Starting));
+        let observed_for_effect = Rc::clone(&observed);
+        let _effect = Effect::new(move || {
+            *observed_for_effect.borrow_mut() = state.get().output;
+        });
+
+        let _root = app.spawn_root().id();
+        app.notify_host_interaction();
+        app.render().unwrap();
+
+        assert_eq!(*observed.borrow(), AudioOutputState::Ready);
     }
 }

@@ -429,6 +429,7 @@ fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
 fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
         "text" => Some("TextContent"),
+        "visible" => Some("Visible"),
         "bg_color" => Some("BackgroundColor"),
         "text_color" => Some("TextColor"),
         "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
@@ -439,6 +440,7 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "height" => Some("Height"),
         "paragraph" if widget == "Text" => Some("Paragraph"),
         "path" if widget == "Text" => Some("TextPath"),
+        "value" if widget == "ProgressBar" => Some("ProgressValue"),
         _ => None,
     }
 }

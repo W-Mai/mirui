@@ -528,6 +528,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
+        crate::core::reactive::flush_signal_dirty(&mut self.world);
     }
 
     /// Render one frame
@@ -803,7 +804,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.systems");
             self.systems.run_all(&mut self.world);
         }
-        crate::core::reactive::flush_signal_dirty(&mut self.world);
         self.snapshot_system_perf();
         let systems_end = self.clock_ns();
 

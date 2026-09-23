@@ -14,8 +14,6 @@ use alloc::vec;
 
 pub const VIEWPORT: (u16, u16) = (128, 128);
 
-struct CompactSlider;
-struct CompactProgress;
 struct CompactTheme(Theme);
 
 const ROW_HEIGHT: i32 = 12;
@@ -36,25 +34,6 @@ fn bitmap_label(align: TextAlign) -> ParagraphStyle {
     }
 }
 
-#[mirui_macros::system]
-fn sync_progress(world: &mut World) {
-    let value = world
-        .query::<CompactSlider>()
-        .iter()
-        .find_map(|(entity, _)| world.get::<Slider>(entity))
-        .map(Slider::ratio);
-    let Some(value) = value else { return };
-    world.for_each_stable::<CompactProgress>(|world, entity| {
-        let value = value.to_f32();
-        if let Some(progress) = world.get_mut::<ProgressBar>(entity)
-            && (progress.value - value).abs() > 0.001
-        {
-            progress.value = value;
-            world.invalidate(entity);
-        }
-    });
-}
-
 fn bind_row(world: &mut World, entity: Entity, index: u32) {
     let Some(label) = world
         .get::<Children>(entity)
@@ -73,6 +52,8 @@ pub fn build_widgets() {
     if cx.world_mut().resource::<IdMap>().is_none() {
         cx.world_mut().insert_resource(IdMap::new());
     }
+    let progress = Signal::new(Fixed::from_ratio(62, 100));
+    let progress_from_slider = progress.clone();
 
     ui! {
         View (
@@ -304,18 +285,18 @@ pub fn build_widgets() {
                             width: Dimension::percent(100),
                             height: 10,
                             min: Fixed::ZERO,
-                            max: Fixed::from_int(100)
-                        ) [
-                            CompactSlider,
-                        ]
+                            max: Fixed::from_int(100),
+                            value: Fixed::from_int(62)
+                        ) on ValueChanged {
+                            progress_from_slider.set(*new / Fixed::from_int(100));
+                        }
                         ProgressBar (
                             id: "compact_widgets_progress",
                             width: Dimension::percent(100),
                             height: 5,
-                            border_radius: 2
-                        ) [
-                            CompactProgress,
-                        ]
+                            border_radius: 2,
+                            value: ${ progress.get().to_f32() }
+                        )
                         Row (grow: 1.0, align: AlignItems::Center, column_gap: 5) {
                             Button (
                                 size: ButtonSize::Custom,
@@ -473,18 +454,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_system(sync_progress::system());
     app.compose(parent, build_widgets);
-
-    let slider = app
-        .world
-        .find_by_id("compact_widgets_slider")
-        .expect("compact slider");
-    app.world
-        .get_mut::<Slider>(slider)
-        .expect("slider component")
-        .set_ratio(Fixed::from_ratio(62, 100));
-    sync_progress(&mut app.world);
 }
 
 fn automation(world: &World) -> Option<SimTimeline> {
@@ -592,6 +562,43 @@ mod tests {
                 .as_slice()
                 .iter()
                 .any(|byte| *byte != 0),
+        );
+    }
+
+    #[test]
+    fn compact_progress_tracks_slider_events_without_polling() {
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        install(&mut app, root);
+        app.set_root(root);
+        app.render().unwrap();
+
+        let slider = app.world.find_by_id("compact_widgets_slider").unwrap();
+        let progress = app.world.find_by_id("compact_widgets_progress").unwrap();
+        let old = app.world.get::<Slider>(slider).unwrap().value;
+        let new = Fixed::from_int(25);
+        app.world.get_mut::<Slider>(slider).unwrap().value = new;
+        let callback = app
+            .world
+            .get::<crate::ui::widgets::slider::SliderHandler>(slider)
+            .unwrap()
+            .on_event
+            .clone_out();
+        callback.call(
+            &mut app.world,
+            slider,
+            &crate::ui::widgets::slider::SliderEvent::ValueChanged { new, old },
+        );
+        flush_signal_dirty(&mut app.world);
+
+        assert_ne!(
+            app.world.get::<Slider>(slider).unwrap().ratio(),
+            Fixed::from_ratio(62, 100),
+        );
+        assert_eq!(
+            app.world.get::<ProgressBar>(progress).unwrap().value,
+            app.world.get::<Slider>(slider).unwrap().ratio().to_f32(),
         );
     }
 
