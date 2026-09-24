@@ -2,18 +2,14 @@ use crate::ecs::{Entity, World};
 
 /// The single value every `ui!` macro invocation reads from to spawn widgets.
 ///
-/// A `UiScope` bundles the two pieces of framework state each widget needs
-/// to attach itself to a running app — the ECS `World` it lives in and the
-/// `Entity` it should be parented to. User code almost never constructs one
-/// by hand; the `#[compose]` attribute injects it as a `cx` parameter, and
-/// then the `ui!` macro reads `cx.world_mut()` / `cx.parent()` under the hood.
-///
-/// Later releases can grow the bundle with theme, clock, id map, or animation
-/// handles without changing a single user-visible function signature — that
-/// extension path is the reason the type exists.
+/// A `UiScope` holds the ECS `World` and parent `Entity` used to attach widgets.
+/// It also activates that World's reactive owner for the scope's lifetime.
+/// The `#[compose]` attribute injects it as `cx`, which `ui!` uses for widget
+/// creation.
 pub struct UiScope<'w> {
     world: &'w mut World,
     parent: Entity,
+    _owner_scope: crate::core::reactive::OwnerGuard,
 }
 
 impl<'w> UiScope<'w> {
@@ -24,7 +20,12 @@ impl<'w> UiScope<'w> {
     /// Later widgets read through the injected `cx` parameter instead of
     /// touching this constructor themselves.
     pub fn new(world: &'w mut World, parent: Entity) -> Self {
-        Self { world, parent }
+        let scope = crate::core::reactive::OwnerGuard::enter(world);
+        Self {
+            world,
+            parent,
+            _owner_scope: scope,
+        }
     }
 
     #[doc(hidden)]
@@ -111,9 +112,11 @@ impl<'w> UiScope<'w> {
     where
         'w: 'a,
     {
+        let scope = crate::core::reactive::OwnerGuard::enter(self.world);
         UiScope {
             world: self.world,
             parent: new_parent,
+            _owner_scope: scope,
         }
     }
 }
@@ -126,10 +129,27 @@ mod tests {
     fn scope_holds_world_and_parent() {
         let mut world = World::new();
         let parent = world.spawn_empty();
+        let world_id = world.id();
         let mut cx = UiScope::new(&mut world, parent);
+        assert_eq!(crate::core::reactive::current_world_id(), Some(world_id));
+        assert!(crate::core::reactive::with_world(|_| ()).is_none());
         assert_eq!(cx.parent(), parent);
         let child = cx.world_mut().spawn_empty();
         assert!(cx.world_mut().is_alive(child));
+        drop(cx);
+        assert_eq!(crate::core::reactive::current_world_id(), None);
+    }
+
+    #[test]
+    fn owner_scope_restores_after_composition_unwinds() {
+        let mut world = World::new();
+        let parent = world.spawn_empty();
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _scope = UiScope::new(&mut world, parent);
+            panic!("composition unwind");
+        }));
+        assert!(failed.is_err());
+        assert_eq!(crate::core::reactive::current_world_id(), None);
     }
 
     #[test]

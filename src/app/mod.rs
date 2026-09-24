@@ -534,6 +534,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Render one frame
     #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
         self.prepare_render(transform);
@@ -668,6 +669,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         if self.suspended {
             // Fan-out plugin on_event while suspended so AutoSuspendOnFocus-style
             // plugins can write SuspendRequest::Resume in response to lifecycle events.
@@ -882,6 +884,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Render only dirty regions. Falls back to full render if no dirty tracking.
     #[mirui::trace_fn("frame.dirty")]
     pub fn render_dirty(&mut self) -> Result<(), crate::render::RenderError> {
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
         self.prepare_render(transform);

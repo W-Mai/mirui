@@ -34,6 +34,7 @@ struct Reactive {
     // non-null only while an effect runs; lets a Fn() closure reach the World
     world: *mut World,
     world_id: Option<WorldId>,
+    borrowed_worlds: [Option<WorldId>; 8],
     dirty_widgets: VecDeque<Entity>,
     dirty_visual_widgets: VecDeque<Entity>,
     dirty_effects: VecDeque<EffectId>,
@@ -50,6 +51,7 @@ impl Reactive {
             scope: None,
             world: core::ptr::null_mut(),
             world_id: None,
+            borrowed_worlds: [None; 8],
             dirty_widgets: VecDeque::new(),
             dirty_visual_widgets: VecDeque::new(),
             dirty_effects: VecDeque::new(),
@@ -109,15 +111,25 @@ fn current_scope() -> Option<Subscriber> {
     with_reactive(|r| r.scope)
 }
 
+#[cfg(test)]
+pub(crate) fn current_world_id() -> Option<WorldId> {
+    with_reactive(|r| r.world_id)
+}
+
+struct ScopeGuard(Option<Subscriber>);
+
+impl Drop for ScopeGuard {
+    fn drop(&mut self) {
+        with_reactive(|r| r.scope = self.0);
+    }
+}
+
 /// Run `f` with `scope` as the active reactive consumer, restoring the
 /// previous scope after. Signals read inside `f` subscribe to `scope`.
-// Runtime callers (effects / inline-computed bindings) land in a later change.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn with_scope<R>(scope: Subscriber, f: impl FnOnce() -> R) -> R {
-    let prev = with_reactive(|r| r.scope.replace(scope));
-    let out = f();
-    with_reactive(|r| r.scope = prev);
-    out
+    let _guard = ScopeGuard(with_reactive(|r| r.scope.replace(scope)));
+    f()
 }
 
 fn enqueue_widget(entity: Entity) {
@@ -132,30 +144,71 @@ fn enqueue_effect(id: EffectId) {
     with_reactive(|r| r.dirty_effects.push_back(id));
 }
 
-struct WorldGuard {
+pub(crate) struct OwnerGuard {
+    prev: Option<WorldId>,
+}
+
+impl OwnerGuard {
+    pub(crate) fn enter(world: &mut World) -> Self {
+        let prev = with_reactive(|r| r.world_id.replace(world.id()));
+        Self { prev }
+    }
+}
+
+impl Drop for OwnerGuard {
+    fn drop(&mut self) {
+        with_reactive(|r| r.world_id = self.prev);
+    }
+}
+
+pub(crate) struct WorldGuard {
     prev: *mut World,
-    prev_id: Option<WorldId>,
+    _owner: OwnerGuard,
 }
 
 impl WorldGuard {
-    fn enter(world: &mut World) -> Self {
-        let (prev, prev_id) = with_reactive(|r| {
-            let prev = core::mem::replace(&mut r.world, world as *mut World);
-            let prev_id = r.world_id.replace(world.id());
-            (prev, prev_id)
+    pub(crate) fn enter(world: &mut World) -> Self {
+        let owner = OwnerGuard::enter(world);
+        let prev = with_reactive(|r| core::mem::replace(&mut r.world, world as *mut World));
+        Self {
+            prev,
+            _owner: owner,
+        }
+    }
+}
+
+struct WorldBorrowGuard {
+    slot: usize,
+}
+
+impl WorldBorrowGuard {
+    fn enter(id: WorldId) -> Self {
+        let slot = with_reactive(|r| {
+            assert!(
+                !r.borrowed_worlds.contains(&Some(id)),
+                "World is already mutably borrowed through with_world"
+            );
+            let slot = r
+                .borrowed_worlds
+                .iter()
+                .position(Option::is_none)
+                .expect("too many nested World borrows");
+            r.borrowed_worlds[slot] = Some(id);
+            slot
         });
-        WorldGuard { prev, prev_id }
+        Self { slot }
+    }
+}
+
+impl Drop for WorldBorrowGuard {
+    fn drop(&mut self) {
+        with_reactive(|r| r.borrowed_worlds[self.slot] = None);
     }
 }
 
 impl Drop for WorldGuard {
     fn drop(&mut self) {
-        let prev = self.prev;
-        let prev_id = self.prev_id;
-        with_reactive(|r| {
-            r.world = prev;
-            r.world_id = prev_id;
-        });
+        with_reactive(|r| r.world = self.prev);
     }
 }
 
@@ -171,10 +224,11 @@ pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
 /// Public so `ui!`-generated reactive control flow can reach it from user crates.
 pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     // Copy the pointer out before deref so `f` may re-enter with_reactive.
-    let ptr = with_reactive(|r| r.world);
+    let (ptr, id) = with_reactive(|r| (r.world, r.world_id));
     if ptr.is_null() {
         return None;
     }
+    let _borrow = WorldBorrowGuard::enter(id.expect("scoped World has an identity"));
     // SAFETY: non-null only within flush_signal_dirty / with_world_scope, which
     // hold a live &mut World; single-threaded. Windows may nest (a reactive
     // walk/if/match re-run enters another scope); WorldGuard saves/restores the
@@ -653,6 +707,7 @@ mod tests {
             r.scope = None;
             r.world = core::ptr::null_mut();
             r.world_id = None;
+            r.borrowed_worlds = [None; 8];
             r.dirty_widgets.clear();
             r.dirty_visual_widgets.clear();
             r.dirty_effects.clear();
@@ -785,6 +840,21 @@ mod tests {
             s_inner.inner.borrow().subscribers,
             alloc::vec![Subscriber::Widget(inner)]
         );
+    }
+
+    #[test]
+    fn tracking_scope_restores_after_unwind() {
+        reset();
+        let outer = Subscriber::Widget(entity(10));
+        let inner = Subscriber::Widget(entity(11));
+        with_scope(outer, || {
+            let failed = std::panic::catch_unwind(|| {
+                with_scope(inner, || panic!("scope unwind"));
+            });
+            assert!(failed.is_err());
+            assert_eq!(current_scope(), Some(outer));
+        });
+        assert_eq!(current_scope(), None);
     }
 
     #[test]
@@ -1068,5 +1138,44 @@ mod tests {
             );
         });
         assert!(with_world(|_| ()).is_none(), "no world outside any scope");
+    }
+
+    #[test]
+    fn world_scope_restores_after_unwind() {
+        reset();
+        let mut outer = World::new();
+        let mut inner = World::new();
+        let outer_id = outer.id();
+        with_world_scope(&mut outer, || {
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_world_scope(&mut inner, || panic!("world unwind"));
+            }));
+            assert!(failed.is_err());
+            assert_eq!(current_world_id(), Some(outer_id));
+        });
+        assert_eq!(current_world_id(), None);
+    }
+
+    #[test]
+    fn world_mutable_borrow_is_released_after_unwind() {
+        reset();
+        let mut world = World::new();
+        let mut other = World::new();
+        with_world_scope(&mut world, || {
+            let failed = std::panic::catch_unwind(|| {
+                with_world(|_| panic!("borrow unwind"));
+            });
+            assert!(failed.is_err());
+            assert!(with_world(|_| ()).is_some());
+            with_world(|_| {
+                let reentrant = std::panic::catch_unwind(|| {
+                    with_world(|_| ());
+                });
+                assert!(reentrant.is_err());
+                with_world_scope(&mut other, || {
+                    assert!(with_world(|_| ()).is_some());
+                });
+            });
+        });
     }
 }

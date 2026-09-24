@@ -43,6 +43,7 @@ pub fn dispatch_input(
     lw: u16,
     lh: u16,
 ) {
+    let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     match event {
         InputEvent::PointerDown { x, y, .. } => {
             let mut next = world
@@ -279,6 +280,7 @@ pub fn bubble_dispatch(world: &mut World, event: &GestureEvent) {
 
 /// `now_ms`-aware variant; pass `0` when no clock is available.
 pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) {
+    let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     multi_tap::observe_gesture(world, event, now_ms);
     let mut current = event.target();
     loop {
@@ -330,6 +332,51 @@ mod tests {
         world.insert(child, Parent(parent));
         world.insert(parent, UserState::Disabled);
         assert!(entity_or_ancestor_disabled(&world, child));
+    }
+
+    #[test]
+    fn gesture_callback_runs_with_its_world_scope() {
+        fn check_owner(world: &mut World, _entity: Entity, _event: &GestureEvent) -> bool {
+            assert_eq!(crate::core::reactive::current_world_id(), Some(world.id()));
+            assert!(crate::core::reactive::with_world(|_| ()).is_none());
+            true
+        }
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, GestureHandler::from_fn(check_owner));
+        bubble_dispatch_at(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: entity,
+            },
+            0,
+        );
+        assert_eq!(crate::core::reactive::current_world_id(), None);
+    }
+
+    #[test]
+    fn gesture_owner_scope_restores_after_callback_unwinds() {
+        fn panic_handler(_world: &mut World, _entity: Entity, _event: &GestureEvent) -> bool {
+            panic!("gesture unwind");
+        }
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, GestureHandler::from_fn(panic_handler));
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            bubble_dispatch_at(
+                &mut world,
+                &GestureEvent::Tap {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    target: entity,
+                },
+                0,
+            );
+        }));
+        assert!(failed.is_err());
+        assert_eq!(crate::core::reactive::current_world_id(), None);
     }
 
     #[test]
