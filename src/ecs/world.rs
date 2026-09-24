@@ -103,8 +103,7 @@ impl World {
     }
 
     pub fn remove<T: 'static>(&mut self, entity: Entity) -> Option<T> {
-        let storage = self.storage_mut::<T>();
-        storage.remove(entity)
+        self.storage_mut_if_exists::<T>()?.remove(entity)
     }
 
     pub fn get<T: 'static>(&self, entity: Entity) -> Option<&T> {
@@ -112,7 +111,7 @@ impl World {
     }
 
     pub fn get_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
-        self.storage_mut::<T>().get_mut(entity)
+        self.storage_mut_if_exists::<T>()?.get_mut(entity)
     }
 
     pub fn has<T: 'static>(&self, entity: Entity) -> bool {
@@ -178,6 +177,12 @@ impl World {
             .unwrap()
     }
 
+    fn storage_mut_if_exists<T: 'static>(&mut self) -> Option<&mut SparseSet<T>> {
+        self.storages
+            .get_mut(&TypeId::of::<T>())
+            .map(|storage| storage.as_any_mut().downcast_mut::<SparseSet<T>>().unwrap())
+    }
+
     pub fn insert_resource<T: 'static>(&mut self, value: T) {
         self.resources.insert(TypeId::of::<T>(), Box::new(value));
     }
@@ -212,6 +217,23 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_component_mutation_does_not_create_storage() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+
+        assert!(world.get_mut::<u16>(entity).is_none());
+        assert!(world.remove::<u16>(entity).is_none());
+        assert!(world.storages.is_empty());
+
+        world.insert(entity, 7u16);
+        assert_eq!(world.get_mut::<u16>(entity), Some(&mut 7));
+        assert_eq!(world.remove::<u16>(entity), Some(7));
+        assert!(world.get_mut::<u16>(entity).is_none());
+        assert!(world.remove::<u16>(entity).is_none());
+        assert_eq!(world.storages.len(), 1);
+    }
 
     #[test]
     fn stable_iteration_mutates_values_and_other_component_types() {

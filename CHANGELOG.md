@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Absent component access.** `World::get_mut` and `World::remove` no longer create storage for component types that have not been inserted.
 - **Reactive scope recovery.** Nested composition, gesture dispatch, and tracked evaluation restore their owner and consumer context after unwinding.
 - **Reactive effect ownership.** Widget effects are reclaimed only by their owning World, and reused reactive identities reject stale notifications.
 - **Marble Play state display.** Page controls, pad properties, counts, and settings follow a compact model projection without a hand-written widget synchronization pass; collision hit counts update with visual-only physics changes.
