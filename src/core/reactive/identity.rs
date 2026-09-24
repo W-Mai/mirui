@@ -55,11 +55,10 @@ impl SlotAllocator {
             return false;
         }
         state.live = false;
-        state.generation = state
-            .generation
-            .checked_add(1)
-            .expect("reactive slot generation exhausted");
-        self.free.push(id.slot);
+        if let Some(next_generation) = state.generation.checked_add(1) {
+            state.generation = next_generation;
+            self.free.push(id.slot);
+        }
         true
     }
 
@@ -72,7 +71,7 @@ impl SlotAllocator {
 
 #[cfg(test)]
 mod tests {
-    use super::SlotAllocator;
+    use super::{SlotAllocator, SlotId};
 
     #[test]
     fn reused_slots_reject_stale_generation() {
@@ -84,5 +83,28 @@ mod tests {
         assert_ne!(first.generation, second.generation);
         assert!(!slots.release(first));
         assert!(slots.release(second));
+    }
+
+    #[test]
+    fn exhausted_generation_retires_slot() {
+        let mut slots = SlotAllocator::default();
+        let first = slots.allocate();
+        slots.states[first.slot as usize].generation = u32::MAX - 1;
+        let near_exhaustion = SlotId {
+            slot: first.slot,
+            generation: u32::MAX - 1,
+        };
+        assert!(slots.release(near_exhaustion));
+
+        let last = slots.allocate();
+        assert_eq!(last.slot, first.slot);
+        assert_eq!(last.generation, u32::MAX);
+        assert!(slots.release(last));
+        assert!(!slots.is_live(last));
+        assert!(!slots.release(last));
+
+        let next = slots.allocate();
+        assert_ne!(next.slot, first.slot);
+        assert!(!slots.is_live(first));
     }
 }
