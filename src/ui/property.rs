@@ -439,11 +439,12 @@ pub mod prop {
                 }
             }
 
+            let owner = world.id();
             let subscription = world
                 .resource_mut::<crate::render::path::PathStore>()
                 .and_then(|store| {
                     store
-                        .subscribe(path.path(), entity, path.end().is_some())
+                        .subscribe(path.path(), owner, entity, path.end().is_some())
                         .ok()
                         .flatten()
                 })

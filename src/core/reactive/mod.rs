@@ -20,6 +20,22 @@ pub enum Subscriber {
     Computed(ComputedId),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct OwnedSubscriber {
+    world: Option<WorldId>,
+    subscriber: Subscriber,
+}
+
+impl OwnedSubscriber {
+    fn tracked(subscriber: Subscriber) -> Self {
+        let world = match subscriber {
+            Subscriber::Widget(_) | Subscriber::VisualWidget(_) => current_world_id(),
+            Subscriber::Effect(_) | Subscriber::Computed(_) => None,
+        };
+        Self { world, subscriber }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct EffectId(SlotId);
 
@@ -35,8 +51,8 @@ struct Reactive {
     world: *mut World,
     world_id: Option<WorldId>,
     borrowed_worlds: [Option<WorldId>; 8],
-    dirty_widgets: VecDeque<Entity>,
-    dirty_visual_widgets: VecDeque<Entity>,
+    dirty_widgets: VecDeque<(Option<WorldId>, Entity)>,
+    dirty_visual_widgets: VecDeque<(Option<WorldId>, Entity)>,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
@@ -111,7 +127,6 @@ fn current_scope() -> Option<Subscriber> {
     with_reactive(|r| r.scope)
 }
 
-#[cfg(test)]
 pub(crate) fn current_world_id() -> Option<WorldId> {
     with_reactive(|r| r.world_id)
 }
@@ -132,12 +147,12 @@ pub(crate) fn with_scope<R>(scope: Subscriber, f: impl FnOnce() -> R) -> R {
     f()
 }
 
-fn enqueue_widget(entity: Entity) {
-    with_reactive(|r| r.dirty_widgets.push_back(entity));
+fn enqueue_widget(owner: Option<WorldId>, entity: Entity) {
+    with_reactive(|r| r.dirty_widgets.push_back((owner, entity)));
 }
 
-fn enqueue_visual_widget(entity: Entity) {
-    with_reactive(|r| r.dirty_visual_widgets.push_back(entity));
+fn enqueue_visual_widget(owner: Option<WorldId>, entity: Entity) {
+    with_reactive(|r| r.dirty_visual_widgets.push_back((owner, entity)));
 }
 
 fn enqueue_effect(id: EffectId) {
@@ -241,6 +256,23 @@ pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
 // hanging the frame — real cycle detection lands later.
 const FLUSH_MAX_PASSES: u32 = 32;
 
+fn drain_widgets_for(
+    queue: &mut VecDeque<(Option<WorldId>, Entity)>,
+    world_id: WorldId,
+) -> Vec<Entity> {
+    let mut ready = Vec::new();
+    let pending = queue.len();
+    for _ in 0..pending {
+        let (owner, entity) = queue.pop_front().expect("queued widget");
+        if owner.is_none_or(|owner| owner == world_id) {
+            ready.push(entity);
+        } else {
+            queue.push_back((owner, entity));
+        }
+    }
+    ready
+}
+
 /// Drain queued reactive work once per frame, after systems and before render:
 /// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
 /// entities are skipped (no reverse index; subscriber lists may retain
@@ -248,30 +280,38 @@ const FLUSH_MAX_PASSES: u32 = 32;
 pub fn flush_signal_dirty(world: &mut World) {
     let _guard = WorldGuard::enter(world);
     reclaim_dead_effects(world);
+    let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
-        let effects: Vec<EffectId> = with_reactive(|r| r.dirty_effects.drain(..).collect());
+        let effects: Vec<EffectId> = with_reactive(|r| {
+            let mut ready = Vec::new();
+            let pending = r.dirty_effects.len();
+            for _ in 0..pending {
+                let id = r.dirty_effects.pop_front().expect("queued effect");
+                match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
+                    Some(Some(owner)) if owner != world_id => r.dirty_effects.push_back(id),
+                    Some(_) => ready.push(id),
+                    None => {}
+                }
+            }
+            ready
+        });
         for id in &effects {
             run_effect(*id);
         }
-        let widgets: Vec<Entity> = with_reactive(|r| r.dirty_widgets.drain(..).collect());
+        let widgets = with_reactive(|r| drain_widgets_for(&mut r.dirty_widgets, world_id));
         for entity in &widgets {
             if world.is_alive(*entity) {
                 world.insert(*entity, Dirty);
             }
         }
-        let visual_widgets: Vec<Entity> =
-            with_reactive(|r| r.dirty_visual_widgets.drain(..).collect());
+        let visual_widgets =
+            with_reactive(|r| drain_widgets_for(&mut r.dirty_visual_widgets, world_id));
         for entity in &visual_widgets {
             if world.is_alive(*entity) {
                 world.insert(*entity, VisualDirty);
             }
         }
-        let settled = with_reactive(|r| {
-            r.dirty_effects.is_empty()
-                && r.dirty_widgets.is_empty()
-                && r.dirty_visual_widgets.is_empty()
-        });
-        if effects.is_empty() && widgets.is_empty() && visual_widgets.is_empty() && settled {
+        if effects.is_empty() && widgets.is_empty() && visual_widgets.is_empty() {
             return;
         }
     }
@@ -333,7 +373,7 @@ pub fn cleanup_effects_for(world: &World, entity: Entity) {
 struct SignalInner<T> {
     id: SourceId,
     value: T,
-    subscribers: Vec<Subscriber>,
+    subscribers: Vec<OwnedSubscriber>,
 }
 
 pub struct Signal<T: 'static> {
@@ -342,7 +382,7 @@ pub struct Signal<T: 'static> {
 
 pub(crate) struct SignalSubscription<T: 'static> {
     inner: Weak<RefCell<SignalInner<T>>>,
-    subscriber: Subscriber,
+    subscriber: OwnedSubscriber,
 }
 
 impl<T: 'static> Drop for SignalSubscription<T> {
@@ -390,19 +430,22 @@ impl<T: 'static> Signal<T> {
 
     fn track(&self) {
         if let Some(sub) = current_scope() {
-            self.add_subscriber(sub);
+            self.add_subscriber(OwnedSubscriber::tracked(sub));
         }
     }
 
-    fn add_subscriber(&self, subscriber: Subscriber) {
+    fn add_subscriber(&self, subscriber: OwnedSubscriber) {
         let mut inner = self.inner.borrow_mut();
         if !inner.subscribers.contains(&subscriber) {
             inner.subscribers.push(subscriber);
         }
     }
 
-    pub(crate) fn subscribe_widget(&self, entity: Entity) -> SignalSubscription<T> {
-        let subscriber = Subscriber::Widget(entity);
+    pub(crate) fn subscribe_widget(&self, world: WorldId, entity: Entity) -> SignalSubscription<T> {
+        let subscriber = OwnedSubscriber {
+            world: Some(world),
+            subscriber: Subscriber::Widget(entity),
+        };
         self.add_subscriber(subscriber);
         SignalSubscription {
             inner: Rc::downgrade(&self.inner),
@@ -410,8 +453,15 @@ impl<T: 'static> Signal<T> {
         }
     }
 
-    pub(crate) fn subscribe_visual_widget(&self, entity: Entity) -> SignalSubscription<T> {
-        let subscriber = Subscriber::VisualWidget(entity);
+    pub(crate) fn subscribe_visual_widget(
+        &self,
+        world: WorldId,
+        entity: Entity,
+    ) -> SignalSubscription<T> {
+        let subscriber = OwnedSubscriber {
+            world: Some(world),
+            subscriber: Subscriber::VisualWidget(entity),
+        };
         self.add_subscriber(subscriber);
         SignalSubscription {
             inner: Rc::downgrade(&self.inner),
@@ -458,17 +508,17 @@ impl<T: 'static> Signal<T> {
     fn notify(&self) {
         let id = self.inner.borrow().id;
         debug_assert!(with_reactive(|r| r.source_slots.is_live(id.0)));
-        let subs: Vec<Subscriber> = self.inner.borrow().subscribers.clone();
+        let subs: Vec<OwnedSubscriber> = self.inner.borrow().subscribers.clone();
         for sub in subs {
             propagate(sub);
         }
     }
 }
 
-fn propagate(sub: Subscriber) {
-    match sub {
-        Subscriber::Widget(entity) => enqueue_widget(entity),
-        Subscriber::VisualWidget(entity) => enqueue_visual_widget(entity),
+fn propagate(sub: OwnedSubscriber) {
+    match sub.subscriber {
+        Subscriber::Widget(entity) => enqueue_widget(sub.world, entity),
+        Subscriber::VisualWidget(entity) => enqueue_visual_widget(sub.world, entity),
         Subscriber::Effect(id) => enqueue_effect(id),
         Subscriber::Computed(id) => mark_computed_dirty(id),
     }
@@ -589,13 +639,13 @@ fn run_effect(id: EffectId) {
 // without a generic. Only the non-generic propagation hooks are exposed.
 trait ComputedNode {
     fn mark_dirty_take_was_dirty(&self) -> bool;
-    fn subscribers(&self) -> Vec<Subscriber>;
+    fn subscribers(&self) -> Vec<OwnedSubscriber>;
 }
 
 struct ComputedInner<T> {
     value: Option<T>,
     compute: alloc::boxed::Box<dyn Fn() -> T>,
-    subscribers: Vec<Subscriber>,
+    subscribers: Vec<OwnedSubscriber>,
     dirty: bool,
 }
 
@@ -606,7 +656,7 @@ impl<T> ComputedNode for RefCell<ComputedInner<T>> {
         was
     }
 
-    fn subscribers(&self) -> Vec<Subscriber> {
+    fn subscribers(&self) -> Vec<OwnedSubscriber> {
         self.borrow().subscribers.clone()
     }
 }
@@ -662,9 +712,10 @@ impl<T: 'static> Computed<T> {
     {
         let id = self.id();
         if let Some(sub) = current_scope() {
+            let subscriber = OwnedSubscriber::tracked(sub);
             let mut inner = self.inner.borrow_mut();
-            if !inner.subscribers.contains(&sub) {
-                inner.subscribers.push(sub);
+            if !inner.subscribers.contains(&subscriber) {
+                inner.subscribers.push(subscriber);
             }
         }
         if self.inner.borrow().dirty {
@@ -773,7 +824,7 @@ mod tests {
         s.set(1);
         with_reactive(|r| {
             assert_eq!(r.dirty_widgets.len(), 1);
-            assert_eq!(r.dirty_widgets[0], w);
+            assert_eq!(r.dirty_widgets[0], (None, w));
             r.dirty_widgets.clear();
         });
     }
@@ -834,11 +885,17 @@ mod tests {
         });
         assert_eq!(
             s_outer.inner.borrow().subscribers,
-            alloc::vec![Subscriber::Widget(outer)]
+            alloc::vec![OwnedSubscriber {
+                world: None,
+                subscriber: Subscriber::Widget(outer),
+            }]
         );
         assert_eq!(
             s_inner.inner.borrow().subscribers,
-            alloc::vec![Subscriber::Widget(inner)]
+            alloc::vec![OwnedSubscriber {
+                world: None,
+                subscriber: Subscriber::Widget(inner),
+            }]
         );
     }
 
@@ -1038,7 +1095,7 @@ mod tests {
         n.set(9);
         with_reactive(|r| {
             assert!(
-                r.dirty_widgets.contains(&w),
+                r.dirty_widgets.contains(&(None, w)),
                 "source change cascades to widget via computed"
             );
             r.dirty_widgets.clear();
@@ -1177,5 +1234,130 @@ mod tests {
                 });
             });
         });
+    }
+
+    #[test]
+    fn shared_signal_keeps_same_numbered_widgets_in_their_worlds() {
+        reset();
+        let mut a = World::new();
+        let mut b = World::new();
+        let a_widget = a.spawn_empty();
+        let b_widget = b.spawn_empty();
+        assert_eq!(a_widget, b_widget);
+        let signal = Signal::new(0);
+        let _a_subscription = signal.subscribe_widget(a.id(), a_widget);
+        let _b_subscription = signal.subscribe_widget(b.id(), b_widget);
+
+        signal.set(1);
+        flush_signal_dirty(&mut a);
+        assert!(a.get::<Dirty>(a_widget).is_some());
+        assert!(b.get::<Dirty>(b_widget).is_none());
+        flush_signal_dirty(&mut b);
+        assert!(b.get::<Dirty>(b_widget).is_some());
+    }
+
+    #[test]
+    fn flushing_one_world_preserves_other_worlds_effects() {
+        reset();
+        let mut a = World::new();
+        let mut b = World::new();
+        let signal = Signal::new(0);
+        let a_runs = Rc::new(RefCell::new(0));
+        let b_runs = Rc::new(RefCell::new(0));
+        let a_signal = signal.clone();
+        let b_signal = signal.clone();
+        let a_count = Rc::clone(&a_runs);
+        let b_count = Rc::clone(&b_runs);
+        let _a_effect = with_world_scope(&mut a, || {
+            Effect::new(move || {
+                let _ = a_signal.get();
+                *a_count.borrow_mut() += 1;
+            })
+        });
+        let _b_effect = with_world_scope(&mut b, || {
+            Effect::new(move || {
+                let _ = b_signal.get();
+                *b_count.borrow_mut() += 1;
+            })
+        });
+        assert_eq!((*a_runs.borrow(), *b_runs.borrow()), (1, 1));
+
+        signal.set(1);
+        flush_signal_dirty(&mut a);
+        assert_eq!((*a_runs.borrow(), *b_runs.borrow()), (2, 1));
+        flush_signal_dirty(&mut b);
+        assert_eq!((*a_runs.borrow(), *b_runs.borrow()), (2, 2));
+    }
+
+    #[test]
+    fn shared_computed_notifies_widgets_in_each_world() {
+        reset();
+        let mut a = World::new();
+        let mut b = World::new();
+        let a_widget = a.spawn_empty();
+        let b_widget = b.spawn_empty();
+        let signal = Signal::new(1);
+        let source = signal.clone();
+        let computed = Computed::new(move || source.get() * 2);
+        with_world_scope(&mut a, || {
+            with_scope(Subscriber::Widget(a_widget), || {
+                assert_eq!(computed.get(), 2)
+            });
+        });
+        with_world_scope(&mut b, || {
+            with_scope(Subscriber::Widget(b_widget), || {
+                assert_eq!(computed.get(), 2)
+            });
+        });
+
+        signal.set(2);
+        flush_signal_dirty(&mut b);
+        assert!(b.get::<Dirty>(b_widget).is_some());
+        assert!(a.get::<Dirty>(a_widget).is_none());
+        flush_signal_dirty(&mut a);
+        assert!(a.get::<Dirty>(a_widget).is_some());
+    }
+
+    #[test]
+    fn shared_visual_signal_preserves_other_worlds_pending_visuals() {
+        reset();
+        let mut a = World::new();
+        let mut b = World::new();
+        let a_widget = a.spawn_empty();
+        let b_widget = b.spawn_empty();
+        let signal = Signal::new(0);
+        let _a_subscription = signal.subscribe_visual_widget(a.id(), a_widget);
+        let _b_subscription = signal.subscribe_visual_widget(b.id(), b_widget);
+
+        signal.set(1);
+        flush_signal_dirty(&mut a);
+        assert!(a.get::<VisualDirty>(a_widget).is_some());
+        assert!(b.get::<VisualDirty>(b_widget).is_none());
+        flush_signal_dirty(&mut b);
+        assert!(b.get::<VisualDirty>(b_widget).is_some());
+    }
+
+    #[test]
+    fn ownerless_effect_runs_on_the_first_world_flush() {
+        reset();
+        let mut a = World::new();
+        let mut b = World::new();
+        let signal = Signal::new(0);
+        let source = signal.clone();
+        let runs = Rc::new(RefCell::new(0));
+        let count = Rc::clone(&runs);
+        let _effect = Effect::new(move || {
+            let _ = source.get();
+            *count.borrow_mut() += 1;
+        });
+        signal.set(1);
+        flush_signal_dirty(&mut b);
+        assert_eq!(*runs.borrow(), 2);
+        flush_signal_dirty(&mut a);
+        assert_eq!(*runs.borrow(), 2);
+        signal.set(2);
+        flush_signal_dirty(&mut a);
+        assert_eq!(*runs.borrow(), 3);
+        assert_eq!(signal.inner.borrow().subscribers.len(), 1);
     }
 }

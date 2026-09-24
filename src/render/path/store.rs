@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use super::{Path, PathCmd};
 use crate::core::reactive::{Signal, SignalSubscription};
 use crate::ecs::Entity;
+use crate::ecs::world::WorldId;
 
 const NO_SLOT: u32 = u32::MAX;
 
@@ -184,6 +185,7 @@ impl PathStore {
     pub(crate) fn subscribe(
         &mut self,
         id: PathId,
+        world: WorldId,
         entity: Entity,
         visual_only: bool,
     ) -> Result<Option<PathSubscription>, PathStoreError> {
@@ -195,9 +197,9 @@ impl PathStore {
                 let signal = changed.get_or_insert_with(|| Signal::new(*revision));
                 Ok(Some(PathSubscription {
                     _inner: if visual_only {
-                        signal.subscribe_visual_widget(entity)
+                        signal.subscribe_visual_widget(world, entity)
                     } else {
-                        signal.subscribe_widget(entity)
+                        signal.subscribe_widget(world, entity)
                     },
                 }))
             }
@@ -386,7 +388,10 @@ mod tests {
         let widget = world.spawn_empty();
         let mut store = PathStore::new(1).unwrap();
         let id = store.insert(Path::new()).unwrap();
-        let subscription = store.subscribe(id, widget, false).unwrap().unwrap();
+        let subscription = store
+            .subscribe(id, world.id(), widget, false)
+            .unwrap()
+            .unwrap();
 
         store
             .edit(id, |path| {
@@ -413,6 +418,11 @@ mod tests {
         let mut store = PathStore::new(1).unwrap();
         let id = store.insert_static(STATIC_COMMANDS).unwrap();
 
-        assert!(store.subscribe(id, widget, false).unwrap().is_none());
+        assert!(
+            store
+                .subscribe(id, world.id(), widget, false)
+                .unwrap()
+                .is_none()
+        );
     }
 }
