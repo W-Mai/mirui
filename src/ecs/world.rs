@@ -6,6 +6,23 @@ use rustc_hash::FxBuildHasher;
 use super::entity::{Entity, EntityAllocator};
 use super::sparse_set::SparseSet;
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct WorldId(u64);
+
+impl WorldId {
+    fn next() -> Self {
+        static mut NEXT: u64 = 1;
+        critical_section::with(|_| {
+            // SAFETY: the counter is only accessed while holding the critical section.
+            let value = unsafe { NEXT };
+            let next = value.checked_add(1).expect("world identity exhausted");
+            // SAFETY: the same critical section protects the write.
+            unsafe { NEXT = next };
+            Self(value)
+        })
+    }
+}
+
 trait ComponentStorage: Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -33,6 +50,7 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 }
 
 pub struct World {
+    id: WorldId,
     allocator: EntityAllocator,
     storages: HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
     resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
@@ -41,6 +59,7 @@ pub struct World {
 impl Default for World {
     fn default() -> Self {
         Self {
+            id: WorldId::next(),
             allocator: EntityAllocator::new(),
             storages: HashMap::default(),
             resources: HashMap::default(),
@@ -49,6 +68,10 @@ impl Default for World {
 }
 
 impl World {
+    pub(crate) fn id(&self) -> WorldId {
+        self.id
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

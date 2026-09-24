@@ -1,12 +1,16 @@
 extern crate alloc;
 
+mod identity;
+
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
 use crate::ui::dirty::{Dirty, VisualDirty};
+use identity::{SlotAllocator, SlotId};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Subscriber {
@@ -17,20 +21,27 @@ pub enum Subscriber {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct EffectId(usize);
+pub struct EffectId(SlotId);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct ComputedId(usize);
+pub struct ComputedId(SlotId);
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct SourceId(SlotId);
 
 struct Reactive {
     scope: Option<Subscriber>,
     // non-null only while an effect runs; lets a Fn() closure reach the World
     world: *mut World,
+    world_id: Option<WorldId>,
     dirty_widgets: VecDeque<Entity>,
     dirty_visual_widgets: VecDeque<Entity>,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
+    effect_slots: SlotAllocator,
+    computed_slots: SlotAllocator,
+    source_slots: SlotAllocator,
 }
 
 impl Reactive {
@@ -38,11 +49,15 @@ impl Reactive {
         Reactive {
             scope: None,
             world: core::ptr::null_mut(),
+            world_id: None,
             dirty_widgets: VecDeque::new(),
             dirty_visual_widgets: VecDeque::new(),
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
             computeds: BTreeMap::new(),
+            effect_slots: SlotAllocator::new(),
+            computed_slots: SlotAllocator::new(),
+            source_slots: SlotAllocator::new(),
         }
     }
 }
@@ -119,19 +134,28 @@ fn enqueue_effect(id: EffectId) {
 
 struct WorldGuard {
     prev: *mut World,
+    prev_id: Option<WorldId>,
 }
 
 impl WorldGuard {
     fn enter(world: &mut World) -> Self {
-        let prev = with_reactive(|r| core::mem::replace(&mut r.world, world as *mut World));
-        WorldGuard { prev }
+        let (prev, prev_id) = with_reactive(|r| {
+            let prev = core::mem::replace(&mut r.world, world as *mut World);
+            let prev_id = r.world_id.replace(world.id());
+            (prev, prev_id)
+        });
+        WorldGuard { prev, prev_id }
     }
 }
 
 impl Drop for WorldGuard {
     fn drop(&mut self) {
         let prev = self.prev;
-        with_reactive(|r| r.world = prev);
+        let prev_id = self.prev_id;
+        with_reactive(|r| {
+            r.world = prev;
+            r.world_id = prev_id;
+        });
     }
 }
 
@@ -210,33 +234,50 @@ fn reclaim_dead_effects(world: &World) {
     let dead: Vec<EffectId> = with_reactive(|r| {
         r.effects
             .iter()
-            .filter(|(_, e)| e.borrow().owner_entity.is_some_and(|o| !world.is_alive(o)))
+            .filter(|(_, e)| {
+                let effect = e.borrow();
+                effect.owner_world == Some(world.id())
+                    && effect.owner_entity.is_some_and(|o| !world.is_alive(o))
+            })
             .map(|(id, _)| *id)
             .collect()
     });
     for id in dead {
-        with_reactive(|r| r.effects.remove(&id));
+        unregister_effect(id);
     }
-    with_reactive(|r| r.computeds.retain(|_, w| w.strong_count() > 0));
+    with_reactive(|r| {
+        let slots = &mut r.computed_slots;
+        r.computeds.retain(|id, weak| {
+            if weak.strong_count() > 0 {
+                true
+            } else {
+                slots.release(id.0);
+                false
+            }
+        });
+    });
 }
 
-/// Reclaim every effect bound to `entity` now, instead of waiting for the next
-/// flush. For a widget-teardown path to call when it truly despawns a subtree.
+/// Reclaim effects bound to `entity` in `world` during widget teardown.
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn cleanup_effects_for(entity: Entity) {
+pub fn cleanup_effects_for(world: &World, entity: Entity) {
     let bound: Vec<EffectId> = with_reactive(|r| {
         r.effects
             .iter()
-            .filter(|(_, e)| e.borrow().owner_entity == Some(entity))
+            .filter(|(_, e)| {
+                let effect = e.borrow();
+                effect.owner_entity == Some(entity) && effect.owner_world == Some(world.id())
+            })
             .map(|(id, _)| *id)
             .collect()
     });
     for id in bound {
-        with_reactive(|r| r.effects.remove(&id));
+        unregister_effect(id);
     }
 }
 
 struct SignalInner<T> {
+    id: SourceId,
     value: T,
     subscribers: Vec<Subscriber>,
 }
@@ -270,10 +311,23 @@ impl<T: 'static> Clone for Signal<T> {
     }
 }
 
+impl<T: 'static> Drop for Signal<T> {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.inner) == 1 {
+            let id = self.inner.borrow().id;
+            try_with_reactive(|r| {
+                r.source_slots.release(id.0);
+            });
+        }
+    }
+}
+
 impl<T: 'static> Signal<T> {
     pub fn new(initial: T) -> Self {
+        let id = with_reactive(|r| SourceId(r.source_slots.allocate()));
         Signal {
             inner: Rc::new(RefCell::new(SignalInner {
+                id,
                 value: initial,
                 subscribers: Vec::new(),
             })),
@@ -348,6 +402,8 @@ impl<T: 'static> Signal<T> {
     }
 
     fn notify(&self) {
+        let id = self.inner.borrow().id;
+        debug_assert!(with_reactive(|r| r.source_slots.is_live(id.0)));
         let subs: Vec<Subscriber> = self.inner.borrow().subscribers.clone();
         for sub in subs {
             propagate(sub);
@@ -371,7 +427,11 @@ fn propagate(sub: Subscriber) {
 fn mark_computed_dirty(id: ComputedId) {
     let node = with_reactive(|r| r.computeds.get(&id).and_then(Weak::upgrade));
     let Some(node) = node else {
-        try_with_reactive(|r| r.computeds.remove(&id));
+        try_with_reactive(|r| {
+            if r.computeds.remove(&id).is_some() {
+                r.computed_slots.release(id.0);
+            }
+        });
         return;
     };
     let already_dirty = node.mark_dirty_take_was_dirty();
@@ -386,6 +446,18 @@ fn mark_computed_dirty(id: ComputedId) {
 struct EffectInner {
     run: Rc<dyn Fn()>,
     owner_entity: Option<Entity>,
+    owner_world: Option<WorldId>,
+}
+
+fn unregister_effect(id: EffectId) {
+    let removed = try_with_reactive(|r| {
+        let removed = r.effects.remove(&id);
+        if removed.is_some() {
+            r.effect_slots.release(id.0);
+        }
+        removed
+    });
+    drop(removed);
 }
 
 /// A reactive side effect. Runs its closure once on creation to subscribe to
@@ -411,13 +483,20 @@ impl Effect {
     }
 
     fn spawn(f: impl Fn() + 'static, owner_entity: Option<Entity>) -> Effect {
+        let owner_world = with_reactive(|r| r.world_id);
+        assert!(
+            owner_entity.is_none() || owner_world.is_some(),
+            "widget effects require a world scope"
+        );
         let inner = Rc::new(RefCell::new(EffectInner {
             run: Rc::new(f),
             owner_entity,
+            owner_world,
         }));
-        let id = EffectId(Rc::as_ptr(&inner) as *const () as usize);
-        with_reactive(|r| {
+        let id = with_reactive(|r| {
+            let id = EffectId(r.effect_slots.allocate());
             r.effects.insert(id, inner);
+            id
         });
         run_effect(id);
         Effect { id }
@@ -430,9 +509,7 @@ impl Effect {
 
 impl Drop for Effect {
     fn drop(&mut self) {
-        try_with_reactive(|r| {
-            r.effects.remove(&self.id);
-        });
+        unregister_effect(self.id);
     }
 }
 
@@ -485,12 +562,16 @@ impl<T> ComputedNode for RefCell<ComputedInner<T>> {
 /// and recomputed on the next `get()`. Cheap to clone (shared handle).
 pub struct Computed<T: 'static> {
     inner: Rc<RefCell<ComputedInner<T>>>,
+    id: ComputedId,
+    source_id: SourceId,
 }
 
 impl<T: 'static> Clone for Computed<T> {
     fn clone(&self) -> Self {
         Computed {
             inner: Rc::clone(&self.inner),
+            id: self.id,
+            source_id: self.source_id,
         }
     }
 }
@@ -503,16 +584,22 @@ impl<T: 'static> Computed<T> {
             subscribers: Vec::new(),
             dirty: true,
         }));
-        let id = ComputedId(Rc::as_ptr(&inner) as *const () as usize);
         let node: Rc<dyn ComputedNode> = inner.clone();
-        with_reactive(|r| {
+        let (id, source_id) = with_reactive(|r| {
+            let id = ComputedId(r.computed_slots.allocate());
+            let source_id = SourceId(r.source_slots.allocate());
             r.computeds.insert(id, Rc::downgrade(&node));
+            (id, source_id)
         });
-        Computed { inner }
+        Computed {
+            inner,
+            id,
+            source_id,
+        }
     }
 
     fn id(&self) -> ComputedId {
-        ComputedId(Rc::as_ptr(&self.inner) as *const () as usize)
+        self.id
     }
 
     pub fn get(&self) -> T
@@ -542,11 +629,18 @@ impl<T: 'static> Computed<T> {
     }
 }
 
-// No Drop unregister: the registry holds a Weak, and clones share one
-// allocation, so removing on any clone's drop would unregister a Computed
-// other clones still use. The Weak dangles once the last clone drops; stale
-// entries are skipped on upgrade (and cleared opportunistically in
-// mark_computed_dirty).
+impl<T: 'static> Drop for Computed<T> {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.inner) == 1 {
+            try_with_reactive(|r| {
+                if r.computeds.remove(&self.id).is_some() {
+                    r.computed_slots.release(self.id.0);
+                }
+                r.source_slots.release(self.source_id.0);
+            });
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -555,14 +649,21 @@ mod tests {
     // std test threads are pooled and reused, so the per-thread runtime can
     // carry residue between tests on the same thread — reset at entry.
     fn reset() {
-        with_reactive(|r| {
+        let effects = with_reactive(|r| {
             r.scope = None;
+            r.world = core::ptr::null_mut();
+            r.world_id = None;
             r.dirty_widgets.clear();
             r.dirty_visual_widgets.clear();
             r.dirty_effects.clear();
-            r.effects.clear();
+            let effects = core::mem::take(&mut r.effects);
+            for id in effects.keys() {
+                r.effect_slots.release(id.0);
+            }
             r.computeds.clear();
+            effects
         });
+        drop(effects);
     }
 
     fn entity(id: u32) -> Entity {
@@ -729,11 +830,81 @@ mod tests {
     #[test]
     fn spawn_records_owner_entity() {
         reset();
-        let w = entity(99);
-        let owned = Effect::spawn(|| {}, Some(w));
-        assert_eq!(owned.owner(), Some(w));
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let owned = with_world_scope(&mut world, || Effect::spawn(|| {}, Some(entity)));
+        assert_eq!(owned.owner(), Some(entity));
         let standalone = Effect::new(|| {});
         assert_eq!(standalone.owner(), None);
+    }
+
+    #[test]
+    fn effect_and_computed_slot_reuse_changes_generation() {
+        reset();
+        let effect = Effect::new(|| {});
+        let first_effect = effect.id;
+        drop(effect);
+        let effect = Effect::new(|| {});
+        assert_eq!(first_effect.0.slot, effect.id.0.slot);
+        assert_ne!(first_effect.0.generation, effect.id.0.generation);
+        let computed = Computed::new(|| 1u8);
+        let first_computed = computed.id();
+        drop(computed);
+        let computed = Computed::new(|| 2u8);
+        assert_eq!(first_computed.0.slot, computed.id().0.slot);
+        assert_ne!(first_computed.0.generation, computed.id().0.generation);
+    }
+
+    #[test]
+    fn source_slot_reuse_rejects_stale_signal_identity() {
+        reset();
+        let signal = Signal::new(1u8);
+        let first = signal.inner.borrow().id;
+        drop(signal);
+        let signal = Signal::new(2u8);
+        let second = signal.inner.borrow().id;
+        assert_eq!(first.0.slot, second.0.slot);
+        assert_ne!(first.0.generation, second.0.generation);
+        assert!(!with_reactive(|r| r.source_slots.is_live(first.0)));
+        assert!(with_reactive(|r| r.source_slots.is_live(second.0)));
+    }
+
+    #[test]
+    fn disposing_effect_releases_captured_signal_after_registry_borrow() {
+        reset();
+        let signal = Signal::new(1u8);
+        let captured = signal.clone();
+        let effect = Effect::new(move || {
+            let _ = captured.get();
+        });
+        drop(signal);
+        effect.dispose();
+        assert_eq!(effect_count(), 0);
+    }
+
+    #[test]
+    fn matching_entities_from_different_worlds_keep_distinct_effect_owners() {
+        reset();
+        let mut a = World::new();
+        let mut b = World::new();
+        assert_ne!(a.id(), b.id());
+        let entity_a = a.spawn_empty();
+        let entity_b = b.spawn_empty();
+        assert_eq!(entity_a, entity_b);
+        with_world_scope(&mut a, || effect_with_widget(entity_a, || {}));
+        with_world_scope(&mut b, || effect_with_widget(entity_b, || {}));
+        assert_eq!(effect_count(), 2);
+        cleanup_effects_for(&a, entity_a);
+        assert_eq!(effect_count(), 1);
+        with_world_scope(&mut a, || effect_with_widget(entity_a, || {}));
+        a.despawn(entity_a);
+        flush_signal_dirty(&mut a);
+        assert_eq!(effect_count(), 1);
+        flush_signal_dirty(&mut b);
+        assert_eq!(effect_count(), 1);
+        b.despawn(entity_b);
+        flush_signal_dirty(&mut b);
+        assert_eq!(effect_count(), 0);
     }
 
     #[test]
