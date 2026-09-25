@@ -350,6 +350,14 @@ pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (Rc<ModelCell<M>>,
     (cell, handle)
 }
 
+pub(crate) fn registered_owner<H: ModelHandle>(handle: &H) -> WorldId {
+    handle
+        .cell()
+        .upgrade()
+        .expect("model registration is no longer alive")
+        .owner()
+}
+
 pub(crate) fn register_effect<H, E>(
     owner: WorldId,
     handle: &H,

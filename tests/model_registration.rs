@@ -1,7 +1,7 @@
 use mirui::app::App;
 use mirui::core::model::{BindType, SharedValue};
 use mirui::core::reactive::{Effect, flush_signal_dirty};
-use mirui::model;
+use mirui::{model, system};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -24,6 +24,24 @@ impl Counter {
     fn value(&self) -> u32 {
         self.value
     }
+}
+
+#[system(order = 120, bind(model))]
+fn count_tick(model: &Counter, delta: mirui::ecs::DeltaTimeMs) {
+    model.add(u32::from(delta.0));
+}
+
+#[system(order = 130, bind(first, second))]
+fn transfer_tick(first: &Counter, second: &Counter, delta: Option<mirui::ecs::DeltaTimeMs>) {
+    let amount = delta.map_or(1, |value| u32::from(value.0));
+    first.add(amount);
+    second.add(amount);
+}
+
+#[system(order = ANIMATION, bind(second, first))]
+fn reversed_bind_tick(first: &Counter, second: &Counter) {
+    first.add(1);
+    second.add(10);
 }
 
 #[model]
@@ -573,4 +591,128 @@ fn effect_consumer_cannot_start_a_model_write_transaction() {
     let independent = app.add_model(Counter { value: 0 });
     independent.add(1);
     assert_eq!(independent.value(), 1);
+}
+
+#[test]
+fn effect_consumer_capture_does_not_keep_registration_alive() {
+    let handle = {
+        let mut app = App::headless(32, 32);
+        let model = app.add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        });
+        let captured = model.clone();
+        app.on_effect(&model, move |_note: Note| {
+            let _ = captured.count();
+        })
+        .unwrap();
+        model
+    };
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.count()));
+    assert!(failure.is_err());
+}
+
+#[test]
+fn effect_consumer_registration_rejects_another_app() {
+    let mut owner = App::headless(32, 32);
+    let model = owner.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let mut other = App::headless(32, 32);
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        other.on_effect(&model, |_note: Note| {})
+    }));
+    assert!(failure.is_err());
+    assert_eq!(model.count(), 0);
+}
+
+#[test]
+fn bound_systems_keep_instance_identity_and_do_not_allocate_per_tick() {
+    fn clock() -> u64 {
+        static TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        TIME.fetch_add(1_000, std::sync::atomic::Ordering::Relaxed)
+    }
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(Counter { value: 0 });
+    let second = app.add_model(Counter { value: 10 });
+    app.world.insert_resource(mirui::ecs::DeltaTimeMs(2));
+    app.world.insert_resource(mirui::ecs::MonoClock::new(clock));
+    app.add_system(count_tick::system(first.clone()));
+    app.add_system(count_tick::system(second.clone()));
+    app.add_system(transfer_tick::system(first.clone(), second.clone()));
+
+    app.systems.run_all(&mut app.world);
+    assert_eq!((first.value(), second.value()), (4, 14));
+    assert_eq!(
+        tracked_allocations(|| app.systems.run_all(&mut app.world)),
+        0
+    );
+    assert_eq!((first.value(), second.value()), (8, 18));
+    let systems: Vec<_> = app.systems.iter().map(|system| system.priority).collect();
+    assert_eq!(systems, [120, 120, 130]);
+    assert!(
+        app.systems
+            .iter()
+            .all(|system| system.call_count == 2 && system.last_us == 1)
+    );
+}
+
+#[test]
+fn bound_system_expect_skips_until_component_exists() {
+    struct Marker;
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(Counter { value: 0 });
+    app.world.insert_resource(mirui::ecs::DeltaTimeMs(3));
+    app.add_system(
+        count_tick::system(model.clone()).with_expect(&[std::any::TypeId::of::<Marker>]),
+    );
+    app.systems.run_all(&mut app.world);
+    assert_eq!(model.value(), 0);
+    let entity = app.world.spawn_empty();
+    app.world.insert(entity, Marker);
+    app.systems.run_all(&mut app.world);
+    assert_eq!(model.value(), 3);
+}
+
+#[test]
+fn bound_system_rejects_foreign_or_missing_resources() {
+    let mut owner = App::headless(32, 32);
+    let model = owner.add_model(Counter { value: 0 });
+    let mut other = App::headless(32, 32);
+    let foreign = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        other.add_system(count_tick::system(model.clone()));
+    }));
+    assert!(foreign.is_err());
+
+    owner.add_system(count_tick::system(model.clone()));
+    let missing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        owner.systems.run_all(&mut owner.world);
+    }));
+    assert!(missing.is_err());
+    assert_eq!(model.value(), 0);
+}
+
+#[test]
+fn bound_system_rejects_models_from_two_apps() {
+    let mut first_app = App::headless(32, 32);
+    let first = first_app.add_model(Counter { value: 0 });
+    let mut second_app = App::headless(32, 32);
+    let second = second_app.add_model(Counter { value: 0 });
+    let mismatch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        transfer_tick::system(first, second);
+    }));
+    assert!(mismatch.is_err());
+}
+
+#[test]
+fn bound_constructor_arguments_follow_bind_order() {
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(Counter { value: 0 });
+    let second = app.add_model(Counter { value: 0 });
+    app.add_system(reversed_bind_tick::system(second.clone(), first.clone()));
+    app.systems.run_all(&mut app.world);
+    assert_eq!((first.value(), second.value()), (1, 10));
 }

@@ -374,6 +374,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     pub fn add_system(&mut self, system: System) -> &mut Self {
+        system.assert_owner(&self.world);
         self.systems.add(system);
         self
     }

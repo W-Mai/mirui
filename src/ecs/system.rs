@@ -1,7 +1,36 @@
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::TypeId;
+use core::ops::Deref;
 
 use super::World;
+use super::world::WorldId;
+
+/// A static system function or a callback captured at registration.
+pub enum SystemCallback {
+    Static(fn(&mut World)),
+    Bound(Rc<dyn Fn(&mut World)>),
+}
+
+impl Clone for SystemCallback {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Static(run) => Self::Static(*run),
+            Self::Bound(run) => Self::Bound(Rc::clone(run)),
+        }
+    }
+}
+
+impl Deref for SystemCallback {
+    type Target = dyn Fn(&mut World);
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Static(run) => run,
+            Self::Bound(run) => run.as_ref(),
+        }
+    }
+}
 
 /// Lower `priority` runs first; see [`run_order`] for named slots.
 ///
@@ -12,7 +41,8 @@ use super::World;
 pub struct System {
     pub name: &'static str,
     pub priority: i32,
-    pub run: fn(&mut World),
+    pub run: SystemCallback,
+    owner: Option<WorldId>,
     /// When non-empty, the scheduler skips this system's run if no
     /// live entity owns *any* of these component types. Each entry
     /// is a `fn() -> TypeId` so the slice is constructible in const
@@ -28,8 +58,59 @@ impl System {
         Self {
             name,
             priority,
-            run,
+            run: SystemCallback::Static(run),
+            owner: None,
             expect: &[],
+            last_us: 0,
+            total_us: 0,
+            call_count: 0,
+        }
+    }
+
+    /// Capture a registered model instance for a system callback.
+    /// The callback is allocated once at registration, not on each tick.
+    pub fn bound<H: crate::core::model::ModelHandle>(
+        name: &'static str,
+        priority: i32,
+        model: &H,
+        run: impl Fn(&mut World) + 'static,
+    ) -> Self {
+        let owner = crate::core::model::registered_owner(model);
+        Self {
+            name,
+            priority,
+            run: SystemCallback::Bound(Rc::new(run)),
+            owner: Some(owner),
+            expect: &[],
+            last_us: 0,
+            total_us: 0,
+            call_count: 0,
+        }
+    }
+
+    /// Require another bound model to belong to the same application.
+    pub fn with_model<H: crate::core::model::ModelHandle>(self, model: &H) -> Self {
+        assert_eq!(
+            self.owner,
+            Some(crate::core::model::registered_owner(model)),
+            "bound models belong to different Apps"
+        );
+        self
+    }
+
+    pub(crate) fn assert_owner(&self, world: &World) {
+        if let Some(owner) = self.owner {
+            assert_eq!(owner, world.id(), "bound system belongs to a different App");
+        }
+    }
+
+    pub(crate) fn fresh(&self) -> Self {
+        Self {
+            name: self.name,
+            priority: self.priority,
+            run: self.run.clone(),
+            owner: self.owner,
+            expect: self.expect,
             last_us: 0,
             total_us: 0,
             call_count: 0,
@@ -145,6 +226,7 @@ impl SystemScheduler {
     pub fn run_all(&mut self, world: &mut World) {
         let clock_fn = world.resource::<super::MonoClock>().map(|c| c.clock);
         for system in &mut self.systems {
+            system.assert_owner(world);
             if !system.expect.is_empty()
                 && !system
                     .expect

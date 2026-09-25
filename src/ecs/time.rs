@@ -1,5 +1,6 @@
 /// Delta time in integer milliseconds — avoids floating point in
 /// animation hot paths on targets without an FPU.
+#[derive(Clone, Copy)]
 pub struct DeltaTimeMs(pub u16);
 
 /// Per-frame timing breakdown written by `App::run` once per loop

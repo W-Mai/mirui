@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Named model revisions.** `#[model(change = ..., watch(...))]` maps returned change masks to independently tracked revision getters without suppressing ordinary observed-field updates.
 - **Typed model effects.** `#[effects]` drains fixed arrays after model commands; `App::on_effect` registers one consumer per event type and model instance, and callbacks run after the model borrow is released.
 - **Model effect transaction boundary.** Effect consumers may read committed models but cannot start nested model writes; an unwinding callback restores the access scope without poisoning the committed model.
+- **Instance-bound systems.** `#[system(bind(...))]` captures specific model handles at registration and reads `Copy` resources for each invocation; existing static systems remain available.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 

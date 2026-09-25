@@ -2764,7 +2764,7 @@ pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
 
 mod system_attr {
     use syn::parse::{Parse, ParseStream};
-    use syn::{Expr, Ident, LitStr, Token, Type, bracketed, punctuated::Punctuated};
+    use syn::{Expr, Ident, LitStr, Token, Type, bracketed, parenthesized, punctuated::Punctuated};
 
     pub struct SystemArgs {
         pub name: Option<LitStr>,
@@ -2772,6 +2772,7 @@ mod system_attr {
         /// Component type(s) gating this system. Empty = always runs.
         /// Multiple entries are OR-combined (any present triggers run).
         pub expect: Vec<Type>,
+        pub bind: Vec<Ident>,
     }
 
     impl Parse for SystemArgs {
@@ -2779,8 +2780,31 @@ mod system_attr {
             let mut name: Option<LitStr> = None;
             let mut order: Option<Expr> = None;
             let mut expect: Vec<Type> = Vec::new();
+            let mut bind: Vec<Ident> = Vec::new();
             while !input.is_empty() {
                 let key: Ident = input.parse()?;
+                if key == "bind" {
+                    let content;
+                    parenthesized!(content in input);
+                    let names: Punctuated<Ident, Token![,]> =
+                        content.parse_terminated(Ident::parse, Token![,])?;
+                    if names.is_empty() {
+                        return Err(syn::Error::new(
+                            key.span(),
+                            "bind requires a parameter name",
+                        ));
+                    }
+                    for name in names {
+                        if bind.contains(&name) {
+                            return Err(syn::Error::new(name.span(), "duplicate bound parameter"));
+                        }
+                        bind.push(name);
+                    }
+                    if !input.is_empty() {
+                        input.parse::<Token![,]>()?;
+                    }
+                    continue;
+                }
                 input.parse::<Token![=]>()?;
                 match key.to_string().as_str() {
                     "name" => name = Some(input.parse()?),
@@ -2800,7 +2824,7 @@ mod system_attr {
                         return Err(syn::Error::new(
                             key.span(),
                             format!(
-                                "unknown #[system] arg `{other}`; expected `name`, `order`, or `expect`",
+                                "unknown #[system] arg `{other}`; expected `name`, `order`, `expect`, or `bind(...)`",
                             ),
                         ));
                     }
@@ -2814,12 +2838,13 @@ mod system_attr {
                 name,
                 order,
                 expect,
+                bind,
             })
         }
     }
 }
 
-/// Attach perf-aware metadata to a `fn(&mut World)`.
+/// Attach perf-aware metadata to a system function.
 ///
 /// Generates a sibling module sharing the fn's ident exposing
 /// `system()` returning a [`mirui::ecs::System`] with the configured
@@ -2836,7 +2861,8 @@ mod system_attr {
 ///
 /// Defaults: `name` derives from the fn ident; `order` defaults to
 /// `run_order::NORMAL`. `order` accepts either a `run_order::*`
-/// constant or a literal `i32`.
+/// constant or a literal `i32`. With `bind(model)`, a `&Model` parameter
+/// receives the registered handle and other parameters read `Copy` resources.
 #[proc_macro_attribute]
 pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as system_attr::SystemArgs);
@@ -2869,6 +2895,18 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         quote::quote! { .with_expect(super::#expect_const_ident) }
     };
+    if !args.bind.is_empty() {
+        return expand_bound_system(
+            func,
+            args.bind,
+            name_lit,
+            order_expr,
+            expect_outer,
+            with_expect_call,
+        )
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into();
+    }
     quote::quote! {
         #func
         #expect_outer
@@ -2883,6 +2921,135 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+fn expand_bound_system(
+    mut func: syn::ItemFn,
+    bind: Vec<syn::Ident>,
+    name: syn::LitStr,
+    order: syn::Expr,
+    expect_outer: proc_macro2::TokenStream,
+    with_expect: proc_macro2::TokenStream,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let fn_ident = &func.sig.ident;
+    let visibility = &func.vis;
+    let mut bound = Vec::new();
+    let mut resources = Vec::new();
+    let mut call_args = Vec::new();
+    for input in &mut func.sig.inputs {
+        let syn::FnArg::Typed(param) = input else {
+            return Err(syn::Error::new_spanned(
+                input,
+                "systems cannot have a receiver",
+            ));
+        };
+        let syn::Pat::Ident(pattern) = &*param.pat else {
+            return Err(syn::Error::new_spanned(
+                &param.pat,
+                "system parameters must be named",
+            ));
+        };
+        let ident = pattern.ident.clone();
+        if bind.contains(&ident) {
+            let syn::Type::Reference(reference) = &*param.ty else {
+                return Err(syn::Error::new_spanned(
+                    &param.ty,
+                    "bound models use `&Model`",
+                ));
+            };
+            if reference.mutability.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &param.ty,
+                    "bound models cannot be mutably borrowed",
+                ));
+            }
+            let model_type = (*reference.elem).clone();
+            *param.ty = syn::parse_quote!(
+                &<#model_type as ::mirui::core::model::BindType>::Shared
+            );
+            bound.push((ident.clone(), model_type));
+            call_args.push(quote::quote!(&#ident));
+        } else {
+            let resource_type = &param.ty;
+            if matches!(&**resource_type, syn::Type::Reference(_)) {
+                return Err(syn::Error::new_spanned(
+                    resource_type,
+                    "system resources must be Copy values",
+                ));
+            }
+            let optional = match &**resource_type {
+                syn::Type::Path(path) => path.path.segments.last().and_then(|segment| {
+                    if segment.ident != "Option" {
+                        return None;
+                    }
+                    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                        return None;
+                    };
+                    match arguments.args.first() {
+                        Some(syn::GenericArgument::Type(inner)) => Some(inner.clone()),
+                        _ => None,
+                    }
+                }),
+                _ => None,
+            };
+            if let Some(inner) = optional {
+                resources.push(quote::quote! {
+                    let #ident = world.resource::<#inner>().copied();
+                });
+            } else {
+                resources.push(quote::quote! {
+                    let #ident = world.resource::<#resource_type>().copied()
+                        .expect(concat!("missing system resource `", stringify!(#resource_type), "`"));
+                });
+            }
+            call_args.push(quote::quote!(#ident));
+        }
+    }
+    let ordered: Vec<_> = bind
+        .iter()
+        .map(|name| {
+            bound
+                .iter()
+                .find(|(ident, _)| ident == name)
+                .ok_or_else(|| syn::Error::new(name.span(), "bound name is not a system parameter"))
+        })
+        .collect::<syn::Result<_>>()?;
+    let (first_name, _) = ordered
+        .first()
+        .expect("non-empty bind list was checked by parser");
+    let inputs = ordered.iter().map(|(ident, model_type)| {
+        quote::quote!(#ident: <#model_type as ::mirui::core::model::BindType>::Shared)
+    });
+    let captures = ordered.iter().map(
+        |(ident, _)| quote::quote!(let #ident = ::mirui::core::model::SharedValue::share(&#ident);),
+    );
+    let other_models = ordered
+        .iter()
+        .skip(1)
+        .map(|(ident, _)| quote::quote!(.with_model(&#ident)));
+    Ok(quote::quote! {
+        #func
+        #expect_outer
+
+        #[allow(non_snake_case, non_camel_case_types)]
+        #visibility mod #fn_ident {
+            #[allow(unused_imports)]
+            use super::*;
+            #[allow(unused_imports)]
+            use ::mirui::ecs::run_order::*;
+            pub fn system(#(#inputs),*) -> ::mirui::ecs::System {
+                let callback = {
+                    #(#captures)*
+                    move |world: &mut ::mirui::ecs::World| {
+                        #(#resources)*
+                        super::#fn_ident(#(#call_args),*);
+                    }
+                };
+                ::mirui::ecs::System::bound(#name, #order, &#first_name, callback)
+                    #(#other_models)* #with_expect
+            }
+        }
+    })
 }
 
 #[proc_macro_derive(Component)]

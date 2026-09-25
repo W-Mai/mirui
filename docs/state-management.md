@@ -107,6 +107,28 @@ listed in `bind(...)` are converted; other fields and parameters keep their
 declared types. The generated `ui!` callbacks share each bound handle, so
 multiple callbacks can use one model without manually cloning it.
 
+Systems can bind a registered model instance and read small `Copy` resources
+without exposing `World` to the system function:
+
+```rust
+#[system(order = ANIMATION, bind(counter))]
+fn advance(counter: &Counter, delta: mirui::ecs::DeltaTimeMs) {
+    for _ in 0..delta.0 {
+        counter.increment();
+    }
+}
+
+app.add_system(advance::system(counter.clone()));
+```
+
+Each registration keeps its own instance. Other model parameters may be listed
+in `bind(...)`; they are passed to the generated `system(...)` constructor in
+the same order. An unbound `T` parameter is read as a required `Copy` resource;
+`Option<T>` reads an optional one. Missing required resources and cross-App
+model bindings fail explicitly. The callback is allocated at registration,
+with no allocation per invocation. Existing `fn(&mut World)` systems and
+`const fn` system descriptors remain available.
+
 ## Primitives
 
 Three types live in `mirui::core::reactive`:
