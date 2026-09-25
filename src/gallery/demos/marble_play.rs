@@ -3,7 +3,9 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "audio")]
-use crate::audio::{AudioBus, AudioOutputState, AudioState, AudioStateSignal, AudioTone, Waveform};
+use crate::audio::{
+    AudioHandle, AudioOutputState, AudioState, AudioStateSignal, AudioTone, Waveform,
+};
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::fit_logical_canvas;
 #[cfg(feature = "audio")]
@@ -173,7 +175,7 @@ fn update_marble(world: &mut World, update: impl FnOnce(&mut MarbleModel) -> Cha
         return;
     };
     #[cfg(feature = "audio")]
-    if let Some(audio) = world.resource_mut::<AudioBus>() {
+    if let Some(audio) = world.resource::<AudioHandle>() {
         for sound in sounds.into_iter().flatten() {
             let MarbleSound::Pad {
                 pitch,
@@ -248,8 +250,8 @@ fn scaled_gain(gain: u8, scale: u8) -> u8 {
 }
 
 #[cfg(feature = "audio")]
-fn submit_pad_sound(audio: &mut AudioBus, pitch: u8, timbre: PadTimbre, gain: u8, delay_ms: u16) {
-    let mut tone = |pitch, waveform, duration_ms, scale| {
+fn submit_pad_sound(audio: &AudioHandle, pitch: u8, timbre: PadTimbre, gain: u8, delay_ms: u16) {
+    let tone = |pitch, waveform, duration_ms, scale| {
         let _ = audio.tone(
             AudioTone::new(pitch, waveform, duration_ms, scaled_gain(gain, scale))
                 .with_delay_ms(delay_ms),
@@ -290,34 +292,14 @@ fn toggle_audio(world: &mut World) {
             let pad = model.selected_pad();
             (pad.pitch, pad.timbre)
         });
-        if let Some(audio) = world.resource_mut::<AudioBus>() {
-            let enable = audio.is_muted();
-            let _ = audio.set_muted(!enable);
-            if enable && let Some((pitch, timbre)) = preview {
+        if let Some(audio) = world.resource::<AudioHandle>() {
+            let enable = audio.state().is_some_and(|state| state.muted);
+            let accepted = audio.set_muted(!enable);
+            if accepted
+                && enable
+                && let Some((pitch, timbre)) = preview
+            {
                 submit_pad_sound(audio, pitch, timbre, 190, 0);
-            }
-        }
-    }
-}
-
-/// Apply a mute change coming from the host shell. The in-canvas control also
-/// previews the selected pad when sound is enabled; keeping that behavior here
-/// makes external and internal controls observable in the same way.
-pub fn set_external_audio(world: &mut World, muted: bool) {
-    #[cfg(not(feature = "audio"))]
-    let _ = (world, muted);
-    #[cfg(feature = "audio")]
-    if let Some(audio) = world.resource_mut::<AudioBus>() {
-        let was_muted = audio.is_muted();
-        let _ = audio.set_muted(muted);
-        if was_muted && !muted {
-            if let Some((pitch, timbre)) = world.resource::<MarbleModel>().map(|model| {
-                let pad = model.selected_pad();
-                (pad.pitch, pad.timbre)
-            }) {
-                if let Some(audio) = world.resource_mut::<AudioBus>() {
-                    submit_pad_sound(audio, pitch, timbre, 190, 0);
-                }
             }
         }
     }
@@ -1470,7 +1452,7 @@ where
         .expect("Marble board");
     app.world.insert_resource(MarbleBoardEntity(board));
     #[cfg(feature = "audio")]
-    if let Some(audio) = app.world.resource_mut::<AudioBus>() {
+    if let Some(audio) = app.audio() {
         let _ = audio.set_master_gain(107);
         let _ = audio.set_muted(true);
     }
@@ -1495,10 +1477,10 @@ mod tests {
         world.insert_resource(MarbleUiSignal(Signal::new(initial_ui)));
         #[cfg(feature = "audio")]
         {
-            let bus = AudioBus::<32>::new();
-            let state = AudioState::from_bus(&bus);
-            world.insert_resource(bus);
-            world.insert_resource(AudioStateSignal::new(state));
+            let core = crate::audio::SharedAudioCore::new(crate::audio::AudioBus::<32>::new());
+            world.insert_resource(crate::audio::SharedAudioCore::handle(&core));
+            world.insert_resource(core.state_signal());
+            world.insert_resource(core);
         }
         let root = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, root);
@@ -1619,19 +1601,54 @@ mod tests {
         assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "WAIT");
 
         world
-            .resource_mut::<AudioBus>()
+            .resource::<alloc::rc::Rc<crate::audio::SharedAudioCore<32>>>()
             .unwrap()
-            .set_state(AudioOutputState::Ready);
-        let state = AudioState::from_bus(world.resource::<AudioBus<32>>().unwrap());
-        world.resource::<AudioStateSignal>().unwrap().publish(state);
+            .set_output_state(AudioOutputState::Ready);
         crate::core::reactive::flush_signal_dirty(&mut world);
         assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "ON");
 
-        world.resource_mut::<AudioBus>().unwrap().set_muted(true);
-        let state = AudioState::from_bus(world.resource::<AudioBus<32>>().unwrap());
-        world.resource::<AudioStateSignal>().unwrap().publish(state);
+        world.resource::<AudioHandle>().unwrap().set_muted(true);
         crate::core::reactive::flush_signal_dirty(&mut world);
         assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "SOUND");
+    }
+
+    #[cfg(feature = "audio")]
+    #[test]
+    fn external_mute_updates_shared_state_without_playing_a_pad() {
+        use crate::audio::AudioCommand;
+
+        let mut world = fixture();
+        let core = world
+            .resource::<alloc::rc::Rc<crate::audio::SharedAudioCore<32>>>()
+            .unwrap()
+            .clone();
+        world.resource::<AudioHandle>().unwrap().set_muted(true);
+        assert!(
+            world
+                .resource::<AudioHandle>()
+                .unwrap()
+                .state()
+                .unwrap()
+                .muted
+        );
+        assert_eq!(core.pop(), Some(AudioCommand::SetMuted(true)));
+        world.resource::<AudioHandle>().unwrap().set_muted(false);
+        assert!(
+            !world
+                .resource::<AudioHandle>()
+                .unwrap()
+                .state()
+                .unwrap()
+                .muted
+        );
+        assert_eq!(core.pop(), Some(AudioCommand::SetMuted(false)));
+        assert_eq!(core.pop(), None);
+
+        toggle_audio(&mut world);
+        assert_eq!(core.pop(), Some(AudioCommand::SetMuted(true)));
+        toggle_audio(&mut world);
+        assert_eq!(core.pop(), Some(AudioCommand::SetMuted(false)));
+        assert!(matches!(core.pop(), Some(AudioCommand::Tone(_))));
     }
 
     #[test]

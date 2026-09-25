@@ -394,6 +394,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    /// Return the shared audio controls when an audio output plugin is installed.
+    #[cfg(feature = "audio")]
+    pub fn audio(&self) -> Option<crate::audio::AudioHandle> {
+        self.world.resource::<crate::audio::AudioHandle>().cloned()
+    }
+
     /// Notify plugins that a platform host control received an explicit user
     /// interaction. This is separate from widget input dispatch so host UI
     /// controls can unlock platform services without triggering a demo.

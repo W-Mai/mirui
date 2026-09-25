@@ -1,5 +1,6 @@
 mod bank;
 mod bus;
+mod handle;
 mod mixer;
 mod sink;
 mod state;
@@ -11,6 +12,8 @@ mod web;
 
 pub use bank::{AudioBank, AudioCue, AudioTone, CueId, NoteEvent, Score, Waveform};
 pub use bus::{AudioBus, AudioCommand, AudioOutputState};
+pub use handle::AudioHandle;
+pub(crate) use handle::SharedAudioCore;
 pub use mixer::{AudioMixer, MixerError};
 pub use sink::{AudioSink, SilentAudioSink};
 pub use state::{AudioState, AudioStateSignal};

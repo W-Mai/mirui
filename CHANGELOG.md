@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Callback-safe control updates.** TabBar and TextInput invalidate before dispatching change callbacks, allowing callbacks to remove their control without a stale write afterward.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
+- **Shared audio controls.** `App::audio()` returns a cloneable `AudioHandle` for the plugin's single fixed-capacity bus. Host controls and demos use the same mute and output state; handles stop accepting commands after the App is dropped.
 
 ### Fixed
 

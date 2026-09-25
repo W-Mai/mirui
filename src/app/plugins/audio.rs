@@ -1,65 +1,63 @@
+use alloc::rc::Rc;
+
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
-use crate::audio::{
-    AudioBank, AudioBus, AudioOutputState, AudioSink, AudioState, AudioStateSignal,
-};
+use crate::audio::{AudioBank, AudioBus, AudioOutputState, AudioSink, SharedAudioCore};
 use crate::ecs::World;
 use crate::surface::{InputEvent, Surface};
 
 /// Routes a fixed-capacity [`AudioBus`] into one platform audio sink.
 ///
 /// **Inserts**
-/// - resource: `AudioBus<N>`
+/// - resource: `AudioHandle`
 /// - resource: `AudioStateSignal`
 /// - hooks:    `on_event` / `pre_render` / `on_suspend` / `on_resume` / `on_quit`
 pub struct AudioPlugin<S: AudioSink, const N: usize = 32> {
     sink: S,
     bank: &'static AudioBank,
+    core: Option<Rc<SharedAudioCore<N>>>,
 }
 
 impl<S: AudioSink> AudioPlugin<S, 32> {
     pub const fn new(sink: S, bank: &'static AudioBank) -> Self {
-        Self { sink, bank }
+        Self {
+            sink,
+            bank,
+            core: None,
+        }
     }
 }
 
 impl<S: AudioSink, const N: usize> AudioPlugin<S, N> {
     pub const fn with_capacity(sink: S, bank: &'static AudioBank) -> Self {
-        Self { sink, bank }
-    }
-
-    fn mark_failure(world: &mut World) {
-        if let Some(bus) = world.resource_mut::<AudioBus<N>>() {
-            bus.record_failure();
-        }
-        Self::publish_state(world);
-    }
-
-    fn publish_state(world: &World) {
-        let Some(snapshot) = world.resource::<AudioBus<N>>().map(AudioState::from_bus) else {
-            return;
-        };
-        if let Some(signal) = world.resource::<AudioStateSignal>() {
-            signal.publish(snapshot);
+        Self {
+            sink,
+            bank,
+            core: None,
         }
     }
 
-    fn sync_state(&self, world: &mut World) {
-        if let Some(bus) = world.resource_mut::<AudioBus<N>>() {
-            bus.set_state(self.sink.state());
+    fn mark_failure(&self) {
+        if let Some(core) = &self.core {
+            core.record_failure();
         }
-        Self::publish_state(world);
     }
 
-    fn unlock_if_needed(&mut self, world: &mut World) {
+    fn sync_state(&self) {
+        if let Some(core) = &self.core {
+            core.set_output_state(self.sink.state());
+        }
+    }
+
+    fn unlock_if_needed(&mut self) {
         if matches!(
             self.sink.state(),
             AudioOutputState::Starting | AudioOutputState::Locked
         ) {
             if self.sink.unlock().is_err() {
-                Self::mark_failure(world);
+                self.mark_failure();
             } else {
-                self.sync_state(world);
+                self.sync_state();
             }
         }
     }
@@ -72,71 +70,72 @@ where
     S: AudioSink + 'static,
 {
     fn build(&mut self, app: &mut App<B, F>) {
+        assert!(
+            app.audio().is_none(),
+            "only one audio output plugin can be installed"
+        );
         let mut bus = AudioBus::<N>::new();
         if self.sink.start(self.bank).is_err() {
             bus.record_failure();
         } else {
             bus.set_state(self.sink.state());
         }
-        app.world.insert_resource(bus);
-        let snapshot = app
-            .world
-            .resource::<AudioBus<N>>()
-            .map(AudioState::from_bus)
-            .expect("AudioPlugin inserts its bus before publishing state");
-        app.world.insert_resource(AudioStateSignal::new(snapshot));
+        let core = SharedAudioCore::new(bus);
+        app.world.insert_resource(SharedAudioCore::handle(&core));
+        app.world.insert_resource(core.state_signal());
+        self.core = Some(core);
     }
 
-    fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
+    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
         let unlock = matches!(
             event,
             InputEvent::PointerDown { .. } | InputEvent::Key { pressed: true, .. }
         );
         if unlock {
-            self.unlock_if_needed(world);
+            self.unlock_if_needed();
         }
         false
     }
 
-    fn on_host_interaction(&mut self, world: &mut World) {
-        self.unlock_if_needed(world);
+    fn on_host_interaction(&mut self, _world: &mut World) {
+        self.unlock_if_needed();
     }
 
-    fn pre_render(&mut self, world: &mut World) {
+    fn pre_render(&mut self, _world: &mut World) {
         if self.sink.update().is_err() {
-            Self::mark_failure(world);
+            self.mark_failure();
             return;
         }
-        self.sync_state(world);
+        self.sync_state();
         if self.sink.state() != AudioOutputState::Ready {
             return;
         }
         loop {
-            let command = world.resource_mut::<AudioBus<N>>().and_then(AudioBus::pop);
+            let command = self.core.as_ref().and_then(|core| core.pop());
             let Some(command) = command else { break };
             if self.sink.submit(command).is_err() {
-                Self::mark_failure(world);
+                self.mark_failure();
                 break;
             }
         }
     }
 
-    fn on_suspend(&mut self, world: &mut World) {
+    fn on_suspend(&mut self, _world: &mut World) {
         self.sink.suspend();
-        self.sync_state(world);
+        self.sync_state();
     }
 
-    fn on_resume(&mut self, world: &mut World) {
+    fn on_resume(&mut self, _world: &mut World) {
         if self.sink.resume().is_err() {
-            Self::mark_failure(world);
+            self.mark_failure();
         } else {
-            self.sync_state(world);
+            self.sync_state();
         }
     }
 
-    fn on_quit(&mut self, world: &mut World) {
+    fn on_quit(&mut self, _world: &mut World) {
         self.sink.stop();
-        self.sync_state(world);
+        self.sync_state();
     }
 }
 
@@ -154,6 +153,7 @@ mod tests {
 
     use super::*;
     use crate::app::SwRendererFactory;
+    use crate::audio::AudioStateSignal;
     use crate::audio::{AudioCommand, AudioCue, CueId, NoteEvent, Score, Waveform};
     use crate::core::reactive::Effect;
     use crate::surface::framebuf::FramebufSurface;
@@ -233,7 +233,7 @@ mod tests {
             MockSink(trace.clone()),
             &BANK,
         ));
-        app.world.resource_mut::<AudioBus<4>>().unwrap().play(CUE);
+        app.audio().unwrap().play(CUE);
         let mut plugins = core::mem::take(&mut app.plugins);
         assert!(!plugins[0].on_event(
             &mut app.world,
@@ -247,6 +247,34 @@ mod tests {
         app.plugins = plugins;
         assert_eq!(trace.borrow().unlocks, 1);
         assert_eq!(trace.borrow().commands, 1);
+    }
+
+    #[test]
+    fn cloned_controls_expire_with_the_app() {
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        let mut app = app();
+        app.add_plugin(AudioPlugin::<_, 4>::with_capacity(MockSink(trace), &BANK));
+        let audio = app.audio().unwrap();
+        let clone = audio.clone();
+        assert_eq!(clone.state().unwrap().output, AudioOutputState::Locked);
+        assert!(clone.set_muted(true));
+        assert!(audio.state().unwrap().muted);
+        assert_eq!(audio.state().unwrap().output, AudioOutputState::Locked);
+        drop(app);
+        assert!(audio.state().is_none());
+        assert!(!clone.play(CUE));
+    }
+
+    #[test]
+    #[should_panic(expected = "only one audio output plugin can be installed")]
+    fn rejects_a_second_audio_output() {
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        let mut app = app();
+        app.add_plugin(AudioPlugin::<_, 4>::with_capacity(
+            MockSink(trace.clone()),
+            &BANK,
+        ));
+        app.add_plugin(AudioPlugin::<_, 8>::with_capacity(MockSink(trace), &BANK));
     }
 
     #[test]
@@ -286,10 +314,13 @@ mod tests {
         app.with_default_widgets();
         app.add_plugin(AudioPlugin::<_, 4>::with_capacity(MockSink(trace), &BANK));
         let state = app.world.resource::<AudioStateSignal>().unwrap().clone();
+        let audio = app.audio().unwrap();
         let observed = Rc::new(RefCell::new(AudioOutputState::Starting));
         let observed_for_effect = Rc::clone(&observed);
         let _effect = Effect::new(move || {
-            *observed_for_effect.borrow_mut() = state.get().output;
+            let output = state.get().output;
+            assert_eq!(audio.state().unwrap().output, output);
+            *observed_for_effect.borrow_mut() = output;
         });
 
         let _root = app.spawn_root().id();

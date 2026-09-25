@@ -122,24 +122,25 @@ export LIBRARY_PATH="/opt/homebrew/lib:$LIBRARY_PATH"
 
 ### Optional audio
 
-Use `sdl-audio` on desktop or `web-audio` in the browser. Both features install the same fixed-capacity command resource through `AudioPlugin`; bare-metal applications can fill a caller-owned PCM buffer with `AudioMixer` or implement `AudioSink` for an I2S/DMA driver.
+Use `sdl-audio` on desktop or `web-audio` in the browser. `AudioPlugin` owns one fixed-capacity command bus and exposes `AudioHandle` through `app.audio()`. Bare-metal applications can fill a caller-owned PCM buffer with `AudioMixer` or implement `AudioSink` for an I2S/DMA driver.
 
 ```rust
 use mirui::app::plugins::AudioPlugin;
-use mirui::audio::{AudioBank, AudioBus, AudioTone, SdlAudioSink, Waveform};
+use mirui::audio::{AudioBank, AudioTone, SdlAudioSink, Waveform};
 
 static AUDIO: AudioBank = AudioBank::new(&[]);
 
 app.add_plugin(AudioPlugin::new(SdlAudioSink::new(), &AUDIO));
 
-if let Some(audio) = app.world.resource_mut::<AudioBus>() {
+if let Some(audio) = app.audio() {
     audio.tone(AudioTone::new(72, Waveform::Sine, 240, 190));
 }
 ```
 
 `AudioPlugin` also inserts `AudioStateSignal`. Clone this read-only resource
-into a reactive `ui!` binding to display mute and output status; the bus
-remains the source of truth for commands and control changes.
+into a reactive `ui!` binding to display mute and output status. The handle
+and plugin use the same bus; cloned handles stop accepting commands after the
+app is dropped. `AudioBus<N>` remains available for standalone use.
 
 ## ESP32-C3 embedded
 
