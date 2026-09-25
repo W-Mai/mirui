@@ -113,6 +113,47 @@ impl<T: Copy + Eq + 'static> GenericObserved<T> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ChangeSet(u8);
+
+impl ChangeSet {
+    const NONE: Self = Self(0);
+    const VISUAL: Self = Self(1);
+    const PERSISTENCE: Self = Self(2);
+
+    fn contains(self, mask: Self) -> bool {
+        self.0 & mask.0 == mask.0
+    }
+}
+
+#[model(change = ChangeSet, watch(visual = ChangeSet::VISUAL, persistence = ChangeSet::PERSISTENCE))]
+struct VisualCounter {
+    #[observe]
+    active: bool,
+    pixels: u32,
+}
+
+#[model]
+impl VisualCounter {
+    fn change_pixels(&mut self, pixels: u32) -> ChangeSet {
+        if self.pixels == pixels {
+            ChangeSet::NONE
+        } else {
+            self.pixels = pixels;
+            ChangeSet::VISUAL
+        }
+    }
+
+    fn set_active(&mut self, active: bool) -> ChangeSet {
+        self.active = active;
+        ChangeSet::NONE
+    }
+
+    fn request_persistence(&mut self) -> ChangeSet {
+        ChangeSet::PERSISTENCE
+    }
+}
+
 #[test]
 fn generated_methods_target_the_registered_instance() {
     let mut app = App::headless(32, 32);
@@ -296,4 +337,75 @@ fn derived_observer_only_notifies_when_its_result_changes() {
     model.set_count(4);
     flush_signal_dirty(&mut app.world);
     assert_eq!((seen.get(), runs.get()), (true, 2));
+}
+
+#[test]
+fn named_revision_follows_change_mask_without_suppressing_fields() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(VisualCounter {
+        active: false,
+        pixels: 0,
+    });
+    let visual_runs = Rc::new(Cell::new(0));
+    let field_runs = Rc::new(Cell::new(0));
+    let visual = model.clone();
+    let visual_runs_in_effect = visual_runs.clone();
+    let _visual_effect = Effect::new(move || {
+        let _ = visual.visual_revision();
+        visual_runs_in_effect.set(visual_runs_in_effect.get() + 1);
+    });
+    let field = model.clone();
+    let field_runs_in_effect = field_runs.clone();
+    let _field_effect = Effect::new(move || {
+        let _ = field.active();
+        field_runs_in_effect.set(field_runs_in_effect.get() + 1);
+    });
+
+    assert_eq!(model.visual_revision(), 0);
+    assert_eq!(model.persistence_revision(), 0);
+    model.set_active(true);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!((visual_runs.get(), field_runs.get()), (1, 2));
+    assert_eq!(model.visual_revision(), 0);
+
+    model.change_pixels(1);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!((visual_runs.get(), field_runs.get()), (2, 2));
+    assert_eq!(model.visual_revision(), 1);
+    assert_eq!(model.persistence_revision(), 0);
+
+    model.change_pixels(1);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!((visual_runs.get(), field_runs.get()), (2, 2));
+
+    model.request_persistence();
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(model.visual_revision(), 1);
+    assert_eq!(model.persistence_revision(), 1);
+    assert_eq!((visual_runs.get(), field_runs.get()), (2, 2));
+}
+
+#[test]
+fn named_revision_notification_reuses_its_registered_storage() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(VisualCounter {
+        active: false,
+        pixels: 0,
+    });
+    let observed = model.clone();
+    let _effect = Effect::new(move || {
+        let _ = observed.visual_revision();
+    });
+    model.change_pixels(1);
+    flush_signal_dirty(&mut app.world);
+    for pixels in 2..130 {
+        assert_eq!(
+            tracked_allocations(|| {
+                model.change_pixels(pixels);
+            }),
+            0
+        );
+        flush_signal_dirty(&mut app.world);
+    }
+    assert_eq!(model.visual_revision(), 129);
 }

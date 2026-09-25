@@ -57,6 +57,14 @@ An `#[observe]` method with `&self`, no arguments, and a `Copy + Eq` return
 value works the same way: `counter.is_even()` notifies only when its computed
 result changes.
 
+For changes that cannot be observed as a small value, a model can declare a
+change type and named masks with
+`#[model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]`.
+A mutating model method returns `ChangeSet`; a result containing `VISUAL`
+increments `model.visual_revision()` and notifies its readers. A result with
+no matching mask still publishes changed `#[observe]` values. The change type
+must provide `contains(mask)`; each named mask is checked independently.
+
 Bound declarations retain the model type in source while storing its shared
 handle:
 

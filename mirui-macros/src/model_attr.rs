@@ -1,17 +1,73 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::parse::Parser;
+use syn::punctuated::Punctuated;
 use syn::{FnArg, ImplItem, Item, Pat, parse_quote, spanned::Spanned};
 
-pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-    if !attr.is_empty() {
-        return Err(syn::Error::new_spanned(
-            attr,
-            "model options are not supported by this declaration",
+struct ModelOptions {
+    change: Option<syn::Type>,
+    watches: Vec<(syn::Ident, syn::Expr)>,
+}
+
+fn parse_options(attr: TokenStream) -> syn::Result<ModelOptions> {
+    let mut options = ModelOptions {
+        change: None,
+        watches: Vec::new(),
+    };
+    let metas = Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated.parse2(attr)?;
+    for meta in metas {
+        match meta {
+            syn::Meta::NameValue(value) if value.path.is_ident("change") => {
+                if options.change.is_some() {
+                    return Err(syn::Error::new_spanned(value, "duplicate change type"));
+                }
+                let syn::Expr::Path(path) = value.value else {
+                    return Err(syn::Error::new_spanned(
+                        value.value,
+                        "change expects a type path",
+                    ));
+                };
+                options.change = Some(parse_quote!(#path));
+            }
+            syn::Meta::List(list) if list.path.is_ident("watch") => {
+                let entries = list
+                    .parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)?;
+                for entry in entries {
+                    let syn::Meta::NameValue(value) = entry else {
+                        return Err(syn::Error::new_spanned(
+                            entry,
+                            "watch expects name = mask entries",
+                        ));
+                    };
+                    let Some(name) = value.path.get_ident() else {
+                        return Err(syn::Error::new_spanned(
+                            value.path,
+                            "watch name must be an identifier",
+                        ));
+                    };
+                    if options.watches.iter().any(|(existing, _)| existing == name) {
+                        return Err(syn::Error::new_spanned(name, "duplicate watch name"));
+                    }
+                    options.watches.push((name.clone(), value.value));
+                }
+            }
+            other => return Err(syn::Error::new_spanned(other, "expected change or watch")),
+        }
+    }
+    if options.change.is_none() && !options.watches.is_empty() {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "watch requires change = Type",
         ));
     }
+    Ok(options)
+}
+
+pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     match syn::parse2::<Item>(item)? {
-        Item::Struct(item) => expand_struct(item),
-        Item::Impl(item) => expand_impl(item),
+        Item::Struct(item) => expand_struct(item, parse_options(attr)?),
+        Item::Impl(item) if attr.is_empty() => expand_impl(item),
+        Item::Impl(_) => Err(syn::Error::new_spanned(attr, "model impl takes no options")),
         other => Err(syn::Error::new_spanned(
             other,
             "#[model] requires a struct or inherent impl",
@@ -19,7 +75,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     }
 }
 
-fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
+fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Result<TokenStream> {
     let name = &item.ident;
     let handle = format_ident!("{}Handle", name);
     let snapshot = format_ident!("{}ObservedSnapshot", name);
@@ -59,6 +115,15 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
     }
     let observed_names: Vec<_> = observed.iter().map(|(name, _, _)| name).collect();
     let observed_types: Vec<_> = observed.iter().map(|(_, ty, _)| ty).collect();
+    for (name, _) in &options.watches {
+        let getter = format_ident!("{}_revision", name);
+        if observed_names.contains(&&getter) {
+            return Err(syn::Error::new_spanned(
+                name,
+                "watch revision getter conflicts with an observed field",
+            ));
+        }
+    }
     let source_count = observed.len();
     let mut model_generics = generics.clone();
     model_generics
@@ -134,6 +199,38 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
             }
         }
     });
+    let change_type = options
+        .change
+        .map_or_else(|| quote!(()), |change| quote!(#change));
+    let watch_count = options.watches.len();
+    let watch_getters = options
+        .watches
+        .iter()
+        .enumerate()
+        .map(|(index, (name, _))| {
+            let getter = format_ident!("{}_revision", name);
+            quote! {
+                #visibility fn #getter(&self) -> u64 {
+                    ::mirui::core::model::ModelHandle::watch_revision(self, #index)
+                }
+            }
+        });
+    let watch_publish = options
+        .watches
+        .iter()
+        .enumerate()
+        .map(|(index, (_, mask))| {
+            quote! {
+                if change.contains(#mask) {
+                    watches[#index].publish();
+                }
+            }
+        });
+    let watch_publish_body = if options.watches.is_empty() {
+        quote!(let _ = (watches, change);)
+    } else {
+        quote!(#(#watch_publish)*)
+    };
 
     Ok(quote! {
         #item
@@ -154,6 +251,8 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
             type Handle = #handle #type_generics;
             type Snapshot = #snapshot_type;
             type Sources = [::mirui::core::reactive::ModelSource; #source_count];
+            type Change = #change_type;
+            type Watches = [::mirui::core::model::ModelWatch; #watch_count];
 
             fn handle(
                 cell: ::mirui::__Weak<::mirui::core::model::ModelCell<Self>>,
@@ -171,6 +270,14 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
 
             fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot) {
                 #publish_body
+            }
+
+            fn watches() -> Self::Watches {
+                ::core::array::from_fn(|_| ::mirui::core::model::ModelWatch::new())
+            }
+
+            fn publish_change(watches: &Self::Watches, change: Self::Change) {
+                #watch_publish_body
             }
         }
 
@@ -194,6 +301,7 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
 
         impl #impl_generics #handle #type_generics #model_where {
             #(#accessors)*
+            #(#watch_getters)*
         }
     })
 }
@@ -504,5 +612,51 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("no arguments"));
+    }
+
+    #[test]
+    fn change_masks_generate_named_revision_getters() {
+        let expanded = expand(
+            quote!(change = ChangeSet, watch(visual = ChangeSet::VISUAL)),
+            quote!(
+                struct Board {
+                    pixels: u32,
+                }
+            ),
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("type Change = ChangeSet"));
+        assert!(expanded.contains("fn visual_revision"));
+        assert!(expanded.contains("change . contains"));
+    }
+
+    #[test]
+    fn rejects_watch_without_change_type() {
+        let error = expand(
+            quote!(watch(visual = ChangeSet::VISUAL)),
+            quote!(
+                struct Board {
+                    pixels: u32,
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("requires change"));
+    }
+
+    #[test]
+    fn rejects_revision_getter_collision_with_observed_field() {
+        let error = expand(
+            quote!(change = ChangeSet, watch(visual = ChangeSet::VISUAL)),
+            quote!(
+                struct Board {
+                    #[observe]
+                    visual_revision: u64,
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("conflicts"));
     }
 }

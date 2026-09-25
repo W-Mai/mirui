@@ -30,6 +30,8 @@ pub trait Model: ModelMethods + Sized + 'static {
     type Handle: ModelHandle<Data = Self>;
     type Snapshot: Copy;
     type Sources: AsRef<[crate::core::reactive::ModelSource]>;
+    type Change: Copy;
+    type Watches: AsRef<[ModelWatch]>;
 
     #[doc(hidden)]
     fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle;
@@ -42,6 +44,12 @@ pub trait Model: ModelMethods + Sized + 'static {
 
     #[doc(hidden)]
     fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot);
+
+    #[doc(hidden)]
+    fn watches() -> Self::Watches;
+
+    #[doc(hidden)]
+    fn publish_change(watches: &Self::Watches, change: Self::Change);
 }
 
 /// Maps a declaration type to the value stored by a bound callback or component.
@@ -62,6 +70,38 @@ impl<T: BindType> BindType for Option<T> {
 
 impl<T: SharedValue> SharedValue for Option<T> {}
 
+/// A named revision source owned by one registered model instance.
+#[doc(hidden)]
+pub struct ModelWatch {
+    revision: Cell<u64>,
+    source: crate::core::reactive::ModelSource,
+}
+
+impl Default for ModelWatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModelWatch {
+    pub const fn new() -> Self {
+        Self {
+            revision: Cell::new(0),
+            source: crate::core::reactive::ModelSource::new(),
+        }
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.source.track();
+        self.revision.get()
+    }
+
+    pub fn publish(&self) {
+        self.revision.set(self.revision.get().wrapping_add(1));
+        self.source.notify();
+    }
+}
+
 impl<T: 'static> BindType for crate::core::reactive::Signal<T> {
     type Shared = Self;
 }
@@ -81,6 +121,7 @@ pub struct ModelCell<M: Model> {
     value: RefCell<M>,
     sources: M::Sources,
     derived_sources: M::DerivedSources,
+    watches: M::Watches,
     poisoned: Cell<bool>,
 }
 
@@ -91,6 +132,7 @@ impl<M: Model> ModelCell<M> {
             value: RefCell::new(value),
             sources: M::sources(),
             derived_sources: M::derived_sources(),
+            watches: M::watches(),
             poisoned: Cell::new(false),
         }
     }
@@ -165,7 +207,19 @@ pub trait ModelHandle: Clone {
     }
 
     #[doc(hidden)]
-    fn update<R>(&self, update: impl FnOnce(&mut Self::Data) -> R) -> R {
+    fn watch_revision(&self, index: usize) -> u64 {
+        let cell = self
+            .cell()
+            .upgrade()
+            .expect("model registration is no longer alive");
+        self.read(|_| cell.watches.as_ref()[index].revision())
+    }
+
+    #[doc(hidden)]
+    fn update(
+        &self,
+        update: impl FnOnce(&mut Self::Data) -> <Self::Data as Model>::Change,
+    ) -> <Self::Data as Model>::Change {
         let cell = self
             .cell()
             .upgrade()
@@ -193,6 +247,7 @@ pub trait ModelHandle: Clone {
         drop(value);
         Self::Data::publish(&cell.sources, before, after);
         Self::Data::publish_derived(&cell.derived_sources, derived_before, derived_after);
+        Self::Data::publish_change(&cell.watches, result);
         guard.committed = true;
         result
     }
@@ -241,6 +296,8 @@ mod tests {
         type Handle = CounterHandle;
         type Snapshot = ();
         type Sources = [crate::core::reactive::ModelSource; 0];
+        type Change = ();
+        type Watches = [super::ModelWatch; 0];
 
         fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle {
             CounterHandle(cell)
@@ -253,6 +310,12 @@ mod tests {
         }
 
         fn publish(_: &Self::Sources, _: Self::Snapshot, _: Self::Snapshot) {}
+
+        fn watches() -> Self::Watches {
+            []
+        }
+
+        fn publish_change(_: &Self::Watches, _: Self::Change) {}
     }
 
     impl ModelHandle for CounterHandle {
@@ -327,5 +390,15 @@ mod tests {
         }));
         assert!(error.is_err());
         assert_eq!(first.value(), 1);
+    }
+
+    #[test]
+    fn named_revision_wraps_without_stalling_notifications() {
+        let watch = super::ModelWatch::new();
+        watch.revision.set(u64::MAX);
+        watch.publish();
+        assert_eq!(watch.revision(), 0);
+        watch.publish();
+        assert_eq!(watch.revision(), 1);
     }
 }
