@@ -65,6 +65,22 @@ increments `model.visual_revision()` and notifies its readers. A result with
 no matching mask still publishes changed `#[observe]` values. The change type
 must provide `contains(mask)`; each named mask is checked independently.
 
+Fixed-size effect arrays can be drained after a model method completes:
+
+```rust
+#[effects]
+fn take_notes(&mut self) -> [Option<Note>; 4] {
+    core::mem::take(&mut self.notes)
+}
+
+app.on_effect(&player, move |note: Note| play_note(note))?;
+```
+
+The extractor lives in the marked model impl and is not exposed as a handle
+method. One consumer may be registered per effect type and model instance.
+Events are drained even when no consumer is installed; delivery runs after
+the model borrow is released.
+
 Bound declarations retain the model type in source while storing its shared
 handle:
 

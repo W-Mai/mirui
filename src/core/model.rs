@@ -1,5 +1,6 @@
 //! Registered model instances and their shared method-call boundary.
 
+use alloc::boxed::Box;
 use alloc::rc::{Rc, Weak};
 use core::cell::{Cell, RefCell};
 
@@ -10,6 +11,8 @@ use crate::ecs::world::WorldId;
 pub trait ModelMethods: Sized {
     type DerivedSnapshot: Copy;
     type DerivedSources: AsRef<[crate::core::reactive::ModelSource]>;
+    type Events;
+    type Routes;
 
     #[doc(hidden)]
     fn derived_snapshot(&self) -> Self::DerivedSnapshot;
@@ -23,6 +26,85 @@ pub trait ModelMethods: Sized {
         before: Self::DerivedSnapshot,
         after: Self::DerivedSnapshot,
     );
+
+    #[doc(hidden)]
+    fn take_events(&mut self) -> Self::Events;
+
+    #[doc(hidden)]
+    fn routes() -> Self::Routes;
+
+    #[doc(hidden)]
+    fn deliver_events(routes: &Self::Routes, events: Self::Events);
+}
+
+/// A model declares that it produces one effect type.
+pub trait Produces<E>: ModelMethods {
+    #[doc(hidden)]
+    fn route(routes: &Self::Routes) -> &EffectRoute<E>;
+}
+
+/// Registration failure for an effect consumer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffectRegistrationError {
+    AlreadyRegistered,
+}
+
+type EffectHandler<E> = Box<dyn Fn(E)>;
+
+/// One callback slot for one effect type on one model instance.
+#[doc(hidden)]
+pub struct EffectRoute<E> {
+    handler: RefCell<Option<EffectHandler<E>>>,
+    active: Cell<bool>,
+}
+
+impl<E> Default for EffectRoute<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<E> EffectRoute<E> {
+    pub const fn new() -> Self {
+        Self {
+            handler: RefCell::new(None),
+            active: Cell::new(false),
+        }
+    }
+
+    pub fn register(&self, handler: impl Fn(E) + 'static) -> Result<(), EffectRegistrationError> {
+        if self.active.get() || self.handler.borrow().is_some() {
+            return Err(EffectRegistrationError::AlreadyRegistered);
+        }
+        *self.handler.borrow_mut() = Some(Box::new(handler));
+        Ok(())
+    }
+
+    pub fn deliver(&self, event: E) {
+        assert!(
+            !self.active.get(),
+            "effect consumer cannot recursively deliver"
+        );
+        let Some(handler) = self.handler.borrow_mut().take() else {
+            return;
+        };
+        self.active.set(true);
+        struct Restore<'a, E> {
+            route: &'a EffectRoute<E>,
+            handler: Option<EffectHandler<E>>,
+        }
+        impl<E> Drop for Restore<'_, E> {
+            fn drop(&mut self) {
+                *self.route.handler.borrow_mut() = self.handler.take();
+                self.route.active.set(false);
+            }
+        }
+        let restore = Restore {
+            route: self,
+            handler: Some(handler),
+        };
+        (restore.handler.as_ref().expect("effect handler"))(event);
+    }
 }
 
 /// A model type that can create its generated instance handle.
@@ -122,6 +204,7 @@ pub struct ModelCell<M: Model> {
     sources: M::Sources,
     derived_sources: M::DerivedSources,
     watches: M::Watches,
+    routes: M::Routes,
     poisoned: Cell<bool>,
 }
 
@@ -133,6 +216,7 @@ impl<M: Model> ModelCell<M> {
             sources: M::sources(),
             derived_sources: M::derived_sources(),
             watches: M::watches(),
+            routes: M::routes(),
             poisoned: Cell::new(false),
         }
     }
@@ -242,6 +326,7 @@ pub trait ModelHandle: Clone {
         let before = value.snapshot();
         let derived_before = value.derived_snapshot();
         let result = update(&mut value);
+        let events = value.take_events();
         let after = value.snapshot();
         let derived_after = value.derived_snapshot();
         drop(value);
@@ -249,6 +334,7 @@ pub trait ModelHandle: Clone {
         Self::Data::publish_derived(&cell.derived_sources, derived_before, derived_after);
         Self::Data::publish_change(&cell.watches, result);
         guard.committed = true;
+        Self::Data::deliver_events(&cell.routes, events);
         result
     }
 }
@@ -257,6 +343,23 @@ pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (Rc<ModelCell<M>>,
     let cell = Rc::new(ModelCell::new(owner, value));
     let handle = M::handle(Rc::downgrade(&cell));
     (cell, handle)
+}
+
+pub(crate) fn register_effect<H, E>(
+    owner: WorldId,
+    handle: &H,
+    handler: impl Fn(E) + 'static,
+) -> Result<(), EffectRegistrationError>
+where
+    H: ModelHandle,
+    H::Data: Produces<E>,
+{
+    let cell = handle
+        .cell()
+        .upgrade()
+        .expect("model registration is no longer alive");
+    assert_eq!(cell.owner(), owner, "model belongs to a different App");
+    <H::Data as Produces<E>>::route(&cell.routes).register(handler)
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -271,6 +374,8 @@ mod tests {
     impl ModelMethods for Counter {
         type DerivedSnapshot = ();
         type DerivedSources = [crate::core::reactive::ModelSource; 0];
+        type Events = ();
+        type Routes = ();
 
         fn derived_snapshot(&self) -> Self::DerivedSnapshot {}
 
@@ -284,6 +389,12 @@ mod tests {
             _: Self::DerivedSnapshot,
         ) {
         }
+
+        fn take_events(&mut self) -> Self::Events {}
+
+        fn routes() -> Self::Routes {}
+
+        fn deliver_events(_: &Self::Routes, _: Self::Events) {}
     }
 
     impl Clone for CounterHandle {

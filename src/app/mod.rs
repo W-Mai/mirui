@@ -135,6 +135,19 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         handle
     }
 
+    /// Register the consumer for one effect type produced by a model instance.
+    pub fn on_effect<H, E>(
+        &mut self,
+        model: &H,
+        handler: impl Fn(E) + 'static,
+    ) -> Result<(), crate::core::model::EffectRegistrationError>
+    where
+        H: crate::core::model::ModelHandle,
+        H::Data: crate::core::model::Produces<E>,
+    {
+        crate::core::model::register_effect(self.world.id(), model, handler)
+    }
+
     pub fn with_factory(backend: B, factory: F) -> Self {
         #[cfg(feature = "std")]
         install_default_log_sink_once();

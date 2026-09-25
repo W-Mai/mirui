@@ -63,6 +63,43 @@ fn parse_options(attr: TokenStream) -> syn::Result<ModelOptions> {
     Ok(options)
 }
 
+fn effect_item_type(output: &syn::ReturnType) -> syn::Result<syn::Type> {
+    let syn::ReturnType::Type(_, result) = output else {
+        return Err(syn::Error::new_spanned(
+            output,
+            "#[effects] requires [Option<Event>; N]",
+        ));
+    };
+    let syn::Type::Array(array) = &**result else {
+        return Err(syn::Error::new_spanned(
+            result,
+            "#[effects] requires [Option<Event>; N]",
+        ));
+    };
+    let syn::Type::Path(option) = &*array.elem else {
+        return Err(syn::Error::new_spanned(
+            &array.elem,
+            "#[effects] requires Option<Event> elements",
+        ));
+    };
+    let Some(segment) = option.path.segments.last() else {
+        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+    };
+    if segment.ident != "Option" {
+        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+    }
+    let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+    };
+    let Some(syn::GenericArgument::Type(event)) = args.args.first() else {
+        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+    };
+    if args.args.len() != 1 {
+        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+    }
+    Ok(event.clone())
+}
+
 pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     match syn::parse2::<Item>(item)? {
         Item::Struct(item) => expand_struct(item, parse_options(attr)?),
@@ -332,6 +369,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let type_args = self_type.path.segments[0].arguments.clone();
     let mut forwards = Vec::new();
     let mut observed = Vec::new();
+    let mut effects = Vec::new();
     for member in &mut item.items {
         let ImplItem::Fn(method) = member else {
             continue;
@@ -342,6 +380,30 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             .filter(|attr| attr.path().is_ident("observe"))
             .collect();
         let is_observed = !markers.is_empty();
+        let effect_markers: Vec<_> = method
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("effects"))
+            .collect();
+        let is_effect = !effect_markers.is_empty();
+        if is_observed && is_effect {
+            return Err(syn::Error::new_spanned(
+                method,
+                "a model method cannot be both observed and an effect extractor",
+            ));
+        }
+        if effect_markers.len() > 1 {
+            return Err(syn::Error::new_spanned(
+                method,
+                "duplicate #[effects] marker",
+            ));
+        }
+        if is_effect && !matches!(effect_markers[0].meta, syn::Meta::Path(_)) {
+            return Err(syn::Error::new_spanned(
+                effect_markers[0],
+                "#[effects] does not take arguments",
+            ));
+        }
         if markers.len() > 1 {
             return Err(syn::Error::new_spanned(
                 method,
@@ -354,9 +416,11 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 "#[observe] does not take arguments",
             ));
         }
-        method.attrs.retain(|attr| !attr.path().is_ident("observe"));
+        method
+            .attrs
+            .retain(|attr| !attr.path().is_ident("observe") && !attr.path().is_ident("effects"));
         let Some(FnArg::Receiver(receiver)) = method.sig.inputs.first() else {
-            if is_observed {
+            if is_observed || is_effect {
                 return Err(syn::Error::new_spanned(
                     &method.sig,
                     "observed methods require &self",
@@ -391,6 +455,31 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 ));
             };
             observed.push((method.sig.ident.clone(), (**ty).clone(), method.vis.clone()));
+            continue;
+        }
+        if is_effect {
+            if receiver.mutability.is_none()
+                || method.sig.inputs.len() != 1
+                || !method.sig.generics.params.is_empty()
+            {
+                return Err(syn::Error::new_spanned(
+                    &method.sig,
+                    "effect extractors require &mut self, no arguments, and no generics",
+                ));
+            }
+            let event = effect_item_type(&method.sig.output)?;
+            if effects.iter().any(
+                |(_, existing, _, _): &(syn::Ident, syn::Type, syn::Type, usize)| {
+                    quote!(#existing).to_string() == quote!(#event).to_string()
+                },
+            ) {
+                return Err(syn::Error::new_spanned(event, "duplicate effect type"));
+            }
+            let syn::ReturnType::Type(_, array) = &method.sig.output else {
+                unreachable!();
+            };
+            let index = effects.len();
+            effects.push((method.sig.ident.clone(), event, (**array).clone(), index));
             continue;
         }
         let mut argument_names = Vec::new();
@@ -486,14 +575,80 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             }
         }
     });
+    let event_batch = format_ident!("{}EffectBatch", name);
+    let route_store = format_ident!("{}EffectRoutes", name);
+    let effect_types: Vec<_> = effects.iter().map(|(_, event, _, _)| event).collect();
+    let effect_arrays: Vec<_> = effects.iter().map(|(_, _, array, _)| array).collect();
+    let effect_methods: Vec<_> = effects.iter().map(|(method, _, _, _)| method).collect();
+    let effect_storage = if effects.is_empty() {
+        quote!()
+    } else {
+        quote! {
+            pub struct #event_batch #generics {
+                values: (#(#effect_arrays,)*),
+                marker: ::core::marker::PhantomData<#name #type_args>,
+            }
+
+            pub struct #route_store #generics {
+                values: (#(::mirui::core::model::EffectRoute<#effect_types>,)*),
+                marker: ::core::marker::PhantomData<#name #type_args>,
+            }
+        }
+    };
+    let (events_type, routes_type, take_body, routes_body, deliver_body) = if effects.is_empty() {
+        (
+            quote!(()),
+            quote!(()),
+            quote!(),
+            quote!(),
+            quote!(let _ = (routes, events);),
+        )
+    } else {
+        let dispatches = effects.iter().map(|(_, _, _, index)| {
+            let index = syn::Index::from(*index);
+            quote! {
+                for event in events.values.#index.into_iter().flatten() {
+                    routes.values.#index.deliver(event);
+                }
+            }
+        });
+        (
+            quote!(#event_batch #type_args),
+            quote!(#route_store #type_args),
+            quote!(#event_batch {
+                values: (#(self.#effect_methods(),)*),
+                marker: ::core::marker::PhantomData,
+            }),
+            quote!(#route_store {
+                values: (#(::mirui::core::model::EffectRoute::<#effect_types>::new(),)*),
+                marker: ::core::marker::PhantomData,
+            }),
+            quote!(#(#dispatches)*),
+        )
+    };
+    let effect_traits = effects.iter().map(|(_, event, _, index)| {
+        let index = syn::Index::from(*index);
+        quote! {
+            impl #derived_impl_generics ::mirui::core::model::Produces<#event>
+                for #name #type_args #derived_where
+            {
+                fn route(routes: &Self::Routes) -> &::mirui::core::model::EffectRoute<#event> {
+                    &routes.values.#index
+                }
+            }
+        }
+    });
     Ok(quote! {
         #item
 
         #snapshot_definition
+        #effect_storage
 
         impl #derived_impl_generics ::mirui::core::model::ModelMethods for #name #type_args #derived_where {
             type DerivedSnapshot = #snapshot_type;
             type DerivedSources = [::mirui::core::reactive::ModelSource; #source_count];
+            type Events = #events_type;
+            type Routes = #routes_type;
 
             fn derived_snapshot(&self) -> Self::DerivedSnapshot {
                 #snapshot_value
@@ -510,7 +665,21 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             ) {
                 #publish_body
             }
+
+            fn take_events(&mut self) -> Self::Events {
+                #take_body
+            }
+
+            fn routes() -> Self::Routes {
+                #routes_body
+            }
+
+            fn deliver_events(routes: &Self::Routes, events: Self::Events) {
+                #deliver_body
+            }
         }
+
+        #(#effect_traits)*
 
         impl #derived_impl_generics #handle #type_args #derived_where {
             #(#forwards)*
@@ -658,5 +827,56 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("conflicts"));
+    }
+
+    #[test]
+    fn effects_generate_typed_routes_without_forwarding_extractors() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    fn play(&mut self) {}
+                    #[effects]
+                    fn take_notes(&mut self) -> [Option<Note>; 4] { [None; 4] }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("Produces < Note >"));
+        assert!(expanded.contains("fn play"));
+        assert!(!expanded.contains("fn take_notes (& self"));
+    }
+
+    #[test]
+    fn rejects_duplicate_effect_types() {
+        let error = expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    #[effects]
+                    fn first(&mut self) -> [Option<Note>; 2] { [None; 2] }
+                    #[effects]
+                    fn second(&mut self) -> [Option<Note>; 4] { [None; 4] }
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("duplicate effect type"));
+    }
+
+    #[test]
+    fn rejects_unbounded_effect_result() {
+        let error = expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    #[effects]
+                    fn take_notes(&mut self) -> Vec<Note> { Vec::new() }
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("[Option<Event>; N]"));
     }
 }

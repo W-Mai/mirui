@@ -133,6 +133,39 @@ struct VisualCounter {
     pixels: u32,
 }
 
+#[derive(Clone, Copy)]
+struct Note(u32);
+
+#[derive(Clone, Copy)]
+struct Audit(u32);
+
+#[model]
+pub struct EffectCounter {
+    #[observe]
+    count: u32,
+    notes: [Option<Note>; 2],
+    audits: [Option<Audit>; 1],
+}
+
+#[model]
+impl EffectCounter {
+    fn emit(&mut self, count: u32) {
+        self.count = count;
+        self.notes[0] = Some(Note(count));
+        self.audits[0] = Some(Audit(count));
+    }
+
+    #[effects]
+    fn take_notes(&mut self) -> [Option<Note>; 2] {
+        std::mem::take(&mut self.notes)
+    }
+
+    #[effects]
+    fn take_audits(&mut self) -> [Option<Audit>; 1] {
+        std::mem::take(&mut self.audits)
+    }
+}
+
 #[model]
 impl VisualCounter {
     fn change_pixels(&mut self, pixels: u32) -> ChangeSet {
@@ -408,4 +441,117 @@ fn named_revision_notification_reuses_its_registered_storage() {
         flush_signal_dirty(&mut app.world);
     }
     assert_eq!(model.visual_revision(), 129);
+}
+
+#[test]
+fn typed_effects_are_drained_once_after_model_borrow_is_released() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    model.emit(1);
+
+    let note_total = Rc::new(Cell::new(0));
+    let audit_total = Rc::new(Cell::new(0));
+    let note_total_in_handler = note_total.clone();
+    let observed = model.clone();
+    app.on_effect(&model, move |note: Note| {
+        assert_eq!(observed.count(), note.0);
+        note_total_in_handler.set(note_total_in_handler.get() + note.0);
+    })
+    .unwrap();
+    let audit_total_in_handler = audit_total.clone();
+    app.on_effect(&model, move |audit: Audit| {
+        audit_total_in_handler.set(audit_total_in_handler.get() + audit.0);
+    })
+    .unwrap();
+    assert_eq!(note_total.get(), 0);
+    assert_eq!(audit_total.get(), 0);
+
+    model.emit(2);
+    assert_eq!(note_total.get(), 2);
+    assert_eq!(audit_total.get(), 2);
+    model.emit(3);
+    assert_eq!(note_total.get(), 5);
+    assert_eq!(audit_total.get(), 5);
+    assert_eq!(
+        app.on_effect(&model, |_note: Note| {}),
+        Err(mirui::core::model::EffectRegistrationError::AlreadyRegistered)
+    );
+}
+
+#[test]
+fn registered_effect_delivery_does_not_allocate_per_command() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let total = Rc::new(Cell::new(0));
+    let in_handler = total.clone();
+    app.on_effect(&model, move |note: Note| {
+        in_handler.set(in_handler.get() + note.0);
+    })
+    .unwrap();
+    model.emit(1);
+    assert_eq!(tracked_allocations(|| model.emit(2)), 0);
+    assert_eq!(total.get(), 3);
+}
+
+#[test]
+fn effect_callback_failure_does_not_poison_committed_model() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let panic_once = Rc::new(Cell::new(true));
+    let panic_in_handler = panic_once.clone();
+    app.on_effect(&model, move |_note: Note| {
+        if panic_in_handler.replace(false) {
+            panic!("effect callback failed");
+        }
+    })
+    .unwrap();
+
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.emit(1)));
+    assert!(failure.is_err());
+    assert_eq!(model.count(), 1);
+    model.emit(2);
+    assert_eq!(model.count(), 2);
+}
+
+#[test]
+fn effect_consumers_are_bound_to_model_instances() {
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let second = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let first_total = Rc::new(Cell::new(0));
+    let second_total = Rc::new(Cell::new(0));
+    let first_in_handler = first_total.clone();
+    app.on_effect(&first, move |note: Note| {
+        first_in_handler.set(first_in_handler.get() + note.0);
+    })
+    .unwrap();
+    let second_in_handler = second_total.clone();
+    app.on_effect(&second, move |note: Note| {
+        second_in_handler.set(second_in_handler.get() + note.0);
+    })
+    .unwrap();
+
+    first.emit(3);
+    second.emit(7);
+    assert_eq!((first_total.get(), second_total.get()), (3, 7));
 }
