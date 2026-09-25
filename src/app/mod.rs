@@ -341,6 +341,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Register one widget kind (built-in or user-defined).
     pub fn with_widget(&mut self, view: View) -> &mut Self {
+        if view.observation().is_some() {
+            let type_id = view
+                .component_filter()
+                .expect("observed View requires a component filter");
+            self.world.watch_component_type(type_id);
+        }
         let systems = &mut self.systems;
         view.install(&mut self.world, |s| systems.add(s));
         if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
@@ -550,6 +556,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
+        ViewRegistry::reconcile_observations(&mut self.world);
         crate::core::reactive::flush_signal_dirty(&mut self.world);
     }
 

@@ -222,6 +222,25 @@ pub type ViewAttach = fn(world: &mut World, entity: Entity);
 
 pub type ViewInternalGesture = fn(&mut World, Entity, &GestureEvent) -> bool;
 
+/// Collects subscriptions for one entity and one View registration.
+#[doc(hidden)]
+#[derive(Default)]
+pub struct ViewObservationBindings {
+    subscriptions: Vec<crate::core::model::ModelSubscription>,
+}
+
+impl ViewObservationBindings {
+    pub fn watch(&mut self, subscription: crate::core::model::ModelSubscription) {
+        self.subscriptions.push(subscription);
+    }
+
+    fn clear(&mut self) {
+        self.subscriptions.clear();
+    }
+}
+
+pub type ViewObserve = fn(&World, Entity, &mut ViewObservationBindings);
+
 pub struct View {
     name: &'static str,
     /// Lower runs earlier. Slot reservation: 0..30 pre-bg,
@@ -240,6 +259,8 @@ pub struct View {
     /// `true` consumes the event; returning `false` lets bubble walk
     /// continue (and visit any user-attached `GestureHandler`).
     internal_gesture: Option<ViewInternalGesture>,
+    observe: Option<ViewObserve>,
+    registration_id: Option<u64>,
 }
 
 impl View {
@@ -252,6 +273,8 @@ impl View {
             systems: &[],
             component_filter: None,
             internal_gesture: None,
+            observe: None,
+            registration_id: None,
         }
     }
 
@@ -279,6 +302,22 @@ impl View {
         self
     }
 
+    /// Describe the instance sources to bind for each matching component.
+    /// Requires `with_filter::<Component>()` on the same View.
+    pub const fn with_observation(mut self, observe: ViewObserve) -> Self {
+        self.observe = Some(observe);
+        self
+    }
+
+    pub(crate) fn observation(&self) -> Option<ViewObserve> {
+        self.observe
+    }
+
+    #[doc(hidden)]
+    pub fn registration_id(&self) -> u64 {
+        self.registration_id.expect("View has not been registered")
+    }
+
     /// Marker widget: only contributes systems, no rendering.
     pub const fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
         fn noop_render(
@@ -297,6 +336,8 @@ impl View {
             systems,
             component_filter: None,
             internal_gesture: None,
+            observe: None,
+            registration_id: None,
         }
     }
 
@@ -332,9 +373,64 @@ impl View {
 #[derive(Default)]
 pub struct ViewRegistry {
     views: Vec<View>,
+    next_registration: u64,
+    bindings: Vec<ViewBinding>,
+}
+
+struct ViewBinding {
+    entity: Entity,
+    registration_id: u64,
+    active: bool,
+    subscriptions: ViewObservationBindings,
 }
 
 impl ViewRegistry {
+    /// Rebind changed components before layout and paint inspect their state.
+    pub(crate) fn reconcile_observations(world: &mut World) {
+        world.with_resource_box::<Self, _>(|registry, world| {
+            world.drain_component_changes(|world, change| registry.apply_change(world, change));
+        });
+    }
+
+    fn apply_change(&mut self, world: &mut World, change: crate::ecs::world::ComponentChange) {
+        for view in &self.views {
+            if view.component_filter() != Some(change.type_id) {
+                continue;
+            }
+            let Some(observe) = view.observation() else {
+                continue;
+            };
+            let registration_id = view.registration_id();
+            let slot = self.bindings.iter().position(|binding| {
+                binding.active
+                    && binding.entity == change.entity
+                    && binding.registration_id == registration_id
+            });
+            let slot = slot.or_else(|| self.bindings.iter().position(|binding| !binding.active));
+            let index = slot.unwrap_or_else(|| {
+                self.bindings.push(ViewBinding {
+                    entity: change.entity,
+                    registration_id,
+                    active: false,
+                    subscriptions: ViewObservationBindings::default(),
+                });
+                self.bindings.len() - 1
+            });
+            let binding = &mut self.bindings[index];
+            binding.subscriptions.clear();
+            binding.entity = change.entity;
+            binding.registration_id = registration_id;
+            binding.active =
+                world.is_alive(change.entity) && world.has_type(change.entity, change.type_id);
+            if binding.active {
+                observe(world, change.entity, &mut binding.subscriptions);
+            }
+            if world.is_alive(change.entity) {
+                world.insert(change.entity, crate::ui::dirty::VisualDirty);
+            }
+        }
+    }
+
     /// Pre-populated registry containing every built-in widget kind.
     /// `App::with_default_widgets` iterates this to wire each widget's
     /// `View::systems` into the scheduler before storing the registry
@@ -365,7 +461,18 @@ impl ViewRegistry {
 
     /// Add a view, keeping the internal vec sorted by priority.
     /// Stable on equal priority — insertion order breaks ties.
-    pub fn insert(&mut self, view: View) {
+    pub fn insert(&mut self, mut view: View) {
+        if view.observe.is_some() {
+            assert!(
+                view.component_filter.is_some(),
+                "observed View requires a component filter"
+            );
+        }
+        view.registration_id = Some(self.next_registration);
+        self.next_registration = self
+            .next_registration
+            .checked_add(1)
+            .expect("View registration identity exhausted");
         let pos = self
             .views
             .iter()
@@ -399,7 +506,33 @@ impl IntoIterator for ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::model::ModelHandle;
+    use crate::core::reactive::flush_signal_dirty;
     use crate::types::Fixed;
+    use crate::ui::dirty::VisualDirty;
+
+    #[crate::model]
+    struct BoundState {
+        #[observe]
+        value: u32,
+    }
+
+    #[crate::model]
+    impl BoundState {
+        fn set(&mut self, value: u32) {
+            self.value = value;
+        }
+    }
+
+    #[crate::component(bind(model))]
+    struct BoundTile {
+        model: BoundState,
+    }
+
+    fn observe_bound_tile(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
+        let tile = world.get::<BoundTile>(entity).expect("bound tile");
+        bindings.watch(tile.model.subscribe_observed(0, world, entity));
+    }
 
     #[test]
     fn unresolved_text_ink_is_a_capability_error() {
@@ -441,6 +574,154 @@ mod tests {
         assert_eq!(installed.len(), 1);
         assert_eq!(installed[0].expect.len(), 1, "expect must survive install");
         assert_eq!(installed[0].expect[0](), TypeId::of::<Marker>());
+    }
+
+    #[test]
+    fn observation_registration_identity_survives_priority_sorting() {
+        fn observe(_: &World, _: Entity, _: &mut ViewObservationBindings) {}
+        struct Marker;
+
+        let mut registry = ViewRegistry::default();
+        registry.insert(
+            make_view("late", 80)
+                .with_filter::<Marker>()
+                .with_observation(observe),
+        );
+        registry.insert(
+            make_view("early", 20)
+                .with_filter::<Marker>()
+                .with_observation(observe),
+        );
+        let views: Vec<_> = registry.iter().collect();
+        assert_eq!((views[0].name(), views[0].registration_id()), ("early", 1));
+        assert_eq!((views[1].name(), views[1].registration_id()), ("late", 0));
+        assert!(views.iter().all(|view| view.observation().is_some()));
+    }
+
+    #[test]
+    fn observed_view_registration_tracks_its_component_type() {
+        fn observe(_: &World, _: Entity, _: &mut ViewObservationBindings) {}
+        struct Marker;
+
+        let mut app = crate::app::App::headless(32, 32);
+        app.with_widget(
+            make_view("observed", 60)
+                .with_filter::<Marker>()
+                .with_observation(observe),
+        );
+        let entity = app.world.spawn_empty();
+        app.world.insert(entity, Marker);
+        let mut changes = 0;
+        app.world.drain_component_changes(|_, change| {
+            assert_eq!(change.entity, entity);
+            assert_eq!(change.type_id, TypeId::of::<Marker>());
+            changes += 1;
+        });
+        assert_eq!(changes, 1);
+    }
+
+    #[test]
+    fn replacing_a_component_rebinds_only_its_current_model() {
+        let mut app = crate::app::App::headless(32, 32);
+        let first = app.add_model(BoundState { value: 0 });
+        let second = app.add_model(BoundState { value: 0 });
+        app.with_widget(
+            make_view("bound", 60)
+                .with_filter::<BoundTile>()
+                .with_observation(observe_bound_tile),
+        );
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: first.clone(),
+            },
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        first.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: second.clone(),
+            },
+        );
+        second.set(1);
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        first.set(2);
+        flush_signal_dirty(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(entity));
+        second.set(2);
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        app.world.remove::<BoundTile>(entity);
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(entity);
+        second.set(3);
+        flush_signal_dirty(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn existing_components_attach_when_observed_view_is_registered() {
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(BoundState { value: 0 });
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: model.clone(),
+            },
+        );
+        app.with_widget(
+            make_view("bound", 60)
+                .with_filter::<BoundTile>()
+                .with_observation(observe_bound_tile),
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(entity);
+        model.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn despawned_observed_component_releases_its_subscription() {
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(BoundState { value: 0 });
+        app.with_widget(
+            make_view("bound", 60)
+                .with_filter::<BoundTile>()
+                .with_observation(observe_bound_tile),
+        );
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: model.clone(),
+            },
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(app.world.despawn(entity));
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(
+            app.world
+                .resource::<ViewRegistry>()
+                .unwrap()
+                .bindings
+                .iter()
+                .all(|binding| !binding.active && binding.subscriptions.subscriptions.is_empty())
+        );
+        model.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(!app.world.is_alive(entity));
     }
 
     #[test]

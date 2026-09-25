@@ -1,5 +1,5 @@
 use mirui::app::App;
-use mirui::core::model::{BindType, SharedValue};
+use mirui::core::model::{BindType, ModelHandle, SharedValue};
 use mirui::core::reactive::{Effect, flush_signal_dirty};
 use mirui::{model, system};
 use std::cell::Cell;
@@ -715,4 +715,19 @@ fn bound_constructor_arguments_follow_bind_order() {
     app.add_system(reversed_bind_tick::system(second.clone(), first.clone()));
     app.systems.run_all(&mut app.world);
     assert_eq!((first.value(), second.value()), (1, 10));
+}
+
+#[test]
+fn explicit_model_subscription_notification_reuses_storage() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let entity = app.world.spawn_empty();
+    let subscription = model.subscribe_observed(0, &app.world, entity);
+    model.set_count(1);
+    assert_eq!(tracked_allocations(|| model.set_count(2)), 0);
+    drop(subscription);
 }

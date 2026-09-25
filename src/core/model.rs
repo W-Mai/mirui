@@ -160,6 +160,20 @@ pub struct ModelWatch {
     source: crate::core::reactive::ModelSource,
 }
 
+/// One explicit visual subscription to a registered model source.
+#[doc(hidden)]
+pub struct ModelSubscription {
+    cancel: Option<Box<dyn FnOnce()>>,
+}
+
+impl Drop for ModelSubscription {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            cancel();
+        }
+    }
+}
+
 impl Default for ModelWatch {
     fn default() -> Self {
         Self::new()
@@ -182,6 +196,14 @@ impl ModelWatch {
     pub fn publish(&self) {
         self.revision.set(self.revision.get().wrapping_add(1));
         self.source.notify();
+    }
+
+    fn subscribe_visual_widget(&self, owner: WorldId, entity: crate::ecs::Entity) -> u64 {
+        self.source.subscribe_visual_widget(owner, entity)
+    }
+
+    fn unsubscribe(&self, id: u64) {
+        self.source.unsubscribe(id);
     }
 }
 
@@ -246,6 +268,36 @@ pub trait ModelHandle: Clone {
 
     #[doc(hidden)]
     fn cell(&self) -> &Weak<ModelCell<Self::Data>>;
+
+    #[doc(hidden)]
+    fn subscribe_observed(
+        &self,
+        index: usize,
+        world: &crate::ecs::World,
+        entity: crate::ecs::Entity,
+    ) -> ModelSubscription {
+        subscribe_visual(self, index, world, entity, SourceKind::Observed)
+    }
+
+    #[doc(hidden)]
+    fn subscribe_derived(
+        &self,
+        index: usize,
+        world: &crate::ecs::World,
+        entity: crate::ecs::Entity,
+    ) -> ModelSubscription {
+        subscribe_visual(self, index, world, entity, SourceKind::Derived)
+    }
+
+    #[doc(hidden)]
+    fn subscribe_watch(
+        &self,
+        index: usize,
+        world: &crate::ecs::World,
+        entity: crate::ecs::Entity,
+    ) -> ModelSubscription {
+        subscribe_visual(self, index, world, entity, SourceKind::Watch)
+    }
 
     #[doc(hidden)]
     fn read<R>(&self, read: impl FnOnce(&Self::Data) -> R) -> R {
@@ -344,6 +396,52 @@ pub trait ModelHandle: Clone {
     }
 }
 
+#[derive(Clone, Copy)]
+enum SourceKind {
+    Observed,
+    Derived,
+    Watch,
+}
+
+fn subscribe_visual<H: ModelHandle>(
+    handle: &H,
+    index: usize,
+    world: &crate::ecs::World,
+    entity: crate::ecs::Entity,
+    kind: SourceKind,
+) -> ModelSubscription {
+    assert!(
+        world.is_alive(entity),
+        "visual subscription entity is not alive"
+    );
+    let weak = handle.cell().clone();
+    let cell = weak
+        .upgrade()
+        .expect("model registration is no longer alive");
+    assert_eq!(cell.owner(), world.id(), "model belongs to a different App");
+    let id = match kind {
+        SourceKind::Observed => {
+            cell.sources.as_ref()[index].subscribe_visual_widget(world.id(), entity)
+        }
+        SourceKind::Derived => {
+            cell.derived_sources.as_ref()[index].subscribe_visual_widget(world.id(), entity)
+        }
+        SourceKind::Watch => {
+            cell.watches.as_ref()[index].subscribe_visual_widget(world.id(), entity)
+        }
+    };
+    ModelSubscription {
+        cancel: Some(Box::new(move || {
+            let Some(cell) = weak.upgrade() else { return };
+            match kind {
+                SourceKind::Observed => cell.sources.as_ref()[index].unsubscribe(id),
+                SourceKind::Derived => cell.derived_sources.as_ref()[index].unsubscribe(id),
+                SourceKind::Watch => cell.watches.as_ref()[index].unsubscribe(id),
+            }
+        })),
+    }
+}
+
 pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (Rc<ModelCell<M>>, M::Handle) {
     let cell = Rc::new(ModelCell::new(owner, value));
     let handle = M::handle(Rc::downgrade(&cell));
@@ -378,6 +476,8 @@ where
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{Model, ModelCell, ModelHandle, ModelMethods};
+    use crate::core::reactive::flush_signal_dirty;
+    use crate::ui::dirty::VisualDirty;
     use alloc::rc::Weak;
 
     struct Counter(u32);
@@ -418,8 +518,8 @@ mod tests {
 
     impl Model for Counter {
         type Handle = CounterHandle;
-        type Snapshot = ();
-        type Sources = [crate::core::reactive::ModelSource; 0];
+        type Snapshot = u32;
+        type Sources = [crate::core::reactive::ModelSource; 1];
         type Change = ();
         type Watches = [super::ModelWatch; 0];
 
@@ -427,13 +527,19 @@ mod tests {
             CounterHandle(cell)
         }
 
-        fn snapshot(&self) -> Self::Snapshot {}
-
-        fn sources() -> Self::Sources {
-            []
+        fn snapshot(&self) -> Self::Snapshot {
+            self.0
         }
 
-        fn publish(_: &Self::Sources, _: Self::Snapshot, _: Self::Snapshot) {}
+        fn sources() -> Self::Sources {
+            [crate::core::reactive::ModelSource::new()]
+        }
+
+        fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot) {
+            if before != after {
+                sources[0].notify();
+            }
+        }
 
         fn watches() -> Self::Watches {
             []
@@ -484,6 +590,29 @@ mod tests {
         };
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
         assert!(error.is_err());
+    }
+
+    #[test]
+    fn explicit_visual_subscriptions_release_one_registration_at_a_time() {
+        let mut app = crate::app::App::headless(32, 32);
+        let handle = app.add_model(Counter(0));
+        let entity = app.world.spawn_empty();
+        let first = handle.subscribe_observed(0, &app.world, entity);
+        let second = handle.subscribe_observed(0, &app.world, entity);
+
+        handle.increment();
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        drop(first);
+        handle.increment();
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        drop(second);
+        handle.increment();
+        flush_signal_dirty(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(entity));
     }
 
     #[test]

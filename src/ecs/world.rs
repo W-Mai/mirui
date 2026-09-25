@@ -29,6 +29,7 @@ trait ComponentStorage: Any {
     fn remove_entity(&mut self, entity: Entity);
     fn contains_entity(&self, entity: Entity) -> bool;
     fn is_empty(&self) -> bool;
+    fn entities(&self) -> &[Entity];
 }
 
 impl<T: 'static> ComponentStorage for SparseSet<T> {
@@ -46,6 +47,10 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
     }
     fn is_empty(&self) -> bool {
         self.is_empty()
+    }
+
+    fn entities(&self) -> &[Entity] {
+        self.entities()
     }
 }
 
@@ -130,10 +135,22 @@ impl World {
     }
 
     /// Begin recording structural changes for a component type. Existing
-    /// components are not queued; callers attach those when registering a View.
+    /// components are queued so a newly registered View can attach them.
     pub fn watch_component_type(&mut self, type_id: TypeId) {
         if !self.watched_component_types.contains(&type_id) {
             self.watched_component_types.push(type_id);
+        }
+        let count = self
+            .storages
+            .get(&type_id)
+            .map_or(0, |storage| storage.entities().len());
+        for index in 0..count {
+            let entity = self
+                .storages
+                .get(&type_id)
+                .expect("observed storage")
+                .entities()[index];
+            self.record_component_change(entity, type_id);
         }
     }
 
@@ -276,6 +293,34 @@ impl World {
     pub(crate) fn put_resource_box<T: 'static>(&mut self, value: Box<T>) {
         self.resources.insert(TypeId::of::<T>(), value);
     }
+
+    /// Temporarily separate a resource from the World while its callback also
+    /// needs World access. The original allocation is restored on unwind.
+    pub(crate) fn with_resource_box<T: 'static, R>(
+        &mut self,
+        run: impl FnOnce(&mut T, &mut Self) -> R,
+    ) -> Option<R> {
+        struct Restore<'a, T: 'static> {
+            world: &'a mut World,
+            value: Option<Box<T>>,
+        }
+        impl<T: 'static> Drop for Restore<'_, T> {
+            fn drop(&mut self) {
+                if let Some(value) = self.value.take() {
+                    self.world.put_resource_box(value);
+                }
+            }
+        }
+        let value = self.take_resource_box::<T>()?;
+        let mut restore = Restore {
+            world: self,
+            value: Some(value),
+        };
+        Some(run(
+            restore.value.as_deref_mut().expect("resource"),
+            restore.world,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -377,5 +422,20 @@ mod tests {
             count += 1;
         });
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn separated_resource_is_restored_after_callback_unwinds() {
+        let mut world = World::new();
+        world.insert_resource(7u16);
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world.with_resource_box::<u16, _>(|value, world| {
+                assert!(world.resource::<u16>().is_none());
+                *value += 1;
+                panic!("callback failed");
+            });
+        }));
+        assert!(failure.is_err());
+        assert_eq!(world.resource::<u16>(), Some(&8));
     }
 }

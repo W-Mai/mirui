@@ -136,6 +136,14 @@ can be reserved ahead of a batch. Direct field writes through `World::get_mut`
 do not create a structural change record; replace the complete component when
 its model binding changes.
 
+An observed `View` can use `with_filter::<Component>()` and
+`with_observation(...)` to hold model-source subscriptions for each matching
+entity. After a complete component replacement, the previous subscriptions
+are released and the new instance is attached before painting; removal and
+despawn release them as well. Registering a View after its components exist
+also attaches those existing entities. The View retains its usual render
+priority, attach callback, internal gesture, and static systems.
+
 ## Primitives
 
 Three types live in `mirui::core::reactive`:

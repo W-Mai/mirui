@@ -5,7 +5,7 @@ mod identity;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
@@ -553,7 +553,14 @@ fn propagate(sub: OwnedSubscriber) {
 /// A source embedded in another owner rather than separately reference-counted.
 #[doc(hidden)]
 pub struct ModelSource {
-    subscribers: RefCell<Vec<OwnedSubscriber>>,
+    subscribers: RefCell<Vec<ModelSubscriber>>,
+    next_subscription: Cell<u64>,
+}
+
+#[derive(Clone, Copy)]
+struct ModelSubscriber {
+    id: Option<u64>,
+    subscriber: OwnedSubscriber,
 }
 
 impl Default for ModelSource {
@@ -566,6 +573,7 @@ impl ModelSource {
     pub const fn new() -> Self {
         Self {
             subscribers: RefCell::new(Vec::new()),
+            next_subscription: Cell::new(1),
         }
     }
 
@@ -575,15 +583,43 @@ impl ModelSource {
         };
         let subscriber = OwnedSubscriber::tracked(subscriber);
         let mut subscribers = self.subscribers.borrow_mut();
-        if !subscribers.contains(&subscriber) {
-            subscribers.push(subscriber);
+        if !subscribers
+            .iter()
+            .any(|entry| entry.id.is_none() && entry.subscriber == subscriber)
+        {
+            subscribers.push(ModelSubscriber {
+                id: None,
+                subscriber,
+            });
         }
+    }
+
+    pub(crate) fn subscribe_visual_widget(&self, world: WorldId, entity: Entity) -> u64 {
+        let id = self.next_subscription.get();
+        self.next_subscription.set(
+            id.checked_add(1)
+                .expect("model subscription identity exhausted"),
+        );
+        self.subscribers.borrow_mut().push(ModelSubscriber {
+            id: Some(id),
+            subscriber: OwnedSubscriber {
+                world: Some(world),
+                subscriber: Subscriber::VisualWidget(entity),
+            },
+        });
+        id
+    }
+
+    pub(crate) fn unsubscribe(&self, id: u64) {
+        self.subscribers
+            .borrow_mut()
+            .retain(|entry| entry.id != Some(id));
     }
 
     pub fn notify(&self) {
         let len = self.subscribers.borrow().len();
         for index in 0..len {
-            let subscriber = self.subscribers.borrow()[index];
+            let subscriber = self.subscribers.borrow()[index].subscriber;
             propagate(subscriber);
         }
     }

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Model effect transaction boundary.** Effect consumers may read committed models but cannot start nested model writes; an unwinding callback restores the access scope without poisoning the committed model.
 - **Instance-bound systems.** `#[system(bind(...))]` captures specific model handles at registration and reads `Copy` resources for each invocation; existing static systems remain available.
 - **Selected component lifecycle records.** `World` coalesces structural changes for watched component types and retains queue capacity across drains.
+- **Observed View bindings.** Filtered Views can subscribe to model sources per entity and registration; component replacement, removal, and despawn release old bindings before the next paint.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 
