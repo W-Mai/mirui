@@ -1,11 +1,14 @@
+use mirui::core::reactive::flush_signal_dirty;
 use mirui::input::event::GestureHandler;
 use mirui::input::event::gesture::GestureEvent;
 use mirui::prelude::*;
 use mirui::types::Fixed;
 use mirui::ui::widgets::Button;
+use mirui::ui::widgets::Text;
 
 #[model]
 struct Counter {
+    #[observe]
     count: u32,
 }
 
@@ -13,10 +16,6 @@ struct Counter {
 impl Counter {
     fn increment(&mut self) {
         self.count += 1;
-    }
-
-    fn count(&self) -> u32 {
-        self.count
     }
 }
 
@@ -40,6 +39,7 @@ fn two_button_panel(counter: Counter) {
         Row {
             Button(text: "FIRST") on Tap { counter.increment(); }
             Button(text: "SECOND") on Tap { counter.increment(); }
+            Text(text: ${ counter.count().to_string() })
         }
     };
 }
@@ -60,6 +60,15 @@ fn bound_model_is_shared_across_generated_callbacks() {
     let root = app.spawn_root().id();
     let counter = app.add_model(Counter { count: 0 });
     app.compose(root, |cx| two_button_panel(cx, counter.clone()));
+    let labels: Vec<_> = app.world.query::<Text>().collect();
+    let label = *labels
+        .iter()
+        .find(|entity| app.world.get::<Text>(**entity).unwrap().resolve(&app.world) == "0")
+        .expect("counter label");
+    assert_eq!(
+        app.world.get::<Text>(label).unwrap().resolve(&app.world),
+        "0"
+    );
     let buttons: Vec<_> = app.world.query::<Button>().collect();
     assert_eq!(buttons.len(), 2);
     for button in buttons {
@@ -73,5 +82,10 @@ fn bound_model_is_shared_across_generated_callbacks() {
             Some(true)
         );
     }
+    flush_signal_dirty(&mut app.world);
     assert_eq!(counter.count(), 2);
+    assert_eq!(
+        app.world.get::<Text>(label).unwrap().resolve(&app.world),
+        "2"
+    );
 }

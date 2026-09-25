@@ -524,6 +524,45 @@ fn propagate(sub: OwnedSubscriber) {
     }
 }
 
+/// A source embedded in another owner rather than separately reference-counted.
+#[doc(hidden)]
+pub struct ModelSource {
+    subscribers: RefCell<Vec<OwnedSubscriber>>,
+}
+
+impl Default for ModelSource {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ModelSource {
+    pub const fn new() -> Self {
+        Self {
+            subscribers: RefCell::new(Vec::new()),
+        }
+    }
+
+    pub fn track(&self) {
+        let Some(subscriber) = current_scope() else {
+            return;
+        };
+        let subscriber = OwnedSubscriber::tracked(subscriber);
+        let mut subscribers = self.subscribers.borrow_mut();
+        if !subscribers.contains(&subscriber) {
+            subscribers.push(subscriber);
+        }
+    }
+
+    pub fn notify(&self) {
+        let len = self.subscribers.borrow().len();
+        for index in 0..len {
+            let subscriber = self.subscribers.borrow()[index];
+            propagate(subscriber);
+        }
+    }
+}
+
 // A source changed, so this computed's cache is stale: flag it and propagate to
 // its own subscribers. Pure data mutation (no recompute, no closure) — the
 // actual recompute is lazy, deferred to the next get(). Pulls subscribers out

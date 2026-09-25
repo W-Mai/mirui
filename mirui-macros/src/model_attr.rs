@@ -19,21 +19,122 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     }
 }
 
-fn expand_struct(item: syn::ItemStruct) -> syn::Result<TokenStream> {
+fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
     let name = &item.ident;
     let handle = format_ident!("{}Handle", name);
+    let snapshot = format_ident!("{}ObservedSnapshot", name);
     let visibility = &item.vis;
     let generics = &item.generics;
     let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+    let mut observed = Vec::new();
+    for field in &mut item.fields {
+        let markers: Vec<_> = field
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("observe"))
+            .collect();
+        if markers.is_empty() {
+            continue;
+        }
+        if markers.len() > 1 {
+            return Err(syn::Error::new_spanned(
+                field,
+                "duplicate #[observe] marker",
+            ));
+        }
+        if !matches!(markers[0].meta, syn::Meta::Path(_)) {
+            return Err(syn::Error::new_spanned(
+                markers[0],
+                "#[observe] does not take arguments",
+            ));
+        }
+        let Some(field_name) = &field.ident else {
+            return Err(syn::Error::new_spanned(
+                field,
+                "#[observe] requires a named field",
+            ));
+        };
+        field.attrs.retain(|attr| !attr.path().is_ident("observe"));
+        observed.push((field_name.clone(), field.ty.clone(), field.vis.clone()));
+    }
+    let observed_names: Vec<_> = observed.iter().map(|(name, _, _)| name).collect();
+    let observed_types: Vec<_> = observed.iter().map(|(_, ty, _)| ty).collect();
+    let source_count = observed.len();
     let mut model_generics = generics.clone();
     model_generics
         .make_where_clause()
         .predicates
         .push(parse_quote!(#name #type_generics: 'static));
+    for ty in &observed_types {
+        model_generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#ty: Copy + Eq + 'static));
+    }
     let (_, _, model_where) = model_generics.split_for_impl();
+
+    let mut snapshot_generics = generics.clone();
+    for ty in &observed_types {
+        snapshot_generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#ty: Copy + Eq + 'static));
+    }
+    let (snapshot_impl_generics, _, snapshot_where) = snapshot_generics.split_for_impl();
+    let snapshot_definition = if observed.is_empty() {
+        quote!()
+    } else {
+        quote! {
+            #visibility struct #snapshot #snapshot_generics {
+                values: (#(#observed_types,)*),
+                marker: ::core::marker::PhantomData<#name #type_generics>,
+            }
+
+            impl #snapshot_impl_generics ::core::marker::Copy for #snapshot #type_generics #snapshot_where {}
+
+            impl #snapshot_impl_generics ::core::clone::Clone for #snapshot #type_generics #snapshot_where {
+                fn clone(&self) -> Self { *self }
+            }
+        }
+    };
+    let snapshot_type = if observed.is_empty() {
+        quote!(())
+    } else {
+        quote!(#snapshot #type_generics)
+    };
+    let snapshot_value = if observed.is_empty() {
+        quote!()
+    } else {
+        quote!(#snapshot {
+            values: (#(self.#observed_names,)*),
+            marker: ::core::marker::PhantomData,
+        })
+    };
+    let publish = observed.iter().enumerate().map(|(index, _)| {
+        let index = syn::Index::from(index);
+        quote! {
+            if before.values.#index != after.values.#index {
+                sources[#index].notify();
+            }
+        }
+    });
+    let publish_body = if observed.is_empty() {
+        quote!(let _ = (sources, before, after);)
+    } else {
+        quote!(#(#publish)*)
+    };
+    let accessors = observed.iter().enumerate().map(|(index, (field, ty, vis))| {
+        quote! {
+            #vis fn #field(&self) -> #ty {
+                ::mirui::core::model::ModelHandle::read_observed(self, #index, |data| data.#field)
+            }
+        }
+    });
 
     Ok(quote! {
         #item
+
+        #snapshot_definition
 
         #visibility struct #handle #generics #where_clause {
             cell: ::mirui::__Weak<::mirui::core::model::ModelCell<#name #type_generics>>,
@@ -47,11 +148,25 @@ fn expand_struct(item: syn::ItemStruct) -> syn::Result<TokenStream> {
 
         impl #impl_generics ::mirui::core::model::Model for #name #type_generics #model_where {
             type Handle = #handle #type_generics;
+            type Snapshot = #snapshot_type;
+            type Sources = [::mirui::core::reactive::ModelSource; #source_count];
 
             fn handle(
                 cell: ::mirui::__Weak<::mirui::core::model::ModelCell<Self>>,
             ) -> Self::Handle {
                 #handle { cell }
+            }
+
+            fn snapshot(&self) -> Self::Snapshot {
+                #snapshot_value
+            }
+
+            fn sources() -> Self::Sources {
+                ::core::array::from_fn(|_| ::mirui::core::reactive::ModelSource::new())
+            }
+
+            fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot) {
+                #publish_body
             }
         }
 
@@ -72,6 +187,10 @@ fn expand_struct(item: syn::ItemStruct) -> syn::Result<TokenStream> {
         }
 
         impl #impl_generics ::mirui::core::model::SharedValue for #handle #type_generics #model_where {}
+
+        impl #impl_generics #handle #type_generics #model_where {
+            #(#accessors)*
+        }
     })
 }
 
@@ -156,4 +275,63 @@ fn expand_impl(item: syn::ItemImpl) -> syn::Result<TokenStream> {
             #(#forwards)*
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand;
+    use quote::quote;
+
+    #[test]
+    fn observed_fields_generate_independent_sources() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                struct Counter {
+                    #[observe]
+                    count: u32,
+                    #[observe]
+                    active: bool,
+                    scratch: u32,
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("ModelSource ; 2"));
+        assert!(expanded.contains("fn count"));
+        assert!(expanded.contains("fn active"));
+        assert!(!expanded.contains("fn scratch"));
+    }
+
+    #[test]
+    fn rejects_duplicate_observe_markers() {
+        let error = expand(
+            quote!(),
+            quote!(
+                struct Counter {
+                    #[observe]
+                    #[observe]
+                    value: u32,
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("duplicate"));
+    }
+
+    #[test]
+    fn rejects_observe_arguments() {
+        let error = expand(
+            quote!(),
+            quote!(
+                struct Counter {
+                    #[observe(change)]
+                    value: u32,
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("does not take arguments"));
+    }
 }

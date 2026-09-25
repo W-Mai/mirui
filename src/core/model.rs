@@ -8,9 +8,20 @@ use crate::ecs::world::WorldId;
 /// A model type that can create its generated instance handle.
 pub trait Model: Sized + 'static {
     type Handle: ModelHandle<Data = Self>;
+    type Snapshot: Copy;
+    type Sources: AsRef<[crate::core::reactive::ModelSource]>;
 
     #[doc(hidden)]
     fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle;
+
+    #[doc(hidden)]
+    fn snapshot(&self) -> Self::Snapshot;
+
+    #[doc(hidden)]
+    fn sources() -> Self::Sources;
+
+    #[doc(hidden)]
+    fn publish(sources: &Self::Sources, before: Self::Snapshot, after: Self::Snapshot);
 }
 
 /// Maps a declaration type to the value stored by a bound callback or component.
@@ -45,17 +56,19 @@ impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {}
 
 /// Storage owned by a model's registration entity.
 #[doc(hidden)]
-pub struct ModelCell<M> {
+pub struct ModelCell<M: Model> {
     owner: WorldId,
     value: RefCell<M>,
+    sources: M::Sources,
     poisoned: Cell<bool>,
 }
 
-impl<M> ModelCell<M> {
+impl<M: Model> ModelCell<M> {
     pub(crate) fn new(owner: WorldId, value: M) -> Self {
         Self {
             owner,
             value: RefCell::new(value),
+            sources: M::sources(),
             poisoned: Cell::new(false),
         }
     }
@@ -106,6 +119,18 @@ pub trait ModelHandle: Clone {
     }
 
     #[doc(hidden)]
+    fn read_observed<R>(&self, index: usize, read: impl FnOnce(&Self::Data) -> R) -> R {
+        let cell = self
+            .cell()
+            .upgrade()
+            .expect("model registration is no longer alive");
+        self.read(|value| {
+            cell.sources.as_ref()[index].track();
+            read(value)
+        })
+    }
+
+    #[doc(hidden)]
     fn update<R>(&self, update: impl FnOnce(&mut Self::Data) -> R) -> R {
         let cell = self
             .cell()
@@ -126,7 +151,11 @@ pub trait ModelHandle: Clone {
             poisoned: &cell.poisoned,
             committed: false,
         };
+        let before = value.snapshot();
         let result = update(&mut value);
+        let after = value.snapshot();
+        drop(value);
+        Self::Data::publish(&cell.sources, before, after);
         guard.committed = true;
         result
     }
@@ -155,10 +184,20 @@ mod tests {
 
     impl Model for Counter {
         type Handle = CounterHandle;
+        type Snapshot = ();
+        type Sources = [crate::core::reactive::ModelSource; 0];
 
         fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle {
             CounterHandle(cell)
         }
+
+        fn snapshot(&self) -> Self::Snapshot {}
+
+        fn sources() -> Self::Sources {
+            []
+        }
+
+        fn publish(_: &Self::Sources, _: Self::Snapshot, _: Self::Snapshot) {}
     }
 
     impl ModelHandle for CounterHandle {

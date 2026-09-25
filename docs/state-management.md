@@ -29,12 +29,15 @@ instance; cloning a handle refers to the same instance without cloning its data.
 use mirui::prelude::*;
 
 #[model]
-struct Counter { count: u32 }
+struct Counter {
+    #[observe]
+    count: u32,
+}
 
 #[model]
 impl Counter {
     fn increment(&mut self) { self.count += 1; }
-    fn decrement(&mut self) { self.count -= 1; }
+    fn decrement(&mut self) { self.count = self.count.saturating_sub(1); }
 }
 
 let mut app = App::headless(32, 32);
@@ -42,8 +45,11 @@ let counter = app.add_model(Counter { count: 0 });
 counter.increment();
 ```
 
-Direct model method calls do not install UI subscriptions. Use reactive
-bindings for values displayed by the current widget APIs.
+`#[observe]` creates a handle getter for a small `Copy + Eq` field. Reading
+`counter.count()` inside a reactive UI binding subscribes that binding to the
+field. Model methods compare observed values before and after each update;
+unchanged values do not notify subscribers. Large buffers and other
+non-`Copy` fields remain ordinary model data.
 
 Bound declarations retain the model type in source while storing its shared
 handle:
@@ -59,6 +65,7 @@ fn counter_controls(counter: Counter) {
         Row {
             Button(text: "−") on Tap { counter.decrement(); }
             Button(text: "+") on Tap { counter.increment(); }
+            Text(text: ${ counter.count().to_string() })
         }
     };
 }
