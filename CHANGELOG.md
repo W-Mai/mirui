@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Subtree dirty traversal.** Marking and clearing a subtree reuse retained traversal storage after the first walk, including after an interrupted walk.
 - **Reactive identity exhaustion.** Slots retire when their generation reaches its limit instead of panicking or reusing an old identity.
 - **Reactive work isolation.** Signal-driven effects and widget invalidations stay with their owning World, including when worlds reuse the same entity identifiers.
 - **Absent component access.** `World::get_mut` and `World::remove` no longer create storage for component types that have not been inserted.

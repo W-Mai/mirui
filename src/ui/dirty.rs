@@ -13,6 +13,56 @@ pub struct Dirty;
 /// Marks paint geometry dirty while preserving the existing layout snapshot.
 pub(crate) struct VisualDirty;
 
+struct DirtyTraversalStack(Option<Vec<Entity>>);
+
+struct DirtyTraversal<'a> {
+    world: &'a mut World,
+    stack: Vec<Entity>,
+}
+
+impl<'a> DirtyTraversal<'a> {
+    fn new(world: &'a mut World, root: Entity) -> Self {
+        if world.resource::<DirtyTraversalStack>().is_none() {
+            world.insert_resource(DirtyTraversalStack(Some(Vec::new())));
+        }
+        let stack = world
+            .resource_mut::<DirtyTraversalStack>()
+            .and_then(|storage| storage.0.take())
+            .expect("dirty traversal cannot be nested");
+        let mut traversal = Self { world, stack };
+        traversal.stack.push(root);
+        traversal
+    }
+
+    fn walk(mut self, mark: bool) {
+        use crate::ui::{Children, Hidden};
+        while let Some(entity) = self.stack.pop() {
+            if mark && self.world.get::<Hidden>(entity).is_some() {
+                continue;
+            }
+            if mark {
+                self.world.insert(entity, Dirty);
+            } else {
+                self.world.remove::<Dirty>(entity);
+                self.world.remove::<VisualDirty>(entity);
+            }
+            if let Some(children) = self.world.get::<Children>(entity) {
+                self.stack.extend(children.0.iter().copied());
+            }
+        }
+    }
+}
+
+impl Drop for DirtyTraversal<'_> {
+    fn drop(&mut self) {
+        self.stack.clear();
+        self.world
+            .resource_mut::<DirtyTraversalStack>()
+            .expect("dirty traversal storage is missing")
+            .0 = Some(core::mem::take(&mut self.stack));
+    }
+}
+
 pub(crate) struct ExactDirtyRegions {
     rects: [Rect; 4],
     len: u8,
@@ -75,30 +125,12 @@ impl World {
     }
 
     pub fn mark_subtree_dirty(&mut self, root: Entity) {
-        use crate::ui::{Children, Hidden};
-        let mut stack = alloc::vec![root];
-        while let Some(entity) = stack.pop() {
-            if self.get::<Hidden>(entity).is_some() {
-                continue;
-            }
-            self.insert(entity, Dirty);
-            if let Some(children) = self.get::<Children>(entity) {
-                stack.extend(children.0.iter().copied());
-            }
-        }
+        DirtyTraversal::new(self, root).walk(true);
     }
 
     /// Sweep layout and visual dirty markers from a subtree before hiding it.
     pub fn clear_subtree_dirty(&mut self, root: Entity) {
-        use crate::ui::Children;
-        let mut stack = alloc::vec![root];
-        while let Some(entity) = stack.pop() {
-            self.remove::<Dirty>(entity);
-            self.remove::<VisualDirty>(entity);
-            if let Some(children) = self.get::<Children>(entity) {
-                stack.extend(children.0.iter().copied());
-            }
-        }
+        DirtyTraversal::new(self, root).walk(false);
     }
 }
 
@@ -292,7 +324,7 @@ impl DirtyRegions {
 mod tests {
     use super::*;
     use crate::ecs::World;
-    use crate::ui::Children;
+    use crate::ui::{Children, Hidden};
 
     #[test]
     fn mark_subtree_walks_descendants() {
@@ -322,6 +354,48 @@ mod tests {
         let only = world.spawn_empty();
         world.mark_subtree_dirty(only);
         assert!(world.get::<Dirty>(only).is_some());
+    }
+
+    #[test]
+    fn hidden_subtrees_are_skipped_on_mark_but_cleared() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(root, Children(alloc::vec![child]));
+        world.insert(child, Hidden);
+        world.insert(child, Dirty);
+        world.insert(child, VisualDirty);
+
+        world.mark_subtree_dirty(root);
+        assert!(world.get::<Dirty>(root).is_some());
+        assert!(world.get::<VisualDirty>(child).is_some());
+
+        world.clear_subtree_dirty(root);
+        assert!(world.get::<Dirty>(root).is_none());
+        assert!(world.get::<Dirty>(child).is_none());
+        assert!(world.get::<VisualDirty>(child).is_none());
+    }
+
+    #[test]
+    fn interrupted_traversal_returns_an_empty_stack() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let pending = world.spawn_empty();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut traversal = DirtyTraversal::new(&mut world, root);
+            traversal.stack.push(pending);
+            panic!("interrupt traversal");
+        }));
+        assert!(result.is_err());
+        assert!(
+            world
+                .resource::<DirtyTraversalStack>()
+                .is_some_and(|storage| storage.0.as_ref().is_some_and(Vec::is_empty))
+        );
+
+        world.mark_subtree_dirty(root);
+        assert!(world.get::<Dirty>(root).is_some());
+        assert!(world.get::<Dirty>(pending).is_none());
     }
 
     #[test]
