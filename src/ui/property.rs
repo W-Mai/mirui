@@ -270,11 +270,8 @@ pub mod prop {
         type Value = bool;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if crate::ui::widgets::switch::set_switch_on(world, entity, value) {
-                PropertyChange::Visual
-            } else {
-                PropertyChange::Unchanged
-            }
+            crate::ui::widgets::switch::set_switch_on(world, entity, value)
+                .map_or(PropertyChange::Unchanged, |update| update.change)
         }
     }
 

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Typed model Views.** `#[view]` maps component fields to temporary read-only model borrows and explicit observed sources while retaining View priority, attach, gesture, and static systems.
 - **Model View lifecycle.** Observed model subscriptions reserve visual notification capacity when bound, coalesce repeated entity notifications, and release bindings after component removal or App disposal.
 - **Slider value updates.** Input gestures and property projections share value clamping, change detection, and visual invalidation; programmatic updates do not emit gesture events.
+- **Switch value updates.** Tap and property changes share animation seeding and change classification; tap callbacks run after invalidation and may remove the control safely.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 

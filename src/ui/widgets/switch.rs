@@ -7,6 +7,7 @@ use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
+use crate::ui::property::{PropertyChange, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
@@ -25,6 +26,12 @@ pub struct Switch {
     pub on_color: ThemedColor,
     pub off_color: ThemedColor,
     pub thumb_color: ThemedColor,
+}
+
+pub(crate) struct SwitchValueUpdate {
+    pub old: bool,
+    pub new: bool,
+    pub change: PropertyChange,
 }
 
 impl Default for Switch {
@@ -285,19 +292,29 @@ pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureE
     let Some(on_now) = world.get::<Switch>(entity).map(|s| !s.on) else {
         return false;
     };
-    set_switch_on(world, entity, on_now);
-    emit_switch_event(world, entity, &SwitchEvent::Toggled { now: on_now });
-    world.insert(entity, Dirty);
+    let Some(update) = set_switch_on(world, entity, on_now) else {
+        return false;
+    };
+    if update.old != update.new {
+        invalidate_for_change(world, entity, update.change);
+        emit_switch_event(world, entity, &SwitchEvent::Toggled { now: update.new });
+    }
     true
 }
 
-pub(crate) fn set_switch_on(world: &mut World, entity: Entity, on_now: bool) -> bool {
+pub(crate) fn set_switch_on(
+    world: &mut World,
+    entity: Entity,
+    on_now: bool,
+) -> Option<SwitchValueUpdate> {
     let old_on = {
-        let Some(s) = world.get_mut::<Switch>(entity) else {
-            return false;
-        };
+        let s = world.get_mut::<Switch>(entity)?;
         if s.on == on_now {
-            return false;
+            return Some(SwitchValueUpdate {
+                old: on_now,
+                new: on_now,
+                change: PropertyChange::Unchanged,
+            });
         }
         let old = s.on;
         s.on = on_now;
@@ -339,7 +356,11 @@ pub(crate) fn set_switch_on(world: &mut World, entity: Entity, on_now: bool) -> 
         world.remove::<AnimateSwitchBgT>(entity);
         world.remove::<AnimateThumbX>(entity);
     }
-    true
+    Some(SwitchValueUpdate {
+        old: old_on,
+        new: on_now,
+        change: PropertyChange::Visual,
+    })
 }
 
 fn emit_switch_event(world: &mut World, entity: Entity, event: &SwitchEvent) {
@@ -381,6 +402,7 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::dirty::VisualDirty;
 
     fn h(_: &mut World, _: Entity, _: &SwitchEvent) -> bool {
         true
@@ -406,6 +428,57 @@ mod tests {
         assert!(world.has::<Switch>(e));
         assert!(!world.has::<SwitchHandler>(e));
         assert!(!world.has::<crate::ui::Style>(e));
+    }
+
+    #[test]
+    fn external_value_change_reports_old_new_and_does_not_restart() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Switch::new());
+        world.insert(entity, ComputedRect(Rect::new(0, 0, 54, 24)));
+
+        let first = set_switch_on(&mut world, entity, true).unwrap();
+        assert!(!first.old);
+        assert!(first.new);
+        assert_eq!(first.change, PropertyChange::Visual);
+        let spring = &mut world.get_mut::<AnimateSwitchBgT>(entity).unwrap().0;
+        spring.tick(16);
+        let progressed = spring.value();
+        let repeated = set_switch_on(&mut world, entity, true).unwrap();
+        assert_eq!(repeated.change, PropertyChange::Unchanged);
+        assert_eq!(
+            world.get::<AnimateSwitchBgT>(entity).unwrap().0.value(),
+            progressed
+        );
+    }
+
+    #[test]
+    fn tap_callback_can_remove_switch_after_invalidation() {
+        fn remove_switch(world: &mut World, entity: Entity, _: &SwitchEvent) -> bool {
+            assert!(world.has::<VisualDirty>(entity));
+            world.despawn(entity);
+            true
+        }
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Switch::new());
+        world.insert(
+            entity,
+            SwitchHandler {
+                on_event: BusinessCallback::Fn(remove_switch),
+            },
+        );
+        assert!(switch_handler(
+            &mut world,
+            entity,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: entity,
+            },
+        ));
+        assert!(!world.is_alive(entity));
     }
 
     #[test]

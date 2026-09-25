@@ -174,6 +174,9 @@ removal update bindings before the next paint.
 `Slider` input and `prop::SliderValue` use the same clamped value update. A
 programmatic property change invalidates the control without emitting a user
 gesture event.
+`Switch` tap and `prop::SwitchOn` changes also use one animation-seeding path.
+Assigning the current value leaves the running spring untouched; only taps
+emit `SwitchEvent::Toggled`.
 
 ## Primitives
 
