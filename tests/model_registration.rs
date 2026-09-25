@@ -77,6 +77,11 @@ pub struct ObservedCounter {
 
 #[model]
 impl ObservedCounter {
+    #[observe]
+    fn is_even(&self) -> bool {
+        self.count % 2 == 0
+    }
+
     fn set_count(&mut self, count: u32) {
         self.count = count;
     }
@@ -98,6 +103,11 @@ struct GenericObserved<T: Copy + Eq + 'static> {
 
 #[model]
 impl<T: Copy + Eq + 'static> GenericObserved<T> {
+    #[observe]
+    fn derived(&self) -> T {
+        self.value
+    }
+
     fn replace(&mut self, value: T) {
         self.value = value;
     }
@@ -196,8 +206,10 @@ fn generic_observed_fields_keep_their_value_type() {
     let mut app = App::headless(32, 32);
     let model = app.add_model(GenericObserved { value: 3_u16 });
     assert_eq!(model.value(), 3);
+    assert_eq!(model.derived(), 3);
     model.replace(7);
     assert_eq!(model.value(), 7);
+    assert_eq!(model.derived(), 7);
 }
 
 #[test]
@@ -256,4 +268,32 @@ fn same_type_model_instances_keep_observers_separate() {
     second.set_count(8);
     flush_signal_dirty(&mut app.world);
     assert_eq!((first_runs.get(), second_runs.get()), (2, 2));
+}
+
+#[test]
+fn derived_observer_only_notifies_when_its_result_changes() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 1,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let seen = Rc::new(Cell::new(false));
+    let runs = Rc::new(Cell::new(0));
+    let observed = model.clone();
+    let seen_in_effect = seen.clone();
+    let runs_in_effect = runs.clone();
+    let _effect = Effect::new(move || {
+        seen_in_effect.set(observed.is_even());
+        runs_in_effect.set(runs_in_effect.get() + 1);
+    });
+    assert_eq!((seen.get(), runs.get()), (false, 1));
+
+    model.set_count(3);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!((seen.get(), runs.get()), (false, 1));
+
+    model.set_count(4);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!((seen.get(), runs.get()), (true, 2));
 }

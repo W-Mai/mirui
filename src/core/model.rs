@@ -5,8 +5,28 @@ use core::cell::{Cell, RefCell};
 
 use crate::ecs::world::WorldId;
 
+/// Derived observations declared by a model's inherent implementation.
+#[doc(hidden)]
+pub trait ModelMethods: Sized {
+    type DerivedSnapshot: Copy;
+    type DerivedSources: AsRef<[crate::core::reactive::ModelSource]>;
+
+    #[doc(hidden)]
+    fn derived_snapshot(&self) -> Self::DerivedSnapshot;
+
+    #[doc(hidden)]
+    fn derived_sources() -> Self::DerivedSources;
+
+    #[doc(hidden)]
+    fn publish_derived(
+        sources: &Self::DerivedSources,
+        before: Self::DerivedSnapshot,
+        after: Self::DerivedSnapshot,
+    );
+}
+
 /// A model type that can create its generated instance handle.
-pub trait Model: Sized + 'static {
+pub trait Model: ModelMethods + Sized + 'static {
     type Handle: ModelHandle<Data = Self>;
     type Snapshot: Copy;
     type Sources: AsRef<[crate::core::reactive::ModelSource]>;
@@ -60,6 +80,7 @@ pub struct ModelCell<M: Model> {
     owner: WorldId,
     value: RefCell<M>,
     sources: M::Sources,
+    derived_sources: M::DerivedSources,
     poisoned: Cell<bool>,
 }
 
@@ -69,6 +90,7 @@ impl<M: Model> ModelCell<M> {
             owner,
             value: RefCell::new(value),
             sources: M::sources(),
+            derived_sources: M::derived_sources(),
             poisoned: Cell::new(false),
         }
     }
@@ -131,6 +153,18 @@ pub trait ModelHandle: Clone {
     }
 
     #[doc(hidden)]
+    fn read_derived<R>(&self, index: usize, read: impl FnOnce(&Self::Data) -> R) -> R {
+        let cell = self
+            .cell()
+            .upgrade()
+            .expect("model registration is no longer alive");
+        self.read(|value| {
+            cell.derived_sources.as_ref()[index].track();
+            read(value)
+        })
+    }
+
+    #[doc(hidden)]
     fn update<R>(&self, update: impl FnOnce(&mut Self::Data) -> R) -> R {
         let cell = self
             .cell()
@@ -152,10 +186,13 @@ pub trait ModelHandle: Clone {
             committed: false,
         };
         let before = value.snapshot();
+        let derived_before = value.derived_snapshot();
         let result = update(&mut value);
         let after = value.snapshot();
+        let derived_after = value.derived_snapshot();
         drop(value);
         Self::Data::publish(&cell.sources, before, after);
+        Self::Data::publish_derived(&cell.derived_sources, derived_before, derived_after);
         guard.committed = true;
         result
     }
@@ -169,12 +206,30 @@ pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (Rc<ModelCell<M>>,
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use super::{Model, ModelCell, ModelHandle};
+    use super::{Model, ModelCell, ModelHandle, ModelMethods};
     use alloc::rc::Weak;
 
     struct Counter(u32);
 
     struct CounterHandle(Weak<ModelCell<Counter>>);
+
+    impl ModelMethods for Counter {
+        type DerivedSnapshot = ();
+        type DerivedSources = [crate::core::reactive::ModelSource; 0];
+
+        fn derived_snapshot(&self) -> Self::DerivedSnapshot {}
+
+        fn derived_sources() -> Self::DerivedSources {
+            []
+        }
+
+        fn publish_derived(
+            _: &Self::DerivedSources,
+            _: Self::DerivedSnapshot,
+            _: Self::DerivedSnapshot,
+        ) {
+        }
+    }
 
     impl Clone for CounterHandle {
         fn clone(&self) -> Self {

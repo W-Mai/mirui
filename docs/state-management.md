@@ -21,8 +21,8 @@ the State demos in the gallery.
 
 ## Registered model instances
 
-`#[model]` can generate an instance handle for a data type and forward methods
-from one inherent impl. Each `App::add_model` call registers an independent
+Place `#[model]` on a struct and one inherent impl to generate its instance
+handle and forwarded methods. Each `App::add_model` call registers an independent
 instance; cloning a handle refers to the same instance without cloning its data.
 
 ```rust
@@ -36,6 +36,9 @@ struct Counter {
 
 #[model]
 impl Counter {
+    #[observe]
+    fn is_even(&self) -> bool { self.count % 2 == 0 }
+
     fn increment(&mut self) { self.count += 1; }
     fn decrement(&mut self) { self.count = self.count.saturating_sub(1); }
 }
@@ -50,6 +53,9 @@ counter.increment();
 field. Model methods compare observed values before and after each update;
 unchanged values do not notify subscribers. Large buffers and other
 non-`Copy` fields remain ordinary model data.
+An `#[observe]` method with `&self`, no arguments, and a `Copy + Eq` return
+value works the same way: `counter.is_even()` notifies only when its computed
+result changes.
 
 Bound declarations retain the model type in source while storing its shared
 handle:

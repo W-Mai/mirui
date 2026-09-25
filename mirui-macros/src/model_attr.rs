@@ -65,6 +65,10 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
         .make_where_clause()
         .predicates
         .push(parse_quote!(#name #type_generics: 'static));
+    model_generics
+        .make_where_clause()
+        .predicates
+        .push(parse_quote!(#name #type_generics: ::mirui::core::model::ModelMethods));
     for ty in &observed_types {
         model_generics
             .make_where_clause()
@@ -194,7 +198,7 @@ fn expand_struct(mut item: syn::ItemStruct) -> syn::Result<TokenStream> {
     })
 }
 
-fn expand_impl(item: syn::ItemImpl) -> syn::Result<TokenStream> {
+fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     if item.trait_.is_some() {
         return Err(syn::Error::new_spanned(
             item,
@@ -213,16 +217,43 @@ fn expand_impl(item: syn::ItemImpl) -> syn::Result<TokenStream> {
             "model impl target must use its local type name",
         ));
     }
-    let name = &self_type.path.segments[0].ident;
+    let name = self_type.path.segments[0].ident.clone();
     let handle = format_ident!("{}Handle", name);
-    let (impl_generics, _, where_clause) = item.generics.split_for_impl();
-    let type_args = &self_type.path.segments[0].arguments;
+    let snapshot = format_ident!("{}DerivedSnapshot", name);
+    let generics = item.generics.clone();
+    let type_args = self_type.path.segments[0].arguments.clone();
     let mut forwards = Vec::new();
-    for member in &item.items {
+    let mut observed = Vec::new();
+    for member in &mut item.items {
         let ImplItem::Fn(method) = member else {
             continue;
         };
+        let markers: Vec<_> = method
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("observe"))
+            .collect();
+        let is_observed = !markers.is_empty();
+        if markers.len() > 1 {
+            return Err(syn::Error::new_spanned(
+                method,
+                "duplicate #[observe] marker",
+            ));
+        }
+        if is_observed && !matches!(markers[0].meta, syn::Meta::Path(_)) {
+            return Err(syn::Error::new_spanned(
+                markers[0],
+                "#[observe] does not take arguments",
+            ));
+        }
+        method.attrs.retain(|attr| !attr.path().is_ident("observe"));
         let Some(FnArg::Receiver(receiver)) = method.sig.inputs.first() else {
+            if is_observed {
+                return Err(syn::Error::new_spanned(
+                    &method.sig,
+                    "observed methods require &self",
+                ));
+            }
             continue;
         };
         if method.sig.asyncness.is_some()
@@ -234,6 +265,25 @@ fn expand_impl(item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 method.sig.span(),
                 "model methods must be synchronous safe methods taking &self or &mut self",
             ));
+        }
+        if is_observed {
+            if receiver.mutability.is_some()
+                || method.sig.inputs.len() != 1
+                || !method.sig.generics.params.is_empty()
+            {
+                return Err(syn::Error::new_spanned(
+                    &method.sig,
+                    "observed methods require &self, no arguments, and no generics",
+                ));
+            }
+            let syn::ReturnType::Type(_, ty) = &method.sig.output else {
+                return Err(syn::Error::new_spanned(
+                    &method.sig,
+                    "observed methods require a Copy + Eq return value",
+                ));
+            };
+            observed.push((method.sig.ident.clone(), (**ty).clone(), method.vis.clone()));
+            continue;
         }
         let mut argument_names = Vec::new();
         let mut arguments = Vec::new();
@@ -268,11 +318,98 @@ fn expand_impl(item: syn::ItemImpl) -> syn::Result<TokenStream> {
             }
         });
     }
+    let observed_names: Vec<_> = observed.iter().map(|(name, _, _)| name).collect();
+    let observed_types: Vec<_> = observed.iter().map(|(_, ty, _)| ty).collect();
+    let source_count = observed.len();
+    let mut derived_generics = generics.clone();
+    for ty in &observed_types {
+        derived_generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#ty: Copy + Eq + 'static));
+    }
+    let (derived_impl_generics, _, derived_where) = derived_generics.split_for_impl();
+    let snapshot_definition = if observed.is_empty() {
+        quote!()
+    } else {
+        quote! {
+            pub struct #snapshot #derived_generics {
+                values: (#(#observed_types,)*),
+                marker: ::core::marker::PhantomData<#name #type_args>,
+            }
+
+            impl #derived_impl_generics ::core::marker::Copy for #snapshot #type_args #derived_where {}
+
+            impl #derived_impl_generics ::core::clone::Clone for #snapshot #type_args #derived_where {
+                fn clone(&self) -> Self { *self }
+            }
+        }
+    };
+    let snapshot_type = if observed.is_empty() {
+        quote!(())
+    } else {
+        quote!(#snapshot #type_args)
+    };
+    let snapshot_value = if observed.is_empty() {
+        quote!()
+    } else {
+        quote!(#snapshot {
+            values: (#(self.#observed_names(),)*),
+            marker: ::core::marker::PhantomData,
+        })
+    };
+    let publish = observed.iter().enumerate().map(|(index, _)| {
+        let index = syn::Index::from(index);
+        quote! {
+            if before.values.#index != after.values.#index {
+                sources[#index].notify();
+            }
+        }
+    });
+    let publish_body = if observed.is_empty() {
+        quote!(let _ = (sources, before, after);)
+    } else {
+        quote!(#(#publish)*)
+    };
+    let accessors = observed.iter().enumerate().map(|(index, (method, ty, vis))| {
+        quote! {
+            #vis fn #method(&self) -> #ty {
+                ::mirui::core::model::ModelHandle::read_derived(self, #index, |data| data.#method())
+            }
+        }
+    });
     Ok(quote! {
         #item
 
-        impl #impl_generics #handle #type_args #where_clause {
+        #snapshot_definition
+
+        impl #derived_impl_generics ::mirui::core::model::ModelMethods for #name #type_args #derived_where {
+            type DerivedSnapshot = #snapshot_type;
+            type DerivedSources = [::mirui::core::reactive::ModelSource; #source_count];
+
+            fn derived_snapshot(&self) -> Self::DerivedSnapshot {
+                #snapshot_value
+            }
+
+            fn derived_sources() -> Self::DerivedSources {
+                ::core::array::from_fn(|_| ::mirui::core::reactive::ModelSource::new())
+            }
+
+            fn publish_derived(
+                sources: &Self::DerivedSources,
+                before: Self::DerivedSnapshot,
+                after: Self::DerivedSnapshot,
+            ) {
+                #publish_body
+            }
+        }
+
+        impl #derived_impl_generics #handle #type_args #derived_where {
             #(#forwards)*
+        }
+
+        impl #derived_impl_generics #handle #type_args #derived_where {
+            #(#accessors)*
         }
     })
 }
@@ -333,5 +470,39 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("does not take arguments"));
+    }
+
+    #[test]
+    fn derived_observation_generates_a_separate_source() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    #[observe]
+                    fn doubled(&self) -> u32 { self.count * 2 }
+                    fn increment(&mut self) { self.count += 1; }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("DerivedSources"));
+        assert!(expanded.contains("read_derived"));
+        assert!(expanded.contains("fn increment"));
+    }
+
+    #[test]
+    fn rejects_derived_observation_with_arguments() {
+        let error = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    #[observe]
+                    fn plus(&self, extra: u32) -> u32 { self.count + extra }
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("no arguments"));
     }
 }
