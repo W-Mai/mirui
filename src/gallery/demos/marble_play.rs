@@ -26,7 +26,8 @@ use alloc::format;
 
 pub const VIEWPORT: (u16, u16) = (480, 320);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct MarbleBoard;
 
 #[derive(Clone, Copy)]

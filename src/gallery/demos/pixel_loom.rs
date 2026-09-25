@@ -41,10 +41,12 @@ const PALETTE: [Color; 7] = [
 ];
 const TEMPLATE_NAMES: [&str; 3] = ["星际来客", "风中绿芽", "纸上飞行"];
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct PixelSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct PixelModalSurface;
 
 #[derive(Clone, Copy)]

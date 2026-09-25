@@ -31,10 +31,12 @@ const ACTIVE: Color = Color::rgb(208, 236, 157);
 const TEXT: Color = Color::rgb(237, 242, 219);
 const MUTED: Color = Color::rgb(156, 172, 138);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct MossSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct MossModalSurface;
 
 #[derive(Clone, Copy)]

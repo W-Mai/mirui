@@ -38,7 +38,8 @@ const LIVE_SAMPLE: &str = "office AVATAR · 中文字体排版 · مرحبا · 
 
 static WAVE_BASELINE: Path = path!(M 4 68 C 38 16 92 14 126 50 C 148 74 170 68 188 34);
 
-#[derive(Default, crate::Component)]
+#[crate::component]
+#[derive(Default)]
 struct CaretOverlay {
     target: Option<Entity>,
     probe: Option<Point>,
@@ -49,7 +50,7 @@ struct TypographyNodes {
     path_overlay: Entity,
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 struct RasterContour {
     font: FontToken,
     character: char,

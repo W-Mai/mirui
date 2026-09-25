@@ -15,7 +15,8 @@ pub enum PathDirection {
     Reverse,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, crate::Component)]
+#[crate::component]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextPath {
     path: PathId,
     subpath: u16,

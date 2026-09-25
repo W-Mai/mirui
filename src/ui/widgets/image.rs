@@ -53,7 +53,7 @@ impl From<crate::ui::icons::IconAsset> for ImageSource {
     }
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 pub struct Image {
     pub src: ImageSource,
     pub composite: CompositeMode,

@@ -33,10 +33,12 @@ const ACCENT: Color = Color::rgb(245, 107, 56);
 const CYAN: Color = Color::rgb(67, 145, 157);
 const GREEN: Color = Color::rgb(88, 132, 92);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct FactorySurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct FactoryModalSurface;
 
 #[derive(Clone, Copy)]

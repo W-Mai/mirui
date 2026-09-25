@@ -37,10 +37,12 @@ const TEAL: Color = Color::rgb(124, 190, 174);
 const VIOLET: Color = Color::rgb(190, 166, 206);
 const RUST: Color = Color::rgb(199, 161, 123);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct EchoSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct EchoModalSurface;
 
 #[derive(Clone, Copy)]

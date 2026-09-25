@@ -20,7 +20,7 @@ pub struct SliderHandler {
     pub on_event: BusinessCallback<SliderEvent>,
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 pub struct Slider {
     pub value: Fixed,
     pub min: Fixed,

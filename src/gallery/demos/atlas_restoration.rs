@@ -83,7 +83,8 @@ const SUMMARY_LINE_IDS: [&str; 6] = [
     "picture_summary_line_5",
 ];
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct PictureSurface;
 
 #[derive(Clone, Copy)]

@@ -55,7 +55,8 @@ const SUMMARY_LINE_IDS: [&str; 6] = [
     "twin_summary_line_5",
 ];
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct TwinSurface;
 
 #[derive(Clone, Copy)]

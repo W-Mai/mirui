@@ -283,7 +283,8 @@ impl TextContent {
     }
 }
 
-#[derive(Clone, Debug, crate::Component)]
+#[crate::component]
+#[derive(Clone, Debug)]
 pub struct Text {
     content: TextContent,
     paragraph: ParagraphStyle,
@@ -1216,7 +1217,8 @@ pub(crate) fn draw_text_layout<'font>(
 }
 
 /// Borrowed positioned glyphs for rendering without runtime shaping or allocation.
-#[derive(Clone, Copy, Debug, crate::Component)]
+#[crate::component]
+#[derive(Clone, Copy, Debug)]
 pub struct StaticGlyphRun {
     glyphs: &'static [textflow::shaping::PositionedGlyph],
 }

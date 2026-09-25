@@ -34,10 +34,12 @@ const SIGNAL_ON: Color = ACCENT;
 const GREEN: Color = Color::rgb(102, 130, 86);
 const RED: Color = Color::rgb(189, 83, 72);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct CircuitSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct CircuitModalSurface;
 
 #[derive(Clone, Copy)]

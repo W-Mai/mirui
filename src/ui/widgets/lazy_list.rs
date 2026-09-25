@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 /// rewrites the pool entities' positions so they line up at
 /// `index * item_height` in the parent's coordinate space. The scroll
 /// system handles the rest via `ScrollOffset`.
-#[derive(crate::Component)]
+#[crate::component]
 pub struct LazyList {
     pub item_count: u32,
     pub item_height: Fixed,

@@ -58,7 +58,8 @@ impl Default for TextLayoutLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, crate::Component)]
+#[crate::component]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextLayoutHandle {
     slot: u32,
     generation: u32,

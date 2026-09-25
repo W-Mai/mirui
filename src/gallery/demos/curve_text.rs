@@ -97,7 +97,8 @@ struct CurveNodes {
     caption: Entity,
 }
 
-#[derive(Default, crate::Component)]
+#[crate::component]
+#[derive(Default)]
 struct CurveStage;
 
 enum CurveAction {

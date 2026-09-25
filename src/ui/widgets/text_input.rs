@@ -34,7 +34,7 @@ pub struct TextInputHandler {
 ///
 /// `buffer[..len]` are the live characters and `cursor` is the insertion
 /// point in `0..=len`.
-#[derive(crate::Component)]
+#[crate::component]
 pub struct TextInput {
     pub buffer: [u8; TEXT_INPUT_CAP],
     pub len: u8,

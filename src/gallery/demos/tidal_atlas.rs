@@ -33,10 +33,12 @@ const PAPER: Color = Color::rgb(225, 222, 196);
 const DARK: Color = Color::rgb(36, 62, 64);
 const CONTROL: Color = Color::rgb(42, 79, 84);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct TideSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct TideModalSurface;
 
 #[derive(Clone, Copy)]

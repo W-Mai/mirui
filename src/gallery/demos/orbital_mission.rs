@@ -33,10 +33,12 @@ const ORANGE: Color = Color::rgb(244, 139, 54);
 const CYAN: Color = Color::rgb(65, 210, 204);
 const VIOLET: Color = Color::rgb(147, 112, 222);
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct OrbitSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct OrbitModalSurface;
 
 #[derive(Clone, Copy)]

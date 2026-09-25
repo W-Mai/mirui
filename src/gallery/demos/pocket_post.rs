@@ -39,10 +39,12 @@ const STATION_COLORS: [Color; 3] = [
     Color::rgb(237, 186, 145),
 ];
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct PostSurface;
 
-#[derive(crate::Component, Default)]
+#[crate::component]
+#[derive(Default)]
 struct PostModalSurface;
 
 #[derive(Clone, Copy)]

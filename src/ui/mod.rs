@@ -53,7 +53,8 @@ use crate::ui::layout::LayoutStyle;
 pub struct Widget;
 
 /// Applies the surface safe area as minimum layout padding for this entity.
-#[derive(Clone, Copy, Debug, Default, crate::Component)]
+#[crate::component]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct RespectSafeArea;
 
 #[doc(hidden)]
@@ -73,7 +74,8 @@ pub fn root_viewport(world: &crate::ecs::World) -> Option<crate::types::Rect> {
     world.get::<ComputedRect>(root).map(|c| c.0)
 }
 
-#[derive(Clone, Debug, crate::Component)]
+#[crate::component]
+#[derive(Clone, Debug)]
 pub struct Style {
     pub bg_color: Option<ThemedColor>,
     pub border_color: Option<ThemedColor>,

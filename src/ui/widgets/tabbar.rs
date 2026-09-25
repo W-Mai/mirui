@@ -32,7 +32,7 @@ pub(crate) struct TabBarPrev {
 /// Horizontal tab bar with N children laid out flex-row.
 /// `selected` is the discrete tab index; `indicator_offset` is the
 /// continuous (0.0 .. count) position the renderer reads.
-#[derive(crate::Component)]
+#[crate::component]
 pub struct TabBar {
     pub selected: u8,
     pub count: u8,

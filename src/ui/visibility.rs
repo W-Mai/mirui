@@ -13,7 +13,8 @@ pub struct HitTarget;
 ///
 /// Event delegation and visual feedback are separate: layout containers may
 /// receive gestures through [`HitTarget`] without changing their appearance.
-#[derive(crate::Component, Clone, Copy, Debug, Default)]
+#[crate::component]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct InteractionFeedback;
 
 /// Marker that excludes the entity from hit-test only — layout and

@@ -20,7 +20,7 @@ pub struct SwitchHandler {
     pub on_event: BusinessCallback<SwitchEvent>,
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 pub struct Switch {
     pub on: bool,
     pub on_color: ThemedColor,

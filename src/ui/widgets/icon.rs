@@ -8,7 +8,8 @@ use crate::ui::view::{View, ViewCtx};
 /// `scale` is a unitless multiplier orthogonal to `size`. Animate
 /// `scale` (e.g. through `mirui_macros::animate!`) so hover bounces
 /// don't replace the `Dimension::Percent` / `Auto` variant on `size`.
-#[derive(Clone, Debug, crate::Component)]
+#[crate::component]
+#[derive(Clone, Debug)]
 pub struct Icon {
     pub path: Path,
     pub color: ThemedColor,

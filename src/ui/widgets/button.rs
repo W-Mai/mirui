@@ -50,7 +50,7 @@ impl ButtonSize {
     }
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 pub struct Button {
     pub size: ButtonSize,
     pub normal_color: ThemedColor,

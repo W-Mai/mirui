@@ -17,7 +17,7 @@ pub struct CheckboxHandler {
     pub on_event: BusinessCallback<CheckboxEvent>,
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 pub struct Checkbox {
     pub checked: bool,
     pub checked_color: ThemedColor,

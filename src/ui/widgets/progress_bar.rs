@@ -18,7 +18,7 @@ pub struct ProgressBarHandler {
     pub on_event: BusinessCallback<ProgressBarEvent>,
 }
 
-#[derive(crate::Component)]
+#[crate::component]
 pub struct ProgressBar {
     pub value: f32, // 0.0 ~ 1.0
     pub track_color: ThemedColor,
