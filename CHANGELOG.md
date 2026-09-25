@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Slider value updates.** Input gestures and property projections share value clamping, change detection, and visual invalidation; programmatic updates do not emit gesture events.
 - **Switch value updates.** Tap and property changes share animation seeding and change classification; tap callbacks run after invalidation and may remove the control safely.
 - **Checkbox checked-state binding.** `Checkbox.checked` accepts reactive values and shares one update path with taps; programmatic changes do not emit toggle events.
+- **Callback-safe control updates.** TabBar and TextInput invalidate before dispatching change callbacks, allowing callbacks to remove their control without a stale write afterward.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 

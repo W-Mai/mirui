@@ -534,11 +534,11 @@ fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) 
         };
         (visual_changed, content_changed, ti.len)
     };
-    if content_changed {
-        emit_text_input_event(world, entity, &TextInputEvent::Changed { len });
-    }
     if visual_changed {
         world.insert(entity, Dirty);
+    }
+    if content_changed {
+        emit_text_input_event(world, entity, &TextInputEvent::Changed { len });
     }
     true
 }
@@ -905,6 +905,31 @@ mod tests {
         ));
 
         assert_eq!(&*lengths.borrow(), &[1, 0]);
+    }
+
+    #[test]
+    fn changed_callback_can_remove_text_input() {
+        fn remove_input(world: &mut World, entity: Entity, _: &TextInputEvent) -> bool {
+            assert!(world.has::<Dirty>(entity));
+            world.despawn(entity);
+            true
+        }
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, TextInput::new());
+        world.insert(
+            entity,
+            TextInputHandler {
+                on_event: BusinessCallback::Fn(remove_input),
+            },
+        );
+        assert!(textinput_key_handler(
+            &mut world,
+            entity,
+            &InputEvent::CharInput { ch: 'a' },
+        ));
+        assert!(!world.is_alive(entity));
     }
 
     #[test]

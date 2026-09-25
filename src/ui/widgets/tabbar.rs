@@ -200,6 +200,7 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
         },
     );
     world.insert(entity, TabBarPrev { selected: idx });
+    world.insert(entity, Dirty);
     emit_tabbar_event(
         world,
         entity,
@@ -208,7 +209,6 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
             old: old_idx,
         },
     );
-    world.insert(entity, Dirty);
     true
 }
 
@@ -284,5 +284,35 @@ mod tests {
         assert!(world.get::<TabBar>(e).is_some());
         assert!(world.get::<crate::ui::Style>(e).is_none());
         assert!(world.get::<TabBarHandler>(e).is_none());
+    }
+
+    #[test]
+    fn selection_callback_can_remove_tab_bar() {
+        fn remove_bar(world: &mut World, entity: Entity, _: &TabBarEvent) -> bool {
+            assert!(world.has::<Dirty>(entity));
+            world.despawn(entity);
+            true
+        }
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, TabBar::new(3));
+        world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
+        world.insert(
+            entity,
+            TabBarHandler {
+                on_event: BusinessCallback::Fn(remove_bar),
+            },
+        );
+        assert!(tabbar_handler(
+            &mut world,
+            entity,
+            &GestureEvent::Tap {
+                x: Fixed::from_int(45),
+                y: Fixed::ZERO,
+                target: entity,
+            },
+        ));
+        assert!(!world.is_alive(entity));
     }
 }
