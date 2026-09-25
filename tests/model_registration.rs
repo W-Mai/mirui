@@ -555,3 +555,22 @@ fn effect_consumers_are_bound_to_model_instances() {
     second.emit(7);
     assert_eq!((first_total.get(), second_total.get()), (3, 7));
 }
+
+#[test]
+fn effect_consumer_cannot_start_a_model_write_transaction() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let feedback = model.clone();
+    app.on_effect(&model, move |_note: Note| feedback.emit(99))
+        .unwrap();
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.emit(1)));
+    assert!(failure.is_err());
+    assert_eq!(model.count(), 1);
+    let independent = app.add_model(Counter { value: 0 });
+    independent.add(1);
+    assert_eq!(independent.value(), 1);
+}

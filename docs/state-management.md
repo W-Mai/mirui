@@ -79,7 +79,8 @@ app.on_effect(&player, move |note: Note| play_note(note))?;
 The extractor lives in the marked model impl and is not exposed as a handle
 method. One consumer may be registered per effect type and model instance.
 Events are drained even when no consumer is installed; delivery runs after
-the model borrow is released.
+the model borrow is released. Consumers can read committed model state, but
+cannot start another model write transaction during delivery.
 
 Bound declarations retain the model type in source while storing its shared
 handle:

@@ -51,6 +51,7 @@ struct Reactive {
     world: *mut World,
     world_id: Option<WorldId>,
     borrowed_worlds: [Option<WorldId>; 8],
+    model_read_only_depth: u16,
     dirty_widgets: VecDeque<(Option<WorldId>, Entity)>,
     dirty_visual_widgets: VecDeque<(Option<WorldId>, Entity)>,
     dirty_effects: VecDeque<EffectId>,
@@ -68,6 +69,7 @@ impl Reactive {
             world: core::ptr::null_mut(),
             world_id: None,
             borrowed_worlds: [None; 8],
+            model_read_only_depth: 0,
             dirty_widgets: VecDeque::new(),
             dirty_visual_widgets: VecDeque::new(),
             dirty_effects: VecDeque::new(),
@@ -129,6 +131,30 @@ fn current_scope() -> Option<Subscriber> {
 
 pub(crate) fn current_world_id() -> Option<WorldId> {
     with_reactive(|r| r.world_id)
+}
+
+pub(crate) fn model_writes_allowed() -> bool {
+    with_reactive(|r| r.model_read_only_depth == 0)
+}
+
+pub(crate) struct ModelReadOnlyGuard;
+
+impl ModelReadOnlyGuard {
+    pub(crate) fn enter() -> Self {
+        with_reactive(|r| {
+            r.model_read_only_depth = r
+                .model_read_only_depth
+                .checked_add(1)
+                .expect("model read-only scope overflow");
+        });
+        Self
+    }
+}
+
+impl Drop for ModelReadOnlyGuard {
+    fn drop(&mut self) {
+        with_reactive(|r| r.model_read_only_depth -= 1);
+    }
 }
 
 struct ScopeGuard(Option<Subscriber>);

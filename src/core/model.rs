@@ -103,6 +103,7 @@ impl<E> EffectRoute<E> {
             route: self,
             handler: Some(handler),
         };
+        let _read_only = crate::core::reactive::ModelReadOnlyGuard::enter();
         (restore.handler.as_ref().expect("effect handler"))(event);
     }
 }
@@ -304,6 +305,10 @@ pub trait ModelHandle: Clone {
         &self,
         update: impl FnOnce(&mut Self::Data) -> <Self::Data as Model>::Change,
     ) -> <Self::Data as Model>::Change {
+        assert!(
+            crate::core::reactive::model_writes_allowed(),
+            "model updates are not allowed during an effect callback"
+        );
         let cell = self
             .cell()
             .upgrade()
