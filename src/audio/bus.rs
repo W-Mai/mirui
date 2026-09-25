@@ -91,8 +91,11 @@ impl<const N: usize> AudioBus<N> {
     }
 
     pub fn set_muted(&mut self, muted: bool) -> bool {
-        self.muted = muted;
-        self.enqueue(AudioCommand::SetMuted(muted))
+        let accepted = self.enqueue(AudioCommand::SetMuted(muted));
+        if accepted {
+            self.muted = muted;
+        }
+        accepted
     }
 
     pub fn toggle_muted(&mut self) -> bool {
@@ -100,8 +103,11 @@ impl<const N: usize> AudioBus<N> {
     }
 
     pub fn set_master_gain(&mut self, gain: u8) -> bool {
-        self.master_gain = gain;
-        self.enqueue(AudioCommand::SetMasterGain(gain))
+        let accepted = self.enqueue(AudioCommand::SetMasterGain(gain));
+        if accepted {
+            self.master_gain = gain;
+        }
+        accepted
     }
 
     pub const fn is_muted(&self) -> bool {
@@ -239,6 +245,30 @@ mod tests {
     fn zero_capacity_bus_fails_without_panicking() {
         let mut bus = AudioBus::<0>::new();
         assert!(!bus.play(A));
+        assert_eq!(bus.saturation_count(), 1);
+    }
+
+    #[test]
+    fn rejected_control_commands_do_not_change_reported_state() {
+        let mut bus = AudioBus::<0>::new();
+        assert!(!bus.set_muted(true));
+        assert!(!bus.is_muted());
+        assert!(!bus.toggle_muted());
+        assert!(!bus.is_muted());
+        assert!(!bus.set_master_gain(64));
+        assert_eq!(bus.master_gain(), 220);
+        assert_eq!(bus.pending(), 0);
+        assert_eq!(bus.saturation_count(), 3);
+    }
+
+    #[test]
+    fn one_slot_control_replaces_disposable_command_and_updates_state() {
+        let mut bus = AudioBus::<1>::new();
+        assert!(bus.play(A));
+        assert!(bus.set_muted(true));
+        assert!(bus.is_muted());
+        assert_eq!(bus.pending(), 1);
+        assert_eq!(bus.pop(), Some(AudioCommand::SetMuted(true)));
         assert_eq!(bus.saturation_count(), 1);
     }
 
