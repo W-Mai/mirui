@@ -11,6 +11,7 @@ mod visit_id;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
+use syn::visit_mut::VisitMut;
 
 mod model_attr;
 
@@ -2269,6 +2270,10 @@ pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn ui(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();
+    let (captures, input2) = match strip_bound_captures(input2) {
+        Ok(value) => value,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     if let Some(after) = try_strip_compose_keyword(&input2) {
         return mold::expand(after).into();
@@ -2319,12 +2324,108 @@ pub fn ui(input: TokenStream) -> TokenStream {
         None => quote! { let __mirui_parent: ::mirui::ecs::Entity = cx.parent(); },
     };
 
-    TokenStream::from(quote! {
+    let output = quote! {
         {
             #parent_bind
             #body
         }
-    })
+    };
+    if captures.is_empty() {
+        return output.into();
+    }
+    let mut output: syn::Expr = match syn::parse2(output) {
+        Ok(output) => output,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    BoundCaptureRewriter { captures }.visit_expr_mut(&mut output);
+    quote!(#output).into()
+}
+
+fn strip_bound_captures(
+    input: proc_macro2::TokenStream,
+) -> syn::Result<(Vec<syn::Ident>, proc_macro2::TokenStream)> {
+    use proc_macro2::{Delimiter, TokenTree};
+    let mut iter = input.clone().into_iter();
+    let Some(TokenTree::Ident(marker)) = iter.next() else {
+        return Ok((Vec::new(), input));
+    };
+    if marker != "__mirui_bind" {
+        return Ok((Vec::new(), input));
+    }
+    let Some(TokenTree::Group(group)) = iter.next() else {
+        return Err(syn::Error::new_spanned(marker, "expected bound names"));
+    };
+    if group.delimiter() != Delimiter::Parenthesis {
+        return Err(syn::Error::new_spanned(group, "expected bound names"));
+    }
+    let names = syn::parse::Parser::parse2(
+        syn::punctuated::Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated,
+        group.stream(),
+    )?;
+    let Some(TokenTree::Punct(end)) = iter.next() else {
+        return Err(syn::Error::new_spanned(
+            marker,
+            "expected `;` after bound names",
+        ));
+    };
+    if end.as_char() != ';' {
+        return Err(syn::Error::new_spanned(
+            end,
+            "expected `;` after bound names",
+        ));
+    }
+    Ok((names.into_iter().collect(), iter.collect()))
+}
+
+struct BoundCaptureRewriter {
+    captures: Vec<syn::Ident>,
+}
+
+impl BoundCaptureRewriter {
+    fn wrap(&self, expr: &mut syn::Expr) {
+        let original = core::mem::replace(expr, syn::parse_quote!(()));
+        let captures = &self.captures;
+        *expr = syn::parse_quote!({
+            #(let #captures = ::mirui::core::model::SharedValue::share(&#captures);)*
+            #original
+        });
+    }
+}
+
+impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
+    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
+        if let syn::Expr::Closure(closure) = expr {
+            syn::visit_mut::visit_expr_closure_mut(self, closure);
+            let generated_event = closure.capture.is_some()
+                && closure.inputs.first().is_some_and(|input| {
+                    matches!(input, syn::Pat::Type(typed)
+                        if matches!(&*typed.pat, syn::Pat::Ident(ident) if ident.ident == "__world"))
+                });
+            if generated_event {
+                self.wrap(expr);
+            }
+            return;
+        }
+        syn::visit_mut::visit_expr_mut(self, expr);
+    }
+
+    fn visit_expr_call_mut(&mut self, call: &mut syn::ExprCall) {
+        syn::visit_mut::visit_expr_call_mut(self, call);
+        let syn::Expr::Path(path) = &*call.func else {
+            return;
+        };
+        if !path
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "effect_with_widget")
+        {
+            return;
+        }
+        if let Some(closure @ syn::Expr::Closure(_)) = call.args.last_mut() {
+            self.wrap(closure);
+        }
+    }
 }
 
 fn try_strip_compose_keyword(input: &proc_macro2::TokenStream) -> Option<proc_macro2::TokenStream> {

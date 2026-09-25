@@ -2,6 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
+use syn::visit_mut::VisitMut;
 
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let bindings = match parse_bindings(attr) {
@@ -53,7 +54,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    for binding in bindings {
+    for binding in &bindings {
         let Some(param) = f.sig.inputs.iter_mut().find_map(|input| {
             let syn::FnArg::Typed(param) = input else {
                 return None;
@@ -61,7 +62,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             let syn::Pat::Ident(pat) = &*param.pat else {
                 return None;
             };
-            (pat.ident == binding).then_some(param)
+            (pat.ident == *binding).then_some(param)
         }) else {
             return syn::Error::new_spanned(binding, "bound name is not a function parameter")
                 .to_compile_error();
@@ -77,7 +78,42 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
     f.sig.inputs.insert(0, cx_param);
 
+    if !bindings.is_empty() {
+        BoundUiCalls { bindings }.visit_block_mut(&mut f.block);
+    }
+
     quote! { #f }
+}
+
+struct BoundUiCalls {
+    bindings: Vec<syn::Ident>,
+}
+
+impl VisitMut for BoundUiCalls {
+    fn visit_macro_mut(&mut self, macro_call: &mut syn::Macro) {
+        if !macro_call.path.is_ident("ui") || is_compose_call(&macro_call.tokens) {
+            return;
+        }
+        let original = macro_call.tokens.clone();
+        let bindings = &self.bindings;
+        macro_call.tokens = quote! {
+            __mirui_bind(#(#bindings),*); #original
+        };
+    }
+}
+
+fn is_compose_call(tokens: &TokenStream) -> bool {
+    let Ok(syn::Expr::Call(call)) = syn::parse2::<syn::Expr>(tokens.clone()) else {
+        return false;
+    };
+    let syn::Expr::Path(path) = *call.func else {
+        return false;
+    };
+    path.path
+        .segments
+        .last()
+        .and_then(|segment| segment.ident.to_string().chars().next())
+        .is_some_and(|first| first.is_ascii_lowercase() || first == '_')
 }
 
 fn parse_bindings(attr: TokenStream) -> syn::Result<Vec<syn::Ident>> {
@@ -150,6 +186,22 @@ mod tests {
         let rendered = out.to_string();
         assert!(rendered.contains("Game as :: mirui :: core :: model :: BindType"));
         assert!(rendered.contains("title : & str"));
+    }
+
+    #[test]
+    fn marks_ui_trees_for_shared_bound_captures() {
+        let out = expand(
+            quote! { bind(model) },
+            quote! {
+                fn build(model: Game) {
+                    ui! { Row { Button() on Tap { model.increment(); } } };
+                    ui!(child(cx, model));
+                }
+            },
+        );
+        let rendered = out.to_string();
+        assert_eq!(rendered.matches("__mirui_bind").count(), 1);
+        assert!(rendered.contains("ui ! (child (cx , model))"));
     }
 
     #[test]

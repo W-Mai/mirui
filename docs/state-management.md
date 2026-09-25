@@ -34,6 +34,7 @@ struct Counter { count: u32 }
 #[model]
 impl Counter {
     fn increment(&mut self) { self.count += 1; }
+    fn decrement(&mut self) { self.count -= 1; }
 }
 
 let mut app = App::headless(32, 32);
@@ -54,13 +55,19 @@ struct CounterTile { counter: Counter }
 
 #[compose(bind(counter))]
 fn counter_controls(counter: Counter) {
-    counter.increment();
+    ui! {
+        Row {
+            Button(text: "−") on Tap { counter.decrement(); }
+            Button(text: "+") on Tap { counter.increment(); }
+        }
+    };
 }
 ```
 
 `CounterTile` can be cloned even though `Counter` is not `Clone`. Only names
 listed in `bind(...)` are converted; other fields and parameters keep their
-declared types.
+declared types. The generated `ui!` callbacks share each bound handle, so
+multiple callbacks can use one model without manually cloning it.
 
 ## Primitives
 
