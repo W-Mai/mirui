@@ -177,6 +177,8 @@ gesture event.
 `Switch` tap and `prop::SwitchOn` changes also use one animation-seeding path.
 Assigning the current value leaves the running spring untouched; only taps
 emit `SwitchEvent::Toggled`.
+`Checkbox.checked` can bind a reactive value through `ui!`; it shares its
+checked-state update with taps, while programmatic changes emit no toggle event.
 
 ## Primitives
 

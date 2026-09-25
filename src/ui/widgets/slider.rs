@@ -5,7 +5,7 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
-use crate::ui::property::{PropertyChange, invalidate_for_change};
+use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
@@ -28,12 +28,6 @@ pub struct Slider {
     pub track_color: ThemedColor,
     pub fill_color: ThemedColor,
     pub thumb_color: ThemedColor,
-}
-
-pub(crate) struct SliderValueUpdate {
-    pub old: Fixed,
-    pub new: Fixed,
-    pub change: PropertyChange,
 }
 
 impl Default for Slider {
@@ -86,7 +80,7 @@ impl Slider {
         self.min + clamped * (self.max - self.min)
     }
 
-    pub(crate) fn update_value(&mut self, value: Fixed) -> SliderValueUpdate {
+    pub(crate) fn update_value(&mut self, value: Fixed) -> ValueUpdate<Fixed> {
         let old = self.value;
         let lower = self.min.min(self.max);
         let upper = self.min.max(self.max);
@@ -97,7 +91,7 @@ impl Slider {
             self.value = new;
             PropertyChange::Visual
         };
-        SliderValueUpdate { old, new, change }
+        ValueUpdate { old, new, change }
     }
 
     pub fn build(min: impl Into<Fixed>, max: impl Into<Fixed>) -> SliderBuilder {

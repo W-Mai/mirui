@@ -7,7 +7,7 @@ use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
-use crate::ui::property::{PropertyChange, invalidate_for_change};
+use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
@@ -26,12 +26,6 @@ pub struct Switch {
     pub on_color: ThemedColor,
     pub off_color: ThemedColor,
     pub thumb_color: ThemedColor,
-}
-
-pub(crate) struct SwitchValueUpdate {
-    pub old: bool,
-    pub new: bool,
-    pub change: PropertyChange,
 }
 
 impl Default for Switch {
@@ -306,11 +300,11 @@ pub(crate) fn set_switch_on(
     world: &mut World,
     entity: Entity,
     on_now: bool,
-) -> Option<SwitchValueUpdate> {
+) -> Option<ValueUpdate<bool>> {
     let old_on = {
         let s = world.get_mut::<Switch>(entity)?;
         if s.on == on_now {
-            return Some(SwitchValueUpdate {
+            return Some(ValueUpdate {
                 old: on_now,
                 new: on_now,
                 change: PropertyChange::Unchanged,
@@ -356,7 +350,7 @@ pub(crate) fn set_switch_on(
         world.remove::<AnimateSwitchBgT>(entity);
         world.remove::<AnimateThumbX>(entity);
     }
-    Some(SwitchValueUpdate {
+    Some(ValueUpdate {
         old: old_on,
         new: on_now,
         change: PropertyChange::Visual,

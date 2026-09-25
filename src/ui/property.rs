@@ -26,6 +26,12 @@ pub enum PropertyChange {
     Layout,
 }
 
+pub(crate) struct ValueUpdate<T> {
+    pub old: T,
+    pub new: T,
+    pub change: PropertyChange,
+}
+
 impl PropertyChange {
     pub const fn changed(self) -> bool {
         !matches!(self, Self::Unchanged)
@@ -126,6 +132,7 @@ pub mod prop {
     pub struct ProgressValue;
     pub struct SliderValue;
     pub struct SwitchOn;
+    pub struct CheckboxChecked;
     pub struct RowGap;
     pub struct ColumnGap;
     pub struct Left;
@@ -272,6 +279,18 @@ pub mod prop {
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             crate::ui::widgets::switch::set_switch_on(world, entity, value)
                 .map_or(PropertyChange::Unchanged, |update| update.change)
+        }
+    }
+
+    impl Property for CheckboxChecked {
+        type Value = bool;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            world
+                .get_mut::<crate::ui::widgets::Checkbox>(entity)
+                .map_or(PropertyChange::Unchanged, |checkbox| {
+                    checkbox.update_checked(value).change
+                })
         }
     }
 
@@ -463,7 +482,7 @@ mod tests {
     use crate::core::reactive::{Signal, flush_signal_dirty};
     use crate::types::{Dimension, Fixed, Rect};
     use crate::ui::dirty::{Dirty, VisualDirty};
-    use crate::ui::widgets::{Button, ParagraphStyle, ProgressBar, Slider, Switch, Text};
+    use crate::ui::widgets::{Button, Checkbox, ParagraphStyle, ProgressBar, Slider, Switch, Text};
     use crate::ui::{Children, Parent, Widget};
 
     #[test]
@@ -645,14 +664,35 @@ mod tests {
     }
 
     #[test]
-    fn slider_and_switch_dsl_bindings_follow_signals() {
+    fn checkbox_projection_updates_without_user_event() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(entity, Checkbox::new());
+        assert_eq!(
+            apply_to_world::<prop::CheckboxChecked>(&mut world, entity, true),
+            PropertyChange::Visual
+        );
+        assert!(world.get::<Checkbox>(entity).unwrap().checked);
+        world.remove::<VisualDirty>(entity);
+        assert_eq!(
+            apply_to_world::<prop::CheckboxChecked>(&mut world, entity, true),
+            PropertyChange::Unchanged
+        );
+        assert!(!world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn value_control_dsl_bindings_follow_signals() {
         let mut world = World::new();
         world.insert_resource(crate::ui::IdMap::new());
         let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
         let level = Signal::new(Fixed::from_int(3));
         let enabled = Signal::new(false);
+        let checked = Signal::new(false);
         let bound_level = level.clone();
         let bound_enabled = enabled.clone();
+        let bound_checked = checked.clone();
 
         crate::ui! {
             :(
@@ -666,6 +706,7 @@ mod tests {
                     value: ${ bound_level.get() }
                 )
                 Switch(on: ${ bound_enabled.get() })
+                Checkbox(checked: ${ bound_checked.get() })
             }
         };
 
@@ -673,20 +714,24 @@ mod tests {
         let controls = &world.get::<Children>(column).unwrap().0;
         let slider = controls[0];
         let switch = controls[1];
+        let checkbox = controls[2];
         assert_eq!(
             world.get::<Slider>(slider).unwrap().value,
             Fixed::from_int(3)
         );
         assert!(!world.get::<Switch>(switch).unwrap().on);
+        assert!(!world.get::<Checkbox>(checkbox).unwrap().checked);
 
         level.set(Fixed::from_int(7));
         enabled.set(true);
+        checked.set(true);
         flush_signal_dirty(&mut world);
         assert_eq!(
             world.get::<Slider>(slider).unwrap().value,
             Fixed::from_int(7)
         );
         assert!(world.get::<Switch>(switch).unwrap().on);
+        assert!(world.get::<Checkbox>(checkbox).unwrap().checked);
     }
 
     #[test]

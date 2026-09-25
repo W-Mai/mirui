@@ -4,7 +4,7 @@ use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::Rect;
-use crate::ui::dirty::Dirty;
+use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
@@ -50,7 +50,22 @@ impl Checkbox {
     }
 
     pub fn toggle(&mut self) {
-        self.checked = !self.checked;
+        self.update_checked(!self.checked);
+    }
+
+    pub(crate) fn update_checked(&mut self, checked: bool) -> ValueUpdate<bool> {
+        let old = self.checked;
+        let change = if old == checked {
+            PropertyChange::Unchanged
+        } else {
+            self.checked = checked;
+            PropertyChange::Visual
+        };
+        ValueUpdate {
+            old,
+            new: checked,
+            change,
+        }
     }
 
     pub fn build() -> CheckboxBuilder {
@@ -146,14 +161,15 @@ fn checkbox_render(
 
 pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     if let GestureEvent::Tap { .. } = event {
-        let now = if let Some(cb) = world.get_mut::<Checkbox>(entity) {
-            cb.toggle();
-            cb.checked
+        let update = if let Some(cb) = world.get_mut::<Checkbox>(entity) {
+            cb.update_checked(!cb.checked)
         } else {
             return false;
         };
-        emit_checkbox_event(world, entity, &CheckboxEvent::Toggled { now });
-        world.insert(entity, Dirty);
+        if update.old != update.new {
+            invalidate_for_change(world, entity, update.change);
+            emit_checkbox_event(world, entity, &CheckboxEvent::Toggled { now: update.new });
+        }
         return true;
     }
     false
@@ -183,6 +199,7 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::dirty::VisualDirty;
 
     fn h(_: &mut World, _: Entity, _: &CheckboxEvent) -> bool {
         true
@@ -208,5 +225,67 @@ mod tests {
         assert!(world.has::<Checkbox>(e));
         assert!(!world.has::<CheckboxHandler>(e));
         assert!(!world.has::<crate::ui::Style>(e));
+    }
+
+    #[test]
+    fn external_checked_value_and_tap_share_one_update_path() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Checkbox::new());
+        let update = world
+            .get_mut::<Checkbox>(entity)
+            .unwrap()
+            .update_checked(true);
+        assert!(!update.old);
+        assert!(update.new);
+        assert_eq!(update.change, PropertyChange::Visual);
+        assert_eq!(
+            world
+                .get_mut::<Checkbox>(entity)
+                .unwrap()
+                .update_checked(true)
+                .change,
+            PropertyChange::Unchanged
+        );
+        assert!(checkbox_handler(
+            &mut world,
+            entity,
+            &GestureEvent::Tap {
+                x: crate::types::Fixed::ZERO,
+                y: crate::types::Fixed::ZERO,
+                target: entity,
+            },
+        ));
+        assert!(!world.get::<Checkbox>(entity).unwrap().checked);
+        assert!(world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn tap_callback_can_remove_checkbox_after_invalidation() {
+        fn remove_checkbox(world: &mut World, entity: Entity, _: &CheckboxEvent) -> bool {
+            assert!(world.has::<VisualDirty>(entity));
+            world.despawn(entity);
+            true
+        }
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Checkbox::new());
+        world.insert(
+            entity,
+            CheckboxHandler {
+                on_event: BusinessCallback::Fn(remove_checkbox),
+            },
+        );
+        assert!(checkbox_handler(
+            &mut world,
+            entity,
+            &GestureEvent::Tap {
+                x: crate::types::Fixed::ZERO,
+                y: crate::types::Fixed::ZERO,
+                target: entity,
+            },
+        ));
+        assert!(!world.is_alive(entity));
     }
 }
