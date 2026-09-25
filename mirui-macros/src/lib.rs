@@ -11,7 +11,17 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
 
+mod model_attr;
 mod mold;
+
+#[proc_macro_attribute]
+pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = proc_macro2::TokenStream::from(attr);
+    let item = proc_macro2::TokenStream::from(item);
+    model_attr::expand(attr, item)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 use xrune::ds_node::ds_attr::DsAttr;
 use xrune::ds_node::{DsRoot, DsTreeRef};

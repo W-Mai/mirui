@@ -8,6 +8,7 @@
 pub mod cache;
 pub mod i18n;
 pub mod log;
+pub mod model;
 pub mod perf;
 #[cfg(feature = "persistence")]
 pub mod persistence;

@@ -127,6 +127,14 @@ fn install_default_log_sink_once() {
 }
 
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
+    /// Register an independent model instance and return its shared handle.
+    pub fn add_model<M: crate::core::model::Model>(&mut self, value: M) -> M::Handle {
+        let (cell, handle) = crate::core::model::register(self.world.id(), value);
+        let entity = self.world.spawn_empty();
+        self.world.insert(entity, cell);
+        handle
+    }
+
     pub fn with_factory(backend: B, factory: F) -> Self {
         #[cfg(feature = "std")]
         install_default_log_sink_once();

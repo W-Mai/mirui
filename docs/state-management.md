@@ -10,13 +10,39 @@ the State demos in the gallery.
 
 ## Contents
 
-1. [Primitives](#primitives)
-2. [Reactive attributes](#reactive-attributes)
-3. [Layout-responsive attributes](#layout-responsive-attributes)
-4. [Reactive control flow](#reactive-control-flow)
-5. [Lists: `walk`, index vs keyed](#lists)
-6. [The flush model](#the-flush-model)
-7. [Limits](#limits)
+1. [Registered model instances](#registered-model-instances)
+2. [Primitives](#primitives)
+3. [Reactive attributes](#reactive-attributes)
+4. [Layout-responsive attributes](#layout-responsive-attributes)
+5. [Reactive control flow](#reactive-control-flow)
+6. [Lists: `walk`, index vs keyed](#lists)
+7. [The flush model](#the-flush-model)
+8. [Limits](#limits)
+
+## Registered model instances
+
+`#[model]` can generate an instance handle for a data type and forward methods
+from one inherent impl. Each `App::add_model` call registers an independent
+instance; cloning a handle refers to the same instance without cloning its data.
+
+```rust
+use mirui::prelude::*;
+
+#[model]
+struct Counter { count: u32 }
+
+#[model]
+impl Counter {
+    fn increment(&mut self) { self.count += 1; }
+}
+
+let mut app = App::headless(32, 32);
+let counter = app.add_model(Counter { count: 0 });
+counter.increment();
+```
+
+Direct model method calls do not install UI subscriptions. Use reactive
+bindings for values displayed by the current widget APIs.
 
 ## Primitives
 

@@ -63,8 +63,8 @@
 //!
 //! - [`app`]: the [`App`][app::App] entry point, the [`Plugin`][app::plugin::Plugin]
 //!   trait, and bundled plugins.
-//! - [`core`]: cross-cutting infrastructure — cache, resource, the
-//!   [`reactive`][core::reactive] runtime (Signal / Computed / Effect),
+//! - [`core`]: cross-cutting infrastructure — cache, resource, registered
+//!   [`model`][core::model] instances, the [`reactive`][core::reactive] runtime (Signal / Computed / Effect),
 //!   perf tracing, timer.
 //! - [`ecs`]: World, Entity, Component, Resource, Query, System, SystemScheduler.
 //! - [`ui`]: widget tree primitives (Style, View, Theme, Dirty),
@@ -106,7 +106,7 @@ pub mod ui;
 #[cfg(feature = "gallery")]
 pub mod gallery;
 
-pub use mirui_macros::{Component, compose, path, scene, system, trace_fn, trace_span, ui};
+pub use mirui_macros::{Component, compose, model, path, scene, system, trace_fn, trace_span, ui};
 
 // Re-export so `ui!`-generated code references `Rc` through `mirui`, working in
 // both std and no_std user crates without an `extern crate alloc` of their own.
@@ -118,6 +118,8 @@ pub use ::core::cell::RefCell as __RefCell;
 pub use alloc::borrow::Cow as __Cow;
 #[doc(hidden)]
 pub use alloc::rc::Rc as __Rc;
+#[doc(hidden)]
+pub use alloc::rc::Weak as __Weak;
 #[doc(hidden)]
 pub use alloc::vec::Vec as __Vec;
 
@@ -154,7 +156,7 @@ pub mod prelude {
     pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{
-        animate, compose, path, scene, system, timer, trace_fn, trace_span, ui,
+        animate, compose, model, path, scene, system, timer, trace_fn, trace_span, ui,
     };
 
     /// Surface integration — picking and wiring a backend.
