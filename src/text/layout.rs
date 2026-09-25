@@ -328,7 +328,10 @@ impl TextLayoutCache {
         typefaces: &[&dyn Typeface],
     ) -> Result<TextLayoutHandle, TextLayoutError> {
         self.validate_request(request, typefaces.len())?;
-        let vacant = self.entries.iter().position(Option::is_none);
+        let vacant =
+            self.entries.iter().enumerate().position(|(slot, entry)| {
+                entry.is_none() && self.slot_generations[slot] < u32::MAX
+            });
         if vacant.is_none() {
             self.reserve_entries(self.entries.len().saturating_add(1))?;
             self.reserve_slot_generations(self.slot_generations.len().saturating_add(1))?;
@@ -602,7 +605,7 @@ impl TextLayoutCache {
                 .as_ref()
                 .is_some_and(|entry| entry.key.is_some() && entry.last_used == frame);
             if !keep && entry.take().is_some() {
-                self.slot_generations[slot] = self.slot_generations[slot].wrapping_add(1);
+                self.slot_generations[slot] = self.slot_generations[slot].saturating_add(1);
             }
         }
         self.measurements.retain(|entry| entry.last_used == frame);
@@ -1117,6 +1120,33 @@ mod tests {
         assert_eq!(cache.get(second).unwrap().glyphs().len(), 10);
         assert_eq!(cache.resident_bytes(), resident);
         assert_eq!(source.glyph_queries.get(), glyph_queries);
+    }
+
+    #[test]
+    fn exhausted_layout_slot_is_not_reused() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        cache
+            .layout_cached(7, 11, request("old", i32::MAX), &typefaces)
+            .unwrap();
+        cache.slot_generations[0] = u32::MAX - 1;
+        let exhausted = cache
+            .layout_cached(7, 11, request("old", i32::MAX), &typefaces)
+            .unwrap();
+
+        cache.begin_frame();
+        cache.begin_frame();
+        let replacement = cache
+            .layout_cached(7, 11, request("new", i32::MAX), &typefaces)
+            .unwrap();
+
+        assert_eq!(cache.slot_generations[0], u32::MAX);
+        assert_eq!(replacement.slot, 1);
+        assert!(cache.get(exhausted).is_none());
+        assert!(cache.get(replacement).is_some());
     }
 
     #[test]
