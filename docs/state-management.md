@@ -171,6 +171,10 @@ Subscriptions reserve visual notification queue capacity when attached; model
 updates and notifications reuse that capacity. Component replacement and
 removal update bindings before the next paint.
 
+`Slider` input and `prop::SliderValue` use the same clamped value update. A
+programmatic property change invalidates the control without emitting a user
+gesture event.
+
 ## Primitives
 
 Three types live in `mirui::core::reactive`:

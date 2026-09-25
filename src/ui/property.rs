@@ -79,6 +79,11 @@ pub fn apply_to_world<P: Property>(
     value: P::Value,
 ) -> PropertyChange {
     let change = P::apply(world, entity, value);
+    invalidate_for_change(world, entity, change);
+    change
+}
+
+pub(crate) fn invalidate_for_change(world: &mut World, entity: Entity, change: PropertyChange) {
     match change {
         PropertyChange::Unchanged => {}
         PropertyChange::Visual => world.invalidate_visual(entity),
@@ -95,7 +100,6 @@ pub fn apply_to_world<P: Property>(
             }
         }
     }
-    change
 }
 
 pub mod prop {
@@ -258,12 +262,7 @@ pub mod prop {
             let Some(slider) = world.get_mut::<crate::ui::widgets::Slider>(entity) else {
                 return PropertyChange::Unchanged;
             };
-            let value = value.clamp(slider.min, slider.max);
-            if slider.value == value {
-                return PropertyChange::Unchanged;
-            }
-            slider.value = value;
-            PropertyChange::Visual
+            slider.update_value(value).change
         }
     }
 

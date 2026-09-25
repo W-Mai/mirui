@@ -5,7 +5,7 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
-use crate::ui::dirty::VisualDirty;
+use crate::ui::property::{PropertyChange, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
@@ -28,6 +28,12 @@ pub struct Slider {
     pub track_color: ThemedColor,
     pub fill_color: ThemedColor,
     pub thumb_color: ThemedColor,
+}
+
+pub(crate) struct SliderValueUpdate {
+    pub old: Fixed,
+    pub new: Fixed,
+    pub change: PropertyChange,
 }
 
 impl Default for Slider {
@@ -72,8 +78,26 @@ impl Slider {
     }
 
     pub fn set_ratio(&mut self, ratio: Fixed) {
+        self.update_value(self.value_from_ratio(ratio));
+    }
+
+    fn value_from_ratio(&self, ratio: Fixed) -> Fixed {
         let clamped = ratio.clamp(Fixed::ZERO, Fixed::ONE);
-        self.value = self.min + clamped * (self.max - self.min);
+        self.min + clamped * (self.max - self.min)
+    }
+
+    pub(crate) fn update_value(&mut self, value: Fixed) -> SliderValueUpdate {
+        let old = self.value;
+        let lower = self.min.min(self.max);
+        let upper = self.min.max(self.max);
+        let new = value.clamp(lower, upper);
+        let change = if old == new {
+            PropertyChange::Unchanged
+        } else {
+            self.value = new;
+            PropertyChange::Visual
+        };
+        SliderValueUpdate { old, new, change }
     }
 
     pub fn build(min: impl Into<Fixed>, max: impl Into<Fixed>) -> SliderBuilder {
@@ -253,26 +277,24 @@ pub(crate) fn slider_handler(world: &mut World, entity: Entity, event: &GestureE
     let local = (x - rect.x).max(Fixed::ZERO);
     let ratio = local / rect.w;
 
-    let (old_value, new_value) = {
+    let update = {
         let Some(s) = world.get_mut::<Slider>(entity) else {
             return false;
         };
-        let old = s.value;
-        s.set_ratio(ratio);
-        (old, s.value)
+        s.update_value(s.value_from_ratio(ratio))
     };
-    if old_value == new_value {
+    if !update.change.changed() {
         return true;
     }
+    invalidate_for_change(world, entity, update.change);
     emit_slider_event(
         world,
         entity,
         &SliderEvent::ValueChanged {
-            new: new_value,
-            old: old_value,
+            new: update.new,
+            old: update.old,
         },
     );
-    world.insert(entity, VisualDirty);
     true
 }
 
@@ -299,6 +321,7 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::dirty::VisualDirty;
     use core::sync::atomic::{AtomicI64, Ordering};
     use std::sync::Mutex;
 
@@ -402,6 +425,60 @@ mod tests {
         );
         assert!(world.get::<VisualDirty>(e).is_none());
         assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
+    }
+
+    #[test]
+    fn programmatic_value_uses_the_input_setter_without_emitting_an_event() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut world, entity) = fresh();
+        assert_eq!(
+            crate::ui::property::apply_to_world::<crate::ui::property::prop::SliderValue>(
+                &mut world,
+                entity,
+                Fixed::from_int(75),
+            ),
+            PropertyChange::Visual
+        );
+        assert_eq!(
+            world.get::<Slider>(entity).unwrap().value,
+            Fixed::from_int(75)
+        );
+        assert!(drain_events().is_empty());
+        world.remove::<VisualDirty>(entity);
+        assert!(slider_handler(
+            &mut world,
+            entity,
+            &GestureEvent::Tap {
+                x: Fixed::from_int(75),
+                y: Fixed::ZERO,
+                target: entity,
+            },
+        ));
+        assert!(drain_events().is_empty());
+        assert!(!world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn value_callback_can_remove_the_slider() {
+        fn remove_slider(world: &mut World, entity: Entity, _: &SliderEvent) -> bool {
+            world.despawn(entity);
+            true
+        }
+
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut world, entity) = fresh();
+        world.get_mut::<SliderHandler>(entity).unwrap().on_event =
+            BusinessCallback::Fn(remove_slider);
+        assert!(slider_handler(
+            &mut world,
+            entity,
+            &GestureEvent::Tap {
+                x: Fixed::from_int(50),
+                y: Fixed::ZERO,
+                target: entity,
+            },
+        ));
+        assert!(!world.is_alive(entity));
     }
 
     #[test]
