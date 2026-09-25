@@ -524,14 +524,110 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    struct VisualChange(u8);
+
+    impl VisualChange {
+        const REDRAW: Self = Self(1);
+
+        fn contains(self, mask: Self) -> bool {
+            self.0 & mask.0 == mask.0
+        }
+    }
+
+    #[crate::model(change = VisualChange, watch(visual = VisualChange::REDRAW))]
+    struct VisualState {
+        value: u32,
+    }
+
+    #[crate::model]
+    impl VisualState {
+        fn set(&mut self, value: u32) -> VisualChange {
+            self.value = value;
+            VisualChange::REDRAW
+        }
+    }
+
+    #[crate::component(bind(visual))]
+    struct VisualTile {
+        visual: VisualState,
+    }
+
+    #[crate::component]
+    struct GenericTile<T: Copy + 'static> {
+        value: T,
+    }
+
     #[crate::component(bind(model))]
     struct BoundTile {
         model: BoundState,
     }
 
+    #[crate::component(bind(first, second))]
+    struct PairTile {
+        first: BoundState,
+        second: BoundState,
+    }
+
     fn observe_bound_tile(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
         let tile = world.get::<BoundTile>(entity).expect("bound tile");
         bindings.watch(tile.model.subscribe_observed(0, world, entity));
+    }
+
+    #[crate::view(component = BoundTile, read(model), watch(model.value()), priority = 62)]
+    fn paint_bound_tile(
+        renderer: &mut dyn Renderer,
+        model: &BoundState,
+        rect: &Rect,
+        ctx: &mut ViewCtx,
+    ) {
+        let _ = (renderer, rect);
+        ctx.bg_handled = model.value > 0;
+    }
+
+    #[crate::view(
+        component = PairTile,
+        read(first, second),
+        watch(first.value(), second.value())
+    )]
+    fn paint_pair_tile(first: &BoundState, second: &BoundState, ctx: &mut ViewCtx) {
+        ctx.bg_handled = first.value < second.value;
+    }
+
+    #[crate::view(component = VisualTile, watch(visual.visual_revision()))]
+    fn paint_visual_tile(component: &VisualTile, ctx: &mut ViewCtx) {
+        let _ = component;
+        ctx.bg_handled = true;
+    }
+
+    #[crate::view(component = GenericTile<T>)]
+    fn paint_generic_tile<T: Copy + 'static>(component: &GenericTile<T>, ctx: &mut ViewCtx) {
+        let _ = component.value;
+        ctx.bg_handled = true;
+    }
+
+    #[crate::view(component = BoundTile)]
+    fn invalid_writing_view(component: &BoundTile) {
+        component.model.set(7);
+    }
+
+    fn options_attach(_: &mut World, _: Entity) {}
+
+    fn options_gesture(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        false
+    }
+
+    fn options_system(_: &mut World) {}
+
+    #[crate::view(
+        component = GenericTile<u8>,
+        priority = 42,
+        attach = options_attach,
+        gesture = options_gesture,
+        systems = [crate::ecs::System::new("options", 100, options_system)]
+    )]
+    fn paint_options(component: &GenericTile<u8>, theme: &crate::ui::Theme) {
+        let _ = (component.value, theme);
     }
 
     #[test]
@@ -680,16 +776,177 @@ mod tests {
                 model: model.clone(),
             },
         );
-        app.with_widget(
-            make_view("bound", 60)
-                .with_filter::<BoundTile>()
-                .with_observation(observe_bound_tile),
+        app.with_widget(paint_bound_tile::view());
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(entity);
+        model.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn generated_view_borrows_current_model_only_while_painting() {
+        struct StubRenderer;
+        impl Renderer for StubRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(BoundState { value: 0 });
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: model.clone(),
+            },
+        );
+        let view = paint_bound_tile::view();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 32, 32);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::default(),
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+            error: None,
+        };
+        let mut renderer = StubRenderer;
+        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
+        assert!(!ctx.bg_handled);
+
+        model.set(1);
+        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
+        assert!(ctx.bg_handled);
+        model.set(2);
+    }
+
+    #[test]
+    fn generated_view_reads_two_instances_and_two_aliases() {
+        struct StubRenderer;
+        impl Renderer for StubRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(32, 32);
+        let first = app.add_model(BoundState { value: 1 });
+        let second = app.add_model(BoundState { value: 2 });
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            PairTile {
+                first: first.clone(),
+                second: second.clone(),
+            },
+        );
+        let view = paint_pair_tile::view();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 32, 32);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::default(),
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+            error: None,
+        };
+        let mut renderer = StubRenderer;
+        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
+        assert!(ctx.bg_handled);
+
+        app.world.insert(
+            entity,
+            PairTile {
+                first: first.clone(),
+                second: first,
+            },
+        );
+        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
+        assert!(!ctx.bg_handled);
+    }
+
+    #[test]
+    fn generated_view_subscribes_to_named_revision() {
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(VisualState { value: 0 });
+        app.with_widget(paint_visual_tile::view());
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            VisualTile {
+                visual: model.clone(),
+            },
         );
         ViewRegistry::reconcile_observations(&mut app.world);
         app.world.remove::<VisualDirty>(entity);
         model.set(1);
         flush_signal_dirty(&mut app.world);
         assert!(app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn generic_component_view_creates_a_monomorphized_adapter() {
+        let view = paint_generic_tile::view::<u8>();
+        assert_eq!(
+            view.component_filter(),
+            Some(TypeId::of::<GenericTile<u8>>())
+        );
+    }
+
+    #[test]
+    fn generated_view_preserves_existing_builder_options() {
+        let view = paint_options::view();
+        assert_eq!(view.priority(), 42);
+        assert!(view.auto_attach().is_some());
+        assert!(view.internal_gesture().is_some());
+        assert_eq!(view.systems.len(), 1);
+    }
+
+    #[test]
+    fn generated_view_rejects_model_writes_and_restores_scope_after_panic() {
+        struct StubRenderer;
+        impl Renderer for StubRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(BoundState { value: 0 });
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: model.clone(),
+            },
+        );
+        let view = invalid_writing_view::view();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 32, 32);
+        let mut ctx = ViewCtx {
+            style: &style,
+            transform: Transform::default(),
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+            state: WidgetState::Enabled,
+            error: None,
+        };
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (view.render())(&mut StubRenderer, &app.world, entity, &rect, &mut ctx);
+        }));
+        assert!(failure.is_err());
+        model.set(2);
+        assert_eq!(model.value(), 2);
     }
 
     #[test]

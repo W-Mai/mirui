@@ -359,7 +359,7 @@ pub trait ModelHandle: Clone {
     ) -> <Self::Data as Model>::Change {
         assert!(
             crate::core::reactive::model_writes_allowed(),
-            "model updates are not allowed during an effect callback"
+            "model updates are not allowed in a read-only callback"
         );
         let cell = self
             .cell()
@@ -394,6 +394,13 @@ pub trait ModelHandle: Clone {
         Self::Data::deliver_events(&cell.routes, events);
         result
     }
+}
+
+/// Run a generated View callback without permitting model writes.
+#[doc(hidden)]
+pub fn with_model_read_only<R>(run: impl FnOnce() -> R) -> R {
+    let _guard = crate::core::reactive::ModelReadOnlyGuard::enter();
+    run()
 }
 
 #[derive(Clone, Copy)]

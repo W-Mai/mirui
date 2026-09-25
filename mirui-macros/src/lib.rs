@@ -6,6 +6,7 @@ mod compose_attr;
 mod diag;
 mod layout_reactive;
 mod vector;
+mod view_attr;
 mod visit_id;
 
 use proc_macro::TokenStream;
@@ -30,6 +31,13 @@ pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = proc_macro2::TokenStream::from(attr);
     let item = proc_macro2::TokenStream::from(item);
     model_attr::expand(attr, item)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_attribute]
+pub fn view(attr: TokenStream, item: TokenStream) -> TokenStream {
+    view_attr::expand(attr.into(), item.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

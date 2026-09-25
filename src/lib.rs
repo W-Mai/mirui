@@ -107,7 +107,7 @@ pub mod ui;
 pub mod gallery;
 
 pub use mirui_macros::{
-    Component, component, compose, model, path, scene, system, trace_fn, trace_span, ui,
+    Component, component, compose, model, path, scene, system, trace_fn, trace_span, ui, view,
 };
 
 // Re-export so `ui!`-generated code references `Rc` through `mirui`, working in
@@ -159,6 +159,7 @@ pub mod prelude {
 
     pub use mirui_macros::{
         animate, component, compose, model, path, scene, system, timer, trace_fn, trace_span, ui,
+        view,
     };
 
     /// Surface integration — picking and wiring a backend.

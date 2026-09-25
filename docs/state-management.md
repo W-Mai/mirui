@@ -144,6 +144,30 @@ despawn release them as well. Registering a View after its components exist
 also attaches those existing entities. The View retains its usual render
 priority, attach callback, internal gesture, and static systems.
 
+`#[view]` generates the filtered View and its observation callback from a
+typed paint function:
+
+```rust
+#[view(
+    component = CounterTile,
+    read(counter),
+    watch(counter.count()),
+    priority = 60,
+)]
+fn paint_counter(counter: &Counter, ctx: &mut ViewCtx<'_>) {
+    // Read model data and set paint context state.
+}
+
+app.with_widget(paint_counter::view());
+```
+
+`read` borrows the current component's model only during paint; it does not
+create a subscription by itself. `watch` accepts marked observed getters and
+named revision getters. The generated adapter holds no model borrow after
+paint and rejects model writes inside that callback. Multiple model fields,
+including two handles to the same instance, can be read together. `attach`,
+`gesture`, and static `systems` can be forwarded to the existing View builder.
+
 ## Primitives
 
 Three types live in `mirui::core::reactive`:

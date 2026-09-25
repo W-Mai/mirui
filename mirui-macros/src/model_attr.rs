@@ -236,6 +236,19 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             }
         }
     });
+    let subscriptions = observed.iter().enumerate().map(|(index, (field, _, _))| {
+        let subscribe = format_ident!("__mirui_subscribe_{}", field);
+        quote! {
+            #[doc(hidden)]
+            pub fn #subscribe(
+                &self,
+                world: &::mirui::ecs::World,
+                entity: ::mirui::ecs::Entity,
+            ) -> ::mirui::core::model::ModelSubscription {
+                ::mirui::core::model::ModelHandle::subscribe_observed(self, #index, world, entity)
+            }
+        }
+    });
     let change_type = options
         .change
         .map_or_else(|| quote!(()), |change| quote!(#change));
@@ -249,6 +262,23 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             quote! {
                 #visibility fn #getter(&self) -> u64 {
                     ::mirui::core::model::ModelHandle::watch_revision(self, #index)
+                }
+            }
+        });
+    let watch_subscriptions = options
+        .watches
+        .iter()
+        .enumerate()
+        .map(|(index, (name, _))| {
+            let subscribe = format_ident!("__mirui_subscribe_{}_revision", name);
+            quote! {
+                #[doc(hidden)]
+                pub fn #subscribe(
+                    &self,
+                    world: &::mirui::ecs::World,
+                    entity: ::mirui::ecs::Entity,
+                ) -> ::mirui::core::model::ModelSubscription {
+                    ::mirui::core::model::ModelHandle::subscribe_watch(self, #index, world, entity)
                 }
             }
         });
@@ -339,6 +369,8 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         impl #impl_generics #handle #type_generics #model_where {
             #(#accessors)*
             #(#watch_getters)*
+            #(#subscriptions)*
+            #(#watch_subscriptions)*
         }
     })
 }
@@ -575,6 +607,19 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             }
         }
     });
+    let subscriptions = observed.iter().enumerate().map(|(index, (method, _, _))| {
+        let subscribe = format_ident!("__mirui_subscribe_{}", method);
+        quote! {
+            #[doc(hidden)]
+            pub fn #subscribe(
+                &self,
+                world: &::mirui::ecs::World,
+                entity: ::mirui::ecs::Entity,
+            ) -> ::mirui::core::model::ModelSubscription {
+                ::mirui::core::model::ModelHandle::subscribe_derived(self, #index, world, entity)
+            }
+        }
+    });
     let event_batch = format_ident!("{}EffectBatch", name);
     let route_store = format_ident!("{}EffectRoutes", name);
     let effect_types: Vec<_> = effects.iter().map(|(_, event, _, _)| event).collect();
@@ -687,6 +732,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
         impl #derived_impl_generics #handle #type_args #derived_where {
             #(#accessors)*
+            #(#subscriptions)*
         }
     })
 }
