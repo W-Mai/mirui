@@ -2,6 +2,15 @@ use mirui::app::App;
 use mirui::core::model::SharedValue;
 use mirui::ui::view::ViewCtx;
 use mirui::{component, model, view};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[path = "support/tracking_allocator.rs"]
+mod tracking_allocator;
+
+use tracking_allocator::tracked_allocations;
+
+static PAINT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static PAINT_VALUE: AtomicUsize = AtomicUsize::new(0);
 
 #[model]
 struct Level {
@@ -32,6 +41,35 @@ fn paint_pair(left: &Level, right: &Level, ctx: &mut ViewCtx<'_>) {
     ctx.bg_handled = left.value < right.value;
 }
 
+#[model]
+struct PaintModel {
+    #[observe]
+    value: u8,
+}
+
+#[model]
+impl PaintModel {
+    fn set_value(&mut self, value: u8) {
+        self.value = value;
+    }
+}
+
+#[component(bind(model))]
+struct PaintTile {
+    model: PaintModel,
+}
+
+#[view(component = PaintTile, read(model), watch(model.value()))]
+fn paint_tile(model: &PaintModel) {
+    PAINT_VALUE.store(usize::from(model.value), Ordering::Relaxed);
+    PAINT_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[view(component = PaintTile, read(model), watch(model.value()))]
+fn paint_drop(model: &PaintModel) {
+    let _ = model.value;
+}
+
 #[test]
 fn external_crate_registers_a_multi_model_view() {
     let mut app = App::headless(32, 32);
@@ -48,4 +86,77 @@ fn external_crate_registers_a_multi_model_view() {
     );
     left.set(3);
     right.set(4);
+}
+
+#[test]
+fn typed_view_tracks_real_render_and_component_rebinding() {
+    PAINT_COUNT.store(0, Ordering::Relaxed);
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let first = app.add_model(PaintModel { value: 1 });
+    let second = app.add_model(PaintModel { value: 7 });
+    app.with_widget(paint_tile::view());
+    app.world.insert(
+        root,
+        PaintTile {
+            model: first.share(),
+        },
+    );
+    app.render().unwrap();
+    assert_eq!(PAINT_VALUE.load(Ordering::Relaxed), 1);
+    let before = PAINT_COUNT.load(Ordering::Relaxed);
+
+    assert_eq!(tracked_allocations(|| first.set_value(2)), 0);
+    app.render_dirty().unwrap();
+    assert_eq!(PAINT_VALUE.load(Ordering::Relaxed), 2);
+    assert!(PAINT_COUNT.load(Ordering::Relaxed) > before);
+
+    app.world.insert(
+        root,
+        PaintTile {
+            model: second.share(),
+        },
+    );
+    second.set_value(8);
+    app.render_dirty().unwrap();
+    assert_eq!(PAINT_VALUE.load(Ordering::Relaxed), 8);
+    let rebound_count = PAINT_COUNT.load(Ordering::Relaxed);
+    assert_eq!(tracked_allocations(|| first.set_value(3)), 0);
+    app.render_dirty().unwrap();
+    assert_eq!(PAINT_COUNT.load(Ordering::Relaxed), rebound_count);
+
+    assert_eq!(tracked_allocations(|| second.set_value(9)), 0);
+    app.render_dirty().unwrap();
+    assert_eq!(PAINT_VALUE.load(Ordering::Relaxed), 9);
+
+    app.world.remove::<PaintTile>(root);
+    app.render_dirty().unwrap();
+    let removed_count = PAINT_COUNT.load(Ordering::Relaxed);
+    assert_eq!(tracked_allocations(|| second.set_value(10)), 0);
+    app.render_dirty().unwrap();
+    assert_eq!(PAINT_COUNT.load(Ordering::Relaxed), removed_count);
+}
+
+#[test]
+fn dropping_app_releases_typed_view_subscriptions() {
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let model = app.add_model(PaintModel { value: 1 });
+    app.with_widget(paint_drop::view());
+    app.world.insert(
+        root,
+        PaintTile {
+            model: model.share(),
+        },
+    );
+    app.render().unwrap();
+    drop(app);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            model.set_value(2);
+        }))
+        .is_err()
+    );
 }

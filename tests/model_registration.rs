@@ -725,9 +725,24 @@ fn explicit_model_subscription_notification_reuses_storage() {
         mode: Mode::Idle,
         untouched: 0,
     });
+    let other = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
     let entity = app.world.spawn_empty();
+    let other_entity = app.world.spawn_empty();
     let subscription = model.subscribe_observed(0, &app.world, entity);
-    model.set_count(1);
-    assert_eq!(tracked_allocations(|| model.set_count(2)), 0);
+    let other_subscription = other.subscribe_observed(0, &app.world, other_entity);
+    assert_eq!(
+        tracked_allocations(|| {
+            model.set_count(1);
+            other.set_count(1);
+            model.set_count(2);
+        }),
+        0
+    );
+    flush_signal_dirty(&mut app.world);
     drop(subscription);
+    drop(other_subscription);
 }

@@ -54,6 +54,7 @@ struct Reactive {
     model_read_only_depth: u16,
     dirty_widgets: VecDeque<(Option<WorldId>, Entity)>,
     dirty_visual_widgets: VecDeque<(Option<WorldId>, Entity)>,
+    model_visual_subscriptions: usize,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
     computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
@@ -72,6 +73,7 @@ impl Reactive {
             model_read_only_depth: 0,
             dirty_widgets: VecDeque::new(),
             dirty_visual_widgets: VecDeque::new(),
+            model_visual_subscriptions: 0,
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
             computeds: BTreeMap::new(),
@@ -178,7 +180,11 @@ fn enqueue_widget(owner: Option<WorldId>, entity: Entity) {
 }
 
 fn enqueue_visual_widget(owner: Option<WorldId>, entity: Entity) {
-    with_reactive(|r| r.dirty_visual_widgets.push_back((owner, entity)));
+    with_reactive(|r| {
+        if !r.dirty_visual_widgets.contains(&(owner, entity)) {
+            r.dirty_visual_widgets.push_back((owner, entity));
+        }
+    });
 }
 
 fn enqueue_effect(id: EffectId) {
@@ -595,6 +601,14 @@ impl ModelSource {
     }
 
     pub(crate) fn subscribe_visual_widget(&self, world: WorldId, entity: Entity) -> u64 {
+        with_reactive(|r| {
+            let next = r
+                .model_visual_subscriptions
+                .checked_add(1)
+                .expect("model visual subscription capacity exhausted");
+            r.dirty_visual_widgets.reserve(next);
+            r.model_visual_subscriptions = next;
+        });
         let id = self.next_subscription.get();
         self.next_subscription.set(
             id.checked_add(1)
@@ -611,9 +625,12 @@ impl ModelSource {
     }
 
     pub(crate) fn unsubscribe(&self, id: u64) {
-        self.subscribers
-            .borrow_mut()
-            .retain(|entry| entry.id != Some(id));
+        let mut subscribers = self.subscribers.borrow_mut();
+        let before = subscribers.len();
+        subscribers.retain(|entry| entry.id != Some(id));
+        if subscribers.len() != before {
+            try_with_reactive(|r| r.model_visual_subscriptions -= 1);
+        }
     }
 
     pub fn notify(&self) {
@@ -621,6 +638,20 @@ impl ModelSource {
         for index in 0..len {
             let subscriber = self.subscribers.borrow()[index].subscriber;
             propagate(subscriber);
+        }
+    }
+}
+
+impl Drop for ModelSource {
+    fn drop(&mut self) {
+        let remaining = self
+            .subscribers
+            .get_mut()
+            .iter()
+            .filter(|entry| entry.id.is_some())
+            .count();
+        if remaining != 0 {
+            try_with_reactive(|r| r.model_visual_subscriptions -= remaining);
         }
     }
 }
