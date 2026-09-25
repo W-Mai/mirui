@@ -1,5 +1,8 @@
 use mirui::app::App;
 use mirui::core::model::SharedValue;
+use mirui::types::Dimension;
+use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::layout::LayoutStyle;
 use mirui::ui::view::ViewCtx;
 use mirui::{component, model, view};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,6 +14,16 @@ use tracking_allocator::tracked_allocations;
 
 static PAINT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static PAINT_VALUE: AtomicUsize = AtomicUsize::new(0);
+static TILE_COUNTS: [AtomicUsize; 3] = [const { AtomicUsize::new(0) }; 3];
+static TILE_VALUES: [AtomicUsize; 3] = [const { AtomicUsize::new(0) }; 3];
+
+fn tile_counts() -> [usize; 3] {
+    core::array::from_fn(|slot| TILE_COUNTS[slot].load(Ordering::Relaxed))
+}
+
+fn tile_values() -> [usize; 3] {
+    core::array::from_fn(|slot| TILE_VALUES[slot].load(Ordering::Relaxed))
+}
 
 #[model]
 struct Level {
@@ -63,6 +76,18 @@ struct PaintTile {
 fn paint_tile(model: &PaintModel) {
     PAINT_VALUE.store(usize::from(model.value), Ordering::Relaxed);
     PAINT_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[component(bind(model))]
+struct SharedTile {
+    model: PaintModel,
+    slot: usize,
+}
+
+#[view(component = SharedTile, read(model), watch(model.value()))]
+fn paint_shared_tile(model: &PaintModel, component: &SharedTile) {
+    TILE_VALUES[component.slot].store(usize::from(model.value), Ordering::Relaxed);
+    TILE_COUNTS[component.slot].fetch_add(1, Ordering::Relaxed);
 }
 
 #[view(component = PaintTile, read(model), watch(model.value()))]
@@ -136,6 +161,72 @@ fn typed_view_tracks_real_render_and_component_rebinding() {
     assert_eq!(tracked_allocations(|| second.set_value(10)), 0);
     app.render_dirty().unwrap();
     assert_eq!(PAINT_COUNT.load(Ordering::Relaxed), removed_count);
+}
+
+#[test]
+fn shared_views_update_together_while_other_instances_stay_independent() {
+    for count in &TILE_COUNTS {
+        count.store(0, Ordering::Relaxed);
+    }
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets();
+    app.with_widget(paint_shared_tile::view());
+    let shared = app.add_model(PaintModel { value: 1 });
+    let independent = app.add_model(PaintModel { value: 7 });
+    let tile_layout = LayoutStyle {
+        width: Dimension::px(10),
+        height: Dimension::px(10),
+        ..LayoutStyle::default()
+    };
+    let tiles: [_; 3] =
+        core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(tile_layout).id());
+    let root = WidgetBuilder::new(&mut app.world)
+        .child(tiles[0])
+        .child(tiles[1])
+        .child(tiles[2])
+        .id();
+    app.set_root(root);
+    for (slot, entity) in tiles.into_iter().enumerate() {
+        app.world.insert(
+            entity,
+            SharedTile {
+                model: if slot == 2 {
+                    independent.share()
+                } else {
+                    shared.share()
+                },
+                slot,
+            },
+        );
+    }
+    app.render().unwrap();
+    assert_eq!(tile_values(), [1, 1, 7]);
+    let before = tile_counts();
+
+    assert_eq!(tracked_allocations(|| shared.set_value(2)), 0);
+    app.render_dirty().unwrap();
+    assert_eq!(tile_values(), [2, 2, 7]);
+    let after_shared = tile_counts();
+    assert!(after_shared[0] > before[0]);
+    assert!(after_shared[1] > before[1]);
+
+    assert_eq!(tracked_allocations(|| independent.set_value(8)), 0);
+    assert_eq!(
+        app.world.get::<SharedTile>(tiles[0]).unwrap().model.value(),
+        2
+    );
+    assert_eq!(
+        app.world.get::<SharedTile>(tiles[1]).unwrap().model.value(),
+        2
+    );
+    assert_eq!(
+        app.world.get::<SharedTile>(tiles[2]).unwrap().model.value(),
+        8
+    );
+    app.render_dirty().unwrap();
+    assert_eq!(tile_values(), [2, 2, 8]);
+    let after_independent = tile_counts();
+    assert!(after_independent[2] > after_shared[2]);
 }
 
 #[test]
