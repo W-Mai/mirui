@@ -2392,8 +2392,24 @@ struct BoundCaptureRewriter {
 
 impl BoundCaptureRewriter {
     fn wrap(&self, expr: &mut syn::Expr) {
+        fn contains_ident(stream: proc_macro2::TokenStream, name: &syn::Ident) -> bool {
+            stream.into_iter().any(|token| match token {
+                proc_macro2::TokenTree::Ident(ident) => ident == *name,
+                proc_macro2::TokenTree::Group(group) => contains_ident(group.stream(), name),
+                _ => false,
+            })
+        }
+
+        let tokens = quote!(#expr);
+        let captures: Vec<_> = self
+            .captures
+            .iter()
+            .filter(|name| contains_ident(tokens.clone(), name))
+            .collect();
+        if captures.is_empty() {
+            return;
+        }
         let original = core::mem::replace(expr, syn::parse_quote!(()));
-        let captures = &self.captures;
         *expr = syn::parse_quote!({
             #(let #captures = ::mirui::core::model::SharedValue::share(&#captures);)*
             #original

@@ -44,6 +44,35 @@ fn two_button_panel(counter: Counter) {
     };
 }
 
+#[compose(bind(counter))]
+fn mixed_capture_panel(counter: Counter) {
+    ui! {
+        Row {
+            Button(text: "STATIC") on Tap { let _ = 1; }
+            Button(text: "UPDATE") on Tap { counter.increment(); }
+        }
+    };
+}
+
+#[test]
+fn unrelated_callbacks_do_not_capture_a_bound_model() {
+    let mut app = App::headless(160, 48);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 0 });
+    app.compose(root, |cx| mixed_capture_panel(cx, counter.clone()));
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 2);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        GestureHandler::trigger(&mut app.world, button, &event);
+    }
+    assert_eq!(counter.count(), 1);
+}
+
 #[test]
 fn compose_maps_bound_model_parameters_to_handles() {
     let mut app = App::headless(32, 32);
