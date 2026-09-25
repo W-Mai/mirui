@@ -129,6 +129,13 @@ model bindings fail explicitly. The callback is allocated at registration,
 with no allocation per invocation. Existing `fn(&mut World)` systems and
 `const fn` system descriptors remain available.
 
+`World::watch_component_type` records insertions, replacements, removals, and
+despawns for selected component types. Repeated changes to one entity and type
+are coalesced until `drain_component_changes` reads the final state. The queue
+can be reserved ahead of a batch. Direct field writes through `World::get_mut`
+do not create a structural change record; replace the complete component when
+its model binding changes.
+
 ## Primitives
 
 Three types live in `mirui::core::reactive`:

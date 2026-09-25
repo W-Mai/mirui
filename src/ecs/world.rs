@@ -49,11 +49,21 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
     }
 }
 
+/// A component type on one entity changed since the last drain.
+/// Repeated replacements are coalesced; consumers read the final state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComponentChange {
+    pub entity: Entity,
+    pub type_id: TypeId,
+}
+
 pub struct World {
     id: WorldId,
     allocator: EntityAllocator,
     storages: HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
     resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
+    watched_component_types: alloc::vec::Vec<TypeId>,
+    component_changes: alloc::vec::Vec<ComponentChange>,
 }
 
 impl Default for World {
@@ -63,6 +73,8 @@ impl Default for World {
             allocator: EntityAllocator::new(),
             storages: HashMap::default(),
             resources: HashMap::default(),
+            watched_component_types: alloc::vec::Vec::new(),
+            component_changes: alloc::vec::Vec::new(),
         }
     }
 }
@@ -84,6 +96,12 @@ impl World {
         if !self.allocator.deallocate(entity) {
             return false;
         }
+        for index in 0..self.watched_component_types.len() {
+            let type_id = self.watched_component_types[index];
+            if self.has_type(entity, type_id) {
+                self.record_component_change(entity, type_id);
+            }
+        }
         for storage in self.storages.values_mut() {
             storage.remove_entity(entity);
         }
@@ -100,16 +118,62 @@ impl World {
         }
         let storage = self.storage_mut::<T>();
         storage.insert(entity, component);
+        self.record_component_change(entity, TypeId::of::<T>());
     }
 
     pub fn remove<T: 'static>(&mut self, entity: Entity) -> Option<T> {
-        self.storage_mut_if_exists::<T>()?.remove(entity)
+        let removed = self.storage_mut_if_exists::<T>()?.remove(entity);
+        if removed.is_some() {
+            self.record_component_change(entity, TypeId::of::<T>());
+        }
+        removed
+    }
+
+    /// Begin recording structural changes for a component type. Existing
+    /// components are not queued; callers attach those when registering a View.
+    pub fn watch_component_type(&mut self, type_id: TypeId) {
+        if !self.watched_component_types.contains(&type_id) {
+            self.watched_component_types.push(type_id);
+        }
+    }
+
+    /// Reserve the change queue before a batch of component replacements.
+    pub fn reserve_component_changes(&mut self, additional: usize) {
+        self.component_changes.reserve(additional);
+    }
+
+    fn record_component_change(&mut self, entity: Entity, type_id: TypeId) {
+        if !self.watched_component_types.contains(&type_id) {
+            return;
+        }
+        let change = ComponentChange { entity, type_id };
+        if !self.component_changes.contains(&change) {
+            if self.component_changes.len() == self.component_changes.capacity() {
+                self.component_changes
+                    .try_reserve(1)
+                    .expect("component change queue capacity exhausted");
+            }
+            self.component_changes.push(change);
+        }
+    }
+
+    /// Visit queued changes outside component storage borrows. New structural
+    /// changes made by the callback are visited in this same pass.
+    pub fn drain_component_changes(&mut self, mut visit: impl FnMut(&mut Self, ComponentChange)) {
+        let mut index = 0;
+        while let Some(change) = self.component_changes.get(index).copied() {
+            index += 1;
+            visit(self, change);
+        }
+        self.component_changes.clear();
     }
 
     pub fn get<T: 'static>(&self, entity: Entity) -> Option<&T> {
         self.storage::<T>()?.get(entity)
     }
 
+    /// In-place writes do not produce structural component-change records.
+    /// Replace the component with `insert` when its bindings change.
     pub fn get_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
         self.storage_mut_if_exists::<T>()?.get_mut(entity)
     }
@@ -264,5 +328,54 @@ mod tests {
         world.for_each_stable::<u16>(|world, entity| {
             world.remove::<u16>(entity);
         });
+    }
+
+    #[test]
+    fn watched_component_changes_dedupe_replacements_and_removal() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u16);
+        world.watch_component_type(TypeId::of::<u16>());
+        world.reserve_component_changes(2);
+        let capacity = world.component_changes.capacity();
+
+        world.insert(entity, 2u16);
+        world.insert(entity, 3u16);
+        world.insert(entity, true);
+        assert_eq!(world.remove::<u16>(entity), Some(3));
+        let mut changes = alloc::vec::Vec::new();
+        world.drain_component_changes(|world, change| {
+            assert!(world.get::<u16>(change.entity).is_none());
+            changes.push(change);
+        });
+        assert_eq!(
+            changes,
+            [ComponentChange {
+                entity,
+                type_id: TypeId::of::<u16>()
+            }]
+        );
+        assert_eq!(world.component_changes.capacity(), capacity);
+        assert!(world.component_changes.is_empty());
+    }
+
+    #[test]
+    fn despawn_records_only_watched_component_types() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u16);
+        world.insert(entity, 2u32);
+        world.watch_component_type(TypeId::of::<u16>());
+        world.reserve_component_changes(1);
+        assert!(world.despawn(entity));
+        assert!(!world.despawn(entity));
+        let mut count = 0;
+        world.drain_component_changes(|world, change| {
+            assert_eq!(change.entity, entity);
+            assert_eq!(change.type_id, TypeId::of::<u16>());
+            assert!(!world.is_alive(entity));
+            count += 1;
+        });
+        assert_eq!(count, 1);
     }
 }
