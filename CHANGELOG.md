@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Registered model calls.** `#[model]` forwards model methods through instance handles returned by `App::add_model`; multiple instances of one type remain independent, and handles reject access after their registration ends.
+- **Bound model declarations.** `#[component(bind(...))]` stores model handles in named fields, while `#[compose(bind(...))]` maps named parameters to shared handles. Bound component cloning shares instances without requiring the model data to implement `Clone`.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 

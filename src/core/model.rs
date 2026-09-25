@@ -13,6 +13,36 @@ pub trait Model: Sized + 'static {
     fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle;
 }
 
+/// Maps a declaration type to the value stored by a bound callback or component.
+pub trait BindType {
+    type Shared: SharedValue;
+}
+
+/// A cheap, instance-preserving value accepted by generated binding captures.
+pub trait SharedValue: Clone {
+    fn share(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl<T: BindType> BindType for Option<T> {
+    type Shared = Option<T::Shared>;
+}
+
+impl<T: SharedValue> SharedValue for Option<T> {}
+
+impl<T: 'static> BindType for crate::core::reactive::Signal<T> {
+    type Shared = Self;
+}
+
+impl<T: 'static> SharedValue for crate::core::reactive::Signal<T> {}
+
+impl<T: 'static> BindType for crate::core::reactive::Computed<T> {
+    type Shared = Self;
+}
+
+impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {}
+
 /// Storage owned by a model's registration entity.
 #[doc(hidden)]
 pub struct ModelCell<M> {

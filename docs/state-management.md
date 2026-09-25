@@ -44,6 +44,24 @@ counter.increment();
 Direct model method calls do not install UI subscriptions. Use reactive
 bindings for values displayed by the current widget APIs.
 
+Bound declarations retain the model type in source while storing its shared
+handle:
+
+```rust
+#[component(bind(counter))]
+#[derive(Clone)]
+struct CounterTile { counter: Counter }
+
+#[compose(bind(counter))]
+fn counter_controls(counter: Counter) {
+    counter.increment();
+}
+```
+
+`CounterTile` can be cloned even though `Counter` is not `Clone`. Only names
+listed in `bind(...)` are converted; other fields and parameters keep their
+declared types.
+
 ## Primitives
 
 Three types live in `mirui::core::reactive`:

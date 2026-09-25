@@ -1,5 +1,6 @@
 extern crate proc_macro;
 
+mod component_attr;
 mod compose;
 mod compose_attr;
 mod diag;
@@ -12,6 +13,15 @@ use quote::quote;
 use syn::parse_macro_input;
 
 mod model_attr;
+
+#[proc_macro_attribute]
+pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = proc_macro2::TokenStream::from(attr);
+    let item = proc_macro2::TokenStream::from(item);
+    component_attr::expand(attr, item)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 mod mold;
 
 #[proc_macro_attribute]

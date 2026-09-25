@@ -1,8 +1,13 @@
 use proc_macro2::TokenStream;
 use quote::quote;
+use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 
-pub fn expand(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let bindings = match parse_bindings(attr) {
+        Ok(bindings) => bindings,
+        Err(error) => return error.to_compile_error(),
+    };
     let parsed: syn::Item = match syn::parse2(item) {
         Ok(i) => i,
         Err(e) => return e.to_compile_error(),
@@ -48,12 +53,64 @@ pub fn expand(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
+    for binding in bindings {
+        let Some(param) = f.sig.inputs.iter_mut().find_map(|input| {
+            let syn::FnArg::Typed(param) = input else {
+                return None;
+            };
+            let syn::Pat::Ident(pat) = &*param.pat else {
+                return None;
+            };
+            (pat.ident == binding).then_some(param)
+        }) else {
+            return syn::Error::new_spanned(binding, "bound name is not a function parameter")
+                .to_compile_error();
+        };
+        let declared = param.ty.clone();
+        *param.ty = syn::parse_quote!(
+            <#declared as ::mirui::core::model::BindType>::Shared
+        );
+    }
+
     let cx_param: syn::FnArg = syn::parse_quote! {
         cx: &mut ::mirui::ui::scope::UiScope<'_>
     };
     f.sig.inputs.insert(0, cx_param);
 
     quote! { #f }
+}
+
+fn parse_bindings(attr: TokenStream) -> syn::Result<Vec<syn::Ident>> {
+    if attr.is_empty() {
+        return Ok(Vec::new());
+    }
+    let syn::Meta::List(meta) = syn::parse2::<syn::Meta>(attr)? else {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "expected bind(name, ...)",
+        ));
+    };
+    if !meta.path.is_ident("bind") {
+        return Err(syn::Error::new_spanned(
+            meta.path,
+            "expected bind(name, ...)",
+        ));
+    }
+    let names = meta.parse_args_with(Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated)?;
+    if names.is_empty() {
+        return Err(syn::Error::new(
+            meta.span(),
+            "bind requires at least one parameter",
+        ));
+    }
+    let mut unique = Vec::new();
+    for name in names {
+        if unique.contains(&name) {
+            return Err(syn::Error::new_spanned(name, "duplicate bound parameter"));
+        }
+        unique.push(name);
+    }
+    Ok(unique)
 }
 
 #[cfg(test)]
@@ -82,6 +139,17 @@ mod tests {
         let s = out.to_string();
         assert!(s.contains("label") && s.contains("count"));
         assert!(s.contains("cx") && s.contains("UiScope"));
+    }
+
+    #[test]
+    fn maps_only_named_bound_params() {
+        let out = expand(
+            quote! { bind(model) },
+            quote! { fn build(model: Game, title: &str) { let _ = (model, title); } },
+        );
+        let rendered = out.to_string();
+        assert!(rendered.contains("Game as :: mirui :: core :: model :: BindType"));
+        assert!(rendered.contains("title : & str"));
     }
 
     #[test]

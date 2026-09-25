@@ -1,4 +1,5 @@
 use mirui::app::App;
+use mirui::core::model::{BindType, SharedValue};
 use mirui::model;
 
 #[path = "support/tracking_allocator.rs"]
@@ -95,4 +96,18 @@ fn registered_method_calls_do_not_allocate_after_registration() {
     });
     assert_eq!(allocations, 0);
     assert_eq!(counter.value(), 20_000);
+}
+
+#[test]
+fn binding_types_share_handles_without_cloning_models() {
+    let mut app = App::headless(32, 32);
+    let counter = app.add_model(Counter { value: 4 });
+    let allocations = tracked_allocations(|| {
+        let bound: <Counter as BindType>::Shared = counter.share();
+        let optional: <Option<Counter> as BindType>::Shared = Some(bound.share());
+        optional.as_ref().unwrap().add(2);
+    });
+
+    assert_eq!(allocations, 0);
+    assert_eq!(counter.value(), 6);
 }

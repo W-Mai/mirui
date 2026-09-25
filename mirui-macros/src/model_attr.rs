@@ -62,6 +62,16 @@ fn expand_struct(item: syn::ItemStruct) -> syn::Result<TokenStream> {
                 &self.cell
             }
         }
+
+        impl #impl_generics ::mirui::core::model::BindType for #name #type_generics #model_where {
+            type Shared = #handle #type_generics;
+        }
+
+        impl #impl_generics ::mirui::core::model::BindType for #handle #type_generics #model_where {
+            type Shared = Self;
+        }
+
+        impl #impl_generics ::mirui::core::model::SharedValue for #handle #type_generics #model_where {}
     })
 }
 
