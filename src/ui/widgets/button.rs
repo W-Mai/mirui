@@ -135,21 +135,18 @@ impl crate::ecs::IntoBundle for ButtonBuilder {
     }
 }
 
+#[crate::view(component = Button, name = "Button", priority = 40, attach = button_attach)]
 fn button_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &Button,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &crate::ui::Theme,
 ) {
-    let Some(btn) = world.get::<Button>(entity) else {
-        return;
-    };
-    let theme = ctx.theme(world);
     let color = if matches!(ctx.state, crate::ui::theme::WidgetState::Pressed) {
-        btn.pressed_color.resolve_in(theme, ctx.state)
+        component.pressed_color.resolve_in(theme, ctx.state)
     } else {
-        btn.normal_color.resolve_in(theme, ctx.state)
+        component.normal_color.resolve_in(theme, ctx.state)
     };
     ctx.draw(
         renderer,
@@ -194,9 +191,7 @@ fn button_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("Button", 40, button_render)
-        .with_filter::<Button>()
-        .with_attach(button_attach)
+    button_render::view()
 }
 
 #[cfg(test)]
@@ -228,6 +223,14 @@ mod tests {
         let e = Button::build().spawn(&mut world);
         assert!(world.has::<Button>(e));
         assert!(!world.has::<crate::ui::Style>(e));
+    }
+
+    #[test]
+    fn typed_view_keeps_button_registration_metadata() {
+        let view = view();
+        assert_eq!(view.name(), "Button");
+        assert_eq!(view.priority(), 40);
+        assert!(view.auto_attach().is_some());
     }
 
     #[test]

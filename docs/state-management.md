@@ -167,6 +167,8 @@ named revision getters. The generated adapter holds no model borrow after
 paint and rejects model writes inside that callback. Multiple model fields,
 including two handles to the same instance, can be read together. `attach`,
 `gesture`, and static `systems` can be forwarded to the existing View builder.
+An optional `name = "..."` keeps a stable registration name when the paint
+function name differs from the widget name.
 Subscriptions reserve visual notification queue capacity when attached; model
 updates and notifications reuse that capacity. Component replacement and
 removal update bindings before the next paint.

@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Instance-bound systems.** `#[system(bind(...))]` captures specific model handles at registration and reads `Copy` resources for each invocation; existing static systems remain available.
 - **Selected component lifecycle records.** `World` coalesces structural changes for watched component types and retains queue capacity across drains.
 - **Observed View bindings.** Filtered Views can subscribe to model sources per entity and registration; component replacement, removal, and despawn release old bindings before the next paint.
-- **Typed model Views.** `#[view]` maps component fields to temporary read-only model borrows and explicit observed sources while retaining View priority, attach, gesture, and static systems.
+- **Typed model Views.** `#[view]` maps component fields to temporary read-only model borrows and explicit observed sources while retaining View name, priority, attach, gesture, and static systems.
 - **Model View lifecycle.** Observed model subscriptions reserve visual notification capacity when bound, coalesce repeated entity notifications, and release bindings after component removal or App disposal.
 - **Slider value updates.** Input gestures and property projections share value clamping, change detection, and visual invalidation; programmatic updates do not emit gesture events.
 - **Switch value updates.** Tap and property changes share animation seeding and change classification; tap callbacks run after invalidation and may remove the control safely.

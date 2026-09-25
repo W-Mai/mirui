@@ -167,21 +167,24 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
     ratio * (track_w - thumb_size) + thumb_size / Fixed::from_int(2)
 }
 
+#[crate::view(
+    component = Slider,
+    name = "Slider",
+    priority = 60,
+    attach = slider_attach,
+    gesture = slider_handler
+)]
 fn slider_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &Slider,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &crate::ui::Theme,
 ) {
-    let Some(s) = world.get::<Slider>(entity) else {
-        return;
-    };
-    let theme = ctx.theme(world);
-    let track_color = s.track_color.resolve_in(theme, ctx.state);
-    let fill_color = s.fill_color.resolve_in(theme, ctx.state);
-    let thumb_color = s.thumb_color.resolve_in(theme, ctx.state);
-    let ratio = s.ratio();
+    let track_color = component.track_color.resolve_in(theme, ctx.state);
+    let fill_color = component.fill_color.resolve_in(theme, ctx.state);
+    let thumb_color = component.thumb_color.resolve_in(theme, ctx.state);
+    let ratio = component.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
     let thumb_size = rect.h;
 
@@ -306,10 +309,7 @@ fn slider_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("Slider", 60, slider_render)
-        .with_filter::<Slider>()
-        .with_attach(slider_attach)
-        .with_internal_gesture(slider_handler)
+    slider_render::view()
 }
 
 #[cfg(test)]
@@ -551,6 +551,15 @@ mod tests {
         assert!(world.has::<Slider>(e));
         assert!(!world.has::<SliderHandler>(e));
         assert!(!world.has::<crate::ui::Style>(e));
+    }
+
+    #[test]
+    fn typed_view_keeps_slider_registration_metadata() {
+        let view = view();
+        assert_eq!(view.name(), "Slider");
+        assert_eq!(view.priority(), 60);
+        assert!(view.auto_attach().is_some());
+        assert!(view.internal_gesture().is_some());
     }
 
     #[test]

@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{Expr, Ident, ItemFn, Path, Token, Type, bracketed, parenthesized};
+use syn::{Expr, Ident, ItemFn, LitStr, Path, Token, Type, bracketed, parenthesized};
 
 struct Watch {
     field: Ident,
@@ -11,6 +11,7 @@ struct Watch {
 
 struct ViewArgs {
     component: Type,
+    name: Option<LitStr>,
     read: Vec<Ident>,
     watch: Vec<Watch>,
     priority: Expr,
@@ -22,6 +23,7 @@ struct ViewArgs {
 impl Parse for ViewArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut component = None;
+        let mut name = None;
         let mut read = Vec::new();
         let mut watch = Vec::new();
         let mut priority = None;
@@ -41,6 +43,12 @@ impl Parse for ViewArgs {
                     input.parse::<Token![=]>()?;
                     if priority.replace(input.parse()?).is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate priority"));
+                    }
+                }
+                "name" => {
+                    input.parse::<Token![=]>()?;
+                    if name.replace(input.parse()?).is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate name"));
                     }
                 }
                 "attach" => {
@@ -125,6 +133,7 @@ impl Parse for ViewArgs {
         Ok(Self {
             component: component
                 .ok_or_else(|| syn::Error::new(input.span(), "view requires `component = Type`"))?,
+            name,
             read,
             watch,
             priority: priority.unwrap_or_else(|| syn::parse_quote!(60u8)),
@@ -148,6 +157,10 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         ));
     }
     let name = &func.sig.ident;
+    let view_name = args
+        .name
+        .as_ref()
+        .map_or_else(|| quote!(stringify!(#name)), |literal| quote!(#literal));
     let visibility = &func.vis;
     let component = &args.component;
     let priority = &args.priority;
@@ -285,7 +298,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             #observation
 
             pub fn view #impl_generics () -> ::mirui::ui::view::View #where_clause {
-                ::mirui::ui::view::View::new(stringify!(#name), #priority, #render_fn)
+                ::mirui::ui::view::View::new(#view_name, #priority, #render_fn)
                     .with_filter::<#component>()
                     #with_observation
                     #with_attach
