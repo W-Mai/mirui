@@ -1374,6 +1374,53 @@ mod tests {
     use crate::ui::view::ViewRegistry;
     use crate::ui::{Children, Hidden, IdMap, UiScope};
 
+    #[crate::model]
+    struct BoardSelection {
+        #[observe]
+        marker: u8,
+    }
+
+    #[crate::model]
+    impl BoardSelection {
+        fn set_marker(&mut self, marker: u8) {
+            self.marker = marker;
+        }
+    }
+
+    #[crate::component(bind(game, selection))]
+    struct MultiSourceMarbleBoard {
+        game: MarbleModel,
+        selection: BoardSelection,
+    }
+
+    #[crate::view(
+        component = MultiSourceMarbleBoard,
+        read(game, selection),
+        watch(game.visual_revision(), selection.marker()),
+        name = "MultiSourceMarbleBoard",
+        priority = 60
+    )]
+    fn multi_source_board_render(
+        renderer: &mut dyn Renderer,
+        game: &MarbleModel,
+        selection: &BoardSelection,
+        rect: &Rect,
+        ctx: &mut ViewCtx,
+    ) {
+        board_render(renderer, game, rect, ctx);
+        let transform = fit_logical_canvas(*rect, ctx.transform, 480, 199);
+        let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+        painter.fill(
+            Rect::new(16, 16, 24, 24),
+            if selection.marker == 0 {
+                Color::rgb(245, 20, 30)
+            } else {
+                Color::rgb(20, 230, 80)
+            },
+            Fixed::ONE,
+        );
+    }
+
     fn fixture() -> World {
         let mut world = World::new();
         let mut registry = ViewRegistry::with_builtins();
@@ -1464,6 +1511,223 @@ mod tests {
         assert!(!app.world.has::<VisualDirty>(boards[0]));
         assert!(!app.world.has::<VisualDirty>(boards[1]));
         assert!(app.world.has::<VisualDirty>(boards[2]));
+    }
+
+    #[test]
+    fn marble_board_pixels_follow_only_their_bound_model() {
+        use crate::render::texture::ColorFormat;
+        use crate::surface::FramebufferAccess;
+        use crate::surface::framebuf::FramebufSurface;
+        use crate::ui::layout::FlexDirection;
+        use alloc::vec::Vec;
+
+        fn board_pixels(buf: &[u8], stride: usize) -> [Vec<u8>; 3] {
+            core::array::from_fn(|board| {
+                let mut pixels = Vec::with_capacity(480 * 199 * 4);
+                for y in 0..199 {
+                    let start = y * stride + board * 480 * 4;
+                    pixels.extend_from_slice(&buf[start..start + 480 * 4]);
+                }
+                pixels
+            })
+        }
+
+        let backend = FramebufSurface::with_format(1440, 199, ColorFormat::RGBA8888, |_, _| {});
+        let mut app = App::new(backend);
+        app.with_default_widgets();
+        app.with_widget(board_render::view());
+        let shared = app.add_model(MarbleModel::new());
+        let separate = app.add_model(MarbleModel::new());
+        let board_layout = LayoutStyle {
+            width: Dimension::px(480),
+            height: Dimension::px(199),
+            ..LayoutStyle::default()
+        };
+        let boards: [_; 3] =
+            core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(board_layout).id());
+        let root = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                direction: FlexDirection::Row,
+                width: Dimension::px(1440),
+                height: Dimension::px(199),
+                ..LayoutStyle::default()
+            })
+            .child(boards[0])
+            .child(boards[1])
+            .child(boards[2])
+            .id();
+        app.set_root(root);
+        for (slot, board) in boards.into_iter().enumerate() {
+            app.world.insert(
+                board,
+                MarbleBoard {
+                    model: if slot == 2 {
+                        separate.clone()
+                    } else {
+                        shared.clone()
+                    },
+                },
+            );
+        }
+
+        app.render().unwrap();
+        app.world.clear_subtree_dirty(root);
+        let texture = app.backend.framebuffer();
+        let initial = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            initial[0] == initial[1],
+            "shared boards start with equal pixels"
+        );
+        assert!(
+            initial[0] == initial[2],
+            "equal models start with equal pixels"
+        );
+        assert!(
+            initial[0]
+                .chunks_exact(4)
+                .any(|pixel| pixel[..3] != [0, 0, 0])
+        );
+
+        shared.set_page(Page::Scenes);
+        app.render_dirty().unwrap();
+        let texture = app.backend.framebuffer();
+        let after_shared = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            after_shared[0] != initial[0],
+            "shared model repaints its boards"
+        );
+        assert!(
+            after_shared[0] == after_shared[1],
+            "shared boards stay equal"
+        );
+        assert!(
+            after_shared[2] == initial[2],
+            "independent board stays untouched"
+        );
+
+        separate.reset_scene(1);
+        app.render_dirty().unwrap();
+        let texture = app.backend.framebuffer();
+        let after_separate = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            after_separate[0] == after_shared[0],
+            "shared board stays untouched"
+        );
+        assert!(
+            after_separate[1] == after_shared[1],
+            "shared board stays untouched"
+        );
+        assert!(
+            after_separate[2] != after_shared[2],
+            "independent model repaints"
+        );
+    }
+
+    #[test]
+    fn independent_marble_boards_repaint_for_a_shared_selection_source() {
+        use crate::render::texture::ColorFormat;
+        use crate::surface::FramebufferAccess;
+        use crate::surface::framebuf::FramebufSurface;
+        use crate::ui::layout::FlexDirection;
+        use alloc::vec::Vec;
+
+        fn board_pixels(buf: &[u8], stride: usize) -> [Vec<u8>; 2] {
+            core::array::from_fn(|board| {
+                let mut pixels = Vec::with_capacity(480 * 199 * 4);
+                for y in 0..199 {
+                    let start = y * stride + board * 480 * 4;
+                    pixels.extend_from_slice(&buf[start..start + 480 * 4]);
+                }
+                pixels
+            })
+        }
+
+        let backend = FramebufSurface::with_format(960, 199, ColorFormat::RGBA8888, |_, _| {});
+        let mut app = App::new(backend);
+        app.with_default_widgets();
+        app.with_widget(multi_source_board_render::view());
+        let first = app.add_model(MarbleModel::new());
+        let second = app.add_model(MarbleModel::new());
+        let selection = app.add_model(BoardSelection { marker: 0 });
+        let board_layout = LayoutStyle {
+            width: Dimension::px(480),
+            height: Dimension::px(199),
+            ..LayoutStyle::default()
+        };
+        let boards: [_; 2] =
+            core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(board_layout).id());
+        let root = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                direction: FlexDirection::Row,
+                width: Dimension::px(960),
+                height: Dimension::px(199),
+                ..LayoutStyle::default()
+            })
+            .child(boards[0])
+            .child(boards[1])
+            .id();
+        app.set_root(root);
+        for (board, game) in boards.into_iter().zip([first.clone(), second.clone()]) {
+            app.world.insert(
+                board,
+                MultiSourceMarbleBoard {
+                    game,
+                    selection: selection.clone(),
+                },
+            );
+        }
+
+        app.render().unwrap();
+        app.world.clear_subtree_dirty(root);
+        let texture = app.backend.framebuffer();
+        let initial = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            initial[0] == initial[1],
+            "equal models start with equal pixels"
+        );
+
+        selection.set_marker(1);
+        app.render_dirty().unwrap();
+        let texture = app.backend.framebuffer();
+        let selected = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            selected[0] != initial[0],
+            "shared selection repaints first board"
+        );
+        assert!(
+            selected[1] != initial[1],
+            "shared selection repaints second board"
+        );
+        assert!(
+            selected[0] == selected[1],
+            "shared selection keeps boards equal"
+        );
+
+        first.set_page(Page::Scenes);
+        app.render_dirty().unwrap();
+        let texture = app.backend.framebuffer();
+        let after_first_game = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            after_first_game[0] != selected[0],
+            "first game repaints first board"
+        );
+        assert!(
+            after_first_game[1] == selected[1],
+            "second board stays untouched"
+        );
+
+        second.set_page(Page::Settings);
+        app.render_dirty().unwrap();
+        let texture = app.backend.framebuffer();
+        let after_second_game = board_pixels(texture.buf.as_slice(), texture.stride);
+        assert!(
+            after_second_game[0] == after_first_game[0],
+            "first board stays untouched"
+        );
+        assert!(
+            after_second_game[1] != after_first_game[1],
+            "second game repaints second board"
+        );
     }
 
     #[cfg(feature = "audio")]
