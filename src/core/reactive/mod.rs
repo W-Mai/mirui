@@ -135,6 +135,16 @@ pub(crate) fn current_world_id() -> Option<WorldId> {
     with_reactive(|r| r.world_id)
 }
 
+pub(crate) fn current_model_read_owner() -> Option<WorldId> {
+    with_reactive(|r| {
+        assert!(
+            r.world_id.is_some() || !matches!(r.scope, Some(Subscriber::Computed(_))),
+            "ownerless computed cannot read a registered model"
+        );
+        r.world_id
+    })
+}
+
 pub(crate) fn model_writes_allowed() -> bool {
     with_reactive(|r| r.model_read_only_depth == 0)
 }
@@ -205,7 +215,11 @@ pub(crate) struct OwnerGuard {
 
 impl OwnerGuard {
     pub(crate) fn enter(world: &mut World) -> Self {
-        let prev = with_reactive(|r| r.world_id.replace(world.id()));
+        Self::enter_id(Some(world.id()))
+    }
+
+    fn enter_id(owner: Option<WorldId>) -> Self {
+        let prev = with_reactive(|r| core::mem::replace(&mut r.world_id, owner));
         Self { prev }
     }
 }
@@ -796,6 +810,7 @@ struct ComputedInner<T> {
     compute: alloc::boxed::Box<dyn Fn() -> T>,
     subscribers: Vec<OwnedSubscriber>,
     dirty: bool,
+    owner_world: Option<WorldId>,
 }
 
 impl<T> ComputedNode for RefCell<ComputedInner<T>> {
@@ -836,6 +851,7 @@ impl<T: 'static> Computed<T> {
             compute: alloc::boxed::Box::new(f),
             subscribers: Vec::new(),
             dirty: true,
+            owner_world: current_world_id(),
         }));
         let node: Rc<dyn ComputedNode> = inner.clone();
         let (id, source_id) = with_reactive(|r| {
@@ -859,6 +875,10 @@ impl<T: 'static> Computed<T> {
     where
         T: Clone,
     {
+        let owner = self.inner.borrow().owner_world;
+        if let (Some(active), Some(owner)) = (current_world_id(), owner) {
+            assert_eq!(active, owner, "computed belongs to a different App");
+        }
         let id = self.id();
         if let Some(sub) = current_scope() {
             let subscriber = OwnedSubscriber::tracked(sub);
@@ -870,6 +890,8 @@ impl<T: 'static> Computed<T> {
         if self.inner.borrow().dirty {
             // Recompute in this computed's scope so its sources subscribe IT,
             // not whatever outer consumer triggered the read.
+            let _owner = OwnerGuard::enter_id(owner);
+            let _read_only = ModelReadOnlyGuard::enter();
             let value = with_scope(Subscriber::Computed(id), || (self.inner.borrow().compute)());
             let mut inner = self.inner.borrow_mut();
             inner.value = Some(value);

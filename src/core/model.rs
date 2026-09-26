@@ -322,7 +322,7 @@ pub trait ModelHandle: Clone {
             .upgrade()
             .expect("model registration is no longer alive");
         cell.assert_active();
-        if let Some(active) = crate::core::reactive::current_world_id() {
+        if let Some(active) = crate::core::reactive::current_model_read_owner() {
             assert_eq!(active, cell.owner(), "model belongs to a different App");
         }
         assert!(

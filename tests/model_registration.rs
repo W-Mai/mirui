@@ -1,6 +1,6 @@
 use mirui::app::App;
 use mirui::core::model::{BindType, ModelHandle, SharedValue};
-use mirui::core::reactive::{Effect, flush_signal_dirty};
+use mirui::core::reactive::{Computed, Effect, flush_signal_dirty, with_world_scope};
 use mirui::{model, system};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -402,6 +402,60 @@ fn same_type_model_instances_keep_observers_separate() {
     second.set_count(8);
     flush_signal_dirty(&mut app.world);
     assert_eq!((first_runs.get(), second_runs.get()), (2, 2));
+}
+
+#[test]
+fn ownerless_computed_cannot_capture_a_registered_model() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 3,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let computed = Computed::new(move || model.count());
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get()));
+    assert!(failure.is_err());
+}
+
+#[test]
+fn app_owned_computed_rejects_another_app_but_reads_its_model() {
+    let mut owner = App::headless(32, 32);
+    let model = owner.add_model(ObservedCounter {
+        count: 3,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let computed = with_world_scope(&mut owner.world, || Computed::new(move || model.count()));
+    assert_eq!(computed.get(), 3);
+
+    let mut other = App::headless(32, 32);
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        with_world_scope(&mut other.world, || computed.get())
+    }));
+    assert!(failure.is_err());
+    assert_eq!(computed.get(), 3);
+}
+
+#[test]
+fn computed_cannot_write_its_owner_model() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 3,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let captured = model.clone();
+    let computed = with_world_scope(&mut app.world, || {
+        Computed::new(move || {
+            captured.set_count(9);
+            captured.count()
+        })
+    });
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get()));
+    assert!(failure.is_err());
+    assert_eq!(model.count(), 3);
+    model.set_count(4);
+    assert_eq!(model.count(), 4);
 }
 
 #[test]
