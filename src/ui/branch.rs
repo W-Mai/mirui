@@ -84,8 +84,24 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
         return;
     }
     if !selected {
-        let mut old_bounds = None;
-        collect_old_bounds(world, root, &mut old_bounds);
+        // A scroll blit can move old pixels without updating descendant PrevRect.
+        let mut old_bounds = if has_scroll_ancestor(world, root) {
+            world
+                .resource::<crate::surface::DisplayInfo>()
+                .map(|display| {
+                    crate::types::Rect::new(
+                        0,
+                        0,
+                        i32::from(display.width),
+                        i32::from(display.height),
+                    )
+                })
+        } else {
+            None
+        };
+        if old_bounds.is_none() {
+            collect_old_bounds(world, root, &mut old_bounds);
+        }
         if let Some(bounds) = old_bounds {
             world.invalidate_rect(bounds);
         }
@@ -105,6 +121,18 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
     }
 }
 
+fn has_scroll_ancestor(world: &World, mut entity: Entity) -> bool {
+    loop {
+        if world.has::<crate::input::event::scroll::ScrollOffset>(entity) {
+            return true;
+        }
+        let Some(parent) = world.get::<Parent>(entity) else {
+            return false;
+        };
+        entity = parent.0;
+    }
+}
+
 fn collect_old_bounds(world: &World, entity: Entity, bounds: &mut Option<crate::types::Rect>) {
     if let Some(rect) = world.get::<PrevRect>(entity).map(|rect| rect.0) {
         *bounds = Some(bounds.map_or(rect, |current| current.union(&rect)));
@@ -119,7 +147,10 @@ fn collect_old_bounds(world: &World, entity: Entity, bounds: &mut Option<crate::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Rect;
+    use crate::input::event::scroll::ScrollOffset;
+    use crate::render::texture::ColorFormat;
+    use crate::surface::DisplayInfo;
+    use crate::types::{Fixed, Rect};
     use crate::ui::dirty::ExactDirtyRegions;
 
     #[test]
@@ -165,5 +196,39 @@ mod tests {
             .unwrap()
             .drain_into(&mut rects);
         assert_eq!(rects, [Rect::new(0, 0, 30, 10)]);
+    }
+
+    #[test]
+    fn hiding_inside_a_scroll_area_covers_shifted_old_pixels() {
+        let mut world = World::new();
+        world.insert_resource(DisplayInfo {
+            width: 80,
+            height: 40,
+            scale: Fixed::ONE,
+            format: ColorFormat::RGBA8888,
+        });
+        let parent = world.spawn_empty();
+        let root = world.spawn_empty();
+        world.insert(parent, Children(alloc::vec![root]));
+        world.insert(
+            parent,
+            ScrollOffset {
+                x: 0.into(),
+                y: 12.into(),
+            },
+        );
+        world.insert(root, Parent(parent));
+        let branches = [alloc::vec![root]];
+        prepare(&mut world, parent, &branches);
+        select(&mut world, &branches, None, Some(0));
+        world.insert(root, PrevRect(Rect::new(0, 0, 10, 10)));
+
+        select(&mut world, &branches, Some(0), None);
+        let mut rects = alloc::vec::Vec::new();
+        world
+            .resource_mut::<ExactDirtyRegions>()
+            .unwrap()
+            .drain_into(&mut rects);
+        assert_eq!(rects, [Rect::new(0, 0, 80, 40)]);
     }
 }

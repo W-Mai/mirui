@@ -8,14 +8,14 @@ use crate::ui::widgets::transform::WidgetTransform;
 use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ui::{HitTarget, IgnoreHitTest};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum HitShape {
     Rect(Rect),
     TransformedRect { rect: Rect, inverse: Transform },
     Quad([Point; 4]),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct HitGeometry {
     entity: Entity,
     shape: HitShape,
@@ -38,6 +38,34 @@ struct HitTestGeometry {
 impl HitTestGeometry {
     fn matches(&self, root: Entity, logical_w: u16, logical_h: u16) -> bool {
         self.root == Some(root) && self.logical_w == logical_w && self.logical_h == logical_h
+    }
+}
+
+struct GeometryWriter<'a> {
+    entries: &'a mut Vec<HitGeometry>,
+    used: usize,
+    changed: bool,
+}
+
+impl GeometryWriter<'_> {
+    fn record(&mut self, entry: HitGeometry) {
+        if let Some(previous) = self.entries.get_mut(self.used) {
+            if *previous != entry {
+                *previous = entry;
+                self.changed = true;
+            }
+        } else {
+            self.entries.push(entry);
+            self.changed = true;
+        }
+        self.used += 1;
+    }
+
+    fn finish(&mut self) {
+        if self.entries.len() != self.used {
+            self.entries.truncate(self.used);
+            self.changed = true;
+        }
     }
 }
 
@@ -95,7 +123,7 @@ fn collect_geometry(
     scroll_clip: Option<Rect>,
     parent_2d: Transform,
     parent_3d: Transform3D,
-    entries: &mut Vec<HitGeometry>,
+    writer: &mut GeometryWriter<'_>,
 ) {
     let Some(&entity) = entities.get(*index) else {
         return;
@@ -158,7 +186,7 @@ fn collect_geometry(
             effective_3d.apply_rect(rect).map(HitShape::Quad)
         };
         if let Some(shape) = shape {
-            entries.push(HitGeometry {
+            writer.record(HitGeometry {
                 entity,
                 shape,
                 scroll_clip,
@@ -187,7 +215,7 @@ fn collect_geometry(
             child_clip,
             effective_2d,
             effective_3d,
-            entries,
+            writer,
         );
     }
 }
@@ -205,7 +233,12 @@ pub(crate) fn update_hit_test_geometry(
     let mut geometry = world
         .take_resource_box::<HitTestGeometry>()
         .unwrap_or_default();
-    geometry.entries.clear();
+    let geometry_changed = !geometry.matches(root, logical_w, logical_h);
+    let mut writer = GeometryWriter {
+        entries: &mut geometry.entries,
+        used: 0,
+        changed: geometry_changed,
+    };
     let mut index = 0;
     collect_geometry(
         world,
@@ -216,12 +249,16 @@ pub(crate) fn update_hit_test_geometry(
         None,
         Transform::IDENTITY,
         Transform3D::IDENTITY,
-        &mut geometry.entries,
+        &mut writer,
     );
+    writer.finish();
+    let geometry_changed = writer.changed;
     geometry.root = Some(root);
     geometry.logical_w = logical_w;
     geometry.logical_h = logical_h;
-    geometry.revision = geometry.revision.wrapping_add(1);
+    if geometry_changed {
+        geometry.revision = geometry.revision.wrapping_add(1);
+    }
     world.put_resource_box(geometry);
 }
 
@@ -321,6 +358,13 @@ mod tests {
             hit_test(&world, root, 4.into(), 4.into(), 128, 128),
             Some(target)
         );
+        let revision = geometry_revision(&world);
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(128, 128, Fixed::ONE),
+        );
+        assert_eq!(geometry_revision(&world), revision);
         let capacity = world
             .resource::<HitTestGeometry>()
             .unwrap()
@@ -434,6 +478,7 @@ mod tests {
         append(&mut world, root, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        let revision = geometry_revision(&world);
 
         world.insert(
             target,
@@ -444,6 +489,7 @@ mod tests {
         crate::ui::render_system::collect_dirty_regions_into(
             &mut world, root, &viewport, &mut dirty,
         );
+        assert_ne!(geometry_revision(&world), revision);
 
         assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
         assert_eq!(

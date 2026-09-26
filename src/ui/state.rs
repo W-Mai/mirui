@@ -26,10 +26,9 @@ struct PressSnapshot {
 }
 
 fn cursor_snapshot(world: &World) -> PointerSnapshot {
-    let cursor = world
-        .resource::<crate::input::event::PointerCursor>()
-        .copied()
-        .unwrap_or_default();
+    let Some(cursor) = world.resource::<crate::input::event::PointerCursor>() else {
+        return PointerSnapshot::default();
+    };
     PointerSnapshot {
         x: cursor.x,
         y: cursor.y,
@@ -513,6 +512,17 @@ mod hover_press_e2e {
             world.get::<InteractionState>(child),
             Some(&InteractionState::Hovered)
         );
+    }
+
+    #[test]
+    fn layout_without_pointer_input_does_not_create_hover() {
+        let (mut world, root) = make_world_with_button();
+        world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
+        refresh_hit_geometry(&mut world, root);
+
+        hover_system(&mut world);
+        assert!(world.get::<InteractionState>(root).is_none());
     }
 
     #[test]

@@ -280,6 +280,9 @@ pub fn bubble_dispatch(world: &mut World, event: &GestureEvent) {
 
 /// `now_ms`-aware variant; pass `0` when no clock is available.
 pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) {
+    if crate::ui::branch::is_hidden_in_tree(world, event.target()) {
+        return;
+    }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     multi_tap::observe_gesture(world, event, now_ms);
     let mut current = event.target();
@@ -323,6 +326,46 @@ fn collect_internal_handlers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TapCount(u8);
+
+    fn count_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        world.resource_mut::<TapCount>().unwrap().0 += 1;
+        true
+    }
+
+    #[test]
+    fn gesture_saved_before_a_branch_switch_cannot_reach_a_hidden_target() {
+        let mut world = World::new();
+        world.insert_resource(TapCount(0));
+        let branch = world.spawn_empty();
+        let target = world.spawn_empty();
+        world.insert(target, Parent(branch));
+        world.insert(target, GestureHandler::from_fn(count_tap));
+        world.insert(
+            branch,
+            crate::ui::branch::CachedBranchVisibility { selected: false },
+        );
+        let tap = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target,
+        };
+
+        bubble_dispatch_at(&mut world, &tap, 0);
+        assert_eq!(world.resource::<TapCount>().unwrap().0, 0);
+
+        world
+            .get_mut::<crate::ui::branch::CachedBranchVisibility>(branch)
+            .unwrap()
+            .selected = true;
+        bubble_dispatch_at(&mut world, &tap, 0);
+        assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
+
+        world.insert(branch, crate::ui::Hidden);
+        bubble_dispatch_at(&mut world, &tap, 0);
+        assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
+    }
 
     #[test]
     fn ancestor_disabled_propagates() {
