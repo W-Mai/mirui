@@ -1411,6 +1411,61 @@ mod tests {
         assert_eq!(world.query::<MarbleBoard>().collect().len(), 1);
     }
 
+    #[test]
+    fn marble_boards_share_only_their_bound_model_instance() {
+        use crate::ui::dirty::VisualDirty;
+
+        let mut app = App::headless(480, 320);
+        app.with_default_widgets();
+        app.with_widget(board_render::view());
+        let shared = app.add_model(MarbleModel::new());
+        let separate = app.add_model(MarbleModel::new());
+        let board_layout = LayoutStyle {
+            width: Dimension::px(150),
+            height: Dimension::px(199),
+            ..LayoutStyle::default()
+        };
+        let boards: [_; 3] =
+            core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(board_layout).id());
+        let root = WidgetBuilder::new(&mut app.world)
+            .child(boards[0])
+            .child(boards[1])
+            .child(boards[2])
+            .id();
+        app.set_root(root);
+        for (index, board) in boards.into_iter().enumerate() {
+            app.world.insert(
+                board,
+                MarbleBoard {
+                    model: if index == 2 {
+                        separate.clone()
+                    } else {
+                        shared.clone()
+                    },
+                },
+            );
+        }
+        ViewRegistry::reconcile_observations(&mut app.world);
+        for board in boards {
+            app.world.remove::<VisualDirty>(board);
+        }
+
+        shared.set_page(Page::Edit);
+        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(boards[0]));
+        assert!(app.world.has::<VisualDirty>(boards[1]));
+        assert!(!app.world.has::<VisualDirty>(boards[2]));
+        for board in boards {
+            app.world.remove::<VisualDirty>(board);
+        }
+
+        separate.set_page(Page::Scenes);
+        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(boards[0]));
+        assert!(!app.world.has::<VisualDirty>(boards[1]));
+        assert!(app.world.has::<VisualDirty>(boards[2]));
+    }
+
     #[cfg(feature = "audio")]
     #[test]
     fn installed_model_routes_pad_sound_to_the_shared_audio_core() {
