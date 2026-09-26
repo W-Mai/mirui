@@ -421,7 +421,8 @@ A reactive binding's first run applies its initial value at construction
 state.
 
 Registered model methods, observed notifications, fixed-array effect delivery,
-and already-attached View subscriptions reuse their storage during updates.
+already-attached View subscriptions, and registered model-to-computed-to-effect
+propagation reuse their storage during updates.
 Model handles become invalid when their registration is removed or the App ends,
 even if another owner retains the underlying storage.
 This is not a zero-allocation guarantee for text formatting, new widgets,

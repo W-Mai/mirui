@@ -688,8 +688,8 @@ impl Drop for ModelSource {
 
 // A source changed, so this computed's cache is stale: flag it and propagate to
 // its own subscribers. Pure data mutation (no recompute, no closure) — the
-// actual recompute is lazy, deferred to the next get(). Pulls subscribers out
-// before recursing so a nested computed chain can't hold a borrow across calls.
+// actual recompute is lazy, deferred to the next get(). Propagation only queues
+// work or marks downstream computed nodes; it does not run user closures.
 fn mark_computed_dirty(id: ComputedId) {
     let node = with_reactive(|r| r.computeds.get(&id).and_then(Weak::upgrade));
     let Some(node) = node else {
@@ -704,9 +704,7 @@ fn mark_computed_dirty(id: ComputedId) {
     if already_dirty {
         return;
     }
-    for sub in node.subscribers() {
-        propagate(sub);
-    }
+    node.propagate_subscribers();
 }
 
 struct EffectInner {
@@ -802,7 +800,7 @@ fn run_effect(id: EffectId) {
 // without a generic. Only the non-generic propagation hooks are exposed.
 trait ComputedNode {
     fn mark_dirty_take_was_dirty(&self) -> bool;
-    fn subscribers(&self) -> Vec<OwnedSubscriber>;
+    fn propagate_subscribers(&self);
 }
 
 struct ComputedInner<T> {
@@ -820,8 +818,11 @@ impl<T> ComputedNode for RefCell<ComputedInner<T>> {
         was
     }
 
-    fn subscribers(&self) -> Vec<OwnedSubscriber> {
-        self.borrow().subscribers.clone()
+    fn propagate_subscribers(&self) {
+        let inner = self.borrow();
+        for &subscriber in &inner.subscribers {
+            propagate(subscriber);
+        }
     }
 }
 

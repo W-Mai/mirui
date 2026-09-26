@@ -459,6 +459,34 @@ fn computed_cannot_write_its_owner_model() {
 }
 
 #[test]
+fn model_computed_effect_propagation_reuses_registered_storage() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 1,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let source = model.clone();
+    let computed = with_world_scope(&mut app.world, || Computed::new(move || source.count() * 2));
+    let seen = Rc::new(Cell::new(0));
+    let observed = computed.clone();
+    let in_effect = seen.clone();
+    let _effect = with_world_scope(&mut app.world, || {
+        Effect::new(move || in_effect.set(observed.get()))
+    });
+    assert_eq!(seen.get(), 2);
+
+    assert_eq!(
+        tracked_allocations(|| {
+            model.set_count(2);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
+    assert_eq!(seen.get(), 4);
+}
+
+#[test]
 fn derived_observer_only_notifies_when_its_result_changes() {
     let mut app = App::headless(32, 32);
     let model = app.add_model(ObservedCounter {
