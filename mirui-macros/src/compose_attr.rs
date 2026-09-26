@@ -231,4 +231,37 @@ mod tests {
         assert!(contains_compile_error(&out));
         assert!(out.to_string().contains("cx"));
     }
+
+    #[test]
+    fn rejects_unknown_duplicate_and_destructured_bindings() {
+        let unknown = expand(
+            quote!(bind(missing)),
+            quote!(
+                fn build(model: Game) {}
+            ),
+        );
+        assert!(contains_compile_error(&unknown));
+        assert!(
+            unknown
+                .to_string()
+                .contains("bound name is not a function parameter")
+        );
+
+        let duplicate = expand(
+            quote!(bind(model, model)),
+            quote!(
+                fn build(model: Game) {}
+            ),
+        );
+        assert!(contains_compile_error(&duplicate));
+        assert!(duplicate.to_string().contains("duplicate bound parameter"));
+
+        let destructured = expand(
+            quote!(bind(model)),
+            quote!(
+                fn build((model,): (Game,)) {}
+            ),
+        );
+        assert!(contains_compile_error(&destructured));
+    }
 }

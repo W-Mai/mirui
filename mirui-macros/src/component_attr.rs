@@ -29,28 +29,42 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
                         ));
                     };
                     let declared = field.ty.clone();
-                    item.generics
-                        .make_where_clause()
-                        .predicates
-                        .push(syn::parse_quote!(#declared: ::mirui::core::model::BindType));
+                    // A cfg-gated field may name a type that does not exist in
+                    // the other configuration. Its bound must be supplied by
+                    // the declaration when the field is enabled.
+                    if !field.attrs.iter().any(|attr| may_remove_field(&attr.meta)) {
+                        item.generics
+                            .make_where_clause()
+                            .predicates
+                            .push(syn::parse_quote!(#declared: ::mirui::core::model::BindType));
+                    }
                     field.ty = syn::parse_quote!(
                         <#declared as ::mirui::core::model::BindType>::Shared
                     );
                 }
                 let clone_requested = take_clone_derive(&mut item.attrs)?;
                 clone_requested.then(|| {
-                    let field_names: Vec<_> = fields
+                    let clone_fields: Vec<_> = fields
                         .named
                         .iter()
-                        .map(|field| field.ident.as_ref().expect("named field"))
+                        .map(|field| {
+                            let name = field.ident.as_ref().expect("named field");
+                            let conditional_attrs = field
+                                .attrs
+                                .iter()
+                                .filter(|attr| may_remove_field(&attr.meta));
+                            quote!(#(#conditional_attrs)* #name: self.#name.clone())
+                        })
                         .collect();
-                    let field_types: Vec<_> = fields.named.iter().map(|field| &field.ty).collect();
                     let mut clone_generics = item.generics.clone();
-                    for field_type in field_types {
-                        clone_generics
-                            .make_where_clause()
-                            .predicates
-                            .push(syn::parse_quote!(#field_type: ::core::clone::Clone));
+                    for field in &fields.named {
+                        if !field.attrs.iter().any(|attr| may_remove_field(&attr.meta)) {
+                            let field_type = &field.ty;
+                            clone_generics
+                                .make_where_clause()
+                                .predicates
+                                .push(syn::parse_quote!(#field_type: ::core::clone::Clone));
+                        }
                     }
                     let (impl_generics, type_generics, where_clause) =
                         clone_generics.split_for_impl();
@@ -58,7 +72,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
                     quote! {
                         impl #impl_generics ::core::clone::Clone for #name #type_generics #where_clause {
                             fn clone(&self) -> Self {
-                                Self { #(#field_names: self.#field_names.clone()),* }
+                                Self { #(#clone_fields),* }
                             }
                         }
                     }
@@ -83,6 +97,15 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             ));
         }
     };
+    let marker = marker_impl(&name, &generics);
+    Ok(quote! {
+        #item
+        #marker
+        #clone_impl
+    })
+}
+
+pub(crate) fn marker_impl(name: &syn::Ident, generics: &syn::Generics) -> TokenStream {
     let (_, type_generics, _) = generics.split_for_impl();
     let mut component_generics = generics.clone();
     component_generics
@@ -90,11 +113,24 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         .predicates
         .push(syn::parse_quote!(#name #type_generics: 'static));
     let (impl_generics, _, where_clause) = component_generics.split_for_impl();
-    Ok(quote! {
-        #item
+    quote! {
         impl #impl_generics ::mirui::ecs::Component for #name #type_generics #where_clause {}
-        #clone_impl
-    })
+    }
+}
+
+fn may_remove_field(meta: &Meta) -> bool {
+    if meta.path().is_ident("cfg") {
+        return true;
+    }
+    if !meta.path().is_ident("cfg_attr") {
+        return false;
+    }
+    let Meta::List(list) = meta else {
+        return true;
+    };
+    list.parse_args_with(Punctuated::<Meta, syn::Token![,]>::parse_terminated)
+        .map(|nested| nested.iter().skip(1).any(may_remove_field))
+        .unwrap_or(true)
 }
 
 fn parse_bindings(attr: TokenStream) -> syn::Result<Vec<syn::Ident>> {
@@ -157,7 +193,7 @@ fn take_clone_derive(attrs: &mut Vec<syn::Attribute>) -> syn::Result<bool> {
         let paths = derive_paths(&attr)?;
         let mut retained = Vec::new();
         for path in paths {
-            if path.is_ident("Clone") {
+            if is_clone_derive(&path) {
                 clone_requested = true;
             } else {
                 retained.push(path);
@@ -169,6 +205,19 @@ fn take_clone_derive(attrs: &mut Vec<syn::Attribute>) -> syn::Result<bool> {
     }
     *attrs = remaining;
     Ok(clone_requested)
+}
+
+fn is_clone_derive(path: &Path) -> bool {
+    if path.is_ident("Clone") {
+        return true;
+    }
+    let segments: Vec<_> = path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+    matches!(segments.as_slice(), [root, module, name]
+        if (root == "core" || root == "std") && module == "clone" && name == "Clone")
 }
 
 fn derive_paths(attr: &syn::Attribute) -> syn::Result<Vec<Path>> {
@@ -183,8 +232,9 @@ fn derive_paths(attr: &syn::Attribute) -> syn::Result<Vec<Path>> {
 
 #[cfg(test)]
 mod tests {
-    use super::expand;
+    use super::{expand, may_remove_field};
     use quote::quote;
+    use syn::parse_quote;
 
     #[test]
     fn rejects_unknown_and_duplicate_bound_fields() {
@@ -224,5 +274,92 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn rejects_unsupported_component_shapes() {
+        assert!(expand(quote!(), quote!(union Bits { value: u8 })).is_err());
+        assert!(
+            expand(
+                quote!(bind(model)),
+                quote!(
+                    struct Board(Model);
+                )
+            )
+            .is_err()
+        );
+        assert!(
+            expand(
+                quote!(bind(model)),
+                quote!(
+                    enum Board {
+                        Empty,
+                    }
+                )
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn custom_clone_accepts_qualified_derive_and_preserves_conditional_fields() {
+        let output = expand(
+            quote!(bind(model)),
+            quote! {
+                #[derive(::core::clone::Clone)]
+                struct Board {
+                    #[cfg(any())]
+                    model: Model,
+                    label: u8,
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(!output.contains("derive"));
+        assert_eq!(output.matches("cfg (any ())").count(), 2);
+        assert!(!output.contains("Model : :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("impl :: core :: clone :: Clone for Board"));
+    }
+
+    #[test]
+    fn conditional_cfg_attr_controls_clone_fields_and_bounds() {
+        let nested: syn::Attribute = parse_quote!(
+            #[cfg_attr(feature = "extra", cfg_attr(feature = "nested", cfg(feature = "other")))]
+        );
+        let documentation_only: syn::Attribute =
+            parse_quote!(#[cfg_attr(feature = "extra", doc = "note")]);
+        assert!(may_remove_field(&nested.meta));
+        assert!(!may_remove_field(&documentation_only.meta));
+
+        let output = expand(
+            quote!(bind(model, stable)),
+            quote! {
+                #[derive(Clone)]
+                struct Board {
+                    #[cfg_attr(feature = "extra", cfg(feature = "other"))]
+                    model: ConditionalModel,
+                    #[cfg_attr(feature = "extra", doc = "note")]
+                    stable: StableShared,
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert_eq!(
+            output
+                .matches("cfg_attr (feature = \"extra\" , cfg")
+                .count(),
+            2
+        );
+        assert_eq!(
+            output
+                .matches("cfg_attr (feature = \"extra\" , doc")
+                .count(),
+            1
+        );
+        assert!(!output.contains("ConditionalModel : :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("StableShared : :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("StableShared as :: mirui :: core :: model :: BindType"));
     }
 }

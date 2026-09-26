@@ -12,6 +12,8 @@ struct Counter {
     count: u32,
 }
 
+type CounterAlias = Counter;
+
 #[model]
 impl Counter {
     fn increment(&mut self) {
@@ -30,6 +32,15 @@ fn increment_panel(counter: Counter, unbound: u32) {
 fn optional_panel(counter: Option<Counter>) {
     if let Some(counter) = counter {
         counter.increment();
+    }
+}
+
+#[compose(bind(counter, optional))]
+fn alias_panel(counter: CounterAlias, optional: Option<Option<crate::Counter>>, raw: Counter) {
+    assert_eq!(raw.count, 17);
+    counter.increment();
+    if let Some(Some(optional)) = optional {
+        optional.increment();
     }
 }
 
@@ -80,7 +91,15 @@ fn compose_maps_bound_model_parameters_to_handles() {
     let counter = app.add_model(Counter { count: 0 });
     app.compose(root, |cx| increment_panel(cx, counter.clone(), 3));
     app.compose(root, |cx| optional_panel(cx, Some(counter.clone())));
-    assert_eq!(counter.count(), 4);
+    app.compose(root, |cx| {
+        alias_panel(
+            cx,
+            counter.clone(),
+            Some(Some(counter.clone())),
+            Counter { count: 17 },
+        )
+    });
+    assert_eq!(counter.count(), 6);
 }
 
 #[test]

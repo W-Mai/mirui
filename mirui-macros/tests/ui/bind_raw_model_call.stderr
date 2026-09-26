@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+  --> tests/ui/bind_raw_model_call.rs:23:38
+   |
+23 |     app.compose(root, |cx| panel(cx, Counter { value: 0 }));
+   |                            -----     ^^^^^^^^^^^^^^^^^^^^ expected `CounterHandle`, found `Counter`
+   |                            |
+   |                            arguments to this function are incorrect
+   |
+note: function defined here
+  --> tests/ui/bind_raw_model_call.rs:16:4
+   |
+15 | #[compose(bind(counter))]
+   | -------------------------
+16 | fn panel(counter: Counter) {
+   |    ^^^^^
