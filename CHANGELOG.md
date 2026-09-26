@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fixed-size Web Canvas input.** Backend viewports retain the declared logical dimensions when quantized display scaling cannot reconstruct them from backing pixels, keeping hit testing aligned with pointer events.
+- **Reactive form branch IDs.** Retained submit buttons use distinct lookup IDs, allowing Gallery previews to build both conditional branches without an identity collision.
 - **Declarative root order.** Top-level widgets attach in source order relative to slots, compose calls, and cached condition branches.
 - **Reactive notification allocations.** Effect queues reserve capacity at registration, while shared signals propagate to computed values and flush processes pending effects and widget invalidations without copying subscriber lists or allocating temporary vectors.
 - **Model observer scheduling.** A command that changes several sources read by one effect queues that effect once per flush; repeated widget notifications also coalesce until consumed.

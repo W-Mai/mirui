@@ -58,7 +58,7 @@ impl DisplayInfo {
     pub fn viewport(&self) -> Viewport {
         let phys_w = saturating_u16((Fixed::from(self.width) * self.scale).to_int());
         let phys_h = saturating_u16((Fixed::from(self.height) * self.scale).to_int());
-        Viewport::new(phys_w, phys_h, self.scale)
+        Viewport::new(phys_w, phys_h, self.scale).with_logical_size(self.width, self.height)
     }
 }
 
@@ -102,6 +102,7 @@ pub trait Surface: crate::core::cache::InspectCaches {
             saturating_u16_from_u32(physical_height),
             info.scale,
         )
+        .with_logical_size(info.width, info.height)
     }
 
     /// Present the given **physical-pixel** region of the backing surface.
@@ -283,6 +284,31 @@ mod tests {
         }
     }
 
+    struct FixedCanvasBackend(CanvasMetrics);
+
+    impl crate::core::cache::InspectCaches for FixedCanvasBackend {}
+
+    impl Surface for FixedCanvasBackend {
+        fn display_info(&self) -> DisplayInfo {
+            DisplayInfo {
+                width: self.0.logical_width,
+                height: self.0.logical_height,
+                scale: self.0.scale,
+                format: crate::render::texture::ColorFormat::RGBA8888,
+            }
+        }
+
+        fn physical_size(&self) -> (u32, u32) {
+            (self.0.physical_width.into(), self.0.physical_height.into())
+        }
+
+        fn flush(&mut self, _area: PhysicalRect) {}
+
+        fn poll_event(&mut self) -> Option<InputEvent> {
+            None
+        }
+    }
+
     #[test]
     fn default_persistence_is_persistent() {
         let b = NoOpBackend;
@@ -337,5 +363,17 @@ mod tests {
             Fixed::from_int(240)
         );
         assert_eq!(canvas_axis_scale(Fixed::from_int(360), None), Fixed::ONE);
+    }
+
+    #[test]
+    fn fixed_canvas_viewport_keeps_logical_hit_test_size() {
+        let metrics = canvas_metrics(719, 479, Fixed::from_int(2), Some((480, 320)));
+        assert_eq!(
+            (metrics.physical_width, metrics.physical_height),
+            (1436, 958)
+        );
+        let backend = FixedCanvasBackend(metrics);
+        assert_eq!(backend.display_info().viewport().logical_size(), (480, 320));
+        assert_eq!(backend.viewport().logical_size(), (480, 320));
     }
 }

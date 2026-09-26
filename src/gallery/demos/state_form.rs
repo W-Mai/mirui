@@ -58,7 +58,7 @@ pub fn build_widgets() {
             }
             if $submit_bg {
                 Button (
-                    id: "state_form_submit",
+                    id: "state_form_submit_ready",
                     width: Dimension::percent(100),
                     max_width: 280,
                     height: 44,
@@ -71,7 +71,7 @@ pub fn build_widgets() {
                 ]
             } else {
                 Button (
-                    id: "state_form_submit",
+                    id: "state_form_submit_pending",
                     width: Dimension::percent(100),
                     max_width: 280,
                     height: 44,
@@ -136,16 +136,22 @@ mod tests {
         let agreement_row = world.get::<Children>(col).unwrap().0[2];
         let agree = world.get::<Children>(agreement_row).unwrap().0[0];
 
-        let normal = |world: &World| {
-            let submit = world.find_by_id("state_form_submit").unwrap();
+        let ready = world.find_by_id("state_form_submit_ready").unwrap();
+        let pending = world.find_by_id("state_form_submit_pending").unwrap();
+        let normal = |world: &World, expected_ready: bool| {
+            let ready_hidden = crate::ui::branch::is_effectively_hidden(world, ready);
+            let pending_hidden = crate::ui::branch::is_effectively_hidden(world, pending);
+            assert_eq!(ready_hidden, !expected_ready);
+            assert_eq!(pending_hidden, expected_ready);
+            let submit = if expected_ready { ready } else { pending };
             world.get::<Button>(submit).unwrap().normal_color
         };
         let off = crate::ui::theme::ThemedColor::Token(ColorToken::SurfaceVariant);
         let on = crate::ui::theme::ThemedColor::Token(ColorToken::Primary);
 
-        assert_eq!(normal(&world), off, "starts disabled");
+        assert_eq!(normal(&world, false), off, "starts disabled");
         emit_input_changed(&mut world, name, 3);
-        assert_eq!(normal(&world), off, "name alone is not enough");
+        assert_eq!(normal(&world, false), off, "name alone is not enough");
 
         let callback = world
             .get::<crate::ui::widgets::checkbox::CheckboxHandler>(agree)
@@ -158,6 +164,14 @@ mod tests {
             &crate::ui::widgets::checkbox::CheckboxEvent::Toggled { now: true },
         );
         flush_signal_dirty(&mut world);
-        assert_eq!(normal(&world), on, "both set -> submit enabled");
+        assert_eq!(normal(&world, true), on, "both set -> submit enabled");
+
+        callback.call(
+            &mut world,
+            agree,
+            &crate::ui::widgets::checkbox::CheckboxEvent::Toggled { now: false },
+        );
+        flush_signal_dirty(&mut world);
+        assert_eq!(normal(&world, false), off, "unchecking disables submit");
     }
 }

@@ -11,7 +11,16 @@ use super::{Fixed, PhysicalRect, Point, Rect, Transform};
 pub struct Viewport {
     physical_w: u16,
     physical_h: u16,
+    logical_w: u16,
+    logical_h: u16,
     scale: Fixed,
+}
+
+#[inline]
+fn inferred_logical_axis(physical: u16, scale: Fixed) -> u16 {
+    (Fixed::from(physical) / scale)
+        .to_int()
+        .clamp(0, i32::from(u16::MAX)) as u16
 }
 
 impl Viewport {
@@ -27,8 +36,19 @@ impl Viewport {
         Self {
             physical_w,
             physical_h,
+            logical_w: inferred_logical_axis(physical_w, scale),
+            logical_h: inferred_logical_axis(physical_h, scale),
             scale,
         }
+    }
+
+    /// Keep the backend's authoritative logical size when physical pixels
+    /// and a quantized scale cannot reconstruct it exactly.
+    #[inline]
+    pub fn with_logical_size(mut self, width: u16, height: u16) -> Self {
+        self.logical_w = width;
+        self.logical_h = height;
+        self
     }
 
     #[inline]
@@ -43,13 +63,7 @@ impl Viewport {
 
     #[inline]
     pub fn logical_size(&self) -> (u16, u16) {
-        let w = (Fixed::from(self.physical_w) / self.scale)
-            .to_int()
-            .clamp(0, i32::from(u16::MAX)) as u16;
-        let h = (Fixed::from(self.physical_h) / self.scale)
-            .to_int()
-            .clamp(0, i32::from(u16::MAX)) as u16;
-        (w, h)
+        (self.logical_w, self.logical_h)
     }
 
     #[inline]
@@ -140,6 +154,17 @@ mod tests {
     fn logical_size_divides_physical() {
         let t = Viewport::new(200, 100, Fixed::from_int(2));
         assert_eq!(t.logical_size(), (100, 50));
+    }
+
+    #[test]
+    fn explicit_logical_size_survives_quantized_scale() {
+        let scale = Fixed::from_ratio(766, 256);
+        let inferred = Viewport::new(1436, 958, scale);
+        assert_eq!(inferred.logical_size(), (479, 320));
+        let explicit = inferred.with_logical_size(480, 320);
+        assert_eq!(explicit.logical_size(), (480, 320));
+        assert_eq!(explicit.physical_size(), (1436, 958));
+        assert_eq!(explicit.scale(), scale);
     }
 
     #[test]

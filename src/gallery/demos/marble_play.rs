@@ -1866,6 +1866,49 @@ mod tests {
         assert!(!world.has::<Hidden>(properties));
     }
 
+    #[test]
+    fn nav_pointer_tap_reaches_edit_after_layout() {
+        use crate::input::event::gesture::GestureSystem;
+        use crate::input::event::hit_test::hit_test;
+        use crate::input::event::input::InputEvent;
+        use crate::types::Viewport;
+        use crate::ui::render_system;
+
+        let mut app = App::headless(480, 320);
+        app.world.insert_resource(IdMap::new());
+        let root = app.spawn_root().id();
+        setup_app(&mut app, root);
+        render_system::update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE));
+
+        let edit = app.world.find_by_id("marble_nav_edit").unwrap();
+        assert_eq!(
+            hit_test(&app.world, root, 180.into(), 301.into(), 480, 320),
+            Some(edit)
+        );
+
+        let x = Fixed::from_int(180);
+        let y = Fixed::from_int(301);
+        for (event, now) in [
+            (InputEvent::PointerDown { id: 0, x, y }, 0),
+            (InputEvent::PointerUp { id: 0, x, y }, 50),
+        ] {
+            crate::input::event::dispatch_input(&mut app.world, root, &event, now, 480, 320);
+        }
+        let gestures: Vec<_> = app
+            .world
+            .resource_mut::<GestureSystem>()
+            .unwrap()
+            .events
+            .drain()
+            .collect();
+        for gesture in gestures {
+            crate::input::event::bubble_dispatch_at(&mut app.world, &gesture, 50);
+        }
+        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        let properties = app.world.find_by_id("marble_properties").unwrap();
+        assert!(!app.world.has::<Hidden>(properties));
+    }
+
     #[cfg(feature = "audio")]
     #[test]
     fn audio_display_tracks_shared_controls() {
