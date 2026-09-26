@@ -1,5 +1,6 @@
 extern crate alloc;
 
+mod graph;
 mod identity;
 
 use alloc::collections::{BTreeMap, VecDeque};
@@ -10,6 +11,7 @@ use core::cell::{Cell, RefCell};
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
 use crate::ui::dirty::{Dirty, VisualDirty};
+use graph::{ConsumerKey, PartitionKey, PendingKind, ReactiveGraph, SourceKey};
 use identity::{SlotAllocator, SlotId};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -47,6 +49,7 @@ struct SourceId(SlotId);
 
 struct Reactive {
     scope: Option<Subscriber>,
+    scope_graph_consumer: Option<ConsumerKey>,
     // non-null only while an effect runs; lets a Fn() closure reach the World
     world: *mut World,
     world_id: Option<WorldId>,
@@ -62,12 +65,14 @@ struct Reactive {
     effect_slots: SlotAllocator,
     computed_slots: SlotAllocator,
     source_slots: SlotAllocator,
+    graph: ReactiveGraph,
 }
 
 impl Reactive {
     const fn new() -> Self {
         Reactive {
             scope: None,
+            scope_graph_consumer: None,
             world: core::ptr::null_mut(),
             world_id: None,
             world_lifetime: None,
@@ -82,7 +87,25 @@ impl Reactive {
             effect_slots: SlotAllocator::new(),
             computed_slots: SlotAllocator::new(),
             source_slots: SlotAllocator::new(),
+            graph: ReactiveGraph::new(),
         }
+    }
+
+    fn unbound_effect_count(&self) -> usize {
+        self.effects
+            .values()
+            .filter(|effect| effect.borrow().owner_world.is_none())
+            .count()
+    }
+
+    fn reserve_owned_consumer_slot(&mut self) {
+        let needed = self
+            .unbound_effect_count()
+            .checked_add(1)
+            .expect("reactive owner consumer headroom overflow");
+        self.graph
+            .reserve_owner_consumer_headroom(needed)
+            .expect("reactive owner consumer capacity exhausted");
     }
 }
 
@@ -171,19 +194,78 @@ impl Drop for ModelReadOnlyGuard {
     }
 }
 
-struct ScopeGuard(Option<Subscriber>);
+struct ScopeGuard {
+    previous_scope: Option<Subscriber>,
+    previous_graph_consumer: Option<ConsumerKey>,
+}
 
 impl Drop for ScopeGuard {
     fn drop(&mut self) {
-        with_reactive(|r| r.scope = self.0);
+        with_reactive(|r| {
+            r.scope = self.previous_scope;
+            r.scope_graph_consumer = self.previous_graph_consumer;
+        });
     }
 }
 
 /// Run `f` with `scope` as the active reactive consumer, restoring the
 /// previous scope after. Signals read inside `f` subscribe to `scope`.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Each owned Widget or VisualWidget scope is one complete evaluation: a later
+/// outermost evaluation replaces its previous dependencies. Group related
+/// reads in one scope; a nested scope for the same target extends that evaluation.
 pub(crate) fn with_scope<R>(scope: Subscriber, f: impl FnOnce() -> R) -> R {
-    let _guard = ScopeGuard(with_reactive(|r| r.scope.replace(scope)));
+    let _guard = with_reactive(|r| {
+        let graph_consumer = match (r.world_id, scope) {
+            (Some(world), Subscriber::Widget(_) | Subscriber::VisualWidget(_)) => {
+                let partition = r
+                    .graph
+                    .owner_key(world)
+                    .expect("Widget owner is not registered");
+                if r.scope == Some(scope)
+                    && r.scope_graph_consumer
+                        .is_some_and(|consumer| consumer.partition == partition)
+                {
+                    r.scope_graph_consumer
+                } else if let Some(consumer) = r.graph.find_consumer(partition, scope) {
+                    r.graph
+                        .clear_consumer(consumer)
+                        .expect("live Widget graph consumer missing before evaluation");
+                    Some(consumer)
+                } else {
+                    r.reserve_owned_consumer_slot();
+                    match scope {
+                        Subscriber::Widget(_) => {
+                            let count = r.graph.count_consumers_matching(|target| {
+                                matches!(target, Subscriber::Widget(_))
+                            });
+                            r.dirty_widgets.reserve(count + 1);
+                        }
+                        Subscriber::VisualWidget(_) => {
+                            let count = r.graph.count_consumers_matching(|target| {
+                                matches!(target, Subscriber::VisualWidget(_))
+                            });
+                            r.dirty_visual_widgets
+                                .reserve(count + r.model_visual_subscriptions + 1);
+                        }
+                        _ => unreachable!("only Widget scopes enter this branch"),
+                    }
+                    Some(
+                        r.graph
+                            .register_consumer(partition, scope)
+                            .expect("reactive Widget consumer registration failed"),
+                    )
+                }
+            }
+            _ => None,
+        };
+        ScopeGuard {
+            previous_scope: r.scope.replace(scope),
+            previous_graph_consumer: core::mem::replace(
+                &mut r.scope_graph_consumer,
+                graph_consumer,
+            ),
+        }
+    });
     f()
 }
 
@@ -211,6 +293,153 @@ fn enqueue_effect(id: EffectId) {
     });
 }
 
+// Effects created outside a World may bind to one model owner on their first
+// model read. Shared sources keep using the original shared consumer.
+fn subscribe_automatic_graph(source: SourceKey, subscriber: Subscriber) -> bool {
+    match subscriber {
+        Subscriber::Effect(id) => {
+            with_reactive(|r| {
+                let Some(effect) = r.effects.get(&id) else {
+                    return;
+                };
+                let mut effect = effect.borrow_mut();
+                let consumer = match (source.partition, effect.graph_consumer.partition) {
+                    (PartitionKey::Owner { world, .. }, PartitionKey::Shared) => {
+                        if let Some(bound) = effect.owner_world {
+                            assert_eq!(bound, world, "Effect cannot read models from two Apps");
+                        }
+                        if let Some(consumer) = effect.model_consumer {
+                            consumer
+                        } else {
+                            let consumer = r
+                                .graph
+                                .register_consumer(source.partition, subscriber)
+                                .expect("reactive model Effect reserved capacity exhausted");
+                            effect.model_consumer = Some(consumer);
+                            effect.owner_world = Some(world);
+                            consumer
+                        }
+                    }
+                    _ => effect.graph_consumer,
+                };
+                drop(effect);
+                r.graph
+                    .subscribe(source, consumer)
+                    .expect("reactive Effect dependency subscription failed");
+            });
+            true
+        }
+        Subscriber::Computed(id) => {
+            with_reactive(|r| {
+                if let Some(node) = r.computeds.get(&id).and_then(Weak::upgrade) {
+                    r.graph
+                        .subscribe(source, node.graph_consumer())
+                        .expect("reactive Computed dependency subscription failed");
+                }
+            });
+            true
+        }
+        Subscriber::Widget(_) | Subscriber::VisualWidget(_) => with_reactive(|r| {
+            let Some(consumer) = r.scope_graph_consumer else {
+                return false;
+            };
+            r.graph
+                .subscribe(source, consumer)
+                .expect("reactive Widget dependency subscription failed");
+            true
+        }),
+    }
+}
+
+// Graph publication only queues effects/widgets and marks Computeds dirty.
+// Computed propagation runs after the runtime borrow is released; evaluation
+// closures remain lazy and run only from Computed::get.
+fn publish_graph_source(source: SourceKey) {
+    with_reactive(|r| {
+        r.graph
+            .publish(source)
+            .expect("reactive graph publication failed");
+        while let Some((consumer, target)) = r.graph.take_pending_any_kind(PendingKind::NonComputed)
+        {
+            match target {
+                Subscriber::Effect(effect) => {
+                    if !r.dirty_effects.contains(&effect) {
+                        r.dirty_effects.push_back(effect);
+                    }
+                }
+                Subscriber::Widget(entity) => {
+                    let owner = match consumer.partition {
+                        PartitionKey::Shared => None,
+                        PartitionKey::Owner { world, .. } => Some(world),
+                    };
+                    if !r.dirty_widgets.contains(&(owner, entity)) {
+                        r.dirty_widgets.push_back((owner, entity));
+                    }
+                }
+                Subscriber::VisualWidget(entity) => {
+                    let owner = match consumer.partition {
+                        PartitionKey::Shared => None,
+                        PartitionKey::Owner { world, .. } => Some(world),
+                    };
+                    if !r.dirty_visual_widgets.contains(&(owner, entity)) {
+                        r.dirty_visual_widgets.push_back((owner, entity));
+                    }
+                }
+                Subscriber::Computed(_) => unreachable!("computed filtered from graph queue"),
+            }
+        }
+    });
+    while let Some((_, Subscriber::Computed(computed))) =
+        with_reactive(|r| r.graph.take_pending_computed())
+    {
+        mark_computed_dirty(computed);
+    }
+}
+
+fn register_graph_owner(world: WorldId) {
+    with_reactive(|r| {
+        if r.graph.owner_key(world).is_ok() {
+            return;
+        }
+        r.graph
+            .reserve_owner_consumer_headroom(r.unbound_effect_count())
+            .expect("reactive owner Effect headroom exhausted");
+        r.graph
+            .reserve_for_owner()
+            .expect("reactive owner graph capacity exhausted");
+        r.graph
+            .add_owner(world)
+            .expect("reactive owner registration failed");
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn has_graph_owner(world: WorldId) -> bool {
+    with_reactive(|r| r.graph.owner_key(world).is_ok())
+}
+
+/// Release graph state and widget-bound effects for a finished World.
+pub(crate) fn release_graph_owner(world: WorldId) {
+    loop {
+        let effect = try_with_reactive(|r| {
+            r.effects.iter().find_map(|(id, effect)| {
+                (effect.borrow().owner_world == Some(world)).then_some(*id)
+            })
+        })
+        .flatten();
+        let Some(effect) = effect else { break };
+        unregister_effect(effect);
+    }
+    try_with_reactive(|r| {
+        r.graph.remove_owner(world);
+        r.dirty_widgets.retain(|(owner, _)| *owner != Some(world));
+        r.dirty_visual_widgets
+            .retain(|(owner, _)| *owner != Some(world));
+    });
+}
+
+struct ReactiveOwnerCleanup;
+
 pub(crate) struct OwnerGuard {
     prev: Option<WorldId>,
     prev_lifetime: Option<Weak<()>>,
@@ -218,10 +447,15 @@ pub(crate) struct OwnerGuard {
 
 impl OwnerGuard {
     pub(crate) fn enter(world: &mut World) -> Self {
+        world.register_drop_hook::<ReactiveOwnerCleanup>(release_graph_owner);
         Self::enter_id(Some(world.id()), Some(world.lifetime()))
     }
 
     fn enter_id(owner: Option<WorldId>, lifetime: Option<Weak<()>>) -> Self {
+        if let (Some(owner), Some(lifetime)) = (owner, lifetime.as_ref()) {
+            assert!(lifetime.strong_count() > 0, "reactive owner has ended");
+            register_graph_owner(owner);
+        }
         let (prev, prev_lifetime) = with_reactive(|r| {
             (
                 core::mem::replace(&mut r.world_id, owner),
@@ -295,6 +529,42 @@ impl Drop for WorldGuard {
     }
 }
 
+// An ownerless Effect cannot safely use whichever World happened to flush
+// first. Hide that ambient World until the Effect reads a model and binds to
+// the model's owner; no user closure runs under the runtime borrow.
+struct WorldlessEffectGuard {
+    previous_world: *mut World,
+    previous_owner: Option<WorldId>,
+    previous_lifetime: Option<Weak<()>>,
+}
+
+impl WorldlessEffectGuard {
+    fn enter() -> Self {
+        let (previous_world, previous_owner, previous_lifetime) = with_reactive(|r| {
+            (
+                core::mem::replace(&mut r.world, core::ptr::null_mut()),
+                r.world_id.take(),
+                r.world_lifetime.take(),
+            )
+        });
+        Self {
+            previous_world,
+            previous_owner,
+            previous_lifetime,
+        }
+    }
+}
+
+impl Drop for WorldlessEffectGuard {
+    fn drop(&mut self) {
+        with_reactive(|r| {
+            r.world = self.previous_world;
+            r.world_id = self.previous_owner;
+            r.world_lifetime = self.previous_lifetime.take();
+        });
+    }
+}
+
 /// Make the World reachable by effect closures while `f` runs — applies a
 /// reactive binding's initial value at `ui!` construction, outside the flush.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -304,6 +574,9 @@ pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
 }
 
 /// Reach the World the running effect is under; None outside a flush window.
+/// An ownerless Effect returns None even when a World flushes it. The run that
+/// binds it to a model also remains ownerless; later runs in the model's World
+/// can access that World.
 /// Public so `ui!`-generated reactive control flow can reach it from user crates.
 pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     // Copy the pointer out before deref so `f` may re-enter with_reactive.
@@ -426,6 +699,27 @@ fn reclaim_dead_effects(world: &World) {
             }
         });
     });
+    loop {
+        let dead = with_reactive(|r| {
+            let partition = r.graph.owner_key(world.id()).ok()?;
+            r.graph
+                .find_consumer_matching(partition, |target| match target {
+                    Subscriber::Widget(entity) | Subscriber::VisualWidget(entity) => {
+                        !world.is_alive(entity)
+                    }
+                    _ => false,
+                })
+        });
+        let Some(dead) = dead else { break };
+        with_reactive(|r| {
+            r.graph
+                .remove_consumer(dead)
+                .expect("dead Widget graph consumer missing during cleanup");
+            if r.scope_graph_consumer == Some(dead) {
+                r.scope_graph_consumer = None;
+            }
+        });
+    }
 }
 
 /// Reclaim effects bound to `entity` in `world` during widget teardown.
@@ -444,10 +738,26 @@ pub fn cleanup_effects_for(world: &World, entity: Entity) {
     for id in bound {
         unregister_effect(id);
     }
+    with_reactive(|r| {
+        let Ok(partition) = r.graph.owner_key(world.id()) else {
+            return;
+        };
+        for target in [Subscriber::Widget(entity), Subscriber::VisualWidget(entity)] {
+            if let Some(consumer) = r.graph.find_consumer(partition, target) {
+                r.graph
+                    .remove_consumer(consumer)
+                    .expect("Widget graph consumer missing during teardown");
+                if r.scope_graph_consumer == Some(consumer) {
+                    r.scope_graph_consumer = None;
+                }
+            }
+        }
+    });
 }
 
 struct SignalInner<T> {
     id: SourceId,
+    graph_source: SourceKey,
     value: T,
     subscribers: Vec<OwnedSubscriber>,
 }
@@ -484,8 +794,13 @@ impl<T: 'static> Clone for Signal<T> {
 impl<T: 'static> Drop for Signal<T> {
     fn drop(&mut self) {
         if Rc::strong_count(&self.inner) == 1 {
-            let id = self.inner.borrow().id;
+            let inner = self.inner.borrow();
+            let id = inner.id;
+            let graph_source = inner.graph_source;
             try_with_reactive(|r| {
+                r.graph
+                    .remove_source(graph_source)
+                    .expect("live Signal graph source missing on drop");
                 r.source_slots.release(id.0);
             });
         }
@@ -494,10 +809,25 @@ impl<T: 'static> Drop for Signal<T> {
 
 impl<T: 'static> Signal<T> {
     pub fn new(initial: T) -> Self {
-        let id = with_reactive(|r| SourceId(r.source_slots.allocate()));
+        let (id, graph_source) = with_reactive(|r| {
+            let id = SourceId(r.source_slots.allocate());
+            let source = r
+                .graph
+                .reserve_for_shared_source()
+                .and_then(|_| r.graph.register_shared_source());
+            let graph_source = match source {
+                Ok(source) => source,
+                Err(error) => {
+                    r.source_slots.release(id.0);
+                    panic!("reactive shared source registration failed: {error:?}");
+                }
+            };
+            (id, graph_source)
+        });
         Signal {
             inner: Rc::new(RefCell::new(SignalInner {
                 id,
+                graph_source,
                 value: initial,
                 subscribers: Vec::new(),
             })),
@@ -506,7 +836,10 @@ impl<T: 'static> Signal<T> {
 
     fn track(&self) {
         if let Some(sub) = current_scope() {
-            self.add_subscriber(OwnedSubscriber::tracked(sub));
+            let source = self.inner.borrow().graph_source;
+            if !subscribe_automatic_graph(source, sub) {
+                self.add_subscriber(OwnedSubscriber::tracked(sub));
+            }
         }
     }
 
@@ -582,10 +915,12 @@ impl<T: 'static> Signal<T> {
     }
 
     fn notify(&self) {
-        let id = self.inner.borrow().id;
+        let inner = self.inner.borrow();
+        let id = inner.id;
+        let source = inner.graph_source;
         debug_assert!(with_reactive(|r| r.source_slots.is_live(id.0)));
-        let subs: Vec<OwnedSubscriber> = self.inner.borrow().subscribers.clone();
-        for sub in subs {
+        publish_graph_source(source);
+        for &sub in &inner.subscribers {
             propagate(sub);
         }
     }
@@ -605,6 +940,7 @@ fn propagate(sub: OwnedSubscriber) {
 pub struct ModelSource {
     subscribers: RefCell<Vec<ModelSubscriber>>,
     next_subscription: Cell<u64>,
+    graph_source: Cell<Option<SourceKey>>,
 }
 
 #[derive(Clone, Copy)]
@@ -624,13 +960,39 @@ impl ModelSource {
         Self {
             subscribers: RefCell::new(Vec::new()),
             next_subscription: Cell::new(1),
+            graph_source: Cell::new(None),
         }
+    }
+
+    pub(crate) fn register_owner(&self, owner: WorldId) {
+        if let Some(source) = self.graph_source.get() {
+            assert!(
+                matches!(source.partition, PartitionKey::Owner { world, .. } if world == owner),
+                "model source is already registered to another App"
+            );
+            return;
+        }
+        register_graph_owner(owner);
+        let source = with_reactive(|r| {
+            r.graph
+                .reserve_for_owner_source(owner)
+                .expect("reactive model source capacity exhausted");
+            r.graph
+                .register_owner_source(owner)
+                .expect("reactive model source registration failed")
+        });
+        self.graph_source.set(Some(source));
     }
 
     pub fn track(&self) {
         let Some(subscriber) = current_scope() else {
             return;
         };
+        if let Some(source) = self.graph_source.get()
+            && subscribe_automatic_graph(source, subscriber)
+        {
+            return;
+        }
         let subscriber = OwnedSubscriber::tracked(subscriber);
         let mut subscribers = self.subscribers.borrow_mut();
         if !subscribers
@@ -650,7 +1012,10 @@ impl ModelSource {
                 .model_visual_subscriptions
                 .checked_add(1)
                 .expect("model visual subscription capacity exhausted");
-            r.dirty_visual_widgets.reserve(next);
+            let graph_visuals = r
+                .graph
+                .count_consumers_matching(|target| matches!(target, Subscriber::VisualWidget(_)));
+            r.dirty_visual_widgets.reserve(next + graph_visuals);
             r.model_visual_subscriptions = next;
         });
         let id = self.next_subscription.get();
@@ -678,25 +1043,74 @@ impl ModelSource {
     }
 
     pub fn notify(&self) {
+        if let Some(source) = self.graph_source.get() {
+            publish_graph_source(source);
+        }
         let len = self.subscribers.borrow().len();
         for index in 0..len {
             let subscriber = self.subscribers.borrow()[index].subscriber;
             propagate(subscriber);
         }
     }
+
+    pub(crate) fn invalidate_computeds(&self) {
+        if let Some(source) = self.graph_source.get() {
+            invalidate_computed_source(source);
+        }
+    }
 }
 
 impl Drop for ModelSource {
     fn drop(&mut self) {
+        self.invalidate_computeds();
+        let source = self.graph_source.get();
         let remaining = self
             .subscribers
             .get_mut()
             .iter()
             .filter(|entry| entry.id.is_some())
             .count();
-        if remaining != 0 {
-            try_with_reactive(|r| r.model_visual_subscriptions -= remaining);
+        if remaining != 0 || source.is_some() {
+            try_with_reactive(|r| {
+                if let Some(source) = source {
+                    let _ = r.graph.remove_source(source);
+                }
+                r.model_visual_subscriptions -= remaining;
+            });
         }
+    }
+}
+
+// A removed model source must invalidate cached values, but scheduling Effects
+// or Widgets would execute callbacks against a registration that no longer
+// exists. Traverse only Computed consumers through the graph's reserved queue.
+fn invalidate_computed_source(source: SourceKey) {
+    if !queue_computed_invalidation(source) {
+        return;
+    }
+    while let Some((_, Subscriber::Computed(id))) =
+        try_with_reactive(|r| r.graph.take_pending_computed()).flatten()
+    {
+        let node = try_with_reactive(|r| r.computeds.get(&id).and_then(Weak::upgrade)).flatten();
+        let Some(node) = node else {
+            try_with_reactive(|r| {
+                if r.computeds.remove(&id).is_some() {
+                    r.computed_slots.release(id.0);
+                }
+            });
+            continue;
+        };
+        if !node.mark_dirty_take_was_dirty() {
+            queue_computed_invalidation(node.graph_source());
+        }
+    }
+}
+
+fn queue_computed_invalidation(source: SourceKey) -> bool {
+    match try_with_reactive(|r| r.graph.publish_computed_only(source)) {
+        Some(Ok(())) => true,
+        Some(Err(graph::GraphError::StaleSource)) | None => false,
+        Some(Err(error)) => panic!("reactive computed invalidation failed: {error:?}"),
     }
 }
 
@@ -718,6 +1132,7 @@ fn mark_computed_dirty(id: ComputedId) {
     if already_dirty {
         return;
     }
+    publish_graph_source(node.graph_source());
     node.propagate_subscribers();
 }
 
@@ -725,12 +1140,20 @@ struct EffectInner {
     run: Rc<dyn Fn()>,
     owner_entity: Option<Entity>,
     owner_world: Option<WorldId>,
+    graph_consumer: ConsumerKey,
+    model_consumer: Option<ConsumerKey>,
 }
 
 fn unregister_effect(id: EffectId) {
     let removed = try_with_reactive(|r| {
         let removed = r.effects.remove(&id);
-        if removed.is_some() {
+        if let Some(effect) = &removed {
+            let effect = effect.borrow();
+            if let Some(consumer) = effect.model_consumer {
+                let _ = r.graph.remove_consumer(consumer);
+            }
+            let _ = r.graph.remove_consumer(effect.graph_consumer);
+            r.dirty_effects.retain(|queued| *queued != id);
             r.effect_slots.release(id.0);
         }
         removed
@@ -743,6 +1166,19 @@ fn unregister_effect(id: EffectId) {
 /// [`Effect::dispose`] to stop and unregister it.
 pub struct Effect {
     id: EffectId,
+}
+
+struct EffectInitGuard {
+    id: EffectId,
+    initialized: bool,
+}
+
+impl Drop for EffectInitGuard {
+    fn drop(&mut self) {
+        if !self.initialized {
+            unregister_effect(self.id);
+        }
+    }
 }
 
 impl Effect {
@@ -766,18 +1202,51 @@ impl Effect {
             owner_entity.is_none() || owner_world.is_some(),
             "widget effects require a world scope"
         );
-        let inner = Rc::new(RefCell::new(EffectInner {
-            run: Rc::new(f),
-            owner_entity,
-            owner_world,
-        }));
+        let run: Rc<dyn Fn()> = Rc::new(f);
         let id = with_reactive(|r| {
+            let partition = match owner_world {
+                Some(world) => r
+                    .graph
+                    .owner_key(world)
+                    .expect("Effect owner is not registered"),
+                None => PartitionKey::Shared,
+            };
+            if owner_world.is_some() {
+                r.reserve_owned_consumer_slot();
+            } else {
+                let needed = r
+                    .unbound_effect_count()
+                    .checked_add(1)
+                    .expect("reactive owner consumer headroom overflow");
+                r.graph
+                    .reserve_owner_consumer_headroom(needed)
+                    .expect("reactive unbound Effect headroom exhausted");
+                r.graph
+                    .reserve_for_consumer(partition)
+                    .expect("reactive shared Effect consumer capacity exhausted");
+            }
             let id = EffectId(r.effect_slots.allocate());
+            let graph_consumer = r
+                .graph
+                .register_consumer(partition, Subscriber::Effect(id))
+                .expect("reactive Effect registration failed");
+            let inner = Rc::new(RefCell::new(EffectInner {
+                run,
+                owner_entity,
+                owner_world,
+                graph_consumer,
+                model_consumer: None,
+            }));
             r.effects.insert(id, inner);
             r.dirty_effects.reserve(r.effects.len());
             id
         });
+        let mut init = EffectInitGuard {
+            id,
+            initialized: false,
+        };
         run_effect(id);
+        init.initialized = true;
         Effect { id }
     }
 
@@ -804,8 +1273,29 @@ pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) {
 // Clone the closure Rc out under the lock, then run it OUTSIDE — running user
 // code while holding the no_std critical_section would re-enter and deadlock.
 fn run_effect(id: EffectId) {
-    let run = with_reactive(|r| r.effects.get(&id).map(|e| Rc::clone(&e.borrow().run)));
-    if let Some(run) = run {
+    let run = with_reactive(|r| {
+        let effect = r.effects.get(&id)?;
+        let (consumer, model_consumer, ownerless, run) = {
+            let effect = effect.borrow();
+            (
+                effect.graph_consumer,
+                effect.model_consumer,
+                effect.owner_world.is_none(),
+                Rc::clone(&effect.run),
+            )
+        };
+        r.graph
+            .clear_consumer(consumer)
+            .expect("live Effect graph consumer missing before run");
+        if let Some(model_consumer) = model_consumer {
+            r.graph
+                .clear_consumer(model_consumer)
+                .expect("live model Effect consumer missing before run");
+        }
+        Some((run, ownerless))
+    });
+    if let Some((run, ownerless)) = run {
+        let _worldless = ownerless.then(WorldlessEffectGuard::enter);
         with_scope(Subscriber::Effect(id), || run());
     }
 }
@@ -815,6 +1305,8 @@ fn run_effect(id: EffectId) {
 trait ComputedNode {
     fn mark_dirty_take_was_dirty(&self) -> bool;
     fn propagate_subscribers(&self);
+    fn graph_source(&self) -> SourceKey;
+    fn graph_consumer(&self) -> ConsumerKey;
 }
 
 struct ComputedInner<T> {
@@ -824,6 +1316,8 @@ struct ComputedInner<T> {
     dirty: bool,
     owner_world: Option<WorldId>,
     owner_lifetime: Option<Weak<()>>,
+    graph_source: SourceKey,
+    graph_consumer: ConsumerKey,
 }
 
 impl<T> ComputedNode for RefCell<ComputedInner<T>> {
@@ -839,6 +1333,14 @@ impl<T> ComputedNode for RefCell<ComputedInner<T>> {
             propagate(subscriber);
         }
     }
+
+    fn graph_source(&self) -> SourceKey {
+        self.borrow().graph_source
+    }
+
+    fn graph_consumer(&self) -> ConsumerKey {
+        self.borrow().graph_consumer
+    }
 }
 
 /// A lazily-recomputed derived value. Reads its sources through `get()`, so it
@@ -848,6 +1350,8 @@ pub struct Computed<T: 'static> {
     inner: Rc<RefCell<ComputedInner<T>>>,
     id: ComputedId,
     source_id: SourceId,
+    graph_source: SourceKey,
+    graph_consumer: ConsumerKey,
 }
 
 impl<T: 'static> Clone for Computed<T> {
@@ -856,31 +1360,74 @@ impl<T: 'static> Clone for Computed<T> {
             inner: Rc::clone(&self.inner),
             id: self.id,
             source_id: self.source_id,
+            graph_source: self.graph_source,
+            graph_consumer: self.graph_consumer,
         }
     }
 }
 
 impl<T: 'static> Computed<T> {
     pub fn new(f: impl Fn() -> T + 'static) -> Self {
+        let owner_world = current_world_id();
+        let owner_lifetime = with_reactive(|r| r.world_lifetime.clone());
+        let (id, source_id, graph_source, graph_consumer) = with_reactive(|r| {
+            let partition = match owner_world {
+                Some(world) => r
+                    .graph
+                    .owner_key(world)
+                    .expect("Computed owner is not registered"),
+                None => PartitionKey::Shared,
+            };
+            match owner_world {
+                Some(world) => r
+                    .graph
+                    .reserve_for_owner_source(world)
+                    .expect("reactive Computed source capacity exhausted"),
+                None => r
+                    .graph
+                    .reserve_for_shared_source()
+                    .expect("reactive shared Computed source capacity exhausted"),
+            }
+            if owner_world.is_some() {
+                r.reserve_owned_consumer_slot();
+            } else {
+                r.graph
+                    .reserve_for_consumer(partition)
+                    .expect("reactive shared Computed consumer capacity exhausted");
+            }
+            let id = ComputedId(r.computed_slots.allocate());
+            let source_id = SourceId(r.source_slots.allocate());
+            let graph_source = match owner_world {
+                Some(world) => r.graph.register_owner_source(world),
+                None => r.graph.register_shared_source(),
+            }
+            .expect("reactive Computed source registration failed");
+            let graph_consumer = r
+                .graph
+                .register_consumer(partition, Subscriber::Computed(id))
+                .expect("reactive Computed consumer registration failed");
+            (id, source_id, graph_source, graph_consumer)
+        });
         let inner = Rc::new(RefCell::new(ComputedInner {
             value: None,
             compute: alloc::boxed::Box::new(f),
             subscribers: Vec::new(),
             dirty: true,
-            owner_world: current_world_id(),
-            owner_lifetime: with_reactive(|r| r.world_lifetime.clone()),
+            owner_world,
+            owner_lifetime,
+            graph_source,
+            graph_consumer,
         }));
         let node: Rc<dyn ComputedNode> = inner.clone();
-        let (id, source_id) = with_reactive(|r| {
-            let id = ComputedId(r.computed_slots.allocate());
-            let source_id = SourceId(r.source_slots.allocate());
+        with_reactive(|r| {
             r.computeds.insert(id, Rc::downgrade(&node));
-            (id, source_id)
         });
         Computed {
             inner,
             id,
             source_id,
+            graph_source,
+            graph_consumer,
         }
     }
 
@@ -904,13 +1451,20 @@ impl<T: 'static> Computed<T> {
         }
         let id = self.id();
         if let Some(sub) = current_scope() {
-            let subscriber = OwnedSubscriber::tracked(sub);
-            let mut inner = self.inner.borrow_mut();
-            if !inner.subscribers.contains(&subscriber) {
-                inner.subscribers.push(subscriber);
+            if !subscribe_automatic_graph(self.graph_source, sub) {
+                let subscriber = OwnedSubscriber::tracked(sub);
+                let mut inner = self.inner.borrow_mut();
+                if !inner.subscribers.contains(&subscriber) {
+                    inner.subscribers.push(subscriber);
+                }
             }
         }
         if self.inner.borrow().dirty {
+            with_reactive(|r| {
+                r.graph
+                    .clear_consumer(self.graph_consumer)
+                    .expect("live Computed consumer missing before evaluation");
+            });
             // Recompute in this computed's scope so its sources subscribe IT,
             // not whatever outer consumer triggered the read.
             let _owner = OwnerGuard::enter_id(owner, lifetime);
@@ -932,6 +1486,8 @@ impl<T: 'static> Drop for Computed<T> {
     fn drop(&mut self) {
         if Rc::strong_count(&self.inner) == 1 {
             try_with_reactive(|r| {
+                let _ = r.graph.remove_consumer(self.graph_consumer);
+                let _ = r.graph.remove_source(self.graph_source);
                 if r.computeds.remove(&self.id).is_some() {
                     r.computed_slots.release(self.id.0);
                 }
@@ -965,6 +1521,9 @@ mod tests {
             effects
         });
         drop(effects);
+        with_reactive(|r| {
+            r.graph = ReactiveGraph::new();
+        });
     }
 
     fn entity(id: u32) -> Entity {
@@ -1140,6 +1699,31 @@ mod tests {
     }
 
     #[test]
+    fn panicking_initial_effect_run_unregisters_its_consumer() {
+        reset();
+        let signal = Signal::new(0u8);
+        let source = signal.clone();
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _effect = Effect::new(move || {
+                let _ = source.get();
+                panic!("initial evaluation failed");
+            });
+        }));
+        assert!(failure.is_err());
+        with_reactive(|r| assert!(r.effects.is_empty()));
+        let source = signal.inner.borrow().graph_source;
+        let mut subscribers = 0;
+        with_reactive(|r| {
+            r.graph
+                .for_each_subscriber(source, |_, _| subscribers += 1)
+                .unwrap();
+        });
+        assert_eq!(subscribers, 0);
+        signal.set(1);
+        with_reactive(|r| assert!(r.dirty_effects.is_empty()));
+    }
+
+    #[test]
     fn effect_reruns_on_dependency_change() {
         reset();
         let s = Signal::new(0i32);
@@ -1151,6 +1735,181 @@ mod tests {
         s.set(7);
         drain_effects();
         assert_eq!(*seen.borrow(), alloc::vec![0, 7]);
+    }
+
+    #[test]
+    fn effect_switches_signal_dependencies_without_retaining_old_edges() {
+        reset();
+        let choose_right = Signal::new(false);
+        let left = Signal::new(1u8);
+        let right = Signal::new(10u8);
+        let runs = Rc::new(Cell::new(0u32));
+        let (choose_read, left_read, right_read, run_count) = (
+            choose_right.clone(),
+            left.clone(),
+            right.clone(),
+            Rc::clone(&runs),
+        );
+        let _effect = Effect::new(move || {
+            if choose_read.get() {
+                let _ = right_read.get();
+            } else {
+                let _ = left_read.get();
+            }
+            run_count.set(run_count.get() + 1);
+        });
+        assert_eq!(runs.get(), 1);
+
+        left.set(2);
+        drain_effects();
+        assert_eq!(runs.get(), 2);
+        right.set(11);
+        drain_effects();
+        assert_eq!(runs.get(), 2);
+
+        choose_right.set(true);
+        drain_effects();
+        assert_eq!(runs.get(), 3);
+        left.set(3);
+        drain_effects();
+        assert_eq!(runs.get(), 3, "the old branch must be unlinked");
+        right.set(12);
+        drain_effects();
+        assert_eq!(runs.get(), 4);
+    }
+
+    #[test]
+    fn ownerless_effect_switches_registered_model_sources_without_allocating() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let owner = world.id();
+        let first = Rc::new(ModelSource::new());
+        let second = Rc::new(ModelSource::new());
+        first.register_owner(owner);
+        second.register_owner(owner);
+        let use_first = Signal::new(true);
+        let runs = Rc::new(Cell::new(0u32));
+        let (branch, first_read, second_read, run_count) = (
+            use_first.clone(),
+            Rc::clone(&first),
+            Rc::clone(&second),
+            Rc::clone(&runs),
+        );
+        let _effect = Effect::new(move || {
+            if branch.get() {
+                first_read.track();
+            } else {
+                second_read.track();
+            }
+            run_count.set(run_count.get() + 1);
+        });
+        assert_eq!(runs.get(), 1);
+
+        let allocations = graph::tests::tracked_allocations(|| {
+            use_first.set(false);
+            flush_signal_dirty(&mut world);
+        });
+        assert_eq!(
+            allocations, 0,
+            "registered branch switch must reuse graph storage"
+        );
+        assert_eq!(runs.get(), 2);
+        first.notify();
+        flush_signal_dirty(&mut world);
+        assert_eq!(runs.get(), 2, "the old model source must be unlinked");
+        second.notify();
+        flush_signal_dirty(&mut world);
+        assert_eq!(runs.get(), 3);
+    }
+
+    #[test]
+    fn ownerless_effect_first_model_read_reuses_structural_consumer_capacity() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let model = Rc::new(ModelSource::new());
+        model.register_owner(world.id());
+        let use_model = Signal::new(false);
+        let runs = Rc::new(Cell::new(0u32));
+        let (branch, model_read, run_count) =
+            (use_model.clone(), Rc::clone(&model), Rc::clone(&runs));
+        let _effect = Effect::new(move || {
+            if branch.get() {
+                model_read.track();
+            }
+            run_count.set(run_count.get() + 1);
+        });
+        assert_eq!(runs.get(), 1);
+
+        let allocations = graph::tests::tracked_allocations(|| {
+            use_model.set(true);
+            flush_signal_dirty(&mut world);
+        });
+        assert_eq!(
+            allocations, 0,
+            "first model read must use reserved capacity"
+        );
+        assert_eq!(runs.get(), 2);
+    }
+
+    #[test]
+    fn unbound_effect_retains_headroom_when_owner_and_widget_arrive_later() {
+        reset();
+        let gate = Signal::new(false);
+        let model = Rc::new(ModelSource::new());
+        let runs = Rc::new(Cell::new(0u32));
+        let (branch, observed, count) = (gate.clone(), Rc::clone(&model), Rc::clone(&runs));
+        let _effect = Effect::new(move || {
+            if branch.get() {
+                observed.track();
+            }
+            count.set(count.get() + 1);
+        });
+        let mut world = World::new();
+        let widget = world.spawn_empty();
+        with_world_scope(&mut world, || {
+            with_scope(Subscriber::Widget(widget), || ());
+        });
+        model.register_owner(world.id());
+
+        assert_eq!(
+            graph::tests::tracked_allocations(|| {
+                gate.set(true);
+                flush_signal_dirty(&mut world);
+            }),
+            0
+        );
+        assert_eq!(runs.get(), 2);
+    }
+
+    #[test]
+    fn ownerless_effect_cannot_subscribe_to_models_from_two_apps() {
+        reset();
+        let mut first_world = World::new();
+        let mut second_world = World::new();
+        drop(OwnerGuard::enter(&mut first_world));
+        drop(OwnerGuard::enter(&mut second_world));
+        let first = Rc::new(ModelSource::new());
+        let second = Rc::new(ModelSource::new());
+        first.register_owner(first_world.id());
+        second.register_owner(second_world.id());
+        let use_second = Signal::new(false);
+        let (branch, first_read, second_read) =
+            (use_second.clone(), Rc::clone(&first), Rc::clone(&second));
+        let effect = Effect::new(move || {
+            if branch.get() {
+                second_read.track();
+            } else {
+                first_read.track();
+            }
+        });
+        use_second.set(true);
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            flush_signal_dirty(&mut first_world);
+        }));
+        assert!(failure.is_err());
+        drop(effect);
     }
 
     #[test]
@@ -1296,6 +2055,112 @@ mod tests {
         n.set(2);
         let _ = c.get();
         assert_eq!(*calls.borrow(), 2, "recompute only after a source change");
+    }
+
+    #[test]
+    fn computed_first_registered_model_branch_switch_does_not_allocate() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let first = Rc::new(ModelSource::new());
+        let second = Rc::new(ModelSource::new());
+        first.register_owner(world.id());
+        second.register_owner(world.id());
+        let use_first = Signal::new(true);
+        let evaluations = Rc::new(Cell::new(0u32));
+        let (branch, first_read, second_read, visits) = (
+            use_first.clone(),
+            Rc::clone(&first),
+            Rc::clone(&second),
+            Rc::clone(&evaluations),
+        );
+        let computed = with_world_scope(&mut world, || {
+            Computed::new(move || {
+                visits.set(visits.get() + 1);
+                if branch.get() {
+                    first_read.track();
+                    1u8
+                } else {
+                    second_read.track();
+                    2u8
+                }
+            })
+        });
+        assert_eq!(computed.get(), 1);
+        assert_eq!(evaluations.get(), 1);
+
+        let allocations = graph::tests::tracked_allocations(|| {
+            use_first.set(false);
+            assert_eq!(computed.get(), 2);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(evaluations.get(), 2);
+        first.notify();
+        assert_eq!(computed.get(), 2);
+        assert_eq!(evaluations.get(), 2);
+        second.notify();
+        assert_eq!(computed.get(), 2);
+        assert_eq!(evaluations.get(), 3);
+    }
+
+    #[test]
+    fn model_source_notification_dirties_computed_before_lazy_evaluation() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let source = Rc::new(ModelSource::new());
+        source.register_owner(world.id());
+        let evaluations = Rc::new(Cell::new(0u32));
+        let (observed, visits) = (Rc::clone(&source), Rc::clone(&evaluations));
+        let computed = with_world_scope(&mut world, || {
+            Computed::new(move || {
+                observed.track();
+                visits.set(visits.get() + 1);
+                1u8
+            })
+        });
+        let read = computed.clone();
+        let effect = with_world_scope(&mut world, || {
+            Effect::new(move || {
+                let _ = read.get();
+            })
+        });
+        assert_eq!(evaluations.get(), 1);
+
+        source.notify();
+        assert!(computed.inner.borrow().dirty);
+        assert_eq!(
+            evaluations.get(),
+            1,
+            "notification must not evaluate user code"
+        );
+        assert!(with_reactive(|r| r.dirty_effects.contains(&effect.id)));
+        flush_signal_dirty(&mut world);
+        assert_eq!(evaluations.get(), 2);
+    }
+
+    #[test]
+    fn dropping_model_source_invalidates_cached_computed_before_removing_edges() {
+        reset();
+        let mut world = World::new();
+        let source = Rc::new(ModelSource::new());
+        drop(OwnerGuard::enter(&mut world));
+        source.register_owner(world.id());
+        let weak = Rc::downgrade(&source);
+        let computed = with_world_scope(&mut world, || {
+            Computed::new(move || {
+                weak.upgrade().expect("model source is gone").track();
+                9u8
+            })
+        });
+        assert_eq!(computed.get(), 9);
+
+        drop(source);
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get()));
+        assert!(
+            failure.is_err(),
+            "removed source cannot leave a valid cache"
+        );
     }
 
     #[test]
@@ -1473,6 +2338,114 @@ mod tests {
     }
 
     #[test]
+    fn owned_widget_scope_switches_signal_edges_without_allocating() {
+        reset();
+        let mut world = World::new();
+        let widget = world.spawn_empty();
+        let choose_right = Signal::new(false);
+        let left = Signal::new(1u8);
+        let right = Signal::new(10u8);
+        with_world_scope(&mut world, || {
+            with_scope(Subscriber::Widget(widget), || {
+                if choose_right.get() {
+                    let _ = right.get();
+                } else {
+                    let _ = left.get();
+                }
+            });
+        });
+        assert!(left.inner.borrow().subscribers.is_empty());
+
+        choose_right.set(true);
+        flush_signal_dirty(&mut world);
+        world.remove::<Dirty>(widget);
+        let allocations = graph::tests::tracked_allocations(|| {
+            with_world_scope(&mut world, || {
+                with_scope(Subscriber::Widget(widget), || {
+                    if choose_right.get() {
+                        let _ = right.get();
+                    } else {
+                        let _ = left.get();
+                    }
+                });
+            });
+        });
+        assert_eq!(allocations, 0, "reevaluation must reuse graph storage");
+
+        left.set(2);
+        flush_signal_dirty(&mut world);
+        assert!(!world.has::<Dirty>(widget), "old edge must be removed");
+        assert_eq!(graph::tests::tracked_allocations(|| right.set(11)), 0);
+        flush_signal_dirty(&mut world);
+        assert!(world.has::<Dirty>(widget));
+
+        cleanup_effects_for(&world, widget);
+        world.remove::<Dirty>(widget);
+        right.set(12);
+        flush_signal_dirty(&mut world);
+        assert!(
+            !world.has::<Dirty>(widget),
+            "teardown removes graph consumer"
+        );
+    }
+
+    #[test]
+    fn owned_visual_scope_isolates_model_sources_across_worlds() {
+        reset();
+        let mut first_world = World::new();
+        let mut second_world = World::new();
+        let first_widget = first_world.spawn_empty();
+        let second_widget = second_world.spawn_empty();
+        let first_owner = first_world.id();
+        let second_owner = second_world.id();
+        assert_eq!(first_widget, second_widget);
+        let first = ModelSource::new();
+        let second = ModelSource::new();
+        with_world_scope(&mut first_world, || {
+            first.register_owner(first_owner);
+            with_scope(Subscriber::VisualWidget(first_widget), || first.track());
+        });
+        with_world_scope(&mut second_world, || {
+            second.register_owner(second_owner);
+            with_scope(Subscriber::VisualWidget(second_widget), || second.track());
+        });
+        assert!(first.subscribers.borrow().is_empty());
+        assert!(second.subscribers.borrow().is_empty());
+
+        assert_eq!(graph::tests::tracked_allocations(|| first.notify()), 0);
+        flush_signal_dirty(&mut second_world);
+        assert!(!second_world.has::<VisualDirty>(second_widget));
+        flush_signal_dirty(&mut first_world);
+        assert!(first_world.has::<VisualDirty>(first_widget));
+
+        first_world.remove::<VisualDirty>(first_widget);
+        let backup = ModelSource::new();
+        backup.register_owner(first_owner);
+        let allocations = graph::tests::tracked_allocations(|| {
+            with_world_scope(&mut first_world, || {
+                with_scope(Subscriber::VisualWidget(first_widget), || backup.track());
+            });
+        });
+        assert_eq!(
+            allocations, 0,
+            "visual dependency switch must reuse storage"
+        );
+        first.notify();
+        flush_signal_dirty(&mut first_world);
+        assert!(!first_world.has::<VisualDirty>(first_widget));
+        backup.notify();
+        flush_signal_dirty(&mut first_world);
+        assert!(first_world.has::<VisualDirty>(first_widget));
+
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_world_scope(&mut second_world, || {
+                with_scope(Subscriber::VisualWidget(second_widget), || first.track());
+            });
+        }));
+        assert!(failure.is_err(), "cross-World model edge must be rejected");
+    }
+
+    #[test]
     fn flushing_one_world_preserves_other_worlds_effects() {
         reset();
         let mut a = World::new();
@@ -1574,6 +2547,44 @@ mod tests {
         signal.set(2);
         flush_signal_dirty(&mut a);
         assert_eq!(*runs.borrow(), 3);
-        assert_eq!(signal.inner.borrow().subscribers.len(), 1);
+        let source = signal.inner.borrow().graph_source;
+        let mut subscribers = 0;
+        with_reactive(|r| {
+            r.graph
+                .for_each_subscriber(source, |_, subscriber| {
+                    assert!(matches!(subscriber, Subscriber::Effect(_)));
+                    subscribers += 1;
+                })
+                .unwrap();
+        });
+        assert_eq!(subscribers, 1);
+    }
+
+    #[test]
+    fn dropped_world_releases_owner_graph_and_effect_edges() {
+        reset();
+        let mut world = World::new();
+        let world_id = world.id();
+        let signal = Signal::new(0u8);
+        let source = signal.clone();
+        let runs = Rc::new(Cell::new(0u32));
+        let counter = Rc::clone(&runs);
+        let effect = with_world_scope(&mut world, || {
+            Effect::new(move || {
+                let _ = source.get();
+                counter.set(counter.get() + 1);
+            })
+        });
+        assert_eq!(runs.get(), 1);
+        assert!(with_reactive(|r| r.graph.owner_key(world_id).is_ok()));
+
+        drop(world);
+        assert!(with_reactive(|r| r.graph.owner_key(world_id).is_err()));
+        assert_eq!(effect_count(), 0);
+        let mut next_world = World::new();
+        with_world_scope(&mut next_world, || ());
+        signal.set(1);
+        assert_eq!(runs.get(), 1);
+        drop(effect);
     }
 }

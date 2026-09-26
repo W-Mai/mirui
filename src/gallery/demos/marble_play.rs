@@ -1380,7 +1380,7 @@ mod tests {
         registry.insert(board_render::view());
         world.insert_resource(registry);
         world.insert_resource(IdMap::new());
-        let (cell, model) = crate::core::model::register(world.id(), MarbleModel::new());
+        let (cell, model) = crate::core::model::register(&mut world, MarbleModel::new());
         let registration = world.spawn_empty();
         world.insert(registration, cell);
         #[cfg(feature = "audio")]

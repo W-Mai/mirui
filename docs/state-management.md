@@ -49,6 +49,12 @@ let counter = app.add_model(Counter { count: 0 });
 counter.increment();
 ```
 
+Model methods must return owned values; a generated handle cannot return a
+reference into its temporarily borrowed model. An impl in another module uses
+the model's qualified path, such as `#[model] impl super::data::Counter`.
+Observed fields, observed getters, and effect extractors can use `#[cfg]`;
+their generated accessors and source storage follow the same condition.
+
 `#[observe]` creates a handle getter for a small `Copy + Eq` field. Reading
 `counter.count()` inside a reactive UI binding subscribes that binding to the
 field. Model methods compare observed values before and after each update;
@@ -421,7 +427,7 @@ A reactive binding's first run applies its initial value at construction
 state.
 
 Registered model methods, observed notifications, fixed-array effect delivery,
-already-attached View subscriptions, and registered model-to-computed-to-effect
+already-attached View subscriptions, and registered model/signal-to-computed-to-effect
 propagation reuse their storage during updates.
 Rebinding an already-used model source also reuses its subscription storage.
 Model handles become invalid when their registration is removed or the App ends,
@@ -445,6 +451,11 @@ separately when targeting a bounded-memory device.
   App and cannot be read from another App or after that App ends. An ownerless computed may share
   ownerless signals but cannot read a registered model. Computed evaluation
   cannot write models.
+- **Effect ownership**: an effect created outside an App remains worldless
+  until it first reads a registered model, then belongs to that model's App.
+  It cannot read models from two Apps. While unbound, `with_world()` returns
+  `None` even when a World flush triggers the effect; the binding run remains
+  worldless and later runs use the bound App.
 - **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
   events. Consumers cannot start another model write during delivery.
 - **Single-root reactive branches**: each `if` / `match` / `walk` reactive

@@ -205,6 +205,14 @@ impl ModelWatch {
         self.source.notify();
     }
 
+    fn register_owner(&self, owner: WorldId) {
+        self.source.register_owner(owner);
+    }
+
+    fn invalidate_computeds(&self) {
+        self.source.invalidate_computeds();
+    }
+
     fn subscribe_visual_widget(&self, owner: WorldId, entity: crate::ecs::Entity) -> u64 {
         self.source.subscribe_visual_widget(owner, entity)
     }
@@ -241,13 +249,22 @@ pub struct ModelCell<M: Model> {
 
 impl<M: Model> ModelCell<M> {
     pub(crate) fn new(owner: WorldId, value: M) -> Self {
+        let sources = M::sources();
+        let derived_sources = M::derived_sources();
+        let watches = M::watches();
+        for source in sources.as_ref().iter().chain(derived_sources.as_ref()) {
+            source.register_owner(owner);
+        }
+        for watch in watches.as_ref() {
+            watch.register_owner(owner);
+        }
         Self {
             owner,
             active: Cell::new(true),
             value: RefCell::new(value),
-            sources: M::sources(),
-            derived_sources: M::derived_sources(),
-            watches: M::watches(),
+            sources,
+            derived_sources,
+            watches,
             routes: M::routes(),
             poisoned: Cell::new(false),
         }
@@ -279,6 +296,18 @@ pub(crate) struct RegisteredModel<M: Model> {
 impl<M: Model> Drop for RegisteredModel<M> {
     fn drop(&mut self) {
         self.cell.active.set(false);
+        for source in self
+            .cell
+            .sources
+            .as_ref()
+            .iter()
+            .chain(self.cell.derived_sources.as_ref())
+        {
+            source.invalidate_computeds();
+        }
+        for watch in self.cell.watches.as_ref() {
+            watch.invalidate_computeds();
+        }
     }
 }
 
@@ -482,8 +511,12 @@ fn subscribe_visual<H: ModelHandle>(
     }
 }
 
-pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (RegisteredModel<M>, M::Handle) {
-    let cell = Rc::new(ModelCell::new(owner, value));
+pub(crate) fn register<M: Model>(
+    world: &mut crate::ecs::World,
+    value: M,
+) -> (RegisteredModel<M>, M::Handle) {
+    let _owner = crate::core::reactive::OwnerGuard::enter(world);
+    let cell = Rc::new(ModelCell::new(world.id(), value));
     let handle = M::handle(Rc::downgrade(&cell));
     (RegisteredModel { cell }, handle)
 }
@@ -518,9 +551,10 @@ where
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{Model, ModelCell, ModelHandle, ModelMethods};
-    use crate::core::reactive::flush_signal_dirty;
+    use crate::core::reactive::{Computed, Effect, flush_signal_dirty, with_world_scope};
     use crate::ui::dirty::VisualDirty;
-    use alloc::rc::Weak;
+    use alloc::rc::{Rc, Weak};
+    use core::cell::Cell;
 
     struct Counter(u32);
 
@@ -604,7 +638,7 @@ mod tests {
         }
 
         fn value(&self) -> u32 {
-            self.read(|counter| counter.0)
+            self.read_observed(0, |counter| counter.0)
         }
     }
 
@@ -632,6 +666,18 @@ mod tests {
         };
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
         assert!(error.is_err());
+    }
+
+    #[test]
+    fn direct_model_registration_installs_world_owner_cleanup() {
+        let mut world = crate::ecs::World::new();
+        let owner = world.id();
+        let (registration, _handle) = super::register(&mut world, Counter(4));
+        assert!(crate::core::reactive::has_graph_owner(owner));
+
+        drop(world);
+        assert!(!crate::core::reactive::has_graph_owner(owner));
+        drop(registration);
     }
 
     #[test]
@@ -665,6 +711,51 @@ mod tests {
         let write = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.increment()));
         assert!(read.is_err());
         assert!(write.is_err());
+        drop(retained_cell);
+    }
+
+    #[test]
+    fn despawned_model_invalidates_cached_computeds_without_rerunning_effects() {
+        let mut app = crate::app::App::headless(32, 32);
+        let handle = app.add_model(Counter(4));
+        let retained_cell = handle.cell().upgrade().unwrap();
+        let source = handle.clone();
+        let computed = with_world_scope(&mut app.world, || Computed::new(move || source.value()));
+        let upstream = computed.clone();
+        let downstream =
+            with_world_scope(&mut app.world, || Computed::new(move || upstream.get() * 2));
+        let runs = Rc::new(Cell::new(0u32));
+        let read = downstream.clone();
+        let count = Rc::clone(&runs);
+        let _effect = with_world_scope(&mut app.world, || {
+            Effect::new(move || {
+                let _ = read.get();
+                count.set(count.get() + 1);
+            })
+        });
+        assert_eq!((computed.get(), downstream.get(), runs.get()), (4, 8, 1));
+        let registration = app
+            .world
+            .query::<super::RegisteredModel<Counter>>()
+            .iter()
+            .next()
+            .unwrap()
+            .0;
+
+        assert!(app.world.despawn(registration));
+        flush_signal_dirty(&mut app.world);
+        assert_eq!(runs.get(), 1, "cleanup must not schedule the stale Effect");
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get()));
+        let downstream_read =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| downstream.get()));
+        assert!(
+            read.is_err(),
+            "Computed must not return a stale cached value"
+        );
+        assert!(
+            downstream_read.is_err(),
+            "downstream Computed must also be dirty"
+        );
         drop(retained_cell);
     }
 

@@ -70,7 +70,8 @@ pub struct World {
     resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
     watched_component_types: alloc::vec::Vec<TypeId>,
     component_changes: alloc::vec::Vec<ComponentChange>,
-    lifetime: Rc<()>,
+    drop_hooks: alloc::vec::Vec<(TypeId, fn(WorldId))>,
+    lifetime: Option<Rc<()>>,
 }
 
 impl Default for World {
@@ -82,7 +83,8 @@ impl Default for World {
             resources: HashMap::default(),
             watched_component_types: alloc::vec::Vec::new(),
             component_changes: alloc::vec::Vec::new(),
-            lifetime: Rc::new(()),
+            drop_hooks: alloc::vec::Vec::new(),
+            lifetime: Some(Rc::new(())),
         }
     }
 }
@@ -93,7 +95,18 @@ impl World {
     }
 
     pub(crate) fn lifetime(&self) -> Weak<()> {
-        Rc::downgrade(&self.lifetime)
+        Rc::downgrade(self.lifetime.as_ref().expect("World has ended"))
+    }
+
+    pub(crate) fn register_drop_hook<T: 'static>(&mut self, hook: fn(WorldId)) {
+        let kind = TypeId::of::<T>();
+        if !self
+            .drop_hooks
+            .iter()
+            .any(|(registered, _)| *registered == kind)
+        {
+            self.drop_hooks.push((kind, hook));
+        }
     }
 
     pub fn new() -> Self {
@@ -330,9 +343,42 @@ impl World {
     }
 }
 
+impl Drop for World {
+    fn drop(&mut self) {
+        self.lifetime.take();
+        for (_, hook) in &self.drop_hooks {
+            hook(self.id);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifetime_expires_before_resource_destructors() {
+        struct CheckLifetime {
+            lifetime: Weak<()>,
+            observed: Rc<core::cell::Cell<bool>>,
+        }
+
+        impl Drop for CheckLifetime {
+            fn drop(&mut self) {
+                self.observed.set(self.lifetime.upgrade().is_none());
+            }
+        }
+
+        let mut world = World::new();
+        let observed = Rc::new(core::cell::Cell::new(false));
+        world.insert_resource(CheckLifetime {
+            lifetime: world.lifetime(),
+            observed: Rc::clone(&observed),
+        });
+
+        drop(world);
+        assert!(observed.get());
+    }
 
     #[test]
     fn absent_component_mutation_does_not_create_storage() {

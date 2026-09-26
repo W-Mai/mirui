@@ -1,6 +1,6 @@
 use mirui::app::App;
 use mirui::core::model::{BindType, ModelHandle, SharedValue};
-use mirui::core::reactive::{Computed, Effect, flush_signal_dirty, with_world_scope};
+use mirui::core::reactive::{Computed, Effect, Signal, flush_signal_dirty, with_world_scope};
 use mirui::{model, system};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -326,6 +326,55 @@ fn one_model_command_coalesces_shared_observer_notifications() {
 }
 
 #[test]
+fn ownerless_effect_first_model_branch_binds_its_source_even_if_another_app_flushes_first() {
+    let mut owner = App::headless(32, 32);
+    let mut other = App::headless(32, 32);
+    let model = owner.add_model(ObservedCounter {
+        count: 7,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    with_world_scope(&mut other.world, || ());
+    let use_model = Signal::new(false);
+    let seen = Rc::new(Cell::new(0));
+    let runs = Rc::new(Cell::new(0));
+    let had_world = Rc::new(Cell::new(false));
+    let (branch, observed, seen_in_effect, runs_in_effect, world_in_effect) = (
+        use_model.clone(),
+        model.clone(),
+        Rc::clone(&seen),
+        Rc::clone(&runs),
+        Rc::clone(&had_world),
+    );
+    let _effect = Effect::new(move || {
+        if branch.get() {
+            seen_in_effect.set(observed.count());
+        }
+        world_in_effect.set(mirui::core::reactive::with_world(|_| ()).is_some());
+        runs_in_effect.set(runs_in_effect.get() + 1);
+    });
+    assert_eq!(runs.get(), 1);
+    assert!(!had_world.get());
+
+    assert_eq!(
+        tracked_allocations(|| {
+            use_model.set(true);
+            flush_signal_dirty(&mut other.world);
+        }),
+        0
+    );
+    assert_eq!((seen.get(), runs.get()), (7, 2));
+    assert!(!had_world.get(), "the binding run has no ambient World");
+
+    model.set_count(9);
+    flush_signal_dirty(&mut other.world);
+    assert_eq!(runs.get(), 2);
+    flush_signal_dirty(&mut owner.world);
+    assert_eq!((seen.get(), runs.get()), (9, 3));
+    assert!(had_world.get(), "later owner flushes expose their World");
+}
+
+#[test]
 fn generic_observed_fields_keep_their_value_type() {
     let mut app = App::headless(32, 32);
     let model = app.add_model(GenericObserved { value: 3_u16 });
@@ -388,6 +437,21 @@ fn repeated_visual_subscription_binding_reuses_its_storage() {
         }),
         0
     );
+}
+
+#[test]
+fn explicit_visual_model_subscription_notifies_without_allocating() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let entity = app.world.spawn_empty();
+    let subscription = model.__mirui_subscribe_count(&app.world, entity);
+
+    assert_eq!(tracked_allocations(|| model.set_count(1)), 0);
+    drop(subscription);
 }
 
 #[test]
@@ -523,6 +587,81 @@ fn model_computed_effect_propagation_reuses_registered_storage() {
         0
     );
     assert_eq!(seen.get(), 4);
+}
+
+#[test]
+fn shared_signal_computed_effect_notification_reuses_registered_storage() {
+    let mut app = App::headless(32, 32);
+    let source = Signal::new(1_u32);
+    let observed = source.clone();
+    let computed = with_world_scope(&mut app.world, || Computed::new(move || observed.get() * 2));
+    let value = Rc::new(Cell::new(0));
+    let in_effect = value.clone();
+    let read = computed.clone();
+    let _effect = with_world_scope(&mut app.world, || {
+        Effect::new(move || in_effect.set(read.get()))
+    });
+    assert_eq!(value.get(), 2);
+
+    assert_eq!(
+        tracked_allocations(|| {
+            source.set(3);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
+    assert_eq!(value.get(), 6);
+}
+
+#[test]
+fn computed_switches_model_dependencies_without_retaining_the_old_source() {
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(ObservedCounter {
+        count: 2,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let second = app.add_model(ObservedCounter {
+        count: 5,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let choose_first = Signal::new(true);
+    let branch = choose_first.clone();
+    let first_read = first.clone();
+    let second_read = second.clone();
+    let evaluations = Rc::new(Cell::new(0));
+    let visits = evaluations.clone();
+    let computed = with_world_scope(&mut app.world, || {
+        Computed::new(move || {
+            visits.set(visits.get() + 1);
+            if branch.get() {
+                first_read.count()
+            } else {
+                second_read.count()
+            }
+        })
+    });
+    assert_eq!(computed.get(), 2);
+    assert_eq!(evaluations.get(), 1);
+
+    assert_eq!(
+        tracked_allocations(|| {
+            choose_first.set(false);
+            assert_eq!(computed.get(), 5);
+        }),
+        0,
+        "the first switch to a registered model source must reuse graph storage"
+    );
+    assert_eq!(evaluations.get(), 2);
+
+    first.set_count(3);
+    assert_eq!(computed.get(), 5);
+    assert_eq!(evaluations.get(), 2);
+
+    second.set_count(7);
+    assert_eq!(computed.get(), 7);
+    assert_eq!(evaluations.get(), 3);
 }
 
 #[test]

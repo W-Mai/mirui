@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Registered model calls.** `#[model]` forwards model methods through instance handles returned by `App::add_model`; multiple instances of one type remain independent, and handles reject access after their registration ends.
+- **Cross-module model declarations.** Qualified `#[model] impl` paths target models declared in another module; conditional observers and effect extractors keep their generated storage and accessors under the same configuration.
+- **Owner-scoped reactive dependencies.** Registered effects and computed values clear old Signal/model edges when a branch changes and reuse reserved graph storage for the new edges.
 - **Bound model declarations.** `#[component(bind(...))]` stores model handles in named fields, while `#[compose(bind(...))]` maps named parameters to shared handles. Bound component cloning shares instances without requiring the model data to implement `Clone`.
 - **Shared bound UI callbacks.** `#[compose(bind(...))]` shares named model handles across generated `ui!` event and reactive callbacks, allowing multiple controls to reference one instance without explicit handle clones.
 - **Observed model fields.** `#[observe]` on small model fields generates tracked handle getters; model updates compare field values and notify only changed sources after releasing the model borrow.
@@ -32,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Reactive notification allocations.** Effect queues reserve capacity at registration, and flush processes pending effects and widget invalidations without temporary vectors.
+- **Reactive notification allocations.** Effect queues reserve capacity at registration, while shared signals propagate to computed values and flush processes pending effects and widget invalidations without copying subscriber lists or allocating temporary vectors.
 - **Model observer scheduling.** A command that changes several sources read by one effect queues that effect once per flush; repeated widget notifications also coalesce until consumed.
 - **Computed ownership.** Computed values created inside an App keep that owner, reject reads from another App or after its disposal, and cannot mutate models during evaluation. Ownerless computed values cannot read registered models.
 - **Computed propagation storage.** Model changes propagate through registered computed values to effects without cloning subscriber lists or allocating during the update and flush.

@@ -114,7 +114,7 @@ mod tests {
     fn tap_increments_and_reactive_text_updates() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
-        let (cell, counter) = crate::core::model::register(world.id(), CounterModel::default());
+        let (cell, counter) = crate::core::model::register(&mut world, CounterModel::default());
         let registration = world.spawn_empty();
         world.insert(registration, cell);
         let parent = WidgetBuilder::new(&mut world).id();
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn assigning_the_same_count_does_not_notify_observers() {
         let mut world = World::new();
-        let (cell, counter) = crate::core::model::register(world.id(), CounterModel::default());
+        let (cell, counter) = crate::core::model::register(&mut world, CounterModel::default());
         let registration = world.spawn_empty();
         world.insert(registration, cell);
         let reads = Rc::new(Cell::new(0));

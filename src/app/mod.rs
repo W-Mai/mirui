@@ -129,7 +129,7 @@ fn install_default_log_sink_once() {
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Register an independent model instance and return its shared handle.
     pub fn add_model<M: crate::core::model::Model>(&mut self, value: M) -> M::Handle {
-        let (registration, handle) = crate::core::model::register(self.world.id(), value);
+        let (registration, handle) = crate::core::model::register(&mut self.world, value);
         let entity = self.world.spawn_empty();
         self.world.insert(entity, registration);
         handle
