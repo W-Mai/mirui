@@ -357,7 +357,7 @@ You have a running mirui app. The next steps depend on what you want to build:
 
 - **Add your own widget** — inspect the built-in widgets and Gallery compositions for rendering, theme integration, typed properties, and animation contracts.
 - **Drive your own LCD or touch IC** — implement the `Surface` boundary and use the ESP32-C3 board integration in [`mirui-examples`](https://github.com/W-Mai/mirui-examples) as a complete framebuffer and input reference.
-- **React to state changes declaratively** — [`state-management.md`](state-management.md) covers `Signal<T>`, `Computed<T>`, `Effect`, DSL bindings, and lifecycle-safe disposal.
+- **React to state changes declaratively** — [`state-management.md`](state-management.md) covers registered models, bound components and Views, `Signal<T>`, `Computed<T>`, `Effect`, and DSL bindings.
 - **Persist user state across runs** — the `persistence_counter` Gallery demo connects `PersistencePlugin` to lifecycle pause and resume hooks.
 
 The working examples in [`gallery/examples/`](../gallery/examples/) and [`mirui-examples`](https://github.com/W-Mai/mirui-examples) exercise the same public APIs across desktop, browser, and embedded targets.

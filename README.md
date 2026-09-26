@@ -181,6 +181,53 @@ ui! {
 
 Use an alias when the expression should not expose an ID-shaped field: `@id(stage).width as stage_width { stage_width / 2 }`. `$` remains the signal-driven state binding syntax; `@` runs after layout geometry changes.
 
+### Bound models
+
+`#[model]` keeps business state in a registered instance. `#[observe]` marks
+small values used by reactive attributes, and `#[compose(bind(...))]` shares
+the instance across generated callbacks:
+
+```rust
+use mirui::prelude::*;
+use mirui::ui::widgets::{Button, Text};
+
+#[model]
+struct Counter {
+    #[observe]
+    value: i32,
+}
+
+#[model]
+impl Counter {
+    fn increment(&mut self) { self.value += 1; }
+}
+
+#[compose(bind(counter))]
+fn counter_panel(counter: Counter) {
+    ui! {
+        Row {
+            Button(text: "+") on Tap { counter.increment(); }
+            Text(text: ${ counter.value().to_string() })
+        }
+    };
+}
+
+fn install_counter<B, F>(app: &mut App<B, F>, root: Entity)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    let counter = app.add_model(Counter { value: 0 });
+    app.compose(root, |cx| counter_panel(cx, counter.clone()));
+}
+```
+
+Use `#[component(bind(...))]` to attach a model handle to an entity and
+`#[view(component = ..., read(...), watch(...))]` to paint it. One model can
+serve several Views; several instances of the same model type stay
+independent. The [state guide](docs/state-management.md) covers effects,
+systems, ownership, and the limits of the update-path allocation guarantee.
+
 ### Common attributes
 
 | Attribute | Type | Description |

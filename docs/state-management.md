@@ -11,13 +11,14 @@ the State demos in the gallery.
 ## Contents
 
 1. [Registered model instances](#registered-model-instances)
-2. [Primitives](#primitives)
-3. [Reactive attributes](#reactive-attributes)
-4. [Layout-responsive attributes](#layout-responsive-attributes)
-5. [Reactive control flow](#reactive-control-flow)
-6. [Lists: `walk`, index vs keyed](#lists)
-7. [The flush model](#the-flush-model)
-8. [Limits](#limits)
+2. [Choosing state and rendering roles](#choosing-state-and-rendering-roles)
+3. [Primitives](#primitives)
+4. [Reactive attributes](#reactive-attributes)
+5. [Layout-responsive attributes](#layout-responsive-attributes)
+6. [Reactive control flow](#reactive-control-flow)
+7. [Lists: `walk`, index vs keyed](#lists)
+8. [The flush model](#the-flush-model)
+9. [Limits](#limits)
 
 ## Registered model instances
 
@@ -107,6 +108,23 @@ listed in `bind(...)` are converted; other fields and parameters keep their
 declared types. The generated `ui!` callbacks share each bound handle, so
 multiple callbacks can use one model without manually cloning it.
 
+Register the instance before building controls. `#[compose(bind(counter))]`
+accepts the handle returned by `App::add_model`; the source parameter remains
+spelled `Counter`:
+
+```rust
+let root = app.spawn_root().id();
+let counter = app.add_model(Counter { count: 0 });
+app.compose(root, |cx| counter_controls(cx, counter.clone()));
+```
+
+The model owns business state; `#[component(bind(...))]` stores references to
+specific model instances on entities. A component may bind several models,
+and several components may share one model. Neither pattern creates a second
+copy of the model data. Marble Play binds its board and controls to one model;
+the Counter demo uses the same API without a canvas, audio output, or change
+mask.
+
 Systems can bind a registered model instance and read small `Copy` resources
 without exposing `World` to the system function:
 
@@ -172,6 +190,25 @@ function name differs from the widget name.
 Subscriptions reserve visual notification queue capacity when attached; model
 updates and notifications reuse that capacity. Component replacement and
 removal update bindings before the next paint.
+
+## Choosing state and rendering roles
+
+| Role | Use | Update path |
+| --- | --- | --- |
+| `#[model]` | Registered business state, including multiple instances of one type | Generated handle methods compare `#[observe]` values, publish named revisions, and deliver typed effects |
+| `Signal<T>` | A standalone reactive value or a value published by another owner | `set` / `update` notify reactive readers |
+| `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `bind(...)` stores shared model handles |
+| `#[compose]` | Build a widget subtree | `bind(...)` shares named model handles among generated bindings and callbacks |
+| `#[view]` | Render a component | `read(...)` borrows model state only while painting; `watch(...)` selects repaint dependencies |
+| `#[system]` | Scheduled updates | `bind(...)` targets a registered model instance; small unbound parameters read World resources |
+| `AudioHandle` | Shared output controls when the `audio` feature is enabled | Host UI and demo controls read one output state and submit to one bounded bus |
+| `World` | Low-level entity, component, and resource access | Available for integration code; ordinary bound model methods and UI callbacks do not need it |
+
+`#[model]` does not replace components: a model has application-level identity,
+while components attach behavior and model bindings to individual entities.
+`#[view]` does not replace composition: the View paints a component, while
+`#[compose]` builds its surrounding widget tree. `Signal<T>` remains useful
+for a small independent value; a model does not need to wrap every signal.
 
 `Slider` input and `prop::SliderValue` use the same clamped value update. A
 programmatic property change invalidates the control without emitting a user
@@ -242,10 +279,9 @@ rebuilt. Reactive binding is supported on `text`, `path`, `visible`,
 Reactive `Slider.value` clamps to the control range and does not emit a
 `ValueChanged` event when the model updates it. Reactive `Switch.on` starts
 the switch animation when the model changes its state without emitting
-`Toggled`. User input still emits those events. A large simulation model can
-stay in a World resource while a small scalar signal drives its labels,
-visibility, colors, and controls; Marble Play uses this split without copying
-physics arrays into reactive state.
+`Toggled`. User input still emits those events. Marble Play binds its labels,
+controls, and custom board View directly to one registered model; its physics
+arrays are not copied into a second UI-state struct.
 
 `attr: $signal` is shorthand for `attr: ${ signal.get() }`.
 
@@ -383,8 +419,22 @@ A reactive binding's first run applies its initial value at construction
 (inside the `ui!` build), so the first frame already shows the correct
 state.
 
+Registered model methods, observed notifications, fixed-array effect delivery,
+and already-attached View subscriptions reuse their storage during updates.
+This is not a zero-allocation guarantee for text formatting, new widgets,
+layout, glyph loading, or a complete render frame. Reserve those resources
+separately when targeting a bounded-memory device.
+
 ## Limits
 
+- **Observed values**: `#[observe]` fields and derived getters require small
+  `Copy + Eq` results. Keep large mutable data in the model and publish an
+  explicit named revision when a View must repaint for it.
+- **View dependencies**: `read(...)` alone does not subscribe a View. List
+  the observed getters or named revisions in `watch(...)`; rebinding a
+  component replaces its subscriptions.
+- **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
+  events. Consumers cannot start another model write during delivery.
 - **Single-root reactive branches**: each `if` / `match` / `walk` reactive
   branch produces one top-level widget, matching SolidJS / Leptos. Wrap
   multiple widgets in a container.
