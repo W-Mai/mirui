@@ -231,7 +231,14 @@ mod tests {
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let arm_text = |w: &World| {
-            let arm = w.get::<Children>(col).unwrap().0[0];
+            let arm = w
+                .get::<Children>(col)
+                .unwrap()
+                .0
+                .iter()
+                .copied()
+                .find(|&entity| !crate::ui::branch::is_effectively_hidden(w, entity))
+                .unwrap();
             w.get::<Text>(arm).unwrap().resolve(w).into_owned()
         };
         assert_eq!(arm_text(&world), "zero");

@@ -1326,41 +1326,164 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        if cmd
+            .arms
+            .iter()
+            .any(|arm| Self::has_uncontained_niche(&arm.body))
+        {
+            return syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "slot operations directly inside a reactive `match` arm need a widget parent",
+            )
+            .to_compile_error();
+        }
+        if cmd
+            .arms
+            .iter()
+            .any(|arm| Self::has_uncontained_reactive_child(&arm.body))
+        {
+            return syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "reactive control flow directly inside a reactive `match` arm needs a widget parent",
+            )
+            .to_compile_error();
+        }
+        if cmd.arms.iter().any(|arm| Self::pattern_binds(&arm.pat)) {
+            return Self::emit_match_reactive_dynamic(cmd, read, world, parent_var);
+        }
+        Self::emit_match_reactive_cached(cmd, read, world, parent_var)
+    }
+
+    // Unknown pattern forms take the dynamic path, so an arm body can always
+    // use any values its pattern introduces.
+    fn pattern_binds(pat: &syn::Pat) -> bool {
+        match pat {
+            syn::Pat::Const(_)
+            | syn::Pat::Lit(_)
+            | syn::Pat::Path(_)
+            | syn::Pat::Range(_)
+            | syn::Pat::Rest(_)
+            | syn::Pat::Wild(_) => false,
+            syn::Pat::Or(pat) => pat.cases.iter().any(Self::pattern_binds),
+            syn::Pat::Paren(pat) => Self::pattern_binds(&pat.pat),
+            syn::Pat::Reference(pat) => Self::pattern_binds(&pat.pat),
+            syn::Pat::Slice(pat) => pat.elems.iter().any(Self::pattern_binds),
+            syn::Pat::Struct(pat) => pat
+                .fields
+                .iter()
+                .any(|field| Self::pattern_binds(&field.pat)),
+            syn::Pat::Tuple(pat) => pat.elems.iter().any(Self::pattern_binds),
+            syn::Pat::TupleStruct(pat) => pat.elems.iter().any(Self::pattern_binds),
+            syn::Pat::Type(pat) => Self::pattern_binds(&pat.pat),
+            // syn represents the prelude's bare `None` variant as an identifier.
+            syn::Pat::Ident(pat)
+                if pat.ident == "None"
+                    && pat.by_ref.is_none()
+                    && pat.mutability.is_none()
+                    && pat.subpat.is_none() =>
+            {
+                false
+            }
+            syn::Pat::Ident(_) | syn::Pat::Macro(_) | syn::Pat::Verbatim(_) => true,
+            _ => true,
+        }
+    }
+
+    fn emit_match_reactive_cached(
+        cmd: &MatchCmd,
+        read: &proc_macro2::TokenStream,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let build_branches = cmd.arms.iter().map(|arm| {
+            let body = Self::emit_branch_body_inline(&arm.body, world, &quote! { __parent_e });
+            quote! {
+                {
+                    let __start = (#world)
+                        .get::<mirui::ui::Children>(__parent_e)
+                        .map_or(0, |children| children.0.len());
+                    #body
+                    (#world)
+                        .get::<mirui::ui::Children>(__parent_e)
+                        .map_or_else(mirui::__Vec::new, |children| children.0[__start..].to_vec())
+                }
+            }
+        });
+        let select_arms = cmd.arms.iter().enumerate().map(|(index, arm)| {
+            let pat = &arm.pat;
+            quote! { #pat => #index, }
+        });
+
+        quote! {
+            {
+                let __parent_e = #parent_var;
+                let __branches = [#(#build_branches),*];
+                mirui::ui::branch::prepare(#world, __parent_e, &__branches);
+                let __selected = mirui::__Cell::new(None::<usize>);
+                mirui::core::reactive::with_world_scope(#world, || {
+                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                        let __next = Some(match #read {
+                            #(#select_arms)*
+                        });
+                        let __previous = __selected.get();
+                        if __previous != __next {
+                            mirui::core::reactive::with_world(|__w| {
+                                mirui::ui::branch::select(__w, &__branches, __previous, __next);
+                                __selected.set(__next);
+                            });
+                        }
+                    });
+                });
+            }
+        }
+    }
+
+    // A binding is only in scope while its selected arm is built. Bound arms
+    // keep structural rebuild behavior, with all top-level roots managed.
+    fn emit_match_reactive_dynamic(
+        cmd: &MatchCmd,
+        read: &proc_macro2::TokenStream,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         let select_arms = cmd.arms.iter().map(|arm| {
             let pat = &arm.pat;
-            let builder = Self::build_branch(&arm.body);
-            quote! { #pat => (#builder)(__w, __parent_e), }
+            let body =
+                Self::emit_branch_body_inline(&arm.body, &quote! { __w }, &quote! { __parent_e });
+            quote! { #pat => { #body }, }
         });
         quote! {
             {
-                let __mounted = mirui::__Rc::new(mirui::__Cell::new(
-                    ::core::option::Option::<mirui::ecs::Entity>::None,
-                ));
+                let __mounted = mirui::__RefCell::new(mirui::__Vec::<mirui::ecs::Entity>::new());
                 let __parent_e = #parent_var;
+                let __mount_index = (#world)
+                    .get::<mirui::ui::Children>(__parent_e)
+                    .map_or(0, |children| children.0.len());
                 mirui::core::reactive::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __sel = #read;
                         mirui::core::reactive::with_world(|__w| {
-                            let __old = __mounted.take();
-                            let __idx = __old.and_then(|o| {
+                            let mut __mounted = __mounted.borrow_mut();
+                            let __idx = __mounted.first().and_then(|o| {
                                 __w.get::<mirui::ui::Children>(__parent_e)
-                                    .and_then(|c| c.0.iter().position(|&e| e == o))
-                            });
-                            if let Some(__o) = __old {
+                                    .and_then(|c| c.0.iter().position(|e| e == o))
+                            }).unwrap_or(__mount_index);
+                            for __o in __mounted.drain(..) {
                                 mirui::ui::despawn_subtree(__w, __o);
                             }
-                            let __root: ::core::option::Option<mirui::ecs::Entity> = match __sel {
+                            let __start = __w
+                                .get::<mirui::ui::Children>(__parent_e)
+                                .map_or(0, |children| children.0.len());
+                            match __sel {
                                 #(#select_arms)*
-                            };
-                            if let Some(__r) = __root {
-                                if let Some(children) =
-                                    __w.get_mut::<mirui::ui::Children>(__parent_e)
-                                {
-                                    let __pos = __idx.unwrap_or(children.0.len()).min(children.0.len());
-                                    children.0.insert(__pos, __r);
+                            }
+                            if let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e) {
+                                __mounted.extend(children.0.drain(__start..));
+                                let __pos = __idx.min(children.0.len());
+                                for (offset, &root) in __mounted.iter().enumerate() {
+                                    children.0.insert(__pos + offset, root);
                                 }
                             }
-                            __mounted.set(__root);
                         });
                     });
                 });
@@ -1617,7 +1740,7 @@ impl MiruiRune {
         self.stack.pop().unwrap()
     }
 
-    // A reactive match/walk body built on demand. The first top widget is its
+    // A reactive walk body built on demand. The first top widget is its
     // managed mount root; later top widgets attach through the usual path.
     fn branch_body(body: &[Cmd]) -> proc_macro2::TokenStream {
         let w = quote! { __w };
@@ -1665,16 +1788,6 @@ impl MiruiRune {
             None => quote! { None },
         };
         quote! { #stmts #ret }
-    }
-
-    fn build_branch(body: &[Cmd]) -> proc_macro2::TokenStream {
-        let inner = Self::branch_body(body);
-        quote! {
-            |__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity|
-                -> Option<mirui::ecs::Entity> {
-                #inner
-            }
-        }
     }
 
     fn has_uncontained_reactive_child(body: &[Cmd]) -> bool {

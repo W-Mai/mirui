@@ -343,7 +343,8 @@ The binding runs after layout and may request one additional layout pass when it
 
 A `$` on a control-flow head makes its selection reactive. An `if` caches
 all branches when its parent is built and toggles visibility when signals
-change. `match` and `walk` still rebuild selected content on change.
+change. A `match` with patterns that do not bind values also caches its arms;
+`walk` builds rows as its input changes.
 
 ```rust
 let show = Signal::new(true);
@@ -378,7 +379,13 @@ ui! {
 
 - `if $cond` / `elif` / `else` construct every branch once, then switch
   visibility without discarding state. Each branch may have several roots.
-- `match $expr` selects one arm and rebuilds it on change.
+- `match $expr` caches every arm when no pattern binds a value. A bound
+  pattern such as `Load::Ready(s)` keeps structural rebuild behavior, so its
+  body sees the current `s`. Both forms support multiple top-level roots.
+- Use qualified unit variants such as `Load::Loading` for cached matching;
+  an unqualified identifier can also be a value binding and takes the
+  structural path. `None`, literals, wildcards, and ignored payloads such as
+  `Some(_)` do not bind values.
 - `elif` is a single keyword (not `else if`).
 - A head **without** `$` is static — evaluated once at build, never re-run.
 
@@ -473,10 +480,15 @@ separately when targeting a bounded-memory device.
   state.
   Put nested reactive `if`, `match`, or `walk`, and slot operations inside a
   widget so their children remain under the cached branch root.
-- **Reactive `match` and `walk`**: these still build their selected body on
-  demand. A reactive `match` arm has one managed top-level root; wrap more
-  widgets in a container. Their initial dynamic roots may appear after
-  static siblings, regardless of source order.
+- **Reactive `match`**: arms without value bindings are constructed once when
+  their parent is composed; switching only changes visibility and retains
+  widget state and source order. Construction code in every arm runs eagerly.
+  Arms with value bindings are rebuilt when the selection changes, may
+  allocate, and manage all of their top-level roots. Put nested reactive
+  control flow and slot operations inside a widget in either form. A user's
+  scrutinee expression may allocate independently of the branch mechanism.
+- **Reactive `walk`**: rows are built on demand. Its initial dynamic roots
+  may appear after static siblings, regardless of source order.
 - **Index-based `walk` does not update surviving rows' content**: with no
   `by` key, a middle insert/remove shifts which data each surviving row
   shows only through that row's own reactive attributes; the row structure

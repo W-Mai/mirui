@@ -1,0 +1,12 @@
+error: slot operations directly inside a reactive `match` arm need a widget parent
+  --> tests/ui/cached_match_uncontained_slot.rs:16:5
+   |
+16 | /     ui! {
+17 | |         :(
+18 | |             parent: root
+19 | |             world: &mut world
+...  |
+32 | |     };
+   | |_____^
+   |
+   = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

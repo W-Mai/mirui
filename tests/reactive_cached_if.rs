@@ -5,8 +5,10 @@ mod support {
 use std::cell::Cell;
 use std::rc::Rc;
 
+use mirui::core::model::SharedValue;
 use mirui::core::reactive::{Signal, flush_signal_dirty};
 use mirui::ecs::{Entity, World};
+use mirui::model;
 use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
 use mirui::types::{Color, Dimension, Fixed, Viewport};
 use mirui::ui::builder::WidgetBuilder;
@@ -18,6 +20,19 @@ use mirui::{input::event::hit_test::hit_test, ui};
 use support::tracked_allocations;
 
 struct BranchState(u32);
+
+#[model]
+struct VisibilityModel {
+    #[observe]
+    enabled: bool,
+}
+
+#[model]
+impl VisibilityModel {
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+}
 
 #[derive(Default)]
 struct FillColors(Vec<Color>);
@@ -284,4 +299,54 @@ fn branch_visibility_does_not_override_a_roots_own_visible_binding() {
     selected.set(true);
     flush_signal_dirty(&mut world);
     assert!(!world.has::<Hidden>(gated));
+}
+
+#[test]
+fn model_observation_switches_a_cached_branch_without_allocating() {
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_default_widgets();
+    app.world.insert_resource(IdMap::new());
+    let root = app.spawn_root().id();
+    let model = app.add_model(VisibilityModel { enabled: false });
+    let condition = model.share();
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        Column () {
+            if ${ condition.enabled() } {
+                View (id: "enabled", width: 20, height: 20)
+            } else {
+                View (id: "disabled", width: 20, height: 20)
+            }
+        }
+    };
+
+    let enabled = app.world.find_by_id("enabled").unwrap();
+    let disabled = app.world.find_by_id("disabled").unwrap();
+    assert!(ui::branch::is_effectively_hidden(&app.world, enabled));
+    assert!(!ui::branch::is_effectively_hidden(&app.world, disabled));
+
+    assert_eq!(
+        tracked_allocations(|| {
+            model.set_enabled(true);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0,
+    );
+    assert!(!ui::branch::is_effectively_hidden(&app.world, enabled));
+    assert!(ui::branch::is_effectively_hidden(&app.world, disabled));
+
+    assert_eq!(
+        tracked_allocations(|| {
+            model.set_enabled(false);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0,
+    );
+    assert!(ui::branch::is_effectively_hidden(&app.world, enabled));
+    assert!(!ui::branch::is_effectively_hidden(&app.world, disabled));
 }

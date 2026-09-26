@@ -1,0 +1,12 @@
+error: reactive control flow directly inside a reactive `match` arm needs a widget parent
+  --> tests/ui/cached_match_uncontained_reactive.rs:13:5
+   |
+13 | /     ui! {
+14 | |         :(
+15 | |             parent: root
+16 | |             world: &mut world
+...  |
+29 | |     };
+   | |_____^
+   |
+   = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

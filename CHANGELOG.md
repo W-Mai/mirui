@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Owner-scoped reactive dependencies.** Registered effects and computed values clear old Signal/model edges when a branch changes and reuse reserved graph storage for the new edges.
 - **View dependency ownership.** Explicit `watch(...)` bindings use independent owner-scoped graph consumers, preserving other Views on the same entity when one binding is removed.
 - **Retained reactive `if` branches.** `ui!` builds each `if` branch once and switches visibility without recreating its widgets; multiple roots retain source order and local state.
+- **Retained reactive `match` arms.** Arms without value bindings are built once and switch visibility while retaining widget state. Bound-value arms keep structural rebuild behavior and manage all top-level roots.
 - **Bound model declarations.** `#[component(bind(...))]` stores model handles in named fields, while `#[compose(bind(...))]` maps named parameters to shared handles. Bound component cloning shares instances without requiring the model data to implement `Clone`.
 - **Shared bound UI callbacks.** `#[compose(bind(...))]` shares named model handles across generated `ui!` event and reactive callbacks, allowing multiple controls to reference one instance without explicit handle clones.
 - **Observed model fields.** `#[observe]` on small model fields generates tracked handle getters; model updates compare field values and notify only changed sources after releasing the model borrow.

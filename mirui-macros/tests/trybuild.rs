@@ -12,6 +12,8 @@ fn ui() {
     t.compile_fail("tests/ui/on_form_a_inside_body.rs");
     t.compile_fail("tests/ui/cached_if_uncontained_reactive.rs");
     t.compile_fail("tests/ui/cached_if_uncontained_slot.rs");
+    t.compile_fail("tests/ui/cached_match_uncontained_reactive.rs");
+    t.compile_fail("tests/ui/cached_match_uncontained_slot.rs");
 }
 
 #[test]
