@@ -6,6 +6,7 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
+use crate::ecs::Entity;
 use crate::ecs::world::WorldId;
 
 use super::Subscriber;
@@ -114,6 +115,7 @@ struct ConsumerNode {
     live: bool,
     pending: bool,
     target: Subscriber,
+    automatic: bool,
 }
 
 struct BitGraph {
@@ -267,6 +269,7 @@ impl BitGraph {
         &mut self,
         partition: PartitionKey,
         target: Subscriber,
+        automatic: bool,
     ) -> Result<SlotId, GraphError> {
         let id = if let Some((slot, node)) = self
             .consumers
@@ -278,6 +281,7 @@ impl BitGraph {
             node.live = true;
             node.pending = false;
             node.target = target;
+            node.automatic = automatic;
             SlotId {
                 slot: slot as u32,
                 generation: node.generation,
@@ -296,6 +300,7 @@ impl BitGraph {
                 live: true,
                 pending: false,
                 target,
+                automatic,
             });
             SlotId {
                 slot,
@@ -876,6 +881,23 @@ impl ReactiveGraph {
         partition: PartitionKey,
         target: Subscriber,
     ) -> Result<ConsumerKey, GraphError> {
+        self.register_consumer_with_mode(partition, target, true)
+    }
+
+    pub fn register_explicit_visual_consumer(
+        &mut self,
+        partition: PartitionKey,
+        entity: Entity,
+    ) -> Result<ConsumerKey, GraphError> {
+        self.register_consumer_with_mode(partition, Subscriber::VisualWidget(entity), false)
+    }
+
+    fn register_consumer_with_mode(
+        &mut self,
+        partition: PartitionKey,
+        target: Subscriber,
+        automatic: bool,
+    ) -> Result<ConsumerKey, GraphError> {
         if partition == PartitionKey::Shared
             && matches!(target, Subscriber::Widget(_) | Subscriber::VisualWidget(_))
         {
@@ -884,7 +906,7 @@ impl ReactiveGraph {
         let graph = self
             .partition_mut(partition)
             .ok_or(GraphError::StaleConsumer)?;
-        let slot = graph.add_consumer(partition, target)?;
+        let slot = graph.add_consumer(partition, target, automatic)?;
         Ok(ConsumerKey { partition, slot })
     }
 
@@ -894,7 +916,19 @@ impl ReactiveGraph {
         partition: PartitionKey,
         target: Subscriber,
     ) -> Option<ConsumerKey> {
-        self.find_consumer_matching(partition, |candidate| candidate == target)
+        let graph = self.partition(partition)?;
+        graph
+            .consumers
+            .iter()
+            .enumerate()
+            .find(|(_, node)| node.live && node.automatic && node.target == target)
+            .map(|(slot, node)| ConsumerKey {
+                partition,
+                slot: SlotId {
+                    slot: slot as u32,
+                    generation: node.generation,
+                },
+            })
     }
 
     pub fn find_consumer_matching(

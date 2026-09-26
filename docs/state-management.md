@@ -427,9 +427,12 @@ A reactive binding's first run applies its initial value at construction
 state.
 
 Registered model methods, observed notifications, fixed-array effect delivery,
-already-attached View subscriptions, and registered model/signal-to-computed-to-effect
-propagation reuse their storage during updates.
-Rebinding an already-used model source also reuses its subscription storage.
+attached `watch(...)` View subscriptions, and registered
+model/signal-to-computed-to-effect propagation reuse their storage during
+updates. Each View binding owns an independent dependency-graph consumer;
+removing one View does not detach another View on the same entity. Initial
+attachment may reserve storage, while rebinding already-used model sources
+reuses it.
 Model handles become invalid when their registration is removed or the App ends,
 even if another owner retains the underlying storage.
 This is not a zero-allocation guarantee for text formatting, new widgets,

@@ -563,6 +563,11 @@ mod tests {
         model: BoundState,
     }
 
+    #[crate::component(bind(model))]
+    struct OtherBoundTile {
+        model: BoundState,
+    }
+
     #[crate::component(bind(first, second))]
     struct PairTile {
         first: BoundState,
@@ -571,6 +576,17 @@ mod tests {
 
     fn observe_bound_tile(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
         let tile = world.get::<BoundTile>(entity).expect("bound tile");
+        bindings.watch(tile.model.subscribe_observed(0, world, entity));
+    }
+
+    fn observe_other_bound_tile(
+        world: &World,
+        entity: Entity,
+        bindings: &mut ViewObservationBindings,
+    ) {
+        let tile = world
+            .get::<OtherBoundTile>(entity)
+            .expect("other bound tile");
         bindings.watch(tile.model.subscribe_observed(0, world, entity));
     }
 
@@ -761,6 +777,51 @@ mod tests {
         ViewRegistry::reconcile_observations(&mut app.world);
         app.world.remove::<VisualDirty>(entity);
         second.set(3);
+        flush_signal_dirty(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn removing_one_view_binding_preserves_another_on_the_same_entity() {
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(BoundState { value: 0 });
+        app.with_widget(
+            make_view("first", 60)
+                .with_filter::<BoundTile>()
+                .with_observation(observe_bound_tile),
+        );
+        app.with_widget(
+            make_view("second", 61)
+                .with_filter::<OtherBoundTile>()
+                .with_observation(observe_other_bound_tile),
+        );
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: model.clone(),
+            },
+        );
+        app.world.insert(
+            entity,
+            OtherBoundTile {
+                model: model.clone(),
+            },
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(entity);
+
+        app.world.remove::<BoundTile>(entity);
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(entity);
+        model.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        app.world.remove::<OtherBoundTile>(entity);
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(entity);
+        model.set(2);
         flush_signal_dirty(&mut app.world);
         assert!(!app.world.has::<VisualDirty>(entity));
     }

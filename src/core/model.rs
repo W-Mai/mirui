@@ -163,22 +163,7 @@ pub struct ModelWatch {
 /// One explicit visual subscription to a registered model source.
 #[doc(hidden)]
 pub struct ModelSubscription {
-    owner: Weak<dyn ModelSubscriptionOwner>,
-    kind: SourceKind,
-    index: usize,
-    id: u64,
-}
-
-impl Drop for ModelSubscription {
-    fn drop(&mut self) {
-        if let Some(owner) = self.owner.upgrade() {
-            owner.unsubscribe_source(self.kind, self.index, self.id);
-        }
-    }
-}
-
-trait ModelSubscriptionOwner {
-    fn unsubscribe_source(&self, kind: SourceKind, index: usize, id: u64);
+    _consumer: crate::core::reactive::ModelVisualSubscription,
 }
 
 impl Default for ModelWatch {
@@ -213,12 +198,12 @@ impl ModelWatch {
         self.source.invalidate_computeds();
     }
 
-    fn subscribe_visual_widget(&self, owner: WorldId, entity: crate::ecs::Entity) -> u64 {
+    fn subscribe_visual_widget(
+        &self,
+        owner: WorldId,
+        entity: crate::ecs::Entity,
+    ) -> crate::core::reactive::ModelVisualSubscription {
         self.source.subscribe_visual_widget(owner, entity)
-    }
-
-    fn unsubscribe(&self, id: u64) {
-        self.source.unsubscribe(id);
     }
 }
 
@@ -276,16 +261,6 @@ impl<M: Model> ModelCell<M> {
 
     fn assert_active(&self) {
         assert!(self.active.get(), "model registration is no longer alive");
-    }
-}
-
-impl<M: Model> ModelSubscriptionOwner for ModelCell<M> {
-    fn unsubscribe_source(&self, kind: SourceKind, index: usize, id: u64) {
-        match kind {
-            SourceKind::Observed => self.sources.as_ref()[index].unsubscribe(id),
-            SourceKind::Derived => self.derived_sources.as_ref()[index].unsubscribe(id),
-            SourceKind::Watch => self.watches.as_ref()[index].unsubscribe(id),
-        }
     }
 }
 
@@ -491,7 +466,7 @@ fn subscribe_visual<H: ModelHandle>(
         .expect("model registration is no longer alive");
     cell.assert_active();
     assert_eq!(cell.owner(), world.id(), "model belongs to a different App");
-    let id = match kind {
+    let consumer = match kind {
         SourceKind::Observed => {
             cell.sources.as_ref()[index].subscribe_visual_widget(world.id(), entity)
         }
@@ -502,12 +477,8 @@ fn subscribe_visual<H: ModelHandle>(
             cell.watches.as_ref()[index].subscribe_visual_widget(world.id(), entity)
         }
     };
-    let owner: Rc<dyn ModelSubscriptionOwner> = cell;
     ModelSubscription {
-        owner: Rc::downgrade(&owner),
-        kind,
-        index,
-        id,
+        _consumer: consumer,
     }
 }
 
@@ -780,6 +751,28 @@ mod tests {
         handle.increment();
         flush_signal_dirty(&mut app.world);
         assert!(!app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn automatic_visual_scope_does_not_reuse_an_explicit_view_binding() {
+        let mut app = crate::app::App::headless(32, 32);
+        let handle = app.add_model(Counter(0));
+        let entity = app.world.spawn_empty();
+        let explicit = handle.subscribe_observed(0, &app.world, entity);
+
+        crate::core::reactive::with_world_scope(&mut app.world, || {
+            crate::core::reactive::with_scope(
+                crate::core::reactive::Subscriber::VisualWidget(entity),
+                || {
+                    assert_eq!(handle.value(), 0);
+                },
+            );
+        });
+        drop(explicit);
+
+        handle.increment();
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(entity));
     }
 
     #[test]

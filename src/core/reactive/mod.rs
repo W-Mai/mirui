@@ -938,15 +938,21 @@ fn propagate(sub: OwnedSubscriber) {
 /// A source embedded in another owner rather than separately reference-counted.
 #[doc(hidden)]
 pub struct ModelSource {
-    subscribers: RefCell<Vec<ModelSubscriber>>,
-    next_subscription: Cell<u64>,
+    subscribers: RefCell<Vec<OwnedSubscriber>>,
     graph_source: Cell<Option<SourceKey>>,
 }
 
-#[derive(Clone, Copy)]
-struct ModelSubscriber {
-    id: Option<u64>,
-    subscriber: OwnedSubscriber,
+/// One graph consumer owned by a View observation binding.
+pub(crate) struct ModelVisualSubscription {
+    consumer: ConsumerKey,
+}
+
+impl Drop for ModelVisualSubscription {
+    fn drop(&mut self) {
+        try_with_reactive(|r| {
+            let _ = r.graph.remove_consumer(self.consumer);
+        });
+    }
 }
 
 impl Default for ModelSource {
@@ -959,7 +965,6 @@ impl ModelSource {
     pub const fn new() -> Self {
         Self {
             subscribers: RefCell::new(Vec::new()),
-            next_subscription: Cell::new(1),
             graph_source: Cell::new(None),
         }
     }
@@ -995,51 +1000,59 @@ impl ModelSource {
         }
         let subscriber = OwnedSubscriber::tracked(subscriber);
         let mut subscribers = self.subscribers.borrow_mut();
-        if !subscribers
-            .iter()
-            .any(|entry| entry.id.is_none() && entry.subscriber == subscriber)
-        {
-            subscribers.push(ModelSubscriber {
-                id: None,
-                subscriber,
-            });
+        if !subscribers.contains(&subscriber) {
+            if matches!(subscriber.subscriber, Subscriber::VisualWidget(_)) {
+                with_reactive(|r| {
+                    let next = r
+                        .model_visual_subscriptions
+                        .checked_add(1)
+                        .expect("model visual subscription capacity exhausted");
+                    let graph_visuals = r.graph.count_consumers_matching(|target| {
+                        matches!(target, Subscriber::VisualWidget(_))
+                    });
+                    r.dirty_visual_widgets.reserve(next + graph_visuals);
+                    r.model_visual_subscriptions = next;
+                });
+            }
+            subscribers.push(subscriber);
         }
     }
 
-    pub(crate) fn subscribe_visual_widget(&self, world: WorldId, entity: Entity) -> u64 {
-        with_reactive(|r| {
-            let next = r
-                .model_visual_subscriptions
-                .checked_add(1)
-                .expect("model visual subscription capacity exhausted");
+    pub(crate) fn subscribe_visual_widget(
+        &self,
+        world: WorldId,
+        entity: Entity,
+    ) -> ModelVisualSubscription {
+        let source = self
+            .graph_source
+            .get()
+            .expect("visual model source must be registered");
+        let consumer = with_reactive(|r| {
+            let partition = r
+                .graph
+                .owner_key(world)
+                .expect("View owner is not registered");
+            assert_eq!(
+                source.partition, partition,
+                "model belongs to a different App"
+            );
+            r.reserve_owned_consumer_slot();
             let graph_visuals = r
                 .graph
                 .count_consumers_matching(|target| matches!(target, Subscriber::VisualWidget(_)));
-            r.dirty_visual_widgets.reserve(next + graph_visuals);
-            r.model_visual_subscriptions = next;
+            r.dirty_visual_widgets
+                .reserve(r.model_visual_subscriptions + graph_visuals + 1);
+            let consumer = r
+                .graph
+                .register_explicit_visual_consumer(partition, entity)
+                .expect("reactive View consumer registration failed");
+            if let Err(error) = r.graph.subscribe(source, consumer) {
+                let _ = r.graph.remove_consumer(consumer);
+                panic!("reactive View dependency subscription failed: {error:?}");
+            }
+            consumer
         });
-        let id = self.next_subscription.get();
-        self.next_subscription.set(
-            id.checked_add(1)
-                .expect("model subscription identity exhausted"),
-        );
-        self.subscribers.borrow_mut().push(ModelSubscriber {
-            id: Some(id),
-            subscriber: OwnedSubscriber {
-                world: Some(world),
-                subscriber: Subscriber::VisualWidget(entity),
-            },
-        });
-        id
-    }
-
-    pub(crate) fn unsubscribe(&self, id: u64) {
-        let mut subscribers = self.subscribers.borrow_mut();
-        let before = subscribers.len();
-        subscribers.retain(|entry| entry.id != Some(id));
-        if subscribers.len() != before {
-            try_with_reactive(|r| r.model_visual_subscriptions -= 1);
-        }
+        ModelVisualSubscription { consumer }
     }
 
     pub fn notify(&self) {
@@ -1048,7 +1061,7 @@ impl ModelSource {
         }
         let len = self.subscribers.borrow().len();
         for index in 0..len {
-            let subscriber = self.subscribers.borrow()[index].subscriber;
+            let subscriber = self.subscribers.borrow()[index];
             propagate(subscriber);
         }
     }
@@ -1064,18 +1077,18 @@ impl Drop for ModelSource {
     fn drop(&mut self) {
         self.invalidate_computeds();
         let source = self.graph_source.get();
-        let remaining = self
+        let remaining_legacy_visuals = self
             .subscribers
             .get_mut()
             .iter()
-            .filter(|entry| entry.id.is_some())
+            .filter(|entry| matches!(entry.subscriber, Subscriber::VisualWidget(_)))
             .count();
-        if remaining != 0 || source.is_some() {
+        if remaining_legacy_visuals != 0 || source.is_some() {
             try_with_reactive(|r| {
                 if let Some(source) = source {
                     let _ = r.graph.remove_source(source);
                 }
-                r.model_visual_subscriptions -= remaining;
+                r.model_visual_subscriptions -= remaining_legacy_visuals;
             });
         }
     }
@@ -1540,6 +1553,29 @@ mod tests {
                 run_effect(id);
             }
         }
+    }
+
+    #[test]
+    fn stale_explicit_view_binding_cannot_unsubscribe_a_reused_consumer_slot() {
+        reset();
+        let mut app = crate::app::App::headless(32, 32);
+        let source = ModelSource::new();
+        source.register_owner(app.world.id());
+        let entity = app.world.spawn_empty();
+
+        let first = source.subscribe_visual_widget(app.world.id(), entity);
+        let stale_key = first.consumer;
+        drop(first);
+        let second = source.subscribe_visual_widget(app.world.id(), entity);
+        assert_eq!(second.consumer.slot.slot, stale_key.slot.slot);
+        assert_ne!(second.consumer.slot.generation, stale_key.slot.generation);
+
+        drop(ModelVisualSubscription {
+            consumer: stale_key,
+        });
+        source.notify();
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(entity));
     }
 
     #[test]

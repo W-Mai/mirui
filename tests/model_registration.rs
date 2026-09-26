@@ -440,6 +440,41 @@ fn repeated_visual_subscription_binding_reuses_its_storage() {
 }
 
 #[test]
+fn alternating_view_sources_rebind_and_notify_without_allocating() {
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let second = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let entity = app.world.spawn_empty();
+    for model in [&first, &second] {
+        let subscription = model.__mirui_subscribe_count(&app.world, entity);
+        model.set_count(1);
+        flush_signal_dirty(&mut app.world);
+        drop(subscription);
+    }
+
+    assert_eq!(
+        tracked_allocations(|| {
+            for count in 2..130 {
+                let model = if count % 2 == 0 { &first } else { &second };
+                let subscription = model.__mirui_subscribe_count(&app.world, entity);
+                model.set_count(count);
+                flush_signal_dirty(&mut app.world);
+                drop(subscription);
+            }
+        }),
+        0
+    );
+}
+
+#[test]
 fn explicit_visual_model_subscription_notifies_without_allocating() {
     let mut app = App::headless(32, 32);
     let model = app.add_model(ObservedCounter {
