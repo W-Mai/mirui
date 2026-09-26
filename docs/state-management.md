@@ -414,6 +414,7 @@ dirty and enqueues them. Before layout, after systems and plugin updates,
 `flush_signal_dirty` drains the queue: dirty effects re-run, dirty widgets
 get re-rendered. This also happens for an explicit `App::render` call; there
 is no background thread.
+Multiple source changes before one flush queue the same effect or widget once.
 
 A reactive binding's first run applies its initial value at construction
 (inside the `ui!` build), so the first frame already shows the correct

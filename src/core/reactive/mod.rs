@@ -176,7 +176,11 @@ pub(crate) fn with_scope<R>(scope: Subscriber, f: impl FnOnce() -> R) -> R {
 }
 
 fn enqueue_widget(owner: Option<WorldId>, entity: Entity) {
-    with_reactive(|r| r.dirty_widgets.push_back((owner, entity)));
+    with_reactive(|r| {
+        if !r.dirty_widgets.contains(&(owner, entity)) {
+            r.dirty_widgets.push_back((owner, entity));
+        }
+    });
 }
 
 fn enqueue_visual_widget(owner: Option<WorldId>, entity: Entity) {
@@ -188,7 +192,11 @@ fn enqueue_visual_widget(owner: Option<WorldId>, entity: Entity) {
 }
 
 fn enqueue_effect(id: EffectId) {
-    with_reactive(|r| r.dirty_effects.push_back(id));
+    with_reactive(|r| {
+        if !r.dirty_effects.contains(&id) {
+            r.dirty_effects.push_back(id);
+        }
+    });
 }
 
 pub(crate) struct OwnerGuard {
@@ -996,6 +1004,27 @@ mod tests {
         });
         assert_eq!(s.inner.borrow().subscribers.len(), 1);
         s.set(1);
+        with_reactive(|r| {
+            assert_eq!(r.dirty_widgets.len(), 1);
+            r.dirty_widgets.clear();
+        });
+    }
+
+    #[test]
+    fn repeated_notifications_enqueue_a_widget_once_until_consumed() {
+        reset();
+        let signal = Signal::new(0_u8);
+        let widget = entity(4);
+        with_scope(Subscriber::Widget(widget), || {
+            let _ = signal.get();
+        });
+        signal.set(1);
+        signal.set(2);
+        with_reactive(|r| {
+            assert_eq!(r.dirty_widgets.len(), 1);
+            assert_eq!(r.dirty_widgets.pop_front(), Some((None, widget)));
+        });
+        signal.set(3);
         with_reactive(|r| {
             assert_eq!(r.dirty_widgets.len(), 1);
             r.dirty_widgets.clear();

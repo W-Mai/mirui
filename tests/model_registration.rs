@@ -108,6 +108,11 @@ impl ObservedCounter {
         self.mode = mode;
     }
 
+    fn set_pair(&mut self, count: u32, mode: Mode) {
+        self.count = count;
+        self.mode = mode;
+    }
+
     fn set_untouched(&mut self, untouched: u32) {
         self.untouched = untouched;
     }
@@ -290,6 +295,33 @@ fn observed_fields_notify_only_on_their_own_changes() {
     model.set_count(2);
     flush_signal_dirty(&mut app.world);
     assert_eq!(seen.get(), 2);
+    assert_eq!(runs.get(), 2);
+}
+
+#[test]
+fn one_model_command_coalesces_shared_observer_notifications() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let runs = Rc::new(Cell::new(0));
+    let observed = model.clone();
+    let runs_in_effect = runs.clone();
+    let _effect = Effect::new(move || {
+        let _ = (observed.count(), observed.mode());
+        runs_in_effect.set(runs_in_effect.get() + 1);
+    });
+    assert_eq!(runs.get(), 1);
+
+    assert_eq!(
+        tracked_allocations(|| {
+            model.set_pair(1, Mode::Running);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
     assert_eq!(runs.get(), 2);
 }
 
