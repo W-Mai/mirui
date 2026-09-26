@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Reactive notification allocations.** Effect queues reserve capacity at registration, and flush processes pending effects and widget invalidations without temporary vectors.
+- **Model rendering boundary.** Manually registered Views reject model writes while painting, matching generated Views, and restore write access after an interrupted render.
 - **Audio control state.** Rejected mute and master-gain commands leave the reported bus state unchanged; sink failures remain visible until a successful output restart.
 - **Text layout handles.** Cache slots retire when their generation is exhausted instead of wrapping and potentially accepting stale handles.
 - **Subtree dirty traversal.** Marking and clearing a subtree reuse retained traversal storage after the first walk, including after an interrupted walk.

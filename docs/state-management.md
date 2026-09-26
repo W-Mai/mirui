@@ -433,6 +433,9 @@ separately when targeting a bounded-memory device.
 - **View dependencies**: `read(...)` alone does not subscribe a View. List
   the observed getters or named revisions in `watch(...)`; rebinding a
   component replaces its subscriptions.
+- **View rendering**: both generated and manually registered View renderers
+  may read models but cannot update them while painting. Use an input callback
+  or system to change model state before rendering.
 - **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
   events. Consumers cannot start another model write during delivery.
 - **Single-root reactive branches**: each `if` / `match` / `walk` reactive

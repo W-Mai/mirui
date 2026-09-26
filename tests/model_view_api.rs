@@ -4,6 +4,7 @@ use mirui::core::reactive::flush_signal_dirty;
 use mirui::types::Dimension;
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
+use mirui::ui::view::View;
 use mirui::ui::view::ViewCtx;
 use mirui::{component, model, view};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -94,6 +95,39 @@ fn paint_shared_tile(model: &PaintModel, component: &SharedTile) {
 #[view(component = PaintTile, read(model), watch(model.value()))]
 fn paint_drop(model: &PaintModel) {
     let _ = model.value;
+}
+
+fn attempt_raw_view_write(
+    _renderer: &mut dyn mirui::render::renderer::Renderer,
+    world: &mirui::ecs::World,
+    entity: mirui::ecs::Entity,
+    _rect: &mirui::types::Rect,
+    _ctx: &mut ViewCtx<'_>,
+) {
+    world.get::<PaintTile>(entity).unwrap().model.set_value(99);
+}
+
+#[test]
+fn raw_view_cannot_write_a_model_during_render() {
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let model = app.add_model(PaintModel { value: 1 });
+    app.with_widget(
+        View::new("attempt_raw_view_write", 64, attempt_raw_view_write).with_filter::<PaintTile>(),
+    );
+    app.world.insert(
+        root,
+        PaintTile {
+            model: model.share(),
+        },
+    );
+
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.render()));
+    assert!(failure.is_err());
+    assert_eq!(model.value(), 1);
+    model.set_value(2);
+    assert_eq!(model.value(), 2);
 }
 
 #[test]

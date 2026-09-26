@@ -983,7 +983,9 @@ fn render_views(
         {
             continue;
         }
-        (view.render())(renderer, world, entity, rect, ctx);
+        crate::core::model::with_model_read_only(|| {
+            (view.render())(renderer, world, entity, rect, ctx);
+        });
         if let Some(error) = ctx.error {
             return Err(error);
         }
