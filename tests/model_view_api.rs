@@ -1,5 +1,6 @@
 use mirui::app::App;
 use mirui::core::model::SharedValue;
+use mirui::core::reactive::flush_signal_dirty;
 use mirui::types::Dimension;
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
@@ -132,7 +133,13 @@ fn typed_view_tracks_real_render_and_component_rebinding() {
     assert_eq!(PAINT_VALUE.load(Ordering::Relaxed), 1);
     let before = PAINT_COUNT.load(Ordering::Relaxed);
 
-    assert_eq!(tracked_allocations(|| first.set_value(2)), 0);
+    assert_eq!(
+        tracked_allocations(|| {
+            first.set_value(2);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
     app.render_dirty().unwrap();
     assert_eq!(PAINT_VALUE.load(Ordering::Relaxed), 2);
     assert!(PAINT_COUNT.load(Ordering::Relaxed) > before);

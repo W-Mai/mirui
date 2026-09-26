@@ -316,11 +316,21 @@ fn observed_update_and_notification_do_not_allocate_after_registration() {
     let _effect = Effect::new(move || {
         let _ = observer.count();
     });
-    model.set_count(1);
-    flush_signal_dirty(&mut app.world);
+    let second_observer = model.clone();
+    let _second_effect = Effect::new(move || {
+        let _ = second_observer.count();
+    });
+    let first_set_allocations = tracked_allocations(|| model.set_count(1));
+    let first_flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
+    assert_eq!((first_set_allocations, first_flush_allocations), (0, 0));
     for count in 2..130 {
-        assert_eq!(tracked_allocations(|| model.set_count(count)), 0);
-        flush_signal_dirty(&mut app.world);
+        assert_eq!(
+            tracked_allocations(|| {
+                model.set_count(count);
+                flush_signal_dirty(&mut app.world);
+            }),
+            0
+        );
     }
     assert_eq!(model.count(), 129);
 }

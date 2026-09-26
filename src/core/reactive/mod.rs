@@ -288,21 +288,17 @@ pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
 // hanging the frame — real cycle detection lands later.
 const FLUSH_MAX_PASSES: u32 = 32;
 
-fn drain_widgets_for(
+fn pop_widget_for(
     queue: &mut VecDeque<(Option<WorldId>, Entity)>,
     world_id: WorldId,
-) -> Vec<Entity> {
-    let mut ready = Vec::new();
-    let pending = queue.len();
-    for _ in 0..pending {
-        let (owner, entity) = queue.pop_front().expect("queued widget");
-        if owner.is_none_or(|owner| owner == world_id) {
-            ready.push(entity);
-        } else {
-            queue.push_back((owner, entity));
-        }
+) -> Option<Entity> {
+    let (owner, entity) = queue.pop_front().expect("queued widget");
+    if owner.is_none_or(|owner| owner == world_id) {
+        Some(entity)
+    } else {
+        queue.push_back((owner, entity));
+        None
     }
-    ready
 }
 
 /// Drain queued reactive work once per frame, after systems and before render:
@@ -314,36 +310,48 @@ pub fn flush_signal_dirty(world: &mut World) {
     reclaim_dead_effects(world);
     let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
-        let effects: Vec<EffectId> = with_reactive(|r| {
-            let mut ready = Vec::new();
-            let pending = r.dirty_effects.len();
-            for _ in 0..pending {
+        let pending_effects = with_reactive(|r| r.dirty_effects.len());
+        let mut ran_effect = false;
+        for _ in 0..pending_effects {
+            let effect = with_reactive(|r| {
                 let id = r.dirty_effects.pop_front().expect("queued effect");
                 match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
-                    Some(Some(owner)) if owner != world_id => r.dirty_effects.push_back(id),
-                    Some(_) => ready.push(id),
-                    None => {}
+                    Some(Some(owner)) if owner != world_id => {
+                        r.dirty_effects.push_back(id);
+                        None
+                    }
+                    Some(_) => Some(id),
+                    None => None,
+                }
+            });
+            if let Some(effect) = effect {
+                run_effect(effect);
+                ran_effect = true;
+            }
+        }
+        let pending_widgets = with_reactive(|r| r.dirty_widgets.len());
+        let mut marked_widget = false;
+        for _ in 0..pending_widgets {
+            let entity = with_reactive(|r| pop_widget_for(&mut r.dirty_widgets, world_id));
+            if let Some(entity) = entity {
+                marked_widget = true;
+                if world.is_alive(entity) {
+                    world.insert(entity, Dirty);
                 }
             }
-            ready
-        });
-        for id in &effects {
-            run_effect(*id);
         }
-        let widgets = with_reactive(|r| drain_widgets_for(&mut r.dirty_widgets, world_id));
-        for entity in &widgets {
-            if world.is_alive(*entity) {
-                world.insert(*entity, Dirty);
+        let pending_visual_widgets = with_reactive(|r| r.dirty_visual_widgets.len());
+        let mut marked_visual_widget = false;
+        for _ in 0..pending_visual_widgets {
+            let entity = with_reactive(|r| pop_widget_for(&mut r.dirty_visual_widgets, world_id));
+            if let Some(entity) = entity {
+                marked_visual_widget = true;
+                if world.is_alive(entity) {
+                    world.insert(entity, VisualDirty);
+                }
             }
         }
-        let visual_widgets =
-            with_reactive(|r| drain_widgets_for(&mut r.dirty_visual_widgets, world_id));
-        for entity in &visual_widgets {
-            if world.is_alive(*entity) {
-                world.insert(*entity, VisualDirty);
-            }
-        }
-        if effects.is_empty() && widgets.is_empty() && visual_widgets.is_empty() {
+        if !ran_effect && !marked_widget && !marked_visual_widget {
             return;
         }
     }
@@ -732,6 +740,7 @@ impl Effect {
         let id = with_reactive(|r| {
             let id = EffectId(r.effect_slots.allocate());
             r.effects.insert(id, inner);
+            r.dirty_effects.reserve(r.effects.len());
             id
         });
         run_effect(id);
