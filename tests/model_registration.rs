@@ -460,6 +460,22 @@ fn app_owned_computed_rejects_another_app_but_reads_its_model() {
 }
 
 #[test]
+fn app_owned_computed_rejects_reads_after_owner_drop() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 3,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let computed = with_world_scope(&mut app.world, || Computed::new(move || model.count()));
+    assert_eq!(computed.get(), 3);
+
+    drop(app);
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get()));
+    assert!(failure.is_err());
+}
+
+#[test]
 fn computed_cannot_write_its_owner_model() {
     let mut app = App::headless(32, 32);
     let model = app.add_model(ObservedCounter {

@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::rc::{Rc, Weak};
 use core::any::{Any, TypeId};
 use hashbrown::HashMap;
 use rustc_hash::FxBuildHasher;
@@ -69,6 +70,7 @@ pub struct World {
     resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
     watched_component_types: alloc::vec::Vec<TypeId>,
     component_changes: alloc::vec::Vec<ComponentChange>,
+    lifetime: Rc<()>,
 }
 
 impl Default for World {
@@ -80,6 +82,7 @@ impl Default for World {
             resources: HashMap::default(),
             watched_component_types: alloc::vec::Vec::new(),
             component_changes: alloc::vec::Vec::new(),
+            lifetime: Rc::new(()),
         }
     }
 }
@@ -87,6 +90,10 @@ impl Default for World {
 impl World {
     pub(crate) fn id(&self) -> WorldId {
         self.id
+    }
+
+    pub(crate) fn lifetime(&self) -> Weak<()> {
+        Rc::downgrade(&self.lifetime)
     }
 
     pub fn new() -> Self {

@@ -50,6 +50,7 @@ struct Reactive {
     // non-null only while an effect runs; lets a Fn() closure reach the World
     world: *mut World,
     world_id: Option<WorldId>,
+    world_lifetime: Option<Weak<()>>,
     borrowed_worlds: [Option<WorldId>; 8],
     model_read_only_depth: u16,
     dirty_widgets: VecDeque<(Option<WorldId>, Entity)>,
@@ -69,6 +70,7 @@ impl Reactive {
             scope: None,
             world: core::ptr::null_mut(),
             world_id: None,
+            world_lifetime: None,
             borrowed_worlds: [None; 8],
             model_read_only_depth: 0,
             dirty_widgets: VecDeque::new(),
@@ -211,22 +213,34 @@ fn enqueue_effect(id: EffectId) {
 
 pub(crate) struct OwnerGuard {
     prev: Option<WorldId>,
+    prev_lifetime: Option<Weak<()>>,
 }
 
 impl OwnerGuard {
     pub(crate) fn enter(world: &mut World) -> Self {
-        Self::enter_id(Some(world.id()))
+        Self::enter_id(Some(world.id()), Some(world.lifetime()))
     }
 
-    fn enter_id(owner: Option<WorldId>) -> Self {
-        let prev = with_reactive(|r| core::mem::replace(&mut r.world_id, owner));
-        Self { prev }
+    fn enter_id(owner: Option<WorldId>, lifetime: Option<Weak<()>>) -> Self {
+        let (prev, prev_lifetime) = with_reactive(|r| {
+            (
+                core::mem::replace(&mut r.world_id, owner),
+                core::mem::replace(&mut r.world_lifetime, lifetime),
+            )
+        });
+        Self {
+            prev,
+            prev_lifetime,
+        }
     }
 }
 
 impl Drop for OwnerGuard {
     fn drop(&mut self) {
-        with_reactive(|r| r.world_id = self.prev);
+        with_reactive(|r| {
+            r.world_id = self.prev;
+            r.world_lifetime = self.prev_lifetime.take();
+        });
     }
 }
 
@@ -809,6 +823,7 @@ struct ComputedInner<T> {
     subscribers: Vec<OwnedSubscriber>,
     dirty: bool,
     owner_world: Option<WorldId>,
+    owner_lifetime: Option<Weak<()>>,
 }
 
 impl<T> ComputedNode for RefCell<ComputedInner<T>> {
@@ -853,6 +868,7 @@ impl<T: 'static> Computed<T> {
             subscribers: Vec::new(),
             dirty: true,
             owner_world: current_world_id(),
+            owner_lifetime: with_reactive(|r| r.world_lifetime.clone()),
         }));
         let node: Rc<dyn ComputedNode> = inner.clone();
         let (id, source_id) = with_reactive(|r| {
@@ -876,7 +892,13 @@ impl<T: 'static> Computed<T> {
     where
         T: Clone,
     {
-        let owner = self.inner.borrow().owner_world;
+        let inner = self.inner.borrow();
+        let owner = inner.owner_world;
+        let lifetime = inner.owner_lifetime.clone();
+        drop(inner);
+        if let Some(lifetime) = &lifetime {
+            assert!(lifetime.strong_count() > 0, "computed owner has ended");
+        }
         if let (Some(active), Some(owner)) = (current_world_id(), owner) {
             assert_eq!(active, owner, "computed belongs to a different App");
         }
@@ -891,7 +913,7 @@ impl<T: 'static> Computed<T> {
         if self.inner.borrow().dirty {
             // Recompute in this computed's scope so its sources subscribe IT,
             // not whatever outer consumer triggered the read.
-            let _owner = OwnerGuard::enter_id(owner);
+            let _owner = OwnerGuard::enter_id(owner, lifetime);
             let _read_only = ModelReadOnlyGuard::enter();
             let value = with_scope(Subscriber::Computed(id), || (self.inner.borrow().compute)());
             let mut inner = self.inner.borrow_mut();
@@ -930,6 +952,7 @@ mod tests {
             r.scope = None;
             r.world = core::ptr::null_mut();
             r.world_id = None;
+            r.world_lifetime = None;
             r.borrowed_worlds = [None; 8];
             r.dirty_widgets.clear();
             r.dirty_visual_widgets.clear();

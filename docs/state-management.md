@@ -442,7 +442,7 @@ separately when targeting a bounded-memory device.
   may read models but cannot update them while painting. Use an input callback
   or system to change model state before rendering.
 - **Computed ownership**: a computed created inside an App belongs to that
-  App and cannot be read from another App. An ownerless computed may share
+  App and cannot be read from another App or after that App ends. An ownerless computed may share
   ownerless signals but cannot read a registered model. Computed evaluation
   cannot write models.
 - **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
