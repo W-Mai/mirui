@@ -935,7 +935,8 @@ impl MiruiRune {
             #(#errors)*
             let #var: mirui::ecs::Entity = {
                 #(#id_lookups)*
-                let mut __compose_cx = mirui::ui::UiScope::new(#world, #parent_var);
+                let __compose_parent = #parent_var;
+                let mut __compose_cx = mirui::ui::UiScope::new(#world, __compose_parent);
                 #function(&mut __compose_cx #(, #args)*)
             };
         }
@@ -2318,13 +2319,9 @@ impl DsRune for MiruiRune {
         let mut tokens = proc_macro2::TokenStream::new();
 
         let root_cmds = &self.stack[0];
-        for cmd in root_cmds {
-            tokens.extend(Self::emit_cmd(cmd, world, parent_entity));
-        }
-
-        // Attach top-level widgets to parent (iter attaches inside its own loop)
         let mut last_var = None;
         for cmd in root_cmds {
+            tokens.extend(Self::emit_cmd(cmd, world, parent_entity));
             match cmd {
                 Cmd::Widget(w) => {
                     let var = &w.var;
