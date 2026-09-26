@@ -16,6 +16,7 @@ pub struct AudioPlugin<S: AudioSink, const N: usize = 32> {
     sink: S,
     bank: &'static AudioBank,
     core: Option<Rc<SharedAudioCore<N>>>,
+    failed: bool,
 }
 
 impl<S: AudioSink> AudioPlugin<S, 32> {
@@ -24,6 +25,7 @@ impl<S: AudioSink> AudioPlugin<S, 32> {
             sink,
             bank,
             core: None,
+            failed: false,
         }
     }
 }
@@ -34,17 +36,21 @@ impl<S: AudioSink, const N: usize> AudioPlugin<S, N> {
             sink,
             bank,
             core: None,
+            failed: false,
         }
     }
 
-    fn mark_failure(&self) {
+    fn mark_failure(&mut self) {
+        self.failed = true;
         if let Some(core) = &self.core {
             core.record_failure();
         }
     }
 
     fn sync_state(&self) {
-        if let Some(core) = &self.core {
+        if !self.failed
+            && let Some(core) = &self.core
+        {
             core.set_output_state(self.sink.state());
         }
     }
@@ -57,6 +63,7 @@ impl<S: AudioSink, const N: usize> AudioPlugin<S, N> {
             if self.sink.unlock().is_err() {
                 self.mark_failure();
             } else {
+                self.failed = false;
                 self.sync_state();
             }
         }
@@ -76,6 +83,7 @@ where
         );
         let mut bus = AudioBus::<N>::new();
         if self.sink.start(self.bank).is_err() {
+            self.failed = true;
             bus.record_failure();
         } else {
             bus.set_state(self.sink.state());
@@ -102,6 +110,9 @@ where
     }
 
     fn pre_render(&mut self, _world: &mut World) {
+        if self.failed {
+            return;
+        }
         if self.sink.update().is_err() {
             self.mark_failure();
             return;
@@ -129,12 +140,14 @@ where
         if self.sink.resume().is_err() {
             self.mark_failure();
         } else {
+            self.failed = false;
             self.sync_state();
         }
     }
 
     fn on_quit(&mut self, _world: &mut World) {
         self.sink.stop();
+        self.failed = false;
         self.sync_state();
     }
 }
@@ -220,6 +233,26 @@ mod tests {
         }
     }
 
+    struct RejectSubmitSink(Rc<RefCell<Trace>>);
+
+    impl AudioSink for RejectSubmitSink {
+        type Error = &'static str;
+
+        fn start(&mut self, _bank: &'static AudioBank) -> Result<(), Self::Error> {
+            self.0.borrow_mut().state = AudioOutputState::Ready;
+            Ok(())
+        }
+
+        fn submit(&mut self, _command: AudioCommand) -> Result<(), Self::Error> {
+            self.0.borrow_mut().commands += 1;
+            Err("output rejected command")
+        }
+
+        fn state(&self) -> AudioOutputState {
+            AudioOutputState::Ready
+        }
+    }
+
     fn app() -> App<FramebufSurface<impl FnMut(&[u8], PhysicalRect)>, SwRendererFactory> {
         let surface = FramebufSurface::new(16, 16, |_bytes, _area| {});
         App::with_factory(surface, SwRendererFactory::new())
@@ -263,6 +296,55 @@ mod tests {
         drop(app);
         assert!(audio.state().is_none());
         assert!(!clone.play(CUE));
+    }
+
+    #[test]
+    fn shared_controls_report_locked_output_and_bidirectional_mute() {
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        let mut app = app();
+        app.add_plugin(AudioPlugin::<_, 4>::with_capacity(
+            MockSink(trace.clone()),
+            &BANK,
+        ));
+        let outside = app.audio().unwrap();
+        let inside = app.audio().unwrap();
+        assert_eq!(outside.state().unwrap().output, AudioOutputState::Locked);
+        assert!(!outside.state().unwrap().muted);
+        assert!(outside.set_muted(true));
+        assert!(inside.state().unwrap().muted);
+        assert!(inside.set_muted(false));
+        assert!(!outside.state().unwrap().muted);
+        assert_eq!(trace.borrow().commands, 0);
+
+        app.notify_host_interaction();
+        let mut plugins = core::mem::take(&mut app.plugins);
+        plugins[0].pre_render(&mut app.world);
+        app.plugins = plugins;
+        assert_eq!(outside.state().unwrap().output, AudioOutputState::Ready);
+        assert_eq!(trace.borrow().commands, 1);
+    }
+
+    #[test]
+    fn rejected_output_command_remains_failed_until_explicit_recovery() {
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        let mut app = app();
+        app.add_plugin(AudioPlugin::<_, 4>::with_capacity(
+            RejectSubmitSink(trace.clone()),
+            &BANK,
+        ));
+        let audio = app.audio().unwrap();
+        assert!(audio.play(CUE));
+        let mut plugins = core::mem::take(&mut app.plugins);
+        plugins[0].pre_render(&mut app.world);
+        assert_eq!(audio.state().unwrap().output, AudioOutputState::Failed);
+        plugins[0].pre_render(&mut app.world);
+        assert_eq!(audio.state().unwrap().output, AudioOutputState::Failed);
+        assert_eq!(trace.borrow().commands, 1);
+        app.plugins = plugins;
+
+        app.suspend();
+        app.resume();
+        assert_eq!(audio.state().unwrap().output, AudioOutputState::Ready);
     }
 
     #[test]
