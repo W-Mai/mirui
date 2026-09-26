@@ -31,6 +31,7 @@ struct HitTestGeometry {
     root: Option<Entity>,
     logical_w: u16,
     logical_h: u16,
+    revision: u64,
     entries: Vec<HitGeometry>,
 }
 
@@ -49,6 +50,19 @@ pub(crate) fn geometry_matches(
     world
         .resource::<HitTestGeometry>()
         .is_some_and(|geometry| geometry.matches(root, logical_w, logical_h))
+}
+
+pub(crate) fn geometry_revision(world: &World) -> u64 {
+    world
+        .resource::<HitTestGeometry>()
+        .map_or(0, |geometry| geometry.revision)
+}
+
+pub(crate) fn invalidate_hit_test_geometry(world: &mut World) {
+    if let Some(geometry) = world.resource_mut::<HitTestGeometry>() {
+        geometry.root = None;
+        geometry.revision = geometry.revision.wrapping_add(1);
+    }
 }
 
 fn shifted(rect: Rect, scroll: (Fixed, Fixed)) -> Rect {
@@ -207,6 +221,7 @@ pub(crate) fn update_hit_test_geometry(
     geometry.root = Some(root);
     geometry.logical_w = logical_w;
     geometry.logical_h = logical_h;
+    geometry.revision = geometry.revision.wrapping_add(1);
     world.put_resource_box(geometry);
 }
 
@@ -248,7 +263,7 @@ pub fn hit_test(
                     && entry.scroll_clip.is_none_or(|clip| inside(clip, point))
             }
         };
-        if contains {
+        if contains && !crate::ui::branch::is_hidden_in_tree(world, entry.entity) {
             hit = Some(entry.entity);
         }
     }

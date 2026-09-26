@@ -9,6 +9,8 @@
 //! `Widget::new()` on no-arg widgets is kept as an alias for
 //! `Widget::default()` so the call site can stay either form.
 
+#[doc(hidden)]
+pub mod branch;
 pub mod builder;
 pub mod dirty;
 pub mod icons;

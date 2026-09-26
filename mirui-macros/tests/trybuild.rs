@@ -2,6 +2,7 @@
 fn ui() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/layout_responsive.rs");
+    t.pass("tests/ui/cached_if_widget_slot.rs");
     t.compile_fail("tests/ui/layout_container_false.rs");
     t.compile_fail("tests/ui/layout_too_many_dependencies.rs");
     t.compile_fail("tests/ui/layout_undeclared_value.rs");
@@ -9,6 +10,8 @@ fn ui() {
     t.compile_fail("tests/ui/on_qualified_path.rs");
     t.compile_fail("tests/ui/on_unknown_event.rs");
     t.compile_fail("tests/ui/on_form_a_inside_body.rs");
+    t.compile_fail("tests/ui/cached_if_uncontained_reactive.rs");
+    t.compile_fail("tests/ui/cached_if_uncontained_slot.rs");
 }
 
 #[test]

@@ -13,7 +13,7 @@ use super::dirty::{DirtyRegions, RegionShift};
 use super::state::{InteractionState, UserState};
 use super::theme::WidgetState;
 use super::view::{ViewCtx, ViewRegistry};
-use super::{Children, Hidden, Parent, Style, Widget};
+use super::{Children, Parent, Style, Widget};
 
 struct ProjectiveRenderer<'a> {
     inner: &'a mut dyn Renderer,
@@ -369,7 +369,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
 /// Recursively build a LayoutNode tree from ECS entities
 fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     world.get::<Widget>(entity)?;
-    if world.get::<Hidden>(entity).is_some() {
+    if super::branch::is_effectively_hidden(world, entity) {
         return None;
     }
     let style = world.get::<Style>(entity)?;
@@ -388,7 +388,8 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
 }
 
 fn refresh_layout_tree(world: &World, entity: Entity, node: &mut LayoutNode) -> bool {
-    if world.get::<Widget>(entity).is_none() || world.get::<Hidden>(entity).is_some() {
+    if world.get::<Widget>(entity).is_none() || super::branch::is_effectively_hidden(world, entity)
+    {
         return false;
     }
     let Some(style) = world.get::<Style>(entity) else {
@@ -1481,7 +1482,7 @@ fn try_draw_offscreen(
 }
 
 fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity>) {
-    if world.get::<Hidden>(entity).is_some() {
+    if super::branch::is_effectively_hidden(world, entity) {
         return;
     }
     out.push(entity);
@@ -2257,28 +2258,25 @@ pub(crate) fn collect_dirty_regions_into(
         cache.begin_frame();
     }
 
-    // Idle skip: with zero Dirty markers the 5-step walk would just
+    // Idle skip: with no visible Dirty markers the 5-step walk would just
     // re-derive last frame's outputs. Systems that mutate visible
     // state without inserting Dirty (animation helpers, mainly) own
     // the responsibility to mark themselves.
     use super::dirty::Dirty;
-    let layout_dirty_count = world.storage::<Dirty>().map(|s| s.len()).unwrap_or(0);
-    let visual_dirty_count = world
-        .storage::<super::dirty::VisualDirty>()
-        .map(|s| s.len())
-        .unwrap_or(0);
+    let has_layout_dirty = super::dirty::has_visible_dirty::<Dirty>(world, root);
+    let has_visual_dirty =
+        super::dirty::has_visible_dirty::<super::dirty::VisualDirty>(world, root);
     let has_exact_dirty = world
         .resource::<super::dirty::ExactDirtyRegions>()
         .is_some_and(|regions| !regions.is_empty());
     let hit_geometry_valid =
         crate::input::event::hit_test::geometry_matches(world, root, logical_w, logical_h);
-    if layout_dirty_count == 0 && visual_dirty_count == 0 && !has_exact_dirty && hit_geometry_valid
-    {
+    if !has_layout_dirty && !has_visual_dirty && !has_exact_dirty && hit_geometry_valid {
         return;
     }
 
-    if layout_dirty_count == 0
-        && visual_dirty_count == 0
+    if !has_layout_dirty
+        && !has_visual_dirty
         && world
             .resource::<LayoutSnapshot>()
             .is_some_and(|snapshot| snapshot.matches(root, logical_w, logical_h))
@@ -2288,7 +2286,7 @@ pub(crate) fn collect_dirty_regions_into(
         return;
     }
 
-    let visual_only = layout_dirty_count == 0;
+    let visual_only = !has_layout_dirty;
     let existing = world
         .take_resource_box::<LayoutSnapshot>()
         .filter(|snapshot| snapshot.matches(root, logical_w, logical_h));
@@ -2460,6 +2458,7 @@ fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
 mod layout_snapshot_reuse_check {
     use super::*;
     use crate::types::Dimension;
+    use crate::ui::Hidden;
     use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
 
@@ -2501,6 +2500,64 @@ mod layout_snapshot_reuse_check {
         assert_eq!(snapshot.layout_tree.children.as_ptr(), tree_ptr);
         assert_eq!(snapshot.entities.as_ptr(), entities_ptr);
         assert_eq!(snapshot.entities, [root, first, second]);
+    }
+
+    #[test]
+    fn hidden_descendant_dirty_stays_idle_until_revealed() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let panel = widget(&mut world, 20);
+        let leaf = widget(&mut world, 10);
+        world.insert(root, Children(vec![panel]));
+        world.insert(panel, Parent(root));
+        world.insert(panel, Children(vec![leaf]));
+        world.insert(leaf, Parent(panel));
+        world.insert(panel, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+
+        world.insert(root, Dirty);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        world
+            .resource_mut::<LayoutSnapshot>()
+            .unwrap()
+            .layout_tree
+            .rect
+            .x = Fixed::from_int(123);
+        world.insert(leaf, Dirty);
+        world.insert(leaf, super::super::dirty::VisualDirty);
+
+        for _ in 0..2 {
+            collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+            assert!(plan.is_empty());
+            assert_eq!(
+                world
+                    .resource::<LayoutSnapshot>()
+                    .unwrap()
+                    .layout_tree
+                    .rect
+                    .x,
+                Fixed::from_int(123),
+            );
+        }
+
+        world.remove::<Hidden>(panel);
+        world.mark_subtree_dirty(panel);
+        assert!(world.has::<Dirty>(panel));
+        assert!(world.has::<Dirty>(leaf));
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert_eq!(
+            world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .layout_tree
+                .rect
+                .x,
+            Fixed::ZERO,
+        );
+        assert!(!world.has::<Dirty>(panel));
+        assert!(!world.has::<Dirty>(leaf));
+        assert!(!world.has::<super::super::dirty::VisualDirty>(leaf));
     }
 
     #[test]

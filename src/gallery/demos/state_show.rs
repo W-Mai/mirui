@@ -167,7 +167,15 @@ mod tests {
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let branch_text = |w: &World| {
-            let branch = w.get::<Children>(col).unwrap().0[1];
+            let branch = w
+                .get::<Children>(col)
+                .unwrap()
+                .0
+                .iter()
+                .copied()
+                .filter(|&entity| !crate::ui::branch::is_effectively_hidden(w, entity))
+                .nth(1)
+                .unwrap();
             w.get::<Text>(branch).unwrap().resolve(w).into_owned()
         };
         assert_eq!(branch_text(&world), "hidden — tap to show");
@@ -268,7 +276,15 @@ mod tests {
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let text_at = |w: &World, i: usize| {
-            let e = w.get::<Children>(col).unwrap().0[i];
+            let e = w
+                .get::<Children>(col)
+                .unwrap()
+                .0
+                .iter()
+                .copied()
+                .filter(|&entity| !crate::ui::branch::is_effectively_hidden(w, entity))
+                .nth(i)
+                .unwrap();
             w.get::<Text>(e).unwrap().resolve(w).into_owned()
         };
         assert_eq!(text_at(&world, 0), "top");

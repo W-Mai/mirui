@@ -1617,10 +1617,8 @@ impl MiruiRune {
         self.stack.pop().unwrap()
     }
 
-    // A reactive control-flow branch built on demand: returns the first top
-    // widget (single-root) as the mount root, parented but NOT pushed into the
-    // parent's Children — the effect inserts it positionally so a branch swap
-    // keeps its index. Non-root top widgets push normally.
+    // A reactive match/walk body built on demand. The first top widget is its
+    // managed mount root; later top widgets attach through the usual path.
     fn branch_body(body: &[Cmd]) -> proc_macro2::TokenStream {
         let w = quote! { __w };
         let p = quote! { __parent };
@@ -1679,69 +1677,123 @@ impl MiruiRune {
         }
     }
 
+    fn has_uncontained_reactive_child(body: &[Cmd]) -> bool {
+        body.iter().any(|child| match child {
+            Cmd::If(branch) => {
+                branch.reactive
+                    || branch
+                        .branches
+                        .iter()
+                        .any(|arm| Self::has_uncontained_reactive_child(&arm.body))
+            }
+            Cmd::Match(branch) => {
+                branch.reactive
+                    || branch
+                        .arms
+                        .iter()
+                        .any(|arm| Self::has_uncontained_reactive_child(&arm.body))
+            }
+            Cmd::Iter(iter) => iter.reactive || Self::has_uncontained_reactive_child(&iter.body),
+            Cmd::Niche(niche) => Self::has_uncontained_reactive_child(&niche.body),
+            Cmd::Widget(_) | Cmd::Compose(_) | Cmd::CodeBlock(_) => false,
+        })
+    }
+
+    fn has_uncontained_niche(body: &[Cmd]) -> bool {
+        body.iter().any(|child| match child {
+            Cmd::Niche(_) => true,
+            Cmd::If(branch) => branch
+                .branches
+                .iter()
+                .any(|arm| Self::has_uncontained_niche(&arm.body)),
+            Cmd::Match(branch) => branch
+                .arms
+                .iter()
+                .any(|arm| Self::has_uncontained_niche(&arm.body)),
+            Cmd::Iter(iter) => Self::has_uncontained_niche(&iter.body),
+            Cmd::Widget(_) | Cmd::Compose(_) | Cmd::CodeBlock(_) => false,
+        })
+    }
+
     fn emit_if_reactive(
         cmd: &IfCmd,
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
-        let builder_idents: Vec<syn::Ident> = (0..cmd.branches.len())
-            .map(|i| syn::Ident::new(&format!("__br{i}"), proc_macro2::Span::call_site()))
-            .collect();
-        let let_builders = cmd.branches.iter().zip(&builder_idents).map(|(b, id)| {
-            let builder = Self::build_branch(&b.body);
-            quote! { let #id = #builder; }
+        if cmd
+            .branches
+            .iter()
+            .any(|branch| Self::has_uncontained_niche(&branch.body))
+        {
+            return syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "slot operations directly inside a cached `if` branch need a widget parent",
+            )
+            .to_compile_error();
+        }
+        if cmd
+            .branches
+            .iter()
+            .any(|branch| Self::has_uncontained_reactive_child(&branch.body))
+        {
+            return syn::Error::new(
+                proc_macro2::Span::call_site(),
+                "reactive control flow directly inside a cached `if` branch needs a widget parent",
+            )
+            .to_compile_error();
+        }
+        let build_branches = cmd.branches.iter().map(|branch| {
+            let body = Self::emit_branch_body_inline(&branch.body, world, &quote! { __parent_e });
+            quote! {
+                {
+                    let __start = (#world)
+                        .get::<mirui::ui::Children>(__parent_e)
+                        .map_or(0, |children| children.0.len());
+                    #body
+                    (#world)
+                        .get::<mirui::ui::Children>(__parent_e)
+                        .map_or_else(mirui::__Vec::new, |children| children.0[__start..].to_vec())
+                }
+            }
         });
 
         let mut cascade = proc_macro2::TokenStream::new();
         let mut first = true;
         let mut has_else = false;
-        for (br, id) in cmd.branches.iter().zip(&builder_idents) {
+        for (index, br) in cmd.branches.iter().enumerate() {
             match &br.cond {
                 Some(cond) => {
                     let read = reactive_read(cond);
                     let head = if first { quote!(if) } else { quote!(else if) };
-                    cascade.extend(quote! { #head (#read) { (#id)(__w, __parent_e) } });
+                    cascade.extend(quote! { #head (#read) { Some(#index) } });
                     first = false;
                 }
                 None => {
-                    cascade.extend(quote! { else { (#id)(__w, __parent_e) } });
+                    cascade.extend(quote! { else { Some(#index) } });
                     has_else = true;
                 }
             }
         }
         if !has_else {
-            cascade.extend(quote! { else { ::core::option::Option::None } });
+            cascade.extend(quote! { else { None } });
         }
 
         quote! {
             {
-                let __mounted = mirui::__Rc::new(mirui::__Cell::new(
-                    ::core::option::Option::<mirui::ecs::Entity>::None,
-                ));
                 let __parent_e = #parent_var;
-                #(#let_builders)*
+                let __branches = [#(#build_branches),*];
+                mirui::ui::branch::prepare(#world, __parent_e, &__branches);
+                let __selected = mirui::__Cell::new(None::<usize>);
                 mirui::core::reactive::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
-                        mirui::core::reactive::with_world(|__w| {
-                            let __old = __mounted.take();
-                            let __idx = __old.and_then(|o| {
-                                __w.get::<mirui::ui::Children>(__parent_e)
-                                    .and_then(|c| c.0.iter().position(|&e| e == o))
+                        let __next: ::core::option::Option<usize> = #cascade;
+                        let __previous = __selected.get();
+                        if __previous != __next {
+                            mirui::core::reactive::with_world(|__w| {
+                                mirui::ui::branch::select(__w, &__branches, __previous, __next);
+                                __selected.set(__next);
                             });
-                            if let Some(__o) = __old {
-                                mirui::ui::despawn_subtree(__w, __o);
-                            }
-                            let __root: ::core::option::Option<mirui::ecs::Entity> = #cascade;
-                            if let Some(__r) = __root {
-                                if let Some(children) =
-                                    __w.get_mut::<mirui::ui::Children>(__parent_e)
-                                {
-                                    let __pos = __idx.unwrap_or(children.0.len()).min(children.0.len());
-                                    children.0.insert(__pos, __r);
-                                }
-                            }
-                            __mounted.set(__root);
-                        });
+                        }
                     });
                 });
             }

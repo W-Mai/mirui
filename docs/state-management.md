@@ -341,8 +341,9 @@ The binding runs after layout and may request one additional layout pass when it
 
 ## Reactive control flow
 
-A `$` on a control-flow head makes the branch reactive: when the head's
-signals change, the subtree is rebuilt.
+A `$` on a control-flow head makes its selection reactive. An `if` caches
+all branches when its parent is built and toggles visibility when signals
+change. `match` and `walk` still rebuild selected content on change.
 
 ```rust
 let show = Signal::new(true);
@@ -375,7 +376,8 @@ ui! {
 }
 ```
 
-- `if $cond` / `elif` / `else` swap one single-root branch in place.
+- `if $cond` / `elif` / `else` construct every branch once, then switch
+  visibility without discarding state. Each branch may have several roots.
 - `match $expr` selects one arm and rebuilds it on change.
 - `elif` is a single keyword (not `else if`).
 - A head **without** `$` is static — evaluated once at build, never re-run.
@@ -461,13 +463,20 @@ separately when targeting a bounded-memory device.
   worldless and later runs use the bound App.
 - **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
   events. Consumers cannot start another model write during delivery.
-- **Single-root reactive branches**: each `if` / `match` / `walk` reactive
-  branch produces one top-level widget, matching SolidJS / Leptos. Wrap
-  multiple widgets in a container.
-- **Reactive blocks mount after static siblings**: a reactive `if` / `match`
-  inside a container whose other children are static appears after them on
-  first build, regardless of source order. The branch keeps its position
-  across swaps thereafter.
+- **Reactive `if` branches**: every branch body is constructed once when
+  its parent is composed, even when initially hidden. Multiple top-level
+  widgets keep their component state and source order across selections.
+  Hidden branches do not participate in layout, drawing, or pointer hits.
+  Construction code runs eagerly, and IDs must be unique across branches.
+  A branch root's own `visible` binding remains independent of its branch
+  selection. Reactive bindings in a hidden branch may still update its cached
+  state.
+  Put nested reactive `if`, `match`, or `walk`, and slot operations inside a
+  widget so their children remain under the cached branch root.
+- **Reactive `match` and `walk`**: these still build their selected body on
+  demand. A reactive `match` arm has one managed top-level root; wrap more
+  widgets in a container. Their initial dynamic roots may appear after
+  static siblings, regardless of source order.
 - **Index-based `walk` does not update surviving rows' content**: with no
   `by` key, a middle insert/remove shifts which data each surviving row
   shows only through that row's own reactive attributes; the row structure

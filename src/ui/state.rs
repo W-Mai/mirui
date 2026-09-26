@@ -14,6 +14,7 @@ struct PointerSnapshot {
     y: Fixed,
     down: bool,
     seq: u32,
+    geometry_revision: u64,
 }
 
 #[derive(Default)]
@@ -34,6 +35,7 @@ fn cursor_snapshot(world: &World) -> PointerSnapshot {
         y: cursor.y,
         down: cursor.down,
         seq: cursor.event_seq,
+        geometry_revision: crate::input::event::hit_test::geometry_revision(world),
     }
 }
 
@@ -87,7 +89,7 @@ pub fn press_system(world: &mut World) {
 
     // Mid-drag: skip the ~1.4 ms hit_test while the pointer stays
     // inside the deepest Pressed entity's rect.
-    if snap.down && last.down {
+    if snap.down && last.down && snap.geometry_revision == last.geometry_revision {
         let prev_pressed: Option<Entity> = world
             .resource::<PressSnapshot>()
             .and_then(|snapshot| snapshot.target);
@@ -121,6 +123,21 @@ pub fn press_system(world: &mut World) {
         |s| matches!(s, InteractionState::Pressed),
         InteractionState::Pressed,
     );
+}
+
+pub(crate) fn clear_hidden_interaction_states(world: &mut World) {
+    loop {
+        let stale = world
+            .query::<InteractionState>()
+            .iter()
+            .find_map(|(entity, _)| {
+                crate::ui::branch::is_hidden_in_tree(world, entity).then_some(entity)
+            });
+        let Some(entity) = stale else {
+            break;
+        };
+        world.remove::<InteractionState>(entity);
+    }
 }
 
 fn compute_pointer_target(
@@ -464,6 +481,38 @@ mod hover_press_e2e {
         hover_system(&mut world);
         assert!(world.get::<InteractionState>(child).is_none());
         assert!(world.get::<InteractionState>(root).is_none());
+    }
+
+    #[test]
+    fn stationary_pointer_rechecks_after_geometry_changes() {
+        let (mut world, root, child) = make_world_with_text_child();
+        world.insert(child, HitTarget);
+        world.insert(child, InteractionFeedback);
+        refresh_hit_geometry(&mut world, root);
+        let probe = Fixed::from_int(16);
+        world.insert_resource(PointerCursor {
+            x: probe,
+            y: probe,
+            down: false,
+            event_seq: 1,
+        });
+
+        hover_system(&mut world);
+        assert_eq!(
+            world.get::<InteractionState>(child),
+            Some(&InteractionState::Hovered)
+        );
+
+        crate::input::event::hit_test::invalidate_hit_test_geometry(&mut world);
+        hover_system(&mut world);
+        assert!(world.get::<InteractionState>(child).is_none());
+
+        refresh_hit_geometry(&mut world, root);
+        hover_system(&mut world);
+        assert_eq!(
+            world.get::<InteractionState>(child),
+            Some(&InteractionState::Hovered)
+        );
     }
 
     #[test]

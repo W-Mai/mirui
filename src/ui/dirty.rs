@@ -35,9 +35,9 @@ impl<'a> DirtyTraversal<'a> {
     }
 
     fn walk(mut self, mark: bool) {
-        use crate::ui::{Children, Hidden};
+        use crate::ui::Children;
         while let Some(entity) = self.stack.pop() {
-            if mark && self.world.get::<Hidden>(entity).is_some() {
+            if mark && crate::ui::branch::is_effectively_hidden(self.world, entity) {
                 continue;
             }
             if mark {
@@ -46,6 +46,16 @@ impl<'a> DirtyTraversal<'a> {
                 self.world.remove::<Dirty>(entity);
                 self.world.remove::<VisualDirty>(entity);
             }
+            if let Some(children) = self.world.get::<Children>(entity) {
+                self.stack.extend(children.0.iter().copied());
+            }
+        }
+    }
+
+    fn prepare(mut self) {
+        use crate::ui::Children;
+        while let Some(entity) = self.stack.pop() {
+            self.world.insert(entity, Dirty);
             if let Some(children) = self.world.get::<Children>(entity) {
                 self.stack.extend(children.0.iter().copied());
             }
@@ -100,6 +110,18 @@ impl ExactDirtyRegions {
 }
 
 impl World {
+    pub(crate) fn prepare_cached_branch_dirty(&mut self, parent: Entity, branches: &[Vec<Entity>]) {
+        if self.resource::<ExactDirtyRegions>().is_none() {
+            self.insert_resource(ExactDirtyRegions::default());
+        }
+        self.invalidate(parent);
+        for roots in branches {
+            for &root in roots {
+                DirtyTraversal::new(self, root).prepare();
+            }
+        }
+    }
+
     /// Invalidates an entity's layout and visual output.
     pub fn invalidate(&mut self, entity: Entity) {
         self.insert(entity, Dirty);
@@ -131,6 +153,33 @@ impl World {
     /// Sweep layout and visual dirty markers from a subtree before hiding it.
     pub fn clear_subtree_dirty(&mut self, root: Entity) {
         DirtyTraversal::new(self, root).walk(false);
+    }
+}
+
+pub(crate) fn has_visible_dirty<T: 'static>(world: &World, root: Entity) -> bool {
+    world.storage::<T>().is_some_and(|storage| {
+        storage
+            .entities()
+            .iter()
+            .copied()
+            .any(|entity| is_visible_descendant(world, root, entity))
+    })
+}
+
+fn is_visible_descendant(world: &World, root: Entity, mut entity: Entity) -> bool {
+    loop {
+        if crate::ui::branch::is_effectively_hidden(world, entity) {
+            return false;
+        }
+        if entity == root {
+            return true;
+        }
+        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+            // Parent links are optional for manually built worlds. Preserve
+            // their existing conservative dirty behavior.
+            return true;
+        };
+        entity = parent.0;
     }
 }
 
@@ -374,6 +423,33 @@ mod tests {
         assert!(world.get::<Dirty>(root).is_none());
         assert!(world.get::<Dirty>(child).is_none());
         assert!(world.get::<VisualDirty>(child).is_none());
+    }
+
+    #[test]
+    fn cached_branch_gate_skips_marks_until_selected() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let branch = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(root, Children(alloc::vec![branch]));
+        world.insert(branch, Children(alloc::vec![child]));
+        world.insert(
+            branch,
+            crate::ui::branch::CachedBranchVisibility { selected: false },
+        );
+
+        world.mark_subtree_dirty(root);
+        assert!(world.has::<Dirty>(root));
+        assert!(!world.has::<Dirty>(branch));
+        assert!(!world.has::<Dirty>(child));
+
+        world
+            .get_mut::<crate::ui::branch::CachedBranchVisibility>(branch)
+            .unwrap()
+            .selected = true;
+        world.mark_subtree_dirty(branch);
+        assert!(world.has::<Dirty>(branch));
+        assert!(world.has::<Dirty>(child));
     }
 
     #[test]
