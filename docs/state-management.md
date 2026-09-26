@@ -423,6 +423,7 @@ state.
 Registered model methods, observed notifications, fixed-array effect delivery,
 already-attached View subscriptions, and registered model-to-computed-to-effect
 propagation reuse their storage during updates.
+Rebinding an already-used model source also reuses its subscription storage.
 Model handles become invalid when their registration is removed or the App ends,
 even if another owner retains the underlying storage.
 This is not a zero-allocation guarantee for text formatting, new widgets,

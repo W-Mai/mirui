@@ -163,15 +163,22 @@ pub struct ModelWatch {
 /// One explicit visual subscription to a registered model source.
 #[doc(hidden)]
 pub struct ModelSubscription {
-    cancel: Option<Box<dyn FnOnce()>>,
+    owner: Weak<dyn ModelSubscriptionOwner>,
+    kind: SourceKind,
+    index: usize,
+    id: u64,
 }
 
 impl Drop for ModelSubscription {
     fn drop(&mut self) {
-        if let Some(cancel) = self.cancel.take() {
-            cancel();
+        if let Some(owner) = self.owner.upgrade() {
+            owner.unsubscribe_source(self.kind, self.index, self.id);
         }
     }
+}
+
+trait ModelSubscriptionOwner {
+    fn unsubscribe_source(&self, kind: SourceKind, index: usize, id: u64);
 }
 
 impl Default for ModelWatch {
@@ -252,6 +259,16 @@ impl<M: Model> ModelCell<M> {
 
     fn assert_active(&self) {
         assert!(self.active.get(), "model registration is no longer alive");
+    }
+}
+
+impl<M: Model> ModelSubscriptionOwner for ModelCell<M> {
+    fn unsubscribe_source(&self, kind: SourceKind, index: usize, id: u64) {
+        match kind {
+            SourceKind::Observed => self.sources.as_ref()[index].unsubscribe(id),
+            SourceKind::Derived => self.derived_sources.as_ref()[index].unsubscribe(id),
+            SourceKind::Watch => self.watches.as_ref()[index].unsubscribe(id),
+        }
     }
 }
 
@@ -439,8 +456,8 @@ fn subscribe_visual<H: ModelHandle>(
         world.is_alive(entity),
         "visual subscription entity is not alive"
     );
-    let weak = handle.cell().clone();
-    let cell = weak
+    let cell = handle
+        .cell()
         .upgrade()
         .expect("model registration is no longer alive");
     cell.assert_active();
@@ -456,15 +473,12 @@ fn subscribe_visual<H: ModelHandle>(
             cell.watches.as_ref()[index].subscribe_visual_widget(world.id(), entity)
         }
     };
+    let owner: Rc<dyn ModelSubscriptionOwner> = cell;
     ModelSubscription {
-        cancel: Some(Box::new(move || {
-            let Some(cell) = weak.upgrade() else { return };
-            match kind {
-                SourceKind::Observed => cell.sources.as_ref()[index].unsubscribe(id),
-                SourceKind::Derived => cell.derived_sources.as_ref()[index].unsubscribe(id),
-                SourceKind::Watch => cell.watches.as_ref()[index].unsubscribe(id),
-            }
-        })),
+        owner: Rc::downgrade(&owner),
+        kind,
+        index,
+        id,
     }
 }
 

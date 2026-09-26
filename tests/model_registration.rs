@@ -368,6 +368,29 @@ fn observed_update_and_notification_do_not_allocate_after_registration() {
 }
 
 #[test]
+fn repeated_visual_subscription_binding_reuses_its_storage() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+    let entity = app.world.spawn_empty();
+    let first = model.__mirui_subscribe_count(&app.world, entity);
+    drop(first);
+
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..128 {
+                let subscription = model.__mirui_subscribe_count(&app.world, entity);
+                drop(subscription);
+            }
+        }),
+        0
+    );
+}
+
+#[test]
 fn same_type_model_instances_keep_observers_separate() {
     let mut app = App::headless(32, 32);
     let first = app.add_model(ObservedCounter {

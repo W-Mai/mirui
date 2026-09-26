@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Model observer scheduling.** A command that changes several sources read by one effect queues that effect once per flush; repeated widget notifications also coalesce until consumed.
 - **Computed ownership.** Computed values created inside an App keep that owner, reject reads from another App, and cannot mutate models during evaluation. Ownerless computed values cannot read registered models.
 - **Computed propagation storage.** Model changes propagate through registered computed values to effects without cloning subscriber lists or allocating during the update and flush.
+- **Model View subscriptions.** Subscription cancellation stores a weak owner and source identity instead of an allocated closure, so repeated bindings reuse their retained source storage.
 - **Model rendering boundary.** Manually registered Views reject model writes while painting, matching generated Views, and restore write access after an interrupted render.
 - **Model registration lifetime.** Dropping an App or removing a model registration invalidates its handles even when another owner retains the underlying storage.
 - **Audio control state.** Rejected mute and master-gain commands leave the reported bus state unchanged; sink failures remain visible until a successful output restart.
