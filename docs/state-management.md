@@ -421,6 +421,8 @@ state.
 
 Registered model methods, observed notifications, fixed-array effect delivery,
 and already-attached View subscriptions reuse their storage during updates.
+Model handles become invalid when their registration is removed or the App ends,
+even if another owner retains the underlying storage.
 This is not a zero-allocation guarantee for text formatting, new widgets,
 layout, glyph loading, or a complete render frame. Reserve those resources
 separately when targeting a bounded-memory device.

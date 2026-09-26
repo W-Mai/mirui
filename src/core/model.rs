@@ -223,6 +223,7 @@ impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {}
 #[doc(hidden)]
 pub struct ModelCell<M: Model> {
     owner: WorldId,
+    active: Cell<bool>,
     value: RefCell<M>,
     sources: M::Sources,
     derived_sources: M::DerivedSources,
@@ -235,6 +236,7 @@ impl<M: Model> ModelCell<M> {
     pub(crate) fn new(owner: WorldId, value: M) -> Self {
         Self {
             owner,
+            active: Cell::new(true),
             value: RefCell::new(value),
             sources: M::sources(),
             derived_sources: M::derived_sources(),
@@ -246,6 +248,20 @@ impl<M: Model> ModelCell<M> {
 
     pub(crate) fn owner(&self) -> WorldId {
         self.owner
+    }
+
+    fn assert_active(&self) {
+        assert!(self.active.get(), "model registration is no longer alive");
+    }
+}
+
+pub(crate) struct RegisteredModel<M: Model> {
+    cell: Rc<ModelCell<M>>,
+}
+
+impl<M: Model> Drop for RegisteredModel<M> {
+    fn drop(&mut self) {
+        self.cell.active.set(false);
     }
 }
 
@@ -305,6 +321,7 @@ pub trait ModelHandle: Clone {
             .cell()
             .upgrade()
             .expect("model registration is no longer alive");
+        cell.assert_active();
         if let Some(active) = crate::core::reactive::current_world_id() {
             assert_eq!(active, cell.owner(), "model belongs to a different App");
         }
@@ -365,6 +382,7 @@ pub trait ModelHandle: Clone {
             .cell()
             .upgrade()
             .expect("model registration is no longer alive");
+        cell.assert_active();
         if let Some(active) = crate::core::reactive::current_world_id() {
             assert_eq!(active, cell.owner(), "model belongs to a different App");
         }
@@ -425,6 +443,7 @@ fn subscribe_visual<H: ModelHandle>(
     let cell = weak
         .upgrade()
         .expect("model registration is no longer alive");
+    cell.assert_active();
     assert_eq!(cell.owner(), world.id(), "model belongs to a different App");
     let id = match kind {
         SourceKind::Observed => {
@@ -449,18 +468,19 @@ fn subscribe_visual<H: ModelHandle>(
     }
 }
 
-pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (Rc<ModelCell<M>>, M::Handle) {
+pub(crate) fn register<M: Model>(owner: WorldId, value: M) -> (RegisteredModel<M>, M::Handle) {
     let cell = Rc::new(ModelCell::new(owner, value));
     let handle = M::handle(Rc::downgrade(&cell));
-    (cell, handle)
+    (RegisteredModel { cell }, handle)
 }
 
 pub(crate) fn registered_owner<H: ModelHandle>(handle: &H) -> WorldId {
-    handle
+    let cell = handle
         .cell()
         .upgrade()
-        .expect("model registration is no longer alive")
-        .owner()
+        .expect("model registration is no longer alive");
+    cell.assert_active();
+    cell.owner()
 }
 
 pub(crate) fn register_effect<H, E>(
@@ -476,6 +496,7 @@ where
         .cell()
         .upgrade()
         .expect("model registration is no longer alive");
+    cell.assert_active();
     assert_eq!(cell.owner(), owner, "model belongs to a different App");
     <H::Data as Produces<E>>::route(&cell.routes).register(handler)
 }
@@ -597,6 +618,40 @@ mod tests {
         };
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
         assert!(error.is_err());
+    }
+
+    #[test]
+    fn retained_cell_does_not_keep_a_registration_alive() {
+        let (handle, retained_cell) = {
+            let mut app = crate::app::App::headless(32, 32);
+            let handle = app.add_model(Counter(4));
+            let retained_cell = handle.cell().upgrade().unwrap();
+            (handle, retained_cell)
+        };
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
+        assert!(error.is_err());
+        drop(retained_cell);
+    }
+
+    #[test]
+    fn despawning_registration_invalidates_retained_handles() {
+        let mut app = crate::app::App::headless(32, 32);
+        let handle = app.add_model(Counter(4));
+        let retained_cell = handle.cell().upgrade().unwrap();
+        let registration = app
+            .world
+            .query::<super::RegisteredModel<Counter>>()
+            .iter()
+            .next()
+            .unwrap()
+            .0;
+
+        assert!(app.world.despawn(registration));
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
+        let write = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.increment()));
+        assert!(read.is_err());
+        assert!(write.is_err());
+        drop(retained_cell);
     }
 
     #[test]
