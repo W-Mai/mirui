@@ -244,14 +244,26 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
     assert_eq!(tile_values(), [1, 1, 7]);
     let before = tile_counts();
 
-    assert_eq!(tracked_allocations(|| shared.set_value(2)), 0);
+    assert_eq!(
+        tracked_allocations(|| {
+            shared.set_value(2);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
     app.render_dirty().unwrap();
     assert_eq!(tile_values(), [2, 2, 7]);
     let after_shared = tile_counts();
     assert!(after_shared[0] > before[0]);
     assert!(after_shared[1] > before[1]);
 
-    assert_eq!(tracked_allocations(|| independent.set_value(8)), 0);
+    assert_eq!(
+        tracked_allocations(|| {
+            independent.set_value(8);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
     assert_eq!(
         app.world.get::<SharedTile>(tiles[0]).unwrap().model.value(),
         2
