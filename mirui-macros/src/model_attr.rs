@@ -2,7 +2,112 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
-use syn::{FnArg, ImplItem, Item, Pat, parse_quote, spanned::Spanned};
+use syn::{Attribute, FnArg, ImplItem, Item, Pat, Type, parse_quote, spanned::Spanned};
+
+struct ObservedValue {
+    name: syn::Ident,
+    ty: Type,
+    visibility: syn::Visibility,
+    attrs: Vec<Attribute>,
+    cfg_attrs: Vec<Attribute>,
+}
+
+struct EffectExtractor {
+    name: syn::Ident,
+    event: Type,
+    array: Type,
+    cfg_attrs: Vec<Attribute>,
+}
+
+fn cfg_attrs(attrs: &[Attribute]) -> Vec<Attribute> {
+    fn presence_meta(meta: &syn::Meta) -> Option<syn::Meta> {
+        if meta.path().is_ident("cfg") {
+            return Some(meta.clone());
+        }
+        if !meta.path().is_ident("cfg_attr") {
+            return None;
+        }
+        let syn::Meta::List(list) = meta else {
+            return Some(meta.clone());
+        };
+        let Ok(nested) =
+            list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+        else {
+            return Some(meta.clone());
+        };
+        let mut nested = nested.into_iter();
+        let Some(condition) = nested.next() else {
+            return Some(meta.clone());
+        };
+        let presence: Vec<_> = nested.filter_map(|meta| presence_meta(&meta)).collect();
+        if presence.is_empty() {
+            None
+        } else {
+            Some(parse_quote!(cfg_attr(#condition, #(#presence),*)))
+        }
+    }
+
+    attrs
+        .iter()
+        .filter_map(|attr| presence_meta(&attr.meta))
+        .map(|meta| parse_quote!(#[#meta]))
+        .collect()
+}
+
+fn may_be_cfg_removed(attrs: &[Attribute]) -> bool {
+    fn meta_removes_item(meta: &syn::Meta) -> bool {
+        if meta.path().is_ident("cfg") {
+            return true;
+        }
+        if !meta.path().is_ident("cfg_attr") {
+            return false;
+        }
+        let syn::Meta::List(list) = meta else {
+            return true;
+        };
+        list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            .map(|nested| nested.iter().skip(1).any(meta_removes_item))
+            .unwrap_or(true)
+    }
+
+    attrs.iter().any(|attr| meta_removes_item(&attr.meta))
+}
+
+fn accessor_attrs(attrs: &[Attribute]) -> Vec<Attribute> {
+    attrs
+        .iter()
+        .filter(|attr| {
+            attr.path().is_ident("cfg")
+                || attr.path().is_ident("cfg_attr")
+                || attr.path().is_ident("doc")
+                || attr.path().is_ident("deprecated")
+        })
+        .cloned()
+        .collect()
+}
+
+fn returns_reference(ty: &Type) -> bool {
+    match ty {
+        Type::Reference(_) => true,
+        Type::Array(ty) => returns_reference(&ty.elem),
+        Type::Group(ty) => returns_reference(&ty.elem),
+        Type::Paren(ty) => returns_reference(&ty.elem),
+        Type::Slice(ty) => returns_reference(&ty.elem),
+        Type::Tuple(ty) => ty.elems.iter().any(returns_reference),
+        Type::Path(ty) => ty
+            .path
+            .segments
+            .iter()
+            .any(|segment| match &segment.arguments {
+                syn::PathArguments::AngleBracketed(args) => args.args.iter().any(|arg| match arg {
+                    syn::GenericArgument::Type(ty) => returns_reference(ty),
+                    _ => false,
+                }),
+                _ => false,
+            }),
+        _ => false,
+    }
+}
 
 struct ModelOptions {
     change: Option<syn::Type>,
@@ -148,10 +253,15 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             ));
         };
         field.attrs.retain(|attr| !attr.path().is_ident("observe"));
-        observed.push((field_name.clone(), field.ty.clone(), field.vis.clone()));
+        observed.push(ObservedValue {
+            name: field_name.clone(),
+            ty: field.ty.clone(),
+            visibility: field.vis.clone(),
+            attrs: accessor_attrs(&field.attrs),
+            cfg_attrs: cfg_attrs(&field.attrs),
+        });
     }
-    let observed_names: Vec<_> = observed.iter().map(|(name, _, _)| name).collect();
-    let observed_types: Vec<_> = observed.iter().map(|(_, ty, _)| ty).collect();
+    let observed_names: Vec<_> = observed.iter().map(|value| &value.name).collect();
     for (name, _) in &options.watches {
         let getter = format_ident!("{}_revision", name);
         if observed_names.contains(&&getter) {
@@ -171,7 +281,11 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         .make_where_clause()
         .predicates
         .push(parse_quote!(#name #type_generics: ::mirui::core::model::ModelMethods));
-    for ty in &observed_types {
+    for ty in observed
+        .iter()
+        .filter(|value| !may_be_cfg_removed(&value.cfg_attrs))
+        .map(|value| &value.ty)
+    {
         model_generics
             .make_where_clause()
             .predicates
@@ -180,7 +294,11 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
     let (_, _, model_where) = model_generics.split_for_impl();
 
     let mut snapshot_generics = generics.clone();
-    for ty in &observed_types {
+    for ty in observed
+        .iter()
+        .filter(|value| !may_be_cfg_removed(&value.cfg_attrs))
+        .map(|value| &value.ty)
+    {
         snapshot_generics
             .make_where_clause()
             .predicates
@@ -190,10 +308,16 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
     let snapshot_definition = if observed.is_empty() {
         quote!()
     } else {
+        let fields = observed.iter().map(|value| {
+            let name = &value.name;
+            let ty = &value.ty;
+            let attrs = &value.cfg_attrs;
+            quote!(#(#attrs)* #name: #ty,)
+        });
         quote! {
-            #visibility struct #snapshot #snapshot_generics {
-                values: (#(#observed_types,)*),
-                marker: ::core::marker::PhantomData<#name #type_generics>,
+            #visibility struct #snapshot #snapshot_generics #snapshot_where {
+                #(#fields)*
+                __mirui_marker: ::core::marker::PhantomData<#name #type_generics>,
             }
 
             impl #snapshot_impl_generics ::core::marker::Copy for #snapshot #type_generics #snapshot_where {}
@@ -211,15 +335,23 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
     let snapshot_value = if observed.is_empty() {
         quote!()
     } else {
+        let fields = observed.iter().map(|value| {
+            let name = &value.name;
+            let attrs = &value.cfg_attrs;
+            quote!(#(#attrs)* #name: self.#name,)
+        });
         quote!(#snapshot {
-            values: (#(self.#observed_names,)*),
-            marker: ::core::marker::PhantomData,
+            #(#fields)*
+            __mirui_marker: ::core::marker::PhantomData,
         })
     };
-    let publish = observed.iter().enumerate().map(|(index, _)| {
+    let publish = observed.iter().enumerate().map(|(index, value)| {
         let index = syn::Index::from(index);
+        let name = &value.name;
+        let attrs = &value.cfg_attrs;
         quote! {
-            if before.values.#index != after.values.#index {
+            #(#attrs)*
+            if before.#name != after.#name {
                 sources[#index].notify();
             }
         }
@@ -229,16 +361,23 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
     } else {
         quote!(#(#publish)*)
     };
-    let accessors = observed.iter().enumerate().map(|(index, (field, ty, vis))| {
+    let accessors = observed.iter().enumerate().map(|(index, value)| {
+        let field = &value.name;
+        let ty = &value.ty;
+        let vis = &value.visibility;
+        let attrs = &value.attrs;
         quote! {
+            #(#attrs)*
             #vis fn #field(&self) -> #ty {
                 ::mirui::core::model::ModelHandle::read_observed(self, #index, |data| data.#field)
             }
         }
     });
-    let subscriptions = observed.iter().enumerate().map(|(index, (field, _, _))| {
-        let subscribe = format_ident!("__mirui_subscribe_{}", field);
+    let subscriptions = observed.iter().enumerate().map(|(index, value)| {
+        let subscribe = format_ident!("__mirui_subscribe_{}", value.name);
+        let attrs = &value.cfg_attrs;
         quote! {
+            #(#attrs)*
             #[doc(hidden)]
             pub fn #subscribe(
                 &self,
@@ -388,17 +527,26 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             "model impl target must be a local named type",
         ));
     };
-    if self_type.qself.is_some() || self_type.path.segments.len() != 1 {
+    if self_type.qself.is_some() {
         return Err(syn::Error::new_spanned(
             &item.self_ty,
-            "model impl target must use its local type name",
+            "model impl target must use a named type path",
         ));
     }
-    let name = self_type.path.segments[0].ident.clone();
+    let Some(target) = self_type.path.segments.last() else {
+        return Err(syn::Error::new_spanned(
+            &item.self_ty,
+            "model impl target must use a named type path",
+        ));
+    };
+    let name = target.ident.clone();
     let handle = format_ident!("{}Handle", name);
+    let mut handle_path = self_type.path.clone();
+    handle_path.segments.last_mut().unwrap().ident = handle.clone();
     let snapshot = format_ident!("{}DerivedSnapshot", name);
     let generics = item.generics.clone();
-    let type_args = self_type.path.segments[0].arguments.clone();
+    let (_, _, impl_where) = generics.split_for_impl();
+    let type_args = target.arguments.clone();
     let mut forwards = Vec::new();
     let mut observed = Vec::new();
     let mut effects = Vec::new();
@@ -451,6 +599,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
         method
             .attrs
             .retain(|attr| !attr.path().is_ident("observe") && !attr.path().is_ident("effects"));
+        let method_cfg_attrs = cfg_attrs(&method.attrs);
         let Some(FnArg::Receiver(receiver)) = method.sig.inputs.first() else {
             if is_observed || is_effect {
                 return Err(syn::Error::new_spanned(
@@ -470,6 +619,14 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 "model methods must be synchronous safe methods taking &self or &mut self",
             ));
         }
+        if let syn::ReturnType::Type(_, ty) = &method.sig.output
+            && returns_reference(ty)
+        {
+            return Err(syn::Error::new_spanned(
+                ty,
+                "model methods cannot return references; return an owned value",
+            ));
+        }
         if is_observed {
             if receiver.mutability.is_some()
                 || method.sig.inputs.len() != 1
@@ -486,7 +643,13 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                     "observed methods require a Copy + Eq return value",
                 ));
             };
-            observed.push((method.sig.ident.clone(), (**ty).clone(), method.vis.clone()));
+            observed.push(ObservedValue {
+                name: method.sig.ident.clone(),
+                ty: (**ty).clone(),
+                visibility: method.vis.clone(),
+                attrs: accessor_attrs(&method.attrs),
+                cfg_attrs: method_cfg_attrs,
+            });
             continue;
         }
         if is_effect {
@@ -500,18 +663,29 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 ));
             }
             let event = effect_item_type(&method.sig.output)?;
-            if effects.iter().any(
-                |(_, existing, _, _): &(syn::Ident, syn::Type, syn::Type, usize)| {
-                    quote!(#existing).to_string() == quote!(#event).to_string()
-                },
-            ) {
+            if effects.iter().any(|existing: &EffectExtractor| {
+                let existing_event = &existing.event;
+                existing.cfg_attrs.len() == method_cfg_attrs.len()
+                    && existing
+                        .cfg_attrs
+                        .iter()
+                        .zip(&method_cfg_attrs)
+                        .all(|(left, right)| {
+                            quote!(#left).to_string() == quote!(#right).to_string()
+                        })
+                    && quote!(#event).to_string() == quote!(#existing_event).to_string()
+            }) {
                 return Err(syn::Error::new_spanned(event, "duplicate effect type"));
             }
             let syn::ReturnType::Type(_, array) = &method.sig.output else {
                 unreachable!();
             };
-            let index = effects.len();
-            effects.push((method.sig.ident.clone(), event, (**array).clone(), index));
+            effects.push(EffectExtractor {
+                name: method.sig.ident.clone(),
+                event,
+                array: (**array).clone(),
+                cfg_attrs: method_cfg_attrs,
+            });
             continue;
         }
         let mut argument_names = Vec::new();
@@ -547,11 +721,13 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             }
         });
     }
-    let observed_names: Vec<_> = observed.iter().map(|(name, _, _)| name).collect();
-    let observed_types: Vec<_> = observed.iter().map(|(_, ty, _)| ty).collect();
     let source_count = observed.len();
     let mut derived_generics = generics.clone();
-    for ty in &observed_types {
+    for ty in observed
+        .iter()
+        .filter(|value| !may_be_cfg_removed(&value.cfg_attrs))
+        .map(|value| &value.ty)
+    {
         derived_generics
             .make_where_clause()
             .predicates
@@ -561,10 +737,16 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let snapshot_definition = if observed.is_empty() {
         quote!()
     } else {
+        let fields = observed.iter().map(|value| {
+            let name = &value.name;
+            let ty = &value.ty;
+            let attrs = &value.cfg_attrs;
+            quote!(#(#attrs)* #name: #ty,)
+        });
         quote! {
-            pub struct #snapshot #derived_generics {
-                values: (#(#observed_types,)*),
-                marker: ::core::marker::PhantomData<#name #type_args>,
+            pub struct #snapshot #derived_generics #derived_where {
+                #(#fields)*
+                __mirui_marker: ::core::marker::PhantomData<#self_type>,
             }
 
             impl #derived_impl_generics ::core::marker::Copy for #snapshot #type_args #derived_where {}
@@ -582,15 +764,23 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let snapshot_value = if observed.is_empty() {
         quote!()
     } else {
+        let fields = observed.iter().map(|value| {
+            let name = &value.name;
+            let attrs = &value.cfg_attrs;
+            quote!(#(#attrs)* #name: self.#name(),)
+        });
         quote!(#snapshot {
-            values: (#(self.#observed_names(),)*),
-            marker: ::core::marker::PhantomData,
+            #(#fields)*
+            __mirui_marker: ::core::marker::PhantomData,
         })
     };
-    let publish = observed.iter().enumerate().map(|(index, _)| {
+    let publish = observed.iter().enumerate().map(|(index, value)| {
         let index = syn::Index::from(index);
+        let name = &value.name;
+        let attrs = &value.cfg_attrs;
         quote! {
-            if before.values.#index != after.values.#index {
+            #(#attrs)*
+            if before.#name != after.#name {
                 sources[#index].notify();
             }
         }
@@ -600,16 +790,23 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     } else {
         quote!(#(#publish)*)
     };
-    let accessors = observed.iter().enumerate().map(|(index, (method, ty, vis))| {
+    let accessors = observed.iter().enumerate().map(|(index, value)| {
+        let method = &value.name;
+        let ty = &value.ty;
+        let vis = &value.visibility;
+        let attrs = &value.attrs;
         quote! {
+            #(#attrs)*
             #vis fn #method(&self) -> #ty {
                 ::mirui::core::model::ModelHandle::read_derived(self, #index, |data| data.#method())
             }
         }
     });
-    let subscriptions = observed.iter().enumerate().map(|(index, (method, _, _))| {
-        let subscribe = format_ident!("__mirui_subscribe_{}", method);
+    let subscriptions = observed.iter().enumerate().map(|(index, value)| {
+        let subscribe = format_ident!("__mirui_subscribe_{}", value.name);
+        let attrs = &value.cfg_attrs;
         quote! {
+            #(#attrs)*
             #[doc(hidden)]
             pub fn #subscribe(
                 &self,
@@ -622,21 +819,30 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     });
     let event_batch = format_ident!("{}EffectBatch", name);
     let route_store = format_ident!("{}EffectRoutes", name);
-    let effect_types: Vec<_> = effects.iter().map(|(_, event, _, _)| event).collect();
-    let effect_arrays: Vec<_> = effects.iter().map(|(_, _, array, _)| array).collect();
-    let effect_methods: Vec<_> = effects.iter().map(|(method, _, _, _)| method).collect();
     let effect_storage = if effects.is_empty() {
         quote!()
     } else {
+        let event_fields = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let array = &effect.array;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* #name: #array,)
+        });
+        let route_fields = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let event = &effect.event;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* #name: ::mirui::core::model::EffectRoute<#event>,)
+        });
         quote! {
-            pub struct #event_batch #generics {
-                values: (#(#effect_arrays,)*),
-                marker: ::core::marker::PhantomData<#name #type_args>,
+            pub struct #event_batch #generics #impl_where {
+                #(#event_fields)*
+                __mirui_marker: ::core::marker::PhantomData<#self_type>,
             }
 
-            pub struct #route_store #generics {
-                values: (#(::mirui::core::model::EffectRoute<#effect_types>,)*),
-                marker: ::core::marker::PhantomData<#name #type_args>,
+            pub struct #route_store #generics #impl_where {
+                #(#route_fields)*
+                __mirui_marker: ::core::marker::PhantomData<#self_type>,
             }
         }
     };
@@ -649,36 +855,52 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             quote!(let _ = (routes, events);),
         )
     } else {
-        let dispatches = effects.iter().map(|(_, _, _, index)| {
-            let index = syn::Index::from(*index);
+        let dispatches = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let attrs = &effect.cfg_attrs;
             quote! {
-                for event in events.values.#index.into_iter().flatten() {
-                    routes.values.#index.deliver(event);
+                #(#attrs)*
+                for event in events.#name.into_iter().flatten() {
+                    routes.#name.deliver(event);
                 }
             }
+        });
+        let take_fields = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* #name: self.#name(),)
+        });
+        let route_values = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let event = &effect.event;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* #name: ::mirui::core::model::EffectRoute::<#event>::new(),)
         });
         (
             quote!(#event_batch #type_args),
             quote!(#route_store #type_args),
             quote!(#event_batch {
-                values: (#(self.#effect_methods(),)*),
-                marker: ::core::marker::PhantomData,
+                #(#take_fields)*
+                __mirui_marker: ::core::marker::PhantomData,
             }),
             quote!(#route_store {
-                values: (#(::mirui::core::model::EffectRoute::<#effect_types>::new(),)*),
-                marker: ::core::marker::PhantomData,
+                #(#route_values)*
+                __mirui_marker: ::core::marker::PhantomData,
             }),
             quote!(#(#dispatches)*),
         )
     };
-    let effect_traits = effects.iter().map(|(_, event, _, index)| {
-        let index = syn::Index::from(*index);
+    let effect_traits = effects.iter().map(|effect| {
+        let event = &effect.event;
+        let name = &effect.name;
+        let attrs = &effect.cfg_attrs;
         quote! {
+            #(#attrs)*
             impl #derived_impl_generics ::mirui::core::model::Produces<#event>
-                for #name #type_args #derived_where
+                for #self_type #derived_where
             {
                 fn route(routes: &Self::Routes) -> &::mirui::core::model::EffectRoute<#event> {
-                    &routes.values.#index
+                    &routes.#name
                 }
             }
         }
@@ -689,7 +911,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
         #snapshot_definition
         #effect_storage
 
-        impl #derived_impl_generics ::mirui::core::model::ModelMethods for #name #type_args #derived_where {
+        impl #derived_impl_generics ::mirui::core::model::ModelMethods for #self_type #derived_where {
             type DerivedSnapshot = #snapshot_type;
             type DerivedSources = [::mirui::core::reactive::ModelSource; #source_count];
             type Events = #events_type;
@@ -700,7 +922,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             }
 
             fn derived_sources() -> Self::DerivedSources {
-                ::core::array::from_fn(|_| ::mirui::core::reactive::ModelSource::new())
+                ::core::array::from_fn::<_, #source_count, _>(|_| ::mirui::core::reactive::ModelSource::new())
             }
 
             fn publish_derived(
@@ -726,11 +948,11 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
         #(#effect_traits)*
 
-        impl #derived_impl_generics #handle #type_args #derived_where {
+        impl #derived_impl_generics #handle_path #derived_where {
             #(#forwards)*
         }
 
-        impl #derived_impl_generics #handle #type_args #derived_where {
+        impl #derived_impl_generics #handle_path #derived_where {
             #(#accessors)*
             #(#subscriptions)*
         }
@@ -739,8 +961,30 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
 #[cfg(test)]
 mod tests {
-    use super::expand;
+    use super::{cfg_attrs, expand, may_be_cfg_removed};
     use quote::quote;
+    use syn::parse_quote;
+
+    #[test]
+    fn cfg_attr_without_cfg_keeps_observed_bounds() {
+        assert!(!may_be_cfg_removed(&[parse_quote!(
+            #[cfg_attr(feature = "extra", doc = "note")]
+        )]));
+        assert!(may_be_cfg_removed(&[parse_quote!(
+            #[cfg_attr(feature = "extra", cfg(feature = "other"))]
+        )]));
+    }
+
+    #[test]
+    fn generated_presence_attrs_drop_expression_docs() {
+        let attrs = cfg_attrs(&[parse_quote!(
+            #[cfg_attr(feature = "x", cfg(feature = "y"), doc = "note")]
+        )]);
+        let generated = quote!(#(#attrs)*).to_string();
+        assert!(generated.contains("cfg_attr"));
+        assert!(generated.contains("feature = \"y\""));
+        assert!(!generated.contains("doc"));
+    }
 
     #[test]
     fn observed_fields_generate_independent_sources() {
@@ -924,5 +1168,56 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("[Option<Event>; N]"));
+    }
+
+    #[test]
+    fn rejects_duplicate_effect_types_under_the_same_cfg() {
+        let error = expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    #[cfg(feature = "sound")]
+                    #[effects]
+                    fn first(&mut self) -> [Option<Note>; 1] { [None] }
+                    #[cfg(feature = "sound")]
+                    #[effects]
+                    fn second(&mut self) -> [Option<Note>; 1] { [None] }
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("duplicate effect type"));
+    }
+
+    #[test]
+    fn allows_effect_types_under_distinct_cfgs() {
+        expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    #[cfg(feature = "sound")]
+                    #[effects]
+                    fn first(&mut self) -> [Option<Note>; 1] { [None] }
+                    #[cfg(not(feature = "sound"))]
+                    #[effects]
+                    fn second(&mut self) -> [Option<Note>; 1] { [None] }
+                }
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn rejects_nested_reference_returns() {
+        let error = expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    fn borrowed(&self) -> Option<&u8> { None }
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("cannot return references"));
     }
 }

@@ -1,0 +1,5 @@
+error: model methods must be synchronous safe methods taking &self or &mut self
+ --> tests/ui/model_async_method.rs:7:5
+  |
+7 |     async fn increment(&mut self) {
+  |     ^^^^^

@@ -1,0 +1,10 @@
+error[E0119]: conflicting implementations of trait `Produces<Pulse>` for type `Counter`
+  --> tests/ui/model_effect_alias_collision.rs:11:1
+   |
+11 | #[model]
+   | ^^^^^^^^
+   | |
+   | first implementation here
+   | conflicting implementation for `Counter`
+   |
+   = note: this error originates in the attribute macro `model` (in Nightly builds, run with -Z macro-backtrace for more info)

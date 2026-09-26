@@ -1,0 +1,8 @@
+error[E0624]: method `value` is private
+  --> tests/ui/model_private_observer.rs:15:12
+   |
+ 4 |     #[model]
+   |     -------- private method defined here
+...
+15 |     handle.value()
+   |            ^^^^^ private method

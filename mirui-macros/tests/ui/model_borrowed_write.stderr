@@ -1,0 +1,5 @@
+error: model methods cannot return references; return an owned value
+ --> tests/ui/model_borrowed_write.rs:7:32
+  |
+7 |     fn value_mut(&mut self) -> &mut u8 {
+  |                                ^^^^^^^

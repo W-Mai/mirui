@@ -1,0 +1,10 @@
+error[E0119]: conflicting implementations of trait `mirui::core::model::ModelMethods` for type `Counter`
+  --> tests/ui/model_duplicate_impl.rs:13:1
+   |
+ 6 | #[model]
+   | -------- first implementation here
+...
+13 | #[model]
+   | ^^^^^^^^ conflicting implementation for `Counter`
+   |
+   = note: this error originates in the attribute macro `model` (in Nightly builds, run with -Z macro-backtrace for more info)

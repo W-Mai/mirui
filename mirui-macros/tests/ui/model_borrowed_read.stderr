@@ -1,0 +1,5 @@
+error: model methods cannot return references; return an owned value
+ --> tests/ui/model_borrowed_read.rs:7:24
+  |
+7 |     fn value(&self) -> &u8 {
+  |                        ^^^

@@ -1,0 +1,15 @@
+[package]
+name = "model-contract-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[features]
+extra = ["model-contract-producer/extra"]
+host-tests = ["mirui/std"]
+x = ["model-contract-producer/x"]
+y = ["model-contract-producer/y"]
+
+[dependencies]
+mirui = { path = "../../../../..", default-features = false }
+model-contract-producer = { path = ".." }

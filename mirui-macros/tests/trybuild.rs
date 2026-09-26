@@ -10,3 +10,14 @@ fn ui() {
     t.compile_fail("tests/ui/on_unknown_event.rs");
     t.compile_fail("tests/ui/on_form_a_inside_body.rs");
 }
+
+#[test]
+fn model_contracts() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/model_async_method.rs");
+    t.compile_fail("tests/ui/model_borrowed_read.rs");
+    t.compile_fail("tests/ui/model_borrowed_write.rs");
+    t.compile_fail("tests/ui/model_duplicate_impl.rs");
+    t.compile_fail("tests/ui/model_effect_alias_collision.rs");
+    t.compile_fail("tests/ui/model_private_observer.rs");
+}
