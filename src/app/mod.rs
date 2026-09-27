@@ -546,12 +546,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .resource::<crate::surface::SafeAreaInsets>()
             .is_none_or(|current| *current != safe_area);
         if viewport_changed || safe_area_changed {
-            // Computed rects and the retained layout snapshot are expressed
-            // in the previous logical viewport. A browser CSS resize (or a
-            // native display reconfiguration) must invalidate them before
-            // the next input event is hit-tested.
-            self.world
-                .remove_resource::<crate::ui::render_system::LayoutSnapshot>();
+            // Geometry from the previous viewport is stale, but its layout
+            // storage can be reused when the same root is recomputed.
+            if let Some(snapshot) = self
+                .world
+                .resource_mut::<crate::ui::render_system::LayoutSnapshot>()
+            {
+                snapshot.invalidate();
+            }
             if let Some(root) = self.root {
                 self.world.mark_subtree_dirty(root);
             }
@@ -1278,7 +1280,7 @@ mod dirty_plan_reuse_check {
     use crate::ui::builder::WidgetBuilder;
     use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
-    use crate::ui::render_system::LastDirtyRegions;
+    use crate::ui::render_system::{LastDirtyRegions, LayoutSnapshot};
     use crate::ui::{Children, HitTarget, Parent};
 
     #[test]
@@ -1345,21 +1347,90 @@ mod dirty_plan_reuse_check {
         let root = app.spawn_root().id();
         app.world.insert(root, Dirty);
         app.render().unwrap();
-        assert!(
-            app.world
-                .resource::<crate::ui::render_system::LayoutSnapshot>()
-                .is_some()
-        );
+        let snapshot_ptr = app.world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
 
         let current = app.world.resource::<RenderViewport>().unwrap().0;
         app.prepare_render(crate::types::Viewport::new(64, 32, current.scale()));
 
-        assert!(
-            app.world
-                .resource::<crate::ui::render_system::LayoutSnapshot>()
-                .is_none()
+        assert_eq!(
+            app.world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
+            snapshot_ptr
         );
         assert!(app.world.has::<Dirty>(root));
+    }
+
+    #[test]
+    fn resized_app_reuses_snapshot_and_updates_pixels_and_hit_geometry() {
+        use crate::surface::framebuf::FramebufSurface;
+        use crate::types::Color;
+
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let target = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                width: Dimension::percent(50),
+                height: Dimension::px(16),
+                ..LayoutStyle::default()
+            })
+            .id();
+        app.world
+            .get_mut::<crate::ui::Style>(target)
+            .unwrap()
+            .set_bg_color(Color::rgb(240, 20, 30));
+        app.world.insert(target, HitTarget);
+        app.world.insert(target, Parent(root));
+        app.world.get_mut::<Children>(root).unwrap().0.push(target);
+
+        app.render().unwrap();
+        let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+        let snapshot_ptr = snapshot as *const LayoutSnapshot;
+        let entities_ptr = snapshot.entities.as_ptr();
+        assert_eq!(
+            hit_test(
+                &app.world,
+                root,
+                Fixed::from_int(24),
+                Fixed::from_int(4),
+                32,
+                32
+            ),
+            None
+        );
+
+        let cb: HeadlessFlush = |_buf, _area| {};
+        app.backend = FramebufSurface::new(64, 32, cb);
+        app.render_dirty().unwrap();
+
+        let resized = app.world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(resized as *const LayoutSnapshot, snapshot_ptr);
+        assert_eq!(resized.entities.as_ptr(), entities_ptr);
+        assert_eq!(
+            app.world.get::<crate::ui::ComputedRect>(root).unwrap().0,
+            Rect::new(0, 0, 64, 32)
+        );
+        assert_eq!(
+            app.world
+                .get::<crate::ui::ComputedRect>(target)
+                .unwrap()
+                .0
+                .w,
+            Fixed::from_int(32)
+        );
+        assert_eq!(
+            hit_test(
+                &app.world,
+                root,
+                Fixed::from_int(24),
+                Fixed::from_int(4),
+                64,
+                32
+            ),
+            Some(target)
+        );
+        let texture = app.backend.framebuffer();
+        let pixel = (4 * 64 + 24) * 4;
+        assert_eq!(&texture.buf.as_slice()[pixel..pixel + 3], &[240, 20, 30]);
     }
 }
 

@@ -174,7 +174,10 @@ pub mod prop {
             if currently_visible == value {
                 return PropertyChange::Unchanged;
             }
-            world.remove_resource::<crate::ui::render_system::LayoutSnapshot>();
+            if let Some(snapshot) = world.resource_mut::<crate::ui::render_system::LayoutSnapshot>()
+            {
+                snapshot.invalidate();
+            }
             if value {
                 world.remove::<crate::ui::Hidden>(entity);
                 world.mark_subtree_dirty(entity);

@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Retained layout snapshots.** Visibility and viewport changes preserve reusable layout storage while refreshing computed geometry, hit testing, and dirty rendering.
 - **Inactive text layouts.** Hidden, detached, and previous-root text layouts and measurements are retired before the next layout tree is built; visible owners keep their cached handles.
 - **Bound callback capture.** Generated `ui!` callbacks share a bound model for free references and implicit named references in standard `format!` and `format_args!` calls. Same-named fields, local variables, escaped braces, and pattern bindings do not create an unused capture; explicit named format arguments follow their value expressions.
 - **Fixed-size Web Canvas input.** Backend viewports retain the declared logical dimensions when quantized display scaling cannot reconstruct them from backing pixels, keeping hit testing aligned with pointer events.

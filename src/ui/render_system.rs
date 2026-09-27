@@ -598,6 +598,7 @@ fn compute_layout_snapshot(
                 root,
                 logical_w,
                 logical_h,
+                valid: false,
                 layout_tree: build_layout_tree(world, root)?,
                 entities,
                 out_of_scroll_prev: Vec::new(),
@@ -639,6 +640,7 @@ fn compute_layout_snapshot(
     }
     snapshot.logical_w = logical_w;
     snapshot.logical_h = logical_h;
+    snapshot.valid = true;
     Some(snapshot)
 }
 
@@ -1887,6 +1889,7 @@ pub(crate) struct LayoutSnapshot {
     root: Entity,
     logical_w: u16,
     logical_h: u16,
+    valid: bool,
     pub(crate) layout_tree: LayoutNode,
     pub(crate) entities: Vec<Entity>,
     out_of_scroll_prev: Vec<Rect>,
@@ -1894,7 +1897,14 @@ pub(crate) struct LayoutSnapshot {
 
 impl LayoutSnapshot {
     fn matches(&self, root: Entity, logical_w: u16, logical_h: u16) -> bool {
-        self.root == root && self.logical_w == logical_w && self.logical_h == logical_h
+        self.valid
+            && self.root == root
+            && self.logical_w == logical_w
+            && self.logical_h == logical_h
+    }
+
+    pub(crate) fn invalidate(&mut self) {
+        self.valid = false;
     }
 }
 
@@ -2299,7 +2309,15 @@ pub(crate) fn collect_dirty_regions_into(
         .is_some_and(|regions| !regions.is_empty());
     let hit_geometry_valid =
         crate::input::event::hit_test::geometry_matches(world, root, logical_w, logical_h);
-    if !has_layout_dirty && !has_visual_dirty && !has_exact_dirty && hit_geometry_valid {
+    let snapshot_stale = world
+        .resource::<LayoutSnapshot>()
+        .is_some_and(|snapshot| !snapshot.matches(root, logical_w, logical_h));
+    if !has_layout_dirty
+        && !has_visual_dirty
+        && !has_exact_dirty
+        && hit_geometry_valid
+        && !snapshot_stale
+    {
         return;
     }
 
@@ -2315,13 +2333,18 @@ pub(crate) fn collect_dirty_regions_into(
     }
 
     let visual_only = !has_layout_dirty;
-    let existing = world
-        .take_resource_box::<LayoutSnapshot>()
-        .filter(|snapshot| snapshot.matches(root, logical_w, logical_h));
+    let existing = match world.take_resource_box::<LayoutSnapshot>() {
+        Some(snapshot) if snapshot.matches(root, logical_w, logical_h) => Some(snapshot),
+        Some(snapshot) => {
+            world.put_resource_box(snapshot);
+            None
+        }
+        None => None,
+    };
     let Some(mut snapshot) = (if visual_only {
         existing.or_else(|| {
             crate::trace_span!("dirty.layout", {
-                compute_layout_snapshot(world, root, logical_w, logical_h)
+                reconcile_layout_snapshot(world, root, logical_w, logical_h)
             })
         })
     } else {
@@ -2489,6 +2512,7 @@ mod layout_snapshot_reuse_check {
     use crate::types::Dimension;
     use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
+    use crate::ui::property::{apply_to_world, prop};
     use crate::ui::widgets::Text;
     use crate::ui::{Hidden, branch::CachedBranchVisibility};
 
@@ -2525,6 +2549,133 @@ mod layout_snapshot_reuse_check {
 
     fn text_handle(world: &World, entity: Entity) -> crate::text::TextLayoutHandle {
         *world.get::<crate::text::TextLayoutHandle>(entity).unwrap()
+    }
+
+    #[test]
+    fn visible_property_keeps_snapshot_storage_and_never_renders_stale_text() {
+        #[derive(Default)]
+        struct GlyphRecorder(usize);
+
+        impl Renderer for GlyphRecorder {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                if matches!(request.command, DrawCommand::GlyphRun { .. }) {
+                    self.0 += 1;
+                }
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
+        let root = widget(&mut world, 64);
+        let label = child(&mut world, root, Some("VISIBLE"));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        let snapshot_ptr = snapshot as *const LayoutSnapshot;
+        let entities_ptr = snapshot.entities.as_ptr();
+        let entities_capacity = snapshot.entities.capacity();
+        let mut drawn = GlyphRecorder::default();
+        render(&world, root, &viewport, &mut drawn).unwrap();
+        assert!(drawn.0 > 0);
+
+        apply_to_world::<prop::Visible>(&mut world, label, false);
+        assert!(world.resource::<LayoutSnapshot>().is_some());
+        let mut drawn = GlyphRecorder::default();
+        render(&world, root, &viewport, &mut drawn).unwrap();
+        assert_eq!(drawn.0, 0);
+        update_layout(&mut world, root, &viewport);
+        let hidden = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(hidden as *const LayoutSnapshot, snapshot_ptr);
+        assert_eq!(hidden.entities.as_ptr(), entities_ptr);
+        assert_eq!(hidden.entities.capacity(), entities_capacity);
+        assert_eq!(hidden.entities, [root]);
+
+        apply_to_world::<prop::Visible>(&mut world, label, true);
+        assert!(
+            !world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .matches(root, 64, 64)
+        );
+        update_layout(&mut world, root, &viewport);
+        let mut drawn = GlyphRecorder::default();
+        render(&world, root, &viewport, &mut drawn).unwrap();
+        assert!(drawn.0 > 0);
+        let visible = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(visible as *const LayoutSnapshot, snapshot_ptr);
+        assert_eq!(visible.entities.as_ptr(), entities_ptr);
+        assert_eq!(visible.entities.capacity(), entities_capacity);
+        assert_eq!(visible.entities, [root, label]);
+    }
+
+    #[test]
+    fn dirty_layout_reuses_snapshot_storage_when_viewport_changes() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        world.get_mut::<Style>(root).unwrap().layout.width = Dimension::Auto;
+        let label = child(&mut world, root, None);
+        let wide = Viewport::new(64, 64, Fixed::ONE);
+        let narrow = Viewport::new(32, 64, Fixed::ONE);
+        update_layout(&mut world, root, &wide);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        let snapshot_ptr = snapshot as *const LayoutSnapshot;
+        let entities_ptr = snapshot.entities.as_ptr();
+        assert_eq!(snapshot.entities, [root, label]);
+
+        let mut plan = DirtyRegions::default();
+        collect_dirty_regions_into(&mut world, root, &narrow, &mut plan);
+
+        let resized = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(resized as *const LayoutSnapshot, snapshot_ptr);
+        assert_eq!(resized.entities.as_ptr(), entities_ptr);
+        assert!(resized.matches(root, 32, 64));
+        assert_eq!(
+            world.get::<super::super::ComputedRect>(root).unwrap().0.w,
+            Fixed::from_int(32)
+        );
+        assert_eq!(resized.entities, [root, label]);
+    }
+
+    #[test]
+    fn dirty_layout_reuses_invalidated_snapshot_after_visible_changes() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let label = child(&mut world, root, None);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        let snapshot_ptr = snapshot as *const LayoutSnapshot;
+        let entities_ptr = snapshot.entities.as_ptr();
+        let mut plan = DirtyRegions::default();
+
+        apply_to_world::<prop::Visible>(&mut world, label, false);
+        assert!(
+            !world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .matches(root, 64, 64)
+        );
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let hidden = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(hidden as *const LayoutSnapshot, snapshot_ptr);
+        assert_eq!(hidden.entities.as_ptr(), entities_ptr);
+        assert_eq!(hidden.entities, [root]);
+
+        apply_to_world::<prop::Visible>(&mut world, label, true);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let visible = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(visible as *const LayoutSnapshot, snapshot_ptr);
+        assert_eq!(visible.entities.as_ptr(), entities_ptr);
+        assert_eq!(visible.entities, [root, label]);
     }
 
     fn layout_is_live(world: &World, handle: crate::text::TextLayoutHandle) -> bool {
