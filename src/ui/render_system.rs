@@ -571,18 +571,35 @@ fn compute_layout_snapshot(
     logical_w: u16,
     logical_h: u16,
 ) -> Option<Box<LayoutSnapshot>> {
-    let previous = world.take_resource_box::<LayoutSnapshot>();
+    let mut previous = world.take_resource_box::<LayoutSnapshot>();
+    let mut entities = previous
+        .as_mut()
+        .map(|snapshot| core::mem::take(&mut snapshot.entities))
+        .unwrap_or_default();
+    entities.clear();
+    collect_entities_preorder(world, root, &mut entities);
+    entities.sort_unstable_by_key(|entity| (entity.id, entity.generation));
+    if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
+        cache
+            .borrow_mut()
+            .begin_frame_with_owner_filter(|owner| visible_text_owner(world, &entities, owner));
+    }
+    entities.clear();
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
-                refresh_layout_tree(world, root, &mut snapshot.layout_tree).then_some(snapshot)?
+                if !refresh_layout_tree(world, root, &mut snapshot.layout_tree) {
+                    return None;
+                }
+                snapshot.entities = entities;
+                snapshot
             }
             _ => Box::new(LayoutSnapshot {
                 root,
                 logical_w,
                 logical_h,
                 layout_tree: build_layout_tree(world, root)?,
-                entities: Vec::new(),
+                entities,
                 out_of_scroll_prev: Vec::new(),
             }),
         }
@@ -600,9 +617,6 @@ fn compute_layout_snapshot(
         snapshot.entities.clear();
         collect_entities_preorder(world, root, &mut snapshot.entities);
     });
-    if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
-        cache.borrow_mut().begin_frame();
-    }
     let mut text_index = 0;
     let intrinsic_changed = crate::trace_span!("layout.text", {
         layout_text_tree(
@@ -717,6 +731,20 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
 
 fn text_layout_owner(entity: Entity) -> u64 {
     u64::from(entity.id) | (u64::from(entity.generation) << 32)
+}
+
+fn visible_text_owner(world: &World, visible_entities: &[Entity], owner: u64) -> bool {
+    let entity = Entity {
+        id: owner as u32,
+        generation: (owner >> 32) as u32,
+    };
+    visible_entities
+        .binary_search_by_key(&(entity.id, entity.generation), |candidate| {
+            (candidate.id, candidate.generation)
+        })
+        .is_ok()
+        && world.get::<Widget>(entity).is_some()
+        && world.get::<Style>(entity).is_some()
 }
 
 fn apply_static_glyph_intrinsic(
@@ -2457,10 +2485,12 @@ fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
 #[cfg(test)]
 mod layout_snapshot_reuse_check {
     use super::*;
+    use crate::text::layout::TextLayoutResource;
     use crate::types::Dimension;
-    use crate::ui::Hidden;
     use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
+    use crate::ui::widgets::Text;
+    use crate::ui::{Hidden, branch::CachedBranchVisibility};
 
     fn widget(world: &mut World, width: i32) -> Entity {
         let entity = world.spawn_empty();
@@ -2477,6 +2507,33 @@ mod layout_snapshot_reuse_check {
             },
         );
         entity
+    }
+
+    fn child(world: &mut World, parent: Entity, text: Option<&'static str>) -> Entity {
+        let entity = widget(world, 20);
+        world.insert(entity, Parent(parent));
+        if let Some(children) = world.get_mut::<Children>(parent) {
+            children.0.push(entity);
+        } else {
+            world.insert(parent, Children(vec![entity]));
+        }
+        if let Some(text) = text {
+            world.insert(entity, Text::from(text));
+        }
+        entity
+    }
+
+    fn text_handle(world: &World, entity: Entity) -> crate::text::TextLayoutHandle {
+        *world.get::<crate::text::TextLayoutHandle>(entity).unwrap()
+    }
+
+    fn layout_is_live(world: &World, handle: crate::text::TextLayoutHandle) -> bool {
+        world
+            .resource::<TextLayoutResource>()
+            .unwrap()
+            .borrow()
+            .get(handle)
+            .is_some()
     }
 
     #[test]
@@ -2500,6 +2557,141 @@ mod layout_snapshot_reuse_check {
         assert_eq!(snapshot.layout_tree.children.as_ptr(), tree_ptr);
         assert_eq!(snapshot.entities.as_ptr(), entities_ptr);
         assert_eq!(snapshot.entities, [root, first, second]);
+    }
+
+    #[test]
+    fn hidden_ancestor_retires_only_its_text_layouts_before_tree_build() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let root = widget(&mut world, 64);
+        let visible = child(&mut world, root, Some("visible"));
+        let panel = child(&mut world, root, None);
+        let hidden = child(&mut world, panel, Some("hidden"));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let visible_handle = text_handle(&world, visible);
+        let hidden_handle = text_handle(&world, hidden);
+        world.insert(panel, Hidden);
+        update_layout(&mut world, root, &viewport);
+
+        assert_eq!(text_handle(&world, visible), visible_handle);
+        assert!(layout_is_live(&world, visible_handle));
+        assert!(!layout_is_live(&world, hidden_handle));
+
+        world.remove::<Hidden>(panel);
+        update_layout(&mut world, root, &viewport);
+        let returned = text_handle(&world, hidden);
+        assert_ne!(returned, hidden_handle);
+        assert!(layout_is_live(&world, returned));
+    }
+
+    #[test]
+    fn children_only_tree_preserves_visible_text_layout() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let root = widget(&mut world, 64);
+        let label = widget(&mut world, 20);
+        world.insert(label, Text::from("visible"));
+        world.insert(root, Children(vec![label]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let first = text_handle(&world, label);
+        update_layout(&mut world, root, &viewport);
+
+        assert_eq!(text_handle(&world, label), first);
+        assert!(layout_is_live(&world, first));
+    }
+
+    #[test]
+    fn visible_text_input_owner_is_retained() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let input = child(&mut world, root, None);
+        world.insert(input, crate::ui::widgets::TextInput::new());
+        let mut visible = Vec::new();
+        collect_entities_preorder(&world, root, &mut visible);
+        visible.sort_unstable_by_key(|entity| (entity.id, entity.generation));
+
+        assert!(visible_text_owner(
+            &world,
+            &visible,
+            text_layout_owner(input)
+        ));
+    }
+
+    #[test]
+    fn cached_branch_text_layout_rebuilds_when_selected_again() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let root = widget(&mut world, 64);
+        let branch = child(&mut world, root, None);
+        let label = child(&mut world, branch, Some("branch"));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let first = text_handle(&world, label);
+        world.insert(branch, CachedBranchVisibility { selected: false });
+        update_layout(&mut world, root, &viewport);
+        assert!(!layout_is_live(&world, first));
+
+        world.insert(branch, CachedBranchVisibility { selected: true });
+        update_layout(&mut world, root, &viewport);
+        let rebuilt = text_handle(&world, label);
+        assert_ne!(rebuilt, first);
+        assert!(layout_is_live(&world, rebuilt));
+    }
+
+    #[test]
+    fn despawned_text_owner_cannot_reuse_a_layout_handle() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let root = widget(&mut world, 64);
+        let old = child(&mut world, root, Some("before"));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let stale = text_handle(&world, old);
+        assert!(world.despawn(old));
+        world.get_mut::<Children>(root).unwrap().0.clear();
+        let replacement = child(&mut world, root, Some("after"));
+        assert_eq!(replacement.id, old.id);
+        assert_ne!(replacement.generation, old.generation);
+
+        update_layout(&mut world, root, &viewport);
+        let current = text_handle(&world, replacement);
+        assert!(!layout_is_live(&world, stale));
+        assert!(layout_is_live(&world, current));
+        assert_ne!(current, stale);
+    }
+
+    #[test]
+    fn switching_roots_retires_text_from_the_previous_tree() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let first_root = widget(&mut world, 64);
+        let first_label = child(&mut world, first_root, Some("first"));
+        let second_root = widget(&mut world, 64);
+        let second_label = child(&mut world, second_root, Some("second"));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, first_root, &viewport);
+        let previous = text_handle(&world, first_label);
+        update_layout(&mut world, second_root, &viewport);
+        assert!(!layout_is_live(&world, previous));
+        assert!(layout_is_live(&world, text_handle(&world, second_label)));
+    }
+
+    #[test]
+    fn detached_text_owners_are_not_visible() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let first = child(&mut world, root, Some("detached"));
+        world.get_mut::<Children>(root).unwrap().0.clear();
+        let mut visible = Vec::new();
+        collect_entities_preorder(&world, root, &mut visible);
+        visible.sort_unstable_by_key(|entity| (entity.id, entity.generation));
+        assert!(!visible_text_owner(
+            &world,
+            &visible,
+            text_layout_owner(first)
+        ));
     }
 
     #[test]

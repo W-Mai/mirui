@@ -230,9 +230,24 @@ impl TextLayoutCache {
             .saturating_add(vec_bytes(&self.carets))
     }
 
+    #[cfg(test)]
     pub fn begin_frame(&mut self) {
         if self.frame != 0 {
-            self.retain_previous_frame();
+            let frame = self.frame;
+            self.retain_cached(|_, last_used| last_used == frame);
+        }
+        self.frame = self.frame.wrapping_add(1).max(1);
+    }
+
+    pub(crate) fn begin_frame_with_owner_filter(
+        &mut self,
+        mut keep_owner: impl FnMut(u64) -> bool,
+    ) {
+        if self.frame != 0 {
+            let frame = self.frame;
+            self.retain_cached(|owner, last_used| last_used == frame && keep_owner(owner));
+        } else {
+            self.retain_cached(|owner, _| keep_owner(owner));
         }
         self.frame = self.frame.wrapping_add(1).max(1);
     }
@@ -599,17 +614,18 @@ impl TextLayoutCache {
         )
     }
 
-    fn retain_previous_frame(&mut self) {
-        let frame = self.frame;
+    fn retain_cached(&mut self, mut keep_owner: impl FnMut(u64, u32) -> bool) {
         for (slot, entry) in self.entries.iter_mut().enumerate() {
             let keep = entry
                 .as_ref()
-                .is_some_and(|entry| entry.key.is_some() && entry.last_used == frame);
+                .and_then(|entry| entry.key.map(|key| (key.owner, entry.last_used)))
+                .is_some_and(|(owner, last_used)| keep_owner(owner, last_used));
             if !keep && entry.take().is_some() {
                 self.slot_generations[slot] = self.slot_generations[slot].saturating_add(1);
             }
         }
-        self.measurements.retain(|entry| entry.last_used == frame);
+        self.measurements
+            .retain(|entry| keep_owner(entry.key.owner, entry.last_used));
 
         let mut lines = 0;
         let mut runs = 0;
@@ -1234,6 +1250,36 @@ mod tests {
         assert_eq!(reused.slot, stale.slot);
         assert_ne!(reused.generation, stale.generation);
         assert_eq!(cache.get(reused).unwrap().glyphs().len(), 4);
+    }
+
+    #[test]
+    fn owner_filter_retires_layouts_and_measurements_together() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame_with_owner_filter(|_| true);
+        let kept = cache
+            .layout_cached(1, 1, request("keep", i32::MAX), &typefaces)
+            .unwrap();
+        let retired = cache
+            .layout_cached(2, 1, request("retire", i32::MAX), &typefaces)
+            .unwrap();
+        cache
+            .measure_cached(1, 1, request("keep", i32::MAX), &typefaces)
+            .unwrap();
+        cache
+            .measure_cached(2, 1, request("retire", i32::MAX), &typefaces)
+            .unwrap();
+        let resident = cache.resident_bytes();
+
+        cache.begin_frame_with_owner_filter(|owner| owner == 1);
+
+        assert!(cache.get(kept).is_some());
+        assert!(cache.get(retired).is_none());
+        assert_eq!(cache.measurements.len(), 1);
+        assert_eq!(cache.measurements[0].key.owner, 1);
+        assert_eq!(cache.resident_bytes(), resident);
     }
 
     #[test]
