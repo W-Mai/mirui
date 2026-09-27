@@ -25,7 +25,7 @@ use crate::types::Fixed64;
 use crate::ui::ComputedRect;
 use crate::ui::view::ViewCtx;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Switch, Text, TextAlign};
-use alloc::format;
+use core::fmt;
 
 pub const VIEWPORT: (u16, u16) = (480, 320);
 
@@ -52,22 +52,46 @@ fn marble_readout(
     hits: u32,
     radius: Fixed,
     bounce: Fixed,
-) -> alloc::string::String {
-    match page {
-        Page::Play => format!(
-            "PAD {} · {:.2} g · {} HITS",
-            pad_letter as char,
-            gravity.to_f32(),
-            hits
-        ),
-        Page::Edit => format!(
-            "PAD {} · RADIUS {} · BOUNCE {:.2}",
-            pad_letter as char,
-            radius.to_int(),
-            bounce.to_f32()
-        ),
-        Page::Scenes => "PRESETS RESET LAYOUT AND MARBLES".into(),
-        Page::Settings => "GRAVITY · TRAILS · FEEDBACK".into(),
+) -> MarbleReadout {
+    MarbleReadout {
+        page,
+        pad_letter,
+        gravity,
+        hits,
+        radius,
+        bounce,
+    }
+}
+
+struct MarbleReadout {
+    page: Page,
+    pad_letter: u8,
+    gravity: Fixed,
+    hits: u32,
+    radius: Fixed,
+    bounce: Fixed,
+}
+
+impl fmt::Display for MarbleReadout {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.page {
+            Page::Play => write!(
+                out,
+                "PAD {} · {:.2} g · {} HITS",
+                self.pad_letter as char,
+                self.gravity.to_f32(),
+                self.hits
+            ),
+            Page::Edit => write!(
+                out,
+                "PAD {} · RADIUS {} · BOUNCE {:.2}",
+                self.pad_letter as char,
+                self.radius.to_int(),
+                self.bounce.to_f32()
+            ),
+            Page::Scenes => out.write_str("PRESETS RESET LAYOUT AND MARBLES"),
+            Page::Settings => out.write_str("GRAVITY · TRAILS · FEEDBACK"),
+        }
     }
 }
 
@@ -714,6 +738,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                 )
                 Button (
                     text: ${ if model.paused() { "PLAY" } else { "HOLD" } },
+                    text_capacity: 4,
                     id: "marble_pause",
                     size: ButtonSize::Compact,
                     width: 52,
@@ -734,6 +759,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
                     text: ${ audio_label(&audio_label_state) },
+                    text_capacity: 5,
                     visible: ${ audio_visible(&audio_button_state) },
                     border_radius: 6
                 ) on Tap {
@@ -755,6 +781,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                 }
                 Button (
                     text: ${ if model.recording() { "DONE" } else if model.looping() { "STOP" } else { "REC" } },
+                    text_capacity: 4,
                     id: "marble_record",
                     size: ButtonSize::Compact,
                     width: 44,
@@ -786,6 +813,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
             ) {
                 Text (
                     text: ${ marble_status(model.page(), model.paused(), model.add_mode()) },
+                    text_capacity: 32,
                     id: "marble_status",
                     grow: 1.0,
                     height: 17,
@@ -795,6 +823,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                 )
                 Text (
                     text: ${ marble_count(model.ball_count()) },
+                    text_capacity: 9,
                     id: "marble_marble_count",
                     width: 74,
                     height: 17,
@@ -804,6 +833,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                 )
                 Text (
                     text: ${ pad_count(model.pad_count()) },
+                    text_capacity: 6,
                     id: "marble_pad_count",
                     width: 52,
                     height: 17,
@@ -916,7 +946,8 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    text: ${ format!("TEMPO · {} BPM", model.bpm()) },
+                    text: ${ format_args!("TEMPO · {} BPM", model.bpm()) },
+                    text_capacity: 16,
                     id: "marble_setting_bpm",
                     visible: ${ model.page() == Page::Settings },
                     position: Position::Absolute,
@@ -1036,6 +1067,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                             model.selected_bounce().to_fixed(),
                         )
                     },
+                    text_capacity: 34,
                     id: "marble_readout",
                     grow: 1.0,
                     height: 22,
@@ -1261,6 +1293,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                         ) on Tap { model.adjust_pitch(-1); }
                         Text (
                             text: ${ pitch_label(model.selected_pitch()) },
+                            text_capacity: 4,
                             id: "marble_pitch",
                             grow: 1.0,
                             height: 18,
@@ -1291,6 +1324,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                         )
                         Button (
                             text: ${ model.selected_timbre().label() },
+                            text_capacity: 6,
                             id: "marble_timbre",
                             size: ButtonSize::Compact,
                             grow: 1.0,
@@ -1482,6 +1516,23 @@ mod tests {
         assert!(world.query::<Text>().collect().len() >= 4);
         assert!(world.query::<Button>().collect().len() >= 6);
         assert_eq!(world.query::<MarbleBoard>().collect().len(), 1);
+        for (id, capacity) in [
+            ("marble_pause", 4),
+            ("marble_audio", 5),
+            ("marble_record", 4),
+            ("marble_status", 32),
+            ("marble_marble_count", 9),
+            ("marble_pad_count", 6),
+            ("marble_setting_bpm", 16),
+            ("marble_readout", 34),
+            ("marble_pitch", 4),
+            ("marble_timbre", 6),
+        ] {
+            let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
+            assert_eq!(text.text_capacity(), Some(capacity), "{id}");
+            assert!(text.has_valid_content(), "{id}");
+            assert_eq!(text.last_content_error(), None, "{id}");
+        }
     }
 
     #[test]

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded text content.** `Text` and `Button` accept `text_capacity` for reactive labels, format into reserved UTF-8 storage, retain valid content on overflow, and report invalid first values before rendering.
 - **Bounded text-layout storage.** `App::with_text_layout_capacity` reserves retained layouts, measurements, output buffers, and shaping workspace before layout; declared capacities and the total byte budget are enforced on later frames.
 - **Registered model calls.** `#[model]` forwards model methods through instance handles returned by `App::add_model`; multiple instances of one type remain independent, and handles reject access after their registration ends.
 - **Cross-module model declarations.** Qualified `#[model] impl` paths target models declared in another module; conditional observers and effect extractors keep their generated storage and accessors under the same configuration.

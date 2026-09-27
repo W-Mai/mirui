@@ -30,6 +30,27 @@ pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RenderViewport(pub crate::types::Viewport);
 
+/// The first bounded text error attached to the current root.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextContentFailure {
+    pub entity: Entity,
+    pub error: crate::ui::widgets::text::TextContentError,
+}
+
+fn text_belongs_to_root(world: &World, root: Entity, mut entity: Entity) -> bool {
+    let max_depth = world.query::<crate::ui::Parent>().iter().count();
+    for _ in 0..=max_depth {
+        if entity == root {
+            return true;
+        }
+        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+            return false;
+        };
+        entity = parent.0;
+    }
+    false
+}
+
 fn clear_hidden_root(
     world: &World,
     transform: &crate::types::Viewport,
@@ -288,6 +309,27 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world
             .resource::<crate::ui::render_system::TextLayoutFailure>()
             .copied()
+    }
+
+    fn text_content_failure(&self, pending_initial_only: bool) -> Option<TextContentFailure> {
+        let root = self.root?;
+        self.world
+            .query::<crate::ui::widgets::Text>()
+            .iter()
+            .find_map(|(entity, text)| {
+                if pending_initial_only && text.has_valid_content() {
+                    return None;
+                }
+                let error = text.last_content_error()?;
+                text_belongs_to_root(&self.world, root, entity)
+                    .then_some(TextContentFailure { entity, error })
+            })
+    }
+
+    /// Inspect bounded text errors in the current UI tree without allocating.
+    pub fn last_text_content_failure(&self) -> Option<TextContentFailure> {
+        self.text_content_failure(true)
+            .or_else(|| self.text_content_failure(false))
     }
 
     pub fn with_path_capacity(
@@ -651,6 +693,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
         self.prepare_render(transform);
+        if self.text_content_failure(true).is_some() {
+            self.world.mark_subtree_dirty(root);
+            return Err(crate::render::RenderError::TextContent);
+        }
         let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
         let layout_start = self.clock_ns();
@@ -1008,6 +1054,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
         self.prepare_render(transform);
+        if self.text_content_failure(true).is_some() {
+            self.world.mark_subtree_dirty(root);
+            return Err(crate::render::RenderError::TextContent);
+        }
         let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
         let layout_start = self.clock_ns();

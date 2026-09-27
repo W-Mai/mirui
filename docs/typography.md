@@ -27,6 +27,23 @@ ui! {
 
 Low-level callers can use `render_system::try_update_layout` to receive the failure directly. The existing `update_layout` and dirty-region convenience functions retain their return types and record failures as a `TextLayoutFailure` World resource. A failed pass invalidates cached geometry for retry but does not restore text-cache entries already retired during preparation.
 
+## Bound dynamic content
+
+`text_capacity` reserves UTF-8 content storage for a `Text` or `Button` label. A reactive expression can format directly into a stack buffer and copy a complete value into that storage without allocating during the content update:
+
+```rust
+#[compose]
+fn reading_label(reading: Signal<u16>) {
+    ui! {
+        Text(text: ${ format_args!("{:03}", reading.get()) }, text_capacity: 4)
+    };
+}
+```
+
+The capacity counts UTF-8 bytes, not characters. A value that exceeds it or fails to format leaves the previous valid content intact; the `Text` component records a `TextContentError`. If the first value fails, `App::render()` and `App::render_dirty()` return `RenderError::TextContent` before drawing or flushing. `App::last_text_content_failure()` identifies the entity and error, prioritizing labels without a valid first value. A later valid update clears that diagnostic. Runtime overflow after a valid value does not block rendering of the rest of the UI.
+
+The bounded write covers storage and formatting performed by `Text`; an expression such as `format!(...)`, `.to_string()`, or a cloned `Signal<String>` can allocate before the write. Use `format_args!` over borrowed or scalar values when the update itself must not allocate. Text shaping, layout, font caches, and backend resources have separate capacity requirements. Bounded content is a plain-text value; use the existing localized-text path when the label must follow locale changes.
+
 ## Reserve bounded layout storage
 
 `App::with_text_layout_capacity` prepares text-cache storage before the first layout pass. Set `TextLayoutLimits` first when the default byte budget is unsuitable. The returned error leaves the previous cache installed; calls after text layout has started return `TextLayoutError::InUse`. `App::try_with_text_layout_limits` can also change limits after reservation and before layout while preserving the declared capacity; an incompatible limit returns an error without replacing the cache. The existing fluent `with_text_layout_limits` reports that error by panicking rather than silently removing the bound.

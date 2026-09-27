@@ -436,6 +436,8 @@ pub enum RenderResource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderError {
     Unsupported(RenderFeature),
+    /// A bounded label has no valid initial value; query the App for the widget and cause.
+    TextContent,
     /// Text preparation failed before drawing; query the App for the widget and cause.
     TextLayout,
     InvalidGeometry,

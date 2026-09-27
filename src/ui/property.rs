@@ -79,6 +79,23 @@ pub fn apply<P: Property>(entity: Entity, value: P::Value) {
 }
 
 #[doc(hidden)]
+pub fn apply_bounded_text<const N: usize>(entity: Entity, value: core::fmt::Arguments<'_>) {
+    crate::core::reactive::with_world(|world| {
+        if !world.is_alive(entity) || !world.has::<crate::ui::Widget>(entity) {
+            return;
+        }
+        let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) else {
+            return;
+        };
+        if let Ok(changed) = text.try_set_bounded::<N>(value)
+            && changed
+        {
+            invalidate_for_change(world, entity, PropertyChange::Layout);
+        }
+    });
+}
+
+#[doc(hidden)]
 pub fn apply_to_world<P: Property>(
     world: &mut World,
     entity: Entity,
@@ -142,22 +159,14 @@ pub mod prop {
         type Value = alloc::string::String;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if world
-                .get::<crate::ui::widgets::Text>(entity)
-                .is_some_and(|text| {
-                    matches!(
-                        text.content(),
-                        crate::ui::widgets::text::TextContent::Plain(current)
-                            if current.as_ref() == value
-                    )
-                })
-            {
-                return PropertyChange::Unchanged;
-            }
             let is_button = world.has::<crate::ui::widgets::Button>(entity);
             if let Some(text) = world.get_mut::<crate::ui::widgets::Text>(entity) {
-                text.set_content(value);
-            } else if is_button {
+                return match text.try_set_content(value) {
+                    Ok(true) => PropertyChange::Layout,
+                    Ok(false) | Err(_) => PropertyChange::Unchanged,
+                };
+            }
+            if is_button {
                 world.insert(entity, crate::ui::widgets::Text::label(value));
             } else {
                 world.insert(entity, crate::ui::widgets::Text::from(value));

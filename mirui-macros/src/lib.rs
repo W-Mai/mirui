@@ -495,6 +495,7 @@ struct MatchArm {
 struct ReactiveBind {
     property: syn::Ident,
     expr: proc_macro2::TokenStream,
+    format_expr: syn::Expr,
 }
 
 fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
@@ -502,6 +503,42 @@ fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
         syn::Expr::Path(p) => quote! { #p.get() },
         syn::Expr::Block(b) => quote! { #b },
         other => quote! { #other },
+    }
+}
+
+fn direct_format_args_call(
+    value: &syn::Expr,
+    entity: &proc_macro2::TokenStream,
+    capacity: &proc_macro2::TokenStream,
+) -> Option<proc_macro2::TokenStream> {
+    match value {
+        syn::Expr::Block(block) => {
+            let (last, prefix) = block.block.stmts.split_last()?;
+            let syn::Stmt::Expr(value, None) = last else {
+                return None;
+            };
+            let call = direct_format_args_call(value, entity, capacity)?;
+            Some(quote! {{ #(#prefix)* #call }})
+        }
+        syn::Expr::Paren(value) => direct_format_args_call(&value.expr, entity, capacity),
+        syn::Expr::Group(value) => direct_format_args_call(&value.expr, entity, capacity),
+        syn::Expr::Macro(value)
+            if match value.mac.path.segments.len() {
+                1 => value.mac.path.segments[0].ident == "format_args",
+                2 => {
+                    matches!(
+                        value.mac.path.segments[0].ident.to_string().as_str(),
+                        "core" | "std" | "alloc"
+                    ) && value.mac.path.segments[1].ident == "format_args"
+                }
+                _ => false,
+            } =>
+        {
+            Some(quote! {
+                mirui::ui::property::apply_bounded_text::<{ #capacity }>(#entity, #value);
+            })
+        }
+        _ => None,
     }
 }
 
@@ -566,6 +603,7 @@ struct WidgetCmd {
     on_handlers: Vec<OnCmd>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
+    text_capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
@@ -581,6 +619,7 @@ struct ParsedAttrs {
     component_inserts: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
+    text_capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
@@ -657,6 +696,7 @@ impl MiruiRune {
         let mut component_inserts = Vec::new();
         let mut component_fields = Vec::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
+        let mut text_capacity: Option<proc_macro2::TokenStream> = None;
         let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
@@ -725,6 +765,25 @@ impl MiruiRune {
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
+            if name == "text_capacity" && (is_text_widget || is_button_widget) {
+                if text_capacity.is_some() {
+                    errors.push(
+                        syn::Error::new(attr_span, "duplicate `text_capacity`").to_compile_error(),
+                    );
+                } else if attr.reactive {
+                    errors.push(
+                        syn::Error::new(
+                            attr_span,
+                            "`text_capacity` must be a compile-time constant",
+                        )
+                        .to_compile_error(),
+                    );
+                } else {
+                    text_capacity = Some(quote! { #value });
+                }
+                continue;
+            }
+
             if crate::layout_reactive::is_layout_placeholder(&attr.value) {
                 match responsive_property(widget_name, &name) {
                     Some(property) => {
@@ -772,6 +831,7 @@ impl MiruiRune {
                         reactive_binds.push(ReactiveBind {
                             property: syn::Ident::new(property, attr_span),
                             expr: reactive_read(value),
+                            format_expr: value.clone(),
                         });
                         continue;
                     }
@@ -912,6 +972,7 @@ impl MiruiRune {
             component_inserts,
             component_fields,
             text_tuple_value,
+            text_capacity,
             text_paragraph_value,
             id_registrations,
             id_lookups,
@@ -1192,18 +1253,30 @@ impl MiruiRune {
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
             if cmd.name == "Text" {
-                let init = match (&cmd.text_tuple_value, &cmd.text_paragraph_value) {
-                    (Some(text_value), Some(paragraph_value)) => quote! {
-                        ::core::convert::Into::<#comp_name>::into(#text_value)
-                            .with_paragraph(#paragraph_value)
-                    },
-                    (Some(text_value), None) => {
-                        quote! { ::core::convert::Into::<#comp_name>::into(#text_value) }
+                let init = if let Some(capacity) = &cmd.text_capacity {
+                    let paragraph = cmd
+                        .text_paragraph_value
+                        .as_ref()
+                        .map(|value| quote! { .with_paragraph(#value) });
+                    quote! {
+                        #comp_name::new_bounded(#capacity)
+                            .expect("Text text_capacity could not be reserved")
+                            #paragraph
                     }
-                    (None, Some(paragraph_value)) => {
-                        quote! { #comp_name::from("").with_paragraph(#paragraph_value) }
+                } else {
+                    match (&cmd.text_tuple_value, &cmd.text_paragraph_value) {
+                        (Some(text_value), Some(paragraph_value)) => quote! {
+                            ::core::convert::Into::<#comp_name>::into(#text_value)
+                                .with_paragraph(#paragraph_value)
+                        },
+                        (Some(text_value), None) => {
+                            quote! { ::core::convert::Into::<#comp_name>::into(#text_value) }
+                        }
+                        (None, Some(paragraph_value)) => {
+                            quote! { #comp_name::from("").with_paragraph(#paragraph_value) }
+                        }
+                        (None, None) => quote! { #comp_name::from("") },
                     }
-                    (None, None) => quote! { #comp_name::from("") },
                 };
                 tokens.extend(quote! {
                     (#world).insert(#var, #init);
@@ -1220,20 +1293,58 @@ impl MiruiRune {
                         __c
                     });
                 });
-                if cmd.name == "Button"
-                    && let Some(text_value) = &cmd.text_tuple_value
-                {
-                    tokens.extend(quote! {
-                        (#world).insert(
-                            #var,
-                            ::mirui::ui::widgets::Text::label(#text_value),
-                        );
-                    });
+                if cmd.name == "Button" {
+                    if let Some(capacity) = &cmd.text_capacity {
+                        tokens.extend(quote! {
+                            (#world).insert(
+                                #var,
+                                ::mirui::ui::widgets::Text::new_bounded(#capacity)
+                                    .expect("Button text_capacity could not be reserved")
+                                    .with_paragraph(::mirui::ui::widgets::ParagraphStyle::label()),
+                            );
+                        });
+                    } else if let Some(text_value) = &cmd.text_tuple_value {
+                        tokens.extend(quote! {
+                            (#world).insert(
+                                #var,
+                                ::mirui::ui::widgets::Text::label(#text_value),
+                            );
+                        });
+                    }
                 }
             }
 
             tokens.extend(quote! {
                 mirui::input::event::widget_input::attach_handlers_for(#world, #var);
+            });
+        }
+
+        if let Some(capacity) = &cmd.text_capacity
+            && !cmd
+                .reactive_binds
+                .iter()
+                .any(|binding| binding.property == "TextContent")
+        {
+            let value = cmd
+                .text_tuple_value
+                .as_ref()
+                .map(|value| quote! { #value })
+                .unwrap_or_else(|| quote! { "" });
+            let apply = syn::parse2::<syn::Expr>(value.clone())
+                .ok()
+                .and_then(|value| direct_format_args_call(&value, &quote! { #var }, capacity))
+                .unwrap_or_else(|| {
+                    quote! {
+                        mirui::ui::property::apply_bounded_text::<{ #capacity }>(
+                            #var,
+                            ::core::format_args!("{}", #value),
+                        );
+                    }
+                });
+            tokens.extend(quote! {
+                mirui::core::reactive::with_world_scope(#world, || {
+                    #apply
+                });
             });
         }
 
@@ -1244,16 +1355,37 @@ impl MiruiRune {
                 .map(|b| {
                     let property = &b.property;
                     let expr = &b.expr;
-                    let value = if property == "TextContent" {
-                        quote! { mirui::ui::property::IntoText::into_text(__v) }
-                    } else {
-                        quote! { ::core::convert::Into::into(__v) }
-                    };
-                    quote! {
-                        mirui::core::reactive::effect_with_widget(#var, move || {
-                            let __v = #expr;
-                            mirui::ui::property::apply::<mirui::ui::property::prop::#property>(#var, #value);
+                    if property == "TextContent"
+                        && let Some(capacity) = &cmd.text_capacity
+                    {
+                        let apply = direct_format_args_call(
+                            &b.format_expr,
+                            &quote! { #var },
+                            capacity,
+                        )
+                        .unwrap_or_else(|| quote! {
+                            mirui::ui::property::apply_bounded_text::<{ #capacity }>(
+                                #var,
+                                ::core::format_args!("{}", #expr),
+                            );
                         });
+                        quote! {
+                            mirui::core::reactive::effect_with_widget(#var, move || {
+                                #apply
+                            });
+                        }
+                    } else {
+                        let value = if property == "TextContent" {
+                            quote! { mirui::ui::property::IntoText::into_text(__v) }
+                        } else {
+                            quote! { ::core::convert::Into::into(__v) }
+                        };
+                        quote! {
+                            mirui::core::reactive::effect_with_widget(#var, move || {
+                                let __v = #expr;
+                                mirui::ui::property::apply::<mirui::ui::property::prop::#property>(#var, #value);
+                            });
+                        }
                     }
                 })
                 .collect();
@@ -2232,6 +2364,7 @@ impl DsRune for MiruiRune {
             on_handlers: collected_on_handlers,
             component_fields: parsed.component_fields,
             text_tuple_value: parsed.text_tuple_value,
+            text_capacity: parsed.text_capacity,
             text_paragraph_value: parsed.text_paragraph_value,
             id_registrations: parsed.id_registrations,
             id_lookups,

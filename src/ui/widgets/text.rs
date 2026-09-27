@@ -1,6 +1,7 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 use core::ops::Range;
 
 use crate::core::i18n::Localized;
@@ -264,7 +265,7 @@ impl ParagraphStyle {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TextContent {
     Plain(Cow<'static, str>),
     Localized(Localized),
@@ -283,11 +284,103 @@ impl TextContent {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextContentError {
+    Uninitialized,
+    Capacity { required: usize, capacity: usize },
+    CapacityMismatch { declared: usize, provided: usize },
+    Format,
+    Localized,
+    Unbounded,
+    ReserveFailed { capacity: usize },
+}
+
+impl fmt::Display for TextContentError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Uninitialized => formatter.write_str("bounded text has no initial value"),
+            Self::Capacity { required, capacity } => {
+                write!(
+                    formatter,
+                    "text requires {required} UTF-8 bytes, capacity is {capacity}"
+                )
+            }
+            Self::CapacityMismatch { declared, provided } => write!(
+                formatter,
+                "text capacity is {declared} UTF-8 bytes, formatter uses {provided}"
+            ),
+            Self::Format => formatter.write_str("text formatting failed"),
+            Self::Localized => formatter.write_str("localized content needs bounded formatting"),
+            Self::Unbounded => formatter.write_str("text has no declared capacity"),
+            Self::ReserveFailed { capacity } => {
+                write!(
+                    formatter,
+                    "could not reserve {capacity} UTF-8 bytes for text"
+                )
+            }
+        }
+    }
+}
+
+struct BoundedTextBuffer<const N: usize> {
+    bytes: [u8; N],
+    len: usize,
+    required: usize,
+}
+
+impl<const N: usize> BoundedTextBuffer<N> {
+    fn new() -> Self {
+        Self {
+            bytes: [0; N],
+            len: 0,
+            required: 0,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.bytes[..self.len]).expect("formatter wrote UTF-8")
+    }
+}
+
+impl<const N: usize> fmt::Write for BoundedTextBuffer<N> {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        self.required = self.required.saturating_add(value.len());
+        if self.required <= N {
+            self.bytes[self.len..self.required].copy_from_slice(value.as_bytes());
+            self.len = self.required;
+        }
+        Ok(())
+    }
+}
+
 #[crate::component]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Text {
     content: TextContent,
     paragraph: ParagraphStyle,
+    text_capacity: Option<usize>,
+    last_content_error: Option<TextContentError>,
+    has_valid_content: bool,
+}
+
+impl Clone for Text {
+    fn clone(&self) -> Self {
+        let content = match (&self.content, self.text_capacity) {
+            (TextContent::Plain(value), Some(capacity)) => {
+                let mut storage = String::with_capacity(capacity);
+                storage.push_str(value);
+                TextContent::Plain(Cow::Owned(storage))
+            }
+            _ => self.content.clone(),
+        };
+        Self {
+            content,
+            paragraph: self.paragraph.clone(),
+            text_capacity: self.text_capacity,
+            last_content_error: self.last_content_error,
+            has_valid_content: self.has_valid_content,
+        }
+    }
 }
 
 impl Text {
@@ -295,7 +388,42 @@ impl Text {
         Self {
             content: content.into(),
             paragraph: ParagraphStyle::default(),
+            text_capacity: None,
+            last_content_error: None,
+            has_valid_content: true,
         }
+    }
+
+    pub fn new_bounded(capacity: usize) -> Result<Self, TextContentError> {
+        let mut text = Self::new("").with_text_capacity(capacity)?;
+        text.has_valid_content = false;
+        text.last_content_error = Some(TextContentError::Uninitialized);
+        Ok(text)
+    }
+
+    pub fn with_text_capacity(mut self, capacity: usize) -> Result<Self, TextContentError> {
+        let already_bounded = self.text_capacity.is_some();
+        let TextContent::Plain(value) = &self.content else {
+            return Err(TextContentError::Localized);
+        };
+        if value.len() > capacity {
+            return Err(TextContentError::Capacity {
+                required: value.len(),
+                capacity,
+            });
+        }
+        let mut storage = String::new();
+        storage
+            .try_reserve_exact(capacity)
+            .map_err(|_| TextContentError::ReserveFailed { capacity })?;
+        storage.push_str(value);
+        self.content = TextContent::Plain(Cow::Owned(storage));
+        self.text_capacity = Some(capacity);
+        if !already_bounded {
+            self.last_content_error = None;
+            self.has_valid_content = true;
+        }
+        Ok(self)
     }
 
     /// Creates a single-line label centered within its layout bounds.
@@ -323,13 +451,97 @@ impl Text {
         &self.content
     }
 
+    pub fn text_capacity(&self) -> Option<usize> {
+        self.text_capacity
+    }
+
+    pub fn last_content_error(&self) -> Option<TextContentError> {
+        self.last_content_error
+    }
+
+    pub fn has_valid_content(&self) -> bool {
+        self.has_valid_content
+    }
+
     pub fn paragraph(&self) -> &ParagraphStyle {
         &self.paragraph
     }
 
     pub fn set_content(&mut self, content: impl Into<TextContent>) -> &mut Self {
-        self.content = content.into();
+        self.try_set_content(content)
+            .expect("text content exceeds its declared capacity");
         self
+    }
+
+    pub fn try_set_content(
+        &mut self,
+        content: impl Into<TextContent>,
+    ) -> Result<bool, TextContentError> {
+        let content = content.into();
+        if let Some(capacity) = self.text_capacity {
+            let TextContent::Plain(value) = content else {
+                return self.content_failure(TextContentError::Localized);
+            };
+            if value.len() > capacity {
+                return self.content_failure(TextContentError::Capacity {
+                    required: value.len(),
+                    capacity,
+                });
+            }
+            return Ok(self.commit_bounded_content(value.as_ref()));
+        }
+        let changed = self.content != content;
+        if changed {
+            self.content = content;
+        }
+        self.last_content_error = None;
+        self.has_valid_content = true;
+        Ok(changed)
+    }
+
+    pub fn try_set_bounded<const N: usize>(
+        &mut self,
+        args: fmt::Arguments<'_>,
+    ) -> Result<bool, TextContentError> {
+        let Some(capacity) = self.text_capacity else {
+            return self.content_failure(TextContentError::Unbounded);
+        };
+        if N != capacity {
+            return self.content_failure(TextContentError::CapacityMismatch {
+                declared: capacity,
+                provided: N,
+            });
+        }
+        let mut buffer = BoundedTextBuffer::<N>::new();
+        if fmt::write(&mut buffer, args).is_err() {
+            return self.content_failure(TextContentError::Format);
+        }
+        if buffer.required > capacity {
+            return self.content_failure(TextContentError::Capacity {
+                required: buffer.required,
+                capacity,
+            });
+        }
+        Ok(self.commit_bounded_content(buffer.as_str()))
+    }
+
+    fn commit_bounded_content(&mut self, value: &str) -> bool {
+        let TextContent::Plain(Cow::Owned(current)) = &mut self.content else {
+            unreachable!("bounded text owns its content storage");
+        };
+        let changed = !self.has_valid_content || current != value;
+        if changed {
+            current.clear();
+            current.push_str(value);
+        }
+        self.last_content_error = None;
+        self.has_valid_content = true;
+        changed
+    }
+
+    fn content_failure<T>(&mut self, error: TextContentError) -> Result<T, TextContentError> {
+        self.last_content_error = Some(error);
+        Err(error)
     }
 
     pub fn set_paragraph(&mut self, paragraph: ParagraphStyle) -> &mut Self {
@@ -1421,6 +1633,108 @@ mod tests {
         let s: String = "hi".into();
         let t: Text = s.into();
         assert!(matches!(t.content(), TextContent::Plain(Cow::Owned(_))));
+    }
+
+    #[test]
+    fn bounded_text_formats_utf8_without_replacing_valid_content_on_error() {
+        let mut text = Text::new_bounded(8).unwrap();
+        assert!(!text.has_valid_content());
+        assert_eq!(text.try_set_bounded::<8>(format_args!("é🙂")), Ok(true));
+        assert!(text.has_valid_content());
+        assert_eq!(text.try_set_bounded::<8>(format_args!("é🙂")), Ok(false));
+        assert_eq!(text.resolve(&World::new()), "é🙂");
+        assert_eq!(
+            text.try_set_bounded::<8>(format_args!("é{}", "🙂🙂")),
+            Err(TextContentError::Capacity {
+                required: 10,
+                capacity: 8,
+            })
+        );
+        assert_eq!(text.resolve(&World::new()), "é🙂");
+        assert_eq!(
+            text.last_content_error(),
+            Some(TextContentError::Capacity {
+                required: 10,
+                capacity: 8,
+            })
+        );
+        assert_eq!(text.try_set_bounded::<8>(format_args!("ok")), Ok(true));
+        assert_eq!(text.last_content_error(), None);
+    }
+
+    #[test]
+    fn bounded_text_rejects_format_errors_and_capacity_mismatch() {
+        struct Broken;
+        impl core::fmt::Display for Broken {
+            fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("partial")?;
+                Err(core::fmt::Error)
+            }
+        }
+
+        let mut text = Text::new_bounded(8).unwrap();
+        assert_eq!(
+            text.try_set_bounded::<8>(format_args!("{Broken}")),
+            Err(TextContentError::Format)
+        );
+        assert!(!text.has_valid_content());
+        assert_eq!(text.resolve(&World::new()), "");
+        assert_eq!(
+            text.try_set_bounded::<4>(format_args!("ok")),
+            Err(TextContentError::CapacityMismatch {
+                declared: 8,
+                provided: 4,
+            })
+        );
+        assert_eq!(text.try_set_bounded::<8>(format_args!("ok")), Ok(true));
+        assert!(text.has_valid_content());
+    }
+
+    #[test]
+    fn bounded_text_preserves_reserved_storage_when_cloned_or_set() {
+        let mut text = Text::new("ready").with_text_capacity(8).unwrap();
+        assert!(text.has_valid_content());
+        let TextContent::Plain(Cow::Owned(storage)) = text.content() else {
+            panic!("bounded text must own its content storage");
+        };
+        assert!(storage.capacity() >= 8);
+
+        let cloned = text.clone();
+        let TextContent::Plain(Cow::Owned(storage)) = cloned.content() else {
+            panic!("cloned bounded text must own its content storage");
+        };
+        assert!(storage.capacity() >= 8);
+
+        assert_eq!(text.try_set_content("ready"), Ok(false));
+        assert_eq!(
+            text.try_set_content("too many bytes"),
+            Err(TextContentError::Capacity {
+                required: 14,
+                capacity: 8,
+            })
+        );
+        assert_eq!(text.resolve(&World::new()), "ready");
+        assert_eq!(
+            text.try_set_content(Localized::new("welcome")),
+            Err(TextContentError::Localized)
+        );
+        assert_eq!(text.resolve(&World::new()), "ready");
+        assert_eq!(text.try_set_content("changed"), Ok(true));
+        assert_eq!(text.last_content_error(), None);
+        let TextContent::Plain(Cow::Owned(storage)) = text.content() else {
+            panic!("bounded text must own its content storage");
+        };
+        assert!(storage.capacity() >= 8);
+    }
+
+    #[test]
+    fn localized_text_cannot_declare_unresolved_content_capacity() {
+        assert_eq!(
+            Text::new(Localized::new("welcome"))
+                .with_text_capacity(8)
+                .unwrap_err(),
+            TextContentError::Localized
+        );
     }
 
     #[test]
