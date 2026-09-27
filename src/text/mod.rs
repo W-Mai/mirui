@@ -10,10 +10,11 @@ pub use crate::ui::widgets::text::{
     PathCaretGeometry, PathCaretHit, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
 };
 pub(crate) use layout::{TextLayout, TextLayoutHandle, TextMeasure};
-pub use layout::{TextLayoutError, TextLayoutLimits};
+pub use layout::{TextLayoutBuffer, TextLayoutCapacity, TextLayoutError, TextLayoutLimits};
 pub use path::{PathAccess, PathAccessError, PathDirection, TextPath};
 pub use textflow::TextFlow;
 pub use textflow::shaping::{
     FlowPoint, FontAccessError, FontFeature, FontId, FontMetrics, GlyphId, GlyphSource,
     PositionedGlyph, ShapeError, ShapeRequest, ShapedGlyph, SimpleTypeface, Typeface,
 };
+pub use textflow::workspace::WorkspaceCapacity;

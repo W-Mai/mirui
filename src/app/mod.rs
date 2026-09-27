@@ -225,10 +225,62 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    /// Configure text limits while preserving any bounded text reservation.
+    ///
+    /// Panics if the new limits cannot hold a bounded reservation or if that
+    /// cache has already been used. Use [`Self::try_with_text_layout_limits`]
+    /// when either case should be handled as an error.
     pub fn with_text_layout_limits(&mut self, limits: crate::text::TextLayoutLimits) -> &mut Self {
-        self.world
-            .insert_resource(crate::text::layout::TextLayoutResource::new(limits));
-        self
+        self.try_with_text_layout_limits(limits)
+            .expect("text layout limits cannot replace the bounded cache")
+    }
+
+    /// Configure text limits without discarding an existing bounded reservation.
+    /// A failed replacement leaves the active cache unchanged.
+    pub fn try_with_text_layout_limits(
+        &mut self,
+        limits: crate::text::TextLayoutLimits,
+    ) -> Result<&mut Self, crate::text::TextLayoutError> {
+        let bounded = {
+            let resource = self
+                .world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .expect("the app owns a text-layout cache");
+            let cache = resource.borrow();
+            if cache.bounded_capacity().is_some() && cache.is_in_use() {
+                return Err(crate::text::TextLayoutError::InUse);
+            }
+            cache.bounded_capacity()
+        };
+        let resource = if let Some(capacity) = bounded {
+            crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity)?
+        } else {
+            crate::text::layout::TextLayoutResource::new(limits)
+        };
+        self.world.insert_resource(resource);
+        Ok(self)
+    }
+
+    /// Reserve bounded text-layout storage before the first layout pass.
+    /// Existing text layouts are left intact if reservation fails.
+    pub fn with_text_layout_capacity(
+        &mut self,
+        capacity: crate::text::TextLayoutCapacity,
+    ) -> Result<&mut Self, crate::text::TextLayoutError> {
+        let limits = {
+            let resource = self
+                .world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .expect("the app owns a text-layout cache");
+            let cache = resource.borrow();
+            if cache.is_in_use() {
+                return Err(crate::text::TextLayoutError::InUse);
+            }
+            cache.limits()
+        };
+        let resource = crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity)?;
+        self.world.insert_resource(resource);
+        Ok(self)
     }
 
     /// Last text preparation failure, if a layout pass has not since succeeded.

@@ -27,6 +27,33 @@ ui! {
 
 Low-level callers can use `render_system::try_update_layout` to receive the failure directly. The existing `update_layout` and dirty-region convenience functions retain their return types and record failures as a `TextLayoutFailure` World resource. A failed pass invalidates cached geometry for retry but does not restore text-cache entries already retired during preparation.
 
+## Reserve bounded layout storage
+
+`App::with_text_layout_capacity` prepares text-cache storage before the first layout pass. Set `TextLayoutLimits` first when the default byte budget is unsuitable. The returned error leaves the previous cache installed; calls after text layout has started return `TextLayoutError::InUse`. `App::try_with_text_layout_limits` can also change limits after reservation and before layout while preserving the declared capacity; an incompatible limit returns an error without replacing the cache. The existing fluent `with_text_layout_limits` reports that error by panicking rather than silently removing the bound.
+
+```rust
+use mirui::text::{TextLayoutCapacity, WorkspaceCapacity};
+
+app.with_text_layout_capacity(TextLayoutCapacity {
+    layout_slots: 4,
+    measurements: 4,
+    lines: 16,
+    runs: 32,
+    glyphs: 64,
+    carets: 64,
+    workspace: WorkspaceCapacity {
+        runs: 16,
+        glyphs: 32,
+        scratch_glyphs: 32,
+        lines: 16,
+    },
+})?;
+```
+
+`layout_slots` covers retained layout handles and their generation storage. The line, run, glyph, and caret capacities cover all retained paragraphs plus one paragraph's temporary output; they are aggregate counts, unlike the per-paragraph limits in `TextLayoutLimits`. `workspace` bounds private shaping buffers. The reservation checks actual retained vector capacities and the workspace against `TextLayoutLimits::cache_bytes`. Later requests above the declared capacities fail explicitly instead of growing those buffers. Other renderer and font caches have separate storage.
+
+An explicit memory warning retains bounded text storage and its live handles so the capacity guarantee still applies to the next frame. Unbounded text caches retain their existing trim behavior.
+
 ## Text on a static path
 
 `path!` stores its commands in the program image. Registering those commands with `insert_static` keeps the path borrowed and gives it a stable `PathId`.

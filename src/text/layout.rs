@@ -10,7 +10,7 @@ use textflow::layout::{
 use textflow::shaping::{CaretStop, FlowPoint, FontFeature, PositionedGlyph, Typeface};
 use textflow::workspace::{
     LayoutLimits as FlowLayoutLimits, LayoutOutput as FlowLayoutOutput, TextWorkspace,
-    WorkspaceError,
+    WorkspaceCapacity, WorkspaceError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +58,35 @@ impl Default for TextLayoutLimits {
     }
 }
 
+/// Storage reserved for text layouts before the first layout pass.
+///
+/// Output capacities include retained layouts and the temporary output for the
+/// next paragraph. A bounded cache rejects requests that exceed these counts.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextLayoutCapacity {
+    pub layout_slots: usize,
+    pub measurements: usize,
+    pub lines: usize,
+    pub runs: usize,
+    pub glyphs: usize,
+    pub carets: usize,
+    pub workspace: WorkspaceCapacity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextLayoutBuffer {
+    LayoutSlots,
+    Measurements,
+    Lines,
+    Runs,
+    Glyphs,
+    Carets,
+    WorkspaceRuns,
+    WorkspaceGlyphs,
+    WorkspaceScratchGlyphs,
+    WorkspaceLines,
+}
+
 #[crate::component]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TextLayoutHandle {
@@ -73,10 +102,28 @@ pub struct TextMeasure {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextLayoutError {
-    TextLimit { required: usize, limit: usize },
-    ClusterLimit { required: usize, limit: usize },
-    TypefaceLimit { required: usize, limit: usize },
-    CacheBudget { required: usize, budget: usize },
+    Capacity {
+        buffer: TextLayoutBuffer,
+        required: usize,
+        capacity: usize,
+    },
+    InUse,
+    TextLimit {
+        required: usize,
+        limit: usize,
+    },
+    ClusterLimit {
+        required: usize,
+        limit: usize,
+    },
+    TypefaceLimit {
+        required: usize,
+        limit: usize,
+    },
+    CacheBudget {
+        required: usize,
+        budget: usize,
+    },
     DimensionOverflow,
     Allocation,
     Bidi(BidiError),
@@ -152,6 +199,7 @@ pub(crate) struct TextLayoutRequest<'a> {
 
 pub struct TextLayoutCache {
     limits: TextLayoutLimits,
+    bounded_capacity: Option<TextLayoutCapacity>,
     frame: u32,
     next_order: u64,
     entries: Vec<Option<LayoutEntry>>,
@@ -172,6 +220,15 @@ impl TextLayoutResource {
         Self(RefCell::new(TextLayoutCache::new(limits)))
     }
 
+    pub fn try_new_bounded(
+        limits: TextLayoutLimits,
+        capacity: TextLayoutCapacity,
+    ) -> Result<Self, TextLayoutError> {
+        Ok(Self(RefCell::new(TextLayoutCache::try_new_bounded(
+            limits, capacity,
+        )?)))
+    }
+
     pub fn borrow(&self) -> Ref<'_, TextLayoutCache> {
         self.0.borrow()
     }
@@ -181,8 +238,11 @@ impl TextLayoutResource {
     }
 
     pub(crate) fn trim_memory(&self) {
-        let limits = self.0.borrow().limits();
-        *self.0.borrow_mut() = TextLayoutCache::new(limits);
+        let mut cache = self.0.borrow_mut();
+        if cache.bounded_capacity.is_none() {
+            let limits = cache.limits();
+            *cache = TextLayoutCache::new(limits);
+        }
     }
 }
 
@@ -190,6 +250,7 @@ impl TextLayoutCache {
     pub const fn new(limits: TextLayoutLimits) -> Self {
         Self {
             limits,
+            bounded_capacity: None,
             frame: 0,
             next_order: 0,
             entries: Vec::new(),
@@ -211,8 +272,125 @@ impl TextLayoutCache {
         }
     }
 
+    /// Reserve all text-layout storage up front, then enforce the declared
+    /// logical capacities. Failed construction drops the partial reservation.
+    pub fn try_new_bounded(
+        limits: TextLayoutLimits,
+        capacity: TextLayoutCapacity,
+    ) -> Result<Self, TextLayoutError> {
+        if capacity.layout_slots > u32::MAX as usize {
+            return Err(TextLayoutError::DimensionOverflow);
+        }
+        let mut cache = Self::new(limits);
+        for (buffer, required) in [
+            (CacheStorage::LayoutSlots, capacity.layout_slots),
+            (CacheStorage::Measurements, capacity.measurements),
+            (CacheStorage::Lines, capacity.lines),
+            (CacheStorage::Runs, capacity.runs),
+            (CacheStorage::Glyphs, capacity.glyphs),
+            (CacheStorage::Carets, capacity.carets),
+        ] {
+            cache.reserve_buffer(buffer, required)?;
+        }
+        let remaining = limits
+            .cache_bytes
+            .checked_sub(cache.non_workspace_bytes())
+            .ok_or(TextLayoutError::CacheBudget {
+                required: cache.non_workspace_bytes(),
+                budget: limits.cache_bytes,
+            })?;
+        cache
+            .workspace
+            .set_memory_limit(remaining)
+            .map_err(|error| {
+                map_workspace_error(error, cache.non_workspace_bytes(), limits.cache_bytes)
+            })?;
+        cache
+            .workspace
+            .reserve_bounded(capacity.workspace)
+            .map_err(|error| {
+                map_workspace_error(error, cache.non_workspace_bytes(), limits.cache_bytes)
+            })?;
+        let required = cache.resident_bytes();
+        if required > limits.cache_bytes {
+            return Err(TextLayoutError::CacheBudget {
+                required,
+                budget: limits.cache_bytes,
+            });
+        }
+        cache.bounded_capacity = Some(capacity);
+        Ok(cache)
+    }
+
+    pub(crate) fn is_in_use(&self) -> bool {
+        self.frame != 0
+            || !self.entries.is_empty()
+            || !self.measurements.is_empty()
+            || !self.lines.is_empty()
+            || !self.runs.is_empty()
+            || !self.glyphs.is_empty()
+            || !self.carets.is_empty()
+    }
+
+    fn reserve_buffer(
+        &mut self,
+        buffer: CacheStorage,
+        required: usize,
+    ) -> Result<(), TextLayoutError> {
+        let resident = self.resident_bytes();
+        let budget = self.limits.cache_bytes;
+        match buffer {
+            CacheStorage::LayoutSlots => {
+                reserve_capacity(&mut self.entries, required, resident, budget)?;
+                let resident = self.resident_bytes();
+                reserve_capacity(&mut self.slot_generations, required, resident, budget)
+            }
+            CacheStorage::Measurements => {
+                reserve_capacity(&mut self.measurements, required, resident, budget)
+            }
+            CacheStorage::Lines => reserve_capacity(&mut self.lines, required, resident, budget),
+            CacheStorage::Runs => reserve_capacity(&mut self.runs, required, resident, budget),
+            CacheStorage::Glyphs => reserve_capacity(&mut self.glyphs, required, resident, budget),
+            CacheStorage::Carets => reserve_capacity(&mut self.carets, required, resident, budget),
+        }
+    }
+
+    fn check_bounded_capacity(
+        &self,
+        buffer: TextLayoutBuffer,
+        required: usize,
+    ) -> Result<(), TextLayoutError> {
+        let Some(capacity) = self.bounded_capacity else {
+            return Ok(());
+        };
+        let available = match buffer {
+            TextLayoutBuffer::LayoutSlots => capacity.layout_slots,
+            TextLayoutBuffer::Measurements => capacity.measurements,
+            TextLayoutBuffer::Lines => capacity.lines,
+            TextLayoutBuffer::Runs => capacity.runs,
+            TextLayoutBuffer::Glyphs => capacity.glyphs,
+            TextLayoutBuffer::Carets => capacity.carets,
+            TextLayoutBuffer::WorkspaceRuns => capacity.workspace.runs,
+            TextLayoutBuffer::WorkspaceGlyphs => capacity.workspace.glyphs,
+            TextLayoutBuffer::WorkspaceScratchGlyphs => capacity.workspace.scratch_glyphs,
+            TextLayoutBuffer::WorkspaceLines => capacity.workspace.lines,
+        };
+        if required > available {
+            return Err(TextLayoutError::Capacity {
+                buffer,
+                required,
+                capacity: available,
+            });
+        }
+        Ok(())
+    }
+
     pub const fn limits(&self) -> TextLayoutLimits {
         self.limits
+    }
+
+    pub(crate) const fn bounded_capacity(&self) -> Option<TextLayoutCapacity> {
+        self.bounded_capacity
     }
 
     pub fn resident_bytes(&self) -> usize {
@@ -291,7 +469,9 @@ impl TextLayoutCache {
             return Ok(entry.measure);
         }
         let measure = self.measure(request, typefaces)?;
-        self.reserve_measurements(self.measurements.len().saturating_add(1))?;
+        let required = self.measurements.len().saturating_add(1);
+        self.check_bounded_capacity(TextLayoutBuffer::Measurements, required)?;
+        self.reserve_measurements(required)?;
         self.measurements.push(MeasureEntry {
             key,
             measure,
@@ -349,8 +529,10 @@ impl TextLayoutCache {
                 entry.is_none() && self.slot_generations[slot] < u32::MAX
             });
         if vacant.is_none() {
-            self.reserve_entries(self.entries.len().saturating_add(1))?;
-            self.reserve_slot_generations(self.slot_generations.len().saturating_add(1))?;
+            let required = self.entries.len().saturating_add(1);
+            self.check_bounded_capacity(TextLayoutBuffer::LayoutSlots, required)?;
+            self.reserve_entries(required)?;
+            self.reserve_slot_generations(required)?;
         }
         let starts = self.output_starts();
         let output = match self.run(request, typefaces) {
@@ -426,7 +608,14 @@ impl TextLayoutCache {
                 }))?;
         self.workspace
             .set_memory_limit(workspace_budget)
-            .map_err(|error| map_workspace(error, non_workspace, self.limits.cache_bytes))?;
+            .map_err(|error| {
+                map_workspace(
+                    error,
+                    non_workspace,
+                    self.limits.cache_bytes,
+                    self.bounded_capacity.is_some(),
+                )
+            })?;
 
         let max_width = usize::try_from(request.max_width)
             .map_err(|_| AttemptError::Public(TextLayoutError::DimensionOverflow))?;
@@ -466,7 +655,14 @@ impl TextLayoutCache {
             );
             let paragraph = flow
                 .layout_into(typefaces, &mut self.workspace, &mut output)
-                .map_err(|error| map_workspace(error, non_workspace, self.limits.cache_bytes))?;
+                .map_err(|error| {
+                    map_workspace(
+                        error,
+                        non_workspace,
+                        self.limits.cache_bytes,
+                        self.bounded_capacity.is_some(),
+                    )
+                })?;
             let visible = paragraph.lines();
             (
                 visible_counts(visible),
@@ -533,6 +729,7 @@ impl TextLayoutCache {
     }
 
     fn ensure(&mut self, kind: BufferKind, required: usize) -> Result<(), TextLayoutError> {
+        self.check_bounded_capacity(kind.into(), required)?;
         let resident = self.resident_bytes();
         match kind {
             BufferKind::PositionedGlyphs => reserve_slots(
@@ -582,6 +779,25 @@ impl TextLayoutCache {
                 .saturating_add(lines)
                 .min(self.limits.glyphs.saturating_add(self.limits.lines)),
         };
+        if let Some(capacity) = self.bounded_capacity {
+            let starts = self.output_starts();
+            self.output_slots.lines = self
+                .output_slots
+                .lines
+                .min(capacity.lines.saturating_sub(starts.lines));
+            self.output_slots.runs = self
+                .output_slots
+                .runs
+                .min(capacity.runs.saturating_sub(starts.runs));
+            self.output_slots.glyphs = self
+                .output_slots
+                .glyphs
+                .min(capacity.glyphs.saturating_sub(starts.glyphs));
+            self.output_slots.carets = self
+                .output_slots
+                .carets
+                .min(capacity.carets.saturating_sub(starts.carets));
+        }
     }
 
     fn reserve_entries(&mut self, required: usize) -> Result<(), TextLayoutError> {
@@ -892,6 +1108,16 @@ enum BufferKind {
     Carets,
 }
 
+#[derive(Clone, Copy)]
+enum CacheStorage {
+    LayoutSlots,
+    Measurements,
+    Lines,
+    Runs,
+    Glyphs,
+    Carets,
+}
+
 impl BufferKind {
     const fn limit(self, limits: TextLayoutLimits) -> usize {
         match self {
@@ -915,7 +1141,63 @@ impl BufferKind {
     }
 }
 
-fn map_workspace(error: WorkspaceError, non_workspace: usize, budget: usize) -> AttemptError {
+impl From<BufferKind> for TextLayoutBuffer {
+    fn from(value: BufferKind) -> Self {
+        match value {
+            BufferKind::PositionedGlyphs => Self::Glyphs,
+            BufferKind::VisualRuns => Self::Runs,
+            BufferKind::LayoutLines => Self::Lines,
+            BufferKind::Carets => Self::Carets,
+        }
+    }
+}
+
+fn map_workspace_error(
+    error: WorkspaceError,
+    non_workspace: usize,
+    budget: usize,
+) -> TextLayoutError {
+    match error {
+        WorkspaceError::Allocation => TextLayoutError::Allocation,
+        WorkspaceError::MemoryLimit { required, .. } => TextLayoutError::CacheBudget {
+            required: non_workspace.saturating_add(required),
+            budget,
+        },
+        WorkspaceError::TextLimit { required, limit } => {
+            TextLayoutError::TextLimit { required, limit }
+        }
+        WorkspaceError::RunLimit { required, limit } => TextLayoutError::Capacity {
+            buffer: TextLayoutBuffer::WorkspaceRuns,
+            required,
+            capacity: limit,
+        },
+        WorkspaceError::GlyphLimit { required, limit } => TextLayoutError::Capacity {
+            buffer: TextLayoutBuffer::WorkspaceGlyphs,
+            required,
+            capacity: limit,
+        },
+        WorkspaceError::ScratchLimit { required, limit } => TextLayoutError::Capacity {
+            buffer: TextLayoutBuffer::WorkspaceScratchGlyphs,
+            required,
+            capacity: limit,
+        },
+        WorkspaceError::LineLimit { required, limit } => TextLayoutError::Capacity {
+            buffer: TextLayoutBuffer::WorkspaceLines,
+            required,
+            capacity: limit,
+        },
+        WorkspaceError::DimensionOverflow => TextLayoutError::DimensionOverflow,
+        WorkspaceError::Bidi(error) => TextLayoutError::Bidi(error),
+        WorkspaceError::Layout(error) => TextLayoutError::Layout(error),
+    }
+}
+
+fn map_workspace(
+    error: WorkspaceError,
+    non_workspace: usize,
+    budget: usize,
+    bounded: bool,
+) -> AttemptError {
     match error {
         WorkspaceError::Allocation => AttemptError::Public(TextLayoutError::Allocation),
         WorkspaceError::MemoryLimit { required, .. } => {
@@ -928,17 +1210,55 @@ fn map_workspace(error: WorkspaceError, non_workspace: usize, budget: usize) -> 
             AttemptError::Public(TextLayoutError::TextLimit { required, limit })
         }
         WorkspaceError::RunLimit { required, limit } => {
-            AttemptError::Public(TextLayoutError::ClusterLimit { required, limit })
+            if bounded {
+                AttemptError::Public(TextLayoutError::Capacity {
+                    buffer: TextLayoutBuffer::WorkspaceRuns,
+                    required,
+                    capacity: limit,
+                })
+            } else {
+                AttemptError::Public(TextLayoutError::ClusterLimit { required, limit })
+            }
         }
-        WorkspaceError::GlyphLimit { required, .. } => AttemptError::Public(
-            TextLayoutError::Layout(LayoutError::InsufficientGlyphCapacity { minimum: required }),
-        ),
-        WorkspaceError::ScratchLimit { required, .. } => AttemptError::Public(
-            TextLayoutError::Layout(LayoutError::InsufficientScratchCapacity { minimum: required }),
-        ),
-        WorkspaceError::LineLimit { required, .. } => AttemptError::Public(
-            TextLayoutError::Layout(LayoutError::InsufficientLineCapacity { required }),
-        ),
+        WorkspaceError::GlyphLimit { required, limit } => {
+            if bounded {
+                AttemptError::Public(TextLayoutError::Capacity {
+                    buffer: TextLayoutBuffer::WorkspaceGlyphs,
+                    required,
+                    capacity: limit,
+                })
+            } else {
+                AttemptError::Public(TextLayoutError::Layout(
+                    LayoutError::InsufficientGlyphCapacity { minimum: required },
+                ))
+            }
+        }
+        WorkspaceError::ScratchLimit { required, limit } => {
+            if bounded {
+                AttemptError::Public(TextLayoutError::Capacity {
+                    buffer: TextLayoutBuffer::WorkspaceScratchGlyphs,
+                    required,
+                    capacity: limit,
+                })
+            } else {
+                AttemptError::Public(TextLayoutError::Layout(
+                    LayoutError::InsufficientScratchCapacity { minimum: required },
+                ))
+            }
+        }
+        WorkspaceError::LineLimit { required, limit } => {
+            if bounded {
+                AttemptError::Public(TextLayoutError::Capacity {
+                    buffer: TextLayoutBuffer::WorkspaceLines,
+                    required,
+                    capacity: limit,
+                })
+            } else {
+                AttemptError::Public(TextLayoutError::Layout(
+                    LayoutError::InsufficientLineCapacity { required },
+                ))
+            }
+        }
         WorkspaceError::DimensionOverflow => {
             AttemptError::Public(TextLayoutError::DimensionOverflow)
         }
@@ -1453,5 +1773,163 @@ mod tests {
         assert_eq!(layout.glyphs()[0].origin.x, 4 * 256);
         assert_eq!(layout.carets()[0].position.x, 4 * 256);
         assert_eq!(layout.measure().width, 2 * 256);
+    }
+
+    #[test]
+    fn bounded_cache_keeps_same_frame_layouts_and_memory_warning_capacity() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let capacity = TextLayoutCapacity {
+            layout_slots: 2,
+            measurements: 2,
+            lines: 8,
+            runs: 8,
+            glyphs: 32,
+            carets: 32,
+            workspace: WorkspaceCapacity {
+                runs: 8,
+                glyphs: 16,
+                scratch_glyphs: 16,
+                lines: 8,
+            },
+        };
+        let resource = TextLayoutResource::try_new_bounded(
+            TextLayoutLimits::HOST.with_cache_bytes(64 * 1024),
+            capacity,
+        )
+        .unwrap();
+        let resident = resource.borrow().resident_bytes();
+        let (first, second) = {
+            let mut cache = resource.borrow_mut();
+            cache.begin_frame();
+            let first = cache
+                .layout_cached(1, 0, request("AB", 16 * 256), &typefaces)
+                .unwrap();
+            let second = cache
+                .layout_cached(2, 0, request("CD", 16 * 256), &typefaces)
+                .unwrap();
+            assert_eq!(cache.get(first).unwrap().glyphs().len(), 2);
+            assert_eq!(cache.get(second).unwrap().glyphs().len(), 2);
+            assert_eq!(
+                cache.layout_cached(3, 0, request("EF", 16 * 256), &typefaces),
+                Err(TextLayoutError::Capacity {
+                    buffer: TextLayoutBuffer::LayoutSlots,
+                    required: 3,
+                    capacity: 2,
+                })
+            );
+            assert_eq!(cache.resident_bytes(), resident);
+            (first, second)
+        };
+        resource.trim_memory();
+        let cache = resource.borrow();
+        assert_eq!(cache.bounded_capacity, Some(capacity));
+        assert_eq!(cache.resident_bytes(), resident);
+        assert!(cache.get(first).is_some());
+        assert!(cache.get(second).is_some());
+    }
+
+    #[test]
+    fn bounded_output_uses_actual_visible_line_count() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::try_new_bounded(
+            TextLayoutLimits::HOST.with_cache_bytes(16 * 1024),
+            TextLayoutCapacity {
+                layout_slots: 1,
+                measurements: 1,
+                lines: 1,
+                runs: 1,
+                glyphs: 1,
+                carets: 2,
+                workspace: WorkspaceCapacity {
+                    runs: 4,
+                    glyphs: 4,
+                    scratch_glyphs: 4,
+                    lines: 4,
+                },
+            },
+        )
+        .unwrap();
+        cache.begin_frame();
+        let handle = cache
+            .layout_cached(1, 0, request("A", 16 * 256), &typefaces)
+            .unwrap();
+        assert_eq!(cache.get(handle).unwrap().lines().len(), 1);
+        assert_eq!(cache.get(handle).unwrap().glyphs().len(), 1);
+    }
+
+    #[test]
+    fn bounded_output_reports_actual_glyph_overflow_after_clamped_estimate() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::try_new_bounded(
+            TextLayoutLimits::HOST.with_cache_bytes(16 * 1024),
+            TextLayoutCapacity {
+                layout_slots: 1,
+                measurements: 1,
+                lines: 2,
+                runs: 2,
+                glyphs: 1,
+                carets: 4,
+                workspace: WorkspaceCapacity {
+                    runs: 4,
+                    glyphs: 4,
+                    scratch_glyphs: 4,
+                    lines: 4,
+                },
+            },
+        )
+        .unwrap();
+        cache.begin_frame();
+        assert_eq!(
+            cache.layout_cached(1, 0, request("AB", 16 * 256), &typefaces),
+            Err(TextLayoutError::Capacity {
+                buffer: TextLayoutBuffer::Glyphs,
+                required: 2,
+                capacity: 1,
+            })
+        );
+        let handle = cache
+            .layout_cached(1, 0, request("A", 16 * 256), &typefaces)
+            .unwrap();
+        assert_eq!(cache.get(handle).unwrap().glyphs().len(), 1);
+    }
+
+    #[test]
+    fn bounded_workspace_overflow_identifies_its_declared_buffer() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::try_new_bounded(
+            TextLayoutLimits::HOST.with_cache_bytes(16 * 1024),
+            TextLayoutCapacity {
+                layout_slots: 1,
+                measurements: 1,
+                lines: 4,
+                runs: 4,
+                glyphs: 8,
+                carets: 8,
+                workspace: WorkspaceCapacity {
+                    runs: 4,
+                    glyphs: 1,
+                    scratch_glyphs: 4,
+                    lines: 4,
+                },
+            },
+        )
+        .unwrap();
+        cache.begin_frame();
+        assert_eq!(
+            cache.layout_cached(1, 0, request("AB", 16 * 256), &typefaces),
+            Err(TextLayoutError::Capacity {
+                buffer: TextLayoutBuffer::WorkspaceGlyphs,
+                required: 2,
+                capacity: 1,
+            })
+        );
     }
 }
