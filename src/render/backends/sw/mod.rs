@@ -423,6 +423,30 @@ impl<'a> Canvas for SwRenderer<'a> {
         self.stroke_path_inner(path, clip, width, paint, opa, cap, join, miter_limit, dash);
     }
 
+    fn draw_line(
+        &mut self,
+        p1: Point,
+        p2: Point,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        let commands = [PathCmd::MoveTo(p1), PathCmd::LineTo(p2)];
+        let paint = Paint::Color((*color).into());
+        self.stroke_commands_inner(
+            &commands,
+            clip,
+            width,
+            &paint,
+            opa,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+            &[],
+        );
+    }
+
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         self.fill_rect_inner(area, clip, color, radius, opa);
     }
@@ -2268,31 +2292,83 @@ mod tests {
     }
 
     #[test]
-    fn draw_line_default_impl_strokes_pixels() {
-        // Exercises Canvas::draw_line's default trait impl → stroke_path.
-        let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
-        let mut backend = SwRenderer::new(tex);
+    fn draw_line_matches_two_command_path() {
+        let cases = [
+            (Point::new(2, 8), Point::new(14, 8), Rect::new(0, 0, 24, 24)),
+            (
+                Point::new(2, 3),
+                Point::new(18, 19),
+                Rect::new(0, 0, 24, 24),
+            ),
+            (
+                Point::new(0, 12),
+                Point::new(23, 12),
+                Rect::new(4, 4, 16, 16),
+            ),
+        ];
+        for (p1, p2, clip) in cases {
+            let mut line = SwRenderer::new(Texture::owned(24, 24, ColorFormat::RGBA8888));
+            let mut path_renderer = SwRenderer::new(Texture::owned(24, 24, ColorFormat::RGBA8888));
+            let color = Color::rgb(255, 0, 0);
+            let width = Fixed::from_int(2);
+            line.draw_line(p1, p2, &clip, width, &color, 180);
 
-        let p1 = Point {
-            x: Fixed::from_int(2),
-            y: Fixed::from_int(8),
+            let mut path = Path::new();
+            path.move_to(p1).line_to(p2);
+            assert_eq!(path.commands().len(), 2);
+            path_renderer.stroke_path(
+                &path,
+                &clip,
+                width,
+                &Paint::Color(color.into()),
+                180,
+                crate::render::raster::LineCap::Butt,
+                crate::render::raster::LineJoin::Miter,
+                Fixed::from_int(4),
+                &[],
+            );
+            assert_eq!(
+                line.target.buf.as_slice(),
+                path_renderer.target.buf.as_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_draw_line_keeps_stroke_scratch_capacity() {
+        let mut renderer = SwRenderer::new(Texture::owned(24, 24, ColorFormat::RGBA8888));
+        let clip = Rect::new(0, 0, 24, 24);
+        let color = Color::rgb(255, 0, 0);
+        let draw = |renderer: &mut SwRenderer<'_>| {
+            renderer.draw_line(
+                Point::new(2, 8),
+                Point::new(20, 8),
+                &clip,
+                Fixed::from_int(2),
+                &color,
+                255,
+            );
         };
-        let p2 = Point {
-            x: Fixed::from_int(14),
-            y: Fixed::from_int(8),
-        };
-        let clip = Rect::new(0, 0, 16, 16);
-        backend.draw_line(
-            p1,
-            p2,
-            &clip,
-            Fixed::from_int(2),
-            &Color::rgb(255, 0, 0),
-            255,
+        draw(&mut renderer);
+        let capacities = (
+            renderer.scratch.flatten_buf.capacity(),
+            renderer.scratch.stroke_outline.command_capacity(),
+            renderer.scratch.stroke_normals.capacity(),
+            renderer.scratch.scanline_crossings.capacity(),
         );
-
-        assert!(backend.target.get_pixel(8, 8).r > 0);
+        for _ in 0..8 {
+            renderer.target.buf.as_mut_slice().fill(0);
+            draw(&mut renderer);
+            assert_eq!(
+                (
+                    renderer.scratch.flatten_buf.capacity(),
+                    renderer.scratch.stroke_outline.command_capacity(),
+                    renderer.scratch.stroke_normals.capacity(),
+                    renderer.scratch.scanline_crossings.capacity(),
+                ),
+                capacities,
+            );
+        }
     }
 
     #[test]

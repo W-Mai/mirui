@@ -662,6 +662,32 @@ impl SwRenderer<'_> {
         miter_limit: Fixed,
         dash: &[Fixed],
     ) {
+        self.stroke_commands_inner(
+            path.commands(),
+            clip,
+            width,
+            paint,
+            opa,
+            cap,
+            join,
+            miter_limit,
+            dash,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn stroke_commands_inner(
+        &mut self,
+        commands: &[PathCmd],
+        clip: &Rect,
+        width: Fixed,
+        paint: &Paint,
+        opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+        dash: &[Fixed],
+    ) {
         if opa == 0 || width <= Fixed::ZERO {
             return;
         }
@@ -670,7 +696,7 @@ impl SwRenderer<'_> {
         {
             let scratch = &mut *self.scratch;
             raster::offset_polygon_into(
-                &path.cmds,
+                commands,
                 Some(&phys_tf),
                 phys_width,
                 cap,

@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Software line drawing.** Straight lines use stack-backed path commands instead of allocating a temporary path for each draw.
 - **First dirty-frame allocations.** App initialization reserves the fixed dirty-region slots and previous-frame plan storage, so ordinary dirty rendering does not allocate those buffers on first use.
 - **Text layout failures.** Full and dirty rendering stop before drawing or flushing when text preparation exceeds capacity; `App::last_text_layout_failure()` reports the widget, stage, and capacity details for a retry.
 - **Hidden roots.** Hiding an app root retires its text layouts, rejects stale hit targets, and clears the previous frame to the active theme surface color.
