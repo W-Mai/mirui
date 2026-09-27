@@ -2648,6 +2648,26 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
 
     fn visit_expr_call_mut(&mut self, call: &mut syn::ExprCall) {
         syn::visit_mut::visit_expr_call_mut(self, call);
+        let generated_compose_call = call.args.first().is_some_and(|arg| {
+            matches!(arg, syn::Expr::Reference(reference)
+                if reference.mutability.is_some()
+                    && matches!(&*reference.expr, syn::Expr::Path(path)
+                        if path.path.is_ident("__compose_cx")))
+        });
+        if generated_compose_call {
+            for arg in call.args.iter_mut().skip(1) {
+                let syn::Expr::Path(path) = arg else {
+                    continue;
+                };
+                let Some(name) = path.path.get_ident() else {
+                    continue;
+                };
+                if self.captures.contains(name) {
+                    *arg = syn::parse_quote!(::mirui::core::model::SharedValue::share(&#name));
+                }
+            }
+            return;
+        }
         let syn::Expr::Path(path) = &*call.func else {
             return;
         };

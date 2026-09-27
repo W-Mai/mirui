@@ -68,8 +68,8 @@ fn mixed_capture_panel(counter: Counter) {
 }
 
 #[compose(bind(counter))]
-fn child_counter_button(counter: Counter) {
-    ui! { Button(text: "CHILD") on Tap { counter.increment(); } };
+fn child_counter_button(counter: Counter) -> mirui::ecs::Entity {
+    ui! { Button(text: "CHILD") on Tap { counter.increment(); } }
 }
 
 #[compose]
@@ -91,6 +91,38 @@ fn qualified_ui_panel(counter: Counter) {
     crate::ui! { Button(text: "CRATE") on Tap { counter.increment(); } };
     ::mirui::ui!(child_counter_button(counter));
     mirui::ui!(child_counter_button(counter));
+}
+
+#[compose(bind(counter))]
+fn tree_with_bound_children(counter: Counter) -> mirui::ecs::Entity {
+    ui! {
+        Column {
+            child_counter_button(counter)
+            child_counter_button(counter)
+            Button(text: "PARENT") on Tap { counter.increment(); }
+        }
+    }
+}
+
+#[compose(bind(counter))]
+fn optional_counter_button(counter: Option<Counter>) -> mirui::ecs::Entity {
+    ui! {
+        Button(text: "OPTIONAL") on Tap {
+            if let Some(counter) = counter.as_ref() {
+                counter.increment();
+            }
+        }
+    }
+}
+
+#[compose(bind(counter))]
+fn tree_with_optional_children(counter: Option<Counter>) -> mirui::ecs::Entity {
+    ui! {
+        Column {
+            optional_counter_button(counter)
+            optional_counter_button(counter)
+        }
+    }
 }
 
 #[test]
@@ -189,6 +221,56 @@ fn bound_model_is_shared_across_child_compose_calls() {
         );
     }
     assert_eq!(counter.count(), 3);
+}
+
+#[test]
+fn bound_model_is_shared_across_tree_child_compose_calls() {
+    let mut app = App::headless(320, 120);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 0 });
+    app.compose(root, |cx| {
+        tree_with_bound_children(cx, counter.clone());
+    });
+
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 3);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        assert_eq!(
+            GestureHandler::trigger(&mut app.world, button, &event),
+            Some(true)
+        );
+    }
+    assert_eq!(counter.count(), 3);
+}
+
+#[test]
+fn bound_optional_model_is_shared_across_tree_children() {
+    let mut app = App::headless(320, 120);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 0 });
+    app.compose(root, |cx| {
+        tree_with_optional_children(cx, Some(counter.clone()));
+    });
+
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 2);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        assert_eq!(
+            GestureHandler::trigger(&mut app.world, button, &event),
+            Some(true)
+        );
+    }
+    assert_eq!(counter.count(), 2);
 }
 
 #[test]

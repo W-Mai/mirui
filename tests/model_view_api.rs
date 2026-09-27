@@ -3,7 +3,7 @@ use mirui::core::model::SharedValue;
 use mirui::core::reactive::flush_signal_dirty;
 use mirui::types::Dimension;
 use mirui::ui::builder::WidgetBuilder;
-use mirui::ui::layout::LayoutStyle;
+use mirui::ui::layout::{FlexDirection, LayoutStyle};
 use mirui::ui::view::View;
 use mirui::ui::view::ViewCtx;
 use mirui::{component, model, view};
@@ -215,13 +215,19 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
     let shared = app.add_model(PaintModel { value: 1 });
     let independent = app.add_model(PaintModel { value: 7 });
     let tile_layout = LayoutStyle {
-        width: Dimension::px(10),
+        width: Dimension::px(32),
         height: Dimension::px(10),
         ..LayoutStyle::default()
     };
     let tiles: [_; 3] =
         core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(tile_layout).id());
     let root = WidgetBuilder::new(&mut app.world)
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(32),
+            height: Dimension::px(32),
+            ..LayoutStyle::default()
+        })
         .child(tiles[0])
         .child(tiles[1])
         .child(tiles[2])
@@ -241,6 +247,7 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
         );
     }
     app.render().unwrap();
+    app.render_dirty().unwrap();
     assert_eq!(tile_values(), [1, 1, 7]);
     let before = tile_counts();
 
@@ -256,6 +263,7 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
     let after_shared = tile_counts();
     assert!(after_shared[0] > before[0]);
     assert!(after_shared[1] > before[1]);
+    assert_eq!(after_shared[2], before[2]);
 
     assert_eq!(
         tracked_allocations(|| {
@@ -279,6 +287,8 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
     app.render_dirty().unwrap();
     assert_eq!(tile_values(), [2, 2, 8]);
     let after_independent = tile_counts();
+    assert_eq!(after_independent[0], after_shared[0]);
+    assert_eq!(after_independent[1], after_shared[1]);
     assert!(after_independent[2] > after_shared[2]);
 }
 
