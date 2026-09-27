@@ -18,6 +18,14 @@ impl EntityAllocator {
         Self::default()
     }
 
+    pub(crate) const fn allocated_slots(&self) -> u32 {
+        self.next_id
+    }
+
+    pub(crate) fn live_count(&self) -> usize {
+        self.next_id as usize - self.free_ids.len()
+    }
+
     pub fn allocate(&mut self) -> Entity {
         if let Some(id) = self.free_ids.pop() {
             Entity {

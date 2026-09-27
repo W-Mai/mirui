@@ -126,3 +126,45 @@ fn warmed_software_frame_reuses_all_render_storage() {
 
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn warmed_software_arcs_reuse_path_storage_across_frames() {
+    let mut surface = FramebufSurface::new(64, 64, |_, _| {});
+    let mut factory = SwRendererFactory::new();
+    let viewport = Viewport::new(64, 64, Fixed::ONE);
+    let clip = Rect::new(0, 0, 64, 64);
+    let color = Color::rgb(80, 220, 150);
+    let draw = |factory: &mut SwRendererFactory, surface: &mut FramebufSurface<_>| {
+        let mut renderer = factory.make(surface, &viewport);
+        renderer.clear(&clip, &Color::rgb(0, 0, 0));
+        renderer.draw_arc(
+            Point::new(28, 28),
+            Fixed::from_int(18),
+            Fixed::ZERO,
+            Fixed::from_int(270),
+            &clip,
+            Fixed::from_int(2),
+            &color,
+            255,
+        );
+        renderer.draw_arc(
+            Point::new(28, 28),
+            Fixed::from_int(14),
+            Fixed::from_int(300),
+            Fixed::from_int(90),
+            &clip,
+            Fixed::from_int(3),
+            &color,
+            200,
+        );
+    };
+
+    draw(&mut factory, &mut surface);
+    let allocations = tracked_allocations(|| {
+        for _ in 0..8 {
+            draw(&mut factory, &mut surface);
+        }
+    });
+
+    assert_eq!(allocations, 0);
+}

@@ -343,8 +343,8 @@ impl<'a> SwRenderer<'a> {
                 opa,
                 ..
             } => {
-                let path =
-                    crate::render::path::Path::arc(*center, *radius, *start_angle, *end_angle);
+                let mut path = core::mem::take(&mut self.scratch.primitive_path);
+                path.set_arc(*center, *radius, *start_angle, *end_angle);
                 let paint = Paint::Color((*color).into());
                 self.stroke_path_transformed(
                     &path,
@@ -358,6 +358,7 @@ impl<'a> SwRenderer<'a> {
                     Fixed::from_int(4),
                     &[],
                 );
+                self.scratch.primitive_path = path;
             }
             DrawCommand::GlyphRun {
                 pos,
@@ -445,6 +446,34 @@ impl<'a> Canvas for SwRenderer<'a> {
             Fixed::from_int(4),
             &[],
         );
+    }
+
+    fn draw_arc(
+        &mut self,
+        center: Point,
+        radius: Fixed,
+        start_angle: Fixed,
+        end_angle: Fixed,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        let mut path = core::mem::take(&mut self.scratch.primitive_path);
+        path.set_arc(center, radius, start_angle, end_angle);
+        let paint = Paint::Color((*color).into());
+        self.stroke_commands_inner(
+            path.commands(),
+            clip,
+            width,
+            &paint,
+            opa,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+            &[],
+        );
+        self.scratch.primitive_path = path;
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
@@ -2372,7 +2401,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_arc_default_impl_strokes_pixels() {
+    fn draw_arc_strokes_pixels() {
         let mut buf = vec![0u8; 32 * 32 * 4];
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
@@ -2396,6 +2425,94 @@ mod tests {
         // The 0°→90° arc runs from (+radius, 0) to (0, +radius) relative to
         // center. Sample a point on the arc and verify green is present.
         assert!(backend.target.get_pixel(26, 16).g > 0 || backend.target.get_pixel(25, 16).g > 0);
+    }
+
+    #[test]
+    fn draw_arc_matches_explicit_path_across_sweeps_clips_and_scale() {
+        let center = Point::new(16, 14);
+        let radius = Fixed::from_int(10);
+        let color = Color::rgb(18, 211, 93);
+        let cases = [
+            (0, 90, Rect::new(0, 0, 64, 64), 1, 2, 255),
+            (45, 290, Rect::new(5, 3, 25, 19), 1, 3, 167),
+            (270, -90, Rect::new(1, 2, 28, 28), 2, 1, 255),
+            (0, 0, Rect::new(0, 0, 64, 64), 1, 2, 255),
+        ];
+
+        for (start, end, clip, scale, width, opacity) in cases {
+            let start = Fixed::from_int(start);
+            let end = Fixed::from_int(end);
+            let width = Fixed::from_int(width);
+            let mut actual = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+            let mut expected = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+            let viewport = Viewport::new(64, 64, Fixed::from_int(scale));
+            actual.viewport = viewport;
+            expected.viewport = viewport;
+
+            actual.draw_arc(center, radius, start, end, &clip, width, &color, opacity);
+            let path = Path::arc(center, radius, start, end);
+            expected.stroke_path(
+                &path,
+                &clip,
+                width,
+                &Paint::Color(color.into()),
+                opacity,
+                crate::render::raster::LineCap::Butt,
+                crate::render::raster::LineJoin::Miter,
+                Fixed::from_int(4),
+                &[],
+            );
+
+            assert_eq!(actual.target.buf.as_slice(), expected.target.buf.as_slice());
+        }
+    }
+
+    #[test]
+    fn affine_arc_matches_explicit_path_and_retains_path_storage() {
+        let mut actual = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+        let mut expected = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+        let center = Point::new(24, 16);
+        let radius = Fixed::from_int(12);
+        let start = Fixed::from_int(30);
+        let end = Fixed::from_int(250);
+        let color = Color::rgb(220, 100, 30);
+        let width = Fixed::from_int(2);
+        let opacity = 192;
+        let clip = Rect::new(0, 0, 64, 64);
+        let transform = Transform::rotate_deg(Fixed::from_int(12));
+        let physical_transform = actual.viewport.as_transform().compose(&transform);
+        let command = DrawCommand::Arc {
+            center,
+            transform,
+            radius,
+            start_angle: start,
+            end_angle: end,
+            color,
+            width,
+            opa: opacity,
+        };
+
+        assert_eq!(actual.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        let path = Path::arc(center, radius, start, end);
+        expected.stroke_path_transformed(
+            &path,
+            clip,
+            &physical_transform,
+            width,
+            &Paint::Color(color.into()),
+            opacity,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+            &[],
+        );
+        assert_eq!(actual.target.buf.as_slice(), expected.target.buf.as_slice());
+
+        let capacity = actual.scratch.primitive_path.command_capacity();
+        assert!(capacity >= path.commands().len());
+        actual.target.buf.as_mut_slice().fill(0);
+        assert_eq!(actual.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert_eq!(actual.scratch.primitive_path.command_capacity(), capacity);
     }
 
     #[test]

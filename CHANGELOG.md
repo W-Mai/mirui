@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dirty component storage.** Apps reserve slots for constructed entities before visibility updates, so cached page switches do not grow the dirty store.
+- **Software arc storage.** Direct and affine arcs reuse the renderer's path commands instead of allocating a temporary path per draw.
 - **Web Canvas clipping.** Clipped draws reuse their known transform instead of creating a DOM matrix for each clip.
 - **First retained text branch switch.** Initial layout reserves component storage for text handles in hidden branches, avoiding allocation when those branches first become visible.
 - **Software line drawing.** Straight lines use stack-backed path commands instead of allocating a temporary path for each draw.

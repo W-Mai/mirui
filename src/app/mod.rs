@@ -92,6 +92,8 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     suspended: bool,
     started: bool,
     text_layout_started: bool,
+    dirty_reserved_slots: u32,
+    dirty_reserved_live_entities: usize,
     text_layout_reservation: TextLayoutReservation,
     text_layout_preparation_error: Option<crate::text::TextLayoutError>,
 }
@@ -241,6 +243,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             suspended: false,
             started: false,
             text_layout_started: false,
+            dirty_reserved_slots: 0,
+            dirty_reserved_live_entities: 0,
             text_layout_reservation: TextLayoutReservation::Unspecified,
             text_layout_preparation_error: None,
         }
@@ -741,12 +745,39 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     where
         Func: FnOnce(&mut crate::ui::UiScope<'_>),
     {
-        let mut cx = crate::ui::UiScope::new(&mut self.world, parent);
-        f(&mut cx);
+        {
+            let mut cx = crate::ui::UiScope::new(&mut self.world, parent);
+            f(&mut cx);
+        }
+        self.prepare_dirty_storage();
         self
     }
 
+    fn prepare_dirty_storage(&mut self) {
+        let slots = self.world.allocated_entity_slots();
+        let live_entities = self.world.live_entity_count();
+        if slots <= self.dirty_reserved_slots && live_entities <= self.dirty_reserved_live_entities
+        {
+            return;
+        }
+        let Some(max_entity_id) = slots.checked_sub(1) else {
+            return;
+        };
+        let current = self
+            .world
+            .storage::<crate::ui::dirty::Dirty>()
+            .map_or(0, |storage| storage.len());
+        self.world
+            .reserve_component_storage::<crate::ui::dirty::Dirty>(
+                max_entity_id,
+                live_entities.saturating_sub(current),
+            );
+        self.dirty_reserved_slots = slots;
+        self.dirty_reserved_live_entities = live_entities;
+    }
+
     fn prepare_render(&mut self, viewport: crate::types::Viewport) {
+        self.prepare_dirty_storage();
         let viewport_changed = {
             let current = self
                 .world
@@ -780,6 +811,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
+        self.prepare_dirty_storage();
         ViewRegistry::reconcile_observations(&mut self.world);
         crate::core::reactive::flush_signal_dirty(&mut self.world);
     }
@@ -2414,6 +2446,60 @@ mod lifecycle_tests {
     use super::*;
     use alloc::rc::Rc;
     use core::cell::RefCell;
+
+    struct SpawnBeforeRender(bool);
+
+    impl<B, F> Plugin<B, F> for SpawnBeforeRender
+    where
+        B: Surface,
+        F: RendererFactory<B>,
+    {
+        fn build(&mut self, _app: &mut App<B, F>) {}
+
+        fn pre_render(&mut self, world: &mut World) {
+            if !self.0 {
+                world.spawn_empty();
+                self.0 = true;
+            }
+        }
+    }
+
+    #[test]
+    fn render_prepares_dirty_storage_after_plugin_spawns() {
+        let mut app = App::headless(32, 32);
+        let initial = app.world.live_entity_count();
+        app.add_plugin(SpawnBeforeRender(false));
+        let viewport = app.backend.viewport();
+        app.prepare_render(viewport);
+
+        let slots = app.world.allocated_entity_slots() as usize;
+        let prepared = app
+            .world
+            .storage::<crate::ui::dirty::Dirty>()
+            .unwrap()
+            .reserved_entity_capacity();
+        assert_eq!(app.world.live_entity_count(), initial + 1);
+        assert!(prepared.0 >= slots);
+        assert!(prepared.1 >= app.world.live_entity_count());
+    }
+
+    #[test]
+    fn dirty_dense_reservation_excludes_released_entity_slots() {
+        let mut app = App::headless(32, 32);
+        let entities: alloc::vec::Vec<_> = (0..64).map(|_| app.world.spawn_empty()).collect();
+        for entity in entities {
+            assert!(app.world.despawn(entity));
+        }
+        app.prepare_dirty_storage();
+
+        let prepared = app
+            .world
+            .storage::<crate::ui::dirty::Dirty>()
+            .unwrap()
+            .reserved_entity_capacity();
+        assert!(prepared.0 >= app.world.allocated_entity_slots() as usize);
+        assert!(prepared.1 < prepared.0);
+    }
 
     #[derive(Default, Clone)]
     struct Trace {

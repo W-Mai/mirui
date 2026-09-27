@@ -1598,6 +1598,93 @@ mod tests {
     }
 
     #[test]
+    fn first_page_switch_keeps_dirty_storage_capacity_and_updates_output() {
+        use crate::input::event::hit_test::hit_test;
+        use crate::surface::FramebufferAccess;
+        use crate::ui::dirty::Dirty;
+
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        setup_app(&mut app, root);
+        app.prepare_text_layout().unwrap();
+        let model = app
+            .world
+            .query::<MarbleBoard>()
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .model
+            .clone();
+        let properties = app.world.find_by_id("marble_properties").unwrap();
+        let slots = app.world.allocated_entity_slots() as usize;
+        let prepared = app
+            .world
+            .storage::<Dirty>()
+            .unwrap()
+            .reserved_entity_capacity();
+        assert!(prepared.0 >= slots);
+        assert!(prepared.1 >= slots);
+
+        app.render().unwrap();
+        let play_pixels = app
+            .backend
+            .framebuffer()
+            .buf
+            .as_slice()
+            .iter()
+            .fold(0u64, |hash, byte| {
+                hash.wrapping_mul(16777619) ^ *byte as u64
+            });
+        let before = app
+            .world
+            .storage::<Dirty>()
+            .unwrap()
+            .reserved_entity_capacity();
+        assert!(app.world.has::<Hidden>(properties));
+
+        model.set_page(Page::Edit);
+        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        let after = app
+            .world
+            .storage::<Dirty>()
+            .unwrap()
+            .reserved_entity_capacity();
+        assert_eq!(after, before);
+        assert!(!app.world.has::<Hidden>(properties));
+
+        app.render_dirty().unwrap();
+        let edit_pixels = app
+            .backend
+            .framebuffer()
+            .buf
+            .as_slice()
+            .iter()
+            .fold(0u64, |hash, byte| {
+                hash.wrapping_mul(16777619) ^ *byte as u64
+            });
+        assert_ne!(edit_pixels, play_pixels);
+        let rect = app
+            .world
+            .get::<crate::ui::ComputedRect>(properties)
+            .unwrap()
+            .0;
+        let half = Fixed::from_ratio(1, 2);
+        assert_eq!(
+            hit_test(
+                &app.world,
+                root,
+                rect.x + rect.w * half,
+                rect.y + rect.h * half,
+                VIEWPORT.0,
+                VIEWPORT.1,
+            ),
+            Some(properties)
+        );
+    }
+
+    #[test]
     fn marble_boards_share_only_their_bound_model_instance() {
         use crate::ui::dirty::VisualDirty;
 

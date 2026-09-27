@@ -137,6 +137,14 @@ impl World {
         self.allocator.is_alive(entity)
     }
 
+    pub(crate) fn allocated_entity_slots(&self) -> u32 {
+        self.allocator.allocated_slots()
+    }
+
+    pub(crate) fn live_entity_count(&self) -> usize {
+        self.allocator.live_count()
+    }
+
     pub fn insert<T: 'static>(&mut self, entity: Entity, component: T) {
         if !self.is_alive(entity) {
             return;

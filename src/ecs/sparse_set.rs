@@ -89,6 +89,11 @@ impl<T> SparseSet<T> {
         self.dense.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn reserved_entity_capacity(&self) -> (usize, usize) {
+        (self.sparse.len(), self.dense.capacity())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.dense.is_empty()
     }
