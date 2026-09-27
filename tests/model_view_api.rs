@@ -1,12 +1,16 @@
 use mirui::app::App;
 use mirui::core::model::SharedValue;
 use mirui::core::reactive::flush_signal_dirty;
-use mirui::types::Dimension;
+use mirui::render::{DrawCommand, Renderer};
+use mirui::surface::framebuf::FramebufSurface;
+use mirui::types::{Color, Dimension, Fixed, Rect};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::{FlexDirection, LayoutStyle};
 use mirui::ui::view::View;
 use mirui::ui::view::ViewCtx;
 use mirui::{component, model, view};
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[path = "support/tracking_allocator.rs"]
@@ -95,6 +99,33 @@ fn paint_shared_tile(model: &PaintModel, component: &SharedTile) {
 #[view(component = PaintTile, read(model), watch(model.value()))]
 fn paint_drop(model: &PaintModel) {
     let _ = model.value;
+}
+
+#[component(bind(model))]
+struct PixelTile {
+    model: PaintModel,
+}
+
+#[view(component = PixelTile, read(model), watch(model.value()))]
+fn paint_pixel_tile(
+    renderer: &mut dyn Renderer,
+    model: &PaintModel,
+    rect: &Rect,
+    ctx: &mut ViewCtx<'_>,
+) {
+    ctx.draw(
+        renderer,
+        &DrawCommand::Fill {
+            area: *rect,
+            transform: ctx.transform,
+            quad: ctx.quad,
+            color: Color::rgb(model.value, 0, 0),
+            radius: Fixed::ZERO,
+            opa: 255,
+        },
+        ctx.clip,
+    );
+    ctx.bg_handled = true;
 }
 
 fn attempt_raw_view_write(
@@ -202,6 +233,41 @@ fn typed_view_tracks_real_render_and_component_rebinding() {
     assert_eq!(tracked_allocations(|| second.set_value(10)), 0);
     app.render_dirty().unwrap();
     assert_eq!(PAINT_COUNT.load(Ordering::Relaxed), removed_count);
+}
+
+#[test]
+fn first_model_view_update_paints_without_allocating() {
+    let red = Rc::new(Cell::new(0));
+    let flushes = Rc::new(Cell::new(0));
+    let red_on_flush = red.clone();
+    let flushes_on_flush = flushes.clone();
+    let mut app = App::new(FramebufSurface::new(16, 16, move |pixels, _| {
+        red_on_flush.set(pixels[0]);
+        flushes_on_flush.set(flushes_on_flush.get() + 1);
+    }));
+    app.with_default_widgets();
+    app.with_widget(paint_pixel_tile::view());
+    let root = app.spawn_root().id();
+    let model = app.add_model(PaintModel { value: 1 });
+    app.world.insert(
+        root,
+        PixelTile {
+            model: model.share(),
+        },
+    );
+    app.render().unwrap();
+    assert_eq!(red.get(), 1);
+    assert_eq!(flushes.get(), 1);
+
+    let action_allocations = tracked_allocations(|| model.set_value(2));
+    let notify_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
+    let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
+    assert_eq!(
+        (action_allocations, notify_allocations, render_allocations),
+        (0, 0, 0)
+    );
+    assert_eq!(red.get(), 2);
+    assert_eq!(flushes.get(), 2);
 }
 
 #[test]

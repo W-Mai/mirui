@@ -252,6 +252,25 @@ fn registered_method_calls_do_not_allocate_after_registration() {
 }
 
 #[test]
+fn unchanged_model_command_without_subscribers_does_not_allocate() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(ObservedCounter {
+        count: 0,
+        mode: Mode::Idle,
+        untouched: 0,
+    });
+
+    assert_eq!(
+        tracked_allocations(|| {
+            model.set_count(0);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
+    assert_eq!(model.count(), 0);
+}
+
+#[test]
 fn binding_types_share_handles_without_cloning_models() {
     let mut app = App::headless(32, 32);
     let counter = app.add_model(Counter { value: 4 });
@@ -854,6 +873,40 @@ fn registered_effect_delivery_does_not_allocate_per_command() {
     model.emit(1);
     assert_eq!(tracked_allocations(|| model.emit(2)), 0);
     assert_eq!(total.get(), 3);
+}
+
+#[test]
+fn first_registered_effect_delivery_does_not_allocate() {
+    let mut app = App::headless(32, 32);
+    let model = app.add_model(EffectCounter {
+        count: 0,
+        notes: [None; 2],
+        audits: [None; 1],
+    });
+    let note_total = Rc::new(Cell::new(0));
+    let audit_total = Rc::new(Cell::new(0));
+    let notes = note_total.clone();
+    app.on_effect(&model, move |note: Note| {
+        notes.set(notes.get() + note.0);
+    })
+    .unwrap();
+    let audits = audit_total.clone();
+    app.on_effect(&model, move |audit: Audit| {
+        audits.set(audits.get() + audit.0);
+    })
+    .unwrap();
+
+    assert_eq!(
+        tracked_allocations(|| {
+            model.emit(1);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
+    assert_eq!(
+        (model.count(), note_total.get(), audit_total.get()),
+        (1, 1, 1)
+    );
 }
 
 #[test]
