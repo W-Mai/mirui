@@ -13,16 +13,7 @@ fn first_tap_reuses_tracker_after_owner_initialization() {
     let mut app = App::headless(8, 8);
     let target = app.world.spawn_empty();
 
-    // Initialize the dispatch owner's graph without recording a tap.
-    bubble_dispatch_at(
-        &mut app.world,
-        &GestureEvent::DragStart {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target,
-        },
-        50,
-    );
+    app.render().unwrap();
     assert!(
         app.world
             .resource::<MultiTapTracker>()
