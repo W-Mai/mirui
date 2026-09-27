@@ -1,7 +1,7 @@
 use super::SwRenderer;
 use super::backends::sw::SwScratch;
 use super::canvas::Canvas;
-use super::renderer::Renderer;
+use super::renderer::{RenderError, Renderer};
 use crate::surface::{FramebufferAccess, Surface};
 use crate::types::Viewport;
 
@@ -19,6 +19,19 @@ pub trait RendererFactory<B: Surface> {
         Self: 'a,
         B: 'a;
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> Self::Renderer<'a>;
+
+    /// Optionally prepare reusable raster storage for bounded text runs.
+    /// The extent is in logical pixels, and `retained_runs` counts bounded
+    /// text widgets already constructed in the app. Backends may ignore it.
+    fn prepare_text_raster_scratch(
+        &mut self,
+        _viewport: &Viewport,
+        _max_logical_width: u16,
+        _max_logical_height: u16,
+        _retained_runs: usize,
+    ) -> Result<(), RenderError> {
+        Ok(())
+    }
 
     /// Mirror the frame's dirty rects into inactive slots and rotate.
     /// Default no-op — only multi-buffer CPU backends override.

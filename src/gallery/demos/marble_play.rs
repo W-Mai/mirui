@@ -1399,6 +1399,9 @@ where
 {
     app.require_text_layout_capacity(TEXT_LAYOUT_CAPACITY)
         .expect("register Marble text layout capacity");
+    #[cfg(all(target_arch = "wasm32", feature = "web-canvas"))]
+    app.prefer_text_raster_scratch(256, 8)
+        .expect("register Marble text raster extent");
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(board_render::view());

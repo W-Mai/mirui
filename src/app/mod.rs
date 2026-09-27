@@ -97,6 +97,8 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     dirty_reserved_live_entities: usize,
     text_layout_reservation: TextLayoutReservation,
     text_layout_preparation_error: Option<crate::text::TextLayoutError>,
+    text_raster_scratch_extent: Option<(u16, u16)>,
+    text_raster_scratch_preparation_error: Option<crate::render::RenderError>,
 }
 
 struct PendingFrame {
@@ -249,6 +251,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             dirty_reserved_live_entities: 0,
             text_layout_reservation: TextLayoutReservation::Unspecified,
             text_layout_preparation_error: None,
+            text_raster_scratch_extent: None,
+            text_raster_scratch_preparation_error: None,
         }
     }
 
@@ -368,6 +372,48 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         };
         self.text_layout_reservation = TextLayoutReservation::Pending(combined);
         Ok(self)
+    }
+
+    /// Request one reusable text raster scratch surface for bounded runs.
+    /// Multiple requests retain the largest width and height independently.
+    /// This is a performance hint; runs that exceed it use the normal cache.
+    pub fn prefer_text_raster_scratch(
+        &mut self,
+        max_logical_width: u16,
+        max_logical_height: u16,
+    ) -> Result<&mut Self, crate::render::RenderError> {
+        if max_logical_width == 0 || max_logical_height == 0 {
+            return Err(crate::render::RenderError::InvalidGeometry);
+        }
+        let (width, height) = self.text_raster_scratch_extent.unwrap_or((0, 0));
+        self.text_raster_scratch_extent =
+            Some((width.max(max_logical_width), height.max(max_logical_height)));
+        Ok(self)
+    }
+
+    fn prepare_text_raster_scratch(&mut self, viewport: &crate::types::Viewport) {
+        let Some((width, height)) = self.text_raster_scratch_extent else {
+            return;
+        };
+        let retained_runs = self
+            .world
+            .query::<crate::ui::widgets::Text>()
+            .iter()
+            .filter(|(_, text)| text.text_capacity().is_some())
+            .count()
+            .max(1);
+        self.text_raster_scratch_preparation_error = self
+            .factory
+            .prepare_text_raster_scratch(viewport, width, height, retained_runs)
+            .err();
+    }
+
+    /// Most recent optional raster-scratch preparation failure.
+    /// Rendering continues through the existing glyph cache when preparation fails.
+    pub const fn last_text_raster_scratch_preparation_error(
+        &self,
+    ) -> Option<crate::render::RenderError> {
+        self.text_raster_scratch_preparation_error
     }
 
     /// Reserve all declared text storage atomically before entering layout.
@@ -826,6 +872,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.prepare_text_layout()
             .map_err(|_| crate::render::RenderError::TextPreparation)?;
         let transform = self.backend.viewport();
+        self.prepare_text_raster_scratch(&transform);
         self.prepare_render(transform);
         if self.text_content_failure(true).is_some() {
             self.world.mark_subtree_dirty(root);
@@ -1190,6 +1237,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.prepare_text_layout()
             .map_err(|_| crate::render::RenderError::TextPreparation)?;
         let transform = self.backend.viewport();
+        self.prepare_text_raster_scratch(&transform);
         self.prepare_render(transform);
         if self.text_content_failure(true).is_some() {
             self.world.mark_subtree_dirty(root);
@@ -1612,6 +1660,102 @@ mod app_invariant_tests {
     use crate::ui::render_system::{TextLayoutFailureKind, TextLayoutStage};
     use crate::ui::widgets::text::Text;
     use crate::ui::{Children, HitTarget, Parent};
+
+    #[test]
+    fn text_raster_scratch_hints_share_one_maximum_extent() {
+        let mut app = App::headless(8, 8);
+        assert!(matches!(
+            app.prefer_text_raster_scratch(0, 8),
+            Err(crate::render::RenderError::InvalidGeometry)
+        ));
+        assert_eq!(app.text_raster_scratch_extent, None);
+
+        app.prefer_text_raster_scratch(12, 4).unwrap();
+        app.prefer_text_raster_scratch(8, 6).unwrap();
+        assert_eq!(app.text_raster_scratch_extent, Some((12, 6)));
+    }
+
+    struct FailingScratchFactory {
+        software: SwRendererFactory,
+        fail: bool,
+        requested_runs: usize,
+    }
+
+    impl<B: FramebufferAccess> RendererFactory<B> for FailingScratchFactory {
+        type Renderer<'a>
+            = crate::render::backends::sw::SwRenderer<'a>
+        where
+            Self: 'a,
+            B: 'a;
+
+        fn make<'a>(
+            &'a mut self,
+            backend: &'a mut B,
+            viewport: &crate::types::Viewport,
+        ) -> Self::Renderer<'a> {
+            self.software.make(backend, viewport)
+        }
+
+        fn prepare_text_raster_scratch(
+            &mut self,
+            _viewport: &crate::types::Viewport,
+            _width: u16,
+            _height: u16,
+            retained_runs: usize,
+        ) -> Result<(), crate::render::RenderError> {
+            self.requested_runs = retained_runs;
+            if self.fail {
+                Err(crate::render::RenderError::ResourceLimit(
+                    crate::render::RenderResource::Target,
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn optional_text_raster_scratch_failure_does_not_abort_frames() {
+        let surface =
+            crate::surface::framebuf::FramebufSurface::new(32, 32, (|_, _| {}) as HeadlessFlush);
+        let mut app = App::with_factory(
+            surface,
+            FailingScratchFactory {
+                software: SwRendererFactory::new(),
+                fail: true,
+                requested_runs: 0,
+            },
+        );
+        let root = app.spawn_root().id();
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Text ("A", id: "scratch_a", text_capacity: 1)
+        };
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Text ("B", id: "scratch_b", text_capacity: 1)
+        };
+        app.prefer_text_raster_scratch(8, 8).unwrap();
+
+        app.render().unwrap();
+        assert_eq!(app.factory.requested_runs, 2);
+        assert_eq!(
+            app.last_text_raster_scratch_preparation_error(),
+            Some(crate::render::RenderError::ResourceLimit(
+                crate::render::RenderResource::Target,
+            )),
+        );
+        app.render_dirty().unwrap();
+        app.factory.fail = false;
+        app.render_dirty().unwrap();
+        assert_eq!(app.last_text_raster_scratch_preparation_error(), None);
+    }
 
     fn text_capacity(slots: usize, workspace_glyphs: usize) -> crate::text::TextLayoutCapacity {
         crate::text::TextLayoutCapacity {

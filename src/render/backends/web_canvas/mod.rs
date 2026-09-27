@@ -11,7 +11,9 @@ use alloc::vec::Vec;
 
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
-use self::texture_pool::{GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
+use self::texture_pool::{
+    BoundedGlyphScratch, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool,
+};
 use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
 use crate::render::backends::sw::SwRenderer;
@@ -22,8 +24,8 @@ use crate::render::path::{Path, PathCmd};
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::{
-    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
-    Renderer, TextRunIdentity,
+    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderResource,
+    RenderRoute, Renderer, TextRunIdentity,
 };
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
@@ -48,16 +50,36 @@ fn paint_color(paint: &Paint) -> Color {
 pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     texture_pool: TexturePool,
     glyph_pool: GlyphPool,
+    bounded_glyph_scratch: Option<BoundedGlyphScratch>,
     projective_fallback: Option<ProjectiveFallback<S>>,
     bounded_text_runs: u64,
     bounded_text_uploads: u64,
     bounded_text_upload_bytes: u64,
+    bounded_scratch_creations: u64,
+    bounded_scratch_draws: u64,
+    bounded_scratch_hits: u64,
+    bounded_scratch_upload_bytes: u64,
 }
 
 /// Observable Web text resource use since this factory was created.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct WebTextResourceStats {
     pub bounded_runs: u64,
+    /// Retained slot pools prepared initially or after a larger request.
+    pub bounded_scratch_creations: u64,
+    /// Retained Rust RGBA slot and slot-table capacity bytes.
+    pub bounded_scratch_capacity_bytes: usize,
+    /// Number of retained raster images and browser surfaces.
+    pub bounded_scratch_slots: usize,
+    /// Draws served by the prepared reusable raster surface.
+    pub bounded_scratch_draws: u64,
+    /// Draws whose raster image was already retained in a prepared slot.
+    pub bounded_scratch_hits: u64,
+    /// Physical RGBA bytes uploaded after slot cache misses.
+    pub bounded_scratch_upload_bytes: u64,
+    /// Bounded draws that created a new glyph cache surface.
+    pub bounded_cache_creations: u64,
+    /// Existing name for `bounded_cache_creations`.
     pub bounded_uploads: u64,
     pub bounded_upload_bytes: u64,
     pub glyph_cache_surfaces: usize,
@@ -69,10 +91,15 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
         Self {
             texture_pool: new_pool(),
             glyph_pool: new_glyph_pool(),
+            bounded_glyph_scratch: None,
             projective_fallback: None,
             bounded_text_runs: 0,
             bounded_text_uploads: 0,
             bounded_text_upload_bytes: 0,
+            bounded_scratch_creations: 0,
+            bounded_scratch_draws: 0,
+            bounded_scratch_hits: 0,
+            bounded_scratch_upload_bytes: 0,
         }
     }
 
@@ -83,18 +110,78 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
         WebCanvasRendererFactory {
             texture_pool: self.texture_pool,
             glyph_pool: self.glyph_pool,
+            bounded_glyph_scratch: self.bounded_glyph_scratch,
             projective_fallback: Some(fallback),
             bounded_text_runs: self.bounded_text_runs,
             bounded_text_uploads: self.bounded_text_uploads,
             bounded_text_upload_bytes: self.bounded_text_upload_bytes,
+            bounded_scratch_creations: self.bounded_scratch_creations,
+            bounded_scratch_draws: self.bounded_scratch_draws,
+            bounded_scratch_hits: self.bounded_scratch_hits,
+            bounded_scratch_upload_bytes: self.bounded_scratch_upload_bytes,
         }
     }
 }
 
 impl<S> WebCanvasRendererFactory<S> {
+    /// Prepare retained browser glyph surfaces for bounded text.
+    ///
+    /// Dimensions are physical pixels. Repeating an existing capacity is a
+    /// no-op; requesting a larger dimension grows that axis. Runs exceeding
+    /// the prepared capacity continue through the glyph cache.
+    pub fn prepare_bounded_text_raster(
+        &mut self,
+        max_physical_width: u16,
+        max_physical_height: u16,
+        retained_runs: usize,
+    ) -> Result<(), RenderError> {
+        if max_physical_width == 0 || max_physical_height == 0 || retained_runs == 0 {
+            return Err(RenderError::InvalidGeometry);
+        }
+        let (width, height) = self
+            .bounded_glyph_scratch
+            .as_ref()
+            .map(|scratch| scratch.dimensions())
+            .unwrap_or((0, 0));
+        if max_physical_width <= width
+            && max_physical_height <= height
+            && self
+                .bounded_glyph_scratch
+                .as_ref()
+                .is_some_and(|scratch| retained_runs <= scratch.slot_count())
+        {
+            return Ok(());
+        }
+        let scratch = BoundedGlyphScratch::new(
+            width.max(max_physical_width),
+            height.max(max_physical_height),
+            retained_runs.max(
+                self.bounded_glyph_scratch
+                    .as_ref()
+                    .map_or(0, |scratch| scratch.slot_count()),
+            ),
+        )?;
+        self.bounded_glyph_scratch = Some(scratch);
+        self.bounded_scratch_creations = self.bounded_scratch_creations.saturating_add(1);
+        Ok(())
+    }
+
     pub fn text_resource_stats(&self) -> WebTextResourceStats {
         WebTextResourceStats {
             bounded_runs: self.bounded_text_runs,
+            bounded_scratch_creations: self.bounded_scratch_creations,
+            bounded_scratch_capacity_bytes: self
+                .bounded_glyph_scratch
+                .as_ref()
+                .map_or(0, |scratch| scratch.resident_rust_bytes()),
+            bounded_scratch_slots: self
+                .bounded_glyph_scratch
+                .as_ref()
+                .map_or(0, |scratch| scratch.slot_count()),
+            bounded_scratch_draws: self.bounded_scratch_draws,
+            bounded_scratch_hits: self.bounded_scratch_hits,
+            bounded_scratch_upload_bytes: self.bounded_scratch_upload_bytes,
+            bounded_cache_creations: self.bounded_text_uploads,
             bounded_uploads: self.bounded_text_uploads,
             bounded_upload_bytes: self.bounded_text_upload_bytes,
             glyph_cache_surfaces: self.glyph_pool.len(),
@@ -130,6 +217,27 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             known_transform: None,
             current_text_run: None,
         }
+    }
+
+    fn prepare_text_raster_scratch(
+        &mut self,
+        viewport: &Viewport,
+        max_logical_width: u16,
+        max_logical_height: u16,
+        retained_runs: usize,
+    ) -> Result<(), RenderError> {
+        fn physical_extent(logical: u16, scale: Fixed) -> Result<u16, RenderError> {
+            let raw_scale = i64::from(crate::types::fixed::storage::to_i32(scale));
+            let rounded = (i64::from(logical) * raw_scale + 255) / 256;
+            let with_phase_margin = rounded + 1;
+            u16::try_from(with_phase_margin)
+                .map_err(|_| RenderError::ResourceLimit(RenderResource::Target))
+        }
+
+        let scale = viewport.scale();
+        let width = physical_extent(max_logical_width, scale)?;
+        let height = physical_extent(max_logical_height, scale)?;
+        self.prepare_bounded_text_raster(width, height, retained_runs)
     }
 }
 
@@ -1293,6 +1401,36 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
+    #[allow(clippy::too_many_arguments)]
+    fn blit_glyph_canvas(
+        &self,
+        canvas: &web_sys::OffscreenCanvas,
+        bounds: crate::render::font::RasterRunBounds,
+        pos: &Point,
+        clip: &Rect,
+        color: &Color,
+        opacity: u8,
+    ) -> bool {
+        self.push_rect_clip(clip);
+        self.ctx()
+            .set_global_alpha((color.a as f64 * opacity as f64) / (255.0 * 255.0));
+        let result = self
+            .ctx()
+            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                canvas,
+                0.0,
+                0.0,
+                f64::from(bounds.width),
+                f64::from(bounds.height),
+                (pos.x + bounds.offset.x).to_f32() as f64,
+                (pos.y + bounds.offset.y).to_f32() as f64,
+                bounds.size.x.to_f32() as f64,
+                bounds.size.y.to_f32() as f64,
+            );
+        self.pop_rect_clip();
+        result.is_ok()
+    }
+
     fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
         let line_origin = draw.font.line_origin_for_baseline(Point::ZERO);
         for (positioned, frame) in draw.glyphs.iter().zip(draw.frames) {
@@ -1350,7 +1488,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let Some(bounds) = font.raster_run_bounds(glyphs, output_ppem, scale) else {
             return;
         };
-        let key = font.raster_run_key(glyphs, color, scale);
         let pw = bounds.width;
         let ph = bounds.height;
         let Some(raster_bytes) = usize::from(pw)
@@ -1363,6 +1500,44 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         if self.current_text_run.is_some() {
             self.factory.bounded_text_runs = self.factory.bounded_text_runs.saturating_add(1);
         }
+        let key = font.raster_run_key(glyphs, color, scale);
+        if self.current_text_run.is_some()
+            && self
+                .factory
+                .bounded_glyph_scratch
+                .as_ref()
+                .is_some_and(|scratch| scratch.fits(pw, ph))
+        {
+            let scratch = self.factory.bounded_glyph_scratch.as_mut().unwrap();
+            if let Ok((slot, hit)) =
+                scratch.rasterize_and_upload(key, bounds, scale, glyphs, font, color)
+            {
+                if hit {
+                    self.factory.bounded_scratch_hits =
+                        self.factory.bounded_scratch_hits.saturating_add(1);
+                } else {
+                    let uploaded_bytes = scratch.upload_bytes() as u64;
+                    self.factory.bounded_scratch_upload_bytes = self
+                        .factory
+                        .bounded_scratch_upload_bytes
+                        .saturating_add(uploaded_bytes);
+                }
+                let canvas = self
+                    .factory
+                    .bounded_glyph_scratch
+                    .as_ref()
+                    .unwrap()
+                    .canvas(slot);
+                if self.blit_glyph_canvas(canvas, bounds, pos, clip, color, opacity) {
+                    self.factory.bounded_scratch_draws =
+                        self.factory.bounded_scratch_draws.saturating_add(1);
+                } else {
+                    self.draw_failed = true;
+                }
+                return;
+            }
+        }
+
         let entry = self.factory.glyph_pool.entry(key);
         let new_upload = matches!(&entry, crate::core::cache::Entry::Vacant(_));
         let handle = match entry.or_try_insert_with::<_, ()>(|| {
@@ -1403,24 +1578,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 .bounded_text_upload_bytes
                 .saturating_add(raster_bytes as u64);
         }
-        self.push_rect_clip(clip);
-        self.ctx()
-            .set_global_alpha((color.a as f64 * opacity as f64) / (255.0 * 255.0));
-        let result = self
-            .ctx()
-            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-                &handle.get().canvas,
-                0.0,
-                0.0,
-                f64::from(pw),
-                f64::from(ph),
-                (pos.x + bounds.offset.x).to_f32() as f64,
-                (pos.y + bounds.offset.y).to_f32() as f64,
-                bounds.size.x.to_f32() as f64,
-                bounds.size.y.to_f32() as f64,
-            );
-        self.pop_rect_clip();
-        if result.is_err() {
+        if !self.blit_glyph_canvas(&handle.get().canvas, bounds, pos, clip, color, opacity) {
             self.draw_failed = true;
         }
     }
