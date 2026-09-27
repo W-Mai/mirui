@@ -535,6 +535,7 @@ struct LayoutStorageDemand {
     max_entity_id: u32,
     missing_computed: usize,
     missing_prev: usize,
+    missing_text_handles: usize,
 }
 
 fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorageDemand) {
@@ -550,6 +551,10 @@ fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorag
     demand.max_entity_id = demand.max_entity_id.max(entity.id);
     demand.missing_computed += usize::from(world.get::<super::ComputedRect>(entity).is_none());
     demand.missing_prev += usize::from(world.get::<super::dirty::PrevRect>(entity).is_none());
+    demand.missing_text_handles += usize::from(
+        world.get::<crate::ui::widgets::Text>(entity).is_some()
+            && world.get::<crate::text::TextLayoutHandle>(entity).is_none(),
+    );
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
             count_layout_storage(world, child, demand);
@@ -923,6 +928,12 @@ fn compute_layout_snapshot(
             world.reserve_component_storage::<super::dirty::PrevRect>(
                 demand.max_entity_id,
                 demand.missing_prev,
+            );
+        }
+        if demand.missing_text_handles > 0 {
+            world.reserve_component_storage::<crate::text::TextLayoutHandle>(
+                demand.max_entity_id,
+                demand.missing_text_handles,
             );
         }
     }
