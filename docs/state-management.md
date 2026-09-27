@@ -49,9 +49,12 @@ let counter = app.add_model(Counter { count: 0 });
 counter.increment();
 ```
 
-Model methods must return owned values; a generated handle cannot return a
-reference into its temporarily borrowed model. An impl in another module uses
-the model's qualified path, such as `#[model] impl super::data::Counter`.
+Read-only model methods can return owned values; a generated handle cannot
+return a reference into its temporarily borrowed model. Mutating methods in a
+marked impl return the model's change type (`()` unless `change` is declared).
+Helpers returning a separate `bool`, `Result`, or other value remain in an
+ordinary impl and are not forwarded to the handle. An impl in another module
+uses the model's qualified path, such as `#[model] impl super::data::Counter`.
 Observed fields, observed getters, and effect extractors can use `#[cfg]`;
 their generated accessors and source storage follow the same condition.
 
@@ -113,8 +116,9 @@ fn counter_controls(counter: Counter) {
 listed in `bind(...)` are converted; other fields and parameters keep their
 declared types. The generated `ui!` callbacks and direct child composition
 calls share each bound handle, so multiple callbacks or children can use one
-model without manually cloning it. Other arguments keep their normal move
-semantics.
+model without manually cloning it. This also applies when `ui!` is called as
+`mirui::ui!`, `::mirui::ui!`, or a local `crate::ui!` re-export. Other arguments
+keep their normal move semantics.
 
 Use `cx.component::<T>(entity)` during composition or
 `ctx.component::<T>(entity)` in an event handler to inspect an attached

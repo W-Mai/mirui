@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Retained reactive `match` arms.** A match without value bindings builds its arms once and switches visibility while retaining widget state. A match with any bound-value pattern keeps structural rebuild behavior and manages all top-level roots.
 - **Bound model declarations.** `#[component(bind(...))]` stores model handles in named fields, while `#[compose(bind(...))]` maps named parameters to shared handles. Bound component cloning shares instances without requiring the model data to implement `Clone`.
 - **Shared bound UI callbacks.** `#[compose(bind(...))]` shares named model handles across generated `ui!` event and reactive callbacks, allowing multiple controls to reference one instance without explicit handle clones.
-- **Bound child composition.** Direct `ui!(child(model))` calls share named bound handles across child compositions without changing the move behavior of other arguments.
+- **Bound child composition.** Direct `ui!(child(model))` calls share named bound handles across child compositions, including qualified `mirui::ui!` and local `crate::ui!` calls, without changing the move behavior of other arguments.
 - **Scoped component reads.** `com!(entity, T)` reads a component from the active composition or event context without subscribing to changes.
 - **Reactive audio state access.** `AudioHandle::state_signal()` exposes the shared audio state for reactive UI properties without a World resource lookup.
 - **Observed model fields.** `#[observe]` on small model fields generates tracked handle getters; model updates compare field values and notify only changed sources after releasing the model borrow.

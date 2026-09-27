@@ -91,7 +91,7 @@ struct BoundUiCalls {
 
 impl VisitMut for BoundUiCalls {
     fn visit_macro_mut(&mut self, macro_call: &mut syn::Macro) {
-        if !macro_call.path.is_ident("ui") {
+        if !is_ui_macro(&macro_call.path) {
             return;
         }
         if let Some(mut call) = parse_compose_call(&macro_call.tokens) {
@@ -114,6 +114,17 @@ impl VisitMut for BoundUiCalls {
         macro_call.tokens = quote! {
             __mirui_bind(#(#bindings),*); #original
         };
+    }
+}
+
+fn is_ui_macro(path: &syn::Path) -> bool {
+    let mut segments = path.segments.iter();
+    match (segments.next(), segments.next(), segments.next()) {
+        (Some(ui), None, None) => path.leading_colon.is_none() && ui.ident == "ui",
+        (Some(root), Some(ui), None) if ui.ident == "ui" => {
+            root.ident == "mirui" || (root.ident == "crate" && path.leading_colon.is_none())
+        }
+        _ => false,
     }
 }
 
@@ -235,6 +246,29 @@ mod tests {
         let rendered = out.to_string();
         assert_eq!(rendered.matches("SharedValue :: share").count(), 1);
         assert!(rendered.contains("plain , model . clone () , & model"));
+    }
+
+    #[test]
+    fn recognizes_only_supported_qualified_ui_paths() {
+        let out = expand(
+            quote! { bind(model) },
+            quote! {
+                fn build(model: Game) {
+                    ui! { Button() on Tap { model.increment(); } };
+                    mirui::ui! { Button() on Tap { model.increment(); } };
+                    crate::ui!(child(model));
+                    ::mirui::ui! { Button() on Tap { model.increment(); } };
+                    other::ui! { Button() on Tap { model.increment(); } };
+                }
+            },
+        );
+        let rendered = out.to_string();
+        assert_eq!(rendered.matches("__mirui_bind").count(), 3);
+        assert_eq!(rendered.matches("SharedValue :: share").count(), 1);
+        assert!(rendered.contains(
+            "crate :: ui ! (child (:: mirui :: core :: model :: SharedValue :: share (& model)))"
+        ));
+        assert!(rendered.contains("other :: ui ! { Button () on Tap { model . increment () ; } }"));
     }
 
     #[test]

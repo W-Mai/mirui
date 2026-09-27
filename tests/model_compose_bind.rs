@@ -85,6 +85,14 @@ fn parent_with_bound_children(counter: Counter, plain: MoveOnly) {
     ui! { Button(text: "PARENT") on Tap { counter.increment(); } };
 }
 
+#[compose(bind(counter))]
+fn qualified_ui_panel(counter: Counter) {
+    mirui::ui! { Button(text: "MIRUI") on Tap { counter.increment(); } };
+    crate::ui! { Button(text: "CRATE") on Tap { counter.increment(); } };
+    ::mirui::ui!(child_counter_button(counter));
+    mirui::ui!(child_counter_button(counter));
+}
+
 #[test]
 fn unrelated_callbacks_do_not_capture_a_bound_model() {
     let mut app = App::headless(160, 48);
@@ -181,4 +189,27 @@ fn bound_model_is_shared_across_child_compose_calls() {
         );
     }
     assert_eq!(counter.count(), 3);
+}
+
+#[test]
+fn qualified_ui_paths_share_bound_models_in_trees_and_children() {
+    let mut app = App::headless(320, 120);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 0 });
+    app.compose(root, |cx| qualified_ui_panel(cx, counter.clone()));
+
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 4);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        assert_eq!(
+            GestureHandler::trigger(&mut app.world, button, &event),
+            Some(true)
+        );
+    }
+    assert_eq!(counter.count(), 4);
 }
