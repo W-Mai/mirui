@@ -366,16 +366,24 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     );
 }
 
-/// Recursively build a LayoutNode tree from ECS entities
-fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
+fn layout_node(world: &World, entity: Entity, active: bool) -> Option<LayoutNode> {
     world.get::<Widget>(entity)?;
+    let style = world.get::<Style>(entity)?;
+    let mut node = LayoutNode::new(layout_style(world, entity, style.layout));
+    node.entity = Some(entity);
+    if active {
+        apply_text_intrinsic(world, entity, &mut node);
+        apply_static_glyph_intrinsic(world, entity, style, &mut node);
+    }
+    Some(node)
+}
+
+/// Recursively build a LayoutNode tree from ECS entities.
+fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     if super::branch::is_effectively_hidden(world, entity) {
         return None;
     }
-    let style = world.get::<Style>(entity)?;
-    let mut node = LayoutNode::new(layout_style(world, entity, style.layout));
-    apply_text_intrinsic(world, entity, &mut node);
-    apply_static_glyph_intrinsic(world, entity, style, &mut node);
+    let mut node = layout_node(world, entity, true)?;
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
@@ -387,8 +395,132 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     Some(node)
 }
 
-fn refresh_layout_tree(world: &World, entity: Entity, node: &mut LayoutNode) -> bool {
-    if world.get::<Widget>(entity).is_none() || super::branch::is_effectively_hidden(world, entity)
+#[derive(Default)]
+struct LayoutStorageDemand {
+    nodes: usize,
+    parked_roots: usize,
+    max_entity_id: u32,
+    missing_computed: usize,
+    missing_prev: usize,
+}
+
+fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorageDemand) {
+    if world.get::<Widget>(entity).is_none() || world.get::<Style>(entity).is_none() {
+        return;
+    }
+    demand.nodes = demand.nodes.saturating_add(1);
+    if world.has::<super::Hidden>(entity)
+        || world.has::<super::branch::CachedBranchVisibility>(entity)
+    {
+        demand.parked_roots = demand.parked_roots.saturating_add(1);
+    }
+    demand.max_entity_id = demand.max_entity_id.max(entity.id);
+    demand.missing_computed += usize::from(world.get::<super::ComputedRect>(entity).is_none());
+    demand.missing_prev += usize::from(world.get::<super::dirty::PrevRect>(entity).is_none());
+    if let Some(children) = world.get::<Children>(entity) {
+        for &child in &children.0 {
+            count_layout_storage(world, child, demand);
+        }
+    }
+}
+
+fn build_retained_layout_tree(
+    world: &World,
+    entity: Entity,
+    active: bool,
+    parked: &mut Vec<LayoutNode>,
+) -> Option<LayoutNode> {
+    let mut node = layout_node(world, entity, active)?;
+    if let Some(children) = world.get::<Children>(entity) {
+        node.children.reserve_exact(children.0.len());
+        for &child in &children.0 {
+            let child_active = active && !super::branch::is_effectively_hidden(world, child);
+            if let Some(child_node) = build_retained_layout_tree(world, child, child_active, parked)
+            {
+                if child_active {
+                    node.children.push(child_node);
+                } else if active {
+                    parked.push(child_node);
+                } else {
+                    node.children.push(child_node);
+                }
+            }
+        }
+    }
+    Some(node)
+}
+
+fn take_parked_layout_node(parked: &mut Vec<LayoutNode>, entity: Entity) -> Option<LayoutNode> {
+    parked
+        .iter()
+        .position(|node| node.entity == Some(entity))
+        .map(|index| parked.swap_remove(index))
+}
+
+fn park_layout_node(parked: &mut Vec<LayoutNode>, node: LayoutNode) {
+    if let Some(index) = parked.iter().position(|other| other.entity == node.entity) {
+        parked[index] = node;
+    } else {
+        parked.push(node);
+    }
+}
+
+fn layout_entity_reachable(world: &World, root: Entity, target: Entity) -> bool {
+    if root == target {
+        return true;
+    }
+    world.get::<Children>(root).is_some_and(|children| {
+        children
+            .0
+            .iter()
+            .any(|&child| layout_entity_reachable(world, child, target))
+    })
+}
+
+fn prune_parked_children(world: &World, node: &mut LayoutNode) {
+    let Some(parent) = node.entity else {
+        return;
+    };
+    node.children.retain(|child| {
+        child.entity.is_some_and(|entity| {
+            world.is_alive(entity)
+                && world
+                    .get::<Children>(parent)
+                    .is_some_and(|children| children.0.contains(&entity))
+        })
+    });
+    for child in &mut node.children {
+        prune_parked_children(world, child);
+    }
+}
+
+fn prune_parked_layout_nodes(
+    world: &World,
+    root: Entity,
+    active_entities: &[Entity],
+    parked: &mut Vec<LayoutNode>,
+) {
+    parked.retain(|node| {
+        node.entity.is_some_and(|entity| {
+            world.is_alive(entity)
+                && layout_entity_reachable(world, root, entity)
+                && !active_entities.contains(&entity)
+        })
+    });
+    for node in parked {
+        prune_parked_children(world, node);
+    }
+}
+
+fn refresh_layout_tree(
+    world: &World,
+    entity: Entity,
+    node: &mut LayoutNode,
+    parked: &mut Vec<LayoutNode>,
+) -> bool {
+    if node.entity != Some(entity)
+        || world.get::<Widget>(entity).is_none()
+        || super::branch::is_effectively_hidden(world, entity)
     {
         return false;
     }
@@ -404,17 +536,38 @@ fn refresh_layout_tree(world: &World, entity: Entity, node: &mut LayoutNode) -> 
     let mut used = 0;
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
-            if used < node.children.len() {
-                if refresh_layout_tree(world, child, &mut node.children[used]) {
-                    used += 1;
+            if world.get::<Widget>(child).is_none()
+                || world.get::<Style>(child).is_none()
+                || super::branch::is_effectively_hidden(world, child)
+            {
+                continue;
+            }
+            if let Some(index) = node.children[used..]
+                .iter()
+                .position(|candidate| candidate.entity == Some(child))
+            {
+                node.children.swap(used, used + index);
+            } else {
+                let replacement = take_parked_layout_node(parked, child)
+                    .or_else(|| build_retained_layout_tree(world, child, true, parked));
+                let Some(replacement) = replacement else {
+                    continue;
+                };
+                if used < node.children.len() {
+                    let displaced = core::mem::replace(&mut node.children[used], replacement);
+                    park_layout_node(parked, displaced);
+                } else {
+                    node.children.push(replacement);
                 }
-            } else if let Some(child_node) = build_layout_tree(world, child) {
-                node.children.push(child_node);
+            }
+            if refresh_layout_tree(world, child, &mut node.children[used], parked) {
                 used += 1;
             }
         }
     }
-    node.children.truncate(used);
+    while node.children.len() > used {
+        park_layout_node(parked, node.children.pop().expect("trailing layout child"));
+    }
     true
 }
 
@@ -572,11 +725,42 @@ fn compute_layout_snapshot(
     logical_h: u16,
 ) -> Option<Box<LayoutSnapshot>> {
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
+    if super::branch::is_effectively_hidden(world, root) {
+        if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
+            cache.borrow_mut().begin_frame_with_owner_filter(|_| false);
+        }
+        return None;
+    }
+    let initial_demand = (!previous
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.root == root))
+    .then(|| {
+        let mut demand = LayoutStorageDemand::default();
+        count_layout_storage(world, root, &mut demand);
+        demand
+    });
+    if let Some(demand) = &initial_demand {
+        if demand.missing_computed > 0 {
+            world.reserve_component_storage::<super::ComputedRect>(
+                demand.max_entity_id,
+                demand.missing_computed,
+            );
+        }
+        if demand.missing_prev > 0 {
+            world.reserve_component_storage::<super::dirty::PrevRect>(
+                demand.max_entity_id,
+                demand.missing_prev,
+            );
+        }
+    }
     let mut entities = previous
         .as_mut()
         .map(|snapshot| core::mem::take(&mut snapshot.entities))
         .unwrap_or_default();
     entities.clear();
+    if let Some(demand) = &initial_demand {
+        entities.reserve(demand.nodes);
+    }
     collect_entities_preorder(world, root, &mut entities);
     entities.sort_unstable_by_key(|entity| (entity.id, entity.generation));
     if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
@@ -588,21 +772,35 @@ fn compute_layout_snapshot(
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
-                if !refresh_layout_tree(world, root, &mut snapshot.layout_tree) {
+                if !refresh_layout_tree(
+                    world,
+                    root,
+                    &mut snapshot.layout_tree,
+                    &mut snapshot.parked,
+                ) {
                     return None;
                 }
                 snapshot.entities = entities;
                 snapshot
             }
-            _ => Box::new(LayoutSnapshot {
-                root,
-                logical_w,
-                logical_h,
-                valid: false,
-                layout_tree: build_layout_tree(world, root)?,
-                entities,
-                out_of_scroll_prev: Vec::new(),
-            }),
+            _ => {
+                let node_count = initial_demand.as_ref().map_or(0, |demand| demand.nodes);
+                let parked_capacity = initial_demand
+                    .as_ref()
+                    .map_or(0, |demand| demand.parked_roots);
+                let mut parked = Vec::with_capacity(parked_capacity);
+                let layout_tree = build_retained_layout_tree(world, root, true, &mut parked)?;
+                Box::new(LayoutSnapshot {
+                    root,
+                    logical_w,
+                    logical_h,
+                    valid: false,
+                    layout_tree,
+                    parked,
+                    entities,
+                    out_of_scroll_prev: Vec::with_capacity(node_count),
+                })
+            }
         }
     });
     crate::trace_span!("layout.initial_compute", {
@@ -618,6 +816,7 @@ fn compute_layout_snapshot(
         snapshot.entities.clear();
         collect_entities_preorder(world, root, &mut snapshot.entities);
     });
+    prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
     let mut text_index = 0;
     let intrinsic_changed = crate::trace_span!("layout.text", {
         layout_text_tree(
@@ -1891,6 +2090,7 @@ pub(crate) struct LayoutSnapshot {
     logical_h: u16,
     valid: bool,
     pub(crate) layout_tree: LayoutNode,
+    parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
     out_of_scroll_prev: Vec<Rect>,
 }
@@ -2296,6 +2496,18 @@ pub(crate) fn collect_dirty_regions_into(
         cache.begin_frame();
     }
 
+    if super::branch::is_effectively_hidden(world, root) {
+        let had_snapshot = world.resource::<LayoutSnapshot>().is_some();
+        let _ = compute_layout_snapshot(world, root, logical_w, logical_h);
+        drain_dirty_rects(world, plan);
+        if had_snapshot || !plan.rects.is_empty() {
+            plan.rects.clear();
+            plan.rects.push(Rect::new(0, 0, logical_w, logical_h));
+            crate::input::event::hit_test::invalidate_hit_test_geometry(world);
+        }
+        return;
+    }
+
     // Idle skip: with no visible Dirty markers the 5-step walk would just
     // re-derive last frame's outputs. Systems that mutate visible
     // state without inserting Dirty (animation helpers, mainly) own
@@ -2552,6 +2764,224 @@ mod layout_snapshot_reuse_check {
     }
 
     #[test]
+    fn hidden_branches_keep_nested_storage_and_children_only_order() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let deep = widget(&mut world, 20);
+        let middle = widget(&mut world, 20);
+        let leaf = widget(&mut world, 20);
+        let shallow = widget(&mut world, 24);
+        let shallow_leaf = widget(&mut world, 12);
+        let tail = widget(&mut world, 8);
+        world.insert(root, Children(vec![deep, shallow, tail]));
+        world.insert(deep, Children(vec![middle]));
+        world.insert(middle, Children(vec![leaf]));
+        world.insert(shallow, Children(vec![shallow_leaf]));
+        world.insert(shallow, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert!(snapshot.parked.capacity() >= 1);
+        assert!(snapshot.entities.capacity() >= 7);
+        assert!(snapshot.out_of_scroll_prev.capacity() >= 7);
+        let root_children_ptr = snapshot.layout_tree.children.as_ptr();
+        let nested_ptr = snapshot.layout_tree.children[0].children.as_ptr();
+        let nested_leaf_ptr = snapshot.layout_tree.children[0].children[0]
+            .children
+            .as_ptr();
+        assert_eq!(snapshot.entities, [root, deep, middle, leaf, tail]);
+        assert_eq!(snapshot.layout_tree.children.len(), 2);
+        assert_eq!(snapshot.layout_tree.children[0].entity, Some(deep));
+        assert_eq!(snapshot.layout_tree.children[1].entity, Some(tail));
+        assert!(
+            snapshot
+                .parked
+                .iter()
+                .any(|node| node.entity == Some(shallow))
+        );
+
+        world.insert(deep, Hidden);
+        world.remove::<Hidden>(shallow);
+        update_layout(&mut world, root, &viewport);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.entities, [root, shallow, shallow_leaf, tail]);
+        assert_eq!(snapshot.layout_tree.children.as_ptr(), root_children_ptr);
+        assert_eq!(snapshot.layout_tree.children[0].entity, Some(shallow));
+        assert_eq!(snapshot.layout_tree.children[1].entity, Some(tail));
+
+        world.remove::<Hidden>(deep);
+        world.insert(shallow, Hidden);
+        world.get_mut::<Children>(root).unwrap().0 = vec![tail, deep, shallow];
+        update_layout(&mut world, root, &viewport);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.entities, [root, tail, deep, middle, leaf]);
+        assert_eq!(snapshot.layout_tree.children.as_ptr(), root_children_ptr);
+        assert_eq!(snapshot.layout_tree.children[0].entity, Some(tail));
+        assert_eq!(snapshot.layout_tree.children[1].entity, Some(deep));
+        assert_eq!(
+            snapshot.layout_tree.children[1].children.as_ptr(),
+            nested_ptr
+        );
+        assert_eq!(
+            snapshot.layout_tree.children[1].children[0]
+                .children
+                .as_ptr(),
+            nested_leaf_ptr
+        );
+    }
+
+    #[test]
+    fn parked_layout_nodes_do_not_alias_recycled_entity_generations() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let old = widget(&mut world, 16);
+        world.insert(root, Children(vec![old]));
+        world.insert(old, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.despawn(old));
+
+        let replacement = widget(&mut world, 40);
+        assert_eq!(replacement.id, old.id);
+        assert_ne!(replacement.generation, old.generation);
+        world.get_mut::<Children>(root).unwrap().0[0] = replacement;
+        update_layout(&mut world, root, &viewport);
+
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.entities, [root, replacement]);
+        assert_eq!(snapshot.layout_tree.children[0].entity, Some(replacement));
+        assert_eq!(
+            snapshot.layout_tree.children[0].style.width,
+            Dimension::px(40)
+        );
+        assert!(!snapshot.parked.iter().any(|node| node.entity == Some(old)));
+    }
+
+    #[test]
+    fn static_layout_does_not_reserve_parked_nodes() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let first = widget(&mut world, 16);
+        let second = widget(&mut world, 16);
+        world.insert(root, Children(vec![first, second]));
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.parked.capacity(), 0);
+        assert_eq!(snapshot.layout_tree.children.len(), 2);
+    }
+
+    #[test]
+    fn hidden_root_discards_its_previous_layout_snapshot() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.resource::<LayoutSnapshot>().is_some());
+
+        world.insert(root, Hidden);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.resource::<LayoutSnapshot>().is_none());
+
+        world.remove::<Hidden>(root);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.resource::<LayoutSnapshot>().is_some());
+    }
+
+    #[test]
+    fn detached_alive_branch_does_not_remain_parked() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let hidden = widget(&mut world, 16);
+        let child = widget(&mut world, 8);
+        world.insert(root, Children(vec![hidden]));
+        world.insert(hidden, Children(vec![child]));
+        world.insert(hidden, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.resource::<LayoutSnapshot>().unwrap().parked.len() == 1);
+
+        world.get_mut::<Children>(root).unwrap().0.clear();
+        update_layout(&mut world, root, &viewport);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert!(world.is_alive(hidden));
+        assert!(snapshot.parked.is_empty());
+        assert!(snapshot.layout_tree.children.is_empty());
+        assert_eq!(snapshot.entities, [root]);
+    }
+
+    #[test]
+    fn initially_hidden_text_keeps_only_layout_node_storage() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let root = widget(&mut world, 64);
+        let hidden = child(&mut world, root, Some("deferred"));
+        world.insert(hidden, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        assert!(world.get::<crate::text::TextLayoutHandle>(hidden).is_none());
+        assert!(
+            world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .parked
+                .iter()
+                .any(|node| node.entity == Some(hidden))
+        );
+
+        world.remove::<Hidden>(hidden);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.get::<crate::text::TextLayoutHandle>(hidden).is_some());
+    }
+
+    #[test]
+    fn children_only_hidden_branches_restore_painted_pixels() {
+        use crate::surface::FramebufferAccess;
+        use crate::types::Color;
+
+        fn pixel<F: FnMut(&[u8], crate::types::PhysicalRect)>(
+            app: &mut crate::app::App<crate::surface::framebuf::FramebufSurface<F>>,
+        ) -> [u8; 3] {
+            let framebuffer = app.backend.framebuffer();
+            let offset = (2 * 64 + 2) * 4;
+            let bytes = framebuffer.buf.as_slice();
+            [bytes[offset], bytes[offset + 1], bytes[offset + 2]]
+        }
+
+        let mut app = crate::app::App::headless(64, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let red = widget(&mut app.world, 64);
+        let red_child = widget(&mut app.world, 16);
+        let blue = widget(&mut app.world, 64);
+        app.world
+            .get_mut::<Style>(red)
+            .unwrap()
+            .set_bg_color(Color::rgb(240, 20, 30));
+        app.world
+            .get_mut::<Style>(blue)
+            .unwrap()
+            .set_bg_color(Color::rgb(20, 70, 240));
+        app.world.insert(root, Children(vec![red, blue]));
+        app.world.insert(red, Children(vec![red_child]));
+        app.world.insert(blue, Hidden);
+
+        app.render().unwrap();
+        assert_eq!(pixel(&mut app), [240, 20, 30]);
+        app.world.insert(red, Hidden);
+        app.world.remove::<Hidden>(blue);
+        app.world.mark_subtree_dirty(root);
+        app.render_dirty().unwrap();
+        assert_eq!(pixel(&mut app), [20, 70, 240]);
+
+        app.world.remove::<Hidden>(red);
+        app.world.insert(blue, Hidden);
+        app.world.mark_subtree_dirty(root);
+        app.render_dirty().unwrap();
+        assert_eq!(pixel(&mut app), [240, 20, 30]);
+    }
+
+    #[test]
     fn visible_property_keeps_snapshot_storage_and_never_renders_stale_text() {
         #[derive(Default)]
         struct GlyphRecorder(usize);
@@ -2734,6 +3164,25 @@ mod layout_snapshot_reuse_check {
         let returned = text_handle(&world, hidden);
         assert_ne!(returned, hidden_handle);
         assert!(layout_is_live(&world, returned));
+    }
+
+    #[test]
+    fn hidden_root_retires_children_only_text_layouts() {
+        let mut world = crate::app::App::headless(64, 64).world;
+        let root = widget(&mut world, 64);
+        let label = widget(&mut world, 20);
+        world.insert(label, Text::from("visible"));
+        world.insert(root, Children(vec![label]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        update_layout(&mut world, root, &viewport);
+        let handle = text_handle(&world, label);
+        assert!(layout_is_live(&world, handle));
+
+        world.insert(root, Hidden);
+        update_layout(&mut world, root, &viewport);
+        assert!(world.resource::<LayoutSnapshot>().is_none());
+        assert!(!layout_is_live(&world, handle));
     }
 
     #[test]

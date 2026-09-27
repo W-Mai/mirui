@@ -179,6 +179,15 @@ impl World {
         self.component_changes.reserve(additional);
     }
 
+    pub(crate) fn reserve_component_storage<T: 'static>(
+        &mut self,
+        max_entity_id: u32,
+        additional: usize,
+    ) {
+        self.storage_mut::<T>()
+            .reserve_entities(max_entity_id, additional);
+    }
+
     fn record_component_change(&mut self, entity: Entity, type_id: TypeId) {
         if !self.watched_component_types.contains(&type_id) {
             return;

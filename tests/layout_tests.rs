@@ -705,4 +705,64 @@ mod tests {
         assert_eq!(root.children[0].rect, Rect::new(0, 0, 36, 18));
         assert!(root.children[11].rect.y > Fixed::ZERO);
     }
+
+    #[test]
+    fn initially_hidden_deeper_branch_layout_switches_without_allocating() {
+        use mirui::ecs::{Entity, World};
+        use mirui::types::Viewport;
+        use mirui::ui::render_system::update_layout;
+        use mirui::ui::{Children, ComputedRect, Hidden, Style, Widget};
+
+        fn widget(world: &mut World, width: i32) -> Entity {
+            let entity = world.spawn_empty();
+            world.insert(entity, Widget);
+            world.insert(
+                entity,
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::px(width),
+                        height: Dimension::px(16),
+                        ..LayoutStyle::default()
+                    },
+                    ..Style::default()
+                },
+            );
+            world.insert(entity, ComputedRect(Rect::ZERO));
+            entity
+        }
+
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let deep = widget(&mut world, 24);
+        let middle = widget(&mut world, 16);
+        let leaf = widget(&mut world, 8);
+        let shallow = widget(&mut world, 20);
+        let shallow_leaf = widget(&mut world, 8);
+        let tail = widget(&mut world, 8);
+        world.insert(root, Children(vec![deep, shallow, tail]));
+        world.insert(deep, Children(vec![middle]));
+        world.insert(middle, Children(vec![leaf]));
+        world.insert(shallow, Children(vec![shallow_leaf]));
+        world.insert(deep, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        update_layout(&mut world, root, &viewport);
+
+        world.remove::<Hidden>(deep);
+        world.insert(shallow, Hidden);
+        let first = tracked_allocations(|| update_layout(&mut world, root, &viewport));
+        assert_eq!(first, 0, "first deeper-branch reveal allocated");
+        assert_eq!(
+            world.get::<ComputedRect>(leaf).unwrap().0.w,
+            Fixed::from_int(8)
+        );
+
+        world.insert(deep, Hidden);
+        world.remove::<Hidden>(shallow);
+        let back = tracked_allocations(|| update_layout(&mut world, root, &viewport));
+        assert_eq!(back, 0, "return to initial branch allocated");
+        assert_eq!(
+            world.get::<ComputedRect>(shallow_leaf).unwrap().0.w,
+            Fixed::from_int(8)
+        );
+    }
 }

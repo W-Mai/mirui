@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 
+use crate::ecs::Entity;
 use crate::types::{Dimension, Fixed, Rect};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -138,6 +139,7 @@ pub struct LayoutNode {
     pub style: LayoutStyle,
     pub children: Vec<LayoutNode>,
     pub rect: Rect,
+    pub(crate) entity: Option<Entity>,
     pub(crate) intrinsic_width: Option<Fixed>,
     pub(crate) intrinsic_height: Option<Fixed>,
 }
@@ -148,6 +150,7 @@ impl LayoutNode {
             style,
             children: Vec::new(),
             rect: Rect::ZERO,
+            entity: None,
             intrinsic_width: None,
             intrinsic_height: None,
         }

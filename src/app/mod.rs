@@ -11,6 +11,7 @@ use crate::input::event::bubble_dispatch_at;
 use crate::input::event::focus::{FocusState, focus_on_tap};
 use crate::input::event::gesture::GestureSystem;
 use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
+use crate::render::canvas::Canvas;
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{PhysicalRect, Rect};
@@ -28,6 +29,19 @@ pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 /// surface reference or duplicating platform resize state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RenderViewport(pub crate::types::Viewport);
+
+fn clear_hidden_root(
+    world: &World,
+    transform: &crate::types::Viewport,
+    renderer: &mut impl Canvas,
+) {
+    let (lw, lh) = transform.logical_size();
+    let surface = world
+        .resource::<Theme>()
+        .expect("App always owns an active Theme")
+        .resolve(crate::ui::theme::ColorToken::Surface);
+    renderer.clear(&Rect::new(0, 0, lw, lh), &surface);
+}
 
 /// Main application entry point — ties World + Surface + Renderer factory together
 pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
@@ -575,6 +589,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
         self.prepare_render(transform);
+        let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
         let layout_start = self.clock_ns();
 
@@ -588,7 +603,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let render_result = {
             crate::trace_span!("frame.render");
             let mut renderer = self.factory.make(&mut self.backend, &transform);
-            render_system::render(&self.world, root, &transform, &mut renderer)
+            if root_hidden {
+                clear_hidden_root(&self.world, &transform, &mut renderer);
+                Ok(())
+            } else {
+                render_system::render(&self.world, root, &transform, &mut renderer)
+            }
         };
         if let Err(error) = render_result {
             self.world.mark_subtree_dirty(root);
@@ -925,6 +945,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let Some(root) = self.root else { return Ok(()) };
         let transform = self.backend.viewport();
         self.prepare_render(transform);
+        let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
         let layout_start = self.clock_ns();
 
@@ -944,6 +965,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     &mut plan,
                 )
             });
+        }
+        if root_hidden && self.needs_full_first_frame && plan.is_empty() {
+            let (lw, lh) = transform.logical_size();
+            plan.rects.push(Rect::new(0, 0, lw, lh));
         }
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
@@ -981,7 +1006,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             let snapshot = self
                 .world
                 .resource::<crate::ui::render_system::LayoutSnapshot>();
-            let render_result = if plan.prefers_split_redraw()
+            let render_result = if root_hidden {
+                clear_hidden_root(&self.world, &transform, &mut renderer);
+                Ok(())
+            } else if plan.prefers_split_redraw()
                 && self
                     .world
                     .storage::<crate::ui::offscreen::WidgetTextureRef>()
@@ -1431,6 +1459,67 @@ mod dirty_plan_reuse_check {
         let texture = app.backend.framebuffer();
         let pixel = (4 * 64 + 24) * 4;
         assert_eq!(&texture.buf.as_slice()[pixel..pixel + 3], &[240, 20, 30]);
+    }
+
+    #[test]
+    fn hiding_root_clears_previous_pixels_once() {
+        use crate::types::Color;
+        use crate::ui::Hidden;
+
+        let mut app = App::headless(16, 16);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.world
+            .get_mut::<crate::ui::Style>(root)
+            .unwrap()
+            .set_bg_color(Color::rgb(240, 20, 30));
+
+        app.world.insert(root, Dirty);
+        app.render_dirty().unwrap();
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..4],
+            &[240, 20, 30, 255]
+        );
+
+        app.world.insert(root, Hidden);
+        app.render_dirty().unwrap();
+        let surface = app
+            .world
+            .resource::<Theme>()
+            .unwrap()
+            .resolve(crate::ui::theme::ColorToken::Surface);
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..4],
+            &[surface.r, surface.g, surface.b, surface.a]
+        );
+        assert_eq!(
+            app.world.resource::<LastDirtyRegions>().unwrap().0.rects,
+            [Rect::new(0, 0, 16, 16)]
+        );
+
+        app.render_dirty().unwrap();
+        assert!(
+            app.world
+                .resource::<LastDirtyRegions>()
+                .unwrap()
+                .0
+                .is_empty()
+        );
+
+        app.world.remove::<Hidden>(root);
+        app.world.insert(root, Dirty);
+        app.render_dirty().unwrap();
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..3],
+            &[240, 20, 30]
+        );
+
+        app.world.insert(root, Hidden);
+        app.render().unwrap();
+        assert_eq!(
+            &app.backend.framebuffer().buf.as_slice()[..4],
+            &[surface.r, surface.g, surface.b, surface.a]
+        );
     }
 }
 

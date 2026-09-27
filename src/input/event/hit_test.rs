@@ -29,10 +29,31 @@ struct HitGeometry {
 #[derive(Default)]
 struct HitTestGeometry {
     root: Option<Entity>,
+    prepared_root: Option<Entity>,
     logical_w: u16,
     logical_h: u16,
     revision: u64,
     entries: Vec<HitGeometry>,
+}
+
+fn count_potential_targets(world: &World, entity: Entity) -> usize {
+    if world.get::<crate::ui::Widget>(entity).is_none()
+        || world.get::<crate::ui::Style>(entity).is_none()
+    {
+        return 0;
+    }
+    let mut count = usize::from(
+        world.get::<IgnoreHitTest>(entity).is_none()
+            && (world.get::<HitTarget>(entity).is_some()
+                || world.get::<ScrollConfig>(entity).is_some()
+                || world.get::<ScrollOffset>(entity).is_some()),
+    );
+    if let Some(children) = world.get::<crate::ui::Children>(entity) {
+        for &child in &children.0 {
+            count = count.saturating_add(count_potential_targets(world, child));
+        }
+    }
+    count
 }
 
 impl HitTestGeometry {
@@ -233,6 +254,13 @@ pub(crate) fn update_hit_test_geometry(
     let mut geometry = world
         .take_resource_box::<HitTestGeometry>()
         .unwrap_or_default();
+    if geometry.prepared_root != Some(root) {
+        let target_count = count_potential_targets(world, root);
+        geometry
+            .entries
+            .reserve(target_count.saturating_sub(geometry.entries.len()));
+        geometry.prepared_root = Some(root);
+    }
     let geometry_changed = !geometry.matches(root, logical_w, logical_h);
     let mut writer = GeometryWriter {
         entries: &mut geometry.entries,
@@ -274,6 +302,9 @@ pub fn hit_test(
     screen_w: u16,
     screen_h: u16,
 ) -> Option<Entity> {
+    if crate::ui::branch::is_hidden_in_tree(world, root) {
+        return None;
+    }
     let geometry = world
         .resource::<HitTestGeometry>()
         .filter(|geometry| geometry.matches(root, screen_w, screen_h))?;
@@ -384,6 +415,74 @@ mod tests {
                 .capacity(),
             capacity
         );
+    }
+
+    #[test]
+    fn hidden_root_rejects_stale_children_only_hit_targets() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(128, 128));
+        let target = world.spawn_empty();
+        world.insert(target, Widget);
+        world.insert(target, fixed_style(32, 24));
+        world.insert(target, HitTarget);
+        world.insert(root, Children(vec![target]));
+        assert!(world.get::<Parent>(target).is_none());
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        assert_eq!(
+            hit_test(&world, root, 4.into(), 4.into(), 128, 128),
+            Some(target)
+        );
+
+        world.insert(root, crate::ui::Hidden);
+        assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
+    }
+
+    #[test]
+    fn hidden_targets_are_reserved_before_their_first_visible_layout() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(128, 128));
+        world.insert(root, Children(Vec::new()));
+
+        let visible = world.spawn_empty();
+        world.insert(visible, Widget);
+        world.insert(visible, fixed_style(20, 20));
+        world.insert(visible, HitTarget);
+        append(&mut world, root, visible);
+
+        let hidden = world.spawn_empty();
+        world.insert(hidden, Widget);
+        world.insert(hidden, fixed_style(64, 32));
+        world.insert(hidden, Children(Vec::new()));
+        world.insert(hidden, crate::ui::Hidden);
+        append(&mut world, root, hidden);
+        for _ in 0..2 {
+            let target = world.spawn_empty();
+            world.insert(target, Widget);
+            world.insert(target, fixed_style(16, 16));
+            world.insert(target, HitTarget);
+            append(&mut world, hidden, target);
+        }
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        let geometry = world.resource::<HitTestGeometry>().unwrap();
+        let reserved = geometry.entries.capacity();
+        assert_eq!(geometry.entries.len(), 1);
+        assert!(reserved >= 3);
+
+        world.remove::<crate::ui::Hidden>(hidden);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        let geometry = world.resource::<HitTestGeometry>().unwrap();
+        assert_eq!(geometry.entries.len(), 3);
+        assert_eq!(geometry.entries.capacity(), reserved);
     }
 
     #[test]

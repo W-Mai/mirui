@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hidden roots.** Hiding an app root retires its text layouts, rejects stale hit targets, and clears the previous frame to the active theme surface color.
+- **Cached branch layout storage.** Hidden branches retain their layout nodes, while initial layout reserves geometry and hit-test capacity for their first reveal.
 - **Retained layout snapshots.** Visibility and viewport changes preserve reusable layout storage while refreshing computed geometry, hit testing, and dirty rendering.
 - **Inactive text layouts.** Hidden, detached, and previous-root text layouts and measurements are retired before the next layout tree is built; visible owners keep their cached handles.
 - **Bound callback capture.** Generated `ui!` callbacks share a bound model for free references and implicit named references in standard `format!` and `format_args!` calls. Same-named fields, local variables, escaped braces, and pattern bindings do not create an unused capture; explicit named format arguments follow their value expressions.

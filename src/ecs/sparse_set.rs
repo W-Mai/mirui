@@ -23,6 +23,15 @@ impl<T> SparseSet<T> {
         Self::default()
     }
 
+    pub(crate) fn reserve_entities(&mut self, max_entity_id: u32, additional: usize) {
+        let sparse_len = max_entity_id as usize + 1;
+        if self.sparse.len() < sparse_len {
+            self.sparse.resize(sparse_len, None);
+        }
+        self.dense.reserve(additional);
+        self.data.reserve(additional);
+    }
+
     pub fn insert(&mut self, entity: Entity, value: T) {
         let id = entity.id as usize;
         if id >= self.sparse.len() {
@@ -90,5 +99,36 @@ impl<T> SparseSet<T> {
 
     pub fn entities(&self) -> &[Entity] {
         &self.dense
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserved_entities_do_not_create_components_or_grow_on_insert() {
+        let mut storage = SparseSet::<u16>::new();
+        storage.reserve_entities(7, 2);
+        let sparse_capacity = storage.sparse.capacity();
+        let dense_capacity = storage.dense.capacity();
+        let data_capacity = storage.data.capacity();
+        assert_eq!(storage.len(), 0);
+
+        let first = Entity {
+            id: 3,
+            generation: 0,
+        };
+        let second = Entity {
+            id: 7,
+            generation: 0,
+        };
+        storage.insert(first, 10);
+        storage.insert(second, 20);
+        assert_eq!(storage.get(first), Some(&10));
+        assert_eq!(storage.get(second), Some(&20));
+        assert_eq!(storage.sparse.capacity(), sparse_capacity);
+        assert_eq!(storage.dense.capacity(), dense_capacity);
+        assert_eq!(storage.data.capacity(), data_capacity);
     }
 }

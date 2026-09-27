@@ -52,14 +52,23 @@ impl<'a> DirtyTraversal<'a> {
         }
     }
 
-    fn prepare(mut self) {
+    fn prepare(mut self) -> (usize, usize, u32) {
         use crate::ui::Children;
+        let mut missing_computed = 0usize;
+        let mut missing_prev = 0usize;
+        let mut max_entity_id = 0u32;
         while let Some(entity) = self.stack.pop() {
+            if self.world.has::<super::Widget>(entity) && self.world.has::<super::Style>(entity) {
+                max_entity_id = max_entity_id.max(entity.id);
+                missing_computed += usize::from(!self.world.has::<super::ComputedRect>(entity));
+                missing_prev += usize::from(!self.world.has::<PrevRect>(entity));
+            }
             self.world.insert(entity, Dirty);
             if let Some(children) = self.world.get::<Children>(entity) {
                 self.stack.extend(children.0.iter().copied());
             }
         }
+        (missing_computed, missing_prev, max_entity_id)
     }
 }
 
@@ -115,10 +124,23 @@ impl World {
             self.insert_resource(ExactDirtyRegions::default());
         }
         self.invalidate(parent);
+        let mut missing_computed = 0usize;
+        let mut missing_prev = 0usize;
+        let mut max_entity_id = 0u32;
         for roots in branches {
             for &root in roots {
-                DirtyTraversal::new(self, root).prepare();
+                let (branch_computed, branch_prev, branch_max_entity_id) =
+                    DirtyTraversal::new(self, root).prepare();
+                missing_computed = missing_computed.saturating_add(branch_computed);
+                missing_prev = missing_prev.saturating_add(branch_prev);
+                max_entity_id = max_entity_id.max(branch_max_entity_id);
             }
+        }
+        if missing_computed > 0 {
+            self.reserve_component_storage::<super::ComputedRect>(max_entity_id, missing_computed);
+        }
+        if missing_prev > 0 {
+            self.reserve_component_storage::<PrevRect>(max_entity_id, missing_prev);
         }
     }
 

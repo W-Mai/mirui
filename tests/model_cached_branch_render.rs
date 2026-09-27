@@ -10,6 +10,10 @@ use mirui::ui;
 use mirui::ui::render_system;
 use mirui::ui::{IdMap, branch};
 
+#[path = "support/tracking_allocator.rs"]
+mod tracking_allocator;
+use tracking_allocator::tracked_allocations;
+
 const FIRST_COLOR: Color = Color::rgb(241, 31, 42);
 const SECOND_COLOR: Color = Color::rgb(27, 88, 239);
 
@@ -85,6 +89,12 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
                         height: 32,
                         bg_color: SECOND_COLOR
                     ) on Tap {}
+                    View (
+                        id: "second_extra",
+                        width: 32,
+                        height: 32,
+                        bg_color: SECOND_COLOR
+                    ) on Tap {}
                 }
             }
         }
@@ -98,16 +108,46 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
     assert!(!fills.contains(&SECOND_COLOR));
     assert_eq!(hit, Some(first));
 
-    mode.select(1);
-    flush_signal_dirty(&mut app.world);
+    let model_allocations = tracked_allocations(|| mode.select(1));
+    let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
+    let layout_allocations = tracked_allocations(|| {
+        render_system::update_layout(&mut app.world, root, &Viewport::new(64, 64, Fixed::ONE));
+    });
+    let hit_allocations = tracked_allocations(|| {
+        assert_eq!(
+            hit_test(&app.world, root, 8.into(), 8.into(), 64, 64),
+            Some(second)
+        );
+    });
+    assert_eq!(
+        (
+            model_allocations,
+            flush_allocations,
+            layout_allocations,
+            hit_allocations
+        ),
+        (0, 0, 0, 0),
+        "first retained branch switch allocated"
+    );
     let (fills, hit) = rendered_fills_and_hit(&mut app.world, root);
     assert!(!fills.contains(&FIRST_COLOR));
     assert!(fills.contains(&SECOND_COLOR));
     assert_eq!(hit, Some(second));
     assert!(branch::is_effectively_hidden(&app.world, first));
 
-    mode.select(0);
-    flush_signal_dirty(&mut app.world);
+    let switch_back_allocations = tracked_allocations(|| {
+        mode.select(0);
+        flush_signal_dirty(&mut app.world);
+        render_system::update_layout(&mut app.world, root, &Viewport::new(64, 64, Fixed::ONE));
+        assert_eq!(
+            hit_test(&app.world, root, 8.into(), 8.into(), 64, 64),
+            Some(first)
+        );
+    });
+    assert_eq!(
+        switch_back_allocations, 0,
+        "retained branch return allocated"
+    );
     let (fills, hit) = rendered_fills_and_hit(&mut app.world, root);
     assert!(fills.contains(&FIRST_COLOR));
     assert!(!fills.contains(&SECOND_COLOR));
