@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bound callback capture.** Generated `ui!` callbacks share a bound model only when the callback reads that model; same-named fields, local variables, and pattern bindings no longer create an unused handle capture.
 - **Fixed-size Web Canvas input.** Backend viewports retain the declared logical dimensions when quantized display scaling cannot reconstruct them from backing pixels, keeping hit testing aligned with pointer events.
 - **Reactive form branch IDs.** Retained submit buttons use distinct lookup IDs, allowing Gallery previews to build both conditional branches without an identity collision.
 - **Declarative root order.** Top-level widgets attach in source order relative to slots, compose calls, and cached condition branches.

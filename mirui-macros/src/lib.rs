@@ -2604,19 +2604,10 @@ struct BoundCaptureRewriter {
 
 impl BoundCaptureRewriter {
     fn wrap(&self, expr: &mut syn::Expr) {
-        fn contains_ident(stream: proc_macro2::TokenStream, name: &syn::Ident) -> bool {
-            stream.into_iter().any(|token| match token {
-                proc_macro2::TokenTree::Ident(ident) => ident == *name,
-                proc_macro2::TokenTree::Group(group) => contains_ident(group.stream(), name),
-                _ => false,
-            })
-        }
-
-        let tokens = quote!(#expr);
         let captures: Vec<_> = self
             .captures
             .iter()
-            .filter(|name| contains_ident(tokens.clone(), name))
+            .filter(|name| FreeCaptureUse::contains(expr, name))
             .collect();
         if captures.is_empty() {
             return;
@@ -2627,6 +2618,228 @@ impl BoundCaptureRewriter {
             #original
         });
     }
+}
+
+struct FreeCaptureUse<'a> {
+    name: &'a syn::Ident,
+    found: bool,
+    shadowed: bool,
+}
+
+impl<'a> FreeCaptureUse<'a> {
+    fn contains(expr: &syn::Expr, name: &'a syn::Ident) -> bool {
+        use syn::visit::Visit;
+        let mut visitor = Self {
+            name,
+            found: false,
+            shadowed: false,
+        };
+        visitor.visit_expr(expr);
+        visitor.found
+    }
+
+    fn pattern_binds(&self, pat: &syn::Pat) -> bool {
+        use syn::visit::Visit;
+
+        struct BindingFinder<'a> {
+            name: &'a syn::Ident,
+            found: bool,
+        }
+
+        impl<'ast> Visit<'ast> for BindingFinder<'_> {
+            fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
+                if pat.ident == *self.name {
+                    self.found = true;
+                }
+                syn::visit::visit_pat_ident(self, pat);
+            }
+        }
+
+        let mut finder = BindingFinder {
+            name: self.name,
+            found: false,
+        };
+        finder.visit_pat(pat);
+        finder.found
+    }
+
+    fn visit_condition(&mut self, condition: &syn::Expr) -> bool {
+        use syn::visit::Visit;
+
+        match condition {
+            syn::Expr::Let(let_expr) => {
+                self.visit_expr(&let_expr.expr);
+                self.pattern_binds(&let_expr.pat)
+            }
+            syn::Expr::Binary(binary) if matches!(binary.op, syn::BinOp::And(_)) => {
+                let left_binds = self.visit_condition(&binary.left);
+                let was_shadowed = self.shadowed;
+                self.shadowed |= left_binds;
+                let right_binds = self.visit_condition(&binary.right);
+                self.shadowed = was_shadowed;
+                left_binds || right_binds
+            }
+            _ => {
+                self.visit_expr(condition);
+                false
+            }
+        }
+    }
+}
+
+impl<'ast> syn::visit::Visit<'ast> for FreeCaptureUse<'_> {
+    fn visit_expr_path(&mut self, path: &'ast syn::ExprPath) {
+        if !self.shadowed && path.qself.is_none() && path.path.is_ident(self.name) {
+            self.found = true;
+        }
+    }
+
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let was_shadowed = self.shadowed;
+        for statement in &block.stmts {
+            match statement {
+                syn::Stmt::Local(local) => {
+                    if let Some(init) = &local.init {
+                        self.visit_expr(&init.expr);
+                        if let Some((_, diverge)) = &init.diverge {
+                            self.visit_expr(diverge);
+                        }
+                    }
+                    self.shadowed |= self.pattern_binds(&local.pat);
+                }
+                syn::Stmt::Item(_) => {}
+                syn::Stmt::Expr(expr, _) => self.visit_expr(expr),
+                syn::Stmt::Macro(statement) => self.visit_macro(&statement.mac),
+            }
+        }
+        self.shadowed = was_shadowed;
+    }
+
+    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+        let was_shadowed = self.shadowed;
+        self.shadowed |= closure.inputs.iter().any(|pat| self.pattern_binds(pat));
+        self.visit_expr(&closure.body);
+        self.shadowed = was_shadowed;
+    }
+
+    fn visit_expr_for_loop(&mut self, loop_expr: &'ast syn::ExprForLoop) {
+        self.visit_expr(&loop_expr.expr);
+        let was_shadowed = self.shadowed;
+        self.shadowed |= self.pattern_binds(&loop_expr.pat);
+        self.visit_block(&loop_expr.body);
+        self.shadowed = was_shadowed;
+    }
+
+    fn visit_expr_if(&mut self, if_expr: &'ast syn::ExprIf) {
+        let binds = self.visit_condition(&if_expr.cond);
+        let was_shadowed = self.shadowed;
+        self.shadowed |= binds;
+        self.visit_block(&if_expr.then_branch);
+        self.shadowed = was_shadowed;
+        if let Some((_, else_branch)) = &if_expr.else_branch {
+            self.visit_expr(else_branch);
+        }
+    }
+
+    fn visit_expr_while(&mut self, while_expr: &'ast syn::ExprWhile) {
+        let binds = self.visit_condition(&while_expr.cond);
+        let was_shadowed = self.shadowed;
+        self.shadowed |= binds;
+        self.visit_block(&while_expr.body);
+        self.shadowed = was_shadowed;
+    }
+
+    fn visit_expr_match(&mut self, match_expr: &'ast syn::ExprMatch) {
+        self.visit_expr(&match_expr.expr);
+        for arm in &match_expr.arms {
+            let was_shadowed = self.shadowed;
+            self.shadowed |= self.pattern_binds(&arm.pat);
+            if let Some((_, guard)) = &arm.guard {
+                self.visit_condition(guard);
+            }
+            self.visit_expr(&arm.body);
+            self.shadowed = was_shadowed;
+        }
+    }
+
+    fn visit_macro(&mut self, macro_call: &'ast syn::Macro) {
+        use syn::parse::Parser;
+
+        // `matches!` takes a pattern after its first argument.
+        if macro_call
+            .path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "matches")
+            && let Ok(input) = syn::parse2::<MatchesMacroInput>(macro_call.tokens.clone())
+        {
+            self.visit_expr(&input.value);
+            if let Some(guard) = &input.guard {
+                let was_shadowed = self.shadowed;
+                self.shadowed |= self.pattern_binds(&input.pattern);
+                self.visit_expr(guard);
+                self.shadowed = was_shadowed;
+            }
+            return;
+        }
+
+        let arguments = syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated;
+        if let Ok(arguments) = arguments.parse2(macro_call.tokens.clone()) {
+            for argument in &arguments {
+                self.visit_expr(argument);
+            }
+        } else if !self.shadowed && token_stream_uses_ident(macro_call.tokens.clone(), self.name) {
+            self.found = true;
+        }
+    }
+}
+
+struct MatchesMacroInput {
+    value: syn::Expr,
+    pattern: syn::Pat,
+    guard: Option<syn::Expr>,
+}
+
+impl syn::parse::Parse for MatchesMacroInput {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+        let value = input.parse()?;
+        input.parse::<syn::Token![,]>()?;
+        let pattern = syn::Pat::parse_multi_with_leading_vert(input)?;
+        let guard = if input.peek(syn::Token![if]) {
+            input.parse::<syn::Token![if]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+        if input.peek(syn::Token![,]) {
+            input.parse::<syn::Token![,]>()?;
+        }
+        Ok(Self {
+            value,
+            pattern,
+            guard,
+        })
+    }
+}
+
+fn token_stream_uses_ident(stream: proc_macro2::TokenStream, name: &syn::Ident) -> bool {
+    use proc_macro2::TokenTree;
+
+    let tokens: Vec<_> = stream.into_iter().collect();
+    tokens.iter().enumerate().any(|(index, token)| match token {
+        TokenTree::Ident(ident) if ident == name => {
+            let is_member = index > 0
+                && matches!(&tokens[index - 1], TokenTree::Punct(punct) if punct.as_char() == '.');
+            let is_path = (index > 0
+                && matches!(&tokens[index - 1], TokenTree::Punct(punct) if punct.as_char() == ':'))
+                || tokens.get(index + 1).is_some_and(
+                    |next| matches!(next, TokenTree::Punct(punct) if punct.as_char() == ':'),
+                );
+            !is_member && !is_path
+        }
+        TokenTree::Group(group) => token_stream_uses_ident(group.stream(), name),
+        _ => false,
+    })
 }
 
 impl syn::visit_mut::VisitMut for BoundCaptureRewriter {

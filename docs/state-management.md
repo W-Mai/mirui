@@ -114,11 +114,12 @@ fn counter_controls(counter: Counter) {
 
 `CounterTile` can be cloned even though `Counter` is not `Clone`. Only names
 listed in `bind(...)` are converted; other fields and parameters keep their
-declared types. The generated `ui!` callbacks and child composition calls,
-including children inside a widget tree, share each bound handle when its name
-is passed directly. Multiple callbacks or children can therefore use one model
-without manually cloning it. Nested argument expressions retain Rust move
-semantics; use `counter.clone()` inside them when the handle is needed again.
+declared types. Generated `ui!` callbacks share a bound handle when they read
+it. Child composition calls, including children inside a widget tree, share a
+bound handle when its name is passed directly. Multiple callbacks or children
+can therefore use one model without manually cloning it. Nested argument
+expressions retain Rust move semantics; use `counter.clone()` inside them when
+the handle is needed again.
 This also applies when `ui!` is called as `mirui::ui!`, `::mirui::ui!`, or a
 local `crate::ui!` re-export. Other arguments keep their normal move semantics.
 

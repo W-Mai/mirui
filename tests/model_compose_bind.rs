@@ -1,3 +1,5 @@
+#![deny(unused_variables)]
+
 use mirui::core::reactive::flush_signal_dirty;
 use mirui::input::event::GestureHandler;
 use mirui::input::event::gesture::GestureEvent;
@@ -13,6 +15,10 @@ struct Counter {
 }
 
 struct MoveOnly(u8);
+
+struct CounterField {
+    counter: u8,
+}
 
 type CounterAlias = Counter;
 
@@ -63,6 +69,52 @@ fn mixed_capture_panel(counter: Counter) {
         Row {
             Button(text: "STATIC") on Tap { let _ = 1; }
             Button(text: "UPDATE") on Tap { counter.increment(); }
+        }
+    };
+}
+
+#[compose(bind(counter))]
+fn scoped_capture_panel(counter: Counter) {
+    assert_eq!(counter.count(), 13);
+    ui! {
+        Row {
+            Button(text: "SHADOW") on Tap {
+                let counter = 7u8;
+                let _ = counter;
+            }
+            Button(text: "FIELD") on Tap {
+                let value = CounterField { counter: 9 };
+                let _ = value.counter;
+            }
+            Button(text: "INITIALIZER") on Tap {
+                let counter = counter.count();
+                let _ = counter;
+            }
+            Button(text: "CLOSURE") on Tap {
+                let read = |counter: u8| counter + 1;
+                let _ = read(4);
+            }
+            Button(text: "IF LET") on Tap {
+                if let Some(counter) = Some(5u8) {
+                    let _ = counter;
+                }
+            }
+            Button(text: "MATCH") on Tap {
+                match Some(6u8) {
+                    Some(counter) => { let _ = counter; }
+                    None => { panic!("missing value"); }
+                }
+            }
+            Button(text: "MATCHES") on Tap {
+                let _ = matches!(7u8, counter if counter == 7);
+            }
+            Button(text: "FREE") on Tap {
+                let _ = format!("{}", counter.count());
+                let _ = format_args!("{}", counter.count()).to_string();
+            }
+            Button(text: "FREE AGAIN") on Tap {
+                let _ = format!("{}", counter.count());
+            }
         }
     };
 }
@@ -142,6 +194,28 @@ fn unrelated_callbacks_do_not_capture_a_bound_model() {
         GestureHandler::trigger(&mut app.world, button, &event);
     }
     assert_eq!(counter.count(), 1);
+}
+
+#[test]
+fn generated_callbacks_share_only_free_model_references() {
+    let mut app = App::headless(160, 48);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 13 });
+    app.compose(root, |cx| scoped_capture_panel(cx, counter.clone()));
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 9);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        assert_eq!(
+            GestureHandler::trigger(&mut app.world, button, &event),
+            Some(true)
+        );
+    }
+    assert_eq!(counter.count(), 13);
 }
 
 #[test]
