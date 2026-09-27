@@ -120,6 +120,14 @@ bound handle when its name is passed directly. Multiple callbacks or children
 can therefore use one model without manually cloning it. Nested argument
 expressions retain Rust move semantics; use `counter.clone()` inside them when
 the handle is needed again.
+Implicit named references in standard `format!` and `format_args!` calls are
+shared inside generated callbacks too. This applies to the bare standard macro
+names and absolute `::std::` / `::alloc::` / `::core::` paths; aliases are not
+analyzed. Use an explicit argument such as `format!("{}", counter.count())` in
+other formatting macros. If a local macro uses one of the bare standard names,
+call it through its own module path. An escaped `{counter}` or a named argument
+such as `counter = 7` does not by itself read the bound handle; an argument
+expression that uses the handle still does.
 This also applies when `ui!` is called as `mirui::ui!`, `::mirui::ui!`, or a
 local `crate::ui!` re-export. Other arguments keep their normal move semantics.
 

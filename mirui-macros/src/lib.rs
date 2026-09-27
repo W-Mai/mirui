@@ -2685,6 +2685,57 @@ impl<'a> FreeCaptureUse<'a> {
             }
         }
     }
+
+    fn visit_format_macro(&mut self, macro_call: &syn::Macro) -> bool {
+        use syn::parse::Parser;
+        use syn::visit::Visit;
+
+        let segments = &macro_call.path.segments;
+        let standard_path = segments.len() == 1
+            || (macro_call.path.leading_colon.is_some()
+                && segments.len() == 2
+                && segments.first().is_some_and(|segment| {
+                    segment.ident == "std" || segment.ident == "alloc" || segment.ident == "core"
+                }));
+        if !standard_path
+            || !segments
+                .last()
+                .is_some_and(|segment| segment.ident == "format" || segment.ident == "format_args")
+        {
+            return false;
+        }
+        let parser = syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated;
+        let Ok(arguments) = parser.parse2(macro_call.tokens.clone()) else {
+            return false;
+        };
+        let Some(syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(literal),
+            ..
+        })) = arguments.first()
+        else {
+            return false;
+        };
+        let mut explicitly_named = false;
+        for argument in arguments.iter().skip(1) {
+            if let syn::Expr::Assign(assign) = argument
+                && let syn::Expr::Path(path) = &*assign.left
+                && path.qself.is_none()
+                && path.path.is_ident(self.name)
+            {
+                explicitly_named = true;
+                self.visit_expr(&assign.right);
+            } else {
+                self.visit_expr(argument);
+            }
+        }
+        if !self.shadowed
+            && !explicitly_named
+            && format_literal_uses_ident(&literal.value(), &self.name.to_string())
+        {
+            self.found = true;
+        }
+        true
+    }
 }
 
 impl<'ast> syn::visit::Visit<'ast> for FreeCaptureUse<'_> {
@@ -2765,6 +2816,10 @@ impl<'ast> syn::visit::Visit<'ast> for FreeCaptureUse<'_> {
     fn visit_macro(&mut self, macro_call: &'ast syn::Macro) {
         use syn::parse::Parser;
 
+        if self.visit_format_macro(macro_call) {
+            return;
+        }
+
         // `matches!` takes a pattern after its first argument.
         if macro_call
             .path
@@ -2792,6 +2847,46 @@ impl<'ast> syn::visit::Visit<'ast> for FreeCaptureUse<'_> {
             self.found = true;
         }
     }
+}
+
+fn format_literal_uses_ident(literal: &str, name: &str) -> bool {
+    let bytes = literal.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'{' {
+            index += 1;
+            continue;
+        }
+        if bytes.get(index + 1) == Some(&b'{') {
+            index += 2;
+            continue;
+        }
+        let start = index + 1;
+        let Some(close) = bytes[start..].iter().position(|byte| *byte == b'}') else {
+            break;
+        };
+        let end = start + close;
+        let field = &literal[start..end];
+        let argument = field.split([':', '!']).next().unwrap_or_default();
+        if argument == name {
+            return true;
+        }
+        if let Some((_, format_spec)) = field.split_once(':') {
+            for (offset, _) in format_spec.match_indices(name) {
+                let prefix = &format_spec[..offset];
+                let suffix = &format_spec[offset + name.len()..];
+                let begins_identifier = prefix
+                    .chars()
+                    .next_back()
+                    .is_some_and(|character| character.is_alphanumeric() || character == '_');
+                if !begins_identifier && suffix.starts_with('$') {
+                    return true;
+                }
+            }
+        }
+        index = end + 1;
+    }
+    false
 }
 
 struct MatchesMacroInput {
@@ -3526,6 +3621,56 @@ fn expand_bound_system(
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
     component_attr::marker_impl(&input.ident, &input.generics).into()
+}
+
+#[cfg(test)]
+mod bound_capture_tests {
+    use super::FreeCaptureUse;
+    use proc_macro2::Span;
+
+    #[test]
+    fn format_literals_only_capture_free_named_references() {
+        let name = syn::Ident::new("counter", Span::call_site());
+        assert!(FreeCaptureUse::contains(
+            &syn::parse_quote!(format!("{counter:>4}")),
+            &name
+        ));
+        assert!(FreeCaptureUse::contains(
+            &syn::parse_quote!(::std::format_args!("{counter}")),
+            &name
+        ));
+        assert!(FreeCaptureUse::contains(
+            &syn::parse_quote!(format!("{item:>counter$}", item = "x")),
+            &name
+        ));
+        assert!(!FreeCaptureUse::contains(
+            &syn::parse_quote!(format!("{item:>mycounter$}", item = "x")),
+            &name
+        ));
+        assert!(!FreeCaptureUse::contains(
+            &syn::parse_quote!(format!("{{counter}} {value}", value = 1)),
+            &name
+        ));
+        assert!(!FreeCaptureUse::contains(
+            &syn::parse_quote!(format!("{counter}", counter = 7)),
+            &name
+        ));
+        assert!(!FreeCaptureUse::contains(
+            &syn::parse_quote!(custom::format!("{counter}")),
+            &name
+        ));
+        assert!(!FreeCaptureUse::contains(
+            &syn::parse_quote!(std::format!("{counter}")),
+            &name
+        ));
+        assert!(!FreeCaptureUse::contains(
+            &syn::parse_quote!({
+                let counter = 7;
+                format!("{counter}")
+            }),
+            &name
+        ));
+    }
 }
 
 #[cfg(test)]

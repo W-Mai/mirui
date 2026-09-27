@@ -7,6 +7,7 @@ use mirui::prelude::*;
 use mirui::types::Fixed;
 use mirui::ui::widgets::Button;
 use mirui::ui::widgets::Text;
+use std::format as fmt;
 
 #[model]
 struct Counter {
@@ -26,6 +27,12 @@ type CounterAlias = Counter;
 impl Counter {
     fn increment(&mut self) {
         self.count += 1;
+    }
+}
+
+impl core::fmt::Display for CounterHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.count())
     }
 }
 
@@ -115,6 +122,27 @@ fn scoped_capture_panel(counter: Counter) {
             Button(text: "FREE AGAIN") on Tap {
                 let _ = format!("{}", counter.count());
             }
+        }
+    };
+}
+
+#[compose(bind(counter))]
+fn implicit_format_capture_panel(counter: Counter) {
+    ui! {
+        Row {
+            Button(text: "IMPLICIT") on Tap { let _ = format!("{counter}"); }
+            Button(text: "SPECIFIER") on Tap { let _ = format!("{counter:>4}"); }
+            Button(text: "ARGS") on Tap { let _ = format_args!("{counter}").to_string(); }
+            Button(text: "ABSOLUTE") on Tap { let _ = ::std::format!("{counter}"); }
+            Button(text: "ALIAS") on Tap { let _ = fmt!("{}", counter.count()); }
+            Button(text: "ESCAPED") on Tap { let _ = format!("{{counter}} {value}", value = 1); }
+            Button(text: "NAMED") on Tap { let _ = format!("{counter}", counter = 7); }
+            Button(text: "NAMED VALUE") on Tap { let _ = format!("{counter}", counter = counter.count()); }
+            Button(text: "LOCAL") on Tap {
+                let counter = 8;
+                let _ = format!("{counter}");
+            }
+            Text(text: ${ format!("{counter}") })
         }
     };
 }
@@ -216,6 +244,38 @@ fn generated_callbacks_share_only_free_model_references() {
         );
     }
     assert_eq!(counter.count(), 13);
+}
+
+#[test]
+fn generated_callbacks_share_implicit_format_captures() {
+    let mut app = App::headless(160, 48);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 13 });
+    app.compose(root, |cx| {
+        implicit_format_capture_panel(cx, counter.clone())
+    });
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 9);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        assert_eq!(
+            GestureHandler::trigger(&mut app.world, button, &event),
+            Some(true)
+        );
+    }
+    assert_eq!(counter.count(), 13);
+    counter.increment();
+    flush_signal_dirty(&mut app.world);
+    let labels: Vec<_> = app.world.query::<Text>().collect();
+    assert!(
+        labels
+            .iter()
+            .any(|&entity| { app.world.get::<Text>(entity).unwrap().resolve(&app.world) == "14" })
+    );
 }
 
 #[test]
