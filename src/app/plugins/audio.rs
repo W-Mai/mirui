@@ -166,7 +166,6 @@ mod tests {
 
     use super::*;
     use crate::app::SwRendererFactory;
-    use crate::audio::AudioStateSignal;
     use crate::audio::{AudioCommand, AudioCue, CueId, NoteEvent, Score, Waveform};
     use crate::core::reactive::Effect;
     use crate::surface::framebuf::FramebufSurface;
@@ -290,11 +289,16 @@ mod tests {
         let audio = app.audio().unwrap();
         let clone = audio.clone();
         assert_eq!(clone.state().unwrap().output, AudioOutputState::Locked);
+        assert_eq!(
+            clone.state_signal().unwrap().get().output,
+            AudioOutputState::Locked
+        );
         assert!(clone.set_muted(true));
         assert!(audio.state().unwrap().muted);
         assert_eq!(audio.state().unwrap().output, AudioOutputState::Locked);
         drop(app);
         assert!(audio.state().is_none());
+        assert!(audio.state_signal().is_none());
         assert!(!clone.play(CUE));
     }
 
@@ -395,8 +399,8 @@ mod tests {
         let mut app = app();
         app.with_default_widgets();
         app.add_plugin(AudioPlugin::<_, 4>::with_capacity(MockSink(trace), &BANK));
-        let state = app.world.resource::<AudioStateSignal>().unwrap().clone();
         let audio = app.audio().unwrap();
+        let state = audio.state_signal().unwrap();
         let observed = Rc::new(RefCell::new(AudioOutputState::Starting));
         let observed_for_effect = Rc::clone(&observed);
         let _effect = Effect::new(move || {

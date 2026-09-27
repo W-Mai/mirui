@@ -3,9 +3,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "audio")]
-use crate::audio::{
-    AudioHandle, AudioOutputState, AudioState, AudioStateSignal, AudioTone, Waveform,
-};
+use crate::audio::{AudioHandle, AudioOutputState, AudioStateSignal, AudioTone, Waveform};
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::fit_logical_canvas;
 #[cfg(feature = "audio")]
@@ -18,6 +16,7 @@ use crate::gallery::play::marble::MarbleSound;
 use crate::gallery::play::marble::PadTimbre;
 use crate::gallery::play::marble::{MarbleModel, PAD_PITCHES, Page, THEMES, Theme};
 use crate::gallery::play::paint::PlayPainter;
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -111,18 +110,8 @@ fn nav_text_color(page: Page, active: Page) -> Color {
 }
 
 #[cfg(feature = "audio")]
-fn audio_state() -> Option<AudioState> {
-    crate::core::reactive::with_world(|world| {
-        world
-            .resource::<AudioStateSignal>()
-            .map(AudioStateSignal::get)
-    })
-    .flatten()
-}
-
-fn audio_label() -> &'static str {
-    #[cfg(feature = "audio")]
-    if let Some(state) = audio_state() {
+fn audio_label(state: &Option<AudioStateSignal>) -> &'static str {
+    if let Some(state) = state.as_ref().map(AudioStateSignal::get) {
         return if state.muted {
             "SOUND"
         } else if state.output == AudioOutputState::Ready {
@@ -134,15 +123,19 @@ fn audio_label() -> &'static str {
     "SOUND"
 }
 
-fn audio_visible() -> bool {
-    #[cfg(feature = "audio")]
-    {
-        audio_state().is_some()
-    }
-    #[cfg(not(feature = "audio"))]
-    {
-        false
-    }
+#[cfg(not(feature = "audio"))]
+fn audio_label(_: &bool) -> &'static str {
+    "SOUND"
+}
+
+#[cfg(feature = "audio")]
+fn audio_visible(state: &Option<AudioStateSignal>) -> bool {
+    state.is_some()
+}
+
+#[cfg(not(feature = "audio"))]
+fn audio_visible(available: &bool) -> bool {
+    *available
 }
 
 fn pitch_label(pitch: u8) -> &'static str {
@@ -607,13 +600,7 @@ fn board_render(renderer: &mut dyn Renderer, model: &MarbleModel, rect: &Rect, c
     }
 }
 
-fn event_point(
-    world: &World,
-    entity: Entity,
-    x: Fixed,
-    y: Fixed,
-) -> Option<crate::gallery::play::marble::Vec2> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
+fn event_point(rect: Rect, x: Fixed, y: Fixed) -> Option<crate::gallery::play::marble::Vec2> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
@@ -625,14 +612,17 @@ fn event_point(
     })
 }
 
-fn board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let Some(model) = world
-        .get::<MarbleBoard>(entity)
+fn board_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let Some(model) = ctx
+        .component::<MarbleBoard>(ctx.entity)
         .map(|board| board.model.clone())
     else {
         return false;
     };
-    let (x, y, action) = match event {
+    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
+        return false;
+    };
+    let (x, y, action) = match ctx.event {
         GestureEvent::Tap { x, y, .. } => (*x, *y, 4),
         GestureEvent::DragStart { x, y, .. } => (*x, *y, 0),
         GestureEvent::DragMove { x, y, .. } => (*x, *y, 1),
@@ -640,7 +630,7 @@ fn board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
         GestureEvent::DragCancel { x, y, .. } => (*x, *y, 3),
         _ => return false,
     };
-    let Some(point) = event_point(world, entity, x, y) else {
+    let Some(point) = event_point(rect, x, y) else {
         return false;
     };
     match action {
@@ -688,6 +678,19 @@ fn symmetric_padding(vertical: i32, horizontal: i32) -> Padding {
 
 #[compose(bind(model))]
 fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<AudioHandle>) {
+    #[cfg(feature = "audio")]
+    let audio_state = audio.as_ref().and_then(AudioHandle::state_signal);
+    #[cfg(not(feature = "audio"))]
+    let audio_state = false;
+    #[cfg(feature = "audio")]
+    let audio_label_state = audio_state.clone();
+    #[cfg(not(feature = "audio"))]
+    let audio_label_state = audio_state;
+    #[cfg(feature = "audio")]
+    let audio_button_state = audio_state.clone();
+    #[cfg(not(feature = "audio"))]
+    let audio_button_state = audio_state;
+
     ui! {
         Column (
             width: 480,
@@ -730,8 +733,8 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(217, 248, 138),
                     text_color: TEXT,
-                    text: ${ audio_label() },
-                    visible: ${ audio_visible() },
+                    text: ${ audio_label(&audio_label_state) },
+                    visible: ${ audio_visible(&audio_button_state) },
                     border_radius: 6
                 ) on Tap {
                     #[cfg(not(feature = "audio"))]
@@ -740,14 +743,18 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     if let Some(audio) = &audio {
                         let enable = audio.state().is_some_and(|state| state.muted);
                         if audio.set_muted(!enable) && enable {
-                            submit_pad_sound(audio, model.selected_pitch(), model.selected_timbre(), 190, 0);
+                            submit_pad_sound(
+                                audio,
+                                model.selected_pitch(),
+                                model.selected_timbre(),
+                                190,
+                                0,
+                            );
                         }
                     }
                 }
                 Button (
-                    text: ${
-                        if model.recording() { "DONE" } else if model.looping() { "STOP" } else { "REC" }
-                    },
+                    text: ${ if model.recording() { "DONE" } else if model.looping() { "STOP" } else { "REC" } },
                     id: "marble_record",
                     size: ButtonSize::Compact,
                     width: 44,
@@ -756,7 +763,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     normal_color: Color::rgb(34, 47, 37),
                     pressed_color: Color::rgb(238, 172, 139),
                     text_color: TEXT,
-                    visible: ${ audio_visible() },
+                    visible: ${ audio_visible(&audio_state) },
                     border_radius: 6
                 ) on Tap { model.toggle_recording(); }
                 Button (
@@ -811,9 +818,11 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                 height: 199,
                 clip_children: true
             ) [
-                MarbleBoard { model: model.clone() },
+                MarbleBoard {
+                    model: model.clone(),
+                },
                 TouchAction::None,
-            ] on Tap { board_gesture(ctx.world, ctx.entity, ctx.event); } on DragStart { board_gesture(ctx.world, ctx.entity, ctx.event); } on DragMove { board_gesture(ctx.world, ctx.entity, ctx.event); } on DragEnd { board_gesture(ctx.world, ctx.entity, ctx.event); } on DragCancel { board_gesture(ctx.world, ctx.entity, ctx.event); }
+            ] on Tap { board_gesture(&ctx); } on DragStart { board_gesture(&ctx); } on DragMove { board_gesture(&ctx); } on DragEnd { board_gesture(&ctx); } on DragCancel { board_gesture(&ctx); }
             {
                 Text (
                     "DAYDREAM",
@@ -1017,7 +1026,16 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                 column_gap: 6
             ) {
                 Text (
-                    text: ${ marble_readout(model.page(), model.selected_letter(), model.gravity().to_fixed(), model.hits(), model.selected_radius().to_fixed(), model.selected_bounce().to_fixed()) },
+                    text: ${
+                        marble_readout(
+                            model.page(),
+                            model.selected_letter(),
+                            model.gravity().to_fixed(),
+                            model.hits(),
+                            model.selected_radius().to_fixed(),
+                            model.selected_bounce().to_fixed(),
+                        )
+                    },
                     id: "marble_readout",
                     grow: 1.0,
                     height: 22,
@@ -1448,6 +1466,14 @@ mod tests {
         world.insert_resource(model);
         assert!(world.get::<Children>(root).is_some());
         world
+    }
+
+    fn test_board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+        board_gesture(&HandlerCtx {
+            world,
+            entity,
+            event,
+        })
     }
 
     #[test]
@@ -1988,7 +2014,7 @@ mod tests {
             .resource::<MarbleModelHandle>()
             .unwrap()
             .set_page(Page::Edit);
-        assert!(board_gesture(
+        assert!(test_board_gesture(
             &mut world,
             board,
             &GestureEvent::DragStart {
@@ -1997,7 +2023,7 @@ mod tests {
                 target: board,
             }
         ));
-        assert!(board_gesture(
+        assert!(test_board_gesture(
             &mut world,
             board,
             &GestureEvent::DragMove {
@@ -2008,7 +2034,7 @@ mod tests {
                 target: board,
             }
         ));
-        assert!(board_gesture(
+        assert!(test_board_gesture(
             &mut world,
             board,
             &GestureEvent::DragCancel {
@@ -2035,7 +2061,7 @@ mod tests {
             world.resource::<MarbleModelHandle>().unwrap(),
             |model| model.pads[1].expect("second pad").pos,
         );
-        assert!(board_gesture(
+        assert!(test_board_gesture(
             &mut world,
             board,
             &GestureEvent::Tap {
@@ -2061,7 +2087,7 @@ mod tests {
             .resource::<MarbleModelHandle>()
             .unwrap()
             .set_page(Page::Scenes);
-        assert!(board_gesture(
+        assert!(test_board_gesture(
             &mut world,
             board,
             &GestureEvent::Tap {

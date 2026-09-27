@@ -137,10 +137,10 @@ if let Some(audio) = app.audio() {
 }
 ```
 
-`AudioPlugin` also inserts `AudioStateSignal`. Clone this read-only resource
-into a reactive `ui!` binding to display mute and output status. The handle
-and plugin use the same bus; cloned handles stop accepting commands after the
-app is dropped. `AudioBus<N>` remains available for standalone use.
+`audio.state()` returns a snapshot. `audio.state_signal()` returns the same
+read-only state as a reactive source; call `get()` inside a `ui!` property to
+follow mute and output changes. Cloned handles stop accepting commands after
+the app is dropped. `AudioBus<N>` remains available for standalone use.
 
 ## ESP32-C3 embedded
 

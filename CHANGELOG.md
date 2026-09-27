@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shared bound UI callbacks.** `#[compose(bind(...))]` shares named model handles across generated `ui!` event and reactive callbacks, allowing multiple controls to reference one instance without explicit handle clones.
 - **Bound child composition.** Direct `ui!(child(model))` calls share named bound handles across child compositions without changing the move behavior of other arguments.
 - **Scoped component reads.** `com!(entity, T)` reads a component from the active composition or event context without subscribing to changes.
+- **Reactive audio state access.** `AudioHandle::state_signal()` exposes the shared audio state for reactive UI properties without a World resource lookup.
 - **Observed model fields.** `#[observe]` on small model fields generates tracked handle getters; model updates compare field values and notify only changed sources after releasing the model borrow.
 - **Derived model observations.** Zero-argument `#[observe]` getters in a model impl expose independently tracked results and notify only when the computed value changes.
 - **Named model revisions.** `#[model(change = ..., watch(...))]` maps returned change masks to independently tracked revision getters without suppressing ordinary observed-field updates.

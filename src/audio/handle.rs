@@ -9,6 +9,7 @@ use crate::core::model::{BindType, SharedValue};
 trait AudioControl {
     fn submit(&self, command: AudioCommand) -> bool;
     fn state(&self) -> AudioState;
+    fn state_signal(&self) -> AudioStateSignal;
 }
 
 /// A shared command entry point for the audio output installed on an app.
@@ -51,6 +52,14 @@ impl AudioHandle {
 
     pub fn state(&self) -> Option<AudioState> {
         self.0.upgrade().map(|control| control.state())
+    }
+
+    /// Returns the reactive state source for properties that follow audio changes.
+    ///
+    /// Call [`AudioStateSignal::get`] while evaluating a reactive property to subscribe.
+    /// Returns `None` after the owning app is dropped.
+    pub fn state_signal(&self) -> Option<AudioStateSignal> {
+        self.0.upgrade().map(|control| control.state_signal())
     }
 
     fn submit(&self, command: AudioCommand) -> bool {
@@ -130,5 +139,9 @@ impl<const N: usize> AudioControl for SharedAudioCore<N> {
 
     fn state(&self) -> AudioState {
         AudioState::from_bus(&self.bus.borrow())
+    }
+
+    fn state_signal(&self) -> AudioStateSignal {
+        self.state.clone()
     }
 }
