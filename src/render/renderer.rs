@@ -440,6 +440,8 @@ pub enum RenderError {
     TextContent,
     /// Text preparation failed before drawing; query the App for the widget and cause.
     TextLayout,
+    /// App-wide text reservation failed before any text entity entered layout.
+    TextPreparation,
     InvalidGeometry,
     InvalidTexture,
     MissingWorkspace,

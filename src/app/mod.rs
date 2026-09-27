@@ -37,6 +37,14 @@ pub struct TextContentFailure {
     pub error: crate::ui::widgets::text::TextContentError,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TextLayoutReservation {
+    Unspecified,
+    Pending(crate::text::TextLayoutCapacity),
+    Prepared,
+    Absolute,
+}
+
 fn text_belongs_to_root(world: &World, root: Entity, mut entity: Entity) -> bool {
     let max_depth = world.query::<crate::ui::Parent>().iter().count();
     for _ in 0..=max_depth {
@@ -83,6 +91,9 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     needs_full_first_frame: bool,
     suspended: bool,
     started: bool,
+    text_layout_started: bool,
+    text_layout_reservation: TextLayoutReservation,
+    text_layout_preparation_error: Option<crate::text::TextLayoutError>,
 }
 
 struct PendingFrame {
@@ -229,6 +240,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             needs_full_first_frame: true,
             suspended: false,
             started: false,
+            text_layout_started: false,
+            text_layout_reservation: TextLayoutReservation::Unspecified,
+            text_layout_preparation_error: None,
         }
     }
 
@@ -268,7 +282,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .resource::<crate::text::layout::TextLayoutResource>()
                 .expect("the app owns a text-layout cache");
             let cache = resource.borrow();
-            if cache.bounded_capacity().is_some() && cache.is_in_use() {
+            if cache.is_in_use()
+                && (cache.bounded_capacity().is_some()
+                    || matches!(
+                        self.text_layout_reservation,
+                        TextLayoutReservation::Pending(_)
+                    ))
+            {
                 return Err(crate::text::TextLayoutError::InUse);
             }
             cache.bounded_capacity()
@@ -288,6 +308,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         &mut self,
         capacity: crate::text::TextLayoutCapacity,
     ) -> Result<&mut Self, crate::text::TextLayoutError> {
+        if self.text_layout_started {
+            return Err(crate::text::TextLayoutError::InUse);
+        }
         let limits = {
             let resource = self
                 .world
@@ -297,11 +320,86 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             if cache.is_in_use() {
                 return Err(crate::text::TextLayoutError::InUse);
             }
+            if matches!(
+                self.text_layout_reservation,
+                TextLayoutReservation::Pending(_) | TextLayoutReservation::Prepared
+            ) {
+                return Err(crate::text::TextLayoutError::ConfigurationConflict);
+            }
             cache.limits()
         };
         let resource = crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity)?;
         self.world.insert_resource(resource);
+        self.text_layout_reservation = TextLayoutReservation::Absolute;
         Ok(self)
+    }
+
+    /// Add one tree's text storage requirement before the first layout pass.
+    /// The cache is reserved once by [`Self::prepare_text_layout`].
+    pub fn require_text_layout_capacity(
+        &mut self,
+        capacity: crate::text::TextLayoutCapacity,
+    ) -> Result<&mut Self, crate::text::TextLayoutError> {
+        if self.text_layout_started {
+            return Err(crate::text::TextLayoutError::InUse);
+        }
+        let resource = self
+            .world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .expect("the app owns a text-layout cache");
+        if resource.borrow().is_in_use() {
+            return Err(crate::text::TextLayoutError::InUse);
+        }
+        let combined = match self.text_layout_reservation {
+            TextLayoutReservation::Unspecified => capacity,
+            TextLayoutReservation::Pending(current) => current
+                .checked_add(capacity)
+                .ok_or(crate::text::TextLayoutError::DimensionOverflow)?,
+            TextLayoutReservation::Prepared => return Err(crate::text::TextLayoutError::InUse),
+            TextLayoutReservation::Absolute => {
+                return Err(crate::text::TextLayoutError::ConfigurationConflict);
+            }
+        };
+        self.text_layout_reservation = TextLayoutReservation::Pending(combined);
+        Ok(self)
+    }
+
+    /// Reserve all declared text storage atomically before entering layout.
+    /// Failed reservations leave both the current cache and declarations intact.
+    pub fn prepare_text_layout(&mut self) -> Result<&mut Self, crate::text::TextLayoutError> {
+        let TextLayoutReservation::Pending(capacity) = self.text_layout_reservation else {
+            return Ok(self);
+        };
+        let limits = {
+            let resource = self
+                .world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .expect("the app owns a text-layout cache");
+            let cache = resource.borrow();
+            if cache.is_in_use() {
+                let error = crate::text::TextLayoutError::InUse;
+                self.text_layout_preparation_error = Some(error);
+                return Err(error);
+            }
+            cache.limits()
+        };
+        let resource =
+            match crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity) {
+                Ok(resource) => resource,
+                Err(error) => {
+                    self.text_layout_preparation_error = Some(error);
+                    return Err(error);
+                }
+            };
+        self.world.insert_resource(resource);
+        self.text_layout_reservation = TextLayoutReservation::Prepared;
+        self.text_layout_preparation_error = None;
+        Ok(self)
+    }
+
+    /// Most recent App-wide text preparation failure, independent of text entities.
+    pub const fn last_text_layout_preparation_error(&self) -> Option<crate::text::TextLayoutError> {
+        self.text_layout_preparation_error
     }
 
     /// Last text preparation failure, if a layout pass has not since succeeded.
@@ -691,6 +789,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         let Some(root) = self.root else { return Ok(()) };
+        self.prepare_text_layout()
+            .map_err(|_| crate::render::RenderError::TextPreparation)?;
         let transform = self.backend.viewport();
         self.prepare_render(transform);
         if self.text_content_failure(true).is_some() {
@@ -700,6 +800,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
         let layout_start = self.clock_ns();
+        self.text_layout_started = true;
 
         {
             crate::trace_span!("frame.layout");
@@ -1052,6 +1153,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn render_dirty(&mut self) -> Result<(), crate::render::RenderError> {
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         let Some(root) = self.root else { return Ok(()) };
+        self.prepare_text_layout()
+            .map_err(|_| crate::render::RenderError::TextPreparation)?;
         let transform = self.backend.viewport();
         self.prepare_render(transform);
         if self.text_content_failure(true).is_some() {
@@ -1061,6 +1164,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
         let layout_start = self.clock_ns();
+        self.text_layout_started = true;
 
         let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
         let mut plan = core::mem::take(&mut self.dirty_plan);
@@ -1423,7 +1527,7 @@ fn clone_texture_owned(
 }
 
 #[cfg(test)]
-mod dirty_plan_reuse_check {
+mod app_invariant_tests {
     use super::*;
     use crate::input::event::hit_test::hit_test;
     use crate::types::{Dimension, Fixed};
@@ -1435,6 +1539,312 @@ mod dirty_plan_reuse_check {
     use crate::ui::render_system::{TextLayoutFailureKind, TextLayoutStage};
     use crate::ui::widgets::text::Text;
     use crate::ui::{Children, HitTarget, Parent};
+
+    fn text_capacity(slots: usize, workspace_glyphs: usize) -> crate::text::TextLayoutCapacity {
+        crate::text::TextLayoutCapacity {
+            layout_slots: slots,
+            measurements: 8,
+            lines: 8,
+            runs: 8,
+            glyphs: 48,
+            carets: 48,
+            workspace: crate::text::WorkspaceCapacity {
+                runs: 8,
+                glyphs: workspace_glyphs,
+                scratch_glyphs: 24,
+                lines: 8,
+            },
+        }
+    }
+
+    #[test]
+    fn text_requirements_merge_across_named_subtrees_before_layout() {
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets();
+        let left = text_capacity(3, 16);
+        let right = text_capacity(4, 24);
+        app.require_text_layout_capacity(left).unwrap();
+        app.require_text_layout_capacity(right).unwrap();
+        let combined = crate::text::TextLayoutCapacity {
+            layout_slots: 7,
+            measurements: 16,
+            lines: 16,
+            runs: 16,
+            glyphs: 96,
+            carets: 96,
+            workspace: crate::text::WorkspaceCapacity {
+                runs: 8,
+                glyphs: 24,
+                scratch_glyphs: 24,
+                lines: 8,
+            },
+        };
+        assert_eq!(
+            app.text_layout_reservation,
+            TextLayoutReservation::Pending(combined)
+        );
+
+        let root = app.spawn_root().id();
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Column {
+                Column (id: "left_tree") { Text ("LEFT", id: "left_label") }
+                Column (id: "right_tree") { Text ("RIGHT", id: "right_label") }
+            }
+        };
+        assert_ne!(
+            app.world.find_by_id("left_tree"),
+            app.world.find_by_id("right_tree")
+        );
+        app.prepare_text_layout().unwrap();
+        assert_eq!(app.text_layout_reservation, TextLayoutReservation::Prepared);
+        assert_eq!(
+            app.world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .unwrap()
+                .borrow()
+                .bounded_capacity(),
+            Some(combined)
+        );
+        app.render().unwrap();
+        assert_eq!(app.last_text_layout_preparation_error(), None);
+        assert_eq!(app.last_text_layout_failure(), None);
+        assert_eq!(
+            app.require_text_layout_capacity(right).err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+    }
+
+    #[test]
+    fn text_requirement_overflow_and_failed_preparation_are_atomic() {
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets();
+        let first = text_capacity(3, 16);
+        app.require_text_layout_capacity(first).unwrap();
+        let overflow = crate::text::TextLayoutCapacity {
+            layout_slots: usize::MAX,
+            ..first
+        };
+        assert_eq!(
+            app.require_text_layout_capacity(overflow).err(),
+            Some(crate::text::TextLayoutError::DimensionOverflow)
+        );
+        assert_eq!(
+            app.text_layout_reservation,
+            TextLayoutReservation::Pending(first)
+        );
+
+        app.with_text_layout_limits(crate::text::TextLayoutLimits::HOST.with_cache_bytes(1024));
+        assert_eq!(
+            app.text_layout_reservation,
+            TextLayoutReservation::Pending(first)
+        );
+        let root = app.spawn_root().id();
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Text ("STORAGE", id: "storage_label")
+        };
+        let error = app.prepare_text_layout().err().unwrap();
+        assert!(matches!(
+            error,
+            crate::text::TextLayoutError::CacheBudget { .. }
+        ));
+        assert_eq!(app.last_text_layout_preparation_error(), Some(error));
+        assert_eq!(app.last_text_layout_failure(), None);
+        assert_eq!(
+            app.world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .unwrap()
+                .borrow()
+                .bounded_capacity(),
+            None
+        );
+        assert_eq!(
+            app.render(),
+            Err(crate::render::RenderError::TextPreparation)
+        );
+        assert_eq!(
+            app.render_dirty(),
+            Err(crate::render::RenderError::TextPreparation)
+        );
+        assert_eq!(
+            app.text_layout_reservation,
+            TextLayoutReservation::Pending(first)
+        );
+
+        app.with_text_layout_limits(crate::text::TextLayoutLimits::HOST);
+        app.prepare_text_layout().unwrap();
+        assert_eq!(app.last_text_layout_preparation_error(), None);
+        assert_eq!(
+            app.world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .unwrap()
+                .borrow()
+                .bounded_capacity(),
+            Some(first)
+        );
+        assert!(matches!(
+            app.try_with_text_layout_limits(
+                crate::text::TextLayoutLimits::HOST.with_cache_bytes(1024)
+            ),
+            Err(crate::text::TextLayoutError::CacheBudget { .. })
+        ));
+        assert_eq!(
+            app.world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .unwrap()
+                .borrow()
+                .bounded_capacity(),
+            Some(first)
+        );
+        app.render_dirty().unwrap();
+    }
+
+    #[test]
+    fn text_absolute_capacity_and_requirements_cannot_be_mixed() {
+        let mut app = App::headless(64, 32);
+        let capacity = text_capacity(4, 24);
+        app.with_text_layout_capacity(capacity).unwrap();
+        app.with_text_layout_capacity(capacity).unwrap();
+        assert_eq!(
+            app.require_text_layout_capacity(capacity).err(),
+            Some(crate::text::TextLayoutError::ConfigurationConflict)
+        );
+        let mut required = App::headless(64, 32);
+        required.require_text_layout_capacity(capacity).unwrap();
+        assert_eq!(
+            required.with_text_layout_capacity(capacity).err(),
+            Some(crate::text::TextLayoutError::ConfigurationConflict)
+        );
+        assert_eq!(
+            required.text_layout_reservation,
+            TextLayoutReservation::Pending(capacity)
+        );
+        required.prepare_text_layout().unwrap();
+        assert_eq!(
+            required.with_text_layout_capacity(capacity).err(),
+            Some(crate::text::TextLayoutError::ConfigurationConflict)
+        );
+        assert_eq!(
+            required.require_text_layout_capacity(capacity).err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+        let root = app.spawn_root().id();
+        app.world.insert(root, crate::ui::dirty::Dirty);
+        app.render().unwrap();
+        assert_eq!(
+            app.with_text_layout_capacity(capacity).err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+    }
+
+    #[test]
+    fn text_requirement_cannot_follow_unbounded_layout_even_after_limit_replacement() {
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets();
+        app.spawn_root().id();
+        app.render().unwrap();
+        app.with_text_layout_limits(crate::text::TextLayoutLimits::HOST);
+        assert_eq!(
+            app.require_text_layout_capacity(text_capacity(4, 24)).err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+        assert_eq!(
+            app.with_text_layout_capacity(text_capacity(4, 24)).err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+    }
+
+    #[test]
+    fn pending_text_requirement_cannot_discard_a_low_level_layout() {
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets();
+        let capacity = text_capacity(4, 24);
+        app.require_text_layout_capacity(capacity).unwrap();
+        let root = app.spawn_root().id();
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Text ("LOW LEVEL", id: "low_level")
+        };
+        crate::ui::render_system::try_update_layout(&mut app.world, root, &app.backend.viewport())
+            .unwrap();
+        assert_eq!(
+            app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
+                .err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+        assert_eq!(
+            app.prepare_text_layout().err(),
+            Some(crate::text::TextLayoutError::InUse)
+        );
+        assert_eq!(
+            app.render(),
+            Err(crate::render::RenderError::TextPreparation)
+        );
+        assert_eq!(
+            app.text_layout_reservation,
+            TextLayoutReservation::Pending(capacity)
+        );
+    }
+
+    #[test]
+    fn direct_render_prepares_pending_text_capacity_before_layout() {
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets();
+        app.require_text_layout_capacity(text_capacity(4, 24))
+            .unwrap();
+        let root = app.spawn_root().id();
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Text ("READY", id: "auto_prepared")
+        };
+        app.render().unwrap();
+        assert_eq!(app.text_layout_reservation, TextLayoutReservation::Prepared);
+        assert_eq!(app.last_text_layout_preparation_error(), None);
+        assert_eq!(app.last_text_layout_failure(), None);
+    }
+
+    #[test]
+    fn zero_text_requirement_is_bounded_and_rejects_later_text() {
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets();
+        let capacity = crate::text::TextLayoutCapacity::default();
+        app.require_text_layout_capacity(capacity).unwrap();
+        let root = app.spawn_root().id();
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut app.world
+            :)
+            Text ("LATE", id: "late_text")
+        };
+        assert_eq!(app.render(), Err(crate::render::RenderError::TextLayout));
+        assert_eq!(app.last_text_layout_preparation_error(), None);
+        assert!(matches!(
+            app.last_text_layout_failure().unwrap().kind,
+            TextLayoutFailureKind::Text(crate::text::TextLayoutError::Capacity { .. })
+        ));
+        assert_eq!(
+            app.world
+                .resource::<crate::text::layout::TextLayoutResource>()
+                .unwrap()
+                .borrow()
+                .bounded_capacity(),
+            Some(capacity)
+        );
+    }
 
     #[test]
     fn text_limit_failure_keeps_the_last_frame_and_recovers_in_full_and_dirty_render() {

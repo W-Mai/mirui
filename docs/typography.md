@@ -69,6 +69,16 @@ app.with_text_layout_capacity(TextLayoutCapacity {
 
 `layout_slots` covers retained layout handles and their generation storage. The line, run, glyph, and caret capacities cover all retained paragraphs plus one paragraph's temporary output; they are aggregate counts, unlike the per-paragraph limits in `TextLayoutLimits`. `workspace` bounds private shaping buffers. The reservation checks actual retained vector capacities and the workspace against `TextLayoutLimits::cache_bytes`. Later requests above the declared capacities fail explicitly instead of growing those buffers. Other renderer and font caches have separate storage.
 
+A reusable UI module can declare its own `module_text_capacity: TextLayoutCapacity` with `App::require_text_layout_capacity` during setup. Requirements for layout slots, measurements, lines, runs, glyphs, and carets add together; shaping-buffer requirements take the maximum because one scratch area is reused. After all modules are composed, call `App::prepare_text_layout` before the first layout pass:
+
+```rust
+app.require_text_layout_capacity(module_text_capacity)?;
+// Compose the remaining modules before preparing the shared cache.
+app.prepare_text_layout()?;
+```
+
+Registration does not replace the cache. Preparation checks the combined request against the active byte budget and leaves the previous cache intact on failure. Calls after layout starts and mixing additive requirements with `with_text_layout_capacity` return an error rather than discarding another module's reservation. `App::render()` and `App::render_dirty()` also prepare a pending requirement before layout; a failure returns `RenderError::TextPreparation`, with its cause available through `App::last_text_layout_preparation_error()`. Applications that control startup should call `prepare_text_layout` explicitly to report failures before entering the frame loop. Without an opt-in requirement, text layout keeps its existing on-demand behavior.
+
 An explicit memory warning retains bounded text storage and its live handles so the capacity guarantee still applies to the next frame. Unbounded text caches retain their existing trim behavior.
 
 ## Text on a static path

@@ -73,6 +73,28 @@ pub struct TextLayoutCapacity {
     pub workspace: WorkspaceCapacity,
 }
 
+impl TextLayoutCapacity {
+    pub(crate) fn checked_add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            layout_slots: self.layout_slots.checked_add(other.layout_slots)?,
+            measurements: self.measurements.checked_add(other.measurements)?,
+            lines: self.lines.checked_add(other.lines)?,
+            runs: self.runs.checked_add(other.runs)?,
+            glyphs: self.glyphs.checked_add(other.glyphs)?,
+            carets: self.carets.checked_add(other.carets)?,
+            workspace: WorkspaceCapacity {
+                runs: self.workspace.runs.max(other.workspace.runs),
+                glyphs: self.workspace.glyphs.max(other.workspace.glyphs),
+                scratch_glyphs: self
+                    .workspace
+                    .scratch_glyphs
+                    .max(other.workspace.scratch_glyphs),
+                lines: self.workspace.lines.max(other.workspace.lines),
+            },
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextLayoutBuffer {
     LayoutSlots,
@@ -108,6 +130,7 @@ pub enum TextLayoutError {
         capacity: usize,
     },
     InUse,
+    ConfigurationConflict,
     TextLimit {
         required: usize,
         limit: usize,

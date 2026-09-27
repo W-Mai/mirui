@@ -512,6 +512,8 @@ where
         build(&mut setup)
     };
     app.set_root(root);
+    app.prepare_text_layout()
+        .expect("prepare Gallery text layout capacity");
 
     #[cfg(not(all(feature = "web-canvas", target_arch = "wasm32")))]
     app.run();

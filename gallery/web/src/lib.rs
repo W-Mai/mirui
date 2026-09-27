@@ -53,6 +53,8 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
     };
     app.set_root(root);
     app.set_theme(selected_theme_id(demo)).unwrap();
+    app.prepare_text_layout()
+        .expect("prepare Web Gallery text layout capacity");
     app
 }
 

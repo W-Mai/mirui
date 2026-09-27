@@ -36,6 +36,8 @@ pub fn render(
 
     let root = setup(&mut app);
     app.set_root(root);
+    app.prepare_text_layout()
+        .expect("prepare Gallery snapshot text layout capacity");
     app.systems.run_all(&mut app.world);
     if let Err(error) = app.render() {
         if !allow_partial {

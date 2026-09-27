@@ -21,6 +21,7 @@ use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::render::renderer::Renderer;
+use crate::text::{TextLayoutCapacity, WorkspaceCapacity};
 use crate::types::Fixed64;
 use crate::ui::ComputedRect;
 use crate::ui::view::ViewCtx;
@@ -28,6 +29,21 @@ use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Switch, Tex
 use core::fmt;
 
 pub const VIEWPORT: (u16, u16) = (480, 320);
+
+const TEXT_LAYOUT_CAPACITY: TextLayoutCapacity = TextLayoutCapacity {
+    layout_slots: 32,
+    measurements: 32,
+    lines: 32,
+    runs: 32,
+    glyphs: 384,
+    carets: 448,
+    workspace: WorkspaceCapacity {
+        runs: 16,
+        glyphs: 32,
+        scratch_glyphs: 32,
+        lines: 8,
+    },
+};
 
 #[crate::component(bind(model))]
 struct MarbleBoard {
@@ -1381,6 +1397,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.require_text_layout_capacity(TEXT_LAYOUT_CAPACITY)
+        .expect("register Marble text layout capacity");
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(board_render::view());
@@ -1532,6 +1550,50 @@ mod tests {
             assert_eq!(text.text_capacity(), Some(capacity), "{id}");
             assert!(text.has_valid_content(), "{id}");
             assert_eq!(text.last_content_error(), None, "{id}");
+        }
+    }
+
+    #[test]
+    fn declared_text_layout_capacity_covers_page_switches() {
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets();
+        app.with_text_layout_limits(crate::text::TextLayoutLimits::EMBEDDED);
+        let root = app.spawn_root().id();
+        setup_app(&mut app, root);
+        app.prepare_text_layout().unwrap();
+        let model = app
+            .world
+            .query::<MarbleBoard>()
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .model
+            .clone();
+
+        app.render().unwrap();
+        for page in [
+            Page::Edit,
+            Page::Scenes,
+            Page::Settings,
+            Page::Play,
+            Page::Settings,
+            Page::Edit,
+        ] {
+            model.set_page(page);
+            crate::core::reactive::flush_signal_dirty(&mut app.world);
+            app.render_dirty().unwrap();
+            assert_eq!(app.last_text_layout_failure(), None);
+            if page == Page::Edit {
+                model.set_inspector(true);
+            } else if page == Page::Settings {
+                model.set_bpm(Fixed64::from_int(160));
+            } else {
+                continue;
+            }
+            crate::core::reactive::flush_signal_dirty(&mut app.world);
+            app.render_dirty().unwrap();
+            assert_eq!(app.last_text_layout_failure(), None);
         }
     }
 
