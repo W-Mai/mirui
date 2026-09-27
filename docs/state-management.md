@@ -111,8 +111,16 @@ fn counter_controls(counter: Counter) {
 
 `CounterTile` can be cloned even though `Counter` is not `Clone`. Only names
 listed in `bind(...)` are converted; other fields and parameters keep their
-declared types. The generated `ui!` callbacks share each bound handle, so
-multiple callbacks can use one model without manually cloning it.
+declared types. The generated `ui!` callbacks and direct child composition
+calls share each bound handle, so multiple callbacks or children can use one
+model without manually cloning it. Other arguments keep their normal move
+semantics.
+
+Use `cx.component::<T>(entity)` during composition or
+`ctx.component::<T>(entity)` in an event handler to inspect an attached
+component. `com!(entity, T)` is the short form in either context. These reads
+return `Option<&T>` and do not subscribe to changes; use `bind(...)` or
+`watch(...)` when changes must update a widget or View.
 
 Register the instance before building controls. `#[compose(bind(counter))]`
 accepts the handle returned by `App::add_model`; the source parameter remains
@@ -204,7 +212,8 @@ removal update bindings before the next paint.
 | `#[model]` | Registered business state, including multiple instances of one type | Generated handle methods compare `#[observe]` values, publish named revisions, and deliver typed effects |
 | `Signal<T>` | A standalone reactive value or a value published by another owner | `set` / `update` notify reactive readers |
 | `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `bind(...)` stores shared model handles |
-| `#[compose]` | Build a widget subtree | `bind(...)` shares named model handles among generated bindings and callbacks |
+| `#[compose]` | Build a widget subtree | `bind(...)` shares named model handles among generated bindings, callbacks, and direct child calls |
+| `com!(entity, T)` | Read a component in composition or an event | Returns a short-lived `Option<&T>` without subscribing |
 | `#[view]` | Render a component | `read(...)` borrows model state only while painting; `watch(...)` selects repaint dependencies |
 | `#[system]` | Scheduled updates | `bind(...)` targets a registered model instance; small unbound parameters read World resources |
 | `AudioHandle` | Shared output controls when the `audio` feature is enabled | Host UI and demo controls read one output state and submit to one bounded bus |

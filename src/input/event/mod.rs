@@ -210,6 +210,11 @@ pub struct HandlerCtx<'a, E> {
 }
 
 impl<'a, E> HandlerCtx<'a, E> {
+    /// Read a component for the duration of this handler without subscribing.
+    pub fn component<T: 'static>(&self, entity: impl core::borrow::Borrow<Entity>) -> Option<&T> {
+        self.world.get::<T>(*entity.borrow())
+    }
+
     pub fn paths(&mut self) -> crate::text::PathAccess<'_> {
         crate::text::PathAccess::new(self.world)
     }

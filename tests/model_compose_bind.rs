@@ -12,6 +12,8 @@ struct Counter {
     count: u32,
 }
 
+struct MoveOnly(u8);
+
 type CounterAlias = Counter;
 
 #[model]
@@ -63,6 +65,24 @@ fn mixed_capture_panel(counter: Counter) {
             Button(text: "UPDATE") on Tap { counter.increment(); }
         }
     };
+}
+
+#[compose(bind(counter))]
+fn child_counter_button(counter: Counter) {
+    ui! { Button(text: "CHILD") on Tap { counter.increment(); } };
+}
+
+#[compose]
+fn consume_plain_child(value: MoveOnly) {
+    assert_eq!(value.0, 7);
+}
+
+#[compose(bind(counter))]
+fn parent_with_bound_children(counter: Counter, plain: MoveOnly) {
+    ui!(consume_plain_child(plain));
+    ui!(child_counter_button(counter));
+    ui!(child_counter_button(counter));
+    ui! { Button(text: "PARENT") on Tap { counter.increment(); } };
 }
 
 #[test]
@@ -136,4 +156,29 @@ fn bound_model_is_shared_across_generated_callbacks() {
         app.world.get::<Text>(label).unwrap().resolve(&app.world),
         "2"
     );
+}
+
+#[test]
+fn bound_model_is_shared_across_child_compose_calls() {
+    let mut app = App::headless(320, 120);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 0 });
+    app.compose(root, |cx| {
+        parent_with_bound_children(cx, counter.clone(), MoveOnly(7))
+    });
+
+    let buttons: Vec<_> = app.world.query::<Button>().collect();
+    assert_eq!(buttons.len(), 3);
+    for button in buttons {
+        let event = GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        };
+        assert_eq!(
+            GestureHandler::trigger(&mut app.world, button, &event),
+            Some(true)
+        );
+    }
+    assert_eq!(counter.count(), 3);
 }

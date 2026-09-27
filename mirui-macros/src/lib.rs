@@ -11,6 +11,7 @@ mod visit_id;
 
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::parse::{Parse, ParseStream};
 use syn::parse_macro_input;
 use syn::visit_mut::VisitMut;
 
@@ -40,6 +41,55 @@ pub fn view(attr: TokenStream, item: TokenStream) -> TokenStream {
     view_attr::expand(attr.into(), item.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
+}
+
+struct ComponentRead {
+    entity: syn::Expr,
+    component: syn::Type,
+}
+
+impl Parse for ComponentRead {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let entity = input.parse()?;
+        input.parse::<syn::Token![,]>()?;
+        let component = input.parse()?;
+        Ok(Self { entity, component })
+    }
+}
+
+struct EventComponentReads;
+
+impl VisitMut for EventComponentReads {
+    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
+        if let syn::Expr::Macro(mac) = expr
+            && mac
+                .mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "com")
+            && let Ok(ComponentRead { entity, component }) =
+                syn::parse2::<ComponentRead>(mac.mac.tokens.clone())
+        {
+            *expr = syn::parse_quote!(ctx.component::<#component>(#entity));
+            return;
+        }
+        syn::visit_mut::visit_expr_mut(self, expr);
+    }
+}
+
+fn event_component_reads(body: &syn::Block) -> syn::Block {
+    let mut body = body.clone();
+    EventComponentReads.visit_block_mut(&mut body);
+    body
+}
+
+/// Read one component from the active `#[compose]` or `on Event` context.
+/// The read does not subscribe to later changes.
+#[proc_macro]
+pub fn com(input: TokenStream) -> TokenStream {
+    let ComponentRead { entity, component } = parse_macro_input!(input as ComponentRead);
+    quote! { cx.component::<#component>(#entity) }.into()
 }
 
 use xrune::ds_node::ds_attr::DsAttr;
@@ -237,7 +287,7 @@ fn emit_business_handler(
 
     let mut arms = proc_macro2::TokenStream::new();
     for (entry, on_cmd) in group {
-        let body = &on_cmd.body;
+        let body = event_component_reads(&on_cmd.body);
         let event_path: syn::Path = syn::parse_str(entry.event_path).unwrap();
         let field_idents: Vec<syn::Ident> = entry
             .fields
@@ -312,7 +362,7 @@ fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStrea
         return emit_tap_with_count(group, &field_idents);
     }
 
-    let bodies = group.iter().map(|h| &h.body);
+    let bodies = group.iter().map(|h| event_component_reads(&h.body));
     let used_idents: Vec<&syn::Ident> = field_idents.iter().collect();
 
     quote! {
@@ -340,7 +390,7 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
     let mut count_arms = proc_macro2::TokenStream::new();
     let mut default_arm: Option<proc_macro2::TokenStream> = None;
     for h in group {
-        let body = &h.body;
+        let body = event_component_reads(&h.body);
         if h.args.is_empty() {
             default_arm = Some(quote! {
                 _ => {

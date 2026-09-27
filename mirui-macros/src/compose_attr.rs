@@ -91,7 +91,22 @@ struct BoundUiCalls {
 
 impl VisitMut for BoundUiCalls {
     fn visit_macro_mut(&mut self, macro_call: &mut syn::Macro) {
-        if !macro_call.path.is_ident("ui") || is_compose_call(&macro_call.tokens) {
+        if !macro_call.path.is_ident("ui") {
+            return;
+        }
+        if let Some(mut call) = parse_compose_call(&macro_call.tokens) {
+            for arg in &mut call.args {
+                let syn::Expr::Path(path) = arg else {
+                    continue;
+                };
+                let Some(name) = path.path.get_ident() else {
+                    continue;
+                };
+                if self.bindings.contains(name) {
+                    *arg = syn::parse_quote!(::mirui::core::model::SharedValue::share(&#name));
+                }
+            }
+            macro_call.tokens = quote!(#call);
             return;
         }
         let original = macro_call.tokens.clone();
@@ -102,18 +117,19 @@ impl VisitMut for BoundUiCalls {
     }
 }
 
-fn is_compose_call(tokens: &TokenStream) -> bool {
-    let Ok(syn::Expr::Call(call)) = syn::parse2::<syn::Expr>(tokens.clone()) else {
-        return false;
+fn parse_compose_call(tokens: &TokenStream) -> Option<syn::ExprCall> {
+    let syn::Expr::Call(call) = syn::parse2::<syn::Expr>(tokens.clone()).ok()? else {
+        return None;
     };
-    let syn::Expr::Path(path) = *call.func else {
-        return false;
+    let syn::Expr::Path(path) = &*call.func else {
+        return None;
     };
     path.path
         .segments
         .last()
         .and_then(|segment| segment.ident.to_string().chars().next())
-        .is_some_and(|first| first.is_ascii_lowercase() || first == '_')
+        .filter(|first| first.is_ascii_lowercase() || *first == '_')
+        .map(|_| call)
 }
 
 fn parse_bindings(attr: TokenStream) -> syn::Result<Vec<syn::Ident>> {
@@ -195,13 +211,30 @@ mod tests {
             quote! {
                 fn build(model: Game) {
                     ui! { Row { Button() on Tap { model.increment(); } } };
-                    ui!(child(cx, model));
+                    ui!(child(model));
                 }
             },
         );
         let rendered = out.to_string();
         assert_eq!(rendered.matches("__mirui_bind").count(), 1);
-        assert!(rendered.contains("ui ! (child (cx , model))"));
+        assert!(rendered.contains(
+            "ui ! (child (:: mirui :: core :: model :: SharedValue :: share (& model)))"
+        ));
+    }
+
+    #[test]
+    fn only_direct_bound_child_arguments_are_shared() {
+        let out = expand(
+            quote! { bind(model) },
+            quote! {
+                fn build(model: Game, plain: String) {
+                    ui!(child(model, plain, model.clone(), &model));
+                }
+            },
+        );
+        let rendered = out.to_string();
+        assert_eq!(rendered.matches("SharedValue :: share").count(), 1);
+        assert!(rendered.contains("plain , model . clone () , & model"));
     }
 
     #[test]

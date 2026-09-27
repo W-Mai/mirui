@@ -42,6 +42,14 @@ impl<'w> UiScope<'w> {
         crate::text::PathAccess::new(self.world)
     }
 
+    /// Read a component during composition without subscribing to changes.
+    ///
+    /// The reference is limited to this scope borrow. Use a bound model or an
+    /// explicit reactive binding when later changes must update the UI.
+    pub fn component<T: 'static>(&self, entity: impl core::borrow::Borrow<Entity>) -> Option<&T> {
+        self.world.get::<T>(*entity.borrow())
+    }
+
     pub fn bind_property<P: crate::ui::property::Property>(
         &mut self,
         entity: Entity,
