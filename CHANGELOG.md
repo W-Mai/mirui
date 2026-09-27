@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **First app tap storage.** `App::with_factory` initializes multi-tap tracking with its other input resources, so the first Tap does not allocate the tracker during dispatch.
 - **Dirty component storage.** Apps reserve slots for constructed entities before visibility updates, so cached page switches do not grow the dirty store.
 - **Software arc storage.** Direct and affine arcs reuse the renderer's path commands instead of allocating a temporary path per draw.
 - **Web Canvas clipping.** Clipped draws reuse their known transform instead of creating a DOM matrix for each clip.

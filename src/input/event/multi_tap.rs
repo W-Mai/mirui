@@ -78,9 +78,10 @@ mod tests {
     #[test]
     fn first_tap_records_count_one() {
         let mut world = World::default();
-        world.insert_resource(MultiTapTracker::new());
+        assert!(world.resource::<MultiTapTracker>().is_none());
         let e = world.spawn_empty();
         observe_gesture(&mut world, &tap(e), 100);
+        assert!(world.resource::<MultiTapTracker>().is_some());
         assert_eq!(current_count(&world, e), 1);
     }
 
