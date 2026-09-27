@@ -21,6 +21,12 @@ ui! {
 };
 ```
 
+## Layout failure reporting
+
+`App::render()` and `App::render_dirty()` return `RenderError::TextLayout` when text preparation fails. Drawing, scrolling, and framebuffer flush are skipped for that frame. `App::last_text_layout_failure()` identifies the text entity, preparation stage, and available capacity details; a successful layout clears the diagnostic.
+
+Low-level callers can use `render_system::try_update_layout` to receive the failure directly. The existing `update_layout` and dirty-region convenience functions retain their return types and record failures as a `TextLayoutFailure` World resource. A failed pass invalidates cached geometry for retry but does not restore text-cache entries already retired during preparation.
+
 ## Text on a static path
 
 `path!` stores its commands in the program image. Registering those commands with `insert_static` keeps the path borrowed and gives it a stable `PathId`.

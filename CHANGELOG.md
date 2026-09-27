@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Text layout failures.** Full and dirty rendering stop before drawing or flushing when text preparation exceeds capacity; `App::last_text_layout_failure()` reports the widget, stage, and capacity details for a retry.
 - **Hidden roots.** Hiding an app root retires its text layouts, rejects stale hit targets, and clears the previous frame to the active theme surface color.
 - **Cached branch layout storage.** Hidden branches retain their layout nodes, while initial layout reserves geometry and hit-test capacity for their first reveal.
 - **Retained layout snapshots.** Visibility and viewport changes preserve reusable layout storage while refreshing computed geometry, hit testing, and dirty rendering.

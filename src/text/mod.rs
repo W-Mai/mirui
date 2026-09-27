@@ -9,8 +9,8 @@ pub(crate) mod path;
 pub use crate::ui::widgets::text::{
     PathCaretGeometry, PathCaretHit, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
 };
-pub use layout::TextLayoutLimits;
 pub(crate) use layout::{TextLayout, TextLayoutHandle, TextMeasure};
+pub use layout::{TextLayoutError, TextLayoutLimits};
 pub use path::{PathAccess, PathAccessError, PathDirection, TextPath};
 pub use textflow::TextFlow;
 pub use textflow::shaping::{

@@ -15,6 +15,119 @@ use super::theme::WidgetState;
 use super::view::{ViewCtx, ViewRegistry};
 use super::{Children, Parent, Style, Widget};
 
+/// Stage at which a text widget failed to prepare its layout.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextLayoutStage {
+    Measure,
+    Layout,
+}
+
+/// Cause of a text preparation failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextLayoutFailureKind {
+    Text(crate::text::TextLayoutError),
+    FontStackCapacity { required: usize, limit: usize },
+    PathBaselineBudget { required: usize, budget: usize },
+    PathBaselineAllocation,
+    PathBaseline,
+    MissingLayout,
+}
+
+/// The text widget and operation that stopped a layout pass.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextLayoutFailure {
+    pub entity: Entity,
+    pub stage: TextLayoutStage,
+    pub kind: TextLayoutFailureKind,
+}
+
+impl TextLayoutFailure {
+    const fn text(
+        entity: Entity,
+        stage: TextLayoutStage,
+        error: crate::text::TextLayoutError,
+    ) -> Self {
+        Self {
+            entity,
+            stage,
+            kind: TextLayoutFailureKind::Text(error),
+        }
+    }
+
+    const fn font_stack(
+        entity: Entity,
+        stage: TextLayoutStage,
+        required: usize,
+        limit: usize,
+    ) -> Self {
+        Self {
+            entity,
+            stage,
+            kind: TextLayoutFailureKind::FontStackCapacity { required, limit },
+        }
+    }
+
+    const fn baseline(
+        entity: Entity,
+        stage: TextLayoutStage,
+        error: crate::text::baseline::PathBaselineError,
+    ) -> Self {
+        use crate::text::baseline::PathBaselineError;
+
+        let kind = match error {
+            PathBaselineError::CacheBudget { required, budget } => {
+                TextLayoutFailureKind::PathBaselineBudget { required, budget }
+            }
+            PathBaselineError::Allocation => TextLayoutFailureKind::PathBaselineAllocation,
+            _ => TextLayoutFailureKind::PathBaseline,
+        };
+        Self {
+            entity,
+            stage,
+            kind,
+        }
+    }
+}
+
+#[cfg(test)]
+mod text_layout_failure_tests {
+    use super::{TextLayoutFailure, TextLayoutFailureKind, TextLayoutStage};
+    use crate::ecs::Entity;
+    use crate::text::baseline::PathBaselineError;
+
+    #[test]
+    fn path_baseline_capacity_diagnostics_keep_the_required_budget() {
+        let entity = Entity {
+            id: 1,
+            generation: 0,
+        };
+        let failure = TextLayoutFailure::baseline(
+            entity,
+            TextLayoutStage::Layout,
+            PathBaselineError::CacheBudget {
+                required: 256,
+                budget: 128,
+            },
+        );
+        assert_eq!(
+            failure.kind,
+            TextLayoutFailureKind::PathBaselineBudget {
+                required: 256,
+                budget: 128,
+            }
+        );
+        assert_eq!(
+            TextLayoutFailure::baseline(
+                entity,
+                TextLayoutStage::Measure,
+                PathBaselineError::Allocation,
+            )
+            .kind,
+            TextLayoutFailureKind::PathBaselineAllocation,
+        );
+    }
+}
+
 struct ProjectiveRenderer<'a> {
     inner: &'a mut dyn Renderer,
     transform: Transform3D,
@@ -342,7 +455,14 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         }
         world.put_resource_box(snapshot);
     }
-    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+    let layout_tree = match build_layout_tree(world, root) {
+        Ok(layout_tree) => layout_tree,
+        Err(failure) => {
+            record_text_layout_failure(world, root, failure);
+            return;
+        }
+    };
+    let Some(mut layout_tree) = layout_tree else {
         return;
     };
     compute_layout(
@@ -366,33 +486,46 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     );
 }
 
-fn layout_node(world: &World, entity: Entity, active: bool) -> Option<LayoutNode> {
-    world.get::<Widget>(entity)?;
-    let style = world.get::<Style>(entity)?;
+fn layout_node(
+    world: &World,
+    entity: Entity,
+    active: bool,
+) -> Result<Option<LayoutNode>, TextLayoutFailure> {
+    let Some(_) = world.get::<Widget>(entity) else {
+        return Ok(None);
+    };
+    let Some(style) = world.get::<Style>(entity) else {
+        return Ok(None);
+    };
     let mut node = LayoutNode::new(layout_style(world, entity, style.layout));
     node.entity = Some(entity);
     if active {
-        apply_text_intrinsic(world, entity, &mut node);
+        apply_text_intrinsic(world, entity, &mut node)?;
         apply_static_glyph_intrinsic(world, entity, style, &mut node);
     }
-    Some(node)
+    Ok(Some(node))
 }
 
 /// Recursively build a LayoutNode tree from ECS entities.
-fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
+fn build_layout_tree(
+    world: &World,
+    entity: Entity,
+) -> Result<Option<LayoutNode>, TextLayoutFailure> {
     if super::branch::is_effectively_hidden(world, entity) {
-        return None;
+        return Ok(None);
     }
-    let mut node = layout_node(world, entity, true)?;
+    let Some(mut node) = layout_node(world, entity, true)? else {
+        return Ok(None);
+    };
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
-            if let Some(child_node) = build_layout_tree(world, child) {
+            if let Some(child_node) = build_layout_tree(world, child)? {
                 node.add_child(child_node);
             }
         }
     }
-    Some(node)
+    Ok(Some(node))
 }
 
 #[derive(Default)]
@@ -429,13 +562,16 @@ fn build_retained_layout_tree(
     entity: Entity,
     active: bool,
     parked: &mut Vec<LayoutNode>,
-) -> Option<LayoutNode> {
-    let mut node = layout_node(world, entity, active)?;
+) -> Result<Option<LayoutNode>, TextLayoutFailure> {
+    let Some(mut node) = layout_node(world, entity, active)? else {
+        return Ok(None);
+    };
     if let Some(children) = world.get::<Children>(entity) {
         node.children.reserve_exact(children.0.len());
         for &child in &children.0 {
             let child_active = active && !super::branch::is_effectively_hidden(world, child);
-            if let Some(child_node) = build_retained_layout_tree(world, child, child_active, parked)
+            if let Some(child_node) =
+                build_retained_layout_tree(world, child, child_active, parked)?
             {
                 if child_active {
                     node.children.push(child_node);
@@ -447,7 +583,7 @@ fn build_retained_layout_tree(
             }
         }
     }
-    Some(node)
+    Ok(Some(node))
 }
 
 fn take_parked_layout_node(parked: &mut Vec<LayoutNode>, entity: Entity) -> Option<LayoutNode> {
@@ -517,20 +653,20 @@ fn refresh_layout_tree(
     entity: Entity,
     node: &mut LayoutNode,
     parked: &mut Vec<LayoutNode>,
-) -> bool {
+) -> Result<bool, TextLayoutFailure> {
     if node.entity != Some(entity)
         || world.get::<Widget>(entity).is_none()
         || super::branch::is_effectively_hidden(world, entity)
     {
-        return false;
+        return Ok(false);
     }
     let Some(style) = world.get::<Style>(entity) else {
-        return false;
+        return Ok(false);
     };
     node.style = layout_style(world, entity, style.layout);
     node.intrinsic_width = None;
     node.intrinsic_height = None;
-    apply_text_intrinsic(world, entity, node);
+    apply_text_intrinsic(world, entity, node)?;
     apply_static_glyph_intrinsic(world, entity, style, node);
 
     let mut used = 0;
@@ -548,8 +684,10 @@ fn refresh_layout_tree(
             {
                 node.children.swap(used, used + index);
             } else {
-                let replacement = take_parked_layout_node(parked, child)
-                    .or_else(|| build_retained_layout_tree(world, child, true, parked));
+                let replacement = match take_parked_layout_node(parked, child) {
+                    Some(node) => Some(node),
+                    None => build_retained_layout_tree(world, child, true, parked)?,
+                };
                 let Some(replacement) = replacement else {
                     continue;
                 };
@@ -560,7 +698,7 @@ fn refresh_layout_tree(
                     node.children.push(replacement);
                 }
             }
-            if refresh_layout_tree(world, child, &mut node.children[used], parked) {
+            if refresh_layout_tree(world, child, &mut node.children[used], parked)? {
                 used += 1;
             }
         }
@@ -568,7 +706,7 @@ fn refresh_layout_tree(
     while node.children.len() > used {
         park_layout_node(parked, node.children.pop().expect("trailing layout child"));
     }
-    true
+    Ok(true)
 }
 
 fn layout_style(world: &World, entity: Entity, mut layout: LayoutStyle) -> LayoutStyle {
@@ -598,17 +736,37 @@ struct LaidOutText {
     measure: crate::text::TextMeasure,
 }
 
-fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutText> {
+fn layout_text(
+    world: &World,
+    entity: Entity,
+    width: Fixed,
+) -> Result<Option<LaidOutText>, TextLayoutFailure> {
     use crate::render::font::ResolvedFontStack;
     use crate::text::layout::TextLayoutResource;
     use crate::ui::widgets::text::Text;
 
-    let text = world.get::<Text>(entity)?;
-    let style = world.get::<Style>(entity)?;
-    let resource = world.resource::<TextLayoutResource>()?;
+    let Some(text) = world.get::<Text>(entity) else {
+        return Ok(None);
+    };
+    let Some(style) = world.get::<Style>(entity) else {
+        return Ok(None);
+    };
+    let Some(resource) = world.resource::<TextLayoutResource>() else {
+        return Ok(None);
+    };
     let face_limit = resource.borrow().limits().fallback_faces;
-    let fonts = ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit)
-        .ok()??;
+    let Some(fonts) = ResolvedFontStack::resolve(
+        world,
+        &style.font_stack,
+        style.font_size,
+        face_limit,
+    )
+    .map_err(|error| {
+        TextLayoutFailure::font_stack(entity, TextLayoutStage::Layout, error.required, error.limit)
+    })?
+    else {
+        return Ok(None);
+    };
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
@@ -636,8 +794,13 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let font_fingerprint = fonts.layout_fingerprint(language, text.paragraph().shaping);
     let handle = match text_path {
         Some(path) => {
-            let paths = world.resource::<crate::render::path::PathStore>()?;
-            let baselines = world.resource::<crate::text::baseline::PathBaselineResource>()?;
+            let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
+                return Ok(None);
+            };
+            let Some(baselines) = world.resource::<crate::text::baseline::PathBaselineResource>()
+            else {
+                return Ok(None);
+            };
             let line_limit = request.max_lines.min(resource.borrow().limits().lines);
             baselines
                 .with_lines(
@@ -659,8 +822,10 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
                         })
                     },
                 )
-                .ok()?
-                .ok()?
+                .map_err(|error| {
+                    TextLayoutFailure::baseline(entity, TextLayoutStage::Layout, error)
+                })?
+                .map_err(|error| TextLayoutFailure::text(entity, TextLayoutStage::Layout, error))?
         }
         None => fonts
             .with_typefaces(language, text.paragraph().shaping, |typefaces| {
@@ -671,10 +836,18 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
                     typefaces,
                 )
             })
-            .ok()?,
+            .map_err(|error| TextLayoutFailure::text(entity, TextLayoutStage::Layout, error))?,
     };
-    let measure = resource.borrow().get(handle)?.measure();
-    Some(LaidOutText { handle, measure })
+    let measure = resource
+        .borrow()
+        .get(handle)
+        .map(|layout| layout.measure())
+        .ok_or(TextLayoutFailure {
+            entity,
+            stage: TextLayoutStage::Layout,
+            kind: TextLayoutFailureKind::MissingLayout,
+        })?;
+    Ok(Some(LaidOutText { handle, measure }))
 }
 
 fn layout_text_tree(
@@ -682,16 +855,16 @@ fn layout_text_tree(
     world: &mut World,
     entities: &[Entity],
     index: &mut usize,
-) -> bool {
+) -> Result<bool, TextLayoutFailure> {
     use crate::types::fixed::from_textflow;
 
     if *index >= entities.len() {
-        return false;
+        return Ok(false);
     }
     let entity = entities[*index];
     *index += 1;
     let mut intrinsic_changed = false;
-    if let Some(layout) = layout_text(world, entity, node.rect.w) {
+    if let Some(layout) = layout_text(world, entity, node.rect.w)? {
         let measured_width = from_textflow(layout.measure.width);
         let measured_height = from_textflow(layout.measure.height);
         let (width, height) = if world.get::<crate::text::TextPath>(entity).is_none() {
@@ -713,9 +886,9 @@ fn layout_text_tree(
         world.insert(entity, layout.handle);
     }
     for child in &mut node.children {
-        intrinsic_changed |= layout_text_tree(child, world, entities, index);
+        intrinsic_changed |= layout_text_tree(child, world, entities, index)?;
     }
-    intrinsic_changed
+    Ok(intrinsic_changed)
 }
 
 fn compute_layout_snapshot(
@@ -723,13 +896,13 @@ fn compute_layout_snapshot(
     root: Entity,
     logical_w: u16,
     logical_h: u16,
-) -> Option<Box<LayoutSnapshot>> {
+) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_effectively_hidden(world, root) {
         if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
             cache.borrow_mut().begin_frame_with_owner_filter(|_| false);
         }
-        return None;
+        return Ok(None);
     }
     let initial_demand = (!previous
         .as_ref()
@@ -772,13 +945,21 @@ fn compute_layout_snapshot(
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
-                if !refresh_layout_tree(
+                let refreshed = refresh_layout_tree(
                     world,
                     root,
                     &mut snapshot.layout_tree,
                     &mut snapshot.parked,
-                ) {
-                    return None;
+                );
+                match refreshed {
+                    Ok(true) => {}
+                    Ok(false) => return Ok(None),
+                    Err(failure) => {
+                        snapshot.valid = false;
+                        snapshot.entities = entities;
+                        world.put_resource_box(snapshot);
+                        return Err(failure);
+                    }
                 }
                 snapshot.entities = entities;
                 snapshot
@@ -789,7 +970,10 @@ fn compute_layout_snapshot(
                     .as_ref()
                     .map_or(0, |demand| demand.parked_roots);
                 let mut parked = Vec::with_capacity(parked_capacity);
-                let layout_tree = build_retained_layout_tree(world, root, true, &mut parked)?;
+                let Some(layout_tree) = build_retained_layout_tree(world, root, true, &mut parked)?
+                else {
+                    return Ok(None);
+                };
                 Box::new(LayoutSnapshot {
                     root,
                     logical_w,
@@ -826,6 +1010,14 @@ fn compute_layout_snapshot(
             &mut text_index,
         )
     });
+    let intrinsic_changed = match intrinsic_changed {
+        Ok(changed) => changed,
+        Err(failure) => {
+            snapshot.valid = false;
+            world.put_resource_box(snapshot);
+            return Err(failure);
+        }
+    };
     if intrinsic_changed {
         crate::trace_span!("layout.final_compute", {
             compute_layout(
@@ -840,27 +1032,40 @@ fn compute_layout_snapshot(
     snapshot.logical_w = logical_w;
     snapshot.logical_h = logical_h;
     snapshot.valid = true;
-    Some(snapshot)
+    Ok(Some(snapshot))
 }
 
-pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
+pub(crate) fn apply_text_intrinsic(
+    world: &World,
+    entity: Entity,
+    node: &mut LayoutNode,
+) -> Result<(), TextLayoutFailure> {
     use crate::render::font::ResolvedFontStack;
     use crate::text::layout::TextLayoutResource;
     use crate::types::fixed::from_textflow;
     use crate::ui::widgets::text::Text;
 
     let Some(text) = world.get::<Text>(entity) else {
-        return;
+        return Ok(());
     };
     let style = world.get::<Style>(entity).expect("text widget style");
     let Some(cache) = world.resource::<TextLayoutResource>() else {
-        return;
+        return Ok(());
     };
     let face_limit = cache.borrow().limits().fallback_faces;
-    let Ok(Some(fonts)) =
-        ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit)
+    let Some(fonts) =
+        ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit).map_err(
+            |error| {
+                TextLayoutFailure::font_stack(
+                    entity,
+                    TextLayoutStage::Measure,
+                    error.required,
+                    error.limit,
+                )
+            },
+        )?
     else {
-        return;
+        return Ok(());
     };
     let font = fonts.primary();
     let content = text.resolve(world);
@@ -876,49 +1081,48 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
     let measure = match text_path {
         Some(path) => {
             let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
-                return;
+                return Ok(());
             };
             let Some(baselines) = world.resource::<crate::text::baseline::PathBaselineResource>()
             else {
-                return;
+                return Ok(());
             };
             let line_limit = request.max_lines.min(cache.borrow().limits().lines);
-            let Ok(Ok(measure)) = baselines.with_lines(
-                paths,
-                path,
-                crate::text::baseline::DEFAULT_TOLERANCE,
-                line_limit,
-                |widths| {
-                    let mut request = request;
-                    request.max_lines = request.max_lines.min(widths.line_count());
-                    request.line_widths = Some(widths);
-                    fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
-                        cache.borrow_mut().measure_cached(
-                            text_layout_owner(entity),
-                            font_fingerprint,
-                            request,
-                            faces,
-                        )
-                    })
-                },
-            ) else {
-                return;
-            };
-            measure
+            baselines
+                .with_lines(
+                    paths,
+                    path,
+                    crate::text::baseline::DEFAULT_TOLERANCE,
+                    line_limit,
+                    |widths| {
+                        let mut request = request;
+                        request.max_lines = request.max_lines.min(widths.line_count());
+                        request.line_widths = Some(widths);
+                        fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
+                            cache.borrow_mut().measure_cached(
+                                text_layout_owner(entity),
+                                font_fingerprint,
+                                request,
+                                faces,
+                            )
+                        })
+                    },
+                )
+                .map_err(|error| {
+                    TextLayoutFailure::baseline(entity, TextLayoutStage::Measure, error)
+                })?
+                .map_err(|error| TextLayoutFailure::text(entity, TextLayoutStage::Measure, error))?
         }
-        None => {
-            let Ok(measure) = fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
+        None => fonts
+            .with_typefaces(language, text.paragraph().shaping, |faces| {
                 cache.borrow_mut().measure_cached(
                     text_layout_owner(entity),
                     font_fingerprint,
                     request,
                     faces,
                 )
-            }) else {
-                return;
-            };
-            measure
-        }
+            })
+            .map_err(|error| TextLayoutFailure::text(entity, TextLayoutStage::Measure, error))?,
     };
     let measured_width = from_textflow(measure.width);
     let measured_height = from_textflow(measure.height);
@@ -928,6 +1132,7 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
         (measured_width, measured_height)
     };
     node.set_intrinsic_size(width, height);
+    Ok(())
 }
 
 fn text_layout_owner(entity: Entity) -> u64 {
@@ -1744,7 +1949,9 @@ pub fn render(
             renderer,
         );
     }
-    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+    let Some(mut layout_tree) =
+        build_layout_tree(world, root).map_err(|_| RenderError::TextLayout)?
+    else {
         return Ok(());
     };
     compute_layout(
@@ -1828,7 +2035,7 @@ fn reconcile_layout_snapshot(
     root: Entity,
     logical_w: u16,
     logical_h: u16,
-) -> Option<Box<LayoutSnapshot>> {
+) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
     const MAX_LAYOUT_BINDING_UPDATES: usize = 32;
     let binding_count = world
         .storage::<super::layout_binding::LayoutBinding>()
@@ -1842,7 +2049,9 @@ fn reconcile_layout_snapshot(
     let pass_count = update_budget.saturating_add(1);
 
     for pass in 0..pass_count {
-        let snapshot = compute_layout_snapshot(world, root, logical_w, logical_h)?;
+        let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h)? else {
+            return Ok(None);
+        };
 
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
@@ -1854,23 +2063,52 @@ fn reconcile_layout_snapshot(
                 !changed,
                 "layout bindings did not settle after {update_budget} updates"
             );
-            return world.take_resource_box::<LayoutSnapshot>();
+            return Ok(world.take_resource_box::<LayoutSnapshot>());
         }
         crate::core::reactive::flush_signal_dirty(world);
     }
-    None
+    Ok(None)
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
+/// This compatibility entry records failures as a [`TextLayoutFailure`] world resource;
+/// use [`try_update_layout`] when the caller must stop rendering on failure.
 pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
+    let _ = try_update_layout(world, root, transform);
+}
+
+fn record_text_layout_failure(world: &mut World, root: Entity, failure: TextLayoutFailure) {
+    if let Some(snapshot) = world.resource_mut::<LayoutSnapshot>() {
+        snapshot.valid = false;
+    }
+    crate::input::event::hit_test::invalidate_hit_test_geometry(world);
+    world.mark_subtree_dirty(root);
+    world.insert_resource(failure);
+}
+
+/// Compute layout, reporting text capacity and shaping failures before drawing.
+/// The last failure is also available as a [`TextLayoutFailure`] world resource.
+pub fn try_update_layout(
+    world: &mut World,
+    root: Entity,
+    transform: &Viewport,
+) -> Result<(), TextLayoutFailure> {
     let (logical_w, logical_h) = transform.logical_size();
 
     if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
         cache.begin_frame();
     }
 
-    let Some(snapshot) = reconcile_layout_snapshot(world, root, logical_w, logical_h) else {
-        return;
+    let snapshot = match reconcile_layout_snapshot(world, root, logical_w, logical_h) {
+        Ok(snapshot) => snapshot,
+        Err(failure) => {
+            record_text_layout_failure(world, root, failure);
+            return Err(failure);
+        }
+    };
+    let Some(snapshot) = snapshot else {
+        world.remove_resource::<TextLayoutFailure>();
+        return Ok(());
     };
     crate::input::event::hit_test::update_hit_test_geometry(
         world,
@@ -1881,6 +2119,8 @@ pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
         &snapshot.entities,
     );
     world.put_resource_box(snapshot);
+    world.remove_resource::<TextLayoutFailure>();
+    Ok(())
 }
 
 fn write_computed_rects(
@@ -1919,7 +2159,9 @@ pub fn render_region(
             renderer,
         );
     }
-    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+    let Some(mut layout_tree) =
+        build_layout_tree(world, root).map_err(|_| RenderError::TextLayout)?
+    else {
         return Ok(());
     };
     compute_layout(
@@ -2489,6 +2731,17 @@ pub(crate) fn collect_dirty_regions_into(
     transform: &Viewport,
     plan: &mut DirtyRegions,
 ) {
+    // Existing plan callers can query the TextLayoutFailure world resource.
+    let _ = try_collect_dirty_regions_into(world, root, transform, plan);
+}
+
+/// Build a dirty plan, reporting text layout failures before any blit or draw.
+pub(crate) fn try_collect_dirty_regions_into(
+    world: &mut World,
+    root: Entity,
+    transform: &Viewport,
+    plan: &mut DirtyRegions,
+) -> Result<(), TextLayoutFailure> {
     let (logical_w, logical_h) = transform.logical_size();
     plan.clear();
 
@@ -2498,14 +2751,18 @@ pub(crate) fn collect_dirty_regions_into(
 
     if super::branch::is_effectively_hidden(world, root) {
         let had_snapshot = world.resource::<LayoutSnapshot>().is_some();
-        let _ = compute_layout_snapshot(world, root, logical_w, logical_h);
+        if let Err(failure) = compute_layout_snapshot(world, root, logical_w, logical_h) {
+            record_text_layout_failure(world, root, failure);
+            return Err(failure);
+        }
         drain_dirty_rects(world, plan);
         if had_snapshot || !plan.rects.is_empty() {
             plan.rects.clear();
             plan.rects.push(Rect::new(0, 0, logical_w, logical_h));
             crate::input::event::hit_test::invalidate_hit_test_geometry(world);
         }
-        return;
+        world.remove_resource::<TextLayoutFailure>();
+        return Ok(());
     }
 
     // Idle skip: with no visible Dirty markers the 5-step walk would just
@@ -2530,7 +2787,8 @@ pub(crate) fn collect_dirty_regions_into(
         && hit_geometry_valid
         && !snapshot_stale
     {
-        return;
+        world.remove_resource::<TextLayoutFailure>();
+        return Ok(());
     }
 
     if !has_layout_dirty
@@ -2541,7 +2799,8 @@ pub(crate) fn collect_dirty_regions_into(
         && hit_geometry_valid
     {
         drain_dirty_rects(world, plan);
-        return;
+        world.remove_resource::<TextLayoutFailure>();
+        return Ok(());
     }
 
     let visual_only = !has_layout_dirty;
@@ -2553,12 +2812,13 @@ pub(crate) fn collect_dirty_regions_into(
         }
         None => None,
     };
-    let Some(mut snapshot) = (if visual_only {
-        existing.or_else(|| {
-            crate::trace_span!("dirty.layout", {
+    let result = if visual_only {
+        match existing {
+            Some(snapshot) => Ok(Some(snapshot)),
+            None => crate::trace_span!("dirty.layout", {
                 reconcile_layout_snapshot(world, root, logical_w, logical_h)
-            })
-        })
+            }),
+        }
     } else {
         if let Some(snapshot) = existing {
             world.put_resource_box(snapshot);
@@ -2566,8 +2826,18 @@ pub(crate) fn collect_dirty_regions_into(
         crate::trace_span!("dirty.layout", {
             reconcile_layout_snapshot(world, root, logical_w, logical_h)
         })
-    }) else {
-        return;
+    };
+    let snapshot = match result {
+        Ok(snapshot) => snapshot,
+        Err(failure) => {
+            record_text_layout_failure(world, root, failure);
+            plan.clear();
+            return Err(failure);
+        }
+    };
+    let Some(mut snapshot) = snapshot else {
+        world.remove_resource::<TextLayoutFailure>();
+        return Ok(());
     };
 
     let mut bounds = DirtyBounds {
@@ -2686,6 +2956,8 @@ pub(crate) fn collect_dirty_regions_into(
     );
 
     world.put_resource_box(snapshot);
+    world.remove_resource::<TextLayoutFailure>();
+    Ok(())
 }
 
 fn drain_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
@@ -4361,9 +4633,9 @@ mod text_layout_check {
         world.widget_mut(padded).unwrap().text_path(path);
 
         let mut plain_node = LayoutNode::new(LayoutStyle::default());
-        apply_text_intrinsic(&world, plain, &mut plain_node);
+        apply_text_intrinsic(&world, plain, &mut plain_node).unwrap();
         let mut padded_node = LayoutNode::new(padded_layout);
-        apply_text_intrinsic(&world, padded, &mut padded_node);
+        apply_text_intrinsic(&world, padded, &mut padded_node).unwrap();
 
         assert_eq!(padded_node.intrinsic_width, plain_node.intrinsic_width);
         assert_eq!(padded_node.intrinsic_height, plain_node.intrinsic_height);

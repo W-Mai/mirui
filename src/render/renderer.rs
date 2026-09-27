@@ -436,6 +436,8 @@ pub enum RenderResource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderError {
     Unsupported(RenderFeature),
+    /// Text preparation failed before drawing; query the App for the widget and cause.
+    TextLayout,
     InvalidGeometry,
     InvalidTexture,
     MissingWorkspace,

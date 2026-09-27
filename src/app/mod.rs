@@ -228,6 +228,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    /// Last text preparation failure, if a layout pass has not since succeeded.
+    pub fn last_text_layout_failure(&self) -> Option<crate::ui::render_system::TextLayoutFailure> {
+        self.world
+            .resource::<crate::ui::render_system::TextLayoutFailure>()
+            .copied()
+    }
+
     pub fn with_path_capacity(
         &mut self,
         capacity: usize,
@@ -595,7 +602,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         {
             crate::trace_span!("frame.layout");
-            render_system::update_layout(&mut self.world, root, &transform);
+            render_system::try_update_layout(&mut self.world, root, &transform)
+                .map_err(|_| crate::render::RenderError::TextLayout)?;
         }
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
@@ -952,19 +960,28 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
         let mut plan = core::mem::take(&mut self.dirty_plan);
         if force_full {
-            render_system::update_layout(&mut self.world, root, &transform);
+            if render_system::try_update_layout(&mut self.world, root, &transform).is_err() {
+                plan.clear();
+                self.dirty_plan = plan;
+                return Err(crate::render::RenderError::TextLayout);
+            }
             plan.clear();
             let (lw, lh) = transform.logical_size();
             plan.rects.push(Rect::new(0, 0, lw, lh));
         } else {
-            crate::trace_span!("frame.collect_dirty", {
-                render_system::collect_dirty_regions_into(
+            let collected = crate::trace_span!("frame.collect_dirty", {
+                render_system::try_collect_dirty_regions_into(
                     &mut self.world,
                     root,
                     &transform,
                     &mut plan,
                 )
             });
+            if collected.is_err() {
+                plan.clear();
+                self.dirty_plan = plan;
+                return Err(crate::render::RenderError::TextLayout);
+            }
         }
         if root_hidden && self.needs_full_first_frame && plan.is_empty() {
             let (lw, lh) = transform.logical_size();
@@ -1307,9 +1324,157 @@ mod dirty_plan_reuse_check {
     use crate::types::{Dimension, Fixed};
     use crate::ui::builder::WidgetBuilder;
     use crate::ui::dirty::Dirty;
+    use crate::ui::layout::LayoutNode;
     use crate::ui::layout::LayoutStyle;
     use crate::ui::render_system::{LastDirtyRegions, LayoutSnapshot};
+    use crate::ui::render_system::{TextLayoutFailureKind, TextLayoutStage};
+    use crate::ui::widgets::text::Text;
     use crate::ui::{Children, HitTarget, Parent};
+
+    #[test]
+    fn text_limit_failure_keeps_the_last_frame_and_recovers_in_full_and_dirty_render() {
+        let mut app = App::headless(48, 24);
+        app.with_default_widgets();
+        app.with_text_layout_limits(crate::text::TextLayoutLimits {
+            text_bytes: 2,
+            ..crate::text::TextLayoutLimits::HOST
+        });
+        let root = app.spawn_root().id();
+        let label = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                width: Dimension::Content,
+                height: Dimension::Content,
+                ..LayoutStyle::default()
+            })
+            .id();
+        app.world.insert(label, Text::from("OK"));
+        app.world.insert(label, Parent(root));
+        app.world.get_mut::<Children>(root).unwrap().0.push(label);
+
+        app.render().unwrap();
+        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        let snapshot_ptr = app.world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
+
+        app.world
+            .get_mut::<Text>(label)
+            .unwrap()
+            .set_content("LONG");
+        assert_eq!(app.render(), Err(crate::render::RenderError::TextLayout));
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.last_text_layout_failure(),
+            Some(crate::ui::render_system::TextLayoutFailure {
+                entity: label,
+                stage: TextLayoutStage::Measure,
+                kind: TextLayoutFailureKind::Text(crate::text::TextLayoutError::TextLimit {
+                    required: 4,
+                    limit: 2,
+                }),
+            })
+        );
+        assert_eq!(
+            app.world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
+            snapshot_ptr,
+        );
+        assert!(!crate::input::event::hit_test::geometry_matches(
+            &app.world, root, 48, 24
+        ));
+
+        app.world.get_mut::<Text>(label).unwrap().set_content("OK");
+        app.render().unwrap();
+        assert_eq!(app.last_text_layout_failure(), None);
+
+        app.world
+            .get_mut::<Text>(label)
+            .unwrap()
+            .set_content("LONG");
+        app.world.insert(root, Dirty);
+        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        assert_eq!(
+            app.render_dirty(),
+            Err(crate::render::RenderError::TextLayout)
+        );
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert!(app.world.has::<Dirty>(root));
+        assert_eq!(app.last_text_layout_failure().unwrap().entity, label);
+
+        app.world.get_mut::<Text>(label).unwrap().set_content("OK");
+        app.render_dirty().unwrap();
+        assert_eq!(app.last_text_layout_failure(), None);
+        assert!(crate::input::event::hit_test::geometry_matches(
+            &app.world, root, 48, 24
+        ));
+
+        let mut baseline = crate::render::path::Path::new();
+        baseline
+            .move_to(crate::types::Point::new(0, 16))
+            .line_to(crate::types::Point::new(40, 16));
+        let path = app
+            .world
+            .resource_mut::<crate::render::path::PathStore>()
+            .unwrap()
+            .insert(baseline)
+            .unwrap();
+        app.world.widget_mut(label).unwrap().text_path(path);
+        app.world
+            .get_mut::<Text>(label)
+            .unwrap()
+            .set_content("LONG");
+        app.world.insert(root, Dirty);
+        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        assert_eq!(
+            app.render_dirty(),
+            Err(crate::render::RenderError::TextLayout)
+        );
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(app.last_text_layout_failure().unwrap().entity, label);
+
+        app.world.get_mut::<Text>(label).unwrap().set_content("OK");
+        app.render_dirty().unwrap();
+        assert_eq!(app.last_text_layout_failure(), None);
+    }
+
+    #[test]
+    fn text_layout_budget_failure_reports_the_layout_stage_and_recovers() {
+        let mut app = App::headless(48, 24);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let label = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                width: Dimension::Content,
+                height: Dimension::Content,
+                ..LayoutStyle::default()
+            })
+            .id();
+        app.world.insert(label, Text::from("LABEL"));
+        app.world.insert(label, Parent(root));
+        app.world.get_mut::<Children>(root).unwrap().0.push(label);
+
+        let mut node = LayoutNode::new(LayoutStyle::default());
+        crate::ui::render_system::apply_text_intrinsic(&app.world, label, &mut node).unwrap();
+        let measure_budget = app
+            .world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .unwrap()
+            .borrow()
+            .resident_bytes();
+        app.with_text_layout_limits(
+            crate::text::TextLayoutLimits::HOST.with_cache_bytes(measure_budget),
+        );
+
+        assert_eq!(app.render(), Err(crate::render::RenderError::TextLayout));
+        let failure = app.last_text_layout_failure().unwrap();
+        assert_eq!(failure.entity, label);
+        assert_eq!(failure.stage, TextLayoutStage::Layout);
+        assert!(matches!(
+            failure.kind,
+            TextLayoutFailureKind::Text(crate::text::TextLayoutError::CacheBudget { .. })
+        ));
+
+        app.with_text_layout_limits(crate::text::TextLayoutLimits::HOST);
+        app.render().unwrap();
+        assert_eq!(app.last_text_layout_failure(), None);
+    }
 
     #[test]
     fn active_and_idle_frames_retain_plan_storage() {
