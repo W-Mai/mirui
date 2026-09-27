@@ -95,6 +95,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             surface: backend,
             viewport: *transform,
             draw_failed: false,
+            known_transform: None,
         }
     }
 }
@@ -104,6 +105,8 @@ pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
     draw_failed: bool,
+    // Only command draws track their transform; direct Canvas calls may inherit external state.
+    known_transform: Option<[f64; 6]>,
 }
 
 struct GlyphRunDraw<'a> {
@@ -144,6 +147,19 @@ fn map_point(
             )
         }
     }
+}
+
+fn compose_canvas_transform(base: [f64; 6], next: [f64; 6]) -> [f64; 6] {
+    let [a, b, c, d, e, f] = base;
+    let [g, h, i, j, k, l] = next;
+    [
+        a * g + c * h,
+        b * g + d * h,
+        a * i + c * j,
+        b * i + d * j,
+        a * k + c * l + e,
+        b * k + d * l + f,
+    ]
 }
 
 fn map_scalar_grad(
@@ -285,6 +301,23 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         self.viewport.scale().to_f32() as f64
     }
 
+    fn context_transform(&self) -> [f64; 6] {
+        self.known_transform.unwrap_or_else(|| {
+            let transform = self
+                .ctx()
+                .get_transform()
+                .expect("CanvasRenderingContext2d.getTransform");
+            [
+                transform.a(),
+                transform.b(),
+                transform.c(),
+                transform.d(),
+                transform.e(),
+                transform.f(),
+            ]
+        })
+    }
+
     /// `None` when OOB — `getImageData` would silently return transparent
     /// black for the out-of-canvas portion (W3C spec).
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
@@ -299,9 +332,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     /// `pop_clip` undoes both the clip and the transform restoration.
     fn push_rect_clip(&self, clip: &Rect) {
         let ctx = self.ctx();
-        let saved = ctx
-            .get_transform()
-            .expect("CanvasRenderingContext2d.getTransform");
+        let saved = self.context_transform();
         ctx.save();
         let d = self.dpr();
         ctx.set_transform(d, 0.0, 0.0, d, 0.0, 0.0)
@@ -314,15 +345,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             clip.h.to_f32() as f64,
         );
         ctx.clip();
-        ctx.set_transform(
-            saved.a(),
-            saved.b(),
-            saved.c(),
-            saved.d(),
-            saved.e(),
-            saved.f(),
-        )
-        .expect("setTransform(restore)");
+        ctx.set_transform(saved[0], saved[1], saved[2], saved[3], saved[4], saved[5])
+            .expect("setTransform(restore)");
     }
 
     fn pop_rect_clip(&self) {
@@ -1025,22 +1049,25 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 | DrawCommand::Border { quad: Some(_), .. }
                 | DrawCommand::Blit { quad: Some(_), .. }
         );
-        let ctx = self.ctx();
-        ctx.save();
-        if has_quad {
-            ctx.set_transform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)
-                .expect("setTransform");
+        let matrix = if has_quad {
+            [dpr, 0.0, 0.0, dpr, 0.0, 0.0]
         } else {
-            ctx.set_transform(
+            [
                 tf.m00.to_f32() as f64 * dpr,
                 tf.m10.to_f32() as f64 * dpr,
                 tf.m01.to_f32() as f64 * dpr,
                 tf.m11.to_f32() as f64 * dpr,
                 tf.tx.to_f32() as f64 * dpr,
                 tf.ty.to_f32() as f64 * dpr,
-            )
-            .expect("setTransform");
-        }
+            ]
+        };
+        let ctx = self.ctx();
+        ctx.save();
+        ctx.set_transform(
+            matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5],
+        )
+        .expect("setTransform");
+        let previous_transform = self.known_transform.replace(matrix);
 
         match cmd {
             DrawCommand::Fill {
@@ -1212,6 +1239,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         }
 
         self.ctx().restore();
+        self.known_transform = previous_transform;
     }
 
     fn flush(&mut self) {
@@ -1227,17 +1255,22 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             let tangent_y = crate::types::fixed::from_textflow(frame.unit_tangent.y);
             let origin_x = draw.pos.x + crate::types::fixed::from_textflow(frame.local_origin.x);
             let origin_y = draw.pos.y + crate::types::fixed::from_textflow(frame.local_origin.y);
-            let ctx = self.ctx();
-            ctx.save();
-            let transformed = ctx.transform(
+            let pose = [
                 tangent_x.to_f32() as f64,
                 tangent_y.to_f32() as f64,
                 -tangent_y.to_f32() as f64,
                 tangent_x.to_f32() as f64,
                 origin_x.to_f32() as f64,
                 origin_y.to_f32() as f64,
-            );
+            ];
+            self.ctx().save();
+            let transformed = self
+                .ctx()
+                .transform(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
             if transformed.is_ok() {
+                let previous_transform = self.known_transform;
+                self.known_transform =
+                    previous_transform.map(|transform| compose_canvas_transform(transform, pose));
                 let glyph = [textflow::shaping::PositionedGlyph::new(
                     positioned.glyph_id(),
                     textflow::shaping::FlowPoint { x: 0, y: 0 },
@@ -1251,6 +1284,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                     color: draw.color,
                     opacity: draw.opacity,
                 });
+                self.known_transform = previous_transform;
             }
             self.ctx().restore();
         }
@@ -1483,7 +1517,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         let _ = ctx.set_global_composite_operation(op);
 
         if radius > Fixed::ZERO {
-            let saved = ctx.get_transform().expect("getTransform");
+            let saved = self.context_transform();
             let d = self.dpr();
             ctx.set_transform(d, 0.0, 0.0, d, 0.0, 0.0)
                 .expect("setTransform(dpr)");
@@ -1514,15 +1548,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
             );
             ctx.close_path();
             ctx.clip();
-            ctx.set_transform(
-                saved.a(),
-                saved.b(),
-                saved.c(),
-                saved.d(),
-                saved.e(),
-                saved.f(),
-            )
-            .expect("setTransform(restore)");
+            ctx.set_transform(saved[0], saved[1], saved[2], saved[3], saved[4], saved[5])
+                .expect("setTransform(restore)");
         }
 
         let result = ctx

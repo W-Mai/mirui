@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web Canvas clipping.** Clipped draws reuse their known transform instead of creating a DOM matrix for each clip.
 - **First retained text branch switch.** Initial layout reserves component storage for text handles in hidden branches, avoiding allocation when those branches first become visible.
 - **Software line drawing.** Straight lines use stack-backed path commands instead of allocating a temporary path for each draw.
 - **First dirty-frame allocations.** App initialization reserves the fixed dirty-region slots and previous-frame plan storage, so ordinary dirty rendering does not allocate those buffers on first use.
