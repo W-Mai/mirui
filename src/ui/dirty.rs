@@ -82,15 +82,17 @@ impl Drop for DirtyTraversal<'_> {
     }
 }
 
+pub(crate) const EXACT_DIRTY_REGION_CAPACITY: usize = 4;
+
 pub(crate) struct ExactDirtyRegions {
-    rects: [Rect; 4],
+    rects: [Rect; EXACT_DIRTY_REGION_CAPACITY],
     len: u8,
 }
 
 impl Default for ExactDirtyRegions {
     fn default() -> Self {
         Self {
-            rects: [Rect::ZERO; 4],
+            rects: [Rect::ZERO; EXACT_DIRTY_REGION_CAPACITY],
             len: 0,
         }
     }

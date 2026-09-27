@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pointer event storage.** Apps initialize cursor and gesture-event capacity before input; pointer events update the retained cursor instead of replacing its World resource.
+- **First page-switch rendering.** Dirty plans reserve space for both tracked regions and exact invalidations, while software renderers reserve scanline coverage for the current viewport width before drawing.
 - **First app tap storage.** `App::with_factory` initializes multi-tap tracking with its other input resources, so the first Tap does not allocate the tracker during dispatch.
 - **Dirty component storage.** Apps reserve slots for constructed entities before visibility updates, so cached page switches do not grow the dirty store.
 - **Software arc storage.** Direct and affine arcs reuse the renderer's path commands instead of allocating a temporary path per draw.

@@ -115,6 +115,13 @@ impl SwScratch {
         }
     }
 
+    pub(crate) fn prepare_scanline(&mut self, width: usize) {
+        if self.scanline_acc.capacity() < width {
+            self.scanline_acc
+                .reserve(width.saturating_sub(self.scanline_acc.len()));
+        }
+    }
+
     fn reset_frame(&mut self) {
         while let Some(mut mask) = self.clip_stack.pop() {
             mask.alpha.clear();

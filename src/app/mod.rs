@@ -7,11 +7,11 @@ use alloc::vec::Vec;
 
 use crate::app::plugin::Plugin;
 use crate::ecs::{Entity, System, SystemScheduler, World};
-use crate::input::event::bubble_dispatch_at;
 use crate::input::event::focus::{FocusState, focus_on_tap};
-use crate::input::event::gesture::GestureSystem;
+use crate::input::event::gesture::{GestureEvents, GestureSystem};
 use crate::input::event::multi_tap::MultiTapTracker;
 use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
+use crate::input::event::{PointerCursor, bubble_dispatch_at};
 use crate::render::canvas::Canvas;
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
@@ -205,7 +205,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollSpring::default());
-        world.insert_resource(GestureSystem::default());
+        world.insert_resource(PointerCursor::default());
+        world.insert_resource(GestureSystem {
+            events: GestureEvents::new(),
+            ..GestureSystem::default()
+        });
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(FocusState::default());
         let info = backend.display_info();
@@ -226,7 +230,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(crate::ui::dirty::ExactDirtyRegions::default());
         world.insert_resource(RenderViewport(backend.viewport()));
         world.insert_resource(crate::ui::render_system::LastDirtyRegions(
-            DirtyRegions::with_rect_capacity(render_system::DIRTY_REGION_CAPACITY),
+            DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
         ));
         Self {
             world,
@@ -241,7 +245,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_render_ns: 0,
             last_flush_ns: 0,
             last_seed_prev_ns: 0,
-            dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_REGION_CAPACITY),
+            dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
             pending_frame: None,
             needs_full_first_frame: true,
             suspended: false,
@@ -374,7 +378,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         Ok(self)
     }
 
-    /// Request one reusable text raster scratch surface for bounded runs.
+    /// Request reusable raster storage for bounded text runs.
     /// Multiple requests retain the largest width and height independently.
     /// This is a performance hint; runs that exceed it use the normal cache.
     pub fn prefer_text_raster_scratch(

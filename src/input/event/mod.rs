@@ -26,6 +26,16 @@ pub struct PointerCursor {
     pub event_seq: u32,
 }
 
+fn update_pointer_cursor(world: &mut World, update: impl FnOnce(&mut PointerCursor)) {
+    if let Some(cursor) = world.resource_mut::<PointerCursor>() {
+        update(cursor);
+    } else {
+        let mut cursor = PointerCursor::default();
+        update(&mut cursor);
+        world.insert_resource(cursor);
+    }
+}
+
 /// Single source of truth for the per-event side of the input
 /// pipeline. Both `App::run`'s real input loop and
 /// `sim_timeline_system` (which fakes pointer events) call this so
@@ -46,45 +56,33 @@ pub fn dispatch_input(
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     match event {
         InputEvent::PointerDown { x, y, .. } => {
-            let mut next = world
-                .resource::<PointerCursor>()
-                .copied()
-                .unwrap_or_default();
-            next.x = *x;
-            next.y = *y;
-            next.down = true;
-            next.event_seq = next.event_seq.wrapping_add(1);
-            world.insert_resource(next);
+            update_pointer_cursor(world, |cursor| {
+                cursor.x = *x;
+                cursor.y = *y;
+                cursor.down = true;
+                cursor.event_seq = cursor.event_seq.wrapping_add(1);
+            });
         }
         InputEvent::PointerMove { x, y, .. } => {
-            let mut next = world
-                .resource::<PointerCursor>()
-                .copied()
-                .unwrap_or_default();
-            next.x = *x;
-            next.y = *y;
-            world.insert_resource(next);
+            update_pointer_cursor(world, |cursor| {
+                cursor.x = *x;
+                cursor.y = *y;
+            });
         }
         InputEvent::PointerUp { x, y, .. } | InputEvent::PointerCancel { x, y, .. } => {
-            let mut next = world
-                .resource::<PointerCursor>()
-                .copied()
-                .unwrap_or_default();
-            next.x = *x;
-            next.y = *y;
-            next.down = false;
-            next.event_seq = next.event_seq.wrapping_add(1);
-            world.insert_resource(next);
+            update_pointer_cursor(world, |cursor| {
+                cursor.x = *x;
+                cursor.y = *y;
+                cursor.down = false;
+                cursor.event_seq = cursor.event_seq.wrapping_add(1);
+            });
         }
         InputEvent::AppSuspend => {
-            let mut next = world
-                .resource::<PointerCursor>()
-                .copied()
-                .unwrap_or_default();
-            if next.down {
-                next.down = false;
-                next.event_seq = next.event_seq.wrapping_add(1);
-                world.insert_resource(next);
+            if let Some(cursor) = world.resource_mut::<PointerCursor>()
+                && cursor.down
+            {
+                cursor.down = false;
+                cursor.event_seq = cursor.event_seq.wrapping_add(1);
             }
         }
         _ => {}
@@ -481,6 +479,46 @@ mod tests {
         assert_eq!(cursor.y, Fixed::from_int(18));
         assert!(!cursor.down);
         assert_eq!(cursor.event_seq, 8);
+    }
+
+    #[test]
+    fn pointer_cursor_updates_existing_resource_across_events() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert_resource(PointerCursor::default());
+        let address = world.resource::<PointerCursor>().unwrap() as *const PointerCursor;
+
+        for event in [
+            InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::from_int(4),
+                y: Fixed::from_int(5),
+            },
+            InputEvent::PointerMove {
+                id: 0,
+                x: Fixed::from_int(6),
+                y: Fixed::from_int(7),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(9),
+            },
+        ] {
+            dispatch_input(&mut world, root, &event, 0, 64, 64);
+            assert_eq!(
+                world.resource::<PointerCursor>().unwrap() as *const _,
+                address
+            );
+        }
+
+        let cursor = world.resource::<PointerCursor>().unwrap();
+        assert_eq!(
+            (cursor.x, cursor.y),
+            (Fixed::from_int(8), Fixed::from_int(9))
+        );
+        assert!(!cursor.down);
+        assert_eq!(cursor.event_seq, 2);
     }
 
     mod dual_channel {

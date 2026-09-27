@@ -2383,6 +2383,8 @@ fn prerender_sources(
 }
 
 pub(crate) const DIRTY_REGION_CAPACITY: usize = 4;
+pub(crate) const DIRTY_PLAN_RECT_CAPACITY: usize =
+    DIRTY_REGION_CAPACITY + super::dirty::EXACT_DIRTY_REGION_CAPACITY;
 
 struct DirtyBounds {
     min_x: Fixed,

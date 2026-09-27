@@ -74,6 +74,8 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
         Self: 'a,
         B: 'a;
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> SwRenderer<'a> {
+        self.scratch
+            .prepare_scanline(usize::from(transform.physical_size().0));
         let tex = backend.framebuffer();
         let mut r = SwRenderer::with_scratch(tex, &mut self.scratch);
         r.viewport = *transform;
