@@ -286,6 +286,13 @@ impl DirtyRegions {
         Self::default()
     }
 
+    pub(crate) fn with_rect_capacity(capacity: usize) -> Self {
+        Self {
+            rects: Vec::with_capacity(capacity),
+            shifts: Vec::new(),
+        }
+    }
+
     pub fn mark(&mut self, rect: Rect) {
         self.rects.push(rect);
     }

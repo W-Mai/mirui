@@ -2311,12 +2311,14 @@ fn prerender_sources(
     Ok(())
 }
 
+pub(crate) const DIRTY_REGION_CAPACITY: usize = 4;
+
 struct DirtyBounds {
     min_x: Fixed,
     min_y: Fixed,
     max_x: Fixed,
     max_y: Fixed,
-    regions: [Rect; 4],
+    regions: [Rect; DIRTY_REGION_CAPACITY],
     region_count: usize,
     overflow: bool,
 }
@@ -2845,7 +2847,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         min_y: Fixed::from(logical_h),
         max_x: Fixed::from_int(-1),
         max_y: Fixed::from_int(-1),
-        regions: [Rect::ZERO; 4],
+        regions: [Rect::ZERO; DIRTY_REGION_CAPACITY],
         region_count: 0,
         overflow: false,
     };

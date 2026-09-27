@@ -187,6 +187,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(crate::ui::IdMap::new());
         world.insert_resource(crate::ui::dirty::ExactDirtyRegions::default());
         world.insert_resource(RenderViewport(backend.viewport()));
+        world.insert_resource(crate::ui::render_system::LastDirtyRegions(
+            DirtyRegions::with_rect_capacity(render_system::DIRTY_REGION_CAPACITY),
+        ));
         Self {
             world,
             backend,
@@ -200,7 +203,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_render_ns: 0,
             last_flush_ns: 0,
             last_seed_prev_ns: 0,
-            dirty_plan: DirtyRegions::default(),
+            dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_REGION_CAPACITY),
             pending_frame: None,
             needs_full_first_frame: true,
             suspended: false,
