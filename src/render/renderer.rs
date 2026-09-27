@@ -1,8 +1,16 @@
+use crate::ecs::Entity;
 use crate::types::{Fixed, PhysicalRect, Rect, Transform3D, Viewport};
 
 use super::command::{CompositeMode, DrawCommand};
 use super::scratch::{PlaneLayout, PlaneRequirements};
 use super::texture::{ColorFormat, TexBuf, Texture};
+
+/// Stable identity of one run in a bounded `Text` widget.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct TextRunIdentity {
+    pub entity: Entity,
+    pub run_index: usize,
+}
 
 /// One draw under its effective clip and shared projective transform.
 #[derive(Clone, Copy)]
@@ -344,6 +352,21 @@ impl Renderer for RegionRenderer<'_> {
         self.inner.submit(&self.request(request))
     }
 
+    fn submit_text_run(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        identity: TextRunIdentity,
+    ) -> Result<(), RenderError> {
+        if let Some(command) = self.explicit_quad(request.command) {
+            return self.inner.submit_text_run(
+                &DrawRequest::new(&command, self.clip(request.clip))
+                    .with_projective(request.projective),
+                identity,
+            );
+        }
+        self.inner.submit_text_run(&self.request(request), identity)
+    }
+
     fn submit_with_route(
         &mut self,
         request: &DrawRequest<'_, '_>,
@@ -554,6 +577,16 @@ pub trait Renderer {
     /// Execute one validated draw request without silently changing its
     /// semantics.
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError>;
+
+    /// Submit a bounded text run with its stable widget and run identity.
+    /// Other renderers use the ordinary draw path.
+    fn submit_text_run(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        _identity: TextRunIdentity,
+    ) -> Result<(), RenderError> {
+        self.submit(request)
+    }
 
     /// Execute a request with the exact route returned by an earlier
     /// [`Self::route`] call for the same request.
@@ -965,6 +998,56 @@ mod tests {
         assert_eq!(request.clip, clip);
         assert_eq!(request.projective, projection);
         assert!(matches!(request.command, DrawCommand::ApplyBlur { .. }));
+    }
+
+    #[test]
+    fn region_forwards_text_run_identity_and_rebased_request() {
+        #[derive(Default)]
+        struct Recorder {
+            seen: Option<(TextRunIdentity, Rect, Transform3D)>,
+        }
+
+        impl Renderer for Recorder {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+
+            fn submit_text_run(
+                &mut self,
+                request: &DrawRequest<'_, '_>,
+                identity: TextRunIdentity,
+            ) -> Result<(), RenderError> {
+                self.seen = Some((identity, request.clip, request.projective));
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let identity = TextRunIdentity {
+            entity: Entity {
+                id: 7,
+                generation: 3,
+            },
+            run_index: 2,
+        };
+        let clip = Rect::new(3, 4, 8, 9);
+        let command = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE,
+            region: clip,
+        };
+        let mut recorder = Recorder::default();
+        RegionRenderer::new(&mut recorder, Fixed::from_int(3), Fixed::from_int(4))
+            .submit_text_run(&DrawRequest::new(&command, clip), identity)
+            .unwrap();
+        assert_eq!(
+            recorder.seen,
+            Some((
+                identity,
+                Rect::new(0, 0, 8, 9),
+                Transform3D::translate(Fixed::from_int(-3), Fixed::from_int(-4)),
+            ))
+        );
     }
 
     #[test]

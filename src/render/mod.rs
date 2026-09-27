@@ -34,7 +34,7 @@ pub use glyph_run::PosedGlyphs;
 pub use projective_fallback::ProjectiveFallback;
 pub use renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderResource,
-    RenderRoute, Renderer,
+    RenderRoute, Renderer, TextRunIdentity,
 };
 pub use scratch::{AlignedPlane, PlaneError, PlaneLayout, PlaneRequirements};
 pub use sw::SwRenderer;

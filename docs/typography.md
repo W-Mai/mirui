@@ -79,6 +79,8 @@ app.prepare_text_layout()?;
 
 Registration does not replace the cache. Preparation checks the combined request against the active byte budget and leaves the previous cache intact on failure. Calls after layout starts and mixing additive requirements with `with_text_layout_capacity` return an error rather than discarding another module's reservation. `App::render()` and `App::render_dirty()` also prepare a pending requirement before layout; a failure returns `RenderError::TextPreparation`, with its cause available through `App::last_text_layout_preparation_error()`. Applications that control startup should call `prepare_text_layout` explicitly to report failures before entering the frame loop. Without an opt-in requirement, text layout keeps its existing on-demand behavior.
 
+On Web Canvas, `WebCanvasRendererFactory::text_resource_stats()` reports bounded run draws, successful glyph uploads, logical uploaded RGBA bytes, and the current glyph cache size. Existing run ordinals keep their entity-and-run identity across content changes; ordinary text and text inputs retain their existing rendering path. These counters are diagnostics, not a zero-resource-growth guarantee: a new glyph combination can still create a browser canvas and image data, and cache eviction can lead to another upload. Browser object overhead is not included in the byte count.
+
 An explicit memory warning retains bounded text storage and its live handles so the capacity guarantee still applies to the next frame. Unbounded text caches retain their existing trim behavior.
 
 ## Text on a static path

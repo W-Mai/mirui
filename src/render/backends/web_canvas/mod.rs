@@ -7,6 +7,7 @@ mod texture_pool;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
@@ -22,7 +23,7 @@ use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackP
 use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
-    Renderer,
+    Renderer, TextRunIdentity,
 };
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
@@ -48,6 +49,19 @@ pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     texture_pool: TexturePool,
     glyph_pool: GlyphPool,
     projective_fallback: Option<ProjectiveFallback<S>>,
+    bounded_text_runs: u64,
+    bounded_text_uploads: u64,
+    bounded_text_upload_bytes: u64,
+}
+
+/// Observable Web text resource use since this factory was created.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WebTextResourceStats {
+    pub bounded_runs: u64,
+    pub bounded_uploads: u64,
+    pub bounded_upload_bytes: u64,
+    pub glyph_cache_surfaces: usize,
+    pub glyph_cache_bytes: usize,
 }
 
 impl WebCanvasRendererFactory<Box<[u8]>> {
@@ -56,6 +70,9 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             texture_pool: new_pool(),
             glyph_pool: new_glyph_pool(),
             projective_fallback: None,
+            bounded_text_runs: 0,
+            bounded_text_uploads: 0,
+            bounded_text_upload_bytes: 0,
         }
     }
 
@@ -67,6 +84,21 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             texture_pool: self.texture_pool,
             glyph_pool: self.glyph_pool,
             projective_fallback: Some(fallback),
+            bounded_text_runs: self.bounded_text_runs,
+            bounded_text_uploads: self.bounded_text_uploads,
+            bounded_text_upload_bytes: self.bounded_text_upload_bytes,
+        }
+    }
+}
+
+impl<S> WebCanvasRendererFactory<S> {
+    pub fn text_resource_stats(&self) -> WebTextResourceStats {
+        WebTextResourceStats {
+            bounded_runs: self.bounded_text_runs,
+            bounded_uploads: self.bounded_text_uploads,
+            bounded_upload_bytes: self.bounded_text_upload_bytes,
+            glyph_cache_surfaces: self.glyph_pool.len(),
+            glyph_cache_bytes: self.glyph_pool.current_size(),
         }
     }
 }
@@ -96,6 +128,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             viewport: *transform,
             draw_failed: false,
             known_transform: None,
+            current_text_run: None,
         }
     }
 }
@@ -107,6 +140,7 @@ pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
     draw_failed: bool,
     // Only command draws track their transform; direct Canvas calls may inherit external state.
     known_transform: Option<[f64; 6]>,
+    current_text_run: Option<TextRunIdentity>,
 }
 
 struct GlyphRunDraw<'a> {
@@ -195,6 +229,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         WebCanvasRenderer::submit(self, request)
+    }
+
+    fn submit_text_run(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        identity: TextRunIdentity,
+    ) -> Result<(), RenderError> {
+        self.current_text_run = Some(identity);
+        let result = WebCanvasRenderer::submit(self, request);
+        self.current_text_run = None;
+        result
     }
 
     fn submit_with_route(
@@ -1308,39 +1353,56 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let key = font.raster_run_key(glyphs, color, scale);
         let pw = bounds.width;
         let ph = bounds.height;
-        let handle = match self
-            .factory
-            .glyph_pool
-            .entry(key)
-            .or_try_insert_with::<_, ()>(|| {
-                let mut buf = alloc::vec![0u8; usize::from(pw) * usize::from(ph) * 4];
-                {
-                    let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
-                    texture.alpha_mode = AlphaMode::Blend;
-                    let mut sw = SwRenderer::new(texture);
-                    sw.viewport = Viewport::new(pw, ph, scale);
-                    let origin = Point {
-                        x: -bounds.offset.x,
-                        y: -bounds.offset.y,
-                    };
-                    let full = Rect {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                        w: bounds.size.x,
-                        h: bounds.size.y,
-                    };
-                    let raster_color = Color { a: 255, ..*color };
-                    sw.draw_glyph_run(&origin, glyphs, font, &full, &raster_color, 255);
-                }
-                let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
-                texture_pool::upload(&texture).ok_or(())
-            }) {
+        let Some(raster_bytes) = usize::from(pw)
+            .checked_mul(usize::from(ph))
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            self.draw_failed = true;
+            return;
+        };
+        if self.current_text_run.is_some() {
+            self.factory.bounded_text_runs = self.factory.bounded_text_runs.saturating_add(1);
+        }
+        let entry = self.factory.glyph_pool.entry(key);
+        let new_upload = matches!(&entry, crate::core::cache::Entry::Vacant(_));
+        let handle = match entry.or_try_insert_with::<_, ()>(|| {
+            let mut buf = Vec::new();
+            buf.try_reserve_exact(raster_bytes).map_err(|_| ())?;
+            buf.resize(raster_bytes, 0);
+            {
+                let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
+                texture.alpha_mode = AlphaMode::Blend;
+                let mut sw = SwRenderer::new(texture);
+                sw.viewport = Viewport::new(pw, ph, scale);
+                let origin = Point {
+                    x: -bounds.offset.x,
+                    y: -bounds.offset.y,
+                };
+                let full = Rect {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    w: bounds.size.x,
+                    h: bounds.size.y,
+                };
+                let raster_color = Color { a: 255, ..*color };
+                sw.draw_glyph_run(&origin, glyphs, font, &full, &raster_color, 255);
+            }
+            let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
+            texture_pool::upload(&texture).ok_or(())
+        }) {
             Ok(handle) => handle,
             Err(_) => {
                 self.draw_failed = true;
                 return;
             }
         };
+        if new_upload && self.current_text_run.is_some() {
+            self.factory.bounded_text_uploads = self.factory.bounded_text_uploads.saturating_add(1);
+            self.factory.bounded_text_upload_bytes = self
+                .factory
+                .bounded_text_upload_bytes
+                .saturating_add(raster_bytes as u64);
+        }
         self.push_rect_clip(clip);
         self.ctx()
             .set_global_alpha((color.a as f64 * opacity as f64) / (255.0 * 255.0));

@@ -149,6 +149,18 @@ impl Renderer for ProjectiveRenderer<'_> {
         )
     }
 
+    fn submit_text_run(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        identity: crate::render::renderer::TextRunIdentity,
+    ) -> Result<(), RenderError> {
+        self.inner.submit_text_run(
+            &DrawRequest::new(request.command, request.clip)
+                .with_projective(self.transform.compose(&request.projective)),
+            identity,
+        )
+    }
+
     fn submit_with_route(
         &mut self,
         request: &DrawRequest<'_, '_>,
@@ -1557,6 +1569,54 @@ mod projective_transform_tests {
         );
         drop(scoped);
         assert_eq!(renderer.draws, 0);
+    }
+
+    #[test]
+    fn projective_scope_forwards_text_run_identity() {
+        #[derive(Default)]
+        struct Recorder {
+            seen: Option<(crate::render::TextRunIdentity, Transform3D)>,
+        }
+
+        impl Renderer for Recorder {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+
+            fn submit_text_run(
+                &mut self,
+                request: &DrawRequest<'_, '_>,
+                identity: crate::render::TextRunIdentity,
+            ) -> Result<(), RenderError> {
+                self.seen = Some((identity, request.projective));
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let identity = crate::render::TextRunIdentity {
+            entity: Entity {
+                id: 3,
+                generation: 2,
+            },
+            run_index: 1,
+        };
+        let projection = Transform3D::translate(Fixed::from_int(2), Fixed::from_int(3));
+        let clip = Rect::new(0, 0, 10, 10);
+        let command = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE,
+            region: clip,
+        };
+        let mut recorder = Recorder::default();
+        ProjectiveRenderer {
+            inner: &mut recorder,
+            transform: projection,
+            error: None,
+        }
+        .submit_text_run(&DrawRequest::new(&command, clip), identity)
+        .unwrap();
+        assert_eq!(recorder.seen, Some((identity, projection)));
     }
 
     #[test]
@@ -4074,6 +4134,7 @@ mod text_layout_check {
         #[derive(Default)]
         struct Recorder {
             pos: Option<Point>,
+            text_run: Option<crate::render::TextRunIdentity>,
         }
 
         impl Renderer for Recorder {
@@ -4087,6 +4148,15 @@ mod text_layout_check {
                     self.pos = Some(*pos);
                 }
                 Ok(())
+            }
+
+            fn submit_text_run(
+                &mut self,
+                request: &DrawRequest<'_, '_>,
+                identity: crate::render::TextRunIdentity,
+            ) -> Result<(), RenderError> {
+                self.text_run = Some(identity);
+                self.submit(request)
             }
 
             fn flush(&mut self) {}
@@ -4125,7 +4195,7 @@ mod text_layout_check {
                 ..Style::default()
             },
         );
-        world.insert(label, Text::from("abc"));
+        world.insert(label, Text::new("abc").with_text_capacity(8).unwrap());
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         update_layout(&mut world, root, &viewport);
 
@@ -4133,6 +4203,32 @@ mod text_layout_check {
         render(&world, root, &viewport, &mut recorder).unwrap();
 
         assert_eq!(recorder.pos, Some(Point::new(4, 3)));
+        assert_eq!(
+            recorder.text_run,
+            Some(crate::render::TextRunIdentity {
+                entity: label,
+                run_index: 0,
+            })
+        );
+
+        world.get_mut::<Text>(label).unwrap().set_content("def");
+        update_layout(&mut world, root, &viewport);
+        let mut recorder = Recorder::default();
+        render(&world, root, &viewport, &mut recorder).unwrap();
+        assert_eq!(
+            recorder.text_run,
+            Some(crate::render::TextRunIdentity {
+                entity: label,
+                run_index: 0,
+            })
+        );
+
+        world.insert(label, Text::from("abc"));
+        update_layout(&mut world, root, &viewport);
+        let mut recorder = Recorder::default();
+        render(&world, root, &viewport, &mut recorder).unwrap();
+        assert_eq!(recorder.pos, Some(Point::new(4, 3)));
+        assert_eq!(recorder.text_run, None);
     }
 
     #[test]

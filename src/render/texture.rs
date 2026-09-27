@@ -1,5 +1,7 @@
 use crate::core::cache::HasSize;
 use crate::types::{Color, Fixed};
+#[cfg(any(target_arch = "wasm32", test))]
+use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
 /// Owned byte storage whose visible start satisfies a requested alignment.
@@ -316,6 +318,20 @@ impl<'a> Texture<'a> {
                 .checked_mul(height - 1)
                 .and_then(|start| start.checked_add(row_bytes))
                 .is_some_and(|required| required <= self.buf.as_slice().len())
+    }
+
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn rgba8_upload_pixels(&self) -> Option<Cow<'_, [u8]>> {
+        if !self.valid_storage() {
+            return None;
+        }
+        let packed_len = usize::from(self.width)
+            .checked_mul(usize::from(self.height))?
+            .checked_mul(4)?;
+        if self.format == ColorFormat::RGBA8888 && self.stride == usize::from(self.width) * 4 {
+            return Some(Cow::Borrowed(&self.buf.as_slice()[..packed_len]));
+        }
+        self.rgba8_pixels().map(Cow::Owned)
     }
 
     #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
@@ -1254,6 +1270,28 @@ mod tests {
 
         rgb.stride = 2;
         assert!(rgb.rgba8_pixels().is_none());
+    }
+
+    #[test]
+    fn rgba8_upload_borrows_packed_pixels_and_converts_padded_rows() {
+        let pixels = [1, 2, 3, 4, 5, 6, 7, 8];
+        let packed = Texture::from_ref(&pixels, 1, 2, ColorFormat::RGBA8888);
+        assert!(matches!(
+            packed.rgba8_upload_pixels(),
+            Some(Cow::Borrowed(bytes)) if bytes.as_ptr() == pixels.as_ptr()
+        ));
+
+        let mut padded = Texture::from_ref(
+            &[1, 2, 3, 4, 99, 99, 99, 99, 5, 6, 7, 8],
+            1,
+            2,
+            ColorFormat::RGBA8888,
+        );
+        padded.stride = 8;
+        assert!(matches!(
+            padded.rgba8_upload_pixels(),
+            Some(Cow::Owned(bytes)) if bytes == pixels
+        ));
     }
 
     #[test]

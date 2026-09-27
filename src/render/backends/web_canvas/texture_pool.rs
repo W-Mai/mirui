@@ -75,7 +75,7 @@ pub fn new_glyph_pool() -> GlyphPool {
 }
 
 pub fn upload(src: &Texture) -> Option<CachedOffscreen> {
-    let rgba = src.rgba8_pixels()?;
+    let rgba = src.rgba8_upload_pixels()?;
     let canvas = OffscreenCanvas::new(src.width as u32, src.height as u32).ok()?;
     let ctx = canvas
         .get_context("2d")
@@ -83,7 +83,7 @@ pub fn upload(src: &Texture) -> Option<CachedOffscreen> {
         .dyn_into::<OffscreenCanvasRenderingContext2d>()
         .ok()?;
     let image_data = ImageData::new_with_u8_clamped_array_and_sh(
-        Clamped(&rgba),
+        Clamped(rgba.as_ref()),
         src.width as u32,
         src.height as u32,
     )

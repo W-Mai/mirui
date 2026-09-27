@@ -737,7 +737,7 @@ fn text_render(
         content_rect.h,
         crate::types::fixed::from_textflow(layout.measure().height),
     );
-    ctx.record(draw_text_layout(
+    ctx.record(draw_text_layout_with_identity(
         renderer,
         &layout,
         |font_id| fonts.font(font_id),
@@ -750,6 +750,7 @@ fn text_render(
             ctx.clip,
             color,
         ),
+        text.text_capacity().map(|_| entity),
     ));
 }
 
@@ -1392,11 +1393,21 @@ pub(crate) fn draw_text_layout<'font>(
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
     paint: TextPaint<'_>,
 ) -> Result<(), crate::render::RenderError> {
+    draw_text_layout_with_identity(renderer, layout, font_for, paint, None)
+}
+
+fn draw_text_layout_with_identity<'font>(
+    renderer: &mut dyn Renderer,
+    layout: &crate::text::TextLayout<'_>,
+    font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
+    paint: TextPaint<'_>,
+    text_entity: Option<Entity>,
+) -> Result<(), crate::render::RenderError> {
     for line in layout.lines() {
         let Some(runs) = layout.runs_for(*line) else {
             continue;
         };
-        for run in runs {
+        for (offset, run) in runs.iter().enumerate() {
             let Some(font) = font_for(run.font_id()) else {
                 continue;
             };
@@ -1408,21 +1419,30 @@ pub(crate) fn draw_text_layout<'font>(
                 continue;
             };
             let metrics = font.metrics(font.size);
-            renderer.submit(&crate::render::DrawRequest::new(
-                &DrawCommand::GlyphRun {
-                    pos: Point {
-                        x: paint.origin.x + crate::types::fixed::from_textflow(glyph_origin.x),
-                        y: paint.origin.y + crate::types::fixed::from_textflow(glyph_origin.y)
-                            - metrics.ascender,
-                    },
-                    transform: paint.transform,
-                    glyphs: layout.glyphs_for(*run).unwrap_or_default(),
-                    font,
-                    color: paint.color,
-                    opa: 255,
+            let command = DrawCommand::GlyphRun {
+                pos: Point {
+                    x: paint.origin.x + crate::types::fixed::from_textflow(glyph_origin.x),
+                    y: paint.origin.y + crate::types::fixed::from_textflow(glyph_origin.y)
+                        - metrics.ascender,
                 },
-                *paint.clip,
-            ))?;
+                transform: paint.transform,
+                glyphs: layout.glyphs_for(*run).unwrap_or_default(),
+                font,
+                color: paint.color,
+                opa: 255,
+            };
+            let request = crate::render::DrawRequest::new(&command, *paint.clip);
+            if let Some(entity) = text_entity {
+                renderer.submit_text_run(
+                    &request,
+                    crate::render::TextRunIdentity {
+                        entity,
+                        run_index: line.runs().start as usize + offset,
+                    },
+                )?;
+            } else {
+                renderer.submit(&request)?;
+            }
         }
     }
     Ok(())
