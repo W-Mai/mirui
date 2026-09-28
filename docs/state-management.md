@@ -51,10 +51,16 @@ counter.increment();
 
 Read-only model methods can return owned values; a generated handle cannot
 return a reference into its temporarily borrowed model. Mutating methods in a
-marked impl return the model's change type (`()` unless `change` is declared).
-Helpers returning a separate `bool`, `Result`, or other value remain in an
-ordinary impl and are not forwarded to the handle. An impl in another module
-uses the model's qualified path, such as `#[model] impl super::data::Counter`.
+marked impl return the model's change type (`()` unless `change` is declared),
+or `Result<Change, E>` for a command that can be rejected. A successful command
+publishes observations, named revisions, and effects normally. An error is
+returned unchanged without publishing observations or revisions, and any
+pending effects are discarded. Validate before modifying the model: rejected
+commands are not a rollback mechanism. Use the canonical `Result` path rather
+than a type alias so the macro can identify the transaction boundary. Helpers
+returning another type remain in an ordinary impl and are not forwarded to the
+handle. An impl in another module uses the model's qualified path, such as
+`#[model] impl super::data::Counter`.
 Observed fields, observed getters, and effect extractors can use `#[cfg]`;
 their generated accessors and source storage follow the same condition.
 

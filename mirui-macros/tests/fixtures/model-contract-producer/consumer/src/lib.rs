@@ -36,7 +36,7 @@ extern crate std;
 mod tests {
     use super::*;
     use mirui::prelude::App;
-    use model_contract_producer::facade::Pulse;
+    use model_contract_producer::facade::{MeterError, Pulse};
     use std::{cell::Cell, rc::Rc};
 
     #[test]
@@ -57,7 +57,15 @@ mod tests {
             recorded.set(recorded.get() + 1);
         })
         .unwrap();
-        shared.set_value(7);
+        assert!(matches!(
+            shared.set_checked(3),
+            Err(MeterError::Unchanged)
+        ));
+        assert_eq!(meter.value(), 3);
+        assert_eq!(meter.visual_revision(), 0);
+        assert_eq!(pulses.get(), 0);
+
+        assert!(shared.set_checked(7).is_ok());
         assert_eq!(meter.value(), 7);
         assert_eq!(meter.visual_revision(), 1);
         assert_eq!(pulses.get(), 1);

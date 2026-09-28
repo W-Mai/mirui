@@ -109,6 +109,47 @@ fn returns_reference(ty: &Type) -> bool {
     }
 }
 
+fn is_canonical_result(ty: &Type) -> bool {
+    let ty = match ty {
+        Type::Group(group) => return is_canonical_result(&group.elem),
+        Type::Paren(paren) => return is_canonical_result(&paren.elem),
+        other => other,
+    };
+    let Type::Path(path) = ty else {
+        return false;
+    };
+    if path.qself.is_some() {
+        return false;
+    }
+    let segments: Vec<_> = path.path.segments.iter().collect();
+    let result = match segments.as_slice() {
+        [result] if result.ident == "Result" => *result,
+        [root, module, result]
+            if (root.ident == "core" || root.ident == "std")
+                && module.ident == "result"
+                && result.ident == "Result" =>
+        {
+            *result
+        }
+        _ => return false,
+    };
+    let syn::PathArguments::AngleBracketed(arguments) = &result.arguments else {
+        return false;
+    };
+    arguments.args.len() == 2
+        && arguments
+            .args
+            .iter()
+            .all(|argument| matches!(argument, syn::GenericArgument::Type(_)))
+}
+
+fn returns_canonical_result(output: &syn::ReturnType) -> bool {
+    match output {
+        syn::ReturnType::Default => false,
+        syn::ReturnType::Type(_, ty) => is_canonical_result(ty),
+    }
+}
+
 struct ModelOptions {
     change: Option<syn::Type>,
     watches: Vec<(syn::Ident, syn::Expr)>,
@@ -709,7 +750,9 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
         let output = &method.sig.output;
         let (fn_generics, _, fn_where) = method.sig.generics.split_for_impl();
         let call = quote!(data.#method_name(#(#argument_names),*));
-        let invoke = if receiver.mutability.is_some() {
+        let invoke = if receiver.mutability.is_some() && returns_canonical_result(output) {
+            quote!(::mirui::core::model::ModelHandle::try_update(self, |data| #call))
+        } else if receiver.mutability.is_some() {
             quote!(::mirui::core::model::ModelHandle::update(self, |data| #call))
         } else {
             quote!(::mirui::core::model::ModelHandle::read(self, |data| #call))
@@ -961,7 +1004,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cfg_attrs, expand, may_be_cfg_removed};
+    use super::{cfg_attrs, expand, is_canonical_result, may_be_cfg_removed};
     use quote::quote;
     use syn::parse_quote;
 
@@ -1056,6 +1099,69 @@ mod tests {
         assert!(expanded.contains("DerivedSources"));
         assert!(expanded.contains("read_derived"));
         assert!(expanded.contains("fn increment"));
+    }
+
+    #[test]
+    fn fallible_mutation_uses_try_update() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    fn increment(&mut self) -> Result<Change, Error> { todo!() }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("ModelHandle :: try_update"));
+        assert!(expanded.contains("-> Result < Change , Error >"));
+    }
+
+    #[test]
+    fn fallible_read_stays_on_read() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    fn inspect(&self) -> core::result::Result<Value, Error> { todo!() }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("ModelHandle :: read"));
+        assert!(!expanded.contains("ModelHandle :: try_update"));
+    }
+
+    #[test]
+    fn infallible_mutation_stays_on_update() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    fn increment(&mut self) -> Change { todo!() }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("ModelHandle :: update"));
+        assert!(!expanded.contains("ModelHandle :: try_update"));
+    }
+
+    #[test]
+    fn canonical_result_detection_peels_groups_and_parentheses() {
+        assert!(is_canonical_result(&parse_quote!((Result<Change, Error>))));
+        assert!(is_canonical_result(
+            &parse_quote!(::std::result::Result<Change, Error>)
+        ));
+        assert!(is_canonical_result(
+            &parse_quote!(core::result::Result<Change, Error>)
+        ));
+        assert!(!is_canonical_result(
+            &parse_quote!(other::Result<Change, Error>)
+        ));
+        assert!(!is_canonical_result(&parse_quote!(Result<Change>)));
     }
 
     #[test]

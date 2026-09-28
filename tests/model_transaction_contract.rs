@@ -4,6 +4,11 @@ use mirui::model;
 use std::cell::Cell;
 use std::rc::Rc;
 
+#[path = "support/tracking_allocator.rs"]
+mod tracking_allocator;
+
+use tracking_allocator::tracked_allocations;
+
 #[model]
 struct TransactionCounter {
     #[observe]
@@ -43,6 +48,58 @@ impl SnapshotFailure {
 
 #[derive(Clone, Copy)]
 struct Note;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FallibleChange(u8);
+
+impl FallibleChange {
+    const VISUAL: Self = Self(1);
+
+    fn contains(self, mask: Self) -> bool {
+        self.0 & mask.0 == mask.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Rejected {
+    ReservedValue,
+}
+
+#[derive(Clone, Copy)]
+struct AcceptedValue(u32);
+
+#[model(change = FallibleChange, watch(visual = FallibleChange::VISUAL))]
+struct FallibleCounter {
+    #[observe]
+    value: u32,
+    accepted: Option<AcceptedValue>,
+}
+
+#[model]
+impl FallibleCounter {
+    fn set_checked(&mut self, value: u32) -> Result<FallibleChange, Rejected> {
+        if value == 13 {
+            return Err(Rejected::ReservedValue);
+        }
+        self.value = value;
+        self.accepted = Some(AcceptedValue(value));
+        Ok(FallibleChange::VISUAL)
+    }
+
+    fn reject_with_pending_effect(&mut self) -> Result<FallibleChange, Rejected> {
+        self.accepted = Some(AcceptedValue(13));
+        Err(Rejected::ReservedValue)
+    }
+
+    fn panic_during_update(&mut self) -> Result<FallibleChange, Rejected> {
+        panic!("fallible update failed")
+    }
+
+    #[effects]
+    fn take_accepted(&mut self) -> [Option<AcceptedValue>; 1] {
+        [self.accepted.take()]
+    }
+}
 
 #[model]
 struct ExtractionFailure {
@@ -135,6 +192,65 @@ fn effect_extraction_failure_poisoned_before_commit() {
     });
 
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.set(13)));
+    assert!(failure.is_err());
+    let next = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.value()));
+    assert!(next.is_err());
+}
+
+#[test]
+fn rejected_update_does_not_publish_or_leak_effects() {
+    let mut app = App::headless(64, 64);
+    let model = app.add_model(FallibleCounter {
+        value: 1,
+        accepted: None,
+    });
+    let observer_runs = Rc::new(Cell::new(0));
+    let observed = model.clone();
+    let counted = Rc::clone(&observer_runs);
+    let _effect = Effect::new(move || {
+        let _ = observed.value();
+        counted.set(counted.get() + 1);
+    });
+    let accepted_total = Rc::new(Cell::new(0));
+    let recorded = Rc::clone(&accepted_total);
+    app.on_effect(&model, move |value: AcceptedValue| {
+        recorded.set(recorded.get() + value.0);
+    })
+    .unwrap();
+
+    assert_eq!(
+        model.reject_with_pending_effect(),
+        Err(Rejected::ReservedValue)
+    );
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(model.value(), 1);
+    assert_eq!(model.visual_revision(), 0);
+    assert_eq!(observer_runs.get(), 1);
+    assert_eq!(accepted_total.get(), 0);
+
+    let mut accepted = None;
+    assert_eq!(
+        tracked_allocations(|| accepted = Some(model.set_checked(7))),
+        0
+    );
+    assert_eq!(accepted, Some(Ok(FallibleChange::VISUAL)));
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(model.value(), 7);
+    assert_eq!(model.visual_revision(), 1);
+    assert_eq!(observer_runs.get(), 2);
+    assert_eq!(accepted_total.get(), 7);
+}
+
+#[test]
+fn panicking_fallible_update_poisoned_the_model() {
+    let mut app = App::headless(64, 64);
+    let model = app.add_model(FallibleCounter {
+        value: 1,
+        accepted: None,
+    });
+
+    let failure =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.panic_during_update()));
     assert!(failure.is_err());
     let next = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.value()));
     assert!(next.is_err());

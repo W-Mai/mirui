@@ -225,8 +225,10 @@ where
 Use `#[component(bind(...))]` to attach a model handle to an entity and
 `#[view(component = ..., read(...), watch(...))]` to paint it. One model can
 serve several Views; several instances of the same model type stay
-independent. The [state guide](docs/state-management.md) covers effects,
-systems, ownership, and the limits of the update-path allocation guarantee.
+independent. A mutable model method may return `Result<Change, E>`; an error is
+returned without publishing reactive updates or effects. The
+[state guide](docs/state-management.md) covers effects, systems, ownership, and
+the limits of the update-path allocation guarantee.
 
 ### Common attributes
 

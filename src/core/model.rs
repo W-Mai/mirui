@@ -299,6 +299,60 @@ impl Drop for UpdateGuard<'_> {
     }
 }
 
+fn update_transaction<H, R>(
+    handle: &H,
+    update: impl FnOnce(&mut H::Data) -> R,
+    accepted_change: impl FnOnce(&R) -> Option<<H::Data as Model>::Change>,
+) -> R
+where
+    H: ModelHandle,
+{
+    assert!(
+        crate::core::reactive::model_writes_allowed(),
+        "model updates are not allowed in a read-only callback"
+    );
+    let cell = handle
+        .cell()
+        .upgrade()
+        .expect("model registration is no longer alive");
+    cell.assert_active();
+    if let Some(active) = crate::core::reactive::current_world_id() {
+        assert_eq!(active, cell.owner(), "model belongs to a different App");
+    }
+    assert!(
+        !cell.poisoned.get(),
+        "model was poisoned by a failed update"
+    );
+    let mut value = cell
+        .value
+        .try_borrow_mut()
+        .expect("model is already borrowed");
+    let mut guard = UpdateGuard {
+        poisoned: &cell.poisoned,
+        committed: false,
+    };
+    let before = value.snapshot();
+    let derived_before = value.derived_snapshot();
+    let result = update(&mut value);
+    let change = accepted_change(&result);
+    let events = value.take_events();
+    let Some(change) = change else {
+        drop(events);
+        drop(value);
+        guard.committed = true;
+        return result;
+    };
+    let after = value.snapshot();
+    let derived_after = value.derived_snapshot();
+    drop(value);
+    H::Data::publish(&cell.sources, before, after);
+    H::Data::publish_derived(&cell.derived_sources, derived_before, derived_after);
+    H::Data::publish_change(&cell.watches, change);
+    guard.committed = true;
+    H::Data::deliver_events(&cell.routes, events);
+    result
+}
+
 /// A handle to one registered model instance.
 pub trait ModelHandle: Clone {
     type Data: Model<Handle = Self>;
@@ -395,43 +449,15 @@ pub trait ModelHandle: Clone {
         &self,
         update: impl FnOnce(&mut Self::Data) -> <Self::Data as Model>::Change,
     ) -> <Self::Data as Model>::Change {
-        assert!(
-            crate::core::reactive::model_writes_allowed(),
-            "model updates are not allowed in a read-only callback"
-        );
-        let cell = self
-            .cell()
-            .upgrade()
-            .expect("model registration is no longer alive");
-        cell.assert_active();
-        if let Some(active) = crate::core::reactive::current_world_id() {
-            assert_eq!(active, cell.owner(), "model belongs to a different App");
-        }
-        assert!(
-            !cell.poisoned.get(),
-            "model was poisoned by a failed update"
-        );
-        let mut value = cell
-            .value
-            .try_borrow_mut()
-            .expect("model is already borrowed");
-        let mut guard = UpdateGuard {
-            poisoned: &cell.poisoned,
-            committed: false,
-        };
-        let before = value.snapshot();
-        let derived_before = value.derived_snapshot();
-        let result = update(&mut value);
-        let events = value.take_events();
-        let after = value.snapshot();
-        let derived_after = value.derived_snapshot();
-        drop(value);
-        Self::Data::publish(&cell.sources, before, after);
-        Self::Data::publish_derived(&cell.derived_sources, derived_before, derived_after);
-        Self::Data::publish_change(&cell.watches, result);
-        guard.committed = true;
-        Self::Data::deliver_events(&cell.routes, events);
-        result
+        update_transaction(self, update, |change| Some(*change))
+    }
+
+    #[doc(hidden)]
+    fn try_update<E>(
+        &self,
+        update: impl FnOnce(&mut Self::Data) -> Result<<Self::Data as Model>::Change, E>,
+    ) -> Result<<Self::Data as Model>::Change, E> {
+        update_transaction(self, update, |result| result.as_ref().ok().copied())
     }
 }
 

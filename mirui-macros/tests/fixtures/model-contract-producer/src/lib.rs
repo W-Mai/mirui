@@ -18,6 +18,11 @@ pub mod data {
     #[derive(Clone, Copy)]
     pub struct Pulse(pub u8);
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum MeterError {
+        Unchanged,
+    }
+
     pub type PulseAlias = Pulse;
 
     #[cfg(feature = "extra")]
@@ -63,7 +68,7 @@ pub mod data {
 mod methods {
     use mirui::model;
 
-    use super::data::{Change, PulseAlias};
+    use super::data::{Change, MeterError, PulseAlias};
 
     #[model]
     impl<T, const N: usize> super::data::Meter<T, N>
@@ -96,6 +101,17 @@ mod methods {
             Change::VISUAL
         }
 
+        pub fn set_checked(&mut self, value: T) -> Result<Change, MeterError> {
+            if self.value == value {
+                return Err(MeterError::Unchanged);
+            }
+            self.value = value;
+            if let Some(first) = self.pulses.first_mut() {
+                *first = Some(super::data::Pulse(1));
+            }
+            Ok(Change::VISUAL)
+        }
+
         #[cfg(not(feature = "extra"))]
         #[effects]
         fn take_plain_pulses(&mut self) -> [Option<PulseAlias>; N] {
@@ -111,7 +127,7 @@ mod methods {
 }
 
 pub mod facade {
-    pub use super::data::{Meter as PublicMeter, Pulse};
+    pub use super::data::{Meter as PublicMeter, MeterError, Pulse};
 }
 
 pub type SmallMeter = facade::PublicMeter<u8, 2>;
