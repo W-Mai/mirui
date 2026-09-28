@@ -56,3 +56,16 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    MOSS_STUDY,
+    "moss_study",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);
