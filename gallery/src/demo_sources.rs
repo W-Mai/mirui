@@ -41,10 +41,17 @@ split_demo_source!(
 split_demo_source!(
     LUMEN_LAB,
     "lumen_lab",
+    ["style.rs", "runtime.rs", "board.rs", "shell.rs", "tests.rs",]
+);
+
+split_demo_source!(
+    PIXEL_LOOM,
+    "pixel_loom",
     [
         "style.rs",
-        "runtime.rs",
-        "board.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
         "shell.rs",
         "tests.rs",
     ]
