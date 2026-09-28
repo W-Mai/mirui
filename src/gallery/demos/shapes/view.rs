@@ -4,6 +4,7 @@ use crate::render::renderer::Renderer;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 
+#[crate::component]
 #[derive(Default)]
 pub struct Shapes {
     pub start_ms: u32,

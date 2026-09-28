@@ -2,6 +2,7 @@
 fn ui() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/layout_responsive.rs");
+    t.pass("tests/ui/reactive_position.rs");
     t.pass("tests/ui/cached_if_widget_slot.rs");
     t.compile_fail("tests/ui/layout_container_false.rs");
     t.compile_fail("tests/ui/layout_too_many_dependencies.rs");

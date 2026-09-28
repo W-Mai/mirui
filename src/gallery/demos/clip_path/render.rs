@@ -7,6 +7,7 @@ use crate::render::scene::Paint;
 use crate::types::Transform;
 use crate::ui::Theme;
 
+#[crate::component]
 #[derive(Default)]
 pub struct ClipPath;
 

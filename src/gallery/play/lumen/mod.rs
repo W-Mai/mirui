@@ -3,6 +3,8 @@ mod trace;
 mod types;
 
 pub(crate) use model::LumenModel;
+#[cfg(test)]
+pub(crate) use model::LumenModelHandle;
 #[allow(unused_imports)]
 pub(crate) use trace::{Trace, TraceStop, trace};
 #[allow(unused_imports)]

@@ -7,6 +7,7 @@ use crate::ui::view::{View, ViewCtx};
 
 pub(super) static DIAMOND_PATH: Path = path!(M 50 0 L 100 50 L 50 100 L 0 50 Z);
 
+#[crate::component]
 pub struct Diamond {
     pub color: Color,
     pub line_width: Fixed,
@@ -21,16 +22,13 @@ impl Default for Diamond {
     }
 }
 
+#[crate::view(component = Diamond, name = "Diamond", priority = 60)]
 fn diamond_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &Diamond,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(d) = world.get::<Diamond>(entity) else {
-        return;
-    };
     let transform = ctx
         .transform
         .compose(&Transform::translate(rect.x, rect.y))
@@ -38,7 +36,7 @@ fn diamond_render(
             rect.w / Fixed::from_int(100),
             rect.h / Fixed::from_int(100),
         ));
-    let paint = Paint::Color(d.color.into());
+    let paint = Paint::Color(component.color.into());
     let dash: [Fixed; 0] = [];
     ctx.draw(
         renderer,
@@ -46,7 +44,7 @@ fn diamond_render(
             path: &DIAMOND_PATH,
             transform,
             paint: &paint,
-            width: d.line_width,
+            width: component.line_width,
             opa: 255,
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
@@ -58,7 +56,7 @@ fn diamond_render(
 }
 
 pub fn diamond_view() -> View {
-    View::new("Diamond", 60, diamond_render)
+    diamond_render::view()
 }
 
 pub const PALETTE: [Color; 3] = [

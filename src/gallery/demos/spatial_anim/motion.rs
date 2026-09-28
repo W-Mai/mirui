@@ -7,6 +7,7 @@ mirui_macros::animate!(AnimateTweenY, |world, entity, value| {
     ui::set_position(world, entity, Fixed::from_int(48), value);
 });
 
+#[crate::component]
 pub struct SpringBall {
     pub spring: Spring,
     pub x: Fixed,

@@ -3,6 +3,7 @@ use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::scene::resolver::SliceResolver;
 
+#[crate::component]
 #[derive(Default)]
 pub struct BlurFilter;
 

@@ -45,6 +45,7 @@ pub(super) const ACORN: &[(i32, i32)] = &[(0, 1), (1, 3), (2, 0), (2, 1), (2, 4)
 
 pub(super) const GLIDER: &[(i32, i32)] = &[(0, 1), (1, 2), (2, 0), (2, 1), (2, 2)];
 
+#[crate::component]
 pub struct LifeBoard {
     pub cols: i32,
     pub rows: i32,

@@ -9,6 +9,7 @@ pub(super) struct HistoryEntry {
     pub(super) moves: u16,
 }
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 #[derive(Clone, Debug)]
 pub(crate) struct LumenModel {
     pub(super) level_index: u8,
@@ -55,16 +56,8 @@ impl LumenModel {
         &LEVELS[usize::from(self.level_index)]
     }
 
-    pub(crate) const fn level_index(&self) -> usize {
-        self.level_index as usize
-    }
-
     pub(crate) const fn orientations(&self) -> &[MirrorOrientation; MAX_MIRRORS] {
         &self.orientations
-    }
-
-    pub(crate) const fn moves(&self) -> u16 {
-        self.moves
     }
 
     pub(crate) const fn trace(&self) -> &Trace {
@@ -75,35 +68,98 @@ impl LumenModel {
         self.selected as usize
     }
 
-    pub(crate) const fn hint(&self) -> Option<usize> {
-        match self.hint {
-            Some(value) => Some(value as usize),
-            None => None,
-        }
-    }
-
-    pub(crate) const fn scan(&self) -> bool {
-        self.scan
-    }
-
     pub(crate) const fn scan_phase(&self) -> u16 {
         self.scan_phase
     }
 
-    pub(crate) const fn levels_open(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) const fn is_completed(&self, level: usize) -> bool {
+        level < LEVEL_COUNT && self.completed & (1 << level) != 0
+    }
+
+    pub(super) fn load_unchecked(&mut self, index: u8) {
+        self.level_index = index;
+        self.orientations = [MirrorOrientation::Slash; MAX_MIRRORS];
+        let initial = LEVELS[usize::from(index)].initial;
+        for (slot, orientation) in self.orientations.iter_mut().zip(initial) {
+            *slot = *orientation;
+        }
+        self.moves = 0;
+        self.history_len = 0;
+        self.selected = 0;
+        self.hint = None;
+        self.scan_phase = 0;
+        self.evaluate();
+    }
+
+    pub(super) fn push_history(&mut self) {
+        let mut orientation_bits = 0_u8;
+        for (index, orientation) in self.orientations.iter().enumerate() {
+            if *orientation == MirrorOrientation::Backslash {
+                orientation_bits |= 1 << index;
+            }
+        }
+        let entry = HistoryEntry {
+            orientation_bits,
+            moves: self.moves,
+        };
+        if usize::from(self.history_len) == HISTORY_CAPACITY {
+            self.history.copy_within(1.., 0);
+            self.history[HISTORY_CAPACITY - 1] = entry;
+        } else {
+            self.history[usize::from(self.history_len)] = entry;
+            self.history_len += 1;
+        }
+    }
+
+    pub(super) fn evaluate(&mut self) {
+        self.trace = trace(self.level(), &self.orientations);
+        if self.trace.solved {
+            self.completed |= 1 << self.level_index;
+        }
+    }
+}
+
+#[crate::model]
+impl LumenModel {
+    #[observe]
+    pub(crate) fn level_index(&self) -> usize {
+        self.level_index as usize
+    }
+
+    #[observe]
+    pub(crate) fn moves(&self) -> u16 {
+        self.moves
+    }
+
+    #[observe]
+    pub(crate) fn hint(&self) -> Option<usize> {
+        self.hint.map(usize::from)
+    }
+
+    #[observe]
+    pub(crate) fn scan(&self) -> bool {
+        self.scan
+    }
+
+    #[observe]
+    pub(crate) fn levels_open(&self) -> bool {
         self.levels_open
     }
 
-    pub(crate) const fn can_undo(&self) -> bool {
+    #[observe]
+    pub(crate) fn can_undo(&self) -> bool {
         self.history_len > 0
     }
 
-    pub(crate) const fn completed_count(&self) -> u32 {
-        self.completed.count_ones()
+    #[observe]
+    pub(crate) fn completion_mask(&self) -> u8 {
+        self.completed
     }
 
-    pub(crate) const fn is_completed(&self, level: usize) -> bool {
-        level < LEVEL_COUNT && self.completed & (1 << level) != 0
+    #[observe]
+    pub(crate) fn solved(&self) -> bool {
+        self.trace.solved
     }
 
     pub(crate) fn rotate_cell(&mut self, x: i8, y: i8) -> ChangeSet {
@@ -220,47 +276,5 @@ impl LumenModel {
         }
         self.scan_phase = self.scan_phase.wrapping_add(elapsed_ms.saturating_mul(23));
         ChangeSet::VISUAL
-    }
-
-    pub(super) fn load_unchecked(&mut self, index: u8) {
-        self.level_index = index;
-        self.orientations = [MirrorOrientation::Slash; MAX_MIRRORS];
-        let initial = LEVELS[usize::from(index)].initial;
-        for (slot, orientation) in self.orientations.iter_mut().zip(initial) {
-            *slot = *orientation;
-        }
-        self.moves = 0;
-        self.history_len = 0;
-        self.selected = 0;
-        self.hint = None;
-        self.scan_phase = 0;
-        self.evaluate();
-    }
-
-    pub(super) fn push_history(&mut self) {
-        let mut orientation_bits = 0_u8;
-        for (index, orientation) in self.orientations.iter().enumerate() {
-            if *orientation == MirrorOrientation::Backslash {
-                orientation_bits |= 1 << index;
-            }
-        }
-        let entry = HistoryEntry {
-            orientation_bits,
-            moves: self.moves,
-        };
-        if usize::from(self.history_len) == HISTORY_CAPACITY {
-            self.history.copy_within(1.., 0);
-            self.history[HISTORY_CAPACITY - 1] = entry;
-        } else {
-            self.history[usize::from(self.history_len)] = entry;
-            self.history_len += 1;
-        }
-    }
-
-    pub(super) fn evaluate(&mut self) {
-        self.trace = trace(self.level(), &self.orientations);
-        if self.trace.solved {
-            self.completed |= 1 << self.level_index;
-        }
     }
 }

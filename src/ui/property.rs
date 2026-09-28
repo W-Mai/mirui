@@ -747,6 +747,42 @@ mod tests {
     }
 
     #[test]
+    fn reactive_position_bindings_convert_values_and_invalidate_layout() {
+        let mut world = World::new();
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+        let left = Signal::new(12_i32);
+        let top = Signal::new(Dimension::percent(25));
+        let bound_left = left.clone();
+        let bound_top = top.clone();
+
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+            View(
+                left: ${ bound_left.get() },
+                top: ${ bound_top.get() },
+            )
+        };
+
+        let view = world.get::<Children>(root).unwrap().0[0];
+        let layout = &world.get::<crate::ui::Style>(view).unwrap().layout;
+        assert_eq!(layout.left, Dimension::px(12));
+        assert_eq!(layout.top, Dimension::percent(25));
+
+        world.remove::<Dirty>(view);
+        left.set(-8);
+        top.set(Dimension::px(44));
+        flush_signal_dirty(&mut world);
+
+        let layout = &world.get::<crate::ui::Style>(view).unwrap().layout;
+        assert_eq!(layout.left, Dimension::px(-8));
+        assert_eq!(layout.top, Dimension::px(44));
+        assert!(world.has::<Dirty>(view));
+    }
+
+    #[test]
     fn dead_entities_do_not_produce_widget_handles() {
         let mut world = World::new();
         let entity = world.spawn_empty();

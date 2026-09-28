@@ -1,17 +1,18 @@
-use super::runtime::LumenNodes;
 use super::style::{ACCENT, BACKGROUND, BOARD, LIGHT, SUCCESS, TILE};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::lumen::{LumenModel, MirrorOrientation, Trace};
 use crate::gallery::play::paint::PlayPainter;
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::render::renderer::Renderer;
 use crate::ui::ComputedRect;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
-#[crate::component]
-#[derive(Default)]
-pub(super) struct LumenBoard;
+#[crate::component(bind(model))]
+pub(super) struct LumenBoard {
+    pub(super) model: LumenModel,
+}
 
 pub(super) fn cell_center(point: crate::gallery::play::lumen::GridPoint) -> Point {
     Point::new(27 + i32::from(point.x) * 38, 26 + i32::from(point.y) * 38)
@@ -214,31 +215,36 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &LumenModel) {
     );
 }
 
-fn board_render(
+#[crate::view(
+    component = LumenBoard,
+    read(model),
+    watch(model.visual_revision()),
+    name = "LumenBoard",
+    priority = 60
+)]
+pub(super) fn board_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &LumenModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<LumenModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 282, 204);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_board(&mut painter, model);
 }
 
-pub(super) fn board_view() -> View {
-    View::new("LumenBoard", 60, board_render).with_filter::<LumenBoard>()
-}
-
-pub(super) fn board_tap(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let GestureEvent::Tap { x, y, .. } = event else {
+pub(super) fn board_tap(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let GestureEvent::Tap { x, y, .. } = ctx.event else {
         return false;
     };
-    let Some(rect) = world.get::<ComputedRect>(entity).map(|rect| rect.0) else {
+    let Some(model) = ctx
+        .component::<LumenBoard>(ctx.entity)
+        .map(|board| board.model.clone())
+    else {
+        return false;
+    };
+    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
         return false;
     };
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -251,6 +257,6 @@ pub(super) fn board_tap(world: &mut World, entity: Entity, event: &GestureEvent)
     if !(0..7).contains(&column) || !(0..5).contains(&row) {
         return false;
     }
-    LumenNodes::update(world, |model| model.rotate_cell(column, row));
+    model.rotate_cell(column, row);
     true
 }

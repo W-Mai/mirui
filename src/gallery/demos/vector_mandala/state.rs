@@ -2,6 +2,7 @@ use core::cell::RefCell;
 
 use crate::render::scene::Scene;
 
+#[crate::component]
 pub struct VectorMandala {
     pub start_ms: u32,
     pub petals: u8,

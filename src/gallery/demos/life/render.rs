@@ -4,26 +4,23 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
+#[crate::view(component = LifeBoard, name = "LifeBoard", priority = 60)]
 fn life_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &LifeBoard,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    let Some(board) = world.get::<LifeBoard>(entity) else {
-        return;
-    };
-    if board.cols == 0 || board.rows == 0 {
+    if component.cols == 0 || component.rows == 0 {
         return;
     }
     ctx.bg_handled = true;
-    let theme = ctx.theme(world);
     let bg = theme.resolve(ColorToken::Surface);
     let primary = theme.resolve(ColorToken::Primary);
     let secondary = theme.resolve(ColorToken::Secondary);
     let success = theme.resolve(ColorToken::Success);
-    let (cols, rows) = (board.cols, board.rows);
+    let (cols, rows) = (component.cols, component.rows);
     let x0 = rect.x.round().to_int();
     let y0 = rect.y.round().to_int();
     let bw = rect.w.round().to_int();
@@ -49,7 +46,7 @@ fn life_render(
         let ph = (y0 + bh * (r + 1) / rows) - py;
         let row = (r * cols) as usize;
         for c in 0..cols {
-            if !board.cell[row + c as usize] {
+            if !component.cell[row + c as usize] {
                 continue;
             }
             let px = x0 + bw * c / cols;
@@ -74,5 +71,5 @@ fn life_render(
 }
 
 pub fn life_view() -> View {
-    View::new("LifeBoard", 60, life_render).with_filter::<LifeBoard>()
+    life_render::view()
 }

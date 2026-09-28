@@ -2,6 +2,7 @@ use crate::prelude::*;
 use crate::ui::widgets::{DropGlow, DropShadow, WidgetTransform};
 use crate::ui::{ComputedRect, Parent};
 
+#[crate::component]
 pub struct ColorFlash {
     pub frame: u32,
 }

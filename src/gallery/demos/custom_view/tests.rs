@@ -6,6 +6,15 @@ use crate::ui::Children;
 use crate::ui::IdMap;
 use crate::ui::UiScope;
 use crate::ui::view::ViewRegistry;
+use core::any::TypeId;
+
+#[test]
+fn diamond_view_keeps_its_dispatch_contract() {
+    let view = diamond_view();
+    assert_eq!(view.name(), "Diamond");
+    assert_eq!(view.priority(), 60);
+    assert_eq!(view.component_filter(), Some(TypeId::of::<Diamond>()));
+}
 
 #[test]
 fn build_widgets_smoke() {

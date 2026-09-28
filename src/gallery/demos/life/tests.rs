@@ -1,3 +1,5 @@
+use core::any::TypeId;
+
 use super::composition::build_widgets;
 use super::render::life_view;
 use super::runtime::dims_from_px;
@@ -6,6 +8,14 @@ use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::ComputedRect;
 use crate::ui::render_system::update_layout;
+
+#[test]
+fn life_view_keeps_its_dispatch_contract() {
+    let view = life_view();
+    assert_eq!(view.name(), "LifeBoard");
+    assert_eq!(view.priority(), 60);
+    assert_eq!(view.component_filter(), Some(TypeId::of::<LifeBoard>()));
+}
 
 #[test]
 fn dims_track_viewport() {

@@ -1,5 +1,6 @@
 use crate::prelude::Fixed;
 
+#[crate::component]
 pub struct Particle {
     pub x: Fixed,
     pub y: Fixed,
@@ -8,12 +9,14 @@ pub struct Particle {
     pub phase: Fixed,
 }
 
+#[crate::component]
 pub struct PulseRing {
     pub radius: Fixed,
     pub grow_speed: Fixed,
     pub max_radius: Fixed,
 }
 
+#[crate::component]
 pub struct BouncingBar {
     pub pos: Fixed,
     pub speed: Fixed,
@@ -25,4 +28,5 @@ pub struct ParticleBounds {
     pub h: i32,
 }
 
+#[crate::component]
 pub struct ParticleArena;

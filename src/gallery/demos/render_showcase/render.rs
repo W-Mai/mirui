@@ -4,6 +4,7 @@ use crate::render::renderer::Renderer;
 use crate::render::scene::resolver::SliceResolver;
 use crate::ui::view::{View, ViewCtx};
 
+#[crate::component]
 #[derive(Default)]
 pub struct RenderShowcase;
 

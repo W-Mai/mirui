@@ -2,10 +2,12 @@ use crate::prelude::Fixed;
 
 pub(super) const CARD_COUNT: i32 = 5;
 
+#[crate::component]
 pub struct CarouselCard {
     pub index: usize,
 }
 
+#[crate::component]
 pub struct Carousel;
 
 pub struct CoverFlowBounds {

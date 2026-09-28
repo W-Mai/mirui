@@ -3,8 +3,11 @@ use crate::ui::{Theme, theme};
 
 pub const ACCENT: ColorToken = ColorToken::custom("accent");
 
+#[crate::component]
 pub(super) struct FormSlider;
+#[crate::component]
 pub(super) struct FormProgress;
+#[crate::component]
 pub struct ThemeCycleIndex(pub u8);
 
 pub fn dark_with_accent() -> Theme {

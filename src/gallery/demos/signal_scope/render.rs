@@ -29,6 +29,7 @@ static CONTROL_UP: Path = path!(M 0 6 L 5 0 L 10 6 Z);
 static CONTROL_DOWN: Path = path!(M 0 0 L 5 6 L 10 0 Z);
 static TRIGGER_ARROW: Path = path!(M 0 0 L 8 4 L 0 8 Z);
 
+#[crate::component]
 #[derive(Default)]
 pub(super) struct ScopeCanvas;
 

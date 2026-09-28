@@ -2,16 +2,19 @@ use alloc::vec::Vec;
 
 use crate::prelude::{Entity, Fixed, World};
 
+#[crate::component]
 pub struct Velocity {
     pub vx: Fixed,
     pub vy: Fixed,
 }
 
+#[crate::component]
 pub struct PhysicsBody {
     pub x: Fixed,
     pub y: Fixed,
 }
 
+#[crate::component]
 #[derive(Clone, Copy)]
 pub(super) struct LayoutOrigin {
     pub(super) x: Fixed,

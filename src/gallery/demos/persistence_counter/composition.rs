@@ -1,10 +1,8 @@
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-#[compose]
+#[compose(bind(count))]
 pub fn build_widgets(count: Signal<i32>) {
-    let (dec, inc, label) = (count.clone(), count.clone(), count);
-
     //~focus-start
     ui! {
         Column (
@@ -15,7 +13,7 @@ pub fn build_widgets(count: Signal<i32>) {
             row_gap: 14
         ) {
             Text (
-                text: ${ alloc::format!("SAVED  {}", label.get()) },
+                text: ${ alloc::format!("SAVED  {}", count.get()) },
                 width: Dimension::percent(100),
                 max_width: 260,
                 height: 56,
@@ -38,7 +36,7 @@ pub fn build_widgets(count: Signal<i32>) {
                     text_color: ColorToken::OnPrimary
                 ) [
                     Text::label("−"),
-                ] on Tap { dec.update(|n| *n -= 1); }
+                ] on Tap { count.update(|n| *n -= 1); }
                 Button (
                     grow: 1.0,
                     height: 44,
@@ -48,7 +46,7 @@ pub fn build_widgets(count: Signal<i32>) {
                     text_color: ColorToken::OnPrimary
                 ) [
                     Text::label("+"),
-                ] on Tap { inc.update(|n| *n += 1); }
+                ] on Tap { count.update(|n| *n += 1); }
             }
             Text (
                 "Persists across reloads and restarts",

@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+#[crate::component]
 pub struct FlipCard {
     pub angle_deg: Fixed,
     pub speed_deg_per_second: Fixed,

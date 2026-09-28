@@ -5,10 +5,13 @@ pub const DEFAULT_VIEW: (u16, u16) = (WIN_W as u16, WIN_H as u16);
 
 // Tag root, not panel: the dirty rect spans the window so the panel
 // subtree stays clean and the offscreen cache hit holds.
+#[crate::component]
 pub struct ForceDirty;
 
+#[crate::component]
 pub struct PanelTarget;
 
+#[crate::component]
 pub struct FpsReadout {
     pub counter: u32,
     pub accum_render_ns: u64,

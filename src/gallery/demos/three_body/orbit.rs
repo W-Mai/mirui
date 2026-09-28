@@ -1,5 +1,6 @@
 use crate::prelude::{Dimension, Fixed, Style, World};
 
+#[crate::component]
 pub struct OrbitRing {
     pub diameter_percent: i32,
 }

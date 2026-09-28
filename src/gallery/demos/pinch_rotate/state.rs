@@ -3,6 +3,7 @@ use alloc::format;
 use crate::prelude::*;
 use crate::types::Fixed64;
 
+#[crate::component]
 pub struct PinchTarget {
     pub(super) status: Signal<PinchStatus>,
     pub last_pinch: Fixed64,

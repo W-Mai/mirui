@@ -126,6 +126,7 @@ fn radial_paint(inner: Color, middle: Color, outer: Color) -> Paint {
     })
 }
 
+#[crate::component]
 pub struct ConsoleBackdrop {
     mint: Paint,
     violet: Paint,
@@ -175,6 +176,7 @@ impl Default for ConsoleBackdrop {
     }
 }
 
+#[crate::component]
 pub struct OrbitInstrument {
     core_paints: [Paint; 3],
 }
@@ -410,6 +412,7 @@ impl Default for OrbitInstrument {
     }
 }
 
+#[crate::component]
 #[derive(Default)]
 pub struct SignalMeter;
 
@@ -466,6 +469,7 @@ impl SignalMeter {
     }
 }
 
+#[crate::component]
 #[derive(Default)]
 pub struct ActivityPlot;
 

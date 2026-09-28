@@ -16,10 +16,12 @@ pub(super) const UPDATE_EVERY: u32 = 30;
 
 pub const DEFAULT_VIEW: (u16, u16) = (WIN_W as u16, WIN_H as u16);
 
+#[crate::component]
 pub struct ModalAnim {
     pub t: Fixed,
 }
 
+#[crate::component]
 pub struct FpsReadout {
     pub counter: u32,
     pub accum_render_ns: u64,

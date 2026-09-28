@@ -2,6 +2,7 @@ use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::widgets::WidgetTransform;
 
+#[crate::component]
 pub struct Spinner {
     pub angle: Fixed,
     pub speed: Fixed,

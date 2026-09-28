@@ -1,5 +1,6 @@
 use crate::prelude::{Color, ColorToken, Theme, ThemeId, ThemeInfo};
 
+#[crate::component]
 pub struct ThemeChoice(pub ThemeId);
 
 pub const ACCENT: ColorToken = ColorToken::Tertiary;

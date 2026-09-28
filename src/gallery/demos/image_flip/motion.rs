@@ -3,6 +3,7 @@ use crate::prelude::*;
 use crate::types::Transform3D;
 use crate::ui::widgets::WidgetTransform3D;
 
+#[crate::component]
 pub struct Spinner {
     pub angle: Fixed,
     pub speed_deg_per_second: Fixed,

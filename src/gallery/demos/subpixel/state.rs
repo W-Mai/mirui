@@ -5,6 +5,7 @@ pub(super) const BAR_H: i32 = 8;
 pub(super) const BAR_MARGIN: i32 = 10;
 pub(super) const START_Y: i32 = 12;
 
+#[crate::component]
 pub struct BarState {
     pub y: Fixed,
     pub speed_per_second: Fixed,
