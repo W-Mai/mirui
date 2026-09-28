@@ -93,7 +93,18 @@ pub fn extract_focus(src: &str) -> String {
 
 #[macro_export]
 macro_rules! register_demos {
-    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident) ),* $(,)? ) => {
+    (@source $module:ident) => {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../src/gallery/demos/",
+            stringify!($module),
+            ".rs"
+        ))
+    };
+    (@source $module:ident, $source:expr) => {
+        $source
+    };
+    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident $(, source = $source:expr)?) ),* $(,)? ) => {
         pub const DEMOS: &[$crate::DemoEntry] = &[
             $(
                 $crate::DemoEntry {
@@ -106,12 +117,7 @@ macro_rules! register_demos {
                         $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
                         parent
                     },
-                    source: include_str!(concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        "/../src/gallery/demos/",
-                        stringify!($module),
-                        ".rs"
-                    )),
+                    source: $crate::register_demos!(@source $module $(, $source)?),
                 },
             )*
         ];
@@ -143,6 +149,27 @@ macro_rules! register_demos {
 }
 
 #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
+const MARBLE_PLAY_SOURCE: &str = concat!(
+    include_str!("../../src/gallery/demos/marble_play.rs"),
+    "\n\n// marble_play/style.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/style.rs"),
+    "\n\n// marble_play/audio.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/audio.rs"),
+    "\n\n// marble_play/board.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/board.rs"),
+    "\n\n// marble_play/scenes.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/scenes.rs"),
+    "\n\n// marble_play/settings.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/settings.rs"),
+    "\n\n// marble_play/inspector.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/inspector.rs"),
+    "\n\n// marble_play/shell.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/shell.rs"),
+    "\n\n// marble_play/tests.rs\n",
+    include_str!("../../src/gallery/demos/marble_play/tests.rs"),
+);
+
+#[cfg(any(feature = "web-canvas", feature = "snapshot"))]
 register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console),
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab),
@@ -154,7 +181,13 @@ register_demos! {
 
     ("signal_scope",         "Signal Scope",         "Product",     signal_scope),
 
-    ("marble_play",          "Marble Play",          "Play",        marble_play),
+    (
+        "marble_play",
+        "Marble Play",
+        "Play",
+        marble_play,
+        source = MARBLE_PLAY_SOURCE
+    ),
     ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab),
     ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom),
     ("moss_study",           "Moss Study",           "Play",        moss_study),
@@ -551,6 +584,29 @@ mod tests {
                 assert!(min <= max, "invalid height bounds for {}", demo.slug);
             }
         }
+    }
+
+    #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
+    #[test]
+    fn split_demo_source_includes_page_modules() {
+        let source = super::lookup_demo("marble_play")
+            .expect("Marble Play is registered")
+            .source;
+
+        for module in [
+            "style.rs",
+            "audio.rs",
+            "board.rs",
+            "scenes.rs",
+            "settings.rs",
+            "inspector.rs",
+            "shell.rs",
+            "tests.rs",
+        ] {
+            assert!(source.contains(module), "Marble source omits {module}");
+        }
+        assert!(source.contains("fn paint_play_board"));
+        assert!(source.contains("fn build_widgets"));
     }
 
     #[test]
