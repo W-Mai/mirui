@@ -1,7 +1,9 @@
+use crate::core::model::ModelHandle;
 use crate::gallery::play::storage::{ReplayKind, TidalReplayLog, replay_tide};
+use crate::gallery::play::tidal::{TideModel, TideModelHandle};
 use crate::prelude::{App, RendererFactory, Surface};
 
-pub(super) fn install_persistence<B, F>(app: &mut App<B, F>)
+pub(super) fn install_persistence<B, F>(app: &mut App<B, F>, model: TideModelHandle)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -9,23 +11,20 @@ where
     use crate::core::persistence::PersistencePlugin;
     use crate::gallery::play::storage::gallery_storage;
 
+    let save_model = model.clone();
+    let restore_model = model;
     let plugin = PersistencePlugin::new(gallery_storage("mirui_tidal_atlas.bin"))
         .bytes(
             "tidal_atlas/replay",
-            |world| {
-                world
-                    .resource::<TidalReplayLog>()
-                    .map(|log| log.encode_vec())
-            },
-            |world, bytes| {
+            move |_world| Some(ModelHandle::read(&save_model, TideModel::encode_replay)),
+            move |_world, bytes| {
                 let Ok(log) = TidalReplayLog::decode(bytes, ReplayKind::Tidal) else {
                     return;
                 };
-                let Ok(model) = replay_tide(&log) else {
+                let Ok(restored) = replay_tide(&log) else {
                     return;
                 };
-                world.insert_resource(log);
-                world.insert_resource(model);
+                restore_model.restore_replay(restored);
             },
         )
         .autosave_every_ms(1000);

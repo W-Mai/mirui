@@ -3,7 +3,7 @@ use super::style::{ACCENT, BACKGROUND, BOARD, HEADER, LINE, PANEL};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::tidal::{BOARD_SIZE, TideModal, TideModel, Tile};
-use crate::prelude::{Color, Entity, Fixed, Point, Rect, World};
+use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
@@ -234,32 +234,38 @@ fn paint_surface(painter: &mut PlayPainter<'_, '_>, model: &TideModel) {
     painter.line(Point::new(14, 296), Point::new(466, 296), LINE, Fixed::ONE);
 }
 
-fn surface_render(
+#[crate::view(
+    component = TideSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "TideSurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &TideModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<TideModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_surface(&mut painter, model);
 }
 
-fn modal_render(
+#[crate::view(
+    component = TideModalSurface,
+    read(model),
+    watch(model.modal()),
+    name = "TideModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &TideModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<TideModel>() else {
-        return;
-    };
     if model.modal() == TideModal::None {
         return;
     }
@@ -282,8 +288,9 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("TideSurface", 60, surface_render).with_filter::<TideSurface>()
+    surface_render::view()
 }
+
 pub(super) fn modal_view() -> View {
-    View::new("TideModalSurface", 70, modal_render).with_filter::<TideModalSurface>()
+    modal_render::view()
 }

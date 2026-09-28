@@ -2,26 +2,152 @@ use super::input::surface_gesture;
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::{modal_view, surface_view};
-use super::state::{TideModalSurface, TideNodes, TideSurface, perk_offer};
+use super::state::{TideModalSurface, TideSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, DARK, MUTED, PANEL, PAPER, TEXT};
 use crate::gallery::play::font::register_play_font;
-#[cfg(feature = "persistence")]
-use crate::gallery::play::storage::{ReplayKind, TidalReplayLog};
-use crate::gallery::play::tidal::{TideCommand, TideModal, TideModel};
+use crate::gallery::play::tidal::{
+    IslandResult, Perk, TideMessage, TideModal, TideModel, TidePreview,
+};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
 fn label() -> ParagraphStyle {
     ParagraphStyle::label().with_align(TextAlign::Start)
 }
 
-#[compose]
-pub(super) fn build_widgets() {
+fn control_color(active: bool, enabled: bool) -> Color {
+    if active {
+        PAPER
+    } else if enabled {
+        PANEL
+    } else {
+        Color::rgb(29, 57, 63)
+    }
+}
+
+fn control_text_color(active: bool, enabled: bool) -> Color {
+    if active {
+        DARK
+    } else if enabled {
+        TEXT
+    } else {
+        MUTED
+    }
+}
+
+struct PreviewText(Option<TidePreview>);
+
+impl fmt::Display for PreviewText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(preview) = self.0 else {
+            return Ok(());
+        };
+        write!(
+            out,
+            "{} · 本块 {} · 全岛净增 {:+}",
+            ["低地", "平地", "高地"][usize::from(preview.terrain)],
+            preview.score,
+            preview.delta
+        )
+    }
+}
+
+struct HarvestText {
+    values: [u16; 4],
+    len: u8,
+}
+
+struct ModalDetailText(HarvestText);
+
+impl fmt::Display for ModalDetailText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.write_str("四季 ")?;
+        self.0.fmt(out)
+    }
+}
+
+impl fmt::Display for HarvestText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, value) in self.values[..usize::from(self.len)].iter().enumerate() {
+            if index != 0 {
+                out.write_str(" / ")?;
+            }
+            write!(out, "{value}")?;
+        }
+        Ok(())
+    }
+}
+
+struct PerkText(Perk);
+
+impl fmt::Display for PerkText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "{}\n{}", self.0.name(), self.0.description())
+    }
+}
+
+struct VoyageRowText {
+    index: usize,
+    chapter: u8,
+    results: [IslandResult; 4],
+}
+
+impl fmt::Display for VoyageRowText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.index < usize::from(self.chapter) {
+            write!(
+                out,
+                "0{}  {}  {}",
+                self.index + 1,
+                island_name(self.index),
+                self.results[self.index].score
+            )
+        } else if self.index == usize::from(self.chapter) {
+            write!(
+                out,
+                "0{}  {}  航行中",
+                self.index + 1,
+                island_name(self.index)
+            )
+        } else {
+            write!(
+                out,
+                "0{}  {}  未抵达",
+                self.index + 1,
+                island_name(self.index)
+            )
+        }
+    }
+}
+
+fn message_text(message: TideMessage) -> &'static str {
+    match message {
+        TideMessage::Ready => "选一张地块，再点相邻海域。每 6 次落子结算一次。",
+        TideMessage::Placed(_) => "地块已落位，候选与下一季预估已更新。",
+        TideMessage::Harvest(_, _) => "季节结算完成；继续扩建群岛。",
+        TideMessage::Rerolled => "换一手地块；不会消耗落子回合。",
+        TideMessage::Undone => "已撤销；候选、积分与随机状态完整恢复。",
+        TideMessage::Settled(true) => "委托达成，追加 45 分。",
+        TideMessage::Settled(false) => "本岛结算；未完成委托不影响继续远航。",
+        TideMessage::Complete => "四岛航行完成。",
+    }
+}
+
+fn island_name(index: usize) -> &'static str {
+    ["浅湾", "外海", "浮岬", "远境"][index]
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: TideModel) {
     ui! {
-        TideSurface (id: "tide_surface", width: 480, height: 320, clip_children: true) [
+        View (id: "tide_surface", width: 480, height: 320, clip_children: true) [
+            TideSurface {
+                model: model.clone(),
+            },
             TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, ctx.entity, ctx.event); }
+        ] on Tap { surface_gesture(&ctx); }
         {
             Text (
                 "潮汐群岛",
@@ -46,7 +172,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "第 1 / 4 岛",
+                text: ${ format_args!("第 {} / 4 岛", model.chapter() + 1) },
+                text_capacity: 20,
                 id: "tide_chapter",
                 position: Position::Absolute,
                 left: 14,
@@ -58,7 +185,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "落子 0 / 24",
+                text: ${ format_args!("落子 {} / 24", model.turn()) },
+                text_capacity: 20,
                 id: "tide_turn",
                 position: Position::Absolute,
                 left: 115,
@@ -70,7 +198,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "累计 0",
+                text: ${ format_args!("累计 {}", model.cumulative_score()) },
+                text_capacity: 20,
                 id: "tide_total",
                 position: Position::Absolute,
                 left: 171,
@@ -93,7 +222,16 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "退潮 · 晴朗",
+                text: ${ format_args!(
+                    "{} · {}",
+                    if model.forecast().tide == crate::gallery::play::tidal::TideLevel::High {
+                        "涨潮"
+                    } else {
+                        "退潮"
+                    },
+                    model.forecast().weather.name()
+                ) },
+                text_capacity: 24,
                 id: "tide_forecast",
                 position: Position::Absolute,
                 left: 247,
@@ -105,7 +243,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "预计 +0",
+                text: ${ format_args!("预计 +{}", model.forecast_score()) },
+                text_capacity: 20,
                 id: "tide_estimate",
                 position: Position::Absolute,
                 left: 366,
@@ -117,7 +256,12 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "再落 6 块结算",
+                text: ${ format_args!(
+                    "再落 {} 块结算 · 进阶参考线 {}",
+                    if model.settled() { 0 } else { 6 - model.turn() % 6 },
+                    model.target()
+                ) },
+                text_capacity: 56,
                 id: "tide_until",
                 position: Position::Absolute,
                 left: 247,
@@ -140,7 +284,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "换牌 3",
+                text: ${ format_args!("换牌 {}", model.rerolls()) },
+                text_capacity: 16,
                 id: "tide_offer_count",
                 position: Position::Absolute,
                 left: 390,
@@ -152,7 +297,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Button (
-                "森林",
+                text: ${ model.offer_tiles()[0].name() },
+                text_capacity: 12,
                 id: "tide_offer_0",
                 position: Position::Absolute,
                 left: 237,
@@ -161,13 +307,14 @@ pub(super) fn build_widgets() {
                 height: 58,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: PAPER,
+                normal_color: ${ control_color(model.choice() == 0, !model.settled() && !model.complete()) },
                 pressed_color: ACCENT,
-                text_color: DARK,
+                text_color: ${ control_text_color(model.choice() == 0, !model.settled() && !model.complete()) },
                 border_radius: 4
-            ) on Tap { TideNodes::update(ctx.world, |model| model.select_offer(0)); }
+            ) on Tap { model.select_offer(0); }
             Button (
-                "梯田",
+                text: ${ model.offer_tiles()[1].name() },
+                text_capacity: 12,
                 id: "tide_offer_1",
                 position: Position::Absolute,
                 left: 315,
@@ -176,13 +323,14 @@ pub(super) fn build_widgets() {
                 height: 58,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: PANEL,
+                normal_color: ${ control_color(model.choice() == 1, !model.settled() && !model.complete()) },
                 pressed_color: ACCENT,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.choice() == 1, !model.settled() && !model.complete()) },
                 border_radius: 4
-            ) on Tap { TideNodes::update(ctx.world, |model| model.select_offer(1)); }
+            ) on Tap { model.select_offer(1); }
             Button (
-                "港湾",
+                text: ${ model.offer_tiles()[2].name() },
+                text_capacity: 12,
                 id: "tide_offer_2",
                 position: Position::Absolute,
                 left: 393,
@@ -191,13 +339,18 @@ pub(super) fn build_widgets() {
                 height: 58,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: PANEL,
+                normal_color: ${ control_color(model.choice() == 2, !model.settled() && !model.complete()) },
                 pressed_color: ACCENT,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.choice() == 2, !model.settled() && !model.complete()) },
                 border_radius: 4
-            ) on Tap { TideNodes::update(ctx.world, |model| model.select_offer(2)); }
+            ) on Tap { model.select_offer(2); }
             Text (
-                "待落位",
+                text: ${ format_args!(
+                    "{} · {}",
+                    if model.selected().is_some() { "已落位" } else { "待落位" },
+                    model.display_tile().name()
+                ) },
+                text_capacity: 32,
                 id: "tide_info_title",
                 position: Position::Absolute,
                 left: 237,
@@ -209,7 +362,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "基础规则",
+                text: ${ model.display_tile().description() },
+                text_capacity: 64,
                 id: "tide_info_desc",
                 position: Position::Absolute,
                 left: 237,
@@ -221,7 +375,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "相邻规则",
+                text: ${ model.display_tile().rule() },
+                text_capacity: 64,
                 id: "tide_info_rule",
                 position: Position::Absolute,
                 left: 237,
@@ -233,7 +388,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "",
+                text: ${ PreviewText(model.preview_data()) },
+                text_capacity: 96,
                 id: "tide_preview",
                 position: Position::Absolute,
                 left: 237,
@@ -254,11 +410,12 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: CONTROL,
+                visible: ${ model.pending().is_none() && !model.settled() && !model.complete() },
+                normal_color: ${ control_color(false, model.rerolls() > 0 && !model.settled() && !model.complete()) },
                 pressed_color: ACCENT,
-                text_color: TEXT,
+                text_color: ${ control_text_color(false, model.rerolls() > 0 && !model.settled() && !model.complete()) },
                 border_radius: 5
-            ) on Tap { TideNodes::dispatch(ctx.world, TideCommand::Reroll); }
+            ) on Tap { model.reroll(); }
             Button (
                 "撤销",
                 id: "tide_undo",
@@ -269,14 +426,16 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: CONTROL,
+                visible: ${ model.pending().is_none() && !model.settled() && !model.complete() },
+                normal_color: ${ control_color(false, model.can_undo() && !model.complete()) },
                 pressed_color: ACCENT,
-                text_color: TEXT,
+                text_color: ${ control_text_color(false, model.can_undo() && !model.complete()) },
                 border_radius: 5
-            ) on Tap { TideNodes::dispatch(ctx.world, TideCommand::Undo); }
+            ) on Tap { model.undo(); }
             Button (
                 "航行图",
                 id: "tide_voyage",
+                visible: ${ model.pending().is_none() && !model.settled() && !model.complete() },
                 position: Position::Absolute,
                 left: 390,
                 top: 252,
@@ -288,10 +447,11 @@ pub(super) fn build_widgets() {
                 pressed_color: ACCENT,
                 text_color: TEXT,
                 border_radius: 5
-            ) on Tap { TideNodes::update(ctx.world, |model| model.set_modal(TideModal::Voyage)); }
+            ) on Tap { model.set_modal(TideModal::Voyage); }
             Button (
                 "确认落子",
                 id: "tide_place",
+                visible: ${ model.pending().is_some() },
                 position: Position::Absolute,
                 left: 237,
                 top: 258,
@@ -303,10 +463,22 @@ pub(super) fn build_widgets() {
                 pressed_color: PAPER,
                 text_color: DARK,
                 border_radius: 5
-            ) on Tap { TideNodes::dispatch_pending(ctx.world); }
+            ) on Tap {
+                if let Some(index) = model.pending() {
+                    model.place(index, model.choice());
+                }
+            }
             Button (
-                "取消",
+                text: ${ if model.pending().is_some() {
+                    "取消"
+                } else if model.complete() {
+                    "航行完成 · 查看总览"
+                } else {
+                    "本岛结算 · 选择新学说"
+                } },
+                text_capacity: 40,
                 id: "tide_cancel_result",
+                visible: ${ model.pending().is_some() || model.settled() || model.complete() },
                 position: Position::Absolute,
                 left: 397,
                 top: 258,
@@ -319,23 +491,15 @@ pub(super) fn build_widgets() {
                 text_color: TEXT,
                 border_radius: 5
             ) on Tap {
-                let show_result = ctx
-                    .world
-                    .resource::<TideModel>()
-                    .is_some_and(|model| model.settled() || model.complete());
-                TideNodes::update(
-                    ctx.world,
-                    |model| {
-                        if show_result {
-                            model.set_modal(TideModal::Result)
-                        } else {
-                            model.cancel_preview()
-                        }
-                    },
-                );
+                if model.settled() || model.complete() {
+                    model.set_modal(TideModal::Result);
+                } else {
+                    model.cancel_preview();
+                }
             }
             Text (
-                "委托",
+                text: ${ model.goal().name },
+                text_capacity: 24,
                 id: "tide_goal",
                 position: Position::Absolute,
                 left: 14,
@@ -347,7 +511,8 @@ pub(super) fn build_widgets() {
                 paragraph: label()
             )
             Text (
-                "0 / 4",
+                text: ${ format_args!("{} / {}", model.goal_progress(), model.goal().count) },
+                text_capacity: 8,
                 id: "tide_goal_progress",
                 position: Position::Absolute,
                 left: 164,
@@ -359,7 +524,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "准备远航",
+                text: ${ message_text(model.message()) },
+                text_capacity: 96,
                 id: "tide_message",
                 position: Position::Absolute,
                 left: 14,
@@ -370,20 +536,31 @@ pub(super) fn build_widgets() {
                 text_color: MUTED,
                 paragraph: label()
             )
-            TideModalSurface (
+            View (
                 id: "tide_modal",
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
                 width: 480,
                 height: 320,
-                clip_children: true
+                clip_children: true,
+                visible: ${ model.modal() != TideModal::None }
             ) [
+                TideModalSurface {
+                    model: model.clone(),
+                },
                 TouchAction::None,
             ] on Tap { }
             {
                 Text (
-                    "本岛结算",
+                    text: ${ if model.modal() == TideModal::Voyage {
+                        "四岛航行图"
+                    } else if model.complete() {
+                        "四岛远航 / 完成"
+                    } else {
+                        "本岛结算"
+                    } },
+                    text_capacity: 32,
                     id: "tide_modal_title",
                     position: Position::Absolute,
                     left: 35,
@@ -395,7 +572,12 @@ pub(super) fn build_widgets() {
                     paragraph: label()
                 )
                 Text (
-                    "",
+                    text: ${ if model.modal() == TideModal::Voyage {
+                        "96 次落子 / 16 次季节结算 / 3 次学说选择"
+                    } else {
+                        "评级不锁关。选择学说，继续前往下一座岛。"
+                    } },
+                    text_capacity: 128,
                     id: "tide_modal_subtitle",
                     position: Position::Absolute,
                     left: 35,
@@ -419,10 +601,12 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 5
-                ) on Tap { TideNodes::update(ctx.world, |model| model.set_modal(TideModal::None)); }
+                ) on Tap { model.set_modal(TideModal::None); }
                 Text (
-                    "0",
+                    text: ${ format_args!("{}", model.score()) },
+                    text_capacity: 6,
                     id: "tide_modal_score",
+                    visible: ${ model.modal() == TideModal::Result },
                     position: Position::Absolute,
                     left: 35,
                     top: 111,
@@ -433,8 +617,13 @@ pub(super) fn build_widgets() {
                     paragraph: label()
                 )
                 Text (
-                    "",
+                    text: ${ ModalDetailText(HarvestText {
+                        values: model.harvests(),
+                        len: model.harvest_len(),
+                    }) },
+                    text_capacity: 48,
                     id: "tide_modal_detail",
+                    visible: ${ model.modal() == TideModal::Result },
                     position: Position::Absolute,
                     left: 180,
                     top: 120,
@@ -445,8 +634,15 @@ pub(super) fn build_widgets() {
                     paragraph: label()
                 )
                 Button (
-                    "学说一",
+                    text: ${ PerkText(model.perk_offers()[0]) },
+                    text_capacity: 64,
                     id: "tide_perk_0",
+                    visible: ${
+                        model.modal() == TideModal::Result
+                            && model.settled()
+                            && model.chapter() != 3
+                            && !model.complete()
+                    },
                     position: Position::Absolute,
                     left: 35,
                     top: 181,
@@ -458,18 +654,17 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 5
-                ) on Tap {
-                    let perk = perk_offer(ctx.world, 0);
-                    TideNodes::dispatch(
-                        ctx.world,
-                        TideCommand::Continue {
-                            perk: Some(perk),
-                        },
-                    );
-                }
+                ) on Tap { model.continue_voyage(Some(model.perk_offers()[0])); }
                 Button (
-                    "学说二",
+                    text: ${ PerkText(model.perk_offers()[1]) },
+                    text_capacity: 64,
                     id: "tide_perk_1",
+                    visible: ${
+                        model.modal() == TideModal::Result
+                            && model.settled()
+                            && model.chapter() != 3
+                            && !model.complete()
+                    },
                     position: Position::Absolute,
                     left: 174,
                     top: 181,
@@ -481,18 +676,17 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 5
-                ) on Tap {
-                    let perk = perk_offer(ctx.world, 1);
-                    TideNodes::dispatch(
-                        ctx.world,
-                        TideCommand::Continue {
-                            perk: Some(perk),
-                        },
-                    );
-                }
+                ) on Tap { model.continue_voyage(Some(model.perk_offers()[1])); }
                 Button (
-                    "学说三",
+                    text: ${ PerkText(model.perk_offers()[2]) },
+                    text_capacity: 64,
                     id: "tide_perk_2",
+                    visible: ${
+                        model.modal() == TideModal::Result
+                            && model.settled()
+                            && model.chapter() != 3
+                            && !model.complete()
+                    },
                     position: Position::Absolute,
                     left: 313,
                     top: 181,
@@ -504,18 +698,16 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 5
-                ) on Tap {
-                    let perk = perk_offer(ctx.world, 2);
-                    TideNodes::dispatch(
-                        ctx.world,
-                        TideCommand::Continue {
-                            perk: Some(perk),
-                        },
-                    );
-                }
+                ) on Tap { model.continue_voyage(Some(model.perk_offers()[2])); }
                 Button (
                     "完成四岛航行",
                     id: "tide_finish",
+                    visible: ${
+                        model.modal() == TideModal::Result
+                            && model.chapter() == 3
+                            && model.settled()
+                            && !model.complete()
+                    },
                     position: Position::Absolute,
                     left: 35,
                     top: 225,
@@ -527,17 +719,16 @@ pub(super) fn build_widgets() {
                     pressed_color: PAPER,
                     text_color: DARK,
                     border_radius: 6
-                ) on Tap {
-                    TideNodes::dispatch(
-                        ctx.world,
-                        TideCommand::Continue {
-                            perk: None,
-                        },
-                    );
-                }
+                ) on Tap { model.continue_voyage(None); }
                 Text (
-                    "",
+                    text: ${ VoyageRowText {
+                        index: 0,
+                        chapter: model.chapter(),
+                        results: model.results(),
+                    } },
+                    text_capacity: 32,
                     id: "tide_voyage_0",
+                    visible: ${ model.modal() == TideModal::Voyage },
                     position: Position::Absolute,
                     left: 45,
                     top: 112,
@@ -548,8 +739,14 @@ pub(super) fn build_widgets() {
                     paragraph: label()
                 )
                 Text (
-                    "",
+                    text: ${ VoyageRowText {
+                        index: 1,
+                        chapter: model.chapter(),
+                        results: model.results(),
+                    } },
+                    text_capacity: 32,
                     id: "tide_voyage_1",
+                    visible: ${ model.modal() == TideModal::Voyage },
                     position: Position::Absolute,
                     left: 45,
                     top: 148,
@@ -560,8 +757,14 @@ pub(super) fn build_widgets() {
                     paragraph: label()
                 )
                 Text (
-                    "",
+                    text: ${ VoyageRowText {
+                        index: 2,
+                        chapter: model.chapter(),
+                        results: model.results(),
+                    } },
+                    text_capacity: 32,
                     id: "tide_voyage_2",
+                    visible: ${ model.modal() == TideModal::Voyage },
                     position: Position::Absolute,
                     left: 45,
                     top: 184,
@@ -572,8 +775,14 @@ pub(super) fn build_widgets() {
                     paragraph: label()
                 )
                 Text (
-                    "",
+                    text: ${ VoyageRowText {
+                        index: 3,
+                        chapter: model.chapter(),
+                        results: model.results(),
+                    } },
+                    text_capacity: 32,
                     id: "tide_voyage_3",
+                    visible: ${ model.modal() == TideModal::Voyage },
                     position: Position::Absolute,
                     left: 45,
                     top: 220,
@@ -594,62 +803,9 @@ where
     F: RendererFactory<B>,
 {
     register_play_font(&mut app.world);
-    let model = TideModel::default();
-    app.world.insert_resource(model);
-    #[cfg(feature = "persistence")]
-    app.world
-        .insert_resource(TidalReplayLog::new(ReplayKind::Tidal, 4096));
-    #[cfg(feature = "persistence")]
-    install_persistence(app);
     app.with_widget(surface_view()).with_widget(modal_view());
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Tidal Atlas node");
-    let nodes = TideNodes {
-        surface: find("tide_surface"),
-        chapter: find("tide_chapter"),
-        turn: find("tide_turn"),
-        total: find("tide_total"),
-        forecast: find("tide_forecast"),
-        estimate: find("tide_estimate"),
-        until: find("tide_until"),
-        offer_count: find("tide_offer_count"),
-        offers: [
-            find("tide_offer_0"),
-            find("tide_offer_1"),
-            find("tide_offer_2"),
-        ],
-        info_title: find("tide_info_title"),
-        info_desc: find("tide_info_desc"),
-        info_rule: find("tide_info_rule"),
-        preview: find("tide_preview"),
-        actions: [
-            find("tide_reroll"),
-            find("tide_undo"),
-            find("tide_voyage"),
-            find("tide_place"),
-            find("tide_cancel_result"),
-        ],
-        goal: find("tide_goal"),
-        goal_progress: find("tide_goal_progress"),
-        message: find("tide_message"),
-        modal: find("tide_modal"),
-        modal_title: find("tide_modal_title"),
-        modal_subtitle: find("tide_modal_subtitle"),
-        modal_score: find("tide_modal_score"),
-        modal_detail: find("tide_modal_detail"),
-        perk_buttons: [
-            find("tide_perk_0"),
-            find("tide_perk_1"),
-            find("tide_perk_2"),
-        ],
-        finish: find("tide_finish"),
-        voyage_rows: [
-            find("tide_voyage_0"),
-            find("tide_voyage_1"),
-            find("tide_voyage_2"),
-            find("tide_voyage_3"),
-        ],
-    };
-    app.world.insert_resource(nodes);
-    TideNodes::sync(&mut app.world);
+    let model = app.add_model(TideModel::default());
+    #[cfg(feature = "persistence")]
+    install_persistence(app, model.clone());
+    app.compose(parent, |cx| build_widgets(cx, model));
 }

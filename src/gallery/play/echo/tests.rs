@@ -236,5 +236,26 @@ fn history_and_model_memory_are_bounded() {
         let _ = model.restart();
     }
     assert_eq!(model.history_len(), HISTORY_CAPACITY as u8);
+    #[cfg(not(feature = "persistence"))]
     assert!(core::mem::size_of::<EchoModel>() <= 8 * 1024);
+    #[cfg(feature = "persistence")]
+    assert!(core::mem::size_of::<EchoModel>() <= 16 * 1024);
+}
+
+#[cfg(feature = "persistence")]
+#[test]
+fn full_replay_rejects_before_mutating_the_model() {
+    use crate::gallery::play::storage::ECHO_REPLAY_CAPACITY;
+
+    let mut model = EchoModel::new(9);
+    for _ in 0..ECHO_REPLAY_CAPACITY / 2 {
+        assert!(model.step(Direction::Wait).contains(ChangeSet::PERSISTENCE));
+        assert!(model.undo().contains(ChangeSet::PERSISTENCE));
+    }
+    let state = model.state;
+    let history_len = model.history_len();
+    assert_eq!(usize::from(model.replay_len()), ECHO_REPLAY_CAPACITY);
+    assert_eq!(model.step(Direction::Wait), ChangeSet::NONE);
+    assert_eq!(model.state, state);
+    assert_eq!(model.history_len(), history_len);
 }

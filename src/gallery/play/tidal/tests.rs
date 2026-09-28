@@ -8,7 +8,8 @@ fn best_move(model: &TideModel) -> (u8, u8) {
     let mut best = None;
     for index in 0..BOARD_SIZE {
         for choice in 0..3 {
-            if let Some((_, delta)) = model.preview(index, choice) {
+            if let Some(preview) = model.preview(index, choice) {
+                let delta = preview.delta;
                 let goal_bonus = i16::from(model.offer(choice) == model.goal().tile) * 2;
                 if best.is_none_or(|(_, value, _, _)| delta + goal_bonus > value) {
                     best = Some((index as u8, delta + goal_bonus, choice as u8, delta));
@@ -48,10 +49,66 @@ fn preview_is_pure_and_adjacency_is_cardinal() {
     assert!(!model.valid(0));
     assert!(model.valid(13));
     assert!(!model.valid(14));
-    let before = model;
-    assert!(model.preview(13, 0).is_some());
-    assert_eq!(model.state, before.state);
-    assert_eq!(model.history.len, before.history.len);
+    let before_state = model.state;
+    let before_history_len = model.history.len;
+    let preview = model.preview(13, 0).expect("legal preview");
+    assert_eq!(preview.terrain, model.terrain(13));
+    assert_eq!(model.state, before_state);
+    assert_eq!(model.history.len, before_history_len);
+}
+
+#[test]
+fn repeated_selections_are_no_ops() {
+    let mut model = TideModel::new(8);
+    assert_eq!(model.select_offer(0), ChangeSet::NONE);
+
+    let index = (0..BOARD_SIZE)
+        .find(|index| model.valid(*index))
+        .expect("legal placement") as u8;
+    assert!(model.select_cell(index).contains(ChangeSet::VISUAL));
+    assert_eq!(model.select_cell(index), ChangeSet::NONE);
+}
+
+#[test]
+fn cached_scores_follow_place_and_undo() {
+    let mut model = TideModel::new(9);
+    let expected_forecast = (0..BOARD_SIZE)
+        .map(|index| model.tile_score(index, model.forecast()))
+        .sum::<u16>();
+    assert_eq!(model.forecast_score(), expected_forecast);
+
+    let initial_forecast = model.forecast_score();
+    let initial_progress = model.goal_progress();
+    let (index, choice) = best_move(&model);
+    assert!(model.place(index, choice).contains(ChangeSet::MODEL));
+    let expected_forecast = (0..BOARD_SIZE)
+        .map(|cell| model.tile_score(cell, model.forecast()))
+        .sum::<u16>();
+    assert_eq!(model.forecast_score(), expected_forecast);
+    assert!(model.goal_progress() >= initial_progress);
+
+    assert!(model.undo().contains(ChangeSet::MODEL));
+    assert_eq!(model.forecast_score(), initial_forecast);
+    assert_eq!(model.goal_progress(), initial_progress);
+}
+
+#[cfg(feature = "persistence")]
+#[test]
+fn full_replay_rejects_before_mutating_the_model() {
+    use crate::gallery::play::storage::TIDAL_REPLAY_CAPACITY;
+
+    let mut model = TideModel::new(9);
+    let (index, choice) = best_move(&model);
+    for _ in 0..TIDAL_REPLAY_CAPACITY / 2 {
+        assert!(model.place(index, choice).contains(ChangeSet::PERSISTENCE));
+        assert!(model.undo().contains(ChangeSet::PERSISTENCE));
+    }
+    let state = model.state;
+    let history_len = model.history_len();
+    assert_eq!(usize::from(model.replay_len()), TIDAL_REPLAY_CAPACITY);
+    assert_eq!(model.place(index, choice), ChangeSet::NONE);
+    assert_eq!(model.state, state);
+    assert_eq!(model.history_len(), history_len);
 }
 
 #[test]

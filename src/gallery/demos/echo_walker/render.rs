@@ -5,7 +5,7 @@ use super::style::{
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::echo::{BEAT_LIMIT, BOARD_HEIGHT, BOARD_WIDTH, EchoModal, EchoModel};
 use crate::gallery::play::paint::PlayPainter;
-use crate::prelude::{Color, Entity, Fixed, Point, Rect, World};
+use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
@@ -209,32 +209,38 @@ fn paint_surface(painter: &mut PlayPainter<'_, '_>, model: &EchoModel) {
     painter.line(Point::new(14, 298), Point::new(466, 298), LINE, Fixed::ONE);
 }
 
-fn surface_render(
+#[crate::view(
+    component = EchoSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "EchoSurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &EchoModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<EchoModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_surface(&mut painter, model);
 }
 
-fn modal_render(
+#[crate::view(
+    component = EchoModalSurface,
+    read(model),
+    watch(model.modal()),
+    name = "EchoModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &EchoModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<EchoModel>() else {
-        return;
-    };
     if model.modal() == EchoModal::None {
         return;
     }
@@ -257,9 +263,9 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("EchoSurface", 60, surface_render).with_filter::<EchoSurface>()
+    surface_render::view()
 }
 
 pub(super) fn modal_view() -> View {
-    View::new("EchoModalSurface", 70, modal_render).with_filter::<EchoModalSurface>()
+    modal_render::view()
 }

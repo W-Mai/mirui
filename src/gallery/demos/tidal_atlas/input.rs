@@ -1,10 +1,10 @@
-use super::state::TideNodes;
+use super::state::TideSurface;
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
-use crate::prelude::{Entity, Fixed, World};
+use crate::prelude::{Fixed, Rect};
 use crate::ui::ComputedRect;
 
-pub(super) fn local_cell(world: &World, entity: Entity, x: Fixed, y: Fixed) -> Option<u8> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
+pub(super) fn local_cell(rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
@@ -25,13 +25,22 @@ pub(super) fn local_cell(world: &World, entity: Entity, x: Fixed, y: Fixed) -> O
     Some((row * 6 + column) as u8)
 }
 
-pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let GestureEvent::Tap { x, y, .. } = event else {
+pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let GestureEvent::Tap { x, y, .. } = ctx.event else {
         return false;
     };
-    let Some(cell) = local_cell(world, entity, *x, *y) else {
+    let Some(model) = ctx
+        .component::<TideSurface>(ctx.entity)
+        .map(|surface| surface.model.clone())
+    else {
         return false;
     };
-    TideNodes::update(world, |model| model.select_cell(cell));
+    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
+        return false;
+    };
+    let Some(cell) = local_cell(rect, *x, *y) else {
+        return false;
+    };
+    model.select_cell(cell);
     true
 }

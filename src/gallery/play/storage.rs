@@ -457,6 +457,8 @@ mod tests {
         assert_eq!(restored.score(), source.score());
         assert_eq!(restored.history_len(), source.history_len());
         assert_eq!(decoded.len(), 3);
+        #[cfg(feature = "persistence")]
+        assert_eq!(restored.replay_len(), decoded.len());
     }
 
     #[test]
@@ -481,6 +483,8 @@ mod tests {
         assert_eq!(restored.position(), source.position());
         assert_eq!(restored.ghost_count(), source.ghost_count());
         assert_eq!(restored.route_len(), source.route_len());
+        #[cfg(feature = "persistence")]
+        assert_eq!(restored.replay_len(), decoded.len());
     }
 
     #[test]

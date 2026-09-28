@@ -7,7 +7,7 @@ mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use generation::generate_room;
-pub(crate) use model::EchoModel;
+pub(crate) use model::{EchoModel, EchoModelHandle};
 #[allow(unused_imports)]
 pub(crate) use types::{
     BEAT_LIMIT, BOARD_HEIGHT, BOARD_WIDTH, CELL_COUNT, ClockGate, Direction, EchoCommand,

@@ -1,15 +1,16 @@
 use super::render::map_box;
-use super::state::EchoNodes;
-use crate::gallery::play::echo::{BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoCommand, EchoModel};
+use super::state::EchoSurface;
+use crate::gallery::play::echo::{
+    BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoModel, EchoModelHandle,
+};
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
 use crate::surface::InputEvent;
 use crate::ui::ComputedRect;
 
-pub(super) fn local_cell(world: &World, entity: Entity, x: Fixed, y: Fixed) -> Option<u8> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
-    let model = world.resource::<EchoModel>()?;
+pub(super) fn local_cell(model: &EchoModel, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
@@ -31,14 +32,22 @@ pub(super) fn local_cell(world: &World, entity: Entity, x: Fixed, y: Fixed) -> O
     Some((row as usize * BOARD_WIDTH + board_x as usize) as u8)
 }
 
-pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let GestureEvent::Tap { x, y, .. } = event else {
+pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let GestureEvent::Tap { x, y, .. } = ctx.event else {
         return false;
     };
-    let Some(cell) = local_cell(world, entity, *x, *y) else {
+    let Some(model) = ctx
+        .component::<EchoSurface>(ctx.entity)
+        .map(|surface| surface.model.clone())
+    else {
         return false;
     };
-    let Some(position) = world.resource::<EchoModel>().map(EchoModel::position) else {
+    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
+        return false;
+    };
+    let Some((cell, position)) = crate::core::model::ModelHandle::read(&model, |model| {
+        local_cell(model, rect, *x, *y).map(|cell| (cell, model.position()))
+    }) else {
         return false;
     };
     let dx = i16::from(cell % BOARD_WIDTH as u8) - i16::from(position % BOARD_WIDTH as u8);
@@ -51,24 +60,33 @@ pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &Gesture
         _ => None,
     };
     if let Some(direction) = direction {
-        EchoNodes::dispatch(world, EchoCommand::Step(direction));
+        model.step(direction);
     }
     true
 }
-pub(super) struct EchoKeyboardPlugin;
 
-pub(super) fn handle_key(world: &mut World, ch: char) -> bool {
+pub(super) fn handle_key(model: &EchoModelHandle, ch: char) -> bool {
     match ch {
-        'w' | 'W' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Up)),
-        'a' | 'A' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Left)),
-        's' | 'S' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Down)),
-        'd' | 'D' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Right)),
-        ' ' => EchoNodes::dispatch(world, EchoCommand::Step(Direction::Wait)),
-        'r' | 'R' => EchoNodes::dispatch(world, EchoCommand::Rewind),
-        'u' | 'U' => EchoNodes::dispatch(world, EchoCommand::Undo),
+        'w' | 'W' => model.step(Direction::Up),
+        'a' | 'A' => model.step(Direction::Left),
+        's' | 'S' => model.step(Direction::Down),
+        'd' | 'D' => model.step(Direction::Right),
+        ' ' => model.step(Direction::Wait),
+        'r' | 'R' => model.rewind(),
+        'u' | 'U' => model.undo(),
         _ => return false,
-    }
+    };
     true
+}
+
+pub(super) struct EchoKeyboardPlugin {
+    model: EchoModelHandle,
+}
+
+impl EchoKeyboardPlugin {
+    pub(super) fn new(model: EchoModelHandle) -> Self {
+        Self { model }
+    }
 }
 
 impl<B, F> Plugin<B, F> for EchoKeyboardPlugin
@@ -78,10 +96,29 @@ where
 {
     fn build(&mut self, _app: &mut App<B, F>) {}
 
-    fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
+    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
         let InputEvent::CharInput { ch } = event else {
             return false;
         };
-        handle_key(world, *ch)
+        handle_key(&self.model, *ch)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyboard_keeps_the_registered_model_instance() {
+        let mut app = App::headless(1, 1);
+        let model = app.add_model(EchoModel::default());
+        let plugin = EchoKeyboardPlugin::new(model.clone());
+        drop(model);
+
+        assert!(handle_key(&plugin.model, ' '));
+        crate::core::model::ModelHandle::read(&plugin.model, |model| {
+            assert_eq!(model.tick(), 1);
+        });
+        assert!(!handle_key(&plugin.model, 'x'));
     }
 }

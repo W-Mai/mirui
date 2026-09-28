@@ -4,6 +4,8 @@ use super::types::{
     EchoModal, EchoResult, EchoRoom, HISTORY_CAPACITY, MAX_GHOSTS, PackedRoute, ROOM_COUNT,
 };
 use crate::gallery::play::change::ChangeSet;
+#[cfg(feature = "persistence")]
+use crate::gallery::play::storage::{EchoReplayLog, ReplayKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct EchoState {
@@ -72,6 +74,7 @@ impl EchoHistory {
     }
 }
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 pub(crate) struct EchoModel {
     seed: u32,
     level: u8,
@@ -86,6 +89,8 @@ pub(crate) struct EchoModel {
     message: EchoMessage,
     modal: EchoModal,
     peek_ghost: Option<u8>,
+    #[cfg(feature = "persistence")]
+    replay: EchoReplayLog,
 }
 
 impl Default for EchoModel {
@@ -110,6 +115,8 @@ impl EchoModel {
             message: EchoMessage::Ready,
             modal: EchoModal::None,
             peek_ghost: None,
+            #[cfg(feature = "persistence")]
+            replay: EchoReplayLog::new(ReplayKind::Echo, seed.max(1)),
         };
         model.make_room();
         model
@@ -128,64 +135,12 @@ impl EchoModel {
     pub(crate) const fn room(&self) -> &EchoRoom {
         &self.room
     }
-    pub(crate) const fn level(&self) -> u8 {
-        self.level
-    }
-    pub(crate) const fn tick(&self) -> u8 {
-        self.state.tick
-    }
-    pub(crate) const fn position(&self) -> u8 {
-        self.state.pos
-    }
-    pub(crate) const fn steps(&self) -> u16 {
-        self.state.steps
-    }
-    pub(crate) const fn loops(&self) -> u8 {
-        self.state.loops
-    }
-    pub(crate) const fn total_steps(&self) -> u16 {
-        self.total_steps
-    }
-    pub(crate) const fn total_loops(&self) -> u16 {
-        self.total_loops
-    }
-    pub(crate) const fn ghost_count(&self) -> u8 {
-        self.state.ghost_count
-    }
-    pub(crate) const fn route_len(&self) -> u8 {
-        self.state.routes[0].len()
-    }
     pub(crate) const fn ghost_route_len(&self, ghost: usize) -> u8 {
         self.state.routes[ghost + 1].len()
-    }
-    pub(crate) const fn won(&self) -> bool {
-        self.state.won
-    }
-    pub(crate) const fn complete(&self) -> bool {
-        self.complete
-    }
-    pub(crate) const fn collected_count(&self) -> u8 {
-        self.state.collected.count_ones() as u8
     }
     pub(crate) const fn collected(&self, gem: usize) -> bool {
         self.state.collected & (1 << gem) != 0
     }
-    pub(crate) const fn message(&self) -> EchoMessage {
-        self.message
-    }
-    pub(crate) const fn modal(&self) -> EchoModal {
-        self.modal
-    }
-    pub(crate) const fn history_len(&self) -> u8 {
-        self.history.len
-    }
-    pub(crate) const fn result_len(&self) -> u8 {
-        self.result_len
-    }
-    pub(crate) const fn peek_ghost(&self) -> Option<u8> {
-        self.peek_ghost
-    }
-
     pub(crate) fn route_cell(&self, route: usize, beat: u8) -> u8 {
         route_position(self.room.start, self.state.routes[route], beat)
     }
@@ -218,7 +173,7 @@ impl EchoModel {
             && self.clock_open(cell, beat)
     }
 
-    pub(crate) fn step(&mut self, direction: Direction) -> ChangeSet {
+    fn step_raw(&mut self, direction: Direction) -> ChangeSet {
         if self.state.won || self.complete || self.state.tick >= BEAT_LIMIT {
             return ChangeSet::NONE;
         }
@@ -263,7 +218,7 @@ impl EchoModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn rewind(&mut self) -> ChangeSet {
+    fn rewind_raw(&mut self) -> ChangeSet {
         if self.state.won
             || self.complete
             || self.state.ghost_count >= MAX_GHOSTS as u8
@@ -284,7 +239,7 @@ impl EchoModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn restart(&mut self) -> ChangeSet {
+    fn restart_raw(&mut self) -> ChangeSet {
         if self.state.won || self.complete || self.state.tick == 0 {
             return ChangeSet::NONE;
         }
@@ -296,7 +251,7 @@ impl EchoModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn clear_room(&mut self) -> ChangeSet {
+    fn clear_room_raw(&mut self) -> ChangeSet {
         if self.complete {
             return ChangeSet::NONE;
         }
@@ -309,7 +264,7 @@ impl EchoModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn undo(&mut self) -> ChangeSet {
+    fn undo_raw(&mut self) -> ChangeSet {
         if self.complete {
             return ChangeSet::NONE;
         }
@@ -323,7 +278,7 @@ impl EchoModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn continue_archive(&mut self) -> ChangeSet {
+    fn continue_archive_raw(&mut self) -> ChangeSet {
         if !self.state.won || self.complete {
             return ChangeSet::NONE;
         }
@@ -338,23 +293,29 @@ impl EchoModel {
             self.complete = true;
             self.message = EchoMessage::Complete;
             self.modal = EchoModal::Result;
+            ChangeSet::MODEL | ChangeSet::PERSISTENCE
         } else {
             self.level += 1;
             self.make_room();
+            ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
         }
-        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn set_modal(&mut self, modal: EchoModal) -> ChangeSet {
+    fn set_modal_raw(&mut self, modal: EchoModal) -> ChangeSet {
         if self.modal == modal {
             return ChangeSet::NONE;
         }
+        let visual = self.peek_ghost.is_some();
         self.modal = modal;
         self.peek_ghost = None;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        if visual {
+            ChangeSet::MODEL | ChangeSet::VISUAL
+        } else {
+            ChangeSet::MODEL
+        }
     }
 
-    pub(crate) fn set_peek_ghost(&mut self, ghost: Option<u8>) -> ChangeSet {
+    fn set_peek_ghost_raw(&mut self, ghost: Option<u8>) -> ChangeSet {
         if self.peek_ghost == ghost || ghost.is_some_and(|value| value >= self.state.ghost_count) {
             return ChangeSet::NONE;
         }
@@ -363,14 +324,196 @@ impl EchoModel {
     }
 
     pub(crate) fn apply_command(&mut self, command: EchoCommand) -> ChangeSet {
-        match command {
-            EchoCommand::Step(direction) => self.step(direction),
-            EchoCommand::Rewind => self.rewind(),
-            EchoCommand::Restart => self.restart(),
-            EchoCommand::Clear => self.clear_room(),
-            EchoCommand::Undo => self.undo(),
-            EchoCommand::Continue => self.continue_archive(),
+        #[cfg(feature = "persistence")]
+        if self.replay.is_full() {
+            return ChangeSet::NONE;
         }
+        let changes = match command {
+            EchoCommand::Step(direction) => self.step_raw(direction),
+            EchoCommand::Rewind => self.rewind_raw(),
+            EchoCommand::Restart => self.restart_raw(),
+            EchoCommand::Clear => self.clear_room_raw(),
+            EchoCommand::Undo => self.undo_raw(),
+            EchoCommand::Continue => self.continue_archive_raw(),
+        };
+        #[cfg(feature = "persistence")]
+        if changes.contains(ChangeSet::PERSISTENCE) {
+            let recorded = self.replay.record_echo(command).is_ok();
+            debug_assert!(recorded);
+        }
+        changes
+    }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) fn encode_replay(&self) -> alloc::vec::Vec<u8> {
+        self.replay.encode_vec()
+    }
+
+    #[cfg(all(feature = "persistence", test))]
+    pub(crate) const fn replay_len(&self) -> u16 {
+        self.replay.len()
+    }
+}
+
+#[crate::model]
+impl EchoModel {
+    #[observe]
+    pub(crate) fn level(&self) -> u8 {
+        self.level
+    }
+
+    #[observe]
+    pub(crate) fn tick(&self) -> u8 {
+        self.state.tick
+    }
+
+    pub(crate) fn position(&self) -> u8 {
+        self.state.pos
+    }
+
+    #[observe]
+    pub(crate) fn steps(&self) -> u16 {
+        self.state.steps
+    }
+
+    #[observe]
+    pub(crate) fn loops(&self) -> u8 {
+        self.state.loops
+    }
+
+    #[observe]
+    pub(crate) fn total_steps(&self) -> u16 {
+        self.total_steps
+    }
+
+    #[observe]
+    pub(crate) fn total_loops(&self) -> u16 {
+        self.total_loops
+    }
+
+    #[observe]
+    pub(crate) fn ghost_count(&self) -> u8 {
+        self.state.ghost_count
+    }
+
+    #[cfg(test)]
+    pub(crate) fn route_len(&self) -> u8 {
+        self.state.routes[0].len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn won(&self) -> bool {
+        self.state.won
+    }
+
+    #[observe]
+    pub(crate) fn complete(&self) -> bool {
+        self.complete
+    }
+
+    #[observe]
+    pub(crate) fn collected_count(&self) -> u8 {
+        self.state.collected.count_ones() as u8
+    }
+
+    #[observe]
+    pub(crate) fn gem_count(&self) -> u8 {
+        self.room.gem_count
+    }
+
+    #[observe]
+    pub(crate) fn message(&self) -> EchoMessage {
+        self.message
+    }
+
+    #[observe]
+    pub(crate) fn modal(&self) -> EchoModal {
+        self.modal
+    }
+
+    #[cfg(test)]
+    pub(crate) fn history_len(&self) -> u8 {
+        self.history.len
+    }
+
+    #[observe]
+    pub(crate) fn result_len(&self) -> u8 {
+        self.result_len
+    }
+
+    #[observe]
+    pub(crate) fn peek_ghost(&self) -> Option<u8> {
+        self.peek_ghost
+    }
+
+    #[observe]
+    pub(crate) fn ghost_route_lengths(&self) -> [u8; MAX_GHOSTS] {
+        [
+            self.state.routes[1].len(),
+            self.state.routes[2].len(),
+            self.state.routes[3].len(),
+        ]
+    }
+
+    #[observe]
+    pub(crate) fn can_rewind(&self) -> bool {
+        !self.state.won
+            && !self.complete
+            && self.state.ghost_count < MAX_GHOSTS as u8
+            && self.state.routes[0].len() != 0
+    }
+
+    #[observe]
+    pub(crate) fn can_undo(&self) -> bool {
+        !self.complete && self.history.len != 0
+    }
+
+    #[observe]
+    pub(crate) fn can_restart(&self) -> bool {
+        !self.state.won && !self.complete && self.state.routes[0].len() != 0
+    }
+
+    pub(crate) fn step(&mut self, direction: Direction) -> ChangeSet {
+        self.apply_command(EchoCommand::Step(direction))
+    }
+
+    pub(crate) fn rewind(&mut self) -> ChangeSet {
+        self.apply_command(EchoCommand::Rewind)
+    }
+
+    pub(crate) fn restart(&mut self) -> ChangeSet {
+        self.apply_command(EchoCommand::Restart)
+    }
+
+    pub(crate) fn clear_room(&mut self) -> ChangeSet {
+        self.apply_command(EchoCommand::Clear)
+    }
+
+    pub(crate) fn undo(&mut self) -> ChangeSet {
+        self.apply_command(EchoCommand::Undo)
+    }
+
+    pub(crate) fn continue_archive(&mut self) -> ChangeSet {
+        self.apply_command(EchoCommand::Continue)
+    }
+
+    pub(crate) fn set_modal(&mut self, modal: EchoModal) -> ChangeSet {
+        self.set_modal_raw(modal)
+    }
+
+    pub(crate) fn toggle_peek_ghost(&mut self, ghost: u8) -> ChangeSet {
+        let next = if self.peek_ghost == Some(ghost) {
+            None
+        } else {
+            Some(ghost)
+        };
+        self.set_peek_ghost_raw(next)
+    }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) fn restore_replay(&mut self, restored: EchoModel) -> ChangeSet {
+        *self = restored;
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 }
 fn route_position(start: u8, route: PackedRoute, beat: u8) -> u8 {

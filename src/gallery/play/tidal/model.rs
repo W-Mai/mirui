@@ -4,6 +4,8 @@ use super::types::{
     TideLevel, TideMessage, TideModal, Tile, Weather,
 };
 use crate::gallery::play::change::ChangeSet;
+#[cfg(feature = "persistence")]
+use crate::gallery::play::storage::{ReplayKind, TidalReplayLog};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Rng(u32);
@@ -48,6 +50,8 @@ pub(super) struct TideState {
     harvest_len: u8,
     pub(super) result_len: u8,
     goal: u8,
+    forecast_score: u16,
+    goal_progress: u8,
     settled: bool,
     complete: bool,
 }
@@ -80,6 +84,8 @@ impl TideState {
         harvest_len: 0,
         result_len: 0,
         goal: 0,
+        forecast_score: 0,
+        goal_progress: 0,
         settled: false,
         complete: false,
     };
@@ -126,7 +132,14 @@ impl TideHistory {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TidePreview {
+    pub(crate) terrain: u8,
+    pub(crate) score: u16,
+    pub(crate) delta: i16,
+}
+
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 pub(crate) struct TideModel {
     pub(super) state: TideState,
     pub(super) history: TideHistory,
@@ -134,8 +147,11 @@ pub(crate) struct TideModel {
     selected: Option<u8>,
     pending: Option<u8>,
     choice: u8,
+    preview: Option<TidePreview>,
     modal: TideModal,
     message: TideMessage,
+    #[cfg(feature = "persistence")]
+    replay: TidalReplayLog,
 }
 
 impl Default for TideModel {
@@ -153,8 +169,11 @@ impl TideModel {
             selected: None,
             pending: None,
             choice: 0,
+            preview: None,
             modal: TideModal::None,
             message: TideMessage::Ready,
+            #[cfg(feature = "persistence")]
+            replay: TidalReplayLog::new(ReplayKind::Tidal, seed.max(1)),
         };
         model.make_island();
         model
@@ -202,10 +221,12 @@ impl TideModel {
         state.rng = rng.0;
         self.state = state;
         self.refill();
+        self.refresh_scores();
         self.history.clear();
         self.selected = None;
         self.pending = None;
         self.choice = 0;
+        self.preview = None;
         self.modal = TideModal::None;
         self.message = TideMessage::Ready;
     }
@@ -230,52 +251,28 @@ impl TideModel {
         self.state.rng = rng.0;
     }
 
+    fn refresh_scores(&mut self) {
+        self.state.forecast_score = self.forecast_score_with(None);
+        self.state.goal_progress = self.goal_progress_with(None);
+    }
+
+    fn refresh_preview(&mut self) {
+        self.preview = self
+            .pending
+            .and_then(|index| self.preview(usize::from(index), usize::from(self.choice)));
+    }
+
     #[cfg(test)]
     pub(crate) const fn seed(&self) -> u32 {
         self.seed
-    }
-    pub(crate) const fn chapter(&self) -> u8 {
-        self.state.chapter
-    }
-    pub(crate) const fn turn(&self) -> u8 {
-        self.state.turn
-    }
-    pub(crate) const fn score(&self) -> u16 {
-        self.state.score
     }
     #[cfg(test)]
     pub(crate) const fn total(&self) -> u16 {
         self.state.total
     }
-    pub(crate) const fn target(&self) -> u16 {
-        self.state.target
-    }
-    pub(crate) const fn rerolls(&self) -> u8 {
-        self.state.rerolls
-    }
-    pub(crate) const fn settled(&self) -> bool {
-        self.state.settled
-    }
-    pub(crate) const fn complete(&self) -> bool {
-        self.state.complete
-    }
+    #[cfg(test)]
     pub(crate) const fn history_len(&self) -> u8 {
         self.history.len
-    }
-    pub(crate) const fn selected(&self) -> Option<u8> {
-        self.selected
-    }
-    pub(crate) const fn pending(&self) -> Option<u8> {
-        self.pending
-    }
-    pub(crate) const fn choice(&self) -> u8 {
-        self.choice
-    }
-    pub(crate) const fn modal(&self) -> TideModal {
-        self.modal
-    }
-    pub(crate) const fn message(&self) -> TideMessage {
-        self.message
     }
     pub(crate) const fn tile(&self, index: usize) -> Tile {
         self.state.board[index]
@@ -286,47 +283,28 @@ impl TideModel {
     pub(crate) const fn offer(&self, index: usize) -> Tile {
         self.state.offer[index]
     }
+    #[cfg(test)]
     pub(crate) const fn perk_offer(&self, index: usize) -> Perk {
         self.state.perk_offer[index]
     }
-    pub(crate) const fn result(&self, index: usize) -> IslandResult {
-        self.state.results[index]
-    }
-    pub(crate) const fn harvest(&self, index: usize) -> u16 {
-        self.state.harvests[index]
-    }
-    pub(crate) const fn harvest_len(&self) -> u8 {
-        self.state.harvest_len
-    }
-    pub(crate) const fn goal(&self) -> Goal {
-        GOALS[self.state.goal as usize]
-    }
-    pub(crate) fn forecast(&self) -> Forecast {
-        self.state.forecasts[self.season()]
-    }
     pub(crate) fn season(&self) -> usize {
         core::cmp::min(3, self.state.turn as usize / 6)
-    }
-
-    pub(crate) fn cumulative_score(&self) -> u16 {
-        self.state.total.saturating_add(self.state.score)
     }
 
     pub(crate) fn has_perk(&self, perk: Perk) -> bool {
         self.state.perks & perk.bit() != 0
     }
 
-    pub(crate) fn goal_progress(&self) -> u8 {
+    fn goal_progress_with(&self, overlay: Option<(usize, Tile)>) -> u8 {
         let goal = self.goal();
         if goal.tile != Tile::Sea {
-            self.state
-                .board
-                .iter()
-                .filter(|tile| **tile == goal.tile)
+            (0..BOARD_SIZE)
+                .filter(|index| self.tile_with(*index, overlay) == goal.tile)
                 .count() as u8
         } else {
             let mut found = 0_u16;
-            for tile in self.state.board {
+            for index in 0..BOARD_SIZE {
+                let tile = self.tile_with(index, overlay);
                 if tile != Tile::Sea {
                     found |= 1 << tile as u8;
                 }
@@ -344,12 +322,23 @@ impl TideModel {
                 .any(|other| self.state.board[other] != Tile::Sea)
     }
 
-    fn water(&self, index: usize) -> bool {
-        matches!(self.state.board[index], Tile::Sea | Tile::Lagoon)
+    fn tile_with(&self, index: usize, overlay: Option<(usize, Tile)>) -> Tile {
+        overlay
+            .filter(|(overlay_index, _)| *overlay_index == index)
+            .map_or(self.state.board[index], |(_, tile)| tile)
     }
 
-    pub(crate) fn tile_score(&self, index: usize, forecast: Forecast) -> u16 {
-        let tile = self.state.board[index];
+    fn water_with(&self, index: usize, overlay: Option<(usize, Tile)>) -> bool {
+        matches!(self.tile_with(index, overlay), Tile::Sea | Tile::Lagoon)
+    }
+
+    fn tile_score_with(
+        &self,
+        index: usize,
+        forecast: Forecast,
+        overlay: Option<(usize, Tile)>,
+    ) -> u16 {
+        let tile = self.tile_with(index, overlay);
         if tile == Tile::Sea {
             return 0;
         }
@@ -358,18 +347,18 @@ impl TideModel {
             neighbours
                 .into_iter()
                 .flatten()
-                .filter(|other| self.state.board[*other] == needle)
+                .filter(|other| self.tile_with(*other, overlay) == needle)
                 .count() as u16
         };
         let water = neighbours
             .into_iter()
             .flatten()
-            .filter(|other| self.water(*other))
+            .filter(|other| self.water_with(*other, overlay))
             .count() as u16;
         let empty = neighbours
             .into_iter()
             .flatten()
-            .filter(|other| self.state.board[*other] == Tile::Sea)
+            .filter(|other| self.tile_with(*other, overlay) == Tile::Sea)
             .count() as u16;
         let flooded = self.state.terrain[index] == 0
             && forecast.tide == TideLevel::High
@@ -393,7 +382,7 @@ impl TideModel {
             Tile::Hamlet => {
                 let mut kinds = 0_u16;
                 for other in neighbours.into_iter().flatten() {
-                    let value = self.state.board[other];
+                    let value = self.tile_with(other, overlay);
                     if value != Tile::Sea {
                         kinds |= 1 << value as u8;
                     }
@@ -428,59 +417,82 @@ impl TideModel {
         score
     }
 
-    pub(crate) fn forecast_score(&self) -> u16 {
+    pub(crate) fn tile_score(&self, index: usize, forecast: Forecast) -> u16 {
+        self.tile_score_with(index, forecast, None)
+    }
+
+    fn forecast_score_with(&self, overlay: Option<(usize, Tile)>) -> u16 {
         let forecast = self.forecast();
         (0..BOARD_SIZE)
-            .map(|index| self.tile_score(index, forecast))
+            .map(|index| self.tile_score_with(index, forecast, overlay))
             .sum()
     }
 
-    pub(crate) fn preview(&self, index: usize, choice: usize) -> Option<(u16, i16)> {
+    pub(crate) fn preview(&self, index: usize, choice: usize) -> Option<TidePreview> {
         if !self.valid(index) || choice >= 3 {
             return None;
         }
-        let before = self.forecast_score();
-        let mut copy = *self;
-        copy.state.board[index] = copy.state.offer[choice];
-        let score = copy.tile_score(index, copy.forecast());
-        let after = copy.forecast_score();
-        Some((score, after as i16 - before as i16))
+        let overlay = Some((index, self.state.offer[choice]));
+        let score = self.tile_score_with(index, self.forecast(), overlay);
+        let after = self.forecast_score_with(overlay);
+        Some(TidePreview {
+            terrain: self.state.terrain[index],
+            score,
+            delta: after as i16 - self.state.forecast_score as i16,
+        })
     }
 
-    pub(crate) fn select_offer(&mut self, choice: u8) -> ChangeSet {
+    fn select_offer_raw(&mut self, choice: u8) -> ChangeSet {
         if choice >= 3 || self.state.settled || self.state.complete {
             return ChangeSet::NONE;
         }
+        if self.choice == choice && self.selected.is_none() && self.pending.is_none() {
+            return ChangeSet::NONE;
+        }
+        let visual = self.selected.is_some() || self.pending.is_some();
         self.choice = choice;
         self.selected = None;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        self.refresh_preview();
+        if visual {
+            ChangeSet::MODEL | ChangeSet::VISUAL
+        } else {
+            ChangeSet::MODEL
+        }
     }
 
-    pub(crate) fn select_cell(&mut self, index: u8) -> ChangeSet {
+    fn select_cell_raw(&mut self, index: u8) -> ChangeSet {
         let index_usize = usize::from(index);
         if index_usize >= BOARD_SIZE {
             return ChangeSet::NONE;
         }
         if self.state.board[index_usize] != Tile::Sea {
+            if self.selected == Some(index) && self.pending.is_none() {
+                return ChangeSet::NONE;
+            }
             self.selected = Some(index);
             self.pending = None;
         } else if self.valid(index_usize) && !self.state.settled && !self.state.complete {
+            if self.pending == Some(index) && self.selected.is_none() {
+                return ChangeSet::NONE;
+            }
             self.pending = Some(index);
             self.selected = None;
         } else {
             return ChangeSet::NONE;
         }
+        self.refresh_preview();
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn cancel_preview(&mut self) -> ChangeSet {
+    fn cancel_preview_raw(&mut self) -> ChangeSet {
         if self.pending.take().is_none() {
             return ChangeSet::NONE;
         }
+        self.preview = None;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn place(&mut self, index: u8, choice: u8) -> ChangeSet {
+    fn place_raw(&mut self, index: u8, choice: u8) -> ChangeSet {
         let index_usize = usize::from(index);
         if self.state.settled || self.state.complete || choice >= 3 || !self.valid(index_usize) {
             return ChangeSet::NONE;
@@ -490,6 +502,7 @@ impl TideModel {
         self.state.board[index_usize] = tile;
         self.state.discovered |= 1 << tile as u8;
         self.state.turn += 1;
+        self.refresh_scores();
         self.message = TideMessage::Placed(tile);
         if self.state.turn % 6 == 0 {
             let season = usize::from(self.state.turn / 6 - 1);
@@ -528,24 +541,32 @@ impl TideModel {
             self.refill();
         }
         self.pending = None;
+        self.preview = None;
         self.selected = Some(index);
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn reroll(&mut self) -> ChangeSet {
+    fn reroll_raw(&mut self) -> ChangeSet {
         if self.state.settled || self.state.complete || self.state.rerolls == 0 {
             return ChangeSet::NONE;
         }
+        let visual = self.pending.is_some() || self.selected.is_some();
         self.history.push(self.state);
         self.state.rerolls -= 1;
         self.refill();
         self.pending = None;
+        self.preview = None;
         self.selected = None;
         self.message = TideMessage::Rerolled;
-        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+        let changes = ChangeSet::MODEL | ChangeSet::PERSISTENCE;
+        if visual {
+            changes | ChangeSet::VISUAL
+        } else {
+            changes
+        }
     }
 
-    pub(crate) fn undo(&mut self) -> ChangeSet {
+    fn undo_raw(&mut self) -> ChangeSet {
         if self.state.complete {
             return ChangeSet::NONE;
         }
@@ -554,22 +575,29 @@ impl TideModel {
         };
         self.state = state;
         self.pending = None;
+        self.preview = None;
         self.selected = None;
         self.modal = TideModal::None;
         self.message = TideMessage::Undone;
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    pub(crate) fn set_modal(&mut self, modal: TideModal) -> ChangeSet {
+    fn set_modal_raw(&mut self, modal: TideModal) -> ChangeSet {
         if self.modal == modal {
             return ChangeSet::NONE;
         }
+        let visual = self.pending.is_some();
         self.modal = modal;
         self.pending = None;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        self.preview = None;
+        if visual {
+            ChangeSet::MODEL | ChangeSet::VISUAL
+        } else {
+            ChangeSet::MODEL
+        }
     }
 
-    pub(crate) fn continue_voyage(&mut self, perk: Option<Perk>) -> ChangeSet {
+    fn continue_voyage_raw(&mut self, perk: Option<Perk>) -> ChangeSet {
         if !self.state.settled || self.state.complete {
             return ChangeSet::NONE;
         }
@@ -590,21 +618,211 @@ impl TideModel {
             self.state.complete = true;
             self.modal = TideModal::Result;
             self.message = TideMessage::Complete;
+            ChangeSet::MODEL | ChangeSet::PERSISTENCE
         } else {
             self.state.perks |= perk.expect("validated perk").bit();
             self.state.chapter += 1;
             self.make_island();
+            ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
         }
-        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
     pub(crate) fn apply_command(&mut self, command: TideCommand) -> ChangeSet {
-        match command {
-            TideCommand::Place { index, choice } => self.place(index, choice),
-            TideCommand::Reroll => self.reroll(),
-            TideCommand::Undo => self.undo(),
-            TideCommand::Continue { perk } => self.continue_voyage(perk),
+        #[cfg(feature = "persistence")]
+        if self.replay.is_full() {
+            return ChangeSet::NONE;
         }
+        let changes = match command {
+            TideCommand::Place { index, choice } => self.place_raw(index, choice),
+            TideCommand::Reroll => self.reroll_raw(),
+            TideCommand::Undo => self.undo_raw(),
+            TideCommand::Continue { perk } => self.continue_voyage_raw(perk),
+        };
+        #[cfg(feature = "persistence")]
+        if changes.contains(ChangeSet::PERSISTENCE) {
+            let recorded = self.replay.record_tide(command).is_ok();
+            debug_assert!(recorded);
+        }
+        changes
+    }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) fn encode_replay(&self) -> alloc::vec::Vec<u8> {
+        self.replay.encode_vec()
+    }
+
+    #[cfg(all(feature = "persistence", test))]
+    pub(crate) const fn replay_len(&self) -> u16 {
+        self.replay.len()
+    }
+}
+
+#[crate::model]
+impl TideModel {
+    #[observe]
+    pub(crate) fn chapter(&self) -> u8 {
+        self.state.chapter
+    }
+
+    #[observe]
+    pub(crate) fn turn(&self) -> u8 {
+        self.state.turn
+    }
+
+    #[observe]
+    pub(crate) fn score(&self) -> u16 {
+        self.state.score
+    }
+
+    #[observe]
+    pub(crate) fn cumulative_score(&self) -> u16 {
+        self.state.total.saturating_add(self.state.score)
+    }
+
+    #[observe]
+    pub(crate) fn target(&self) -> u16 {
+        self.state.target
+    }
+
+    #[observe]
+    pub(crate) fn rerolls(&self) -> u8 {
+        self.state.rerolls
+    }
+
+    #[observe]
+    pub(crate) fn settled(&self) -> bool {
+        self.state.settled
+    }
+
+    #[observe]
+    pub(crate) fn complete(&self) -> bool {
+        self.state.complete
+    }
+
+    #[observe]
+    pub(crate) fn selected(&self) -> Option<u8> {
+        self.selected
+    }
+
+    #[observe]
+    pub(crate) fn pending(&self) -> Option<u8> {
+        self.pending
+    }
+
+    #[observe]
+    pub(crate) fn choice(&self) -> u8 {
+        self.choice
+    }
+
+    #[observe]
+    pub(crate) fn modal(&self) -> TideModal {
+        self.modal
+    }
+
+    #[observe]
+    pub(crate) fn message(&self) -> TideMessage {
+        self.message
+    }
+
+    #[observe]
+    pub(crate) fn harvest_len(&self) -> u8 {
+        self.state.harvest_len
+    }
+
+    #[observe]
+    pub(crate) fn goal(&self) -> Goal {
+        GOALS[self.state.goal as usize]
+    }
+
+    #[observe]
+    pub(crate) fn forecast(&self) -> Forecast {
+        self.state.forecasts[self.season()]
+    }
+
+    #[observe]
+    pub(crate) fn forecast_score(&self) -> u16 {
+        self.state.forecast_score
+    }
+
+    #[observe]
+    pub(crate) fn goal_progress(&self) -> u8 {
+        self.state.goal_progress
+    }
+
+    #[observe]
+    pub(crate) fn offer_tiles(&self) -> [Tile; 3] {
+        self.state.offer
+    }
+
+    #[observe]
+    pub(crate) fn perk_offers(&self) -> [Perk; 3] {
+        self.state.perk_offer
+    }
+
+    #[observe]
+    pub(crate) fn harvests(&self) -> [u16; 4] {
+        self.state.harvests
+    }
+
+    #[observe]
+    pub(crate) fn results(&self) -> [IslandResult; ISLAND_COUNT] {
+        self.state.results
+    }
+
+    #[observe]
+    pub(crate) fn display_tile(&self) -> Tile {
+        self.selected.map_or_else(
+            || self.state.offer[usize::from(self.choice)],
+            |index| self.state.board[usize::from(index)],
+        )
+    }
+
+    #[observe]
+    pub(crate) fn preview_data(&self) -> Option<TidePreview> {
+        self.preview
+    }
+
+    #[observe]
+    pub(crate) fn can_undo(&self) -> bool {
+        !self.state.complete && self.history.len != 0
+    }
+
+    pub(crate) fn select_offer(&mut self, choice: u8) -> ChangeSet {
+        self.select_offer_raw(choice)
+    }
+
+    pub(crate) fn select_cell(&mut self, index: u8) -> ChangeSet {
+        self.select_cell_raw(index)
+    }
+
+    pub(crate) fn cancel_preview(&mut self) -> ChangeSet {
+        self.cancel_preview_raw()
+    }
+
+    pub(crate) fn place(&mut self, index: u8, choice: u8) -> ChangeSet {
+        self.apply_command(TideCommand::Place { index, choice })
+    }
+
+    pub(crate) fn reroll(&mut self) -> ChangeSet {
+        self.apply_command(TideCommand::Reroll)
+    }
+
+    pub(crate) fn undo(&mut self) -> ChangeSet {
+        self.apply_command(TideCommand::Undo)
+    }
+
+    pub(crate) fn set_modal(&mut self, modal: TideModal) -> ChangeSet {
+        self.set_modal_raw(modal)
+    }
+
+    pub(crate) fn continue_voyage(&mut self, perk: Option<Perk>) -> ChangeSet {
+        self.apply_command(TideCommand::Continue { perk })
+    }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) fn restore_replay(&mut self, restored: TideModel) -> ChangeSet {
+        *self = restored;
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 }
 

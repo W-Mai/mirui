@@ -72,6 +72,7 @@ impl PostModel {
         self.switches[index]
     }
 
+    #[cfg(test)]
     pub(crate) const fn cursor(&self) -> u8 {
         self.cursor
     }
