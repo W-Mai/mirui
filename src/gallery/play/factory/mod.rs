@@ -6,7 +6,7 @@ mod types;
 mod tests;
 
 pub(crate) use missions::MISSIONS;
-pub(crate) use model::FactoryModel;
+pub(crate) use model::{FactoryModel, FactoryModelHandle};
 #[allow(unused_imports)]
 pub(crate) use types::{
     CELL_COUNT, FactoryCell, FactoryError, FactoryItem, FactoryMission, FactoryModal, FactoryPage,

@@ -261,32 +261,38 @@ fn paint_factory_surface(painter: &mut PlayPainter<'_, '_>, model: &FactoryModel
     }
 }
 
-fn surface_render(
+#[crate::view(
+    component = FactorySurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "FactorySurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &FactoryModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<FactoryModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_factory_surface(&mut painter, model);
 }
 
-fn modal_render(
+#[crate::view(
+    component = FactoryModalSurface,
+    read(model),
+    watch(model.modal()),
+    name = "FactoryModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &FactoryModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<FactoryModel>() else {
-        return;
-    };
     if model.modal() == FactoryModal::None {
         return;
     }
@@ -309,9 +315,9 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("FactorySurface", 60, surface_render).with_filter::<FactorySurface>()
+    surface_render::view()
 }
 
 pub(super) fn modal_view() -> View {
-    View::new("FactoryModalSurface", 70, modal_render).with_filter::<FactoryModalSurface>()
+    modal_render::view()
 }

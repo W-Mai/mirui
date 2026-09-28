@@ -113,14 +113,25 @@ fn drag_cancel_and_overlap_do_not_write_history() {
     let mut model = CircuitModel::default();
     model.load_task(1, true);
     let history = model.history_len();
+    let origin = model.visual_gate_position(1);
+    model.begin_drag(1);
+    assert_eq!(model.end_drag(), Ok(ChangeSet::VISUAL));
+    model.move_drag(180, 180);
+    assert_eq!(model.visual_gate_position(1), origin);
+    assert_eq!(model.history_len(), history);
     model.begin_drag(1);
     model.move_drag(180, 180);
-    model.end_drag(true).unwrap();
+    assert_eq!(model.cancel_drag(), ChangeSet::VISUAL);
+    assert_eq!(model.visual_gate_position(1), origin);
     assert_eq!(model.history_len(), history);
     model.begin_drag(1);
     let gate = model.gate_by_id(2).unwrap();
     model.move_drag(gate.x, gate.y);
-    assert_eq!(model.end_drag(false), Err(CircuitError::Overlap));
+    let before = model.snapshot();
+    let drag_position = model.visual_gate_position(1);
+    assert_eq!(model.end_drag(), Err(CircuitError::Overlap));
+    assert_eq!(model.snapshot(), before);
+    assert_eq!(model.visual_gate_position(1), drag_position);
     assert_eq!(model.history_len(), history);
 }
 

@@ -595,6 +595,11 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
         let ImplItem::Fn(method) = member else {
             continue;
         };
+        let local_markers: Vec<_> = method
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("model"))
+            .collect();
         let markers: Vec<_> = method
             .attrs
             .iter()
@@ -607,6 +612,39 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             .filter(|attr| attr.path().is_ident("effects"))
             .collect();
         let is_effect = !effect_markers.is_empty();
+        if local_markers.len() > 1 {
+            return Err(syn::Error::new_spanned(
+                method,
+                "duplicate #[model(local)] marker",
+            ));
+        }
+        let is_local = if let Some(marker) = local_markers.first() {
+            let valid = match &marker.meta {
+                syn::Meta::List(list) => list
+                    .parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+                    .map(|args| {
+                        args.len() == 1
+                            && matches!(args.first(), Some(syn::Meta::Path(path)) if path.is_ident("local"))
+                    })
+                    .unwrap_or(false),
+                _ => false,
+            };
+            if !valid {
+                return Err(syn::Error::new_spanned(
+                    marker,
+                    "model method markers must be written as #[model(local)]",
+                ));
+            }
+            true
+        } else {
+            false
+        };
+        if is_local && (is_observed || is_effect) {
+            return Err(syn::Error::new_spanned(
+                method,
+                "#[model(local)] cannot be combined with #[observe] or #[effects]",
+            ));
+        }
         if is_observed && is_effect {
             return Err(syn::Error::new_spanned(
                 method,
@@ -637,9 +675,14 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 "#[observe] does not take arguments",
             ));
         }
-        method
-            .attrs
-            .retain(|attr| !attr.path().is_ident("observe") && !attr.path().is_ident("effects"));
+        method.attrs.retain(|attr| {
+            !attr.path().is_ident("model")
+                && !attr.path().is_ident("observe")
+                && !attr.path().is_ident("effects")
+        });
+        if is_local {
+            continue;
+        }
         let method_cfg_attrs = cfg_attrs(&method.attrs);
         let Some(FnArg::Receiver(receiver)) = method.sig.inputs.first() else {
             if is_observed || is_effect {
@@ -1147,6 +1190,92 @@ mod tests {
         .to_string();
         assert!(expanded.contains("ModelHandle :: update"));
         assert!(!expanded.contains("ModelHandle :: try_update"));
+    }
+
+    #[test]
+    fn local_methods_keep_ordinary_rust_signatures_without_handle_forwarding() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    #[model(local)]
+                    const fn value_ref(&self) -> &u32 { &self.count }
+
+                    #[model(local)]
+                    fn wrap<T>(value: T) -> Result<T, ()> { Ok(value) }
+
+                    fn increment(&mut self) -> Change { todo!() }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert_eq!(expanded.matches("fn value_ref").count(), 1);
+        assert!(expanded.contains("const fn value_ref"));
+        assert!(expanded.contains("-> & u32"));
+        assert!(!expanded.contains("data . value_ref"));
+        assert_eq!(expanded.matches("fn wrap").count(), 1);
+        assert!(!expanded.contains("data . wrap"));
+        assert!(expanded.contains("data . increment"));
+    }
+
+    #[test]
+    fn rejects_duplicate_local_markers() {
+        let error = expand(
+            quote!(),
+            quote! {
+                impl Counter {
+                    #[model(local)]
+                    #[model(local)]
+                    fn helper(&self) {}
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("duplicate #[model(local)]"));
+    }
+
+    #[test]
+    fn rejects_non_local_model_method_markers() {
+        for marker in [
+            quote!(#[model]),
+            quote!(#[model(remote)]),
+            quote!(#[model(local, remote)]),
+        ] {
+            let error = expand(
+                quote!(),
+                quote! {
+                    impl Counter {
+                        #marker
+                        fn helper(&self) {}
+                    }
+                },
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("must be written as #[model(local)]")
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_local_observer_and_effect_combinations() {
+        for marker in [quote!(#[observe]), quote!(#[effects])] {
+            let error = expand(
+                quote!(),
+                quote! {
+                    impl Counter {
+                        #[model(local)]
+                        #marker
+                        fn helper(&mut self) {}
+                    }
+                },
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("cannot be combined"));
+        }
     }
 
     #[test]

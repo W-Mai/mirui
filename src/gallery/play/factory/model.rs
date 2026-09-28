@@ -18,7 +18,7 @@ impl FactorySnapshot {
     };
 }
 
-#[derive(Clone, Copy, Debug)]
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 pub(crate) struct FactoryModel {
     pub(super) cells: [Option<FactoryCell>; CELL_COUNT],
     pub(super) items: [Option<FactoryItem>; CELL_COUNT],
@@ -75,72 +75,94 @@ impl Default for FactoryModel {
     }
 }
 
+#[crate::model]
 impl FactoryModel {
-    pub(crate) const fn page(&self) -> FactoryPage {
+    #[observe]
+    pub(crate) fn page(&self) -> FactoryPage {
         self.page
     }
 
-    pub(crate) const fn modal(&self) -> FactoryModal {
+    #[observe]
+    pub(crate) fn modal(&self) -> FactoryModal {
         self.modal
     }
 
-    pub(crate) const fn tool(&self) -> FactoryTool {
+    #[observe]
+    pub(crate) fn tool(&self) -> FactoryTool {
         self.tool
     }
 
-    pub(crate) const fn status(&self) -> FactoryStatus {
+    #[observe]
+    pub(crate) fn status(&self) -> FactoryStatus {
         self.status
     }
 
-    pub(crate) const fn mission_index(&self) -> u8 {
+    #[observe]
+    pub(crate) fn mission_index(&self) -> u8 {
         self.mission
     }
 
-    pub(crate) const fn mission(&self) -> FactoryMission {
+    #[observe]
+    pub(crate) fn mission(&self) -> FactoryMission {
         MISSIONS[self.mission as usize]
     }
 
-    pub(crate) const fn selected(&self) -> usize {
+    #[observe]
+    pub(crate) fn selected(&self) -> usize {
         self.selection as usize
     }
 
-    pub(crate) const fn tool_direction(&self) -> u8 {
+    #[observe]
+    pub(crate) fn selected_cell(&self) -> Option<FactoryCell> {
+        self.cell(self.selected())
+    }
+
+    #[observe]
+    pub(crate) fn tool_direction(&self) -> u8 {
         self.tool_direction
     }
 
-    pub(crate) const fn tick(&self) -> u16 {
+    #[observe]
+    pub(crate) fn tick(&self) -> u16 {
         self.tick
     }
 
-    pub(crate) const fn delivered(&self) -> u16 {
+    #[observe]
+    pub(crate) fn delivered(&self) -> u16 {
         self.delivered
     }
 
-    pub(crate) const fn rejected(&self) -> u16 {
+    #[observe]
+    pub(crate) fn rejected(&self) -> u16 {
         self.rejected
     }
 
-    pub(crate) const fn produced(&self) -> u16 {
+    #[observe]
+    pub(crate) fn produced(&self) -> u16 {
         self.produced
     }
 
-    pub(crate) const fn blocked(&self) -> u8 {
+    #[observe]
+    pub(crate) fn blocked(&self) -> u8 {
         self.blocked
     }
 
-    pub(crate) const fn running(&self) -> bool {
+    #[observe]
+    pub(crate) fn running(&self) -> bool {
         self.running
     }
 
-    pub(crate) const fn history_len(&self) -> u8 {
+    #[observe]
+    pub(crate) fn history_len(&self) -> u8 {
         self.history_len
     }
 
-    pub(crate) const fn telemetry_len(&self) -> u8 {
+    #[observe]
+    pub(crate) fn telemetry_len(&self) -> u8 {
         self.telemetry_len
     }
 
-    pub(crate) const fn cell(&self, index: usize) -> Option<FactoryCell> {
+    pub(crate) fn cell(&self, index: usize) -> Option<FactoryCell> {
         if index < CELL_COUNT {
             self.cells[index]
         } else {
@@ -148,7 +170,7 @@ impl FactoryModel {
         }
     }
 
-    pub(crate) const fn item(&self, index: usize) -> Option<FactoryItem> {
+    pub(crate) fn item(&self, index: usize) -> Option<FactoryItem> {
         if index < CELL_COUNT {
             self.items[index]
         } else {
@@ -164,6 +186,7 @@ impl FactoryModel {
         Some(self.telemetry[physical])
     }
 
+    #[observe]
     pub(crate) fn cost(&self) -> u8 {
         self.cells
             .iter()
@@ -172,6 +195,7 @@ impl FactoryModel {
             .sum()
     }
 
+    #[observe]
     pub(crate) fn power(&self) -> u8 {
         self.cells
             .iter()
@@ -180,6 +204,7 @@ impl FactoryModel {
             .sum()
     }
 
+    #[observe]
     pub(crate) fn wip(&self) -> u8 {
         self.items.iter().filter(|item| item.is_some()).count() as u8
     }
@@ -287,6 +312,14 @@ impl FactoryModel {
         self.edit(index, Some(cell.kind), cell.direction + 1)
     }
 
+    pub(crate) fn rotate_active(&mut self) -> Result<ChangeSet, FactoryError> {
+        if self.tool == FactoryTool::Select {
+            self.rotate_selected()
+        } else {
+            Ok(self.rotate_tool())
+        }
+    }
+
     pub(crate) fn undo(&mut self) -> ChangeSet {
         if self.history_len == 0 {
             return ChangeSet::NONE;
@@ -346,6 +379,10 @@ impl FactoryModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
+    pub(crate) fn request_reference(&mut self) -> ChangeSet {
+        self.request_mission(self.mission, true)
+    }
+
     pub(crate) fn confirm_mission(&mut self) -> ChangeSet {
         let FactoryModal::Confirm { mission, reference } = self.modal else {
             return ChangeSet::NONE;
@@ -354,6 +391,28 @@ impl FactoryModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
+    pub(crate) fn activate_modal_button(&mut self, index: usize) -> ChangeSet {
+        match self.modal {
+            FactoryModal::Tools => {
+                let tool = match index {
+                    0 => FactoryTool::Select,
+                    1 => FactoryTool::Build(ModuleKind::Belt),
+                    2 => FactoryTool::Build(ModuleKind::Furnace),
+                    3 => FactoryTool::Build(ModuleKind::Assembler),
+                    4 => FactoryTool::Build(ModuleKind::Inspector),
+                    _ => FactoryTool::Erase,
+                };
+                self.set_tool(tool)
+            }
+            FactoryModal::Confirm { .. } if index == 0 => self.close_modal(),
+            FactoryModal::Confirm { .. } if index == 1 => self.confirm_mission(),
+            FactoryModal::Help => self.close_modal(),
+            _ => ChangeSet::NONE,
+        }
+    }
+}
+
+impl FactoryModel {
     pub(super) fn load_mission_state(&mut self, mission: u8, reference: bool) {
         self.mission = mission.min((MISSION_COUNT - 1) as u8);
         self.cells = [None; CELL_COUNT];

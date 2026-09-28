@@ -112,6 +112,15 @@ mod methods {
             Ok(Change::VISUAL)
         }
 
+        #[model(local)]
+        const fn first_pulse(&self) -> &Option<super::data::Pulse> {
+            &self.pulses[0]
+        }
+
+        pub fn has_pending_pulse(&self) -> bool {
+            self.first_pulse().is_some()
+        }
+
         #[cfg(not(feature = "extra"))]
         #[effects]
         fn take_plain_pulses(&mut self) -> [Option<PulseAlias>; N] {

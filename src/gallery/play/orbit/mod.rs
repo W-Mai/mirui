@@ -8,7 +8,7 @@ mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use missions::{MISSION_COUNT, MISSIONS, OrbitGoal, OrbitMission};
-pub(crate) use model::OrbitModel;
+pub(crate) use model::{OrbitModel, OrbitModelHandle};
 #[allow(unused_imports)]
 pub(crate) use types::{
     MAX_EVENTS, MAX_NODES, MAX_PREVIEW, MAX_TELEMETRY, MAX_TRAIL, ManeuverNode, OrbitBody,

@@ -1,15 +1,15 @@
-use super::state::FactoryNodes;
+use super::state::FactorySurface;
+use crate::core::model::ModelHandle;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::factory::{
-    FactoryModal, FactoryModel, FactoryPage, FactoryTool, GRID_WIDTH, ModuleKind,
+    FactoryModal, FactoryModel, FactoryModelHandle, FactoryPage, GRID_WIDTH,
 };
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
-use crate::prelude::*;
+use crate::prelude::{Fixed, Point, Rect};
 use crate::ui::ComputedRect;
 
-fn local_point(world: &World, entity: Entity, x: Fixed, y: Fixed) -> Option<Point> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
+fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
@@ -19,83 +19,68 @@ fn local_point(world: &World, entity: Entity, x: Fixed, y: Fixed) -> Option<Poin
     })
 }
 
-fn tap_surface(model: &mut FactoryModel, point: Point) -> ChangeSet {
-    if model.modal() != FactoryModal::None {
-        return ChangeSet::NONE;
+pub(super) fn local_cell(model: &FactoryModel, point: Point) -> Option<usize> {
+    if model.modal() != FactoryModal::None || model.page() != FactoryPage::Line {
+        return None;
     }
-    if model.page() == FactoryPage::Line {
-        let x = point.x.to_int();
-        let y = point.y.to_int();
-        if (18..288).contains(&x) && (72..240).contains(&y) {
-            let column = ((x - 18) / 30) as usize;
-            let row = ((y - 72) / 28) as usize;
-            return model
-                .select_or_apply(row * GRID_WIDTH + column)
-                .unwrap_or(ChangeSet::VISUAL);
-        }
+    let x = point.x.to_int();
+    let y = point.y.to_int();
+    if !(18..288).contains(&x) || !(72..240).contains(&y) {
+        return None;
     }
-    ChangeSet::NONE
+    let column = ((x - 18) / 30) as usize;
+    let row = ((y - 72) / 28) as usize;
+    Some(row * GRID_WIDTH + column)
 }
 
-pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let GestureEvent::Tap { x, y, .. } = event else {
+pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let GestureEvent::Tap { x, y, .. } = ctx.event else {
         return false;
     };
-    let Some(point) = local_point(world, entity, *x, *y) else {
+    let Some(model) = ctx
+        .component::<FactorySurface>(ctx.entity)
+        .map(|surface| surface.model.clone())
+    else {
         return false;
     };
-    FactoryNodes::update(world, |model| tap_surface(model, point));
+    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
+        return false;
+    };
+    let Some(point) = local_point(rect, *x, *y) else {
+        return false;
+    };
+    let Some(cell) = ModelHandle::read(&model, |model| local_cell(model, point)) else {
+        return false;
+    };
+    let _ = model.select_or_apply(cell);
     true
 }
 
-pub(super) fn footer_action(world: &mut World, index: usize) {
+pub(super) fn footer_action(model: &FactoryModelHandle, index: usize) {
     match index {
-        0 => FactoryNodes::update(world, |model| model.open_modal(FactoryModal::Tools)),
+        0 => {
+            model.open_modal(FactoryModal::Tools);
+        }
         1 => {
-            let tool = world
-                .resource::<FactoryModel>()
-                .map_or(FactoryTool::Select, FactoryModel::tool);
-            if tool == FactoryTool::Select {
-                FactoryNodes::result(world, FactoryModel::rotate_selected);
-            } else {
-                FactoryNodes::update(world, FactoryModel::rotate_tool);
-            }
+            let _ = model.rotate_active();
         }
-        2 => FactoryNodes::update(world, FactoryModel::undo),
-        3 => FactoryNodes::result(world, FactoryModel::step_once),
-        _ => FactoryNodes::result(world, FactoryModel::toggle_run),
+        2 => {
+            model.undo();
+        }
+        3 => {
+            let _ = model.step_once();
+        }
+        _ => {
+            let _ = model.toggle_run();
+        }
     }
 }
 
-pub(super) fn modal_action(world: &mut World, index: usize) {
-    let modal = world
-        .resource::<FactoryModel>()
-        .map_or(FactoryModal::None, FactoryModel::modal);
-    match modal {
-        FactoryModal::Tools => {
-            let tool = match index {
-                0 => FactoryTool::Select,
-                1 => FactoryTool::Build(ModuleKind::Belt),
-                2 => FactoryTool::Build(ModuleKind::Furnace),
-                3 => FactoryTool::Build(ModuleKind::Assembler),
-                4 => FactoryTool::Build(ModuleKind::Inspector),
-                _ => FactoryTool::Erase,
-            };
-            FactoryNodes::update(world, |model| model.set_tool(tool));
-        }
-        FactoryModal::Confirm { .. } if index == 0 => {
-            FactoryNodes::update(world, FactoryModel::close_modal);
-        }
-        FactoryModal::Confirm { .. } if index == 1 => {
-            FactoryNodes::update(world, FactoryModel::confirm_mission);
-        }
-        FactoryModal::Help => FactoryNodes::update(world, FactoryModel::close_modal),
-        _ => {}
-    }
+pub(super) fn modal_action(model: &FactoryModelHandle, index: usize) {
+    model.activate_modal_button(index);
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub(super) fn factory_tick_system(world: &mut World) {
-    let elapsed = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
-    FactoryNodes::update(world, |model| model.advance_ms(elapsed));
+#[mirui_macros::system(order = ANIMATION, bind(model))]
+pub(super) fn factory_tick_system(model: &FactoryModel, delta: Option<DeltaTimeMs>) {
+    model.advance_ms(delta.map_or(16, |delta| delta.0));
 }

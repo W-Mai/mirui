@@ -33,7 +33,7 @@ struct GateDrag {
     y: i16,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 pub(crate) struct CircuitModel {
     gates: [CircuitGate; MAX_GATES],
     history: [CircuitSnapshot; MAX_UNDO],
@@ -88,40 +88,20 @@ impl Default for CircuitModel {
     }
 }
 
+#[crate::model]
 impl CircuitModel {
-    pub(crate) const fn task(&self) -> u8 {
+    #[observe]
+    pub(crate) fn task(&self) -> u8 {
         self.task
     }
 
-    pub(crate) const fn task_name(&self) -> &'static str {
-        match self.task {
-            0 => "不同才亮",
-            1 => "多数表决",
-            _ => "二选一",
-        }
-    }
-
-    pub(crate) const fn target_code(&self) -> &'static str {
-        match self.task {
-            0 => "Y = A XOR B",
-            1 => "Y = AB + AC + BC",
-            _ => "Y = A ? C : B",
-        }
-    }
-
-    pub(crate) const fn task_description(&self) -> &'static str {
-        match self.task {
-            0 => "A 与 B 不同时，Y 才为 1。",
-            1 => "三个输入中至少两个为 1 时，Y 为 1。",
-            _ => "A 为 0 选 B，A 为 1 选 C。",
-        }
-    }
-
-    pub(crate) const fn input_count(&self) -> u8 {
+    #[observe]
+    pub(crate) fn input_count(&self) -> u8 {
         if self.task == 0 { 2 } else { 3 }
     }
 
-    pub(crate) const fn gate_len(&self) -> u8 {
+    #[observe]
+    pub(crate) fn gate_len(&self) -> u8 {
         self.gate_len
     }
 
@@ -133,39 +113,47 @@ impl CircuitModel {
         self.gate_index(id).map(|index| self.gates[index])
     }
 
-    pub(crate) const fn selected(&self) -> u8 {
+    #[observe]
+    pub(crate) fn selected(&self) -> u8 {
         self.selected
     }
 
-    pub(crate) const fn pending(&self) -> SignalSource {
+    #[observe]
+    pub(crate) fn pending(&self) -> SignalSource {
         self.pending
     }
 
-    pub(crate) const fn output_source(&self) -> SignalSource {
+    pub(crate) fn output_source(&self) -> SignalSource {
         self.output
     }
 
-    pub(crate) const fn page(&self) -> CircuitPage {
+    #[observe]
+    pub(crate) fn page(&self) -> CircuitPage {
         self.page
     }
 
-    pub(crate) const fn modal(&self) -> CircuitModal {
+    #[observe]
+    pub(crate) fn modal(&self) -> CircuitModal {
         self.modal
     }
 
-    pub(crate) const fn scanning(&self) -> bool {
+    #[observe]
+    pub(crate) fn scanning(&self) -> bool {
         self.scanning
     }
 
-    pub(crate) const fn disconnecting(&self) -> bool {
+    #[observe]
+    pub(crate) fn disconnecting(&self) -> bool {
         self.disconnecting
     }
 
-    pub(crate) const fn history_len(&self) -> u8 {
+    #[observe]
+    pub(crate) fn history_len(&self) -> u8 {
         self.history_len
     }
 
-    pub(crate) const fn trace_len(&self) -> u8 {
+    #[observe]
+    pub(crate) fn trace_len(&self) -> u8 {
         self.trace_len
     }
 
@@ -177,16 +165,41 @@ impl CircuitModel {
         Some(self.trace[slot])
     }
 
-    pub(crate) const fn verify_result(&self) -> Option<VerifyResult> {
+    #[observe]
+    pub(crate) fn verify_result(&self) -> Option<VerifyResult> {
         self.verify
     }
 
-    pub(crate) const fn input(&self, index: u8) -> bool {
+    pub(crate) fn input(&self, index: u8) -> bool {
         self.inputs & (1 << index) != 0
     }
 
+    #[observe]
     pub(crate) fn evaluation(&self) -> Evaluation {
         self.evaluate_source(self.output, self.inputs)
+    }
+
+    #[observe]
+    pub(crate) fn input_values(&self) -> [bool; 3] {
+        [self.input(0), self.input(1), self.input(2)]
+    }
+
+    #[observe]
+    pub(crate) fn gates(&self) -> [Option<CircuitGate>; MAX_GATES] {
+        core::array::from_fn(|index| self.gate(index))
+    }
+
+    #[observe]
+    pub(crate) fn gate_positions(&self) -> [Option<(i16, i16)>; MAX_GATES] {
+        core::array::from_fn(|index| {
+            self.gate(index)
+                .and_then(|gate| self.visual_gate_position(gate.id))
+        })
+    }
+
+    #[observe]
+    pub(crate) fn truth_rows(&self) -> [Option<TruthRow>; 8] {
+        core::array::from_fn(|index| self.truth_row(index as u8))
     }
 
     pub(crate) fn source_value(&self, source: SignalSource) -> bool {
@@ -233,6 +246,7 @@ impl CircuitModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
+    #[model(local)]
     fn load_task_state(&mut self, task: u8, reference: bool) {
         self.gates = [CircuitGate::EMPTY; MAX_GATES];
         self.history = [CircuitSnapshot::EMPTY; MAX_UNDO];
@@ -370,6 +384,7 @@ impl CircuitModel {
         self.selected = self.gates[0].id;
     }
 
+    #[model(local)]
     fn seed_gate(&mut self, kind: GateKind, x: i16, y: i16, a: SignalSource, b: SignalSource) {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
@@ -384,6 +399,7 @@ impl CircuitModel {
         self.gate_len += 1;
     }
 
+    #[allow(dead_code)]
     pub(super) fn snapshot(&self) -> CircuitSnapshot {
         CircuitSnapshot {
             gates: self.gates,
@@ -393,6 +409,7 @@ impl CircuitModel {
         }
     }
 
+    #[model(local)]
     fn remember(&mut self) {
         let snapshot = self.snapshot();
         if usize::from(self.history_len) == MAX_UNDO {
@@ -580,6 +597,7 @@ impl CircuitModel {
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
+    #[allow(dead_code)]
     fn disconnect(&mut self, gate_id: Option<u8>, pin: u8) -> Result<ChangeSet, CircuitError> {
         let old = if let Some(id) = gate_id {
             let index = self.gate_index(id).ok_or(CircuitError::InvalidGate)?;
@@ -660,21 +678,31 @@ impl CircuitModel {
         ChangeSet::VISUAL
     }
 
-    pub(crate) fn end_drag(&mut self, cancel: bool) -> Result<ChangeSet, CircuitError> {
-        let Some(drag) = self.drag.take() else {
+    pub(crate) fn end_drag(&mut self) -> Result<ChangeSet, CircuitError> {
+        let Some(drag) = self.drag else {
             return Ok(ChangeSet::NONE);
         };
-        if cancel || (drag.x == drag.origin_x && drag.y == drag.origin_y) {
+        if drag.x == drag.origin_x && drag.y == drag.origin_y {
+            self.drag = None;
             return Ok(ChangeSet::VISUAL);
         }
         if self.overlaps(drag.id, drag.x, drag.y) {
             return Err(CircuitError::Overlap);
         }
         let index = self.gate_index(drag.id).ok_or(CircuitError::InvalidGate)?;
+        self.drag = None;
         self.remember();
         self.gates[index].x = drag.x;
         self.gates[index].y = drag.y;
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
+    }
+
+    pub(crate) fn cancel_drag(&mut self) -> ChangeSet {
+        if self.drag.take().is_some() {
+            ChangeSet::VISUAL
+        } else {
+            ChangeSet::NONE
+        }
     }
 
     pub(crate) fn verify(&mut self) -> ChangeSet {
@@ -758,6 +786,7 @@ impl CircuitModel {
         changes
     }
 
+    #[model(local)]
     fn push_trace(&mut self, sample: TraceSample) {
         if usize::from(self.trace_len) < MAX_TRACE {
             let slot = (usize::from(self.trace_start) + usize::from(self.trace_len)) % MAX_TRACE;
@@ -769,6 +798,7 @@ impl CircuitModel {
         }
     }
 
+    #[allow(dead_code)]
     fn expected(&self, inputs: u8) -> bool {
         let a = inputs & 1 != 0;
         let b = inputs & 2 != 0;
@@ -786,6 +816,7 @@ impl CircuitModel {
         }
     }
 
+    #[allow(dead_code)]
     fn evaluate_source(&self, source: SignalSource, inputs: u8) -> Evaluation {
         let mut memo = [false; MAX_GATES];
         let mut ready = [false; MAX_GATES];
@@ -802,6 +833,7 @@ impl CircuitModel {
         Evaluation { value, complete }
     }
 
+    #[allow(dead_code)]
     fn evaluate_recursive(
         &self,
         source: SignalSource,
@@ -853,6 +885,7 @@ impl CircuitModel {
         }
     }
 
+    #[allow(dead_code)]
     fn valid_source(&self, source: SignalSource) -> bool {
         match source {
             SignalSource::None => false,
@@ -861,18 +894,21 @@ impl CircuitModel {
         }
     }
 
+    #[allow(dead_code)]
     fn gate_index(&self, id: u8) -> Option<usize> {
         self.gates[..usize::from(self.gate_len)]
             .iter()
             .position(|gate| gate.id == id)
     }
 
+    #[allow(dead_code)]
     fn overlaps(&self, ignored_id: u8, x: i16, y: i16) -> bool {
         self.gates[..usize::from(self.gate_len)]
             .iter()
             .any(|gate| gate.id != ignored_id && (gate.x - x).abs() < 62 && (gate.y - y).abs() < 38)
     }
 
+    #[allow(dead_code)]
     fn has_cycle(&self) -> bool {
         let mut states = [0_u8; MAX_GATES];
         for index in 0..usize::from(self.gate_len) {
@@ -883,6 +919,7 @@ impl CircuitModel {
         false
     }
 
+    #[allow(dead_code)]
     fn visit_cycle(&self, index: usize, states: &mut [u8; MAX_GATES]) -> bool {
         if states[index] == 1 {
             return true;

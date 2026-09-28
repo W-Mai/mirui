@@ -1,16 +1,16 @@
 use super::render::{gate_input_position, signal_position};
-use super::state::CircuitNodes;
+use super::state::CircuitSurface;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::circuit::{
-    CircuitModal, CircuitModel, CircuitPage, GateKind, SignalSource,
+    CircuitModal, CircuitModel, CircuitModelHandle, CircuitPage, GateKind, SignalSource,
 };
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
-use crate::prelude::{Entity, Fixed, Point, World};
+use crate::prelude::{Fixed, Point};
 use crate::ui::ComputedRect;
 
-fn local_point(world: &World, entity: Entity, x: Fixed, y: Fixed) -> Option<Point> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
+fn local_point(ctx: &HandlerCtx<'_, GestureEvent>, x: Fixed, y: Fixed) -> Option<Point> {
+    let rect = ctx.component::<ComputedRect>(ctx.entity)?.0;
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
@@ -36,9 +36,18 @@ fn hit_gate(model: &CircuitModel, point: Point) -> Option<u8> {
     })
 }
 
-fn tap_surface(model: &mut CircuitModel, point: Point) -> ChangeSet {
+#[derive(Clone, Copy)]
+enum SurfaceAction {
+    ToggleInput(u8),
+    SelectSource(SignalSource),
+    Connect { gate: Option<u8>, pin: u8 },
+    SelectGate(u8),
+    ClearPending,
+}
+
+fn tap_action(model: &CircuitModel, point: Point) -> Option<SurfaceAction> {
     if model.page() != CircuitPage::Wire || model.modal() != CircuitModal::None {
-        return ChangeSet::NONE;
+        return None;
     }
     for index in 0..model.input_count() {
         let y = 100 + i32::from(index) * 54;
@@ -47,10 +56,10 @@ fn tap_surface(model: &mut CircuitModel, point: Point) -> ChangeSet {
             && point.y >= Fixed::from_int(y - 13)
             && point.y <= Fixed::from_int(y + 13)
         {
-            return model.toggle_input(index);
+            return Some(SurfaceAction::ToggleInput(index));
         }
         if within(point, Point::new(54, y), 9) {
-            return model.select_source(SignalSource::input(index));
+            return Some(SurfaceAction::SelectSource(SignalSource::input(index)));
         }
     }
     for index in 0..usize::from(model.gate_len()) {
@@ -60,31 +69,53 @@ fn tap_surface(model: &mut CircuitModel, point: Point) -> ChangeSet {
         if let Some(output) = signal_position(model, SignalSource::gate(gate.id))
             && within(point, output, 9)
         {
-            return model.select_source(SignalSource::gate(gate.id));
+            return Some(SurfaceAction::SelectSource(SignalSource::gate(gate.id)));
         }
         for pin in 0..if gate.kind == GateKind::Not { 1 } else { 2 } {
             if let Some(input) = gate_input_position(model, gate.id, pin)
                 && within(point, input, 9)
             {
-                return model
-                    .connect_pending_to(Some(gate.id), pin)
-                    .unwrap_or(ChangeSet::VISUAL);
+                return Some(SurfaceAction::Connect {
+                    gate: Some(gate.id),
+                    pin,
+                });
             }
         }
     }
     if within(point, Point::new(288, 153), 12) {
-        return model
-            .connect_pending_to(None, 0)
-            .unwrap_or(ChangeSet::VISUAL);
+        return Some(SurfaceAction::Connect { gate: None, pin: 0 });
     }
-    if let Some(gate) = hit_gate(model, point) {
-        return model.select_gate(gate);
-    }
-    model.clear_pending()
+    Some(hit_gate(model, point).map_or(SurfaceAction::ClearPending, SurfaceAction::SelectGate))
 }
 
-pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let (x, y) = match event {
+fn apply_tap(model: &CircuitModelHandle, action: SurfaceAction) {
+    match action {
+        SurfaceAction::ToggleInput(index) => {
+            model.toggle_input(index);
+        }
+        SurfaceAction::SelectSource(source) => {
+            model.select_source(source);
+        }
+        SurfaceAction::Connect { gate, pin } => {
+            let _ = model.connect_pending_to(gate, pin);
+        }
+        SurfaceAction::SelectGate(id) => {
+            model.select_gate(id);
+        }
+        SurfaceAction::ClearPending => {
+            model.clear_pending();
+        }
+    }
+}
+
+pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let Some(model) = ctx
+        .component::<CircuitSurface>(ctx.entity)
+        .map(|surface| surface.model.clone())
+    else {
+        return false;
+    };
+    let (x, y) = match ctx.event {
         GestureEvent::Tap { x, y, .. }
         | GestureEvent::DragStart { x, y, .. }
         | GestureEvent::DragMove { x, y, .. }
@@ -92,78 +123,85 @@ pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &Gesture
         | GestureEvent::DragCancel { x, y, .. } => (*x, *y),
         _ => return false,
     };
-    let Some(point) = local_point(world, entity, x, y) else {
+    let Some(point) = local_point(ctx, x, y) else {
         return false;
     };
-    CircuitNodes::update(world, |model| match event {
-        GestureEvent::Tap { .. } => tap_surface(model, point),
-        GestureEvent::DragStart { .. } => hit_gate(model, point).map_or(ChangeSet::NONE, |gate| {
-            model.begin_drag_at(gate, point.x.to_int() as i16, point.y.to_int() as i16)
-        }),
-        GestureEvent::DragMove { .. } => {
-            model.move_drag(point.x.to_int() as i16, point.y.to_int() as i16)
+    match ctx.event {
+        GestureEvent::Tap { .. } => {
+            if let Some(action) =
+                crate::core::model::ModelHandle::read(&model, |model| tap_action(model, point))
+            {
+                apply_tap(&model, action);
+            }
         }
-        GestureEvent::DragEnd { .. } => model.end_drag(false).unwrap_or(ChangeSet::VISUAL),
-        GestureEvent::DragCancel { .. } => model.end_drag(true).unwrap_or(ChangeSet::VISUAL),
-        _ => ChangeSet::NONE,
-    });
+        GestureEvent::DragStart { .. } => {
+            if let Some(gate) =
+                crate::core::model::ModelHandle::read(&model, |model| hit_gate(model, point))
+            {
+                model.begin_drag_at(gate, point.x.to_int() as i16, point.y.to_int() as i16);
+            }
+        }
+        GestureEvent::DragMove { .. } => {
+            model.move_drag(point.x.to_int() as i16, point.y.to_int() as i16);
+        }
+        GestureEvent::DragEnd { .. } => {
+            if model.end_drag().is_err() {
+                model.cancel_drag();
+            }
+        }
+        GestureEvent::DragCancel { .. } => {
+            model.cancel_drag();
+        }
+        _ => unreachable!(),
+    }
     true
 }
 
-pub(super) fn footer_action(world: &mut World, index: usize) {
-    let page = world
-        .resource::<CircuitModel>()
-        .map_or(CircuitPage::Wire, CircuitModel::page);
-    if page == CircuitPage::Trace {
+pub(super) fn footer_action(model: &CircuitModelHandle, index: usize) {
+    if model.page() == CircuitPage::Trace {
         match index {
-            0 => CircuitNodes::update(world, CircuitModel::step_trace),
-            1 => CircuitNodes::update(world, CircuitModel::toggle_scanning),
-            2 => CircuitNodes::update(world, CircuitModel::clear_trace),
-            3 => CircuitNodes::update(world, CircuitModel::verify),
-            _ => CircuitNodes::update(world, |model| model.set_page(CircuitPage::Wire)),
-        }
+            0 => model.step_trace(),
+            1 => model.toggle_scanning(),
+            2 => model.clear_trace(),
+            3 => model.verify(),
+            _ => model.set_page(CircuitPage::Wire),
+        };
     } else {
         match index {
-            0 => CircuitNodes::update(world, |model| {
-                model.open_modal(CircuitModal::GateTypes { adding: true })
-            }),
-            1 => CircuitNodes::update(world, |model| {
-                model.open_modal(CircuitModal::GateTypes { adding: false })
-            }),
-            2 => CircuitNodes::update(world, CircuitModel::toggle_disconnecting),
-            3 => CircuitNodes::update(world, CircuitModel::undo),
-            _ => CircuitNodes::update(world, CircuitModel::verify),
-        }
+            0 => model.open_modal(CircuitModal::GateTypes { adding: true }),
+            1 => model.open_modal(CircuitModal::GateTypes { adding: false }),
+            2 => model.toggle_disconnecting(),
+            3 => model.undo(),
+            _ => model.verify(),
+        };
     }
 }
 
-pub(super) fn modal_action(world: &mut World, index: usize) {
-    let modal = world
-        .resource::<CircuitModel>()
-        .map_or(CircuitModal::None, CircuitModel::modal);
-    match modal {
-        CircuitModal::Tasks => CircuitNodes::update(world, |model| {
-            model.load_task((index / 2) as u8, index % 2 == 1)
-        }),
+pub(super) fn modal_action(model: &CircuitModelHandle, index: usize) {
+    match model.modal() {
+        CircuitModal::Tasks => {
+            model.load_task((index / 2) as u8, index % 2 == 1);
+        }
         CircuitModal::GateTypes { adding } if index < GateKind::ALL.len() => {
             if adding {
-                CircuitNodes::result(world, |model| model.add_gate(GateKind::ALL[index]));
+                let _ = model.add_gate(GateKind::ALL[index]);
             } else {
-                CircuitNodes::result(world, |model| model.set_selected_kind(GateKind::ALL[index]));
+                let _ = model.set_selected_kind(GateKind::ALL[index]);
             }
-            CircuitNodes::update(world, CircuitModel::close_modal);
+            model.close_modal();
         }
         CircuitModal::GateTypes { adding: false } if index == 5 => {
-            CircuitNodes::result(world, CircuitModel::remove_selected);
-            CircuitNodes::update(world, CircuitModel::close_modal);
+            let _ = model.remove_selected();
+            model.close_modal();
         }
-        CircuitModal::Help => CircuitNodes::update(world, CircuitModel::close_modal),
+        CircuitModal::Help => {
+            model.close_modal();
+        }
         _ => {}
     }
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub(super) fn circuit_tick_system(world: &mut World) {
-    let elapsed = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
-    CircuitNodes::update(world, |model| model.advance_ms(elapsed));
+#[mirui_macros::system(order = ANIMATION, bind(model))]
+pub(super) fn circuit_tick_system(model: &CircuitModel, delta: Option<DeltaTimeMs>) {
+    model.advance_ms(delta.map_or(16, |delta| delta.0));
 }

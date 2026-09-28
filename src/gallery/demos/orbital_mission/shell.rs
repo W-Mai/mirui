@@ -1,18 +1,136 @@
 use super::input::{cancel_node, footer_action, modal_action, orbit_tick_system};
 use super::render::{modal_view, surface_view};
-use super::state::{OrbitModalSurface, OrbitNodes, OrbitPreview, OrbitSurface};
+use super::state::{OrbitModalSurface, OrbitSurface};
 use super::style::{BACKGROUND, CYAN, INK, MUTED, ORANGE, SPACE, label_style};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::register_play_font;
-use crate::gallery::play::orbit::{OrbitModal, OrbitModel, OrbitPage};
+use crate::gallery::play::orbit::{
+    MISSIONS, ManeuverNode, OrbitEventKind, OrbitModal, OrbitModel, OrbitPage, OrbitStatus,
+};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
-#[compose]
-fn build_widgets() {
+fn control_color(active: bool, enabled: bool) -> Color {
+    if !enabled {
+        super::style::LINE
+    } else if active {
+        ORANGE
+    } else {
+        INK
+    }
+}
+
+fn control_text_color(enabled: bool) -> Color {
+    if enabled { BACKGROUND } else { MUTED }
+}
+
+struct Decimal1(crate::types::Fixed64);
+
+impl fmt::Display for Decimal1 {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let scaled = (self.0 * 10).to_int();
+        write!(out, "{}.{:01}", scaled / 10, scaled.unsigned_abs() % 10)
+    }
+}
+
+struct NodeText {
+    node: Option<ManeuverNode>,
+    number: usize,
+}
+
+impl fmt::Display for NodeText {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(node) = self.node else {
+            return write!(out, "0{}  空节点", self.number);
+        };
+        write!(
+            out,
+            "0{}  T+{}  Δv {}.{}  {}°",
+            self.number,
+            Decimal1(node.at),
+            node.dv_tenths / 10,
+            node.dv_tenths % 10,
+            node.angle_degrees
+        )
+    }
+}
+
+fn event_label(kind: OrbitEventKind) -> &'static str {
+    match kind {
+        OrbitEventKind::Loaded => "任务装载 · 等待机动",
+        OrbitEventKind::Burn => "机动点火完成",
+        OrbitEventKind::NodeSkipped => "计划节点跳过",
+        OrbitEventKind::Goal => "目标窗口采样完成",
+        OrbitEventKind::Won => "全部目标完成",
+        OrbitEventKind::Crashed => "接近中心边界 · 中止",
+        OrbitEventKind::Escaped => "越出模拟区域 · 中止",
+    }
+}
+
+fn status_label(status: OrbitStatus) -> &'static str {
+    match status {
+        OrbitStatus::Ready => "READY",
+        OrbitStatus::Running => "RUNNING",
+        OrbitStatus::Paused => "PAUSED",
+        OrbitStatus::Won => "COMPLETE",
+        OrbitStatus::Crashed => "CRASHED",
+        OrbitStatus::Escaped => "ESCAPED",
+    }
+}
+
+fn modal_title(modal: OrbitModal) -> &'static str {
+    match modal {
+        OrbitModal::None => "",
+        OrbitModal::Missions => "选择轨道任务",
+        OrbitModal::Confirm(_) => "重新装载任务？",
+        OrbitModal::Help => "轨道任务台 / 操作手册",
+    }
+}
+
+fn modal_subtitle(modal: OrbitModal) -> &'static str {
+    match modal {
+        OrbitModal::None => "",
+        OrbitModal::Missions => "切换会清空当前轨迹、计划与遥测记录。",
+        OrbitModal::Confirm(_) => "当前模拟状态将被重置。",
+        OrbitModal::Help => "设定机动并点火；进入目标窗口后手动采样。",
+    }
+}
+
+fn mission_name(index: u8) -> &'static str {
+    MISSIONS[usize::from(index)].name
+}
+
+fn modal_button(modal: OrbitModal, index: usize, mission: u8) -> (&'static str, bool, bool) {
+    match modal {
+        OrbitModal::Missions => (
+            MISSIONS.get(index).map_or("", |entry| entry.name),
+            index < 3,
+            index as u8 == mission,
+        ),
+        OrbitModal::Confirm(_) => match index {
+            0 => ("取消", true, false),
+            1 => ("确认装载", true, true),
+            _ => ("", false, false),
+        },
+        OrbitModal::Help => (
+            if index == 0 { "明白了" } else { "" },
+            index == 0,
+            index == 0,
+        ),
+        OrbitModal::None => ("", false, false),
+    }
+}
+
+#[compose(bind(model))]
+fn build_widgets(model: OrbitModel) {
     ui! {
-        OrbitSurface (id: "orbit_surface", width: 480, height: 320, clip_children: true) {
+        View (id: "orbit_surface", width: 480, height: 320, clip_children: true) [
+            OrbitSurface {
+                model: model.clone(),
+            },
+        ] {
             Text (
                 "轨道任务台",
                 position: Position::Absolute,
@@ -25,7 +143,8 @@ fn build_widgets() {
                 paragraph: label_style()
             )
             Button (
-                "任务 01 · 轨道抬升",
+                text: ${ format_args!("任务 0{} · {}", model.mission() + 1, mission_name(model.mission())) },
+                text_capacity: 48,
                 id: "orbit_mission",
                 position: Position::Absolute,
                 left: 284,
@@ -38,7 +157,7 @@ fn build_widgets() {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { OrbitNodes::update(ctx.world, |model| model.set_modal(OrbitModal::Missions)); }
+            ) on Tap { model.set_modal(OrbitModal::Missions); }
             Button (
                 "?",
                 position: Position::Absolute,
@@ -52,7 +171,7 @@ fn build_widgets() {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { OrbitNodes::update(ctx.world, |model| model.set_modal(OrbitModal::Help)); }
+            ) on Tap { model.set_modal(OrbitModal::Help); }
             Button (
                 "航图",
                 id: "orbit_tab_map",
@@ -63,11 +182,11 @@ fn build_widgets() {
                 height: 24,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: ORANGE,
+                normal_color: ${ control_color(model.page() == OrbitPage::Map, true) },
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { OrbitNodes::update(ctx.world, |model| model.set_page(OrbitPage::Map)); }
+            ) on Tap { model.set_page(OrbitPage::Map); }
             Button (
                 "计划",
                 id: "orbit_tab_plan",
@@ -78,11 +197,11 @@ fn build_widgets() {
                 height: 24,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: INK,
+                normal_color: ${ control_color(model.page() == OrbitPage::Plan, true) },
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { OrbitNodes::update(ctx.world, |model| model.set_page(OrbitPage::Plan)); }
+            ) on Tap { model.set_page(OrbitPage::Plan); }
             Button (
                 "记录",
                 id: "orbit_tab_record",
@@ -93,13 +212,14 @@ fn build_widgets() {
                 height: 24,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: INK,
+                normal_color: ${ control_color(model.page() == OrbitPage::Record, true) },
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { OrbitNodes::update(ctx.world, |model| model.set_page(OrbitPage::Record)); }
+            ) on Tap { model.set_page(OrbitPage::Record); }
             Text (
-                "SIM T+0.0",
+                text: ${ format_args!("SIM T+{}", Decimal1(model.time())) },
+                text_capacity: 24,
                 id: "orbit_time",
                 position: Position::Absolute,
                 left: 356,
@@ -112,6 +232,7 @@ fn build_widgets() {
             )
             View (
                 id: "orbit_map_page",
+                visible: ${ model.page() == OrbitPage::Map },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -119,7 +240,8 @@ fn build_widgets() {
                 height: 282
             ) {
                 Text (
-                    "48.0 / 48",
+                    text: ${ format_args!("FUEL  {} / 48", Decimal1(model.fuel())) },
+                    text_capacity: 24,
                     id: "orbit_fuel",
                     position: Position::Absolute,
                     left: 318,
@@ -131,7 +253,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "0%",
+                    text: ${ format_args!("HEAT  {}%", model.heat().to_int()) },
+                    text_capacity: 20,
                     id: "orbit_heat",
                     position: Position::Absolute,
                     left: 318,
@@ -143,7 +266,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "78.0",
+                    text: ${ Decimal1(model.radius()) },
+                    text_capacity: 16,
                     id: "orbit_radius",
                     position: Position::Absolute,
                     left: 318,
@@ -155,7 +279,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "35.8",
+                    text: ${ Decimal1(model.speed()) },
+                    text_capacity: 16,
                     id: "orbit_speed",
                     position: Position::Absolute,
                     left: 395,
@@ -167,7 +292,8 @@ fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::End)
                 )
                 Text (
-                    "3.8",
+                    text: ${ format_args!("{}.{}", model.dv_tenths() / 10, model.dv_tenths() % 10) },
+                    text_capacity: 8,
                     id: "orbit_dv",
                     position: Position::Absolute,
                     left: 417,
@@ -191,7 +317,7 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.adjust_dv(-2)); }
+                ) on Tap { model.adjust_dv(-2); }
                 Button (
                     "参考值",
                     position: Position::Absolute,
@@ -205,7 +331,7 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, OrbitModel::reset_dv); }
+                ) on Tap { model.reset_dv(); }
                 Button (
                     "+",
                     position: Position::Absolute,
@@ -219,7 +345,7 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.adjust_dv(2)); }
+                ) on Tap { model.adjust_dv(2); }
                 Button (
                     "-15",
                     position: Position::Absolute,
@@ -233,9 +359,10 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.adjust_angle(-15)); }
+                ) on Tap { model.adjust_angle(-15); }
                 Text (
-                    "0°",
+                    text: ${ format_args!("{}°", model.angle_degrees()) },
+                    text_capacity: 8,
                     id: "orbit_angle",
                     position: Position::Absolute,
                     left: 377,
@@ -259,9 +386,10 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.adjust_angle(15)); }
+                ) on Tap { model.adjust_angle(15); }
                 Button (
-                    "预演 已开",
+                    text: ${ if model.preview() { "预演 已开" } else { "预演 已关" } },
+                    text_capacity: 16,
                     id: "orbit_preview",
                     position: Position::Absolute,
                     left: 18,
@@ -274,9 +402,10 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, OrbitModel::toggle_preview); }
+                ) on Tap { model.toggle_preview(); }
                 Button (
-                    "1×",
+                    text: ${ format_args!("{}×", model.warp()) },
+                    text_capacity: 8,
                     id: "orbit_warp",
                     position: Position::Absolute,
                     left: 244,
@@ -289,10 +418,11 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, OrbitModel::cycle_warp); }
+                ) on Tap { model.cycle_warp(); }
             }
             View (
                 id: "orbit_plan_page",
+                visible: ${ model.page() == OrbitPage::Plan },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -300,7 +430,8 @@ fn build_widgets() {
                 height: 282
             ) {
                 Text (
-                    "01  空节点",
+                    text: ${ NodeText { node: model.queue()[0], number: 1 } },
+                    text_capacity: 64,
                     id: "orbit_node_0",
                     position: Position::Absolute,
                     left: 35,
@@ -324,9 +455,10 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { cancel_node(ctx.world, 0); }
+                ) on Tap { cancel_node(&model, 0); }
                 Text (
-                    "02  空节点",
+                    text: ${ NodeText { node: model.queue()[1], number: 2 } },
+                    text_capacity: 64,
                     id: "orbit_node_1",
                     position: Position::Absolute,
                     left: 35,
@@ -350,9 +482,10 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { cancel_node(ctx.world, 1); }
+                ) on Tap { cancel_node(&model, 1); }
                 Text (
-                    "03  空节点",
+                    text: ${ NodeText { node: model.queue()[2], number: 3 } },
+                    text_capacity: 64,
                     id: "orbit_node_2",
                     position: Position::Absolute,
                     left: 35,
@@ -376,9 +509,10 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { cancel_node(ctx.world, 2); }
+                ) on Tap { cancel_node(&model, 2); }
                 Text (
-                    "0 / 3 个节点",
+                    text: ${ format_args!("{} / 3 个节点", model.queue_len()) },
+                    text_capacity: 24,
                     id: "orbit_queue_count",
                     position: Position::Absolute,
                     left: 24,
@@ -390,7 +524,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "3 s",
+                    text: ${ format_args!("{} s", model.delay_seconds()) },
+                    text_capacity: 8,
                     id: "orbit_delay",
                     position: Position::Absolute,
                     left: 326,
@@ -414,7 +549,7 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.adjust_delay(-1)); }
+                ) on Tap { model.adjust_delay(-1); }
                 Button (
                     "＋1 s",
                     position: Position::Absolute,
@@ -428,10 +563,11 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.adjust_delay(1)); }
+                ) on Tap { model.adjust_delay(1); }
             }
             View (
                 id: "orbit_record_page",
+                visible: ${ model.page() == OrbitPage::Record },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -439,7 +575,8 @@ fn build_widgets() {
                 height: 282
             ) {
                 Text (
-                    "0",
+                    text: ${ format_args!("{}", model.telemetry_len()) },
+                    text_capacity: 8,
                     id: "orbit_samples",
                     position: Position::Absolute,
                     left: 325,
@@ -451,7 +588,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "0",
+                    text: ${ format_args!("{}", model.trail_len()) },
+                    text_capacity: 8,
                     id: "orbit_trail",
                     position: Position::Absolute,
                     left: 392,
@@ -463,7 +601,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "78.0",
+                    text: ${ Decimal1(model.radius()) },
+                    text_capacity: 16,
                     id: "orbit_record_radius",
                     position: Position::Absolute,
                     left: 325,
@@ -475,7 +614,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "35.8",
+                    text: ${ Decimal1(model.speed()) },
+                    text_capacity: 16,
                     id: "orbit_record_speed",
                     position: Position::Absolute,
                     left: 325,
@@ -487,7 +627,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "等待事件",
+                    text: ${ model.latest_event_kind().map_or("等待事件", event_label) },
+                    text_capacity: 48,
                     id: "orbit_event",
                     position: Position::Absolute,
                     left: 325,
@@ -499,7 +640,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "READY",
+                    text: ${ status_label(model.status()) },
+                    text_capacity: 16,
                     id: "orbit_status",
                     position: Position::Absolute,
                     left: 325,
@@ -512,7 +654,8 @@ fn build_widgets() {
                 )
             }
             Button (
-                "▶ 滑行",
+                text: ${ if model.status() == OrbitStatus::Running { "Ⅱ 暂停" } else { "▶ 滑行" } },
+                text_capacity: 16,
                 id: "orbit_footer_run",
                 position: Position::Absolute,
                 left: 12,
@@ -521,11 +664,11 @@ fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ORANGE,
+                normal_color: ${ control_color(true, !model.status().terminal()) },
                 pressed_color: ORANGE,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(!model.status().terminal()) },
                 border_radius: 0
-            ) on Tap { footer_action(ctx.world, 0); }
+            ) on Tap { footer_action(&model, 0); }
             Button (
                 "点火",
                 id: "orbit_footer_burn",
@@ -536,13 +679,14 @@ fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: INK,
+                normal_color: ${ control_color(false, !model.status().terminal()) },
                 pressed_color: ORANGE,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(!model.status().terminal()) },
                 border_radius: 0
-            ) on Tap { footer_action(ctx.world, 1); }
+            ) on Tap { footer_action(&model, 1); }
             Button (
-                "采样",
+                text: ${ if model.eligible() { "● 立即采样" } else { "采样" } },
+                text_capacity: 16,
                 id: "orbit_footer_scan",
                 position: Position::Absolute,
                 left: 174,
@@ -551,11 +695,11 @@ fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: INK,
+                normal_color: ${ control_color(model.eligible(), !model.status().terminal()) },
                 pressed_color: ORANGE,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(!model.status().terminal()) },
                 border_radius: 0
-            ) on Tap { footer_action(ctx.world, 2); }
+            ) on Tap { footer_action(&model, 2); }
             Button (
                 "＋ 节点",
                 id: "orbit_footer_schedule",
@@ -566,11 +710,11 @@ fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: INK,
+                normal_color: ${ control_color(false, model.can_schedule()) },
                 pressed_color: ORANGE,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(model.can_schedule()) },
                 border_radius: 0
-            ) on Tap { footer_action(ctx.world, 3); }
+            ) on Tap { footer_action(&model, 3); }
             Button (
                 "重新装载",
                 id: "orbit_footer_reset",
@@ -585,17 +729,23 @@ fn build_widgets() {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { footer_action(ctx.world, 4); }
-            OrbitModalSurface (
+            ) on Tap { footer_action(&model, 4); }
+            View (
                 id: "orbit_modal",
+                visible: ${ model.modal() != OrbitModal::None },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
                 width: 480,
                 height: 320
-            ) {
+            ) [
+                OrbitModalSurface {
+                    model: model.clone(),
+                },
+            ] {
                 Text (
-                    "选择轨道任务",
+                    text: ${ modal_title(model.modal()) },
+                    text_capacity: 48,
                     id: "orbit_modal_title",
                     position: Position::Absolute,
                     left: 55,
@@ -607,7 +757,8 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Text (
-                    "切换会清空当前轨迹、计划与遥测记录。",
+                    text: ${ modal_subtitle(model.modal()) },
+                    text_capacity: 96,
                     id: "orbit_modal_subtitle",
                     position: Position::Absolute,
                     left: 55,
@@ -619,7 +770,9 @@ fn build_widgets() {
                     paragraph: label_style()
                 )
                 Button (
-                    "轨道抬升",
+                    text: ${ modal_button(model.modal(), 0, model.mission()).0 },
+                    text_capacity: 32,
+                    visible: ${ modal_button(model.modal(), 0, model.mission()).1 },
                     id: "orbit_modal_0",
                     position: Position::Absolute,
                     left: 55,
@@ -628,13 +781,15 @@ fn build_widgets() {
                     height: 35,
                     size: ButtonSize::Compact,
                     font_size: 9,
-                    normal_color: ORANGE,
+                    normal_color: ${ control_color(modal_button(model.modal(), 0, model.mission()).2, true) },
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { modal_action(ctx.world, 0); }
+                ) on Tap { modal_action(&model, 0); }
                 Button (
-                    "往返测绘",
+                    text: ${ modal_button(model.modal(), 1, model.mission()).0 },
+                    text_capacity: 32,
+                    visible: ${ modal_button(model.modal(), 1, model.mission()).1 },
                     id: "orbit_modal_1",
                     position: Position::Absolute,
                     left: 249,
@@ -643,13 +798,15 @@ fn build_widgets() {
                     height: 35,
                     size: ButtonSize::Compact,
                     font_size: 9,
-                    normal_color: INK,
+                    normal_color: ${ control_color(modal_button(model.modal(), 1, model.mission()).2, true) },
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { modal_action(ctx.world, 1); }
+                ) on Tap { modal_action(&model, 1); }
                 Button (
-                    "远端通信",
+                    text: ${ modal_button(model.modal(), 2, model.mission()).0 },
+                    text_capacity: 32,
+                    visible: ${ modal_button(model.modal(), 2, model.mission()).1 },
                     id: "orbit_modal_2",
                     position: Position::Absolute,
                     left: 55,
@@ -658,13 +815,15 @@ fn build_widgets() {
                     height: 35,
                     size: ButtonSize::Compact,
                     font_size: 9,
-                    normal_color: INK,
+                    normal_color: ${ control_color(modal_button(model.modal(), 2, model.mission()).2, true) },
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { modal_action(ctx.world, 2); }
+                ) on Tap { modal_action(&model, 2); }
                 Button (
-                    "关闭",
+                    text: ${ modal_button(model.modal(), 3, model.mission()).0 },
+                    text_capacity: 32,
+                    visible: ${ modal_button(model.modal(), 3, model.mission()).1 },
                     id: "orbit_modal_3",
                     position: Position::Absolute,
                     left: 249,
@@ -673,11 +832,11 @@ fn build_widgets() {
                     height: 35,
                     size: ButtonSize::Compact,
                     font_size: 9,
-                    normal_color: INK,
+                    normal_color: ${ control_color(modal_button(model.modal(), 3, model.mission()).2, true) },
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { modal_action(ctx.world, 3); }
+                ) on Tap { modal_action(&model, 3); }
                 Button (
                     "×",
                     position: Position::Absolute,
@@ -691,7 +850,7 @@ fn build_widgets() {
                     pressed_color: ORANGE,
                     text_color: BACKGROUND,
                     border_radius: 0
-                ) on Tap { OrbitNodes::update(ctx.world, |model| model.set_modal(OrbitModal::None)); }
+                ) on Tap { model.set_modal(OrbitModal::None); }
             }
         }
     };
@@ -705,69 +864,8 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     register_play_font(&mut app.world);
-    app.world.insert_resource(OrbitModel::default());
-    app.world.insert_resource(OrbitPreview::default());
+    let model = app.add_model(OrbitModel::default());
     app.with_widget(surface_view()).with_widget(modal_view());
-    app.add_system(orbit_tick_system::system());
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Orbital Mission node");
-    let nodes = OrbitNodes {
-        surface: find("orbit_surface"),
-        mission_meta: find("orbit_mission"),
-        time_meta: find("orbit_time"),
-        tabs: [
-            find("orbit_tab_map"),
-            find("orbit_tab_plan"),
-            find("orbit_tab_record"),
-        ],
-        pages: [
-            find("orbit_map_page"),
-            find("orbit_plan_page"),
-            find("orbit_record_page"),
-        ],
-        map_values: [
-            find("orbit_fuel"),
-            find("orbit_heat"),
-            find("orbit_radius"),
-            find("orbit_speed"),
-            find("orbit_dv"),
-            find("orbit_angle"),
-            find("orbit_preview"),
-            find("orbit_warp"),
-        ],
-        plan_values: [
-            find("orbit_delay"),
-            find("orbit_node_0"),
-            find("orbit_node_1"),
-            find("orbit_node_2"),
-            find("orbit_queue_count"),
-        ],
-        record_values: [
-            find("orbit_samples"),
-            find("orbit_trail"),
-            find("orbit_record_radius"),
-            find("orbit_record_speed"),
-            find("orbit_event"),
-            find("orbit_status"),
-        ],
-        footer: [
-            find("orbit_footer_run"),
-            find("orbit_footer_burn"),
-            find("orbit_footer_scan"),
-            find("orbit_footer_schedule"),
-            find("orbit_footer_reset"),
-        ],
-        modal: find("orbit_modal"),
-        modal_title: find("orbit_modal_title"),
-        modal_subtitle: find("orbit_modal_subtitle"),
-        modal_buttons: [
-            find("orbit_modal_0"),
-            find("orbit_modal_1"),
-            find("orbit_modal_2"),
-            find("orbit_modal_3"),
-        ],
-    };
-    app.world.insert_resource(nodes);
-    OrbitNodes::refresh_preview(&mut app.world);
-    OrbitNodes::sync(&mut app.world);
+    app.add_system(orbit_tick_system::system(model.clone()));
+    app.compose(parent, |cx| build_widgets(cx, model));
 }

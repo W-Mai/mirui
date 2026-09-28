@@ -5,6 +5,8 @@ mod render;
 mod shell;
 mod state;
 mod style;
+#[cfg(test)]
+mod tests;
 
 use crate::prelude::{App, Entity, RendererFactory, Surface};
 

@@ -1,4 +1,4 @@
-use super::state::{OrbitModalSurface, OrbitPreview, OrbitSurface};
+use super::state::{OrbitModalSurface, OrbitSurface};
 use super::style::{BACKGROUND, CYAN, INK, LINE, ORANGE, PANEL, SPACE, VIOLET};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::orbit::{OrbitModal, OrbitModel, OrbitPage, OrbitPoint};
@@ -25,7 +25,7 @@ fn paint_shell(painter: &mut PlayPainter<'_, '_>) {
     painter.fill(Rect::new(0, 282, 480, 38), INK, Fixed::ZERO);
 }
 
-fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel, preview: &OrbitPreview) {
+fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     painter.fill(Rect::new(11, 65, 287, 188), SPACE, Fixed::ZERO);
     painter.fill(Rect::new(307, 65, 162, 188), PANEL, Fixed::ZERO);
     painter.border(Rect::new(307, 65, 162, 188), LINE, Fixed::ONE, Fixed::ZERO);
@@ -59,8 +59,11 @@ fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel, preview: &Or
     }
     if model.preview() {
         let mut previous = Some(map_point(model.body().position));
-        for point in preview.points.iter().take(usize::from(preview.len)) {
-            let point = map_point(*point);
+        for index in 0..model.preview_len() {
+            let Some(point) = model.preview_point(index) else {
+                continue;
+            };
+            let point = map_point(point);
             if let Some(from) = previous {
                 painter.line(from, point, ORANGE, Fixed::from_ratio(1, 2));
             }
@@ -178,41 +181,34 @@ fn paint_record(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     painter.border(Rect::new(313, 65, 156, 188), LINE, Fixed::ONE, Fixed::ZERO);
 }
 
-fn surface_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
-    let (Some(model), Some(preview)) = (
-        world.resource::<OrbitModel>(),
-        world.resource::<OrbitPreview>(),
-    ) else {
-        return;
-    };
+#[crate::view(
+    component = OrbitSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "OrbitSurface",
+    priority = 60
+)]
+fn surface_render(renderer: &mut dyn Renderer, model: &OrbitModel, rect: &Rect, ctx: &mut ViewCtx) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_shell(&mut painter);
     match model.page() {
-        OrbitPage::Map => paint_map(&mut painter, model, preview),
+        OrbitPage::Map => paint_map(&mut painter, model),
         OrbitPage::Plan => paint_plan(&mut painter, model),
         OrbitPage::Record => paint_record(&mut painter, model),
     }
 }
 
-fn modal_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
-    if world
-        .resource::<OrbitModel>()
-        .is_none_or(|model| model.modal() == OrbitModal::None)
-    {
+#[crate::view(
+    component = OrbitModalSurface,
+    read(model),
+    watch(model.modal()),
+    name = "OrbitModalSurface",
+    priority = 70
+)]
+fn modal_render(renderer: &mut dyn Renderer, model: &OrbitModel, rect: &Rect, ctx: &mut ViewCtx) {
+    if model.modal() == OrbitModal::None {
         return;
     }
     ctx.bg_handled = true;
@@ -234,8 +230,8 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("OrbitSurface", 60, surface_render).with_filter::<OrbitSurface>()
+    surface_render::view()
 }
 pub(super) fn modal_view() -> View {
-    View::new("OrbitModalSurface", 70, modal_render).with_filter::<OrbitModalSurface>()
+    modal_render::view()
 }

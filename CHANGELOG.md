@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reusable Web text raster storage.** Web Canvas retains bounded text rasters in preallocated RGBA and offscreen-canvas slots. The prepared extent follows viewport scaling.
 - **Web text scratch resource accounting.** Bounded raster preparation checks the old and replacement pools together and reports current and peak managed resources, including partial failed preparations.
 - **Registered model calls.** `#[model]` forwards model methods through instance handles returned by `App::add_model`; multiple instances of one type remain independent, and handles reject access after their registration ends.
+- **Model-local helpers.** `#[model(local)]` keeps implementation-only methods on the raw model without generating handle forwarding, while preserving ordinary Rust signatures.
 - **Fallible model commands.** Mutable model methods returning `Result<Change, E>` preserve typed errors through generated handles; rejected commands publish no observations or revisions and discard pending effects without allocating.
 - **Cross-module model declarations.** Qualified `#[model] impl` paths target models declared in another module; conditional observers and effect extractors keep their generated storage and accessors under the same configuration.
 - **Owner-scoped reactive dependencies.** Registered effects and computed values clear old Signal/model edges when a branch changes and reuse reserved graph storage for the new edges.

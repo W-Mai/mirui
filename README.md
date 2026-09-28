@@ -225,7 +225,9 @@ where
 Use `#[component(bind(...))]` to attach a model handle to an entity and
 `#[view(component = ..., read(...), watch(...))]` to paint it. One model can
 serve several Views; several instances of the same model type stay
-independent. A mutable model method may return `Result<Change, E>`; an error is
+independent. Mark implementation-only helpers with `#[model(local)]`; the
+method keeps its ordinary Rust signature on the model and is not forwarded to
+the handle. A mutable model method may return `Result<Change, E>`; an error is
 returned without publishing reactive updates or effects. The
 [state guide](docs/state-management.md) covers effects, systems, ownership, and
 the limits of the update-path allocation guarantee.

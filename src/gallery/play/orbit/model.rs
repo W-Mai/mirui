@@ -11,36 +11,59 @@ use crate::types::Fixed64;
 
 const RECORD_INTERVAL: Fixed64 = Fixed64::from_ratio(4, 25);
 
-#[derive(Clone, Copy, Debug)]
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 pub(crate) struct OrbitModel {
     pub(super) body: OrbitBody,
     pub(super) trail: [OrbitPoint; MAX_TRAIL],
     pub(super) telemetry: [OrbitTelemetry; MAX_TELEMETRY],
     pub(super) events: [OrbitEvent; MAX_EVENTS],
-    pub(super) queue: [Option<ManeuverNode>; MAX_NODES],
+    #[observe]
+    pub(crate) queue: [Option<ManeuverNode>; MAX_NODES],
     pub(super) clock: BoundedClock,
-    pub(super) time: Fixed64,
-    pub(super) fuel: Fixed64,
-    pub(super) heat: Fixed64,
+    #[observe]
+    pub(crate) time: Fixed64,
+    #[observe]
+    pub(crate) fuel: Fixed64,
+    #[observe]
+    pub(crate) heat: Fixed64,
     pub(super) next_record: Fixed64,
-    pub(super) page: OrbitPage,
-    pub(super) modal: OrbitModal,
-    pub(super) status: OrbitStatus,
-    pub(super) mission: u8,
+    #[observe]
+    pub(crate) page: OrbitPage,
+    #[observe]
+    pub(crate) modal: OrbitModal,
+    #[observe]
+    pub(crate) status: OrbitStatus,
+    #[observe]
+    pub(crate) mission: u8,
     pub(super) completed: u8,
-    pub(super) dv_tenths: u8,
-    pub(super) angle_degrees: i16,
-    pub(super) delay_seconds: u8,
-    pub(super) warp: u8,
+    #[observe]
+    pub(crate) dv_tenths: u8,
+    #[observe]
+    pub(crate) angle_degrees: i16,
+    #[observe]
+    pub(crate) delay_seconds: u8,
+    #[observe]
+    pub(crate) warp: u8,
     pub(super) next_node_id: u8,
-    pub(super) queue_len: u8,
+    #[observe]
+    pub(crate) queue_len: u8,
     pub(super) trail_start: u8,
-    pub(super) trail_len: u8,
+    #[observe]
+    pub(crate) trail_len: u8,
     pub(super) telemetry_start: u8,
-    pub(super) telemetry_len: u8,
+    #[observe]
+    pub(crate) telemetry_len: u8,
     pub(super) event_start: u8,
-    pub(super) event_len: u8,
-    pub(super) preview: bool,
+    #[observe]
+    pub(crate) event_len: u8,
+    #[observe]
+    pub(crate) preview: bool,
+    preview_points: [OrbitPoint; MAX_PREVIEW],
+    preview_len: u8,
+    preview_sampled_at: Fixed64,
+    preview_body: OrbitBody,
+    preview_dv_tenths: u8,
+    preview_angle_degrees: i16,
 }
 
 impl Default for OrbitModel {
@@ -74,14 +97,20 @@ impl Default for OrbitModel {
             event_start: 0,
             event_len: 0,
             preview: true,
+            preview_points: [OrbitPoint::default(); MAX_PREVIEW],
+            preview_len: 0,
+            preview_sampled_at: Fixed64::from_int(-1),
+            preview_body: OrbitBody::default(),
+            preview_dv_tenths: 0,
+            preview_angle_degrees: 0,
         };
-        model.load_mission(0);
+        model.load_mission_raw(0);
         model
     }
 }
 
 impl OrbitModel {
-    pub(crate) fn load_mission(&mut self, mission: u8) -> ChangeSet {
+    fn load_mission_raw(&mut self, mission: u8) -> ChangeSet {
         let mission = mission.min((MISSION_COUNT - 1) as u8);
         self.body = OrbitBody {
             position: OrbitPoint {
@@ -121,10 +150,11 @@ impl OrbitModel {
         self.event_len = 0;
         self.preview = true;
         self.push_event(OrbitEventKind::Loaded);
+        self.refresh_preview(true);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn update(&mut self, elapsed_ms: u16) -> ChangeSet {
+    fn update_raw(&mut self, elapsed_ms: u16) -> ChangeSet {
         let active = self.status == OrbitStatus::Running && self.modal == OrbitModal::None;
         let steps = self.clock.steps(elapsed_ms, active);
         if steps == 0 {
@@ -140,6 +170,7 @@ impl OrbitModel {
                 break;
             }
         }
+        self.refresh_preview(false);
         if (self.time * 10).to_int() != display_tenth
             || self.fuel != fuel
             || self.status != status
@@ -151,7 +182,7 @@ impl OrbitModel {
         }
     }
 
-    pub(crate) fn toggle_running(&mut self) -> ChangeSet {
+    fn toggle_running_raw(&mut self) -> ChangeSet {
         if self.status.terminal() {
             return ChangeSet::NONE;
         }
@@ -163,8 +194,10 @@ impl OrbitModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn burn(&mut self) -> Result<ChangeSet, OrbitError> {
-        self.burn_values(self.dv_tenths, self.angle_degrees)
+    fn burn_raw(&mut self) -> Result<ChangeSet, OrbitError> {
+        let changes = self.burn_values(self.dv_tenths, self.angle_degrees)?;
+        self.refresh_preview(true);
+        Ok(changes)
     }
 
     fn burn_values(&mut self, dv_tenths: u8, angle_degrees: i16) -> Result<ChangeSet, OrbitError> {
@@ -190,7 +223,7 @@ impl OrbitModel {
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
-    pub(crate) fn schedule(&mut self) -> Result<ChangeSet, OrbitError> {
+    fn schedule_raw(&mut self) -> Result<ChangeSet, OrbitError> {
         if self.status.terminal() {
             return Err(OrbitError::Terminal);
         }
@@ -222,7 +255,7 @@ impl OrbitModel {
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
-    pub(crate) fn cancel(&mut self, id: u8) -> Result<ChangeSet, OrbitError> {
+    pub(super) fn cancel_raw(&mut self, id: u8) -> Result<ChangeSet, OrbitError> {
         let Some(index) = self.queue[..usize::from(self.queue_len)]
             .iter()
             .position(|node| node.is_some_and(|node| node.id == id))
@@ -237,8 +270,8 @@ impl OrbitModel {
         Ok(ChangeSet::MODEL | ChangeSet::VISUAL)
     }
 
-    pub(crate) fn scan(&mut self) -> Result<ChangeSet, OrbitError> {
-        if !self.eligible() {
+    fn scan_raw(&mut self) -> Result<ChangeSet, OrbitError> {
+        if !self.eligible_raw() {
             return Err(OrbitError::OutsideWindow);
         }
         self.push_event(OrbitEventKind::Goal);
@@ -259,7 +292,7 @@ impl OrbitModel {
         self.time += STEP;
         while self.queue_len > 0 && self.queue[0].is_some_and(|node| node.at <= self.time) {
             let node = self.queue[0].expect("queue head exists");
-            let _ = self.cancel(node.id);
+            let _ = self.cancel_raw(node.id);
             if self
                 .burn_values(node.dv_tenths, node.angle_degrees)
                 .is_err()
@@ -312,7 +345,25 @@ impl OrbitModel {
         len
     }
 
-    pub(crate) fn eligible(&self) -> bool {
+    fn refresh_preview(&mut self, force: bool) {
+        let changed = (self.preview_body != self.body
+            && (self.time - self.preview_sampled_at).abs() >= Fixed64::from_ratio(7, 10))
+            || self.preview_dv_tenths != self.dv_tenths
+            || self.preview_angle_degrees != self.angle_degrees;
+        if !force && !changed {
+            return;
+        }
+        let mut points = [OrbitPoint::default(); MAX_PREVIEW];
+        let len = self.predict(&mut points);
+        self.preview_points = points;
+        self.preview_len = len as u8;
+        self.preview_sampled_at = self.time;
+        self.preview_body = self.body;
+        self.preview_dv_tenths = self.dv_tenths;
+        self.preview_angle_degrees = self.angle_degrees;
+    }
+
+    fn eligible_raw(&self) -> bool {
         let Some(goal) = self.goal() else {
             return false;
         };
@@ -377,43 +428,68 @@ impl OrbitModel {
         );
     }
 
-    pub(crate) fn set_page(&mut self, page: OrbitPage) -> ChangeSet {
+    fn set_page_raw(&mut self, page: OrbitPage) -> ChangeSet {
+        if self.page == page {
+            return ChangeSet::NONE;
+        }
         self.page = page;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn set_modal(&mut self, modal: OrbitModal) -> ChangeSet {
+    fn set_modal_raw(&mut self, modal: OrbitModal) -> ChangeSet {
+        if self.modal == modal {
+            return ChangeSet::NONE;
+        }
         self.modal = modal;
         self.clock.reset();
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn adjust_dv(&mut self, delta_tenths: i8) -> ChangeSet {
-        self.dv_tenths = (i16::from(self.dv_tenths) + i16::from(delta_tenths)).clamp(2, 80) as u8;
+    fn adjust_dv_raw(&mut self, delta_tenths: i8) -> ChangeSet {
+        let dv_tenths = (i16::from(self.dv_tenths) + i16::from(delta_tenths)).clamp(2, 80) as u8;
+        if self.dv_tenths == dv_tenths {
+            return ChangeSet::NONE;
+        }
+        self.dv_tenths = dv_tenths;
+        self.refresh_preview(false);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn reset_dv(&mut self) -> ChangeSet {
-        self.dv_tenths = self.mission().default_dv_tenths;
+    fn reset_dv_raw(&mut self) -> ChangeSet {
+        let dv_tenths = self.mission().default_dv_tenths;
+        if self.dv_tenths == dv_tenths {
+            return ChangeSet::NONE;
+        }
+        self.dv_tenths = dv_tenths;
+        self.refresh_preview(false);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn adjust_angle(&mut self, delta: i16) -> ChangeSet {
-        self.angle_degrees = (self.angle_degrees + delta).clamp(-180, 180);
+    fn adjust_angle_raw(&mut self, delta: i16) -> ChangeSet {
+        let angle_degrees = (self.angle_degrees + delta).clamp(-180, 180);
+        if self.angle_degrees == angle_degrees {
+            return ChangeSet::NONE;
+        }
+        self.angle_degrees = angle_degrees;
+        self.refresh_preview(false);
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn adjust_delay(&mut self, delta: i8) -> ChangeSet {
-        self.delay_seconds = (i16::from(self.delay_seconds) + i16::from(delta)).clamp(1, 30) as u8;
+    fn adjust_delay_raw(&mut self, delta: i8) -> ChangeSet {
+        let delay_seconds = (i16::from(self.delay_seconds) + i16::from(delta)).clamp(1, 30) as u8;
+        if self.delay_seconds == delay_seconds {
+            return ChangeSet::NONE;
+        }
+        self.delay_seconds = delay_seconds;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn toggle_preview(&mut self) -> ChangeSet {
+    fn toggle_preview_raw(&mut self) -> ChangeSet {
         self.preview = !self.preview;
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn cycle_warp(&mut self) -> ChangeSet {
+    fn cycle_warp_raw(&mut self) -> ChangeSet {
         self.warp = match self.warp {
             1 => 2,
             2 => 4,
@@ -428,6 +504,7 @@ impl OrbitModel {
     pub(crate) const fn modal(&self) -> OrbitModal {
         self.modal
     }
+    #[cfg(test)]
     pub(crate) const fn status(&self) -> OrbitStatus {
         self.status
     }
@@ -440,6 +517,7 @@ impl OrbitModel {
     pub(crate) const fn body(&self) -> OrbitBody {
         self.body
     }
+    #[cfg(test)]
     pub(crate) const fn time(&self) -> Fixed64 {
         self.time
     }
@@ -449,21 +527,17 @@ impl OrbitModel {
     pub(crate) const fn heat(&self) -> Fixed64 {
         self.heat
     }
+    #[cfg(test)]
     pub(crate) const fn dv_tenths(&self) -> u8 {
         self.dv_tenths
     }
     pub(crate) const fn angle_degrees(&self) -> i16 {
         self.angle_degrees
     }
-    pub(crate) const fn delay_seconds(&self) -> u8 {
-        self.delay_seconds
-    }
-    pub(crate) const fn warp(&self) -> u8 {
-        self.warp
-    }
     pub(crate) const fn preview(&self) -> bool {
         self.preview
     }
+    #[cfg(test)]
     pub(crate) const fn queue_len(&self) -> usize {
         self.queue_len as usize
     }
@@ -496,6 +570,108 @@ impl OrbitModel {
 
     pub(crate) fn event(&self, index: usize) -> Option<OrbitEvent> {
         ring_get(&self.events, self.event_start, self.event_len, index)
+    }
+
+    pub(crate) const fn preview_len(&self) -> usize {
+        self.preview_len as usize
+    }
+
+    pub(crate) fn preview_point(&self, index: usize) -> Option<OrbitPoint> {
+        self.preview_points.get(index).copied()
+    }
+}
+
+#[crate::model]
+impl OrbitModel {
+    pub(crate) fn load_mission(&mut self, mission: u8) -> ChangeSet {
+        self.load_mission_raw(mission)
+    }
+
+    pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
+        self.update_raw(elapsed_ms)
+    }
+
+    pub(crate) fn toggle_running(&mut self) -> ChangeSet {
+        self.toggle_running_raw()
+    }
+
+    pub(crate) fn burn(&mut self) -> Result<ChangeSet, OrbitError> {
+        self.burn_raw()
+    }
+
+    pub(crate) fn schedule(&mut self) -> Result<ChangeSet, OrbitError> {
+        self.schedule_raw()
+    }
+
+    pub(crate) fn cancel_at(&mut self, index: usize) -> Result<ChangeSet, OrbitError> {
+        let Some(node) = self.queue(index) else {
+            return Err(OrbitError::MissingNode);
+        };
+        self.cancel_raw(node.id)
+    }
+
+    pub(crate) fn scan(&mut self) -> Result<ChangeSet, OrbitError> {
+        self.scan_raw()
+    }
+
+    pub(crate) fn set_page(&mut self, page: OrbitPage) -> ChangeSet {
+        self.set_page_raw(page)
+    }
+
+    pub(crate) fn set_modal(&mut self, modal: OrbitModal) -> ChangeSet {
+        self.set_modal_raw(modal)
+    }
+
+    pub(crate) fn adjust_dv(&mut self, delta_tenths: i8) -> ChangeSet {
+        self.adjust_dv_raw(delta_tenths)
+    }
+
+    pub(crate) fn reset_dv(&mut self) -> ChangeSet {
+        self.reset_dv_raw()
+    }
+
+    pub(crate) fn adjust_angle(&mut self, delta: i16) -> ChangeSet {
+        self.adjust_angle_raw(delta)
+    }
+
+    pub(crate) fn adjust_delay(&mut self, delta: i8) -> ChangeSet {
+        self.adjust_delay_raw(delta)
+    }
+
+    pub(crate) fn toggle_preview(&mut self) -> ChangeSet {
+        self.toggle_preview_raw()
+    }
+
+    pub(crate) fn cycle_warp(&mut self) -> ChangeSet {
+        self.cycle_warp_raw()
+    }
+
+    #[observe]
+    pub(crate) fn radius(&self) -> Fixed64 {
+        self.body.radius()
+    }
+
+    #[observe]
+    pub(crate) fn speed(&self) -> Fixed64 {
+        self.body.speed()
+    }
+
+    #[observe]
+    pub(crate) fn eligible(&self) -> bool {
+        self.eligible_raw()
+    }
+
+    #[observe]
+    pub(crate) fn latest_event_kind(&self) -> Option<OrbitEventKind> {
+        self.event_len()
+            .checked_sub(1)
+            .and_then(|index| self.event(index))
+            .map(|event| event.kind)
+    }
+
+    #[observe]
+    pub(crate) fn can_schedule(&self) -> bool {
+        !self.status.terminal() && usize::from(self.queue_len) < MAX_NODES
     }
 }
 
