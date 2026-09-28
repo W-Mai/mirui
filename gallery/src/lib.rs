@@ -153,15 +153,15 @@ macro_rules! register_demos {
 
 #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
 register_demos! {
-    ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console),
-    ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab),
-    ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab),
-    ("curve_text",           "Kinetic Type",         "Showcase",    curve_text),
+    ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console, source = demo_sources::ORBIT_CONSOLE),
+    ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab, source = demo_sources::LAYOUT_LAB),
+    ("typography_lab",       "Typography Lab",       "Showcase",    typography_lab, source = demo_sources::TYPOGRAPHY_LAB),
+    ("curve_text",           "Kinetic Type",         "Showcase",    curve_text, source = demo_sources::KINETIC_TYPE),
     ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact),
-    ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab),
-    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console),
+    ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab, source = demo_sources::INTERACTION_LAB),
+    ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 
-    ("signal_scope",         "Signal Scope",         "Product",     signal_scope),
+    ("signal_scope",         "Signal Scope",         "Product",     signal_scope, source = demo_sources::SIGNAL_SCOPE),
 
     (
         "marble_play",
@@ -180,8 +180,8 @@ register_demos! {
     ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas, source = demo_sources::TIDAL_ATLAS),
     ("echo_walker",          "Echo Walker",          "Play",        echo_walker, source = demo_sources::ECHO_WALKER),
     ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons, source = demo_sources::TWIN_BEACONS),
-    ("folding_ark",          "Folding Ark",          "Play",        folding_ark),
-    ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration),
+    ("folding_ark",          "Folding Ark",          "Play",        folding_ark, source = demo_sources::FOLDING_ARK),
+    ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration, source = demo_sources::ATLAS_RESTORATION),
 
     ("niche",                "niche slots (@name)",  "Basics",      niche),
     ("i18n",                 "i18n locale toggle",   "Basics",      i18n),
@@ -236,7 +236,7 @@ register_demos! {
     ("tabbar",               "tabbar",               "Components",  tabbar),
     ("text_input",           "text input",           "Components",  text_input),
     ("theme_swap",           "theme swap",           "Components",  theme_swap),
-    ("widgets",              "widgets",              "Components",  widgets),
+    ("widgets",              "widgets",              "Components",  widgets, source = demo_sources::WIDGETS),
     ("widgets_compact",      "widgets compact",      "Components",  widgets_compact),
     ("builder_form",         "builder API (no DSL)", "Components",  builder_form),
 }
@@ -571,131 +571,7 @@ mod tests {
     #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
     #[test]
     fn split_demo_sources_include_child_modules() {
-        let cases = [
-            (
-                "marble_play",
-                &[
-                    "style.rs",
-                    "audio.rs",
-                    "board.rs",
-                    "scenes.rs",
-                    "settings.rs",
-                    "inspector.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_play_board",
-            ),
-            (
-                "lumen_lab",
-                &["style.rs", "runtime.rs", "board.rs", "shell.rs", "tests.rs"][..],
-                "fn paint_board",
-            ),
-            (
-                "pixel_loom",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_pixel_surface",
-            ),
-            (
-                "moss_study",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_moss_surface",
-            ),
-            (
-                "pocket_post",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_post_surface",
-            ),
-            (
-                "orbital_mission",
-                &["style.rs", "state.rs", "render.rs", "input.rs", "shell.rs"][..],
-                "fn paint_map",
-            ),
-            (
-                "logic_circuit",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_circuit_surface",
-            ),
-            (
-                "module_factory",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_factory_surface",
-            ),
-            (
-                "tidal_atlas",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "persistence.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_surface",
-            ),
-            (
-                "echo_walker",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_surface",
-            ),
-            (
-                "twin_beacons",
-                &[
-                    "style.rs",
-                    "state.rs",
-                    "render.rs",
-                    "input.rs",
-                    "shell.rs",
-                    "tests.rs",
-                ][..],
-                "fn paint_board",
-            ),
-        ];
-
-        for (slug, modules, implementation) in cases {
+        for &(slug, modules, implementation) in super::demo_sources::CASES {
             let source = super::lookup_demo(slug)
                 .expect("split demo is registered")
                 .source;

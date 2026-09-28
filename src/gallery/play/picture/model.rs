@@ -1,3 +1,6 @@
+use super::types::{HISTORY_CAPACITY, PackedPicture, PictureCell, PictureMessage, PictureTool};
+#[cfg(any(feature = "persistence", test))]
+use super::types::{PACKED_BYTES, SAVE_LEN, SAVE_MAGIC, SAVE_PAYLOAD, SAVE_VERSION};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
     EXPEDITION_LEVELS, ExpeditionModal, LevelRecord, PictureLevelRef, accepted_change,
@@ -8,125 +11,19 @@ use crate::gallery::play::expeditions::{
     ExpeditionSaveError, RECORD_BYTES, finish_packet, read_records, validate_packet, write_records,
 };
 
-pub(crate) const CHAPTER_NAMES: [&str; 6] = [
-    "FIRST MARKS",
-    "SIGNAL PUZZLES",
-    "DISTANT LETTER",
-    "MECHANICAL MAP",
-    "STAR VOYAGE",
-    "HOME PANORAMA",
-];
-pub(crate) const CHAPTER_MECHANICS: [&str; 6] = [
-    "5×5 · 读懂连续段",
-    "6×6 · 学会分隔与留白",
-    "7×7 · 行列交叉推理",
-    "8×8 · 观测点辅助定位",
-    "9×9 · 多段线索组合",
-    "10×10 · 完整图纸复原",
-];
-const PACKED_BYTES: usize = 25;
-const HISTORY_CAPACITY: usize = 64;
-#[cfg(any(feature = "persistence", test))]
-const SAVE_MAGIC: [u8; 4] = *b"ATL1";
-#[cfg(any(feature = "persistence", test))]
-const SAVE_VERSION: u8 = 1;
-#[cfg(any(feature = "persistence", test))]
-const SAVE_PAYLOAD: usize = 12 + RECORD_BYTES + PACKED_BYTES * (HISTORY_CAPACITY + 1);
-#[cfg(any(feature = "persistence", test))]
-pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[repr(u8)]
-pub(crate) enum PictureCell {
-    #[default]
-    Unknown = 0,
-    Filled = 1,
-    EmptyMark = 2,
-}
-
-impl PictureCell {
-    const fn from_code(code: u8) -> Self {
-        match code {
-            1 => Self::Filled,
-            2 => Self::EmptyMark,
-            _ => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum PictureTool {
-    #[default]
-    Fill,
-    Mark,
-}
-
-impl PictureTool {
-    const fn cell(self) -> PictureCell {
-        match self {
-            Self::Fill => PictureCell::Filled,
-            Self::Mark => PictureCell::EmptyMark,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PictureMessage {
-    Ready,
-    Observed,
-    Undone,
-    Hint(u8),
-    Checked(u8),
-    Complete,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct PackedPicture {
-    bytes: [u8; PACKED_BYTES],
-}
-
-impl PackedPicture {
-    pub(crate) const fn get(self, cell: u8) -> PictureCell {
-        let index = cell as usize;
-        PictureCell::from_code((self.bytes[index / 4] >> ((index & 3) * 2)) & 3)
-    }
-
-    pub(crate) fn set(&mut self, cell: u8, value: PictureCell) {
-        let index = usize::from(cell);
-        let shift = (index & 3) * 2;
-        self.bytes[index / 4] = (self.bytes[index / 4] & !(3 << shift)) | ((value as u8) << shift);
-    }
-
-    #[cfg(any(feature = "persistence", test))]
-    pub(crate) const fn bytes(&self) -> &[u8; PACKED_BYTES] {
-        &self.bytes
-    }
-
-    #[cfg(any(feature = "persistence", test))]
-    fn from_bytes(bytes: [u8; PACKED_BYTES]) -> Option<Self> {
-        for cell in 0..100_usize {
-            let code = (bytes[cell / 4] >> ((cell & 3) * 2)) & 3;
-            if code > PictureCell::EmptyMark as u8 {
-                return None;
-            }
-        }
-        Some(Self { bytes })
-    }
-}
-
 #[derive(Clone, Copy)]
 pub(crate) struct PictureModel {
-    level: u8,
-    cells: PackedPicture,
+    pub(super) level: u8,
+    pub(super) cells: PackedPicture,
     stroke_origin: PackedPicture,
     history: [PackedPicture; HISTORY_CAPACITY],
     history_start: u8,
-    history_len: u8,
+    pub(super) history_len: u8,
     stroke_last: u8,
     stroke_value: PictureCell,
     stroke_active: bool,
     tool: PictureTool,
-    cursor: u8,
+    pub(super) cursor: u8,
     records: [LevelRecord; EXPEDITION_LEVELS],
     hints: u16,
     modal: ExpeditionModal,
@@ -451,7 +348,7 @@ impl PictureModel {
         accepted_change()
     }
 
-    fn reset_board(&mut self) {
+    pub(super) fn reset_board(&mut self) {
         self.cells = PackedPicture::default();
         let level = self.level();
         for index in 0..usize::from(level.given_count()) {
@@ -593,94 +490,5 @@ impl PictureModel {
         self.encode_into(&mut output)
             .expect("exact Atlas save buffer");
         output
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn generated_clues_match_every_target() {
-        for level_index in 0..EXPEDITION_LEVELS as u8 {
-            let mut model = PictureModel::default();
-            model.level = level_index;
-            model.reset_board();
-            for row in 0..model.level().size() {
-                let mut clues = [0; 5];
-                assert!(model.clues(true, row, &mut clues) > 0);
-                assert!(model.clues(false, row, &mut clues) > 0);
-            }
-        }
-    }
-
-    #[test]
-    fn cancellation_restores_the_entire_stroke() {
-        let mut model = PictureModel::default();
-        let before = model.cells;
-        model.begin_stroke(0);
-        model.continue_stroke(24);
-        model.end_stroke(true);
-        assert_eq!(model.cells, before);
-        assert_eq!(model.history_len(), 0);
-    }
-
-    #[test]
-    fn completion_ignores_unknown_empty_cells() {
-        let mut model = PictureModel::default();
-        let level = model.level();
-        for cell in 0..level.size() * level.size() {
-            if level.target(cell) {
-                model.cells.set(cell, PictureCell::Filled);
-            }
-        }
-        assert!(model.complete());
-    }
-
-    #[test]
-    fn history_is_bounded_to_sixty_four_strokes() {
-        let mut model = PictureModel::default();
-        for _ in 0..80 {
-            model.begin_stroke(0);
-            model.end_stroke(false);
-        }
-        assert_eq!(model.history_len(), HISTORY_CAPACITY as u8);
-    }
-
-    #[test]
-    fn observed_cells_cannot_be_changed() {
-        let mut model = PictureModel::default();
-        model.level = 12;
-        model.reset_board();
-        let (cell, _) = model.level().given(0).unwrap();
-        let before = model.cell(cell);
-        model.begin_stroke(cell);
-        assert_eq!(model.cell(cell), before);
-        assert_eq!(model.history_len(), 0);
-    }
-
-    #[test]
-    fn model_memory_is_bounded() {
-        assert!(core::mem::size_of::<PictureModel>() <= 2_048);
-    }
-
-    #[test]
-    fn save_round_trip_preserves_board_history_and_rejects_corruption() {
-        let mut model = PictureModel::default();
-        model.begin_stroke(0);
-        model.end_stroke(false);
-        model.cursor = 3;
-        let mut bytes = [0; SAVE_LEN];
-        model.encode_into(&mut bytes).unwrap();
-        let restored = PictureModel::decode(&bytes).unwrap();
-        assert_eq!(restored.level, model.level);
-        assert_eq!(restored.cells, model.cells);
-        assert_eq!(restored.history_len, model.history_len);
-        assert_eq!(restored.cursor, model.cursor);
-        bytes[20] ^= 1;
-        assert!(matches!(
-            PictureModel::decode(&bytes),
-            Err(ExpeditionSaveError::InvalidChecksum)
-        ));
     }
 }

@@ -58,6 +58,66 @@ mod tests {
         include_str!("../demos/twin_beacons/tests.rs"),
     );
 
+    const FOLD_SOURCE: &str = concat!(
+        include_str!("fold/mod.rs"),
+        "\n",
+        include_str!("fold/chapters.rs"),
+        "\n",
+        include_str!("fold/types.rs"),
+        "\n",
+        include_str!("fold/rules.rs"),
+        "\n",
+        include_str!("fold/solver.rs"),
+        "\n",
+        include_str!("fold/model.rs"),
+        "\n",
+        include_str!("fold/tests.rs"),
+        "\n",
+        include_str!("../demos/folding_ark.rs"),
+        "\n",
+        include_str!("../demos/folding_ark/style.rs"),
+        "\n",
+        include_str!("../demos/folding_ark/state.rs"),
+        "\n",
+        include_str!("../demos/folding_ark/render.rs"),
+        "\n",
+        include_str!("../demos/folding_ark/input.rs"),
+        "\n",
+        include_str!("../demos/folding_ark/shell.rs"),
+        "\n",
+        include_str!("../demos/folding_ark/tests.rs"),
+    );
+
+    const PICTURE_SOURCE: &str = concat!(
+        include_str!("picture/mod.rs"),
+        "\n",
+        include_str!("picture/chapters.rs"),
+        "\n",
+        include_str!("picture/types.rs"),
+        "\n",
+        include_str!("picture/model.rs"),
+        "\n",
+        include_str!("picture/tests.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/style.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/geometry.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/state.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/render.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/input.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/persistence.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/shell.rs"),
+        "\n",
+        include_str!("../demos/atlas_restoration/tests.rs"),
+    );
+
     #[test]
     fn play_font_covers_declared_charset_and_small_sizes() {
         let provider =
@@ -68,13 +128,7 @@ mod tests {
         {
             assert!(provider.map_char(scalar).is_some(), "missing {scalar}");
         }
-        for source in [
-            TWIN_SOURCE,
-            include_str!("fold.rs"),
-            include_str!("picture.rs"),
-            include_str!("../demos/folding_ark.rs"),
-            include_str!("../demos/atlas_restoration.rs"),
-        ] {
+        for source in [TWIN_SOURCE, FOLD_SOURCE, PICTURE_SOURCE] {
             for scalar in source
                 .chars()
                 .filter(|scalar| !scalar.is_ascii() && !scalar.is_whitespace())
