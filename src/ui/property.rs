@@ -134,6 +134,8 @@ pub mod prop {
     pub struct Visible;
     pub struct BackgroundColor;
     pub struct TextColor;
+    pub struct BorderColor;
+    pub struct BorderWidth;
     pub struct ButtonNormalColor;
     pub struct RenderKey;
     pub struct FontSize;
@@ -241,6 +243,24 @@ pub mod prop {
     }
 
     style_property!(TextColor, crate::ui::theme::ThemedColor, text_color);
+
+    impl Property for BorderColor {
+        type Value = crate::ui::theme::ThemedColor;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
+                if style.border_color == Some(value) {
+                    return PropertyChange::Unchanged;
+                }
+                style.border_color = Some(value);
+            } else {
+                return PropertyChange::Unchanged;
+            }
+            PropertyChange::Visual
+        }
+    }
+
+    style_property!(BorderWidth, crate::types::Fixed, border_width);
 
     impl Property for ButtonNormalColor {
         type Value = crate::ui::theme::ThemedColor;
@@ -780,6 +800,57 @@ mod tests {
         assert_eq!(layout.left, Dimension::px(-8));
         assert_eq!(layout.top, Dimension::px(44));
         assert!(world.has::<Dirty>(view));
+    }
+
+    #[test]
+    fn reactive_border_bindings_convert_values_and_invalidate_visuals() {
+        let mut world = World::new();
+        let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
+        let color = Signal::new(crate::types::Color::rgb(20, 40, 60));
+        let width = Signal::new(2_i32);
+        let bound_color = color.clone();
+        let bound_width = width.clone();
+
+        crate::ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+            View(
+                border_color: ${ bound_color.get() },
+                border_width: ${ bound_width.get() },
+            )
+        };
+
+        let view = world.get::<Children>(root).unwrap().0[0];
+        let style = world.get::<crate::ui::Style>(view).unwrap();
+        assert_eq!(
+            style.border_color,
+            Some(crate::types::Color::rgb(20, 40, 60).into())
+        );
+        assert_eq!(style.border_width, Fixed::from_int(2));
+
+        world.remove::<VisualDirty>(view);
+        color.set(crate::types::Color::rgb(80, 100, 120));
+        flush_signal_dirty(&mut world);
+
+        let style = world.get::<crate::ui::Style>(view).unwrap();
+        assert_eq!(
+            style.border_color,
+            Some(crate::types::Color::rgb(80, 100, 120).into())
+        );
+        assert_eq!(style.border_width, Fixed::from_int(2));
+        assert!(world.has::<VisualDirty>(view));
+        assert!(!world.has::<Dirty>(view));
+
+        world.remove::<VisualDirty>(view);
+        width.set(4);
+        flush_signal_dirty(&mut world);
+
+        let style = world.get::<crate::ui::Style>(view).unwrap();
+        assert_eq!(style.border_width, Fixed::from_int(4));
+        assert!(world.has::<VisualDirty>(view));
+        assert!(!world.has::<Dirty>(view));
     }
 
     #[test]

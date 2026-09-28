@@ -78,12 +78,14 @@ struct PaintTransaction {
     last_y: u8,
 }
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MossModel {
     cells: MossCells,
     previous: MossCells,
     history: History,
     transaction: Option<PaintTransaction>,
+    live_count: u16,
     generation: u32,
     elapsed_ms: u16,
     tool: MossTool,
@@ -96,11 +98,13 @@ pub(crate) struct MossModel {
 
 impl Default for MossModel {
     fn default() -> Self {
+        let cells = MossCells::seed(0).expect("built-in seed");
         Self {
-            cells: MossCells::seed(0).expect("built-in seed"),
+            cells,
             previous: MossCells::EMPTY,
             history: History::new(),
             transaction: None,
+            live_count: cells.live_count(),
             generation: 0,
             elapsed_ms: 0,
             tool: MossTool::Plant,
@@ -122,40 +126,9 @@ impl MossModel {
         &self.previous
     }
 
-    pub(crate) const fn generation(&self) -> u32 {
-        self.generation
-    }
-
-    pub(crate) const fn tool(&self) -> MossTool {
-        self.tool
-    }
-
-    pub(crate) const fn modal(&self) -> MossModal {
-        self.modal
-    }
-
-    pub(crate) const fn seed_id(&self) -> u8 {
-        self.seed_id
-    }
-
-    pub(crate) const fn rotation(&self) -> u8 {
-        self.rotation
-    }
-
-    pub(crate) const fn running(&self) -> bool {
-        self.running
-    }
-
+    #[cfg(test)]
     pub(crate) const fn history_len(&self) -> u8 {
         self.history.len
-    }
-
-    pub(crate) const fn rate(&self) -> u8 {
-        [1, 2, 4, 8][self.rate_index as usize]
-    }
-
-    pub(crate) fn live_count(&self) -> u16 {
-        self.cells.live_count()
     }
 
     const fn snapshot(&self) -> Snapshot {
@@ -170,12 +143,114 @@ impl MossModel {
     fn restore(&mut self, snapshot: Snapshot) {
         self.cells = snapshot.cells;
         self.previous = snapshot.previous;
+        self.live_count = snapshot.cells.live_count();
         self.generation = snapshot.generation;
         self.seed_id = snapshot.seed_id;
     }
 
     fn push_current(&mut self) {
         self.history.push(self.snapshot());
+    }
+
+    fn set_cell(&mut self, x: u8, y: u8, age: u8) -> bool {
+        let was_live = self.cells.get(x, y) != 0;
+        if !self.cells.set(x, y, age) {
+            return false;
+        }
+        let is_live = age != 0;
+        if was_live != is_live {
+            if is_live {
+                self.live_count += 1;
+            } else {
+                self.live_count -= 1;
+            }
+        }
+        true
+    }
+
+    fn paint_inner(&mut self, x: u8, y: u8) -> bool {
+        match self.tool {
+            MossTool::Plant => self.set_cell(x, y, 1),
+            MossTool::Erase => self.set_cell(x, y, 0),
+            MossTool::Glider => {
+                let mut changed = false;
+                for (mut offset_x, mut offset_y) in GLIDER {
+                    for _ in 0..self.rotation {
+                        (offset_x, offset_y) = (2 - offset_y, offset_x);
+                    }
+                    let cell_x = x as i8 + offset_x - 1;
+                    let cell_y = y as i8 + offset_y - 1;
+                    if cell_x >= 0
+                        && cell_x < GRID_WIDTH as i8
+                        && cell_y >= 0
+                        && cell_y < GRID_HEIGHT as i8
+                    {
+                        changed |= self.set_cell(cell_x as u8, cell_y as u8, 1);
+                    }
+                }
+                changed
+            }
+        }
+    }
+
+    fn evolve_once(&mut self) {
+        let next = self.cells.evolve();
+        self.previous = self.cells;
+        self.cells = next;
+        self.live_count = next.live_count();
+        self.generation = self.generation.saturating_add(1).min(999_999);
+        if self.live_count == 0 {
+            self.running = false;
+            self.elapsed_ms = 0;
+        }
+    }
+}
+
+#[crate::model]
+impl MossModel {
+    #[observe]
+    pub(crate) fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    #[observe]
+    pub(crate) fn tool(&self) -> MossTool {
+        self.tool
+    }
+
+    #[observe]
+    pub(crate) fn modal(&self) -> MossModal {
+        self.modal
+    }
+
+    #[observe]
+    pub(crate) fn seed_id(&self) -> u8 {
+        self.seed_id
+    }
+
+    #[observe]
+    pub(crate) fn rotation(&self) -> u8 {
+        self.rotation
+    }
+
+    #[observe]
+    pub(crate) fn running(&self) -> bool {
+        self.running
+    }
+
+    #[observe]
+    pub(crate) fn can_undo(&self) -> bool {
+        self.history.len > 0
+    }
+
+    #[observe]
+    pub(crate) fn rate(&self) -> u8 {
+        [1, 2, 4, 8][self.rate_index as usize]
+    }
+
+    #[observe]
+    pub(crate) fn live_count(&self) -> u16 {
+        self.live_count
     }
 
     pub(crate) fn begin_stroke(&mut self, x: u8, y: u8) -> ChangeSet {
@@ -243,12 +318,11 @@ impl MossModel {
         };
         if cancelled {
             let changed = self.cells != transaction.snapshot.cells;
+            if !changed {
+                return ChangeSet::NONE;
+            }
             self.restore(transaction.snapshot);
-            return if changed {
-                ChangeSet::MODEL | ChangeSet::VISUAL
-            } else {
-                ChangeSet::NONE
-            };
+            return ChangeSet::MODEL | ChangeSet::VISUAL;
         }
         if self.cells == transaction.snapshot.cells {
             return ChangeSet::NONE;
@@ -258,29 +332,9 @@ impl MossModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    fn paint_inner(&mut self, x: u8, y: u8) -> bool {
-        match self.tool {
-            MossTool::Plant => self.cells.set(x, y, 1),
-            MossTool::Erase => self.cells.set(x, y, 0),
-            MossTool::Glider => {
-                let mut changed = false;
-                for (mut offset_x, mut offset_y) in GLIDER {
-                    for _ in 0..self.rotation {
-                        (offset_x, offset_y) = (2 - offset_y, offset_x);
-                    }
-                    let cell_x = x as i8 + offset_x - 1;
-                    let cell_y = y as i8 + offset_y - 1;
-                    if cell_x >= 0
-                        && cell_x < GRID_WIDTH as i8
-                        && cell_y >= 0
-                        && cell_y < GRID_HEIGHT as i8
-                    {
-                        changed |= self.cells.set(cell_x as u8, cell_y as u8, 1);
-                    }
-                }
-                changed
-            }
-        }
+    pub(crate) fn paint_cell(&mut self, x: u8, y: u8) -> ChangeSet {
+        let changes = self.begin_stroke(x, y);
+        changes | self.end_stroke(false)
     }
 
     pub(crate) fn set_tool(&mut self, tool: MossTool) -> ChangeSet {
@@ -314,16 +368,6 @@ impl MossModel {
         self.running = !self.running;
         self.elapsed_ms = 0;
         ChangeSet::MODEL | ChangeSet::VISUAL
-    }
-
-    fn evolve_once(&mut self) {
-        self.previous = self.cells;
-        self.cells = self.cells.evolve();
-        self.generation = self.generation.saturating_add(1).min(999_999);
-        if self.cells.live_count() == 0 {
-            self.running = false;
-            self.elapsed_ms = 0;
-        }
     }
 
     pub(crate) fn step(&mut self) -> ChangeSet {
@@ -395,6 +439,7 @@ impl MossModel {
         self.push_current();
         self.cells = cells;
         self.previous = MossCells::EMPTY;
+        self.live_count = cells.live_count();
         self.generation = 0;
         self.seed_id = seed_id;
         self.modal = MossModal::None;
@@ -408,19 +453,20 @@ impl MossModel {
         self.push_current();
         self.cells = MossCells::EMPTY;
         self.previous = MossCells::EMPTY;
+        self.live_count = 0;
         self.generation = 0;
         self.modal = MossModal::None;
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::LAYOUT | ChangeSet::PERSISTENCE
     }
 
     pub(crate) fn undo(&mut self) -> ChangeSet {
-        self.end_stroke(true);
+        let cancelled = self.end_stroke(true);
         self.running = false;
         self.elapsed_ms = 0;
         let Some(snapshot) = self.history.pop() else {
-            return ChangeSet::NONE;
+            return cancelled;
         };
         self.restore(snapshot);
-        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+        cancelled | ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 }

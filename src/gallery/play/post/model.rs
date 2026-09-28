@@ -5,6 +5,7 @@ use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
 use crate::types::Fixed;
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PostModel {
     pub(super) parcels: [PostParcel; MAX_PARCELS],
@@ -57,22 +58,6 @@ impl Default for PostModel {
 }
 
 impl PostModel {
-    pub(crate) const fn manifest_id(&self) -> u8 {
-        self.manifest_id
-    }
-
-    pub(crate) fn manifest_len(&self) -> u8 {
-        MANIFESTS[usize::from(self.manifest_id)].len() as u8
-    }
-
-    pub(crate) const fn cursor(&self) -> u8 {
-        self.cursor
-    }
-
-    pub(crate) const fn active_len(&self) -> u8 {
-        self.parcel_len
-    }
-
     pub(crate) fn active(&self, index: usize) -> Option<PostParcel> {
         (index < usize::from(self.parcel_len)).then_some(self.parcels[index])
     }
@@ -83,48 +68,16 @@ impl PostModel {
             .copied()
     }
 
-    pub(crate) const fn delivered(&self) -> u8 {
-        self.delivered
-    }
-
-    pub(crate) const fn missed(&self) -> u8 {
-        self.missed
-    }
-
-    pub(crate) const fn streak(&self) -> u8 {
-        self.streak
-    }
-
-    pub(crate) const fn score(&self) -> u16 {
-        self.score
-    }
-
     pub(crate) const fn switch(&self, index: usize) -> u8 {
         self.switches[index]
     }
 
-    pub(crate) const fn arrivals(&self, station: usize) -> u8 {
-        self.arrivals[station]
+    pub(crate) const fn cursor(&self) -> u8 {
+        self.cursor
     }
 
     pub(crate) const fn station_flashing(&self, station: usize) -> bool {
         self.flashes[station] != 0
-    }
-
-    pub(crate) const fn running(&self) -> bool {
-        self.running
-    }
-
-    pub(crate) const fn started(&self) -> bool {
-        self.started
-    }
-
-    pub(crate) const fn finished(&self) -> bool {
-        self.finished
-    }
-
-    pub(crate) const fn modal(&self) -> PostModal {
-        self.modal
     }
 
     #[cfg(test)]
@@ -136,9 +89,96 @@ impl PostModel {
     pub(crate) fn event(&self, index: usize) -> Option<DeliveryEvent> {
         (index < usize::from(self.event_len)).then_some(self.events[index])
     }
+}
 
-    pub(crate) const fn speed_x2(&self) -> u8 {
+#[crate::model]
+impl PostModel {
+    #[observe]
+    pub(crate) fn manifest_id(&self) -> u8 {
+        self.manifest_id
+    }
+
+    #[observe]
+    pub(crate) fn manifest_len(&self) -> u8 {
+        MANIFESTS[usize::from(self.manifest_id)].len() as u8
+    }
+
+    #[observe]
+    pub(crate) fn active_len(&self) -> u8 {
+        self.parcel_len
+    }
+
+    #[observe]
+    pub(crate) fn delivered(&self) -> u8 {
+        self.delivered
+    }
+
+    #[observe]
+    pub(crate) fn missed(&self) -> u8 {
+        self.missed
+    }
+
+    #[observe]
+    pub(crate) fn streak(&self) -> u8 {
+        self.streak
+    }
+
+    #[observe]
+    pub(crate) fn score(&self) -> u16 {
+        self.score
+    }
+
+    #[observe]
+    pub(crate) fn station_a_count(&self) -> u8 {
+        self.arrivals[0]
+    }
+
+    #[observe]
+    pub(crate) fn station_b_count(&self) -> u8 {
+        self.arrivals[1]
+    }
+
+    #[observe]
+    pub(crate) fn station_c_count(&self) -> u8 {
+        self.arrivals[2]
+    }
+
+    #[observe]
+    pub(crate) fn running(&self) -> bool {
+        self.running
+    }
+
+    #[observe]
+    pub(crate) fn started(&self) -> bool {
+        self.started
+    }
+
+    #[observe]
+    pub(crate) fn finished(&self) -> bool {
+        self.finished
+    }
+
+    #[observe]
+    pub(crate) fn modal(&self) -> PostModal {
+        self.modal
+    }
+
+    #[observe]
+    pub(crate) fn speed_x2(&self) -> u8 {
         [1, 2, 3][self.speed_index as usize]
+    }
+
+    #[observe]
+    pub(crate) fn can_send(&self) -> bool {
+        !self.finished
+            && self.modal == PostModal::None
+            && self.cursor < self.manifest_len()
+            && usize::from(self.parcel_len) < MAX_PARCELS
+    }
+
+    #[observe]
+    pub(crate) fn queued_slots(&self) -> [Option<u8>; 5] {
+        core::array::from_fn(|index| self.queued(index))
     }
 
     pub(crate) fn toggle_switch(&mut self, index: usize) -> ChangeSet {
@@ -230,7 +270,9 @@ impl PostModel {
         }
         changes
     }
+}
 
+impl PostModel {
     pub(super) fn spawn(&mut self) -> bool {
         if self.finished
             || self.cursor >= self.manifest_len()

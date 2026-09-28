@@ -302,9 +302,10 @@ ui! {
 
 When `label` changes, only that attribute updates — the widget is not
 rebuilt. Reactive binding is supported on `text`, `path`, `visible`,
-`bg_color`, `text_color`, `render_key`, `font_size`, `direction`, `width`,
-`height`, `Button.normal_color`, `Text.paragraph`, `ProgressBar.value`,
-`Slider.value`, and `Switch.on`.
+`bg_color`, `text_color`, `border_color`, `border_width`, `render_key`,
+`font_size`, `direction`, `width`, `height`, `left`, `top`,
+`Button.normal_color`, `Text.paragraph`, `ProgressBar.value`, `Slider.value`,
+`Switch.on`, and `Checkbox.checked`.
 
 Reactive `Slider.value` clamps to the control range and does not emit a
 `ValueChanged` event when the model updates it. Reactive `Switch.on` starts

@@ -5,7 +5,7 @@ use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::pixel::{
     FRAME_COUNT, GRID_HEIGHT, GRID_WIDTH, PixelFrames, PixelModal, PixelModel,
 };
-use crate::prelude::{Color, Entity, Fixed, Point, Rect, World};
+use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
@@ -142,32 +142,38 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
     );
 }
 
-fn surface_render(
+#[crate::view(
+    component = PixelSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "PixelSurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &PixelModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<PixelModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_pixel_surface(&mut painter, model);
 }
 
-fn modal_render(
+#[crate::view(
+    component = PixelModalSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "PixelModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &PixelModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<PixelModel>() else {
-        return;
-    };
     if model.modal() == PixelModal::None {
         return;
     }
@@ -224,9 +230,9 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("PixelSurface", 60, surface_render).with_filter::<PixelSurface>()
+    surface_render::view()
 }
 
 pub(super) fn modal_view() -> View {
-    View::new("PixelModalSurface", 70, modal_render).with_filter::<PixelModalSurface>()
+    modal_render::view()
 }

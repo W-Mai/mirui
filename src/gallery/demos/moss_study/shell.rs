@@ -1,21 +1,61 @@
 use super::input::{moss_tick_system, surface_gesture};
 use super::render::{modal_view, surface_view};
-use super::state::{MossModalSurface, MossNodes, MossSurface};
+use super::state::{MossModalSurface, MossSurface};
 use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::register_play_font;
-use crate::gallery::play::moss::{MossModel, MossTool};
+use crate::gallery::play::moss::{MossModal, MossModel, MossTool};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
-#[compose]
-pub(super) fn build_widgets() {
+enum ModalSubtitle {
+    Hidden,
+    Seeds,
+    Clear(u16),
+}
+
+impl fmt::Display for ModalSubtitle {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Hidden => Ok(()),
+            Self::Seeds => out.write_str("载入会暂停演化；新种子可以撤销。"),
+            Self::Clear(live) => write!(out, "当前有 {live} 个活细胞；清空后代数归零。"),
+        }
+    }
+}
+
+fn control_color(active: bool, enabled: bool) -> Color {
+    if active {
+        ACTIVE
+    } else if enabled {
+        CONTROL
+    } else {
+        Color::rgb(40, 51, 41)
+    }
+}
+
+fn control_text_color(active: bool, enabled: bool) -> Color {
+    if active {
+        BACKGROUND
+    } else if enabled {
+        TEXT
+    } else {
+        Color::rgb(105, 119, 100)
+    }
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: MossModel) {
     ui! {
-        MossSurface (id: "moss_surface", width: 480, height: 320, clip_children: true) [
+        View (id: "moss_surface", width: 480, height: 320, clip_children: true) [
+            MossSurface {
+                model: model.clone(),
+            },
             TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, ctx.entity, ctx.event); }
+        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
         {
             Text (
                 "MOSS STUDY",
@@ -29,7 +69,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "B3 / S23 · PAUSE",
+                text: ${ if model.running() { "B3 / S23 · RUN" } else { "B3 / S23 · PAUSE" } },
+                text_capacity: 17,
                 id: "moss_status",
                 position: Position::Absolute,
                 left: 300,
@@ -50,11 +91,11 @@ pub(super) fn build_widgets() {
                 height: 22,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: ACTIVE,
+                normal_color: ${ control_color(model.tool() == MossTool::Plant, true) },
                 pressed_color: ACTIVE,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(model.tool() == MossTool::Plant, true) },
                 border_radius: 6
-            ) on Tap { MossNodes::update(ctx.world, |model| model.set_tool(MossTool::Plant)); }
+            ) on Tap { model.set_tool(MossTool::Plant); }
             Button (
                 "擦除",
                 id: "moss_tool_erase",
@@ -65,11 +106,11 @@ pub(super) fn build_widgets() {
                 height: 22,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.tool() == MossTool::Erase, true) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.tool() == MossTool::Erase, true) },
                 border_radius: 6
-            ) on Tap { MossNodes::update(ctx.world, |model| model.set_tool(MossTool::Erase)); }
+            ) on Tap { model.set_tool(MossTool::Erase); }
             Button (
                 "滑翔机",
                 id: "moss_tool_glider",
@@ -80,13 +121,14 @@ pub(super) fn build_widgets() {
                 height: 22,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.tool() == MossTool::Glider, true) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.tool() == MossTool::Glider, true) },
                 border_radius: 6
-            ) on Tap { MossNodes::update(ctx.world, |model| model.set_tool(MossTool::Glider)); }
+            ) on Tap { model.set_tool(MossTool::Glider); }
             Button (
-                "0 度旋转",
+                text: ${ format_args!("{} 度旋转", model.rotation() * 90) },
+                text_capacity: 13,
                 id: "moss_rotate",
                 position: Position::Absolute,
                 left: 235,
@@ -95,11 +137,11 @@ pub(super) fn build_widgets() {
                 height: 22,
                 size: ButtonSize::Compact,
                 font_size: 9,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(false, model.tool() == MossTool::Glider) },
                 pressed_color: ACTIVE,
-                text_color: MUTED,
+                text_color: ${ control_text_color(false, model.tool() == MossTool::Glider) },
                 border_radius: 6
-            ) on Tap { MossNodes::update(ctx.world, MossModel::rotate_glider); }
+            ) on Tap { model.rotate_glider(); }
             Text (
                 "GENERATION",
                 position: Position::Absolute,
@@ -112,7 +154,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "000",
+                text: ${ format_args!("{:03}", model.generation()) },
+                text_capacity: 10,
                 id: "moss_generation",
                 position: Position::Absolute,
                 left: 382,
@@ -135,7 +178,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "0",
+                text: ${ format_args!("{}", model.live_count()) },
+                text_capacity: 3,
                 id: "moss_live",
                 position: Position::Absolute,
                 left: 425,
@@ -147,7 +191,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Button (
-                "4 代/秒 ↻",
+                text: ${ format_args!("{} 代/秒 ↻", model.rate()) },
+                text_capacity: 13,
                 id: "moss_rate",
                 position: Position::Absolute,
                 left: 372,
@@ -160,7 +205,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { MossNodes::update(ctx.world, MossModel::cycle_rate); }
+            ) on Tap { model.cycle_rate(); }
             Button (
                 "撤销",
                 id: "moss_undo",
@@ -171,11 +216,11 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(false, model.can_undo() && model.modal() == MossModal::None) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(false, model.can_undo() && model.modal() == MossModal::None) },
                 border_radius: 7
-            ) on Tap { MossNodes::update(ctx.world, MossModel::undo); }
+            ) on Tap { model.undo(); }
             Text (
                 "边缘之外为空",
                 position: Position::Absolute,
@@ -199,7 +244,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label()
             )
             Button (
-                "运行",
+                text: ${ if model.running() { "暂停" } else { "运行" } },
+                text_capacity: 6,
                 id: "moss_run",
                 position: Position::Absolute,
                 left: 12,
@@ -208,11 +254,11 @@ pub(super) fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.running(), model.modal() == MossModal::None) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.running(), model.modal() == MossModal::None) },
                 border_radius: 7
-            ) on Tap { MossNodes::update(ctx.world, MossModel::toggle_running); }
+            ) on Tap { model.toggle_running(); }
             Button (
                 "单步",
                 position: Position::Absolute,
@@ -226,7 +272,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { MossNodes::update(ctx.world, MossModel::step); }
+            ) on Tap { model.step(); }
             Button (
                 "种子",
                 position: Position::Absolute,
@@ -240,7 +286,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { MossNodes::update(ctx.world, MossModel::open_seeds); }
+            ) on Tap { model.open_seeds(); }
             Button (
                 "清空",
                 position: Position::Absolute,
@@ -254,21 +300,26 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { MossNodes::update(ctx.world, MossModel::open_clear); }
-            MossModalSurface (
+            ) on Tap { model.open_clear(); }
+            View (
                 id: "moss_modal",
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
                 width: 480,
                 height: 320,
-                clip_children: true
+                clip_children: true,
+                visible: ${ model.modal() != MossModal::None }
             ) [
+                MossModalSurface {
+                    model: model.clone(),
+                },
                 TouchAction::None,
             ] on Tap { }
             {
                 Text (
-                    "给花园一种新的开始",
+                    text: ${ if model.modal() == MossModal::Seeds { "给花园一种新的开始" } else { "让花园重新开始？" } },
+                    text_capacity: 27,
                     id: "moss_modal_title",
                     position: Position::Absolute,
                     left: 29,
@@ -280,7 +331,12 @@ pub(super) fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "载入会暂停演化；新种子可以撤销。",
+                    text: ${ match model.modal() {
+                        MossModal::None => ModalSubtitle::Hidden,
+                        MossModal::Seeds => ModalSubtitle::Seeds,
+                        MossModal::Clear => ModalSubtitle::Clear(model.live_count()),
+                    } },
+                    text_capacity: 53,
                     id: "moss_modal_subtitle",
                     position: Position::Absolute,
                     left: 29,
@@ -304,10 +360,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { MossNodes::update(ctx.world, MossModel::close_modal); }
+                ) on Tap { model.close_modal(); }
                 Button (
                     "漂流花园",
                     id: "moss_seed_0",
+                    visible: ${ model.modal() == MossModal::Seeds },
                     position: Position::Absolute,
                     left: 29,
                     top: 224,
@@ -315,14 +372,15 @@ pub(super) fn build_widgets() {
                     height: 29,
                     size: ButtonSize::Compact,
                     font_size: 10,
-                    normal_color: CONTROL,
+                    normal_color: ${ control_color(model.seed_id() == 0, model.modal() == MossModal::Seeds) },
                     pressed_color: ACTIVE,
-                    text_color: TEXT,
+                    text_color: ${ control_text_color(model.seed_id() == 0, model.modal() == MossModal::Seeds) },
                     border_radius: 7
-                ) on Tap { MossNodes::update(ctx.world, |model| model.load_seed(0)); }
+                ) on Tap { model.load_seed(0); }
                 Button (
                     "双生脉冲",
                     id: "moss_seed_1",
+                    visible: ${ model.modal() == MossModal::Seeds },
                     position: Position::Absolute,
                     left: 171,
                     top: 224,
@@ -330,14 +388,15 @@ pub(super) fn build_widgets() {
                     height: 29,
                     size: ButtonSize::Compact,
                     font_size: 10,
-                    normal_color: CONTROL,
+                    normal_color: ${ control_color(model.seed_id() == 1, model.modal() == MossModal::Seeds) },
                     pressed_color: ACTIVE,
-                    text_color: TEXT,
+                    text_color: ${ control_text_color(model.seed_id() == 1, model.modal() == MossModal::Seeds) },
                     border_radius: 7
-                ) on Tap { MossNodes::update(ctx.world, |model| model.load_seed(1)); }
+                ) on Tap { model.load_seed(1); }
                 Button (
                     "固定随机种子",
                     id: "moss_seed_2",
+                    visible: ${ model.modal() == MossModal::Seeds },
                     position: Position::Absolute,
                     left: 313,
                     top: 224,
@@ -345,14 +404,15 @@ pub(super) fn build_widgets() {
                     height: 29,
                     size: ButtonSize::Compact,
                     font_size: 9,
-                    normal_color: CONTROL,
+                    normal_color: ${ control_color(model.seed_id() == 2, model.modal() == MossModal::Seeds) },
                     pressed_color: ACTIVE,
-                    text_color: TEXT,
+                    text_color: ${ control_text_color(model.seed_id() == 2, model.modal() == MossModal::Seeds) },
                     border_radius: 7
-                ) on Tap { MossNodes::update(ctx.world, |model| model.load_seed(2)); }
+                ) on Tap { model.load_seed(2); }
                 Text (
                     "清空后可以重新播种，也可以撤销。",
                     id: "moss_clear_note",
+                    visible: ${ model.modal() == MossModal::Clear },
                     position: Position::Absolute,
                     left: 171,
                     top: 139,
@@ -365,6 +425,7 @@ pub(super) fn build_widgets() {
                 Button (
                     "清空花园",
                     id: "moss_clear_confirm",
+                    visible: ${ model.modal() == MossModal::Clear },
                     position: Position::Absolute,
                     left: 171,
                     top: 190,
@@ -376,10 +437,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: BACKGROUND,
                     border_radius: 7
-                ) on Tap { MossNodes::update(ctx.world, MossModel::confirm_clear); }
+                ) on Tap { model.confirm_clear(); }
                 Button (
                     "保留花园",
                     id: "moss_clear_cancel",
+                    visible: ${ model.modal() == MossModal::Clear },
                     position: Position::Absolute,
                     left: 171,
                     top: 230,
@@ -391,10 +453,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { MossNodes::update(ctx.world, MossModel::close_modal); }
+                ) on Tap { model.close_modal(); }
                 Text (
                     "可撤销",
                     id: "moss_clear_badge",
+                    visible: ${ model.modal() == MossModal::Clear },
                     position: Position::Absolute,
                     left: 72,
                     top: 209,
@@ -417,40 +480,8 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     register_play_font(&mut app.world);
-    app.world.insert_resource(MossModel::default());
     app.with_widget(surface_view()).with_widget(modal_view());
-    app.add_system(moss_tick_system::system());
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Moss Study node");
-    let nodes = MossNodes {
-        surface: find("moss_surface"),
-        status: find("moss_status"),
-        generation: find("moss_generation"),
-        live: find("moss_live"),
-        rate: find("moss_rate"),
-        undo: find("moss_undo"),
-        run: find("moss_run"),
-        rotate: find("moss_rotate"),
-        tools: [
-            find("moss_tool_plant"),
-            find("moss_tool_erase"),
-            find("moss_tool_glider"),
-        ],
-        modal: find("moss_modal"),
-        modal_title: find("moss_modal_title"),
-        modal_subtitle: find("moss_modal_subtitle"),
-        seed_buttons: [
-            find("moss_seed_0"),
-            find("moss_seed_1"),
-            find("moss_seed_2"),
-        ],
-        clear_controls: [
-            find("moss_clear_note"),
-            find("moss_clear_confirm"),
-            find("moss_clear_cancel"),
-            find("moss_clear_badge"),
-        ],
-    };
-    app.world.insert_resource(nodes);
-    MossNodes::sync(&mut app.world);
+    let model = app.add_model(MossModel::default());
+    app.add_system(moss_tick_system::system(model.clone()));
+    app.compose(parent, |cx| build_widgets(cx, model));
 }

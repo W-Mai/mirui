@@ -548,6 +548,8 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "visible" => Some("Visible"),
         "bg_color" => Some("BackgroundColor"),
         "text_color" => Some("TextColor"),
+        "border_color" => Some("BorderColor"),
+        "border_width" => Some("BorderWidth"),
         "normal_color" if widget == "Button" => Some("ButtonNormalColor"),
         "render_key" => Some("RenderKey"),
         "font_size" => Some("FontSize"),

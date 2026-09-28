@@ -8,7 +8,7 @@ mod tests;
 
 #[allow(unused_imports)]
 pub(crate) use data::MANIFEST_COUNT;
-pub(crate) use model::PostModel;
+pub(crate) use model::{PostModel, PostModelHandle};
 #[allow(unused_imports)]
 pub(crate) use route::{PostRoute, position_on_route};
 #[allow(unused_imports)]

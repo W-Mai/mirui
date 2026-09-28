@@ -47,6 +47,17 @@ fn cancelled_stroke_restores_preview_without_history() {
 }
 
 #[test]
+fn tap_is_one_undo_step() {
+    let mut model = PixelModel::default();
+    model.frames.clear_frame(0);
+    let original = model.frames;
+    assert!(model.paint_cell(0, 0).contains(ChangeSet::PERSISTENCE));
+    assert_eq!(model.history_len(), 1);
+    model.undo();
+    assert_eq!(model.frames, original);
+}
+
+#[test]
 fn mirror_and_eraser_apply_to_both_sides() {
     let mut model = PixelModel::default();
     model.frames.clear_frame(0);

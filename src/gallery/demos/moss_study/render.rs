@@ -3,7 +3,7 @@ use super::style::{ACTIVE, BACKGROUND, BOARD, HEADER, PANEL};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::moss::{GRID_HEIGHT, GRID_WIDTH, MossCells, MossModal, MossModel};
 use crate::gallery::play::paint::PlayPainter;
-use crate::prelude::{Color, Entity, Fixed, Point, Rect, World};
+use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
@@ -122,16 +122,19 @@ fn paint_moss_surface(painter: &mut PlayPainter<'_, '_>, model: &MossModel) {
     );
 }
 
-fn surface_render(
+#[crate::view(
+    component = MossSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "MossSurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &MossModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<MossModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
@@ -162,16 +165,19 @@ fn paint_seed_preview(
     }
 }
 
-fn modal_render(
+#[crate::view(
+    component = MossModalSurface,
+    read(model),
+    watch(model.modal(), model.seed_id()),
+    name = "MossModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &MossModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<MossModel>() else {
-        return;
-    };
     if model.modal() == MossModal::None {
         return;
     }
@@ -233,9 +239,9 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("MossSurface", 60, surface_render).with_filter::<MossSurface>()
+    surface_render::view()
 }
 
 pub(super) fn modal_view() -> View {
-    View::new("MossModalSurface", 70, modal_render).with_filter::<MossModalSurface>()
+    modal_render::view()
 }

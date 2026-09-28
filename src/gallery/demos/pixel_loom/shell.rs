@@ -1,26 +1,92 @@
 use super::input::{pixel_tick_system, surface_gesture};
 use super::render::{modal_view, surface_view};
-use super::state::{PixelModalSurface, PixelNodes, PixelSurface};
-use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEXT};
+use super::state::{PixelModalSurface, PixelSurface};
+use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::register_play_font;
-use crate::gallery::play::pixel::{PixelModel, PixelTool};
+use crate::gallery::play::pixel::{PixelModal, PixelModel, PixelTool};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
-#[compose]
-pub(super) fn build_widgets() {
+struct FrameStatus {
+    frame: u8,
+    fps: u8,
+    playing: bool,
+}
+
+impl fmt::Display for FrameStatus {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.playing {
+            write!(out, "PLAY · {} FPS", self.fps)
+        } else {
+            write!(out, "FRAME {} / 4", self.frame + 1)
+        }
+    }
+}
+
+fn control_color(active: bool, enabled: bool) -> Color {
+    if active {
+        ACTIVE
+    } else if enabled {
+        CONTROL
+    } else {
+        Color::rgb(42, 45, 51)
+    }
+}
+
+fn control_text_color(active: bool, enabled: bool) -> Color {
+    if active {
+        BACKGROUND
+    } else if enabled {
+        TEXT
+    } else {
+        Color::rgb(105, 112, 107)
+    }
+}
+
+fn frame_text_color(active: bool, enabled: bool) -> Color {
+    if active {
+        ACTIVE
+    } else if enabled {
+        MUTED
+    } else {
+        Color::rgb(105, 112, 107)
+    }
+}
+
+fn palette_color(index: usize, enabled: bool) -> Color {
+    if enabled {
+        PALETTE[index]
+    } else {
+        Color::rgb(61, 62, 64)
+    }
+}
+
+fn palette_border(active: bool) -> Color {
+    if active {
+        Color::rgb(255, 247, 220)
+    } else {
+        Color::rgba(0, 0, 0, 0)
+    }
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: PixelModel) {
     ui! {
-        PixelSurface (
+        View (
             id: "pixel_surface",
             width: 480,
             height: 320,
             clip_children: true
         ) [
+            PixelSurface {
+                model: model.clone(),
+            },
             TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, ctx.entity, ctx.event); }
+        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
         {
             Text (
                 "PIXEL LOOM",
@@ -34,7 +100,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "FRAME 1 / 4",
+                text: ${ FrameStatus { frame: model.frame(), fps: model.fps(), playing: model.playing() } },
+                text_capacity: 13,
                 id: "pixel_frame_status",
                 position: Position::Absolute,
                 left: 350,
@@ -46,7 +113,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "画一格，就改变一点",
+                text: ${ if model.playing() { "正在播放" } else { "画一格，就改变一点" } },
+                text_capacity: 27,
                 id: "pixel_mode_status",
                 position: Position::Absolute,
                 left: 17,
@@ -80,7 +148,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "星际来客",
+                text: ${ TEMPLATE_NAMES[model.template_id() as usize] },
+                text_capacity: 12,
                 id: "pixel_template_name",
                 position: Position::Absolute,
                 left: 327,
@@ -103,7 +172,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Button (
-                "4 帧/秒 ↻",
+                text: ${ format_args!("{} 帧/秒 ↻", model.fps()) },
+                text_capacity: 13,
                 id: "pixel_fps",
                 position: Position::Absolute,
                 left: 327,
@@ -116,7 +186,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: MUTED,
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::cycle_fps); }
+            ) on Tap { model.cycle_fps(); }
             Button (
                 "01",
                 id: "pixel_frame_0",
@@ -129,9 +199,9 @@ pub(super) fn build_widgets() {
                 font_size: 7,
                 normal_color: Color::rgba(0, 0, 0, 0),
                 pressed_color: Color::rgba(0, 0, 0, 0),
-                text_color: MUTED,
+                text_color: ${ frame_text_color(model.visible_frame() == 0, !model.playing()) },
                 border_radius: 6
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_frame(0)); }
+            ) on Tap { model.select_frame(0); }
             Button (
                 "02",
                 id: "pixel_frame_1",
@@ -144,9 +214,9 @@ pub(super) fn build_widgets() {
                 font_size: 7,
                 normal_color: Color::rgba(0, 0, 0, 0),
                 pressed_color: Color::rgba(0, 0, 0, 0),
-                text_color: MUTED,
+                text_color: ${ frame_text_color(model.visible_frame() == 1, !model.playing()) },
                 border_radius: 6
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_frame(1)); }
+            ) on Tap { model.select_frame(1); }
             Button (
                 "03",
                 id: "pixel_frame_2",
@@ -159,9 +229,9 @@ pub(super) fn build_widgets() {
                 font_size: 7,
                 normal_color: Color::rgba(0, 0, 0, 0),
                 pressed_color: Color::rgba(0, 0, 0, 0),
-                text_color: MUTED,
+                text_color: ${ frame_text_color(model.visible_frame() == 2, !model.playing()) },
                 border_radius: 6
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_frame(2)); }
+            ) on Tap { model.select_frame(2); }
             Button (
                 "04",
                 id: "pixel_frame_3",
@@ -174,9 +244,9 @@ pub(super) fn build_widgets() {
                 font_size: 7,
                 normal_color: Color::rgba(0, 0, 0, 0),
                 pressed_color: Color::rgba(0, 0, 0, 0),
-                text_color: MUTED,
+                text_color: ${ frame_text_color(model.visible_frame() == 3, !model.playing()) },
                 border_radius: 6
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_frame(3)); }
+            ) on Tap { model.select_frame(3); }
             Button (
                 "画笔",
                 id: "pixel_tool_brush",
@@ -187,11 +257,11 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: ACTIVE,
+                normal_color: ${ control_color(model.tool() == PixelTool::Brush, !model.playing()) },
                 pressed_color: ACTIVE,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(model.tool() == PixelTool::Brush, !model.playing()) },
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.set_tool(PixelTool::Brush)); }
+            ) on Tap { model.set_tool(PixelTool::Brush); }
             Button (
                 "擦除",
                 id: "pixel_tool_erase",
@@ -202,11 +272,11 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.tool() == PixelTool::Erase, !model.playing()) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.tool() == PixelTool::Erase, !model.playing()) },
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.set_tool(PixelTool::Erase)); }
+            ) on Tap { model.set_tool(PixelTool::Erase); }
             Button (
                 "镜像",
                 id: "pixel_tool_mirror",
@@ -217,11 +287,11 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.mirror(), !model.playing()) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.mirror(), !model.playing()) },
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::toggle_mirror); }
+            ) on Tap { model.toggle_mirror(); }
             Button (
                 "叠帧",
                 id: "pixel_tool_onion",
@@ -232,11 +302,11 @@ pub(super) fn build_widgets() {
                 height: 28,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.onion(), !model.playing()) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.onion(), !model.playing()) },
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::toggle_onion); }
+            ) on Tap { model.toggle_onion(); }
             Button (
                 "",
                 id: "pixel_color_1",
@@ -246,10 +316,12 @@ pub(super) fn build_widgets() {
                 width: 27,
                 height: 17,
                 size: ButtonSize::Custom,
-                normal_color: PALETTE[1],
+                normal_color: ${ palette_color(1, !model.playing()) },
                 pressed_color: PALETTE[1],
+                border_color: ${ palette_border(model.color() == 1) },
+                border_width: ${ if model.color() == 1 { 2 } else { 0 } },
                 border_radius: 4
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_color(1)); }
+            ) on Tap { model.select_color(1); }
             Button (
                 "",
                 id: "pixel_color_2",
@@ -259,10 +331,12 @@ pub(super) fn build_widgets() {
                 width: 27,
                 height: 17,
                 size: ButtonSize::Custom,
-                normal_color: PALETTE[2],
+                normal_color: ${ palette_color(2, !model.playing()) },
                 pressed_color: PALETTE[2],
+                border_color: ${ palette_border(model.color() == 2) },
+                border_width: ${ if model.color() == 2 { 2 } else { 0 } },
                 border_radius: 4
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_color(2)); }
+            ) on Tap { model.select_color(2); }
             Button (
                 "",
                 id: "pixel_color_3",
@@ -272,10 +346,12 @@ pub(super) fn build_widgets() {
                 width: 27,
                 height: 17,
                 size: ButtonSize::Custom,
-                normal_color: PALETTE[3],
+                normal_color: ${ palette_color(3, !model.playing()) },
                 pressed_color: PALETTE[3],
+                border_color: ${ palette_border(model.color() == 3) },
+                border_width: ${ if model.color() == 3 { 2 } else { 0 } },
                 border_radius: 4
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_color(3)); }
+            ) on Tap { model.select_color(3); }
             Button (
                 "",
                 id: "pixel_color_4",
@@ -285,10 +361,12 @@ pub(super) fn build_widgets() {
                 width: 27,
                 height: 17,
                 size: ButtonSize::Custom,
-                normal_color: PALETTE[4],
+                normal_color: ${ palette_color(4, !model.playing()) },
                 pressed_color: PALETTE[4],
+                border_color: ${ palette_border(model.color() == 4) },
+                border_width: ${ if model.color() == 4 { 2 } else { 0 } },
                 border_radius: 4
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_color(4)); }
+            ) on Tap { model.select_color(4); }
             Button (
                 "",
                 id: "pixel_color_5",
@@ -298,10 +376,12 @@ pub(super) fn build_widgets() {
                 width: 27,
                 height: 17,
                 size: ButtonSize::Custom,
-                normal_color: PALETTE[5],
+                normal_color: ${ palette_color(5, !model.playing()) },
                 pressed_color: PALETTE[5],
+                border_color: ${ palette_border(model.color() == 5) },
+                border_width: ${ if model.color() == 5 { 2 } else { 0 } },
                 border_radius: 4
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_color(5)); }
+            ) on Tap { model.select_color(5); }
             Button (
                 "",
                 id: "pixel_color_6",
@@ -311,10 +391,12 @@ pub(super) fn build_widgets() {
                 width: 27,
                 height: 17,
                 size: ButtonSize::Custom,
-                normal_color: PALETTE[6],
+                normal_color: ${ palette_color(6, !model.playing()) },
                 pressed_color: PALETTE[6],
+                border_color: ${ palette_border(model.color() == 6) },
+                border_width: ${ if model.color() == 6 { 2 } else { 0 } },
                 border_radius: 4
-            ) on Tap { PixelNodes::update(ctx.world, |model| model.select_color(6)); }
+            ) on Tap { model.select_color(6); }
             Button (
                 "复制上一帧",
                 position: Position::Absolute,
@@ -328,7 +410,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 6
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::copy_previous); }
+            ) on Tap { model.copy_previous(); }
             Button (
                 "清空本帧",
                 position: Position::Absolute,
@@ -342,7 +424,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 6
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::open_clear); }
+            ) on Tap { model.open_clear(); }
             Button (
                 "模板",
                 position: Position::Absolute,
@@ -356,7 +438,7 @@ pub(super) fn build_widgets() {
                 pressed_color: ACTIVE,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::open_templates); }
+            ) on Tap { model.open_templates(); }
             Button (
                 "撤销",
                 id: "pixel_undo",
@@ -367,13 +449,14 @@ pub(super) fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(false, model.can_undo() && !model.playing()) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(false, model.can_undo() && !model.playing()) },
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::undo); }
+            ) on Tap { model.undo(); }
             Button (
-                "播放动画",
+                text: ${ if model.playing() { "暂停预览" } else { "播放动画" } },
+                text_capacity: 12,
                 id: "pixel_play",
                 position: Position::Absolute,
                 left: 260,
@@ -382,25 +465,30 @@ pub(super) fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(model.playing(), true) },
                 pressed_color: ACTIVE,
-                text_color: TEXT,
+                text_color: ${ control_text_color(model.playing(), true) },
                 border_radius: 7
-            ) on Tap { PixelNodes::update(ctx.world, PixelModel::toggle_playback); }
-            PixelModalSurface (
+            ) on Tap { model.toggle_playback(); }
+            View (
                 id: "pixel_modal",
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
                 width: 480,
                 height: 320,
-                clip_children: true
+                clip_children: true,
+                visible: ${ model.modal() != PixelModal::None }
             ) [
+                PixelModalSurface {
+                    model: model.clone(),
+                },
                 TouchAction::None,
             ] on Tap { }
             {
                 Text (
-                    "先借一颗灵感",
+                    text: ${ if model.modal() == PixelModal::Templates { "先借一颗灵感" } else { "清空这一帧？" } },
+                    text_capacity: 18,
                     id: "pixel_modal_title",
                     position: Position::Absolute,
                     left: 29,
@@ -412,7 +500,8 @@ pub(super) fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "载入模板会替换四帧；可以撤销，不会写入存储。",
+                    text: ${ if model.modal() == PixelModal::Templates { "载入模板会替换四帧；可以撤销，不会写入存储。" } else { "其他三帧不受影响；清空以后也能撤销。" } },
+                    text_capacity: 66,
                     id: "pixel_modal_subtitle",
                     position: Position::Absolute,
                     left: 29,
@@ -436,10 +525,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { PixelNodes::update(ctx.world, PixelModel::close_modal); }
+                ) on Tap { model.close_modal(); }
                 Button (
                     "星际来客",
                     id: "pixel_template_0",
+                    visible: ${ model.modal() == PixelModal::Templates },
                     position: Position::Absolute,
                     left: 29,
                     top: 224,
@@ -451,10 +541,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { PixelNodes::update(ctx.world, |model| model.load_template(0)); }
+                ) on Tap { model.load_template(0); }
                 Button (
                     "风中绿芽",
                     id: "pixel_template_1",
+                    visible: ${ model.modal() == PixelModal::Templates },
                     position: Position::Absolute,
                     left: 171,
                     top: 224,
@@ -466,10 +557,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { PixelNodes::update(ctx.world, |model| model.load_template(1)); }
+                ) on Tap { model.load_template(1); }
                 Button (
                     "纸上飞行",
                     id: "pixel_template_2",
+                    visible: ${ model.modal() == PixelModal::Templates },
                     position: Position::Absolute,
                     left: 313,
                     top: 224,
@@ -481,10 +573,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { PixelNodes::update(ctx.world, |model| model.load_template(2)); }
+                ) on Tap { model.load_template(2); }
                 Text (
                     "当前帧预览",
                     id: "pixel_clear_preview",
+                    visible: ${ model.modal() == PixelModal::Clear },
                     position: Position::Absolute,
                     left: 57,
                     top: 211,
@@ -497,6 +590,7 @@ pub(super) fn build_widgets() {
                 Button (
                     "清空这一帧",
                     id: "pixel_clear_confirm",
+                    visible: ${ model.modal() == PixelModal::Clear },
                     position: Position::Absolute,
                     left: 219,
                     top: 174,
@@ -508,10 +602,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: BACKGROUND,
                     border_radius: 7
-                ) on Tap { PixelNodes::update(ctx.world, PixelModel::confirm_clear); }
+                ) on Tap { model.confirm_clear(); }
                 Button (
                     "保留作品",
                     id: "pixel_clear_cancel",
+                    visible: ${ model.modal() == PixelModal::Clear },
                     position: Position::Absolute,
                     left: 219,
                     top: 214,
@@ -523,7 +618,7 @@ pub(super) fn build_widgets() {
                     pressed_color: ACTIVE,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { PixelNodes::update(ctx.world, PixelModel::close_modal); }
+                ) on Tap { model.close_modal(); }
             }
         }
     };
@@ -535,65 +630,10 @@ where
     F: RendererFactory<B>,
 {
     register_play_font(&mut app.world);
-    app.world.insert_resource(PixelModel::default());
     app.with_widget(surface_view()).with_widget(modal_view());
-    app.add_system(pixel_tick_system::system());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Pixel Loom node");
-    let nodes = PixelNodes {
-        surface: find("pixel_surface"),
-        frame_status: find("pixel_frame_status"),
-        mode_status: find("pixel_mode_status"),
-        template_name: find("pixel_template_name"),
-        fps: find("pixel_fps"),
-        play: find("pixel_play"),
-        undo: find("pixel_undo"),
-        frames: core::array::from_fn(|index| {
-            find(
-                [
-                    "pixel_frame_0",
-                    "pixel_frame_1",
-                    "pixel_frame_2",
-                    "pixel_frame_3",
-                ][index],
-            )
-        }),
-        tools: core::array::from_fn(|index| {
-            find(
-                [
-                    "pixel_tool_brush",
-                    "pixel_tool_erase",
-                    "pixel_tool_mirror",
-                    "pixel_tool_onion",
-                ][index],
-            )
-        }),
-        colors: core::array::from_fn(|index| {
-            find(
-                [
-                    "pixel_color_1",
-                    "pixel_color_2",
-                    "pixel_color_3",
-                    "pixel_color_4",
-                    "pixel_color_5",
-                    "pixel_color_6",
-                ][index],
-            )
-        }),
-        modal: find("pixel_modal"),
-        modal_title: find("pixel_modal_title"),
-        modal_subtitle: find("pixel_modal_subtitle"),
-        template_buttons: core::array::from_fn(|index| {
-            find(["pixel_template_0", "pixel_template_1", "pixel_template_2"][index])
-        }),
-        clear_controls: [
-            find("pixel_clear_preview"),
-            find("pixel_clear_confirm"),
-            find("pixel_clear_cancel"),
-        ],
-    };
-    app.world.insert_resource(nodes);
-    PixelNodes::sync(&mut app.world);
+    let model = app.add_model(PixelModel::default());
+    app.add_system(pixel_tick_system::system(model.clone()));
+    app.compose(parent, |cx| build_widgets(cx, model));
 }

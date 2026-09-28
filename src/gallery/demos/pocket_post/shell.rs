@@ -1,21 +1,109 @@
 use super::input::{PostKeyboardPlugin, post_tick_system, surface_gesture};
 use super::render::{modal_view, surface_view};
-use super::state::{PostModalSurface, PostNodes, PostSurface};
-use super::style::{ACCENT, BACKGROUND, CONTROL, MUTED, STATION_COLORS, TEXT};
+use super::state::{PostModalSurface, PostSurface};
+use super::style::{ACCENT, BACKGROUND, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::register_play_font;
-use crate::gallery::play::post::PostModel;
+use crate::gallery::play::post::{PostModal, PostModel};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 
-#[compose]
-pub(super) fn build_widgets() {
+fn status_label(finished: bool, running: bool, started: bool) -> &'static str {
+    if finished {
+        "班次完成"
+    } else if running {
+        "包裹正在路上"
+    } else if started {
+        "已暂停调度"
+    } else {
+        "准备好，拨动你的第一班轨道"
+    }
+}
+
+fn run_label(finished: bool, running: bool, started: bool) -> &'static str {
+    if running {
+        "暂停"
+    } else if finished {
+        "再开一班"
+    } else if started {
+        "继续"
+    } else {
+        "开始"
+    }
+}
+
+fn speed_label(speed_x2: u8) -> &'static str {
+    match speed_x2 {
+        1 => "0.5× 速度",
+        3 => "1.5× 速度",
+        _ => "1× 速度",
+    }
+}
+
+fn destination_letter(destination: Option<u8>) -> &'static str {
+    match destination {
+        Some(0) => "A",
+        Some(1) => "B",
+        Some(_) => "C",
+        None => "",
+    }
+}
+
+fn destination_color(destination: Option<u8>) -> Color {
+    destination
+        .map(|station| STATION_COLORS[usize::from(station)])
+        .unwrap_or(TEXT)
+}
+
+fn control_color(active: bool, enabled: bool) -> Color {
+    if active {
+        ACCENT
+    } else if enabled {
+        CONTROL
+    } else {
+        CONTROL_DISABLED
+    }
+}
+
+fn control_text_color(active: bool, enabled: bool) -> Color {
+    if active {
+        BACKGROUND
+    } else if enabled {
+        TEXT
+    } else {
+        Color::rgb(103, 120, 111)
+    }
+}
+
+fn modal_title(modal: PostModal) -> &'static str {
+    match modal {
+        PostModal::Manifests => "选择今天的班次",
+        PostModal::Summary => "本班投递完成",
+        PostModal::Reset => "重新开始这一班？",
+        PostModal::None => "",
+    }
+}
+
+fn modal_subtitle(modal: PostModal) -> &'static str {
+    match modal {
+        PostModal::Manifests => "更换班次会从头开始；没有时间惩罚，可以随时暂停。",
+        PostModal::Summary => "不需要抢时间，准确到达就很棒。",
+        PostModal::Reset => "当前包裹、计分和道岔都会复位。",
+        PostModal::None => "",
+    }
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: PostModel) {
     ui! {
-        PostSurface (id: "post_surface", width: 480, height: 320, clip_children: true) [
+        View (id: "post_surface", width: 480, height: 320, clip_children: true) [
+            PostSurface {
+                model: model.clone(),
+            },
             TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, ctx.entity, ctx.event); }
+        ] on Tap { surface_gesture(&ctx); }
         {
             Text (
                 "POCKET POST",
@@ -29,7 +117,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "SORTED 0 / 9",
+                text: ${ format_args!("SORTED {} / {}", model.delivered(), model.manifest_len()) },
+                text_capacity: 14,
                 id: "post_sorted",
                 position: Position::Absolute,
                 left: 306,
@@ -41,7 +130,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "准备好，拨动你的第一班轨道",
+                text: ${ status_label(model.finished(), model.running(), model.started()) },
+                text_capacity: 39,
                 id: "post_status",
                 position: Position::Absolute,
                 left: 16,
@@ -53,7 +143,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "错投 0   连对 0",
+                text: ${ format_args!("错投 {}   连对 {}", model.missed(), model.streak()) },
+                text_capacity: 23,
                 id: "post_misses",
                 position: Position::Absolute,
                 left: 304,
@@ -120,7 +211,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "0",
+                text: ${ format_args!("{}", model.station_a_count()) },
+                text_capacity: 3,
                 id: "post_station_0",
                 position: Position::Absolute,
                 left: 432,
@@ -154,7 +246,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "0",
+                text: ${ format_args!("{}", model.station_b_count()) },
+                text_capacity: 3,
                 id: "post_station_1",
                 position: Position::Absolute,
                 left: 432,
@@ -188,7 +281,8 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "0",
+                text: ${ format_args!("{}", model.station_c_count()) },
+                text_capacity: 3,
                 id: "post_station_2",
                 position: Position::Absolute,
                 left: 432,
@@ -211,67 +305,78 @@ pub(super) fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "",
+                text: ${ destination_letter(model.queued_slots()[0]) },
+                text_capacity: 1,
                 id: "post_queue_0",
+                visible: ${ model.queued_slots()[0].is_some() },
                 position: Position::Absolute,
                 left: 47,
                 top: 241,
                 width: 17,
                 height: 15,
                 font_size: 8,
-                text_color: TEXT,
+                text_color: ${ destination_color(model.queued_slots()[0]) },
                 paragraph: ParagraphStyle::label()
             )
             Text (
-                "",
+                text: ${ destination_letter(model.queued_slots()[1]) },
+                text_capacity: 1,
                 id: "post_queue_1",
+                visible: ${ model.queued_slots()[1].is_some() },
                 position: Position::Absolute,
                 left: 72,
                 top: 241,
                 width: 17,
                 height: 15,
                 font_size: 8,
-                text_color: TEXT,
+                text_color: ${ destination_color(model.queued_slots()[1]) },
                 paragraph: ParagraphStyle::label()
             )
             Text (
-                "",
+                text: ${ destination_letter(model.queued_slots()[2]) },
+                text_capacity: 1,
                 id: "post_queue_2",
+                visible: ${ model.queued_slots()[2].is_some() },
                 position: Position::Absolute,
                 left: 97,
                 top: 241,
                 width: 17,
                 height: 15,
                 font_size: 8,
-                text_color: TEXT,
+                text_color: ${ destination_color(model.queued_slots()[2]) },
                 paragraph: ParagraphStyle::label()
             )
             Text (
-                "",
+                text: ${ destination_letter(model.queued_slots()[3]) },
+                text_capacity: 1,
                 id: "post_queue_3",
+                visible: ${ model.queued_slots()[3].is_some() },
                 position: Position::Absolute,
                 left: 122,
                 top: 241,
                 width: 17,
                 height: 15,
                 font_size: 8,
-                text_color: TEXT,
+                text_color: ${ destination_color(model.queued_slots()[3]) },
                 paragraph: ParagraphStyle::label()
             )
             Text (
-                "",
+                text: ${ destination_letter(model.queued_slots()[4]) },
+                text_capacity: 1,
                 id: "post_queue_4",
+                visible: ${ model.queued_slots()[4].is_some() },
                 position: Position::Absolute,
                 left: 147,
                 top: 241,
                 width: 17,
                 height: 15,
                 font_size: 8,
-                text_color: TEXT,
+                text_color: ${ destination_color(model.queued_slots()[4]) },
                 paragraph: ParagraphStyle::label()
             )
             Text (
-                "0 / 3 在途",
+                text: ${ format_args!("{} / 3 在途", model.active_len()) },
+                text_capacity: 12,
                 id: "post_in_transit",
                 position: Position::Absolute,
                 left: 218,
@@ -295,9 +400,10 @@ pub(super) fn build_widgets() {
                 pressed_color: ACCENT,
                 text_color: TEXT,
                 border_radius: 6
-            ) on Tap { PostNodes::update(ctx.world, PostModel::open_manifests); }
+            ) on Tap { model.open_manifests(); }
             Button (
-                "开始",
+                text: ${ run_label(model.finished(), model.running(), model.started()) },
+                text_capacity: 12,
                 id: "post_run",
                 position: Position::Absolute,
                 left: 12,
@@ -306,11 +412,11 @@ pub(super) fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: ACCENT,
+                normal_color: ${ control_color(model.running() || !model.started(), model.modal() == PostModal::None) },
                 pressed_color: ACCENT,
-                text_color: BACKGROUND,
+                text_color: ${ control_text_color(model.running() || !model.started(), model.modal() == PostModal::None) },
                 border_radius: 7
-            ) on Tap { PostNodes::update(ctx.world, PostModel::toggle_running); }
+            ) on Tap { model.toggle_running(); }
             Button (
                 "加发一件",
                 id: "post_send",
@@ -321,13 +427,14 @@ pub(super) fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(false, model.can_send()) },
                 pressed_color: ACCENT,
-                text_color: TEXT,
+                text_color: ${ control_text_color(false, model.can_send()) },
                 border_radius: 7
-            ) on Tap { PostNodes::update(ctx.world, PostModel::spawn_manual); }
+            ) on Tap { model.spawn_manual(); }
             Button (
-                "1× 速度",
+                text: ${ speed_label(model.speed_x2()) },
+                text_capacity: 12,
                 id: "post_speed",
                 position: Position::Absolute,
                 left: 268,
@@ -336,11 +443,11 @@ pub(super) fn build_widgets() {
                 height: 26,
                 size: ButtonSize::Compact,
                 font_size: 10,
-                normal_color: CONTROL,
+                normal_color: ${ control_color(false, model.modal() == PostModal::None) },
                 pressed_color: ACCENT,
-                text_color: TEXT,
+                text_color: ${ control_text_color(false, model.modal() == PostModal::None) },
                 border_radius: 7
-            ) on Tap { PostNodes::update(ctx.world, PostModel::cycle_speed); }
+            ) on Tap { model.cycle_speed(); }
             Button (
                 "重来",
                 position: Position::Absolute,
@@ -354,21 +461,26 @@ pub(super) fn build_widgets() {
                 pressed_color: ACCENT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PostNodes::update(ctx.world, PostModel::open_reset); }
-            PostModalSurface (
+            ) on Tap { model.open_reset(); }
+            View (
                 id: "post_modal",
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
                 width: 480,
                 height: 320,
-                clip_children: true
+                clip_children: true,
+                visible: ${ model.modal() != PostModal::None }
             ) [
+                PostModalSurface {
+                    model: model.clone(),
+                },
                 TouchAction::None,
             ] on Tap { }
             {
                 Text (
-                    "",
+                    text: ${ modal_title(model.modal()) },
+                    text_capacity: 24,
                     id: "post_modal_title",
                     position: Position::Absolute,
                     left: 29,
@@ -380,7 +492,8 @@ pub(super) fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "",
+                    text: ${ modal_subtitle(model.modal()) },
+                    text_capacity: 72,
                     id: "post_modal_subtitle",
                     position: Position::Absolute,
                     left: 29,
@@ -404,10 +517,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 6
-                ) on Tap { PostNodes::update(ctx.world, PostModel::close_modal); }
+                ) on Tap { model.close_modal(); }
                 Button (
                     "晨间邮路 · 9 件",
                     id: "post_manifest_0",
+                    visible: ${ model.modal() == PostModal::Manifests },
                     position: Position::Absolute,
                     left: 29,
                     top: 113,
@@ -415,14 +529,15 @@ pub(super) fn build_widgets() {
                     height: 37,
                     size: ButtonSize::Compact,
                     font_size: 11,
-                    normal_color: CONTROL,
+                    normal_color: ${ control_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
                     pressed_color: ACCENT,
-                    text_color: TEXT,
+                    text_color: ${ control_text_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, |model| model.load_manifest(0)); }
+                ) on Tap { model.load_manifest(0); }
                 Button (
                     "忙碌午后 · 12 件",
                     id: "post_manifest_1",
+                    visible: ${ model.modal() == PostModal::Manifests },
                     position: Position::Absolute,
                     left: 29,
                     top: 160,
@@ -430,14 +545,15 @@ pub(super) fn build_widgets() {
                     height: 37,
                     size: ButtonSize::Compact,
                     font_size: 11,
-                    normal_color: CONTROL,
+                    normal_color: ${ control_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
                     pressed_color: ACCENT,
-                    text_color: TEXT,
+                    text_color: ${ control_text_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, |model| model.load_manifest(1)); }
+                ) on Tap { model.load_manifest(1); }
                 Button (
                     "慢慢练习 · 6 件",
                     id: "post_manifest_2",
+                    visible: ${ model.modal() == PostModal::Manifests },
                     position: Position::Absolute,
                     left: 29,
                     top: 207,
@@ -445,14 +561,16 @@ pub(super) fn build_widgets() {
                     height: 37,
                     size: ButtonSize::Compact,
                     font_size: 11,
-                    normal_color: CONTROL,
+                    normal_color: ${ control_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
                     pressed_color: ACCENT,
-                    text_color: TEXT,
+                    text_color: ${ control_text_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, |model| model.load_manifest(2)); }
+                ) on Tap { model.load_manifest(2); }
                 Text (
-                    "0000",
+                    text: ${ format_args!("{:04}", model.score()) },
+                    text_capacity: 5,
                     id: "post_summary_score",
+                    visible: ${ model.modal() == PostModal::Summary },
                     position: Position::Absolute,
                     left: 42,
                     top: 119,
@@ -465,6 +583,7 @@ pub(super) fn build_widgets() {
                 Text (
                     "POST POINTS",
                     id: "post_summary_points",
+                    visible: ${ model.modal() == PostModal::Summary },
                     position: Position::Absolute,
                     left: 44,
                     top: 166,
@@ -475,8 +594,10 @@ pub(super) fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "正确 0 件",
+                    text: ${ format_args!("正确 {} 件", model.delivered()) },
+                    text_capacity: 14,
                     id: "post_summary_correct",
+                    visible: ${ model.modal() == PostModal::Summary },
                     position: Position::Absolute,
                     left: 270,
                     top: 121,
@@ -487,8 +608,10 @@ pub(super) fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "错投 0 件",
+                    text: ${ format_args!("错投 {} 件", model.missed()) },
+                    text_capacity: 14,
                     id: "post_summary_missed",
+                    visible: ${ model.modal() == PostModal::Summary },
                     position: Position::Absolute,
                     left: 270,
                     top: 150,
@@ -501,6 +624,7 @@ pub(super) fn build_widgets() {
                 Button (
                     "再开一班",
                     id: "post_summary_again",
+                    visible: ${ model.modal() == PostModal::Summary },
                     position: Position::Absolute,
                     left: 29,
                     top: 217,
@@ -512,10 +636,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: BACKGROUND,
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, PostModel::restart); }
+                ) on Tap { model.restart(); }
                 Button (
                     "换个班次",
                     id: "post_summary_choose",
+                    visible: ${ model.modal() == PostModal::Summary },
                     position: Position::Absolute,
                     left: 245,
                     top: 217,
@@ -527,10 +652,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, PostModel::open_manifests); }
+                ) on Tap { model.open_manifests(); }
                 Text (
                     "只影响当前内存中的进度。",
                     id: "post_reset_note",
+                    visible: ${ model.modal() == PostModal::Reset },
                     position: Position::Absolute,
                     left: 171,
                     top: 146,
@@ -543,6 +669,7 @@ pub(super) fn build_widgets() {
                 Button (
                     "重新开始",
                     id: "post_reset_confirm",
+                    visible: ${ model.modal() == PostModal::Reset },
                     position: Position::Absolute,
                     left: 171,
                     top: 185,
@@ -554,10 +681,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: BACKGROUND,
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, PostModel::restart); }
+                ) on Tap { model.restart(); }
                 Button (
                     "保留班次",
                     id: "post_reset_cancel",
+                    visible: ${ model.modal() == PostModal::Reset },
                     position: Position::Absolute,
                     left: 171,
                     top: 225,
@@ -569,10 +697,11 @@ pub(super) fn build_widgets() {
                     pressed_color: ACCENT,
                     text_color: TEXT,
                     border_radius: 7
-                ) on Tap { PostNodes::update(ctx.world, PostModel::close_modal); }
+                ) on Tap { model.close_modal(); }
                 Text (
                     "当前班次",
                     id: "post_reset_badge",
+                    visible: ${ model.modal() == PostModal::Reset },
                     position: Position::Absolute,
                     left: 67,
                     top: 226,
@@ -594,57 +723,10 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(PostKeyboardPlugin);
     register_play_font(&mut app.world);
-    app.world.insert_resource(PostModel::default());
     app.with_widget(surface_view()).with_widget(modal_view());
-    app.add_system(post_tick_system::system());
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Pocket Post node");
-    let nodes = PostNodes {
-        surface: find("post_surface"),
-        status: find("post_status"),
-        sorted: find("post_sorted"),
-        misses: find("post_misses"),
-        queue: [
-            find("post_queue_0"),
-            find("post_queue_1"),
-            find("post_queue_2"),
-            find("post_queue_3"),
-            find("post_queue_4"),
-        ],
-        in_transit: find("post_in_transit"),
-        station_counts: [
-            find("post_station_0"),
-            find("post_station_1"),
-            find("post_station_2"),
-        ],
-        run: find("post_run"),
-        send: find("post_send"),
-        speed: find("post_speed"),
-        modal: find("post_modal"),
-        modal_title: find("post_modal_title"),
-        modal_subtitle: find("post_modal_subtitle"),
-        manifest_controls: [
-            find("post_manifest_0"),
-            find("post_manifest_1"),
-            find("post_manifest_2"),
-        ],
-        summary_controls: [
-            find("post_summary_score"),
-            find("post_summary_points"),
-            find("post_summary_correct"),
-            find("post_summary_missed"),
-            find("post_summary_again"),
-            find("post_summary_choose"),
-        ],
-        reset_controls: [
-            find("post_reset_note"),
-            find("post_reset_confirm"),
-            find("post_reset_cancel"),
-            find("post_reset_badge"),
-        ],
-    };
-    app.world.insert_resource(nodes);
-    PostNodes::sync(&mut app.world);
+    let model = app.add_model(PostModel::default());
+    app.add_plugin(PostKeyboardPlugin::new(model.clone()));
+    app.add_system(post_tick_system::system(model.clone()));
+    app.compose(parent, |cx| build_widgets(cx, model));
 }

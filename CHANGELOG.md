@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Checkbox checked-state binding.** `Checkbox.checked` accepts reactive values and shares one update path with taps; programmatic changes do not emit toggle events.
 - **Callback-safe control updates.** TabBar and TextInput invalidate before dispatching change callbacks, allowing callbacks to remove their control without a stale write afterward.
 - **Reactive widget projections.** Audio output state is exposed as a compact signal, while `ui!` supports reactive visibility and progress values without frame-by-frame widget synchronization.
-- **Reactive absolute positioning.** `ui!` accepts reactive `left` and `top` values; changed positions invalidate layout through the existing property path.
+- **Reactive geometry and borders.** `ui!` accepts reactive `left`, `top`, `border_color`, and `border_width` values with layout or visual invalidation matched to each property.
 - **Reactive slider and switch values.** `ui!` binds `Slider.value` and `Switch.on` to model state without emitting input events; externally changed switches retain their animation.
 - **Shared audio controls.** `App::audio()` returns a cloneable `AudioHandle` for the plugin's single fixed-capacity bus. Host controls and demos use the same mute and output state; handles stop accepting commands after the App is dropped.
 

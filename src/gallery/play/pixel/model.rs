@@ -4,6 +4,7 @@ use super::types::{
 };
 use crate::gallery::play::change::ChangeSet;
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PixelModel {
     pub(super) frames: PixelFrames,
@@ -48,50 +49,7 @@ impl PixelModel {
         &self.frames
     }
 
-    pub(crate) const fn frame(&self) -> u8 {
-        self.frame
-    }
-
-    pub(crate) const fn visible_frame(&self) -> u8 {
-        if self.playing {
-            self.display_frame
-        } else {
-            self.frame
-        }
-    }
-
-    pub(crate) const fn color(&self) -> u8 {
-        self.color
-    }
-
-    pub(crate) const fn tool(&self) -> PixelTool {
-        self.tool
-    }
-
-    pub(crate) const fn modal(&self) -> PixelModal {
-        self.modal
-    }
-
-    pub(crate) const fn template_id(&self) -> u8 {
-        self.template_id
-    }
-
-    pub(crate) const fn fps(&self) -> u8 {
-        [2, 4, 6, 8][self.fps_index as usize]
-    }
-
-    pub(crate) const fn mirror(&self) -> bool {
-        self.mirror
-    }
-
-    pub(crate) const fn onion(&self) -> bool {
-        self.onion
-    }
-
-    pub(crate) const fn playing(&self) -> bool {
-        self.playing
-    }
-
+    #[cfg(test)]
     pub(crate) const fn history_len(&self) -> u8 {
         self.history.len
     }
@@ -106,6 +64,89 @@ impl PixelModel {
 
     fn push_current(&mut self) {
         self.history.push(self.snapshot());
+    }
+
+    fn paint_pixel(&mut self, x: u8, y: u8) -> ChangeSet {
+        if self.paint_pixel_inner(x, y) {
+            ChangeSet::VISUAL
+        } else {
+            ChangeSet::NONE
+        }
+    }
+
+    fn paint_pixel_inner(&mut self, x: u8, y: u8) -> bool {
+        let color = if self.tool == PixelTool::Erase {
+            0
+        } else {
+            self.color
+        };
+        let mut changed = self.frames.set(self.frame, x, y, color);
+        if self.mirror {
+            changed |= self.frames.set(self.frame, GRID_WIDTH - 1 - x, y, color);
+        }
+        changed
+    }
+}
+
+#[crate::model]
+impl PixelModel {
+    #[observe]
+    pub(crate) fn frame(&self) -> u8 {
+        self.frame
+    }
+
+    #[observe]
+    pub(crate) fn visible_frame(&self) -> u8 {
+        if self.playing {
+            self.display_frame
+        } else {
+            self.frame
+        }
+    }
+
+    #[observe]
+    pub(crate) fn color(&self) -> u8 {
+        self.color
+    }
+
+    #[observe]
+    pub(crate) fn tool(&self) -> PixelTool {
+        self.tool
+    }
+
+    #[observe]
+    pub(crate) fn modal(&self) -> PixelModal {
+        self.modal
+    }
+
+    #[observe]
+    pub(crate) fn template_id(&self) -> u8 {
+        self.template_id
+    }
+
+    #[observe]
+    pub(crate) fn fps(&self) -> u8 {
+        [2, 4, 6, 8][self.fps_index as usize]
+    }
+
+    #[observe]
+    pub(crate) fn mirror(&self) -> bool {
+        self.mirror
+    }
+
+    #[observe]
+    pub(crate) fn onion(&self) -> bool {
+        self.onion
+    }
+
+    #[observe]
+    pub(crate) fn playing(&self) -> bool {
+        self.playing
+    }
+
+    #[observe]
+    pub(crate) fn can_undo(&self) -> bool {
+        self.history.len > 0
     }
 
     pub(crate) fn begin_stroke(&mut self, x: u8, y: u8) -> ChangeSet {
@@ -181,25 +222,9 @@ impl PixelModel {
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
-    fn paint_pixel(&mut self, x: u8, y: u8) -> ChangeSet {
-        if self.paint_pixel_inner(x, y) {
-            ChangeSet::VISUAL
-        } else {
-            ChangeSet::NONE
-        }
-    }
-
-    fn paint_pixel_inner(&mut self, x: u8, y: u8) -> bool {
-        let color = if self.tool == PixelTool::Erase {
-            0
-        } else {
-            self.color
-        };
-        let mut changed = self.frames.set(self.frame, x, y, color);
-        if self.mirror {
-            changed |= self.frames.set(self.frame, GRID_WIDTH - 1 - x, y, color);
-        }
-        changed
+    pub(crate) fn paint_cell(&mut self, x: u8, y: u8) -> ChangeSet {
+        let changes = self.begin_stroke(x, y);
+        changes | self.end_stroke(false)
     }
 
     pub(crate) fn select_frame(&mut self, frame: u8) -> ChangeSet {
@@ -222,7 +247,7 @@ impl PixelModel {
         }
         self.color = color;
         self.tool = PixelTool::Brush;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        ChangeSet::MODEL
     }
 
     pub(crate) fn set_tool(&mut self, tool: PixelTool) -> ChangeSet {
@@ -230,7 +255,7 @@ impl PixelModel {
             return ChangeSet::NONE;
         }
         self.tool = tool;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        ChangeSet::MODEL
     }
 
     pub(crate) fn toggle_mirror(&mut self) -> ChangeSet {
@@ -238,7 +263,7 @@ impl PixelModel {
             return ChangeSet::NONE;
         }
         self.mirror = !self.mirror;
-        ChangeSet::MODEL | ChangeSet::VISUAL
+        ChangeSet::MODEL
     }
 
     pub(crate) fn toggle_onion(&mut self) -> ChangeSet {

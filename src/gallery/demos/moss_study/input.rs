@@ -1,11 +1,12 @@
-use super::state::MossNodes;
+use super::state::MossSurface;
 use crate::ecs::DeltaTimeMs;
+use crate::gallery::play::moss::MossModel;
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
-use crate::prelude::{Entity, Fixed, World};
+use crate::prelude::{Fixed, Rect};
 use crate::ui::ComputedRect;
 
-pub(super) fn local_cell(world: &World, entity: Entity, x: Fixed, y: Fixed) -> Option<(u8, u8)> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
+pub(super) fn local_cell(rect: Rect, x: Fixed, y: Fixed) -> Option<(u8, u8)> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
@@ -24,41 +25,47 @@ pub(super) fn local_cell(world: &World, entity: Entity, x: Fixed, y: Fixed) -> O
     ))
 }
 
-pub(super) fn surface_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    match event {
+pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let Some(model) = ctx
+        .component::<MossSurface>(ctx.entity)
+        .map(|surface| surface.model.clone())
+    else {
+        return false;
+    };
+    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
+        return false;
+    };
+    match ctx.event {
         GestureEvent::Tap { x, y, .. } => {
-            let Some((cell_x, cell_y)) = local_cell(world, entity, *x, *y) else {
+            let Some((cell_x, cell_y)) = local_cell(rect, *x, *y) else {
                 return false;
             };
-            MossNodes::update(world, |model| {
-                model.begin_stroke(cell_x, cell_y) | model.end_stroke(false)
-            });
+            model.paint_cell(cell_x, cell_y);
         }
         GestureEvent::DragStart { x, y, .. } => {
-            let Some((cell_x, cell_y)) = local_cell(world, entity, *x, *y) else {
+            let Some((cell_x, cell_y)) = local_cell(rect, *x, *y) else {
                 return false;
             };
-            MossNodes::update(world, |model| model.begin_stroke(cell_x, cell_y));
+            model.begin_stroke(cell_x, cell_y);
         }
         GestureEvent::DragMove { x, y, .. } => {
-            let Some((cell_x, cell_y)) = local_cell(world, entity, *x, *y) else {
+            let Some((cell_x, cell_y)) = local_cell(rect, *x, *y) else {
                 return true;
             };
-            MossNodes::update(world, |model| model.continue_stroke(cell_x, cell_y));
+            model.continue_stroke(cell_x, cell_y);
         }
         GestureEvent::DragEnd { .. } => {
-            MossNodes::update(world, |model| model.end_stroke(false));
+            model.end_stroke(false);
         }
         GestureEvent::DragCancel { .. } => {
-            MossNodes::update(world, |model| model.end_stroke(true));
+            model.end_stroke(true);
         }
         _ => return false,
     }
     true
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub(super) fn moss_tick_system(world: &mut World) {
-    let elapsed = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
-    MossNodes::update(world, |model| model.advance_ms(elapsed));
+#[mirui_macros::system(order = ANIMATION, bind(model))]
+pub(super) fn moss_tick_system(model: &MossModel, delta: Option<DeltaTimeMs>) {
+    model.advance_ms(delta.map_or(16, |delta| delta.0));
 }

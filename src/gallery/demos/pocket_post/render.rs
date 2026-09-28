@@ -5,7 +5,7 @@ use super::style::{
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::post::{PostModal, PostModel, PostParcel};
-use crate::prelude::*;
+use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
@@ -351,32 +351,38 @@ fn paint_post_surface(painter: &mut PlayPainter<'_, '_>, model: &PostModel) {
     );
 }
 
-fn surface_render(
+#[crate::view(
+    component = PostSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "PostSurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &PostModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<PostModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     paint_post_surface(&mut painter, model);
 }
 
-fn modal_render(
+#[crate::view(
+    component = PostModalSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "PostModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &PostModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<PostModel>() else {
-        return;
-    };
     if model.modal() == PostModal::None {
         return;
     }
@@ -409,9 +415,9 @@ fn modal_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("PostSurface", 60, surface_render).with_filter::<PostSurface>()
+    surface_render::view()
 }
 
 pub(super) fn modal_view() -> View {
-    View::new("PostModalSurface", 70, modal_render).with_filter::<PostModalSurface>()
+    modal_render::view()
 }
