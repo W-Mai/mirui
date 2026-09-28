@@ -179,7 +179,7 @@ register_demos! {
     ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission, source = demo_sources::ORBITAL_MISSION),
     ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas, source = demo_sources::TIDAL_ATLAS),
     ("echo_walker",          "Echo Walker",          "Play",        echo_walker, source = demo_sources::ECHO_WALKER),
-    ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons),
+    ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons, source = demo_sources::TWIN_BEACONS),
     ("folding_ark",          "Folding Ark",          "Play",        folding_ark),
     ("atlas_restoration",    "Atlas Restoration",    "Play",        atlas_restoration),
 
@@ -680,6 +680,18 @@ mod tests {
                     "tests.rs",
                 ][..],
                 "fn paint_surface",
+            ),
+            (
+                "twin_beacons",
+                &[
+                    "style.rs",
+                    "state.rs",
+                    "render.rs",
+                    "input.rs",
+                    "shell.rs",
+                    "tests.rs",
+                ][..],
+                "fn paint_board",
             ),
         ];
 

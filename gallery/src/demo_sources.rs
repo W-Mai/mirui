@@ -141,3 +141,16 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    TWIN_BEACONS,
+    "twin_beacons",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);

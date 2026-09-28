@@ -28,6 +28,36 @@ mod tests {
     use crate::render::font::mirx::MirxFontProvider;
     use mirx::font::FontRepresentationKind;
 
+    const TWIN_SOURCE: &str = concat!(
+        include_str!("twin/mod.rs"),
+        "\n",
+        include_str!("twin/chapters.rs"),
+        "\n",
+        include_str!("twin/types.rs"),
+        "\n",
+        include_str!("twin/rules.rs"),
+        "\n",
+        include_str!("twin/solver.rs"),
+        "\n",
+        include_str!("twin/model.rs"),
+        "\n",
+        include_str!("twin/tests.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons/style.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons/state.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons/render.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons/input.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons/shell.rs"),
+        "\n",
+        include_str!("../demos/twin_beacons/tests.rs"),
+    );
+
     #[test]
     fn play_font_covers_declared_charset_and_small_sizes() {
         let provider =
@@ -39,10 +69,9 @@ mod tests {
             assert!(provider.map_char(scalar).is_some(), "missing {scalar}");
         }
         for source in [
-            include_str!("twin.rs"),
+            TWIN_SOURCE,
             include_str!("fold.rs"),
             include_str!("picture.rs"),
-            include_str!("../demos/twin_beacons.rs"),
             include_str!("../demos/folding_ark.rs"),
             include_str!("../demos/atlas_restoration.rs"),
         ] {
