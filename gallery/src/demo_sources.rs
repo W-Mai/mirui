@@ -69,3 +69,16 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    POCKET_POST,
+    "pocket_post",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);

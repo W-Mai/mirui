@@ -173,7 +173,7 @@ register_demos! {
     ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab, source = demo_sources::LUMEN_LAB),
     ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom, source = demo_sources::PIXEL_LOOM),
     ("moss_study",           "Moss Study",           "Play",        moss_study, source = demo_sources::MOSS_STUDY),
-    ("pocket_post",          "Pocket Post",          "Play",        pocket_post),
+    ("pocket_post",          "Pocket Post",          "Play",        pocket_post, source = demo_sources::POCKET_POST),
     ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit),
     ("module_factory",       "Module Factory",       "Play",        module_factory),
     ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission),
@@ -614,6 +614,18 @@ mod tests {
                     "tests.rs",
                 ][..],
                 "fn paint_moss_surface",
+            ),
+            (
+                "pocket_post",
+                &[
+                    "style.rs",
+                    "state.rs",
+                    "render.rs",
+                    "input.rs",
+                    "shell.rs",
+                    "tests.rs",
+                ][..],
+                "fn paint_post_surface",
             ),
         ];
 
