@@ -37,3 +37,15 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    LUMEN_LAB,
+    "lumen_lab",
+    [
+        "style.rs",
+        "runtime.rs",
+        "board.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);

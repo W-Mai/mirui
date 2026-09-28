@@ -170,7 +170,7 @@ register_demos! {
         marble_play,
         source = demo_sources::MARBLE_PLAY
     ),
-    ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab),
+    ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab, source = demo_sources::LUMEN_LAB),
     ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom),
     ("moss_study",           "Moss Study",           "Play",        moss_study),
     ("pocket_post",          "Pocket Post",          "Play",        pocket_post),
@@ -570,25 +570,39 @@ mod tests {
 
     #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
     #[test]
-    fn split_demo_source_includes_page_modules() {
-        let source = super::lookup_demo("marble_play")
-            .expect("Marble Play is registered")
-            .source;
+    fn split_demo_sources_include_child_modules() {
+        let cases = [
+            (
+                "marble_play",
+                &[
+                    "style.rs",
+                    "audio.rs",
+                    "board.rs",
+                    "scenes.rs",
+                    "settings.rs",
+                    "inspector.rs",
+                    "shell.rs",
+                    "tests.rs",
+                ][..],
+                "fn paint_play_board",
+            ),
+            (
+                "lumen_lab",
+                &["style.rs", "runtime.rs", "board.rs", "shell.rs", "tests.rs"][..],
+                "fn paint_board",
+            ),
+        ];
 
-        for module in [
-            "style.rs",
-            "audio.rs",
-            "board.rs",
-            "scenes.rs",
-            "settings.rs",
-            "inspector.rs",
-            "shell.rs",
-            "tests.rs",
-        ] {
-            assert!(source.contains(module), "Marble source omits {module}");
+        for (slug, modules, implementation) in cases {
+            let source = super::lookup_demo(slug)
+                .expect("split demo is registered")
+                .source;
+            for module in modules {
+                assert!(source.contains(module), "{slug} source omits {module}");
+            }
+            assert!(source.contains(implementation));
+            assert!(source.contains("fn build_widgets"));
         }
-        assert!(source.contains("fn paint_play_board"));
-        assert!(source.contains("fn build_widgets"));
     }
 
     #[test]
