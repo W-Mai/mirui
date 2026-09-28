@@ -43,6 +43,17 @@ impl Vec2 {
     fn length(self) -> Fixed64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
+
+    #[inline]
+    fn length_below(self, threshold: Fixed64) -> Option<Fixed64> {
+        let squared = self.x * self.x + self.y * self.y;
+        // Keep the rounded boundary for the exact sqrt comparison.
+        if squared > threshold * threshold {
+            return None;
+        }
+        let distance = squared.sqrt();
+        (distance < threshold).then_some(distance)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -644,34 +655,34 @@ impl MarbleModel {
                 let Some(pad) = pad else { continue };
                 let mut dx = ball.pos.x - pad.pos.x;
                 let mut dy = ball.pos.y - pad.pos.y;
-                let mut distance = Vec2::fixed(dx, dy).length();
                 let minimum = pad.radius + Fixed64::from_int(4);
-                if distance < minimum {
-                    if distance < Fixed64::from_ratio(1, 10_000) {
-                        dx = Fixed64::ONE;
-                        dy = Fixed64::ZERO;
-                        distance = Fixed64::ONE;
-                    }
-                    let nx = dx / distance;
-                    let ny = dy / distance;
-                    ball.pos = Vec2::fixed(
-                        pad.pos.x + nx * (minimum + Fixed64::from_ratio(8, 100)),
-                        pad.pos.y + ny * (minimum + Fixed64::from_ratio(8, 100)),
-                    );
-                    let normal_speed = ball.velocity.x * nx + ball.velocity.y * ny;
-                    if normal_speed.is_negative() {
-                        let impulse = (Fixed64::ONE + pad.bounce) * normal_speed;
-                        ball.velocity.x -= impulse * nx;
-                        ball.velocity.y -= impulse * ny;
-                        ball.velocity.x += nx * Fixed64::from_int(21);
-                        ball.velocity.y += ny * Fixed64::from_int(21);
-                        if self.sim_time - ball.cooldown[slot] > Fixed64::from_ratio(13, 100) {
-                            ball.cooldown[slot] = self.sim_time;
-                            collisions[slot] = collisions[slot].saturating_add(1);
-                            let impact = normal_speed.abs().to_int();
-                            collision_gain[slot] = collision_gain[slot]
-                                .max((110 + impact * 3 / 5).clamp(120, 255) as u8);
-                        }
+                let Some(mut distance) = Vec2::fixed(dx, dy).length_below(minimum) else {
+                    continue;
+                };
+                if distance < Fixed64::from_ratio(1, 10_000) {
+                    dx = Fixed64::ONE;
+                    dy = Fixed64::ZERO;
+                    distance = Fixed64::ONE;
+                }
+                let nx = dx / distance;
+                let ny = dy / distance;
+                ball.pos = Vec2::fixed(
+                    pad.pos.x + nx * (minimum + Fixed64::from_ratio(8, 100)),
+                    pad.pos.y + ny * (minimum + Fixed64::from_ratio(8, 100)),
+                );
+                let normal_speed = ball.velocity.x * nx + ball.velocity.y * ny;
+                if normal_speed.is_negative() {
+                    let impulse = (Fixed64::ONE + pad.bounce) * normal_speed;
+                    ball.velocity.x -= impulse * nx;
+                    ball.velocity.y -= impulse * ny;
+                    ball.velocity.x += nx * Fixed64::from_int(21);
+                    ball.velocity.y += ny * Fixed64::from_int(21);
+                    if self.sim_time - ball.cooldown[slot] > Fixed64::from_ratio(13, 100) {
+                        ball.cooldown[slot] = self.sim_time;
+                        collisions[slot] = collisions[slot].saturating_add(1);
+                        let impact = normal_speed.abs().to_int();
+                        collision_gain[slot] =
+                            collision_gain[slot].max((110 + impact * 3 / 5).clamp(120, 255) as u8);
                     }
                 }
             }
@@ -740,10 +751,9 @@ impl MarbleModel {
         let t = t.clamp(Fixed64::ZERO, Fixed64::ONE);
         let closest = Vec2::fixed(a.x + delta.x * t, a.y + delta.y * t);
         let mut normal = Vec2::fixed(ball.pos.x - closest.x, ball.pos.y - closest.y);
-        let mut distance = normal.length();
-        if distance >= Fixed64::from_ratio(63, 10) {
+        let Some(mut distance) = normal.length_below(Fixed64::from_ratio(63, 10)) else {
             return;
-        }
+        };
         if distance < Fixed64::from_ratio(1, 10_000) {
             normal = Vec2::fixed(-delta.y, delta.x);
             distance = normal.length();
@@ -770,10 +780,9 @@ impl MarbleModel {
                     continue;
                 };
                 let mut delta = Vec2::fixed(b.pos.x - a.pos.x, b.pos.y - a.pos.y);
-                let mut distance = delta.length();
-                if distance >= Fixed64::from_int(8) {
+                let Some(mut distance) = delta.length_below(Fixed64::from_int(8)) else {
                     continue;
-                }
+                };
                 if distance < Fixed64::from_ratio(1, 10_000) {
                     delta = Vec2::fixed(Fixed64::ONE, Fixed64::ZERO);
                     distance = Fixed64::ONE;
@@ -1328,6 +1337,43 @@ mod tests {
         assert_eq!(model.pad_count(), 5);
         assert_eq!(model.page, Page::Play);
         assert!(core::mem::size_of::<MarbleModel>() <= 5 * 1024);
+    }
+
+    #[test]
+    fn squared_collision_rejection_matches_sqrt_at_boundaries() {
+        let unit = Fixed64::from_ratio(1, 65_536);
+        for threshold in [
+            Fixed64::from_ratio(63, 10),
+            Fixed64::from_int(8),
+            Fixed64::from_int(20),
+            Fixed64::from_int(27),
+        ] {
+            let values = [
+                Fixed64::ZERO,
+                unit,
+                Fixed64::ONE,
+                threshold - unit,
+                threshold,
+                threshold + unit,
+                threshold + Fixed64::ONE,
+                Fixed64::from_int(100),
+            ];
+            for x in values {
+                for y in values {
+                    for sx in [-Fixed64::ONE, Fixed64::ONE] {
+                        for sy in [-Fixed64::ONE, Fixed64::ONE] {
+                            let delta = Vec2::fixed(x * sx, y * sy);
+                            let original = delta.length();
+                            assert_eq!(
+                                delta.length_below(threshold),
+                                (original < threshold).then_some(original),
+                                "delta={delta:?}, threshold={threshold:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
