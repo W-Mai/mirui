@@ -1,4 +1,5 @@
 use super::*;
+use crate::gallery::play::change::ChangeSet;
 
 fn solved_orientations(level: &Level) -> [MirrorOrientation; MAX_MIRRORS] {
     let mut orientations = [MirrorOrientation::Slash; MAX_MIRRORS];
