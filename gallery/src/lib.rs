@@ -26,6 +26,9 @@ pub mod backend_parity;
 
 pub use mirui;
 
+#[cfg(any(feature = "web-canvas", feature = "snapshot"))]
+mod demo_sources;
+
 use mirui::app::{App, RendererFactory};
 use mirui::ecs::Entity;
 use mirui::surface::Surface;
@@ -149,27 +152,6 @@ macro_rules! register_demos {
 }
 
 #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
-const MARBLE_PLAY_SOURCE: &str = concat!(
-    include_str!("../../src/gallery/demos/marble_play.rs"),
-    "\n\n// marble_play/style.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/style.rs"),
-    "\n\n// marble_play/audio.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/audio.rs"),
-    "\n\n// marble_play/board.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/board.rs"),
-    "\n\n// marble_play/scenes.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/scenes.rs"),
-    "\n\n// marble_play/settings.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/settings.rs"),
-    "\n\n// marble_play/inspector.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/inspector.rs"),
-    "\n\n// marble_play/shell.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/shell.rs"),
-    "\n\n// marble_play/tests.rs\n",
-    include_str!("../../src/gallery/demos/marble_play/tests.rs"),
-);
-
-#[cfg(any(feature = "web-canvas", feature = "snapshot"))]
 register_demos! {
     ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console),
     ("layout_lab",           "Layout Lab",           "Showcase",    layout_lab),
@@ -186,7 +168,7 @@ register_demos! {
         "Marble Play",
         "Play",
         marble_play,
-        source = MARBLE_PLAY_SOURCE
+        source = demo_sources::MARBLE_PLAY
     ),
     ("lumen_lab",            "Lumen Lab",            "Play",        lumen_lab),
     ("pixel_loom",           "Pixel Loom",           "Play",        pixel_loom),
