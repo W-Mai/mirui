@@ -1,14 +1,49 @@
 extern crate alloc;
 
-use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-#[compose]
-fn todo_row(label: &'static str, completed_label: &'static str, done: Signal<bool>) -> Entity {
-    let state = done.clone();
-    let toggle = done;
+#[derive(Default)]
+#[crate::model]
+pub struct TodoModel {
+    #[observe]
+    milk: bool,
+    #[observe]
+    docs: bool,
+    #[observe]
+    release: bool,
+}
 
+#[derive(Clone, Copy)]
+enum TodoItem {
+    Milk,
+    Docs,
+    Release,
+}
+
+#[crate::model]
+impl TodoModel {
+    #[observe]
+    fn remaining(&self) -> i32 {
+        3 - i32::from(self.milk) - i32::from(self.docs) - i32::from(self.release)
+    }
+
+    fn toggle(&mut self, item: TodoItem) {
+        match item {
+            TodoItem::Milk => self.milk = !self.milk,
+            TodoItem::Docs => self.docs = !self.docs,
+            TodoItem::Release => self.release = !self.release,
+        }
+    }
+}
+
+#[compose(bind(todo))]
+fn todo_row(
+    label: &'static str,
+    completed_label: &'static str,
+    item: TodoItem,
+    todo: TodoModel,
+) -> Entity {
     ui! {
         Button (
             width: Dimension::percent(100),
@@ -18,10 +53,17 @@ fn todo_row(label: &'static str, completed_label: &'static str, done: Signal<boo
             normal_color: ColorToken::SurfaceVariant,
             pressed_color: ColorToken::Primary,
             text_color: ColorToken::OnSurface
-        ) on Tap { toggle.update(|done| *done = !*done); }
+        ) on Tap { todo.toggle(item); }
         {
             Text (
-                text: ${ alloc::string::String::from(if state.get() { completed_label } else { label }) },
+                text: ${
+                    let done = match item {
+                        TodoItem::Milk => todo.milk(),
+                        TodoItem::Docs => todo.docs(),
+                        TodoItem::Release => todo.release(),
+                    };
+                    alloc::string::String::from(if done { completed_label } else { label })
+                },
                 grow: 1.0,
                 paragraph: ParagraphStyle::label()
             )
@@ -29,17 +71,11 @@ fn todo_row(label: &'static str, completed_label: &'static str, done: Signal<boo
     }
 }
 
-#[compose]
-pub fn build_widgets() {
-    let milk = Signal::new(false);
-    let docs = Signal::new(false);
-    let release = Signal::new(false);
-    let remaining = {
-        let states = [milk.clone(), docs.clone(), release.clone()];
-        Computed::new(move || states.iter().filter(|state| !state.get()).count() as i32)
-    };
-    let summary = remaining.clone();
-
+#[compose(bind(todo))]
+pub fn build_widgets(todo: TodoModel) {
+    let milk = TodoItem::Milk;
+    let docs = TodoItem::Docs;
+    let release = TodoItem::Release;
     let _ = ui! {
         Column (
             grow: 1.0,
@@ -49,7 +85,7 @@ pub fn build_widgets() {
             row_gap: 8
         ) {
             Text (
-                text: ${ alloc::format!("{} REMAINING", summary.get()) },
+                text: ${ alloc::format!("{} REMAINING", todo.remaining()) },
                 width: Dimension::percent(100),
                 max_width: 280,
                 height: 38,
@@ -57,9 +93,9 @@ pub fn build_widgets() {
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
-            todo_row ("Buy milk", "✓  Buy milk", milk)
-            todo_row ("Write docs", "✓  Write docs", docs)
-            todo_row ("Ship release", "✓  Ship release", release)
+            todo_row ("Buy milk", "✓  Buy milk", milk, todo)
+            todo_row ("Write docs", "✓  Write docs", docs, todo)
+            todo_row ("Ship release", "✓  Ship release", release, todo)
         }
     };
 }
@@ -72,7 +108,8 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    app.compose(parent, build_widgets);
+    let todo = app.add_model(TodoModel::default());
+    app.compose(parent, |cx| build_widgets(cx, todo));
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(320, 280);
@@ -92,32 +129,72 @@ mod tests {
         t.resolve(world).into_owned()
     }
 
-    #[test]
-    fn toggling_a_row_updates_remaining_count() {
+    fn todo_world() -> (World, Entity, [Entity; 3]) {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
+        let (cell, todo) = crate::core::model::register(&mut world, TodoModel::default());
+        let registration = world.spawn_empty();
+        world.insert(registration, cell);
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx);
+        build_widgets(&mut cx, todo);
         drop(cx);
 
         let root = world.get::<Children>(parent).unwrap().0[0];
-        let kids = world.get::<Children>(root).unwrap().0.clone();
-        let summary = kids[0];
-        let first_row = kids[1];
+        let (summary, rows) = {
+            let children = &world.get::<Children>(root).unwrap().0;
+            (children[0], [children[1], children[2], children[3]])
+        };
+        (world, summary, rows)
+    }
 
-        assert_eq!(label_text(&world, summary), "3 REMAINING");
-
+    fn tap_row(world: &mut World, row: Entity) {
         GestureHandler::trigger(
-            &mut world,
-            first_row,
+            world,
+            row,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
-                target: first_row,
+                target: row,
             },
         );
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
+    }
+
+    fn row_label(world: &World, row: Entity) -> alloc::string::String {
+        let label = world.get::<Children>(row).unwrap().0[0];
+        label_text(world, label)
+    }
+
+    #[test]
+    fn toggling_a_row_updates_remaining_count() {
+        let (mut world, summary, rows) = todo_world();
+        assert_eq!(label_text(&world, summary), "3 REMAINING");
+
+        tap_row(&mut world, rows[0]);
         assert_eq!(label_text(&world, summary), "2 REMAINING");
+
+        tap_row(&mut world, rows[0]);
+        assert_eq!(label_text(&world, summary), "3 REMAINING");
+    }
+
+    #[test]
+    fn row_states_update_independently() {
+        let (mut world, summary, rows) = todo_world();
+        assert_eq!(row_label(&world, rows[0]), "Buy milk");
+        assert_eq!(row_label(&world, rows[1]), "Write docs");
+        assert_eq!(row_label(&world, rows[2]), "Ship release");
+
+        tap_row(&mut world, rows[1]);
+        assert_eq!(row_label(&world, rows[0]), "Buy milk");
+        assert_eq!(row_label(&world, rows[1]), "✓  Write docs");
+        assert_eq!(row_label(&world, rows[2]), "Ship release");
+        assert_eq!(label_text(&world, summary), "2 REMAINING");
+
+        tap_row(&mut world, rows[2]);
+        assert_eq!(row_label(&world, rows[0]), "Buy milk");
+        assert_eq!(row_label(&world, rows[1]), "✓  Write docs");
+        assert_eq!(row_label(&world, rows[2]), "✓  Ship release");
+        assert_eq!(label_text(&world, summary), "1 REMAINING");
     }
 }

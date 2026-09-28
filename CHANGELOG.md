@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reactive Todo example.** One observed model owns the three item states and derives the remaining count; row taps update the bound instance.
 - **Marble collision checks.** Distant rails, pads, and ball pairs are rejected by squared distance before fixed-point square root; near-contact thresholds and response remain unchanged.
 
 ### Fixed
