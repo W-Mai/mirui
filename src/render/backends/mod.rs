@@ -9,6 +9,9 @@ pub mod sw;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
 mod web_glyph_slot;
 
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+mod web_raster_budget;
+
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
 mod lyon_path;
 

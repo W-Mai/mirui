@@ -12,8 +12,8 @@ use alloc::vec::Vec;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{
-    BoundedGlyphRunKey, BoundedGlyphScratch, GlyphPool, TextureKey, TexturePool, new_glyph_pool,
-    new_pool,
+    BoundedGlyphRunKey, BoundedGlyphScratch, GlyphPool, SCRATCH_RESIZE_RUST_REQUEST_BUDGET,
+    TextureKey, TexturePool, new_glyph_pool, new_pool, scratch_plan,
 };
 use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
@@ -57,6 +57,9 @@ pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     bounded_text_uploads: u64,
     bounded_text_upload_bytes: u64,
     bounded_scratch_creations: u64,
+    bounded_scratch_prepare_attempts: u64,
+    bounded_scratch_prepare_failures: u64,
+    bounded_scratch_peak_usage: WebScratchResourceUsage,
     bounded_scratch_draws: u64,
     bounded_scratch_hits: u64,
     bounded_scratch_upload_bytes: u64,
@@ -67,6 +70,59 @@ pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     bounded_scratch_other_fallbacks: u64,
 }
 
+/// Resource counters for the retained bounded-glyph scratch pool.
+///
+/// Pixel counts exclude browser object overhead and internal Canvas allocations.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WebScratchResourceUsage {
+    /// Actual retained Rust RGBA slot and slot-table capacities, excluding software raster scratch.
+    pub rust_slot_capacity_bytes: usize,
+    /// Number of retained OffscreenCanvas objects.
+    pub offscreen_canvases: usize,
+    /// Number of retained ImageData objects.
+    pub image_data_objects: usize,
+    /// Requested RGBA byte lengths of the retained ImageData arrays.
+    pub image_data_pixel_bytes: usize,
+    /// RGBA-equivalent canvas area, not measured backing allocation.
+    pub canvas_nominal_pixel_bytes: usize,
+}
+
+impl WebScratchResourceUsage {
+    fn combined(self, other: Self) -> Self {
+        Self {
+            rust_slot_capacity_bytes: self
+                .rust_slot_capacity_bytes
+                .saturating_add(other.rust_slot_capacity_bytes),
+            offscreen_canvases: self
+                .offscreen_canvases
+                .saturating_add(other.offscreen_canvases),
+            image_data_objects: self
+                .image_data_objects
+                .saturating_add(other.image_data_objects),
+            image_data_pixel_bytes: self
+                .image_data_pixel_bytes
+                .saturating_add(other.image_data_pixel_bytes),
+            canvas_nominal_pixel_bytes: self
+                .canvas_nominal_pixel_bytes
+                .saturating_add(other.canvas_nominal_pixel_bytes),
+        }
+    }
+
+    fn observe_peak(&mut self, usage: Self) {
+        self.rust_slot_capacity_bytes = self
+            .rust_slot_capacity_bytes
+            .max(usage.rust_slot_capacity_bytes);
+        self.offscreen_canvases = self.offscreen_canvases.max(usage.offscreen_canvases);
+        self.image_data_objects = self.image_data_objects.max(usage.image_data_objects);
+        self.image_data_pixel_bytes = self
+            .image_data_pixel_bytes
+            .max(usage.image_data_pixel_bytes);
+        self.canvas_nominal_pixel_bytes = self
+            .canvas_nominal_pixel_bytes
+            .max(usage.canvas_nominal_pixel_bytes);
+    }
+}
+
 /// Observable native linear Web text resources since this factory was created.
 ///
 /// Path-laid-out and projective glyph runs use separate drawing routes.
@@ -75,10 +131,18 @@ pub struct WebTextResourceStats {
     pub bounded_runs: u64,
     /// Retained slot pools prepared initially or after a larger request.
     pub bounded_scratch_creations: u64,
+    /// Attempts to prepare a new slot pool; requests already fitting the current pool are excluded.
+    pub bounded_scratch_prepare_attempts: u64,
+    /// Rejected or failed new-pool preparation attempts.
+    pub bounded_scratch_prepare_failures: u64,
     /// Retained Rust RGBA slot and slot-table capacity bytes.
     pub bounded_scratch_capacity_bytes: usize,
     /// Number of retained raster images and browser surfaces.
     pub bounded_scratch_slots: usize,
+    /// Current retained scratch resources.
+    pub bounded_scratch_current: WebScratchResourceUsage,
+    /// Highest concurrent old-plus-new scratch resources, including partial failed attempts.
+    pub bounded_scratch_peak: WebScratchResourceUsage,
     /// Draws served by the prepared reusable raster surface.
     pub bounded_scratch_draws: u64,
     /// Prepared-slot matches by identity and raster content, including failed final blits.
@@ -115,6 +179,9 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             bounded_text_uploads: 0,
             bounded_text_upload_bytes: 0,
             bounded_scratch_creations: 0,
+            bounded_scratch_prepare_attempts: 0,
+            bounded_scratch_prepare_failures: 0,
+            bounded_scratch_peak_usage: WebScratchResourceUsage::default(),
             bounded_scratch_draws: 0,
             bounded_scratch_hits: 0,
             bounded_scratch_upload_bytes: 0,
@@ -139,6 +206,9 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             bounded_text_uploads: self.bounded_text_uploads,
             bounded_text_upload_bytes: self.bounded_text_upload_bytes,
             bounded_scratch_creations: self.bounded_scratch_creations,
+            bounded_scratch_prepare_attempts: self.bounded_scratch_prepare_attempts,
+            bounded_scratch_prepare_failures: self.bounded_scratch_prepare_failures,
+            bounded_scratch_peak_usage: self.bounded_scratch_peak_usage,
             bounded_scratch_draws: self.bounded_scratch_draws,
             bounded_scratch_hits: self.bounded_scratch_hits,
             bounded_scratch_upload_bytes: self.bounded_scratch_upload_bytes,
@@ -164,6 +234,10 @@ impl<S> WebCanvasRendererFactory<S> {
         retained_runs: usize,
     ) -> Result<(), RenderError> {
         if max_physical_width == 0 || max_physical_height == 0 || retained_runs == 0 {
+            self.bounded_scratch_prepare_attempts =
+                self.bounded_scratch_prepare_attempts.saturating_add(1);
+            self.bounded_scratch_prepare_failures =
+                self.bounded_scratch_prepare_failures.saturating_add(1);
             return Err(RenderError::InvalidGeometry);
         }
         let (width, height) = self
@@ -180,7 +254,9 @@ impl<S> WebCanvasRendererFactory<S> {
         {
             return Ok(());
         }
-        let scratch = BoundedGlyphScratch::new(
+        self.bounded_scratch_prepare_attempts =
+            self.bounded_scratch_prepare_attempts.saturating_add(1);
+        let plan = match scratch_plan(
             width.max(max_physical_width),
             height.max(max_physical_height),
             retained_runs.max(
@@ -188,7 +264,39 @@ impl<S> WebCanvasRendererFactory<S> {
                     .as_ref()
                     .map_or(0, |scratch| scratch.slot_count()),
             ),
-        )?;
+        ) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.bounded_scratch_prepare_failures =
+                    self.bounded_scratch_prepare_failures.saturating_add(1);
+                return Err(error);
+            }
+        };
+        let previous = self.bounded_glyph_scratch.as_ref();
+        if let Err(error) = plan.checked_resize_peak(
+            previous.map(BoundedGlyphScratch::plan),
+            SCRATCH_RESIZE_RUST_REQUEST_BUDGET,
+        ) {
+            self.bounded_scratch_prepare_failures =
+                self.bounded_scratch_prepare_failures.saturating_add(1);
+            return Err(error);
+        }
+        let old_usage = previous.map_or(
+            WebScratchResourceUsage::default(),
+            BoundedGlyphScratch::resident_usage,
+        );
+        let mut new_usage = WebScratchResourceUsage::default();
+        let result = BoundedGlyphScratch::new(plan, &mut new_usage);
+        self.bounded_scratch_peak_usage
+            .observe_peak(old_usage.combined(new_usage));
+        let scratch = match result {
+            Ok(scratch) => scratch,
+            Err(error) => {
+                self.bounded_scratch_prepare_failures =
+                    self.bounded_scratch_prepare_failures.saturating_add(1);
+                return Err(error);
+            }
+        };
         if let Some(previous) = self.bounded_glyph_scratch.replace(scratch) {
             self.bounded_scratch_evictions = self
                 .bounded_scratch_evictions
@@ -199,17 +307,22 @@ impl<S> WebCanvasRendererFactory<S> {
     }
 
     pub fn text_resource_stats(&self) -> WebTextResourceStats {
+        let current_usage = self.bounded_glyph_scratch.as_ref().map_or(
+            WebScratchResourceUsage::default(),
+            BoundedGlyphScratch::resident_usage,
+        );
         WebTextResourceStats {
             bounded_runs: self.bounded_text_runs,
             bounded_scratch_creations: self.bounded_scratch_creations,
-            bounded_scratch_capacity_bytes: self
-                .bounded_glyph_scratch
-                .as_ref()
-                .map_or(0, |scratch| scratch.resident_rust_bytes()),
+            bounded_scratch_prepare_attempts: self.bounded_scratch_prepare_attempts,
+            bounded_scratch_prepare_failures: self.bounded_scratch_prepare_failures,
+            bounded_scratch_capacity_bytes: current_usage.rust_slot_capacity_bytes,
             bounded_scratch_slots: self
                 .bounded_glyph_scratch
                 .as_ref()
                 .map_or(0, |scratch| scratch.slot_count()),
+            bounded_scratch_current: current_usage,
+            bounded_scratch_peak: self.bounded_scratch_peak_usage,
             bounded_scratch_draws: self.bounded_scratch_draws,
             bounded_scratch_hits: self.bounded_scratch_hits,
             bounded_scratch_upload_bytes: self.bounded_scratch_upload_bytes,

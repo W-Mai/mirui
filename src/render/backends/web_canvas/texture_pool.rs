@@ -14,11 +14,14 @@ use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::backends::sw::{SwRenderer, SwScratch};
 use crate::render::backends::web_glyph_slot::{SlotSelection, select_slot};
+use crate::render::backends::web_raster_budget::RasterScratchPlan;
 use crate::render::canvas::Canvas;
 use crate::render::font::{Font, RasterRunBounds, RasterRunKey};
 use crate::render::renderer::{RenderError, RenderResource, TextRunIdentity};
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
+
+use super::WebScratchResourceUsage;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureKey {
@@ -69,7 +72,9 @@ pub fn new_pool() -> TexturePool {
         .build()
 }
 
-const GLYPH_BUDGET: usize = 8 * 1024 * 1024;
+const GLYPH_CACHE_BUDGET: usize = 8 * 1024 * 1024;
+const SCRATCH_GENERATION_RGBA_BUDGET: usize = 8 * 1024 * 1024;
+pub(super) const SCRATCH_RESIZE_RUST_REQUEST_BUDGET: usize = 8 * 1024 * 1024;
 
 pub type GlyphPool = Cache<
     crate::render::font::RasterRunKey,
@@ -80,7 +85,7 @@ pub type GlyphPool = Cache<
 
 pub fn new_glyph_pool() -> GlyphPool {
     Cache::builder()
-        .max_size(MaxSize::Bytes(GLYPH_BUDGET))
+        .max_size(MaxSize::Bytes(GLYPH_CACHE_BUDGET))
         .build()
 }
 
@@ -96,6 +101,20 @@ struct BoundedGlyphSlot {
     rust_view: Option<Uint8ClampedArray>,
 }
 
+pub(super) fn scratch_plan(
+    width: u16,
+    height: u16,
+    slot_count: usize,
+) -> Result<RasterScratchPlan, RenderError> {
+    RasterScratchPlan::new(
+        width,
+        height,
+        slot_count,
+        core::mem::size_of::<BoundedGlyphSlot>(),
+        SCRATCH_GENERATION_RGBA_BUDGET,
+    )
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct BoundedGlyphRunKey {
     pub identity: TextRunIdentity,
@@ -104,8 +123,7 @@ pub(super) struct BoundedGlyphRunKey {
 
 /// Fixed retained RGBA slots with matching browser upload surfaces.
 pub struct BoundedGlyphScratch {
-    width: u16,
-    height: u16,
+    plan: RasterScratchPlan,
     slots: Vec<BoundedGlyphSlot>,
     use_clock: u64,
     evictions: u64,
@@ -113,40 +131,41 @@ pub struct BoundedGlyphScratch {
 }
 
 impl BoundedGlyphScratch {
-    pub fn new(width: u16, height: u16, slot_count: usize) -> Result<Self, RenderError> {
-        if width == 0 || height == 0 || slot_count == 0 {
-            return Err(RenderError::InvalidGeometry);
-        }
-        let bytes = usize::from(width)
-            .checked_mul(usize::from(height))
-            .and_then(|pixels| pixels.checked_mul(4))
-            .filter(|bytes| *bytes <= u32::MAX as usize)
-            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
-        let retained_bytes = bytes
-            .checked_mul(slot_count)
-            .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
-        if retained_bytes > GLYPH_BUDGET {
-            return Err(RenderError::ResourceLimit(RenderResource::Target));
-        }
+    pub fn new(
+        plan: RasterScratchPlan,
+        usage: &mut WebScratchResourceUsage,
+    ) -> Result<Self, RenderError> {
+        plan.checked_resize_peak(None, SCRATCH_RESIZE_RUST_REQUEST_BUDGET)?;
+        let bytes = plan.rgba_bytes_per_slot;
         let mut slots = Vec::new();
         slots
-            .try_reserve_exact(slot_count)
+            .try_reserve_exact(plan.slots)
             .map_err(|_| RenderError::ResourceLimit(RenderResource::Target))?;
-        for _ in 0..slot_count {
+        usage.rust_slot_capacity_bytes =
+            slots.capacity() * core::mem::size_of::<BoundedGlyphSlot>();
+        for _ in 0..plan.slots {
             let mut rgba = Vec::new();
             rgba.try_reserve_exact(bytes)
                 .map_err(|_| RenderError::ResourceLimit(RenderResource::Target))?;
+            usage.rust_slot_capacity_bytes = usage
+                .rust_slot_capacity_bytes
+                .saturating_add(rgba.capacity());
             rgba.resize(bytes, 0);
-            let canvas = OffscreenCanvas::new(u32::from(width), u32::from(height))
+            let canvas = OffscreenCanvas::new(u32::from(plan.width), u32::from(plan.height))
                 .map_err(|_| RenderError::BackendFailure)?;
+            usage.offscreen_canvases += 1;
+            usage.canvas_nominal_pixel_bytes =
+                usage.canvas_nominal_pixel_bytes.saturating_add(bytes);
             let context = canvas
                 .get_context("2d")
                 .map_err(|_| RenderError::BackendFailure)?
                 .ok_or(RenderError::BackendFailure)?
                 .dyn_into::<OffscreenCanvasRenderingContext2d>()
                 .map_err(|_| RenderError::BackendFailure)?;
-            let image_data = ImageData::new_with_sw(u32::from(width), u32::from(height))
+            let image_data = ImageData::new_with_sw(u32::from(plan.width), u32::from(plan.height))
                 .map_err(|_| RenderError::BackendFailure)?;
+            usage.image_data_objects += 1;
+            usage.image_data_pixel_bytes = usage.image_data_pixel_bytes.saturating_add(bytes);
             // web-sys's typed `ImageData::data()` getter copies into a Rust Vec.
             let js_pixels = js_sys::Reflect::get(image_data.as_ref(), &JsValue::from_str("data"))
                 .map_err(|_| RenderError::BackendFailure)?
@@ -175,8 +194,7 @@ impl BoundedGlyphScratch {
         }
 
         Ok(Self {
-            width,
-            height,
+            plan,
             slots,
             use_clock: 0,
             evictions: 0,
@@ -185,7 +203,11 @@ impl BoundedGlyphScratch {
     }
 
     pub fn dimensions(&self) -> (u16, u16) {
-        (self.width, self.height)
+        (self.plan.width, self.plan.height)
+    }
+
+    pub fn plan(&self) -> RasterScratchPlan {
+        self.plan
     }
 
     pub fn slot_count(&self) -> usize {
@@ -197,7 +219,7 @@ impl BoundedGlyphScratch {
     }
 
     pub fn fits(&self, width: u16, height: u16) -> bool {
-        width <= self.width && height <= self.height
+        width <= self.plan.width && height <= self.plan.height
     }
 
     pub fn canvas(&self, index: usize) -> &OffscreenCanvas {
@@ -215,6 +237,16 @@ impl BoundedGlyphScratch {
                 .iter()
                 .map(|slot| slot.rgba.capacity())
                 .sum::<usize>()
+    }
+
+    pub fn resident_usage(&self) -> WebScratchResourceUsage {
+        WebScratchResourceUsage {
+            rust_slot_capacity_bytes: self.resident_rust_bytes(),
+            offscreen_canvases: self.slots.len(),
+            image_data_objects: self.slots.len(),
+            image_data_pixel_bytes: self.plan.rgba_bytes_total,
+            canvas_nominal_pixel_bytes: self.plan.rgba_bytes_total,
+        }
     }
 
     pub fn rasterize_and_upload(
@@ -254,7 +286,7 @@ impl BoundedGlyphScratch {
         }
         slot.identity = Some(run.identity);
         slot.key = None;
-        let stride = usize::from(self.width) * 4;
+        let stride = usize::from(self.plan.width) * 4;
         let used_row_bytes = usize::from(bounds.width) * 4;
         for row in slot
             .rgba
@@ -300,13 +332,13 @@ impl BoundedGlyphScratch {
                 slot.rgba[edge_start + 2],
                 slot.rgba[edge_start + 3],
             ];
-            for x in usize::from(bounds.width)..usize::from(self.width) {
+            for x in usize::from(bounds.width)..usize::from(self.plan.width) {
                 let dst = row_start + x * 4;
                 slot.rgba[dst..dst + 4].copy_from_slice(&edge);
             }
         }
         let bottom_start = (usize::from(bounds.height) - 1) * stride;
-        for y in usize::from(bounds.height)..usize::from(self.height) {
+        for y in usize::from(bounds.height)..usize::from(self.plan.height) {
             slot.rgba
                 .copy_within(bottom_start..bottom_start + stride, y * stride);
         }
