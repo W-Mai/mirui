@@ -114,3 +114,17 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    TIDAL_ATLAS,
+    "tidal_atlas",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "persistence.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);

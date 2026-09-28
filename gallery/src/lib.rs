@@ -177,7 +177,7 @@ register_demos! {
     ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit, source = demo_sources::LOGIC_CIRCUIT),
     ("module_factory",       "Module Factory",       "Play",        module_factory, source = demo_sources::MODULE_FACTORY),
     ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission, source = demo_sources::ORBITAL_MISSION),
-    ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas),
+    ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas, source = demo_sources::TIDAL_ATLAS),
     ("echo_walker",          "Echo Walker",          "Play",        echo_walker),
     ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons),
     ("folding_ark",          "Folding Ark",          "Play",        folding_ark),
@@ -655,6 +655,19 @@ mod tests {
                     "tests.rs",
                 ][..],
                 "fn paint_factory_surface",
+            ),
+            (
+                "tidal_atlas",
+                &[
+                    "style.rs",
+                    "state.rs",
+                    "render.rs",
+                    "input.rs",
+                    "persistence.rs",
+                    "shell.rs",
+                    "tests.rs",
+                ][..],
+                "fn paint_surface",
             ),
         ];
 

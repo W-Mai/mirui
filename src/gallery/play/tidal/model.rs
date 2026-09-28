@@ -1,244 +1,9 @@
+use super::goals::GOALS;
+use super::types::{
+    BOARD_SIZE, Forecast, Goal, HISTORY_CAPACITY, ISLAND_COUNT, IslandResult, Perk, TideCommand,
+    TideLevel, TideMessage, TideModal, Tile, Weather,
+};
 use crate::gallery::play::change::ChangeSet;
-
-pub(crate) const BOARD_SIZE: usize = 36;
-pub(crate) const ISLAND_COUNT: usize = 4;
-pub(crate) const HISTORY_CAPACITY: usize = 24;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[repr(u8)]
-pub(crate) enum Tile {
-    #[default]
-    Sea = 0,
-    Grove = 1,
-    Field = 2,
-    Hamlet = 3,
-    Harbor = 4,
-    Lens = 5,
-    Lagoon = 6,
-    Beacon = 7,
-    Dike = 8,
-}
-
-impl Tile {
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::Sea => "海域",
-            Self::Grove => "森林",
-            Self::Field => "梯田",
-            Self::Hamlet => "聚落",
-            Self::Harbor => "港湾",
-            Self::Lens => "观星台",
-            Self::Lagoon => "泻湖",
-            Self::Beacon => "灯塔",
-            Self::Dike => "石堤",
-        }
-    }
-
-    pub(crate) const fn description(self) -> &'static str {
-        match self {
-            Self::Sea => "相邻海域",
-            Self::Grove => "基础 2；每片邻林 +2",
-            Self::Field => "基础 2；每面临水 +2",
-            Self::Hamlet => "基础 3；每种邻居 +2",
-            Self::Harbor => "基础 1；每面临水 +2",
-            Self::Lens => "基础 3；每面空海 +2",
-            Self::Lagoon => "基础 1；邻田 / 港 +2",
-            Self::Beacon => "基础 2；每座邻港 +3",
-            Self::Dike => "基础 2；每片邻林 +1",
-        }
-    }
-
-    pub(crate) const fn rule(self) -> &'static str {
-        match self {
-            Self::Sea => "海域为相邻地块提供水面",
-            Self::Grove => "邻接梯田再 +1",
-            Self::Field | Self::Hamlet => "涨潮时，低地停产",
-            Self::Harbor => "涨潮时额外 +3",
-            Self::Lens => "长夜时额外 +3",
-            Self::Lagoon => "为邻格永久提供水面",
-            Self::Beacon => "风暴时额外 +2",
-            Self::Dike => "保护四邻低地不被淹",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum TideLevel {
-    #[default]
-    Low,
-    High,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum Weather {
-    #[default]
-    Clear,
-    Harvest,
-    LongNight,
-    Storm,
-}
-
-impl Weather {
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::Clear => "晴朗",
-            Self::Harvest => "丰收",
-            Self::LongNight => "长夜",
-            Self::Storm => "风暴",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct Forecast {
-    pub(crate) tide: TideLevel,
-    pub(crate) weather: Weather,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub(crate) enum Perk {
-    Forest,
-    Water,
-    Town,
-    Star,
-    Levee,
-    Lagoon,
-    Beacon,
-    Survey,
-}
-
-impl Perk {
-    const ALL: [Self; 8] = [
-        Self::Forest,
-        Self::Water,
-        Self::Town,
-        Self::Star,
-        Self::Levee,
-        Self::Lagoon,
-        Self::Beacon,
-        Self::Survey,
-    ];
-
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::Forest => "林间协议",
-            Self::Water => "潮汐学说",
-            Self::Town => "邻里公约",
-            Self::Star => "长夜观测",
-            Self::Levee => "低地复兴",
-            Self::Lagoon => "水脉复苏",
-            Self::Beacon => "远航信标",
-            Self::Survey => "高地测绘",
-        }
-    }
-
-    pub(crate) const fn description(self) -> &'static str {
-        match self {
-            Self::Forest => "森林每次结算 +2",
-            Self::Water => "港湾每次结算 +2",
-            Self::Town => "聚落每种邻居再 +1",
-            Self::Star => "观星台每次结算 +3",
-            Self::Levee => "梯田 / 聚落免疫涨潮",
-            Self::Lagoon => "泻湖每次结算 +3",
-            Self::Beacon => "灯塔每次结算 +3",
-            Self::Survey => "高地建筑每次结算 +1",
-        }
-    }
-
-    const fn bit(self) -> u8 {
-        1 << self as u8
-    }
-
-    #[cfg(feature = "persistence")]
-    pub(crate) const fn from_code(code: u8) -> Option<Self> {
-        match code {
-            0 => Some(Self::Forest),
-            1 => Some(Self::Water),
-            2 => Some(Self::Town),
-            3 => Some(Self::Star),
-            4 => Some(Self::Levee),
-            5 => Some(Self::Lagoon),
-            6 => Some(Self::Beacon),
-            7 => Some(Self::Survey),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct Goal {
-    pub(crate) name: &'static str,
-    pub(crate) tile: Tile,
-    pub(crate) count: u8,
-}
-
-const GOALS: [Goal; 6] = [
-    Goal {
-        name: "连片森林",
-        tile: Tile::Grove,
-        count: 5,
-    },
-    Goal {
-        name: "潮汐农场",
-        tile: Tile::Field,
-        count: 4,
-    },
-    Goal {
-        name: "港口之约",
-        tile: Tile::Harbor,
-        count: 4,
-    },
-    Goal {
-        name: "星图编织",
-        tile: Tile::Lens,
-        count: 3,
-    },
-    Goal {
-        name: "邻里计划",
-        tile: Tile::Hamlet,
-        count: 4,
-    },
-    Goal {
-        name: "万象群岛",
-        tile: Tile::Sea,
-        count: 8,
-    },
-];
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct IslandResult {
-    pub(crate) score: u16,
-    pub(crate) target: u16,
-    pub(crate) goal: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum TideModal {
-    #[default]
-    None,
-    Voyage,
-    Result,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TideMessage {
-    Ready,
-    Placed(Tile),
-    Harvest(u8, u16),
-    Rerolled,
-    Undone,
-    Settled(bool),
-    Complete,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TideCommand {
-    Place { index: u8, choice: u8 },
-    Reroll,
-    Undo,
-    Continue { perk: Option<Perk> },
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Rng(u32);
@@ -263,14 +28,14 @@ impl Rng {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct TideState {
-    terrain: [u8; BOARD_SIZE],
-    board: [Tile; BOARD_SIZE],
+pub(super) struct TideState {
+    pub(super) terrain: [u8; BOARD_SIZE],
+    pub(super) board: [Tile; BOARD_SIZE],
     forecasts: [Forecast; 4],
     offer: [Tile; 3],
     perk_offer: [Perk; 3],
     harvests: [u16; 4],
-    results: [IslandResult; ISLAND_COUNT],
+    pub(super) results: [IslandResult; ISLAND_COUNT],
     rng: u32,
     total: u16,
     score: u16,
@@ -281,7 +46,7 @@ struct TideState {
     turn: u8,
     rerolls: u8,
     harvest_len: u8,
-    result_len: u8,
+    pub(super) result_len: u8,
     goal: u8,
     settled: bool,
     complete: bool,
@@ -321,10 +86,10 @@ impl TideState {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct TideHistory {
+pub(super) struct TideHistory {
     entries: [TideState; HISTORY_CAPACITY],
     start: u8,
-    len: u8,
+    pub(super) len: u8,
 }
 
 impl TideHistory {
@@ -363,8 +128,8 @@ impl TideHistory {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TideModel {
-    state: TideState,
-    history: TideHistory,
+    pub(super) state: TideState,
+    pub(super) history: TideHistory,
     seed: u32,
     selected: Option<u8>,
     pending: Option<u8>,
@@ -852,149 +617,4 @@ fn adjacent(index: usize) -> [Option<usize>; 4] {
         (y > 0).then(|| index - 6),
         (y < 5).then(|| index + 6),
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn best_move(model: &TideModel) -> (u8, u8) {
-        let mut best = None;
-        for index in 0..BOARD_SIZE {
-            for choice in 0..3 {
-                if let Some((_, delta)) = model.preview(index, choice) {
-                    let goal_bonus = i16::from(model.offer(choice) == model.goal().tile) * 2;
-                    if best.is_none_or(|(_, value, _, _)| delta + goal_bonus > value) {
-                        best = Some((index as u8, delta + goal_bonus, choice as u8, delta));
-                    }
-                }
-            }
-        }
-        let (index, _, choice, _) = best.expect("legal placement");
-        (index, choice)
-    }
-
-    fn solve_island(model: &mut TideModel) {
-        while !model.settled() {
-            let (index, choice) = best_move(model);
-            assert!(model.place(index, choice).contains(ChangeSet::MODEL));
-        }
-    }
-
-    #[test]
-    fn reference_seed_matches_exported_initial_state() {
-        let model = TideModel::default();
-        assert_eq!(model.seed(), 4096);
-        assert_eq!(model.terrain(0), 1);
-        assert_eq!(model.terrain(1), 0);
-        assert_eq!(model.tile(14), Tile::Beacon);
-        assert_eq!(model.tile(15), Tile::Grove);
-        assert_eq!(model.tile(20), Tile::Lagoon);
-        assert_eq!(model.offer(0), Tile::Beacon);
-        assert_eq!(model.offer(1), Tile::Lens);
-        assert_eq!(model.offer(2), Tile::Harbor);
-        assert_eq!(model.goal().name, "邻里计划");
-    }
-
-    #[test]
-    fn preview_is_pure_and_adjacency_is_cardinal() {
-        let model = TideModel::new(8);
-        assert!(!model.valid(0));
-        assert!(model.valid(13));
-        assert!(!model.valid(14));
-        let before = model;
-        assert!(model.preview(13, 0).is_some());
-        assert_eq!(model.state, before.state);
-        assert_eq!(model.history.len, before.history.len);
-    }
-
-    #[test]
-    fn scoring_preserves_water_flood_and_distinct_neighbour_rules() {
-        let mut model = TideModel::new(4);
-        model.state.board.fill(Tile::Sea);
-        model.state.terrain.fill(1);
-        model.state.board[14] = Tile::Field;
-        assert_eq!(model.tile_score(14, Forecast::default()), 10);
-        model.state.terrain[14] = 0;
-        assert_eq!(
-            model.tile_score(
-                14,
-                Forecast {
-                    tide: TideLevel::High,
-                    weather: Weather::Clear
-                }
-            ),
-            0
-        );
-        model.state.board[15] = Tile::Dike;
-        assert!(
-            model.tile_score(
-                14,
-                Forecast {
-                    tide: TideLevel::High,
-                    weather: Weather::Clear
-                }
-            ) > 0
-        );
-        model.state.board.fill(Tile::Sea);
-        model.state.board[14] = Tile::Hamlet;
-        model.state.board[13] = Tile::Grove;
-        model.state.board[15] = Tile::Grove;
-        assert_eq!(model.tile_score(14, Forecast::default()), 5);
-    }
-
-    #[test]
-    fn placement_harvest_and_undo_are_atomic() {
-        let mut model = TideModel::new(9);
-        let initial = model.state;
-        let (index, choice) = best_move(&model);
-        model.place(index, choice);
-        assert_eq!(model.turn(), 1);
-        model.undo();
-        assert_eq!(model.state, initial);
-        for _ in 0..6 {
-            let (index, choice) = best_move(&model);
-            model.place(index, choice);
-        }
-        assert_eq!(model.harvest_len(), 1);
-        assert!(model.score() > 0);
-    }
-
-    #[test]
-    fn full_campaign_completes_without_unbounded_state() {
-        let mut model = TideModel::new(12);
-        for island in 0..ISLAND_COUNT {
-            solve_island(&mut model);
-            assert_eq!(model.turn(), 24);
-            assert_eq!(model.harvest_len(), 4);
-            let perk = (island < 3).then(|| model.perk_offer(0));
-            model.continue_voyage(perk);
-        }
-        assert!(model.complete());
-        assert_eq!(model.state.result_len, 4);
-        assert_eq!(
-            model.total(),
-            model
-                .state
-                .results
-                .iter()
-                .map(|result| result.score)
-                .sum::<u16>()
-        );
-        assert!(core::mem::size_of::<TideModel>() <= 8 * 1024);
-    }
-
-    #[test]
-    fn reroll_and_history_are_bounded() {
-        let mut model = TideModel::new(15);
-        for _ in 0..3 {
-            assert!(model.reroll().contains(ChangeSet::MODEL));
-        }
-        assert!(!model.reroll().contains(ChangeSet::MODEL));
-        while model.history_len() < HISTORY_CAPACITY as u8 {
-            let (index, choice) = best_move(&model);
-            model.place(index, choice);
-        }
-        assert_eq!(model.history_len(), HISTORY_CAPACITY as u8);
-    }
 }
