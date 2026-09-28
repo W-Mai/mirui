@@ -88,3 +88,16 @@ split_demo_source!(
     "orbital_mission",
     ["style.rs", "state.rs", "render.rs", "input.rs", "shell.rs",]
 );
+
+split_demo_source!(
+    LOGIC_CIRCUIT,
+    "logic_circuit",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);
