@@ -18,6 +18,7 @@ use self::texture_pool::{
 use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
 use crate::render::backends::sw::SwRenderer;
+use crate::render::backends::web_raster_budget::{ScratchPrepareRequest, ScratchPrepareRetry};
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
@@ -52,6 +53,7 @@ pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     texture_pool: TexturePool,
     glyph_pool: GlyphPool,
     bounded_glyph_scratch: Option<BoundedGlyphScratch>,
+    bounded_scratch_retry: ScratchPrepareRetry,
     projective_fallback: Option<ProjectiveFallback<S>>,
     bounded_text_runs: u64,
     bounded_text_uploads: u64,
@@ -131,7 +133,7 @@ pub struct WebTextResourceStats {
     pub bounded_runs: u64,
     /// Retained slot pools prepared initially or after a larger request.
     pub bounded_scratch_creations: u64,
-    /// Attempts to prepare a new slot pool; requests already fitting the current pool are excluded.
+    /// Actual new-pool attempts, excluding cache hits and skipped failed requests.
     pub bounded_scratch_prepare_attempts: u64,
     /// Rejected or failed new-pool preparation attempts.
     pub bounded_scratch_prepare_failures: u64,
@@ -174,6 +176,7 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             texture_pool: new_pool(),
             glyph_pool: new_glyph_pool(),
             bounded_glyph_scratch: None,
+            bounded_scratch_retry: ScratchPrepareRetry::default(),
             projective_fallback: None,
             bounded_text_runs: 0,
             bounded_text_uploads: 0,
@@ -201,6 +204,7 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             texture_pool: self.texture_pool,
             glyph_pool: self.glyph_pool,
             bounded_glyph_scratch: self.bounded_glyph_scratch,
+            bounded_scratch_retry: self.bounded_scratch_retry,
             projective_fallback: Some(fallback),
             bounded_text_runs: self.bounded_text_runs,
             bounded_text_uploads: self.bounded_text_uploads,
@@ -233,16 +237,24 @@ impl<S> WebCanvasRendererFactory<S> {
         max_physical_height: u16,
         retained_runs: usize,
     ) -> Result<(), RenderError> {
+        let previous = self.bounded_glyph_scratch.as_ref();
+        let request = ScratchPrepareRequest {
+            width: max_physical_width,
+            height: max_physical_height,
+            slots: retained_runs,
+            previous: previous.map(BoundedGlyphScratch::plan),
+        };
+        self.bounded_scratch_retry.before_attempt(request)?;
         if max_physical_width == 0 || max_physical_height == 0 || retained_runs == 0 {
             self.bounded_scratch_prepare_attempts =
                 self.bounded_scratch_prepare_attempts.saturating_add(1);
             self.bounded_scratch_prepare_failures =
                 self.bounded_scratch_prepare_failures.saturating_add(1);
+            self.bounded_scratch_retry
+                .deterministic_failure(request, RenderError::InvalidGeometry);
             return Err(RenderError::InvalidGeometry);
         }
-        let (width, height) = self
-            .bounded_glyph_scratch
-            .as_ref()
+        let (width, height) = previous
             .map(|scratch| scratch.dimensions())
             .unwrap_or((0, 0));
         if max_physical_width <= width
@@ -269,6 +281,8 @@ impl<S> WebCanvasRendererFactory<S> {
             Err(error) => {
                 self.bounded_scratch_prepare_failures =
                     self.bounded_scratch_prepare_failures.saturating_add(1);
+                self.bounded_scratch_retry
+                    .deterministic_failure(request, error);
                 return Err(error);
             }
         };
@@ -279,6 +293,8 @@ impl<S> WebCanvasRendererFactory<S> {
         ) {
             self.bounded_scratch_prepare_failures =
                 self.bounded_scratch_prepare_failures.saturating_add(1);
+            self.bounded_scratch_retry
+                .deterministic_failure(request, error);
             return Err(error);
         }
         let old_usage = previous.map_or(
@@ -294,6 +310,7 @@ impl<S> WebCanvasRendererFactory<S> {
             Err(error) => {
                 self.bounded_scratch_prepare_failures =
                     self.bounded_scratch_prepare_failures.saturating_add(1);
+                self.bounded_scratch_retry.transient_failure(request, error);
                 return Err(error);
             }
         };
@@ -303,6 +320,7 @@ impl<S> WebCanvasRendererFactory<S> {
                 .saturating_add(previous.evictions());
         }
         self.bounded_scratch_creations = self.bounded_scratch_creations.saturating_add(1);
+        self.bounded_scratch_retry.clear();
         Ok(())
     }
 
@@ -392,6 +410,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
         let width = physical_extent(max_logical_width, scale)?;
         let height = physical_extent(max_logical_height, scale)?;
         self.prepare_bounded_text_raster(width, height, retained_runs)
+    }
+
+    fn trim_memory(&mut self) {
+        self.texture_pool = new_pool();
+        self.glyph_pool = new_glyph_pool();
+        if let Some(scratch) = self.bounded_glyph_scratch.take() {
+            self.bounded_scratch_evictions = self
+                .bounded_scratch_evictions
+                .saturating_add(scratch.evictions());
+        }
+        self.bounded_scratch_retry.clear();
     }
 }
 

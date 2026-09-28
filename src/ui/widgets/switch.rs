@@ -193,13 +193,12 @@ fn on_thumb_x(rect: &Rect) -> Fixed {
 // Pre-layout we don't know rect yet, so attach can't compute it.
 #[crate::system(order = ANIMATION, expect = Switch)]
 pub(crate) fn switch_init_system(world: &mut World) {
-    let entities: alloc::vec::Vec<Entity> = world.query::<Switch>().collect();
-    for e in entities {
+    world.for_each_stable::<Switch>(|world, e| {
         if world.get::<AnimatedThumbX>(e).is_some() {
-            continue;
+            return;
         }
         let Some(rect) = world.get::<ComputedRect>(e).map(|r| r.0) else {
-            continue;
+            return;
         };
         let on = world.get::<Switch>(e).map(|s| s.on).unwrap_or(false);
         let x = if on {
@@ -208,7 +207,7 @@ pub(crate) fn switch_init_system(world: &mut World) {
             off_thumb_x(&rect)
         };
         world.insert(e, AnimatedThumbX(x));
-    }
+    });
 }
 
 fn switch_render(
@@ -492,6 +491,25 @@ mod tests {
             "ON knob must move right as the track widens so resize tracks the edge",
         );
         assert_eq!(off_thumb_x(&wide), off_thumb_x(&narrow));
+    }
+
+    #[test]
+    fn init_seeds_switches_after_their_layout_is_available() {
+        let mut world = World::new();
+        let ready = world.spawn_empty();
+        let waiting = world.spawn_empty();
+        world.insert(ready, Switch::new());
+        world.insert(waiting, Switch::new());
+        world.insert(ready, ComputedRect(Rect::new(0, 0, 54, 24)));
+
+        switch_init_system(&mut world);
+        let first = world.get::<AnimatedThumbX>(ready).unwrap().0;
+        assert!(world.get::<AnimatedThumbX>(waiting).is_none());
+
+        world.insert(waiting, ComputedRect(Rect::new(0, 0, 72, 24)));
+        switch_init_system(&mut world);
+        assert_eq!(world.get::<AnimatedThumbX>(ready).unwrap().0, first);
+        assert_eq!(world.get::<AnimatedThumbX>(waiting).unwrap().0, first);
     }
 
     #[test]

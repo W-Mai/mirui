@@ -62,6 +62,90 @@ impl RasterScratchPlan {
     }
 }
 
+/// Inputs that determine whether a failed pool replacement can be retried unchanged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ScratchPrepareRequest {
+    pub width: u16,
+    pub height: u16,
+    pub slots: usize,
+    pub previous: Option<RasterScratchPlan>,
+}
+
+// Retry at least once every 65 preparation calls while a request remains unchanged.
+const MAX_TRANSIENT_RETRY_SKIP_CALLS: u8 = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ScratchPrepareFailure {
+    request: ScratchPrepareRequest,
+    error: RenderError,
+    retry: Option<TransientRetry>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TransientRetry {
+    skip_calls: u8,
+    calls_remaining: u8,
+}
+
+/// One-entry failure gate; it retains no browser objects or heap storage.
+#[derive(Default)]
+pub(super) struct ScratchPrepareRetry {
+    failure: Option<ScratchPrepareFailure>,
+}
+
+impl ScratchPrepareRetry {
+    pub fn before_attempt(&mut self, request: ScratchPrepareRequest) -> Result<(), RenderError> {
+        let Some(failure) = self.failure.as_mut() else {
+            return Ok(());
+        };
+        if failure.request != request {
+            self.failure = None;
+            return Ok(());
+        }
+        if let Some(retry) = failure.retry.as_mut() {
+            if retry.calls_remaining == 0 {
+                return Ok(());
+            }
+            retry.calls_remaining -= 1;
+        }
+        Err(failure.error)
+    }
+
+    pub fn deterministic_failure(&mut self, request: ScratchPrepareRequest, error: RenderError) {
+        self.failure = Some(ScratchPrepareFailure {
+            request,
+            error,
+            retry: None,
+        });
+    }
+
+    pub fn transient_failure(&mut self, request: ScratchPrepareRequest, error: RenderError) {
+        let skip_calls = self
+            .failure
+            .as_ref()
+            .filter(|failure| failure.request == request)
+            .and_then(|failure| failure.retry)
+            .map_or(1, |retry| {
+                retry
+                    .skip_calls
+                    .saturating_mul(2)
+                    .min(MAX_TRANSIENT_RETRY_SKIP_CALLS)
+            });
+        self.failure = Some(ScratchPrepareFailure {
+            request,
+            error,
+            retry: Some(TransientRetry {
+                skip_calls,
+                calls_remaining: skip_calls,
+            }),
+        });
+    }
+
+    pub fn clear(&mut self) {
+        self.failure = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +211,62 @@ mod tests {
             Err(RenderError::ResourceLimit(RenderResource::Target))
         );
         assert_eq!(old.width, 2048);
+    }
+
+    fn request(width: u16, slots: usize) -> ScratchPrepareRequest {
+        ScratchPrepareRequest {
+            width,
+            height: 16,
+            slots,
+            previous: None,
+        }
+    }
+
+    #[test]
+    fn deterministic_failure_rejects_repeats_until_request_or_pool_changes() {
+        let mut retry = ScratchPrepareRetry::default();
+        let initial = request(512, 10);
+        let error = RenderError::ResourceLimit(RenderResource::Target);
+        assert_eq!(retry.before_attempt(initial), Ok(()));
+        retry.deterministic_failure(initial, error);
+        for _ in 0..128 {
+            assert_eq!(retry.before_attempt(initial), Err(error));
+        }
+        let resized = request(513, 10);
+        assert_eq!(retry.before_attempt(resized), Ok(()));
+        retry.deterministic_failure(resized, error);
+        let with_pool = ScratchPrepareRequest {
+            previous: Some(RasterScratchPlan::new(256, 8, 10, 96, BUDGET).unwrap()),
+            ..resized
+        };
+        assert_eq!(retry.before_attempt(with_pool), Ok(()));
+    }
+
+    #[test]
+    fn transient_failure_retries_with_bounded_exponential_backoff() {
+        let mut retry = ScratchPrepareRetry::default();
+        let request = request(512, 10);
+        let error = RenderError::BackendFailure;
+        let mut interval = 1;
+        for _ in 0..10 {
+            retry.transient_failure(request, error);
+            for _ in 0..interval {
+                assert_eq!(retry.before_attempt(request), Err(error));
+            }
+            assert_eq!(retry.before_attempt(request), Ok(()));
+            interval = (interval * 2).min(MAX_TRANSIENT_RETRY_SKIP_CALLS);
+        }
+        retry.clear();
+        assert_eq!(retry.before_attempt(request), Ok(()));
+    }
+
+    #[test]
+    fn changed_request_clears_transient_backoff() {
+        let mut retry = ScratchPrepareRetry::default();
+        let initial = request(512, 10);
+        retry.transient_failure(initial, RenderError::BackendFailure);
+        retry.transient_failure(initial, RenderError::BackendFailure);
+        assert_eq!(retry.before_attempt(request(512, 11)), Ok(()));
+        assert_eq!(retry.before_attempt(initial), Ok(()));
     }
 }

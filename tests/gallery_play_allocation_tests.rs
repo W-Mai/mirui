@@ -401,6 +401,15 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
     app.prepare_text_layout().unwrap();
     app.systems.run_all(&mut app.world);
     app.render().unwrap();
+    #[cfg(feature = "audio")]
+    {
+        let audio = app.audio().unwrap();
+        assert!(audio.set_muted(false));
+        flush_signal_dirty(&mut app.world);
+        app.render_dirty().unwrap();
+        assert!(!audio.state().unwrap().muted);
+        assert_eq!(tone_count.get(), 0);
+    }
 
     for (index, id) in ["marble_nav_edit", "marble_properties"]
         .into_iter()

@@ -301,8 +301,16 @@ impl World {
             .map(|storage| storage.as_any_mut().downcast_mut::<SparseSet<T>>().unwrap())
     }
 
+    /// Register a resource, reusing its storage when the type is already present.
     pub fn insert_resource<T: 'static>(&mut self, value: T) {
-        self.resources.insert(TypeId::of::<T>(), Box::new(value));
+        if let Some(existing) = self.resources.get_mut(&TypeId::of::<T>()) {
+            let slot = existing
+                .downcast_mut::<T>()
+                .expect("resource type does not match its TypeId");
+            drop(core::mem::replace(slot, value));
+        } else {
+            self.resources.insert(TypeId::of::<T>(), Box::new(value));
+        }
     }
 
     pub fn resource<T: 'static>(&self) -> Option<&T> {
@@ -507,5 +515,17 @@ mod tests {
         }));
         assert!(failure.is_err());
         assert_eq!(world.resource::<u16>(), Some(&8));
+    }
+
+    #[test]
+    fn replacing_resource_reuses_its_storage() {
+        let mut world = World::new();
+        world.insert_resource(7u16);
+        let original = world.resource::<u16>().unwrap() as *const u16;
+
+        world.insert_resource(8u16);
+
+        assert_eq!(world.resource::<u16>(), Some(&8));
+        assert_eq!(world.resource::<u16>().unwrap() as *const u16, original);
     }
 }
