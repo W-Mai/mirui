@@ -1,219 +1,46 @@
+use super::missions::{MISSION_COUNT, MISSIONS, OrbitGoal, OrbitMission};
+use super::physics::{MU, STEP, impulse, integrate};
+use super::types::{
+    MAX_EVENTS, MAX_NODES, MAX_PREVIEW, MAX_TELEMETRY, MAX_TRAIL, ManeuverNode, OrbitBody,
+    OrbitError, OrbitEvent, OrbitEventKind, OrbitModal, OrbitPage, OrbitPoint, OrbitStatus,
+    OrbitTelemetry,
+};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
-use crate::types::{Fixed, Fixed64};
+use crate::types::Fixed64;
 
-pub(crate) const MAX_NODES: usize = 3;
-pub(crate) const MAX_TRAIL: usize = 192;
-pub(crate) const MAX_TELEMETRY: usize = 80;
-pub(crate) const MAX_EVENTS: usize = 12;
-pub(crate) const MAX_PREVIEW: usize = 240;
-pub(crate) const MISSION_COUNT: usize = 3;
-
-const MU: Fixed64 = Fixed64::from_int(100_000);
-const STEP: Fixed64 = Fixed64::from_ratio(1, 60);
 const RECORD_INTERVAL: Fixed64 = Fixed64::from_ratio(4, 25);
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct OrbitPoint {
-    pub(crate) x: Fixed64,
-    pub(crate) y: Fixed64,
-}
-
-impl OrbitPoint {
-    fn radius(self) -> Fixed64 {
-        (self.x * self.x + self.y * self.y).sqrt()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct OrbitBody {
-    pub(crate) position: OrbitPoint,
-    pub(crate) velocity: OrbitPoint,
-}
-
-impl OrbitBody {
-    pub(crate) fn radius(self) -> Fixed64 {
-        self.position.radius()
-    }
-
-    pub(crate) fn speed(self) -> Fixed64 {
-        self.velocity.radius()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OrbitGoal {
-    Band {
-        min: i16,
-        max: i16,
-    },
-    Beacon {
-        x: i16,
-        y: i16,
-        range: i16,
-        max_speed: i16,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct OrbitMission {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
-    pub(crate) hint: &'static str,
-    pub(crate) default_dv_tenths: u8,
-    goals: [Option<OrbitGoal>; 2],
-}
-
-pub(crate) const MISSIONS: [OrbitMission; MISSION_COUNT] = [
-    OrbitMission {
-        name: "轨道抬升",
-        description: "进入橙色采样带后手动采样。",
-        hint: "沿速度方向 +3.8，滑行到远端。",
-        default_dv_tenths: 38,
-        goals: [Some(OrbitGoal::Band { min: 113, max: 130 }), None],
-    },
-    OrbitMission {
-        name: "往返测绘",
-        description: "先采外轨，再回内轨采样。",
-        hint: "外轨采样后继续滑行回内轨。",
-        default_dv_tenths: 38,
-        goals: [
-            Some(OrbitGoal::Band { min: 113, max: 130 }),
-            Some(OrbitGoal::Band { min: 75, max: 90 }),
-        ],
-    },
-    OrbitMission {
-        name: "远端通信",
-        description: "接近远端信标，并降低到接入速度。",
-        hint: "沿速度方向 +5.2，到远端信标接入。",
-        default_dv_tenths: 52,
-        goals: [
-            Some(OrbitGoal::Beacon {
-                x: -148,
-                y: 0,
-                range: 23,
-                max_speed: 24,
-            }),
-            None,
-        ],
-    },
-];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OrbitPage {
-    Map,
-    Plan,
-    Record,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OrbitModal {
-    None,
-    Missions,
-    Confirm(u8),
-    Help,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OrbitStatus {
-    Ready,
-    Running,
-    Paused,
-    Won,
-    Crashed,
-    Escaped,
-}
-
-impl OrbitStatus {
-    pub(crate) const fn terminal(self) -> bool {
-        matches!(self, Self::Won | Self::Crashed | Self::Escaped)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OrbitError {
-    InvalidBurn,
-    Fuel,
-    Heat,
-    Terminal,
-    InvalidDelay,
-    QueueFull,
-    MissingNode,
-    OutsideWindow,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ManeuverNode {
-    pub(crate) id: u8,
-    pub(crate) at: Fixed64,
-    pub(crate) dv_tenths: u8,
-    pub(crate) angle_degrees: i16,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct OrbitTelemetry {
-    pub(crate) time: Fixed64,
-    pub(crate) radius: Fixed64,
-    pub(crate) speed: Fixed64,
-    pub(crate) fuel: Fixed64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OrbitEventKind {
-    Loaded,
-    Burn,
-    NodeSkipped,
-    Goal,
-    Won,
-    Crashed,
-    Escaped,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct OrbitEvent {
-    pub(crate) time: Fixed64,
-    pub(crate) kind: OrbitEventKind,
-}
-
-impl Default for OrbitEvent {
-    fn default() -> Self {
-        Self {
-            time: Fixed64::ZERO,
-            kind: OrbitEventKind::Loaded,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OrbitModel {
-    body: OrbitBody,
-    trail: [OrbitPoint; MAX_TRAIL],
-    telemetry: [OrbitTelemetry; MAX_TELEMETRY],
-    events: [OrbitEvent; MAX_EVENTS],
-    queue: [Option<ManeuverNode>; MAX_NODES],
-    clock: BoundedClock,
-    time: Fixed64,
-    fuel: Fixed64,
-    heat: Fixed64,
-    next_record: Fixed64,
-    page: OrbitPage,
-    modal: OrbitModal,
-    status: OrbitStatus,
-    mission: u8,
-    completed: u8,
-    dv_tenths: u8,
-    angle_degrees: i16,
-    delay_seconds: u8,
-    warp: u8,
-    next_node_id: u8,
-    queue_len: u8,
-    trail_start: u8,
-    trail_len: u8,
-    telemetry_start: u8,
-    telemetry_len: u8,
-    event_start: u8,
-    event_len: u8,
-    preview: bool,
+    pub(super) body: OrbitBody,
+    pub(super) trail: [OrbitPoint; MAX_TRAIL],
+    pub(super) telemetry: [OrbitTelemetry; MAX_TELEMETRY],
+    pub(super) events: [OrbitEvent; MAX_EVENTS],
+    pub(super) queue: [Option<ManeuverNode>; MAX_NODES],
+    pub(super) clock: BoundedClock,
+    pub(super) time: Fixed64,
+    pub(super) fuel: Fixed64,
+    pub(super) heat: Fixed64,
+    pub(super) next_record: Fixed64,
+    pub(super) page: OrbitPage,
+    pub(super) modal: OrbitModal,
+    pub(super) status: OrbitStatus,
+    pub(super) mission: u8,
+    pub(super) completed: u8,
+    pub(super) dv_tenths: u8,
+    pub(super) angle_degrees: i16,
+    pub(super) delay_seconds: u8,
+    pub(super) warp: u8,
+    pub(super) next_node_id: u8,
+    pub(super) queue_len: u8,
+    pub(super) trail_start: u8,
+    pub(super) trail_len: u8,
+    pub(super) telemetry_start: u8,
+    pub(super) telemetry_len: u8,
+    pub(super) event_start: u8,
+    pub(super) event_len: u8,
+    pub(super) preview: bool,
 }
 
 impl Default for OrbitModel {
@@ -538,7 +365,7 @@ impl OrbitModel {
         );
     }
 
-    fn push_event(&mut self, kind: OrbitEventKind) {
+    pub(super) fn push_event(&mut self, kind: OrbitEventKind) {
         ring_push(
             &mut self.events,
             &mut self.event_start,
@@ -672,30 +499,6 @@ impl OrbitModel {
     }
 }
 
-fn integrate(body: &mut OrbitBody, dt: Fixed64) {
-    let radius = body.radius().max(Fixed64::from_int(20));
-    let factor = -MU / (radius * radius * radius);
-    body.velocity.x += body.position.x * factor * dt / 2;
-    body.velocity.y += body.position.y * factor * dt / 2;
-    body.position.x += body.velocity.x * dt;
-    body.position.y += body.velocity.y * dt;
-    let radius = body.radius().max(Fixed64::from_int(20));
-    let factor = -MU / (radius * radius * radius);
-    body.velocity.x += body.position.x * factor * dt / 2;
-    body.velocity.y += body.position.y * factor * dt / 2;
-}
-
-fn impulse(body: &mut OrbitBody, dv: Fixed64, angle_degrees: i16) {
-    let speed = body.speed().max(Fixed64::ONE);
-    let ux = body.velocity.x / speed;
-    let uy = body.velocity.y / speed;
-    let angle = Fixed::from_int(i32::from(angle_degrees));
-    let cosine = Fixed64::from_fixed(Fixed::cos_deg(angle));
-    let sine = Fixed64::from_fixed(Fixed::sin_deg(angle));
-    body.velocity.x += dv * (ux * cosine - uy * sine);
-    body.velocity.y += dv * (ux * sine + uy * cosine);
-}
-
 fn ring_push<T: Copy, const N: usize>(values: &mut [T; N], start: &mut u8, len: &mut u8, value: T) {
     if usize::from(*len) < N {
         let index = (usize::from(*start) + usize::from(*len)) % N;
@@ -717,173 +520,4 @@ fn ring_get<T: Copy, const N: usize>(
         return None;
     }
     Some(values[(usize::from(start) + index) % N])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn complete(mission: u8) -> OrbitModel {
-        let mut model = OrbitModel::default();
-        model.load_mission(mission);
-        model.burn().unwrap();
-        for _ in 0..3_600 {
-            model.step();
-            if model.eligible() {
-                model.scan().unwrap();
-            }
-            if model.status() == OrbitStatus::Won {
-                break;
-            }
-        }
-        model
-    }
-
-    #[test]
-    fn documented_maneuvers_complete_all_missions() {
-        for mission in 0..MISSION_COUNT as u8 {
-            let model = complete(mission);
-            assert_eq!(model.status(), OrbitStatus::Won, "mission {mission}");
-            assert_eq!(
-                model.completed as usize,
-                model.mission().goals.iter().flatten().count()
-            );
-            assert_eq!(model.queue_len(), 0);
-        }
-    }
-
-    #[test]
-    fn prediction_is_bounded_and_does_not_mutate_model() {
-        let model = OrbitModel::default();
-        let before = model;
-        let mut points = [OrbitPoint::default(); MAX_PREVIEW];
-        assert!(model.predict(&mut points) <= MAX_PREVIEW);
-        assert_eq!(model.body(), before.body());
-        assert_eq!(model.fuel(), before.fuel());
-        assert_eq!(model.time(), before.time());
-    }
-
-    #[test]
-    fn burn_costs_once_and_failures_are_atomic() {
-        let mut model = OrbitModel::default();
-        model.dv_tenths = 30;
-        model.burn().unwrap();
-        assert_eq!(model.fuel(), Fixed64::from_int(42));
-        assert_eq!(model.heat(), Fixed64::from_int(21));
-
-        let mut fuel_failure = OrbitModel::default();
-        fuel_failure.fuel = Fixed64::ONE;
-        let body = fuel_failure.body();
-        assert_eq!(fuel_failure.burn(), Err(OrbitError::Fuel));
-        assert_eq!(fuel_failure.body(), body);
-
-        let mut heat_failure = OrbitModel::default();
-        heat_failure.heat = Fixed64::from_int(99);
-        heat_failure.dv_tenths = 10;
-        let body = heat_failure.body();
-        assert_eq!(heat_failure.burn(), Err(OrbitError::Heat));
-        assert_eq!(heat_failure.body(), body);
-    }
-
-    #[test]
-    fn scheduled_nodes_snapshot_values_execute_once_and_cancel_by_id() {
-        let mut model = OrbitModel::default();
-        model.dv_tenths = 20;
-        model.angle_degrees = 15;
-        model.delay_seconds = 1;
-        model.schedule().unwrap();
-        model.dv_tenths = 70;
-        model.angle_degrees = -90;
-        assert_eq!(model.queue(0).unwrap().dv_tenths, 20);
-        assert_eq!(model.queue(0).unwrap().angle_degrees, 15);
-        model.schedule().unwrap();
-        model.schedule().unwrap();
-        assert_eq!(model.schedule(), Err(OrbitError::QueueFull));
-        let middle = model.queue(1).unwrap().id;
-        model.cancel(middle).unwrap();
-        assert_eq!(model.queue_len(), 2);
-        for _ in 0..180 {
-            model.step();
-        }
-        assert_eq!(model.queue_len(), 0);
-        assert!(model.fuel() < Fixed64::from_int(48));
-    }
-
-    #[test]
-    fn nominal_orbit_and_energy_remain_bounded() {
-        let mut circular = OrbitModel::default();
-        for _ in 0..7_200 {
-            circular.step();
-        }
-        let drift = (circular.body().radius() - Fixed64::from_int(78)).abs();
-        assert!(drift < Fixed64::from_ratio(3, 10));
-
-        let mut raised = OrbitModel::default();
-        raised.burn().unwrap();
-        let initial = energy(raised.body());
-        for _ in 0..3_600 {
-            raised.step();
-        }
-        let drift = (energy(raised.body()) - initial).abs() / initial.abs();
-        assert!(drift < Fixed64::from_ratio(2, 1_000));
-    }
-
-    #[test]
-    fn terminal_boundaries_stop_simulation() {
-        let mut crash = OrbitModel::default();
-        crash.body.position.x = Fixed64::from_int(25);
-        crash.status = OrbitStatus::Running;
-        crash.step();
-        assert_eq!(crash.status(), OrbitStatus::Crashed);
-        assert_eq!(crash.burn(), Err(OrbitError::Terminal));
-
-        let mut escape = OrbitModel::default();
-        escape.body.position.x = Fixed64::from_int(261);
-        escape.body.velocity.x = Fixed64::from_int(10);
-        escape.status = OrbitStatus::Running;
-        escape.step();
-        assert_eq!(escape.status(), OrbitStatus::Escaped);
-    }
-
-    #[test]
-    fn histories_and_model_memory_are_bounded() {
-        let mut model = OrbitModel::default();
-        for _ in 0..4_000 {
-            model.step();
-        }
-        for _ in 0..40 {
-            model.push_event(OrbitEventKind::Burn);
-        }
-        assert_eq!(model.trail_len(), MAX_TRAIL);
-        assert_eq!(model.telemetry_len(), MAX_TELEMETRY);
-        assert_eq!(model.event_len(), MAX_EVENTS);
-        assert!(core::mem::size_of::<OrbitModel>() <= 8 * 1024);
-    }
-
-    #[test]
-    fn modal_time_does_not_accumulate_debt() {
-        let mut model = OrbitModel::default();
-        model.toggle_running();
-        model.update(16);
-        let time = model.time();
-        model.set_modal(OrbitModal::Help);
-        model.update(1_000);
-        assert_eq!(model.time(), time);
-        model.set_modal(OrbitModal::None);
-        model.update(1);
-        assert_eq!(model.time(), time);
-    }
-
-    #[test]
-    fn prograde_and_retrograde_impulses_diverge() {
-        let mut prograde = OrbitModel::default().body();
-        let mut retrograde = prograde;
-        impulse(&mut prograde, Fixed64::from_int(3), 0);
-        impulse(&mut retrograde, Fixed64::from_int(3), 180);
-        assert!(prograde.speed() > retrograde.speed());
-    }
-
-    fn energy(body: OrbitBody) -> Fixed64 {
-        body.speed() * body.speed() / 2 - MU / body.radius()
-    }
 }

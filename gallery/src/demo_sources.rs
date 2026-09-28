@@ -82,3 +82,9 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    ORBITAL_MISSION,
+    "orbital_mission",
+    ["style.rs", "state.rs", "render.rs", "input.rs", "shell.rs",]
+);

@@ -176,7 +176,7 @@ register_demos! {
     ("pocket_post",          "Pocket Post",          "Play",        pocket_post, source = demo_sources::POCKET_POST),
     ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit),
     ("module_factory",       "Module Factory",       "Play",        module_factory),
-    ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission),
+    ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission, source = demo_sources::ORBITAL_MISSION),
     ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas),
     ("echo_walker",          "Echo Walker",          "Play",        echo_walker),
     ("twin_beacons",         "Twin Beacons",         "Play",        twin_beacons),
@@ -626,6 +626,11 @@ mod tests {
                     "tests.rs",
                 ][..],
                 "fn paint_post_surface",
+            ),
+            (
+                "orbital_mission",
+                &["style.rs", "state.rs", "render.rs", "input.rs", "shell.rs"][..],
+                "fn paint_map",
             ),
         ];
 
