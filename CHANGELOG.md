@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Marble Play slider notifications.** BPM, gravity, and bounce controls skip model change notifications when different input values resolve to the current setting.
 - **Marble Play scene cards.** Tap targets match the painted cards; gaps and margins no longer select a scene. Play/Edit gestures and Settings controls stay in their respective panels.
 - **Resource replacement.** Updating an existing World resource reuses its allocated slot, including per-frame timing resources.
 - **Switch initialization.** The layout-dependent initialization pass visits Switch components without allocating a temporary entity list each frame.

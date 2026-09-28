@@ -1078,7 +1078,11 @@ impl MarbleModel {
         let clamped = value.clamp(Fixed64::ZERO, Fixed64::from_ratio(16, 10));
         let step = Fixed64::from_ratio(5, 100);
         let steps = ((clamped + step / 2) / step).to_int();
-        self.gravity = Fixed64::from_ratio(steps * 5, 100);
+        let next = Fixed64::from_ratio(steps * 5, 100);
+        if self.gravity == next {
+            return ChangeSet::NONE;
+        }
+        self.gravity = next;
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
@@ -1095,13 +1099,18 @@ impl MarbleModel {
     }
 
     pub(crate) fn set_bounce(&mut self, value: Fixed64) -> ChangeSet {
-        if let Some(pad) = self.pads[self.selected].as_mut() {
-            let clamped = value.clamp(Fixed64::from_ratio(7, 10), Fixed64::from_ratio(14, 10));
-            let steps = ((clamped - Fixed64::from_ratio(7, 10) + Fixed64::from_ratio(25, 1_000))
-                / Fixed64::from_ratio(5, 100))
-            .to_int();
-            pad.bounce = Fixed64::from_ratio(70 + steps * 5, 100);
+        let clamped = value.clamp(Fixed64::from_ratio(7, 10), Fixed64::from_ratio(14, 10));
+        let steps = ((clamped - Fixed64::from_ratio(7, 10) + Fixed64::from_ratio(25, 1_000))
+            / Fixed64::from_ratio(5, 100))
+        .to_int();
+        let next = Fixed64::from_ratio(70 + steps * 5, 100);
+        let Some(pad) = self.pads[self.selected].as_mut() else {
+            return ChangeSet::NONE;
+        };
+        if pad.bounce == next {
+            return ChangeSet::NONE;
         }
+        pad.bounce = next;
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
@@ -1146,7 +1155,11 @@ impl MarbleModel {
     }
 
     pub(crate) fn set_bpm(&mut self, value: Fixed64) -> ChangeSet {
-        self.bpm = (value + Fixed64::from_ratio(1, 2)).to_int().clamp(55, 160) as u16;
+        let next = (value + Fixed64::from_ratio(1, 2)).to_int().clamp(55, 160) as u16;
+        if self.bpm == next {
+            return ChangeSet::NONE;
+        }
+        self.bpm = next;
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
@@ -1328,6 +1341,46 @@ mod tests {
         assert_eq!(sounds.get(), 2);
         model.set_page(Page::Edit);
         assert_eq!(model.page(), Page::Edit);
+    }
+
+    #[test]
+    fn equivalent_bpm_inputs_do_not_publish_visual_changes() {
+        let mut app = App::headless(480, 320);
+        let model = app.add_model(MarbleModel::new());
+        let visual = model.visual_revision();
+
+        model.set_bpm(Fixed64::from_ratio(9_625, 100));
+        assert_eq!(model.bpm(), 96);
+        assert_eq!(model.visual_revision(), visual);
+
+        model.set_bpm(Fixed64::from_ratio(9_650, 100));
+        assert_eq!(model.bpm(), 97);
+        assert_eq!(model.visual_revision(), visual + 1);
+
+        model.set_bpm(Fixed64::from_ratio(9_725, 100));
+        assert_eq!(model.bpm(), 97);
+        assert_eq!(model.visual_revision(), visual + 1);
+    }
+
+    #[test]
+    fn equivalent_gravity_and_bounce_inputs_do_not_publish_visual_changes() {
+        let mut app = App::headless(480, 320);
+        let model = app.add_model(MarbleModel::new());
+        let visual = model.visual_revision();
+
+        let gravity = model.gravity();
+        model.set_gravity(gravity + Fixed64::from_ratio(1, 100));
+        assert_eq!(model.gravity(), gravity);
+        assert_eq!(model.visual_revision(), visual);
+
+        let bounce = model.selected_bounce();
+        model.set_bounce(bounce + Fixed64::from_ratio(1, 100));
+        assert_eq!(model.selected_bounce(), bounce);
+        assert_eq!(model.visual_revision(), visual);
+
+        model.set_gravity(gravity + Fixed64::from_ratio(5, 100));
+        model.set_bounce(bounce + Fixed64::from_ratio(5, 100));
+        assert_eq!(model.visual_revision(), visual + 2);
     }
 
     #[test]
