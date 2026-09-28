@@ -12,7 +12,8 @@ use alloc::vec::Vec;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{
-    BoundedGlyphScratch, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool,
+    BoundedGlyphRunKey, BoundedGlyphScratch, GlyphPool, TextureKey, TexturePool, new_glyph_pool,
+    new_pool,
 };
 use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
@@ -59,9 +60,16 @@ pub struct WebCanvasRendererFactory<S = Box<[u8]>> {
     bounded_scratch_draws: u64,
     bounded_scratch_hits: u64,
     bounded_scratch_upload_bytes: u64,
+    bounded_scratch_evictions: u64,
+    bounded_scratch_unprepared_fallbacks: u64,
+    bounded_scratch_size_fallbacks: u64,
+    bounded_scratch_upload_fallbacks: u64,
+    bounded_scratch_other_fallbacks: u64,
 }
 
-/// Observable Web text resource use since this factory was created.
+/// Observable native linear Web text resources since this factory was created.
+///
+/// Path-laid-out and projective glyph runs use separate drawing routes.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct WebTextResourceStats {
     pub bounded_runs: u64,
@@ -73,10 +81,20 @@ pub struct WebTextResourceStats {
     pub bounded_scratch_slots: usize,
     /// Draws served by the prepared reusable raster surface.
     pub bounded_scratch_draws: u64,
-    /// Draws whose raster image was already retained in a prepared slot.
+    /// Prepared-slot matches by identity and raster content, including failed final blits.
     pub bounded_scratch_hits: u64,
     /// Physical RGBA bytes uploaded after slot cache misses.
     pub bounded_scratch_upload_bytes: u64,
+    /// Owned scratch slots displaced by another run, including failed uploads.
+    pub bounded_scratch_evictions: u64,
+    /// Linear bounded draws routed to the glyph cache without prepared slots.
+    pub bounded_scratch_unprepared_fallbacks: u64,
+    /// Linear bounded draws routed to the glyph cache because the run exceeded the hint.
+    pub bounded_scratch_size_fallbacks: u64,
+    /// Linear bounded draws routed to the glyph cache after `putImageData` failed.
+    pub bounded_scratch_upload_fallbacks: u64,
+    /// Linear bounded draws routed to the glyph cache after another scratch error.
+    pub bounded_scratch_other_fallbacks: u64,
     /// Bounded draws that created a new glyph cache surface.
     pub bounded_cache_creations: u64,
     /// Existing name for `bounded_cache_creations`.
@@ -100,6 +118,11 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             bounded_scratch_draws: 0,
             bounded_scratch_hits: 0,
             bounded_scratch_upload_bytes: 0,
+            bounded_scratch_evictions: 0,
+            bounded_scratch_unprepared_fallbacks: 0,
+            bounded_scratch_size_fallbacks: 0,
+            bounded_scratch_upload_fallbacks: 0,
+            bounded_scratch_other_fallbacks: 0,
         }
     }
 
@@ -119,6 +142,11 @@ impl WebCanvasRendererFactory<Box<[u8]>> {
             bounded_scratch_draws: self.bounded_scratch_draws,
             bounded_scratch_hits: self.bounded_scratch_hits,
             bounded_scratch_upload_bytes: self.bounded_scratch_upload_bytes,
+            bounded_scratch_evictions: self.bounded_scratch_evictions,
+            bounded_scratch_unprepared_fallbacks: self.bounded_scratch_unprepared_fallbacks,
+            bounded_scratch_size_fallbacks: self.bounded_scratch_size_fallbacks,
+            bounded_scratch_upload_fallbacks: self.bounded_scratch_upload_fallbacks,
+            bounded_scratch_other_fallbacks: self.bounded_scratch_other_fallbacks,
         }
     }
 }
@@ -161,7 +189,11 @@ impl<S> WebCanvasRendererFactory<S> {
                     .map_or(0, |scratch| scratch.slot_count()),
             ),
         )?;
-        self.bounded_glyph_scratch = Some(scratch);
+        if let Some(previous) = self.bounded_glyph_scratch.replace(scratch) {
+            self.bounded_scratch_evictions = self
+                .bounded_scratch_evictions
+                .saturating_add(previous.evictions());
+        }
         self.bounded_scratch_creations = self.bounded_scratch_creations.saturating_add(1);
         Ok(())
     }
@@ -181,6 +213,15 @@ impl<S> WebCanvasRendererFactory<S> {
             bounded_scratch_draws: self.bounded_scratch_draws,
             bounded_scratch_hits: self.bounded_scratch_hits,
             bounded_scratch_upload_bytes: self.bounded_scratch_upload_bytes,
+            bounded_scratch_evictions: self.bounded_scratch_evictions.saturating_add(
+                self.bounded_glyph_scratch
+                    .as_ref()
+                    .map_or(0, |scratch| scratch.evictions()),
+            ),
+            bounded_scratch_unprepared_fallbacks: self.bounded_scratch_unprepared_fallbacks,
+            bounded_scratch_size_fallbacks: self.bounded_scratch_size_fallbacks,
+            bounded_scratch_upload_fallbacks: self.bounded_scratch_upload_fallbacks,
+            bounded_scratch_other_fallbacks: self.bounded_scratch_other_fallbacks,
             bounded_cache_creations: self.bounded_text_uploads,
             bounded_uploads: self.bounded_text_uploads,
             bounded_upload_bytes: self.bounded_text_upload_bytes,
@@ -1501,40 +1542,77 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             self.factory.bounded_text_runs = self.factory.bounded_text_runs.saturating_add(1);
         }
         let key = font.raster_run_key(glyphs, color, scale);
-        if self.current_text_run.is_some()
-            && self
-                .factory
-                .bounded_glyph_scratch
-                .as_ref()
-                .is_some_and(|scratch| scratch.fits(pw, ph))
-        {
-            let scratch = self.factory.bounded_glyph_scratch.as_mut().unwrap();
-            if let Ok((slot, hit)) =
-                scratch.rasterize_and_upload(key, bounds, scale, glyphs, font, color)
-            {
-                if hit {
-                    self.factory.bounded_scratch_hits =
-                        self.factory.bounded_scratch_hits.saturating_add(1);
-                } else {
-                    let uploaded_bytes = scratch.upload_bytes() as u64;
-                    self.factory.bounded_scratch_upload_bytes = self
+        let use_scratch = if self.current_text_run.is_some() {
+            match self.factory.bounded_glyph_scratch.as_ref() {
+                None => {
+                    self.factory.bounded_scratch_unprepared_fallbacks = self
                         .factory
-                        .bounded_scratch_upload_bytes
-                        .saturating_add(uploaded_bytes);
+                        .bounded_scratch_unprepared_fallbacks
+                        .saturating_add(1);
+                    false
                 }
-                let canvas = self
-                    .factory
-                    .bounded_glyph_scratch
-                    .as_ref()
-                    .unwrap()
-                    .canvas(slot);
-                if self.blit_glyph_canvas(canvas, bounds, pos, clip, color, opacity) {
-                    self.factory.bounded_scratch_draws =
-                        self.factory.bounded_scratch_draws.saturating_add(1);
-                } else {
-                    self.draw_failed = true;
+                Some(scratch) if !scratch.fits(pw, ph) => {
+                    self.factory.bounded_scratch_size_fallbacks = self
+                        .factory
+                        .bounded_scratch_size_fallbacks
+                        .saturating_add(1);
+                    false
                 }
-                return;
+                Some(_) => true,
+            }
+        } else {
+            false
+        };
+        if use_scratch {
+            let scratch = self.factory.bounded_glyph_scratch.as_mut().unwrap();
+            match scratch.rasterize_and_upload(
+                BoundedGlyphRunKey {
+                    identity: self.current_text_run.expect("bounded run identity"),
+                    raster: key,
+                },
+                bounds,
+                scale,
+                glyphs,
+                font,
+                color,
+            ) {
+                Ok((slot, hit)) => {
+                    if hit {
+                        self.factory.bounded_scratch_hits =
+                            self.factory.bounded_scratch_hits.saturating_add(1);
+                    } else {
+                        let uploaded_bytes = scratch.upload_bytes() as u64;
+                        self.factory.bounded_scratch_upload_bytes = self
+                            .factory
+                            .bounded_scratch_upload_bytes
+                            .saturating_add(uploaded_bytes);
+                    }
+                    let canvas = self
+                        .factory
+                        .bounded_glyph_scratch
+                        .as_ref()
+                        .unwrap()
+                        .canvas(slot);
+                    if self.blit_glyph_canvas(canvas, bounds, pos, clip, color, opacity) {
+                        self.factory.bounded_scratch_draws =
+                            self.factory.bounded_scratch_draws.saturating_add(1);
+                    } else {
+                        self.draw_failed = true;
+                    }
+                    return;
+                }
+                Err(RenderError::BackendFailure) => {
+                    self.factory.bounded_scratch_upload_fallbacks = self
+                        .factory
+                        .bounded_scratch_upload_fallbacks
+                        .saturating_add(1);
+                }
+                Err(_) => {
+                    self.factory.bounded_scratch_other_fallbacks = self
+                        .factory
+                        .bounded_scratch_other_fallbacks
+                        .saturating_add(1);
+                }
             }
         }
 

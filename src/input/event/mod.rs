@@ -290,8 +290,13 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
     multi_tap::observe_gesture(world, event, now_ms);
     let mut current = event.target();
     loop {
-        let internals = collect_internal_handlers(world, current);
-        for f in internals {
+        let (first, rest) = collect_internal_handlers(world, current);
+        if let Some(f) = first
+            && f(world, current, event)
+        {
+            return;
+        }
+        for f in rest {
             if f(world, current, event) {
                 return;
             }
@@ -309,21 +314,30 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
 fn collect_internal_handlers(
     world: &World,
     entity: Entity,
-) -> alloc::vec::Vec<crate::ui::view::ViewInternalGesture> {
+) -> (
+    Option<crate::ui::view::ViewInternalGesture>,
+    alloc::vec::Vec<crate::ui::view::ViewInternalGesture>,
+) {
     let Some(registry) = world.resource::<crate::ui::view::ViewRegistry>() else {
-        return alloc::vec::Vec::new();
+        return (None, alloc::vec::Vec::new());
     };
-    registry
-        .iter()
-        .filter_map(|v| {
-            let f = v.internal_gesture()?;
-            match v.component_filter() {
-                Some(type_id) if world.has_type(entity, type_id) => Some(f),
-                Some(_) => None,
-                None => Some(f),
-            }
-        })
-        .collect()
+    let mut first = None;
+    let mut rest = alloc::vec::Vec::new();
+    for handler in registry.iter().filter_map(|v| {
+        let f = v.internal_gesture()?;
+        match v.component_filter() {
+            Some(type_id) if world.has_type(entity, type_id) => Some(f),
+            Some(_) => None,
+            None => Some(f),
+        }
+    }) {
+        if first.is_none() {
+            first = Some(handler);
+        } else {
+            rest.push(handler);
+        }
+    }
+    (first, rest)
 }
 
 #[cfg(test)]
@@ -335,6 +349,60 @@ mod tests {
     fn count_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
         world.resource_mut::<TapCount>().unwrap().0 += 1;
         true
+    }
+
+    #[test]
+    fn internal_handlers_keep_registration_order_and_snapshot_filter_matches() {
+        struct Marker;
+        #[derive(Default)]
+        struct Calls {
+            first: u8,
+            second: u8,
+            user: u8,
+        }
+        fn first(world: &mut World, entity: Entity, _: &GestureEvent) -> bool {
+            world.remove::<Marker>(entity);
+            world.resource_mut::<Calls>().unwrap().first += 1;
+            false
+        }
+        fn second(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+            world.resource_mut::<Calls>().unwrap().second += 1;
+            true
+        }
+        fn user(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+            world.resource_mut::<Calls>().unwrap().user += 1;
+            true
+        }
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Marker);
+        world.insert(entity, GestureHandler::from_fn(user));
+        world.insert_resource(Calls::default());
+        let mut registry = crate::ui::view::ViewRegistry::default();
+        registry.insert(
+            crate::ui::view::View::systems_only("first", &[])
+                .with_filter::<Marker>()
+                .with_internal_gesture(first),
+        );
+        registry.insert(
+            crate::ui::view::View::systems_only("second", &[])
+                .with_filter::<Marker>()
+                .with_internal_gesture(second),
+        );
+        world.insert_resource(registry);
+
+        bubble_dispatch_at(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: entity,
+            },
+            0,
+        );
+        let calls = world.resource::<Calls>().unwrap();
+        assert_eq!((calls.first, calls.second, calls.user), (1, 1, 0));
     }
 
     #[test]

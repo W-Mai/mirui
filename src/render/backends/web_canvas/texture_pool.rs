@@ -15,7 +15,7 @@ use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::backends::sw::{SwRenderer, SwScratch};
 use crate::render::canvas::Canvas;
 use crate::render::font::{Font, RasterRunBounds, RasterRunKey};
-use crate::render::renderer::{RenderError, RenderResource};
+use crate::render::renderer::{RenderError, RenderResource, TextRunIdentity};
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
@@ -84,6 +84,7 @@ pub fn new_glyph_pool() -> GlyphPool {
 }
 
 struct BoundedGlyphSlot {
+    identity: Option<TextRunIdentity>,
     key: Option<RasterRunKey>,
     rgba: Vec<u8>,
     last_used: u64,
@@ -94,12 +95,91 @@ struct BoundedGlyphSlot {
     rust_view: Option<Uint8ClampedArray>,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct BoundedGlyphRunKey {
+    pub identity: TextRunIdentity,
+    pub raster: RasterRunKey,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SlotSelection {
+    Hit(usize),
+    Rewrite(usize),
+    Free(usize),
+    Replace(usize),
+}
+
+fn select_slot<I: Copy + Eq, K: Copy + Eq>(
+    slots: impl IntoIterator<Item = (Option<I>, Option<K>, u64)>,
+    identity: I,
+    key: K,
+) -> Option<SlotSelection> {
+    let mut free = None;
+    let mut lru = None;
+    for (index, (owner, retained_key, last_used)) in slots.into_iter().enumerate() {
+        if owner == Some(identity) {
+            return Some(if retained_key == Some(key) {
+                SlotSelection::Hit(index)
+            } else {
+                SlotSelection::Rewrite(index)
+            });
+        }
+        if owner.is_none() {
+            free.get_or_insert(index);
+        } else if lru.is_none_or(|(_, used)| last_used < used) {
+            lru = Some((index, last_used));
+        }
+    }
+    free.map(SlotSelection::Free)
+        .or_else(|| lru.map(|(index, _)| SlotSelection::Replace(index)))
+}
+
+#[cfg(test)]
+mod slot_selection_tests {
+    use super::{SlotSelection, select_slot};
+
+    #[test]
+    fn changed_content_rewrites_the_same_run_without_displacing_others() {
+        let slots = [(Some(1_u8), Some(10_u8), 1), (Some(2), Some(20), 2)];
+        assert_eq!(select_slot(slots, 1, 11), Some(SlotSelection::Rewrite(0)));
+        assert_eq!(select_slot(slots, 2, 20), Some(SlotSelection::Hit(1)));
+    }
+
+    #[test]
+    fn identical_content_from_another_run_does_not_claim_its_slot() {
+        let slots = [(Some(1_u8), Some(10_u8), 1), (None, None, 0)];
+        assert_eq!(select_slot(slots, 2, 10), Some(SlotSelection::Free(1)));
+    }
+
+    #[test]
+    fn new_run_uses_a_free_slot_before_the_lru_slot() {
+        let slots = [
+            (Some(1_u8), Some(10_u8), 1),
+            (None, None, 0),
+            (Some(2), Some(20), 2),
+        ];
+        assert_eq!(select_slot(slots, 3, 30), Some(SlotSelection::Free(1)));
+    }
+
+    #[test]
+    fn new_run_replaces_the_least_recently_used_owner_when_full() {
+        let slots = [
+            (Some(1_u8), Some(10_u8), 8),
+            (Some(2), Some(20), 3),
+            (Some(3), None, 5),
+        ];
+        assert_eq!(select_slot(slots, 4, 40), Some(SlotSelection::Replace(1)));
+        assert_eq!(select_slot(slots, 3, 30), Some(SlotSelection::Rewrite(2)));
+    }
+}
+
 /// Fixed retained RGBA slots with matching browser upload surfaces.
 pub struct BoundedGlyphScratch {
     width: u16,
     height: u16,
     slots: Vec<BoundedGlyphSlot>,
     use_clock: u64,
+    evictions: u64,
     sw_scratch: SwScratch,
 }
 
@@ -147,6 +227,7 @@ impl BoundedGlyphScratch {
                 return Err(RenderError::BackendFailure);
             }
             slots.push(BoundedGlyphSlot {
+                identity: None,
                 key: None,
                 rgba,
                 last_used: 0,
@@ -169,6 +250,7 @@ impl BoundedGlyphScratch {
             height,
             slots,
             use_clock: 0,
+            evictions: 0,
             sw_scratch: SwScratch::new(),
         })
     }
@@ -179,6 +261,10 @@ impl BoundedGlyphScratch {
 
     pub fn slot_count(&self) -> usize {
         self.slots.len()
+    }
+
+    pub fn evictions(&self) -> u64 {
+        self.evictions
     }
 
     pub fn fits(&self, width: u16, height: u16) -> bool {
@@ -204,7 +290,7 @@ impl BoundedGlyphScratch {
 
     pub fn rasterize_and_upload(
         &mut self,
-        key: RasterRunKey,
+        run: BoundedGlyphRunKey,
         bounds: RasterRunBounds,
         scale: Fixed,
         glyphs: &[textflow::shaping::PositionedGlyph],
@@ -214,30 +300,30 @@ impl BoundedGlyphScratch {
         if bounds.width == 0 || bounds.height == 0 || !self.fits(bounds.width, bounds.height) {
             return Err(RenderError::InvalidGeometry);
         }
-        let (index, cache_hit) =
-            if let Some(index) = self.slots.iter().position(|slot| slot.key == Some(key)) {
-                (index, true)
-            } else {
-                let index = self
-                    .slots
-                    .iter()
-                    .position(|slot| slot.key.is_none())
-                    .or_else(|| {
-                        self.slots
-                            .iter()
-                            .enumerate()
-                            .min_by_key(|(_, slot)| slot.last_used)
-                            .map(|(index, _)| index)
-                    })
-                    .ok_or(RenderError::InvalidGeometry)?;
-                (index, false)
-            };
+        let selection = select_slot(
+            self.slots
+                .iter()
+                .map(|slot| (slot.identity, slot.key, slot.last_used)),
+            run.identity,
+            run.raster,
+        )
+        .ok_or(RenderError::InvalidGeometry)?;
+        let index = match selection {
+            SlotSelection::Hit(index)
+            | SlotSelection::Rewrite(index)
+            | SlotSelection::Free(index)
+            | SlotSelection::Replace(index) => index,
+        };
         self.use_clock = self.use_clock.wrapping_add(1);
         let slot = &mut self.slots[index];
-        if cache_hit {
+        if selection == SlotSelection::Hit(index) {
             slot.last_used = self.use_clock;
             return Ok((index, true));
         }
+        if selection == SlotSelection::Replace(index) {
+            self.evictions = self.evictions.saturating_add(1);
+        }
+        slot.identity = Some(run.identity);
         slot.key = None;
         let stride = usize::from(self.width) * 4;
         let used_row_bytes = usize::from(bounds.width) * 4;
@@ -309,7 +395,7 @@ impl BoundedGlyphScratch {
         slot.context
             .put_image_data(&slot.image_data, 0.0, 0.0)
             .map_err(|_| RenderError::BackendFailure)?;
-        slot.key = Some(key);
+        slot.key = Some(run.raster);
         slot.last_used = self.use_clock;
         Ok((index, false))
     }

@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Web bounded-text raster reuse.** A changed text run redraws in its own retained slot instead of evicting another run; resource counters distinguish run replacement and glyph-cache fallback causes.
+- **Single-handler gesture dispatch.** Internal widget gestures keep their handler snapshot on the stack when one View matches, avoiding an allocation on the first Slider update.
 - **Pointer event storage.** Apps initialize cursor and gesture-event capacity before input; pointer events update the retained cursor instead of replacing its World resource.
 - **First page-switch rendering.** Dirty plans reserve space for both tracked regions and exact invalidations, while software renderers reserve scanline coverage for the current viewport width before drawing.
 - **First app tap storage.** `App::with_factory` initializes multi-tap tracking with its other input resources, so the first Tap does not allocate the tracker during dispatch.
