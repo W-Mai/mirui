@@ -2,7 +2,10 @@ use mirui::app::App;
 use mirui::core::model::SharedValue;
 use mirui::core::reactive::flush_signal_dirty;
 use mirui::ecs::{Entity, World};
+use mirui::input::event::gesture::{GestureEvent, GestureSystem};
 use mirui::input::event::hit_test::hit_test;
+use mirui::input::event::input::InputEvent;
+use mirui::input::event::{bubble_dispatch_at, dispatch_input};
 use mirui::model;
 use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
 use mirui::surface::FramebufferAccess;
@@ -31,6 +34,69 @@ impl Mode {
     fn select(&mut self, selected: u8) {
         self.selected = selected;
     }
+}
+
+#[model]
+struct BranchState {
+    #[observe]
+    selected: bool,
+    #[observe]
+    label: u8,
+    first_taps: u32,
+    second_taps: u32,
+}
+
+#[model]
+impl BranchState {
+    fn select(&mut self, selected: bool) {
+        self.selected = selected;
+    }
+
+    fn set_label(&mut self, label: u8) {
+        self.label = label;
+    }
+
+    fn tap_first(&mut self) {
+        self.first_taps += 1;
+    }
+
+    fn tap_second(&mut self) {
+        self.second_taps += 1;
+    }
+
+    fn tap_counts(&self) -> (u32, u32) {
+        (self.first_taps, self.second_taps)
+    }
+}
+
+fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32) -> Entity {
+    let target = hit_test(world, root, x, y, 128, 96).unwrap();
+    dispatch_input(
+        world,
+        root,
+        &InputEvent::PointerDown { id: 0, x, y },
+        now_ms,
+        128,
+        96,
+    );
+    dispatch_input(
+        world,
+        root,
+        &InputEvent::PointerUp { id: 0, x, y },
+        now_ms + 50,
+        128,
+        96,
+    );
+    let event = world
+        .resource_mut::<GestureSystem>()
+        .unwrap()
+        .events
+        .buffer
+        .pop()
+        .unwrap();
+    assert!(matches!(event, GestureEvent::Tap { target: tapped, .. } if tapped == target));
+    bubble_dispatch_at(world, &event, now_ms + 50);
+    target
 }
 
 #[derive(Default)]
@@ -294,4 +360,113 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
     );
     assert_eq!(app.world.find_by_id("shallow_text"), Some(shallow));
     assert_eq!(app.world.find_by_id("deep_text"), Some(deep));
+}
+
+#[test]
+fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
+    let mut app = App::headless(128, 96);
+    app.with_default_widgets();
+    app.with_text_layout_capacity(TextLayoutCapacity {
+        layout_slots: 4,
+        measurements: 4,
+        lines: 16,
+        runs: 24,
+        glyphs: 48,
+        carets: 64,
+        workspace: WorkspaceCapacity {
+            runs: 12,
+            glyphs: 24,
+            scratch_glyphs: 24,
+            lines: 12,
+        },
+    })
+    .unwrap();
+    app.world.insert_resource(IdMap::new());
+    let root = app.spawn_root().id();
+    let state = app.add_model(BranchState {
+        selected: false,
+        label: 1,
+        first_taps: 0,
+        second_taps: 0,
+    });
+    let selection = state.share();
+    let label = state.share();
+    let first_action = state.share();
+    let second_action = state.share();
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        Column (width: 128, height: 96) {
+            match ${ selection.selected() } {
+                false => {
+                    Text (
+                        "FIRST", id: "branch_first", text_capacity: 10,
+                        width: 128, height: 16, font_size: 8,
+                        bg_color: FIRST_COLOR
+                    ) on Tap { first_action.tap_first(); }
+                }
+                true => {
+                    Text (
+                        text: ${ format_args!("SECOND {:03}", label.label()) },
+                        id: "branch_second", text_capacity: 10,
+                        width: 128, height: 16, font_size: 8,
+                        bg_color: SECOND_COLOR
+                    ) on Tap { second_action.tap_second(); }
+                }
+            }
+        }
+    };
+
+    let first = app.world.find_by_id("branch_first").unwrap();
+    let second = app.world.find_by_id("branch_second").unwrap();
+    app.render().unwrap();
+    assert!(branch::is_effectively_hidden(&app.world, second));
+    assert_eq!(
+        dispatch_tap(&mut app.world, root, 8.into(), 8.into(), 0),
+        first
+    );
+    assert_eq!(state.tap_counts(), (1, 0));
+
+    state.set_label(7);
+    flush_signal_dirty(&mut app.world);
+    app.render_dirty().unwrap();
+    assert_eq!(state.tap_counts(), (1, 0));
+    assert_eq!(
+        hit_test(&app.world, root, 8.into(), 8.into(), 128, 96),
+        Some(first)
+    );
+
+    let action_allocations = tracked_allocations(|| state.select(true));
+    let notify_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
+    let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
+    assert_eq!(
+        (action_allocations, notify_allocations, render_allocations),
+        (0, 0, 0),
+        "first cached branch reveal allocated"
+    );
+    assert!(branch::is_effectively_hidden(&app.world, first));
+    assert_eq!(
+        app.world.get::<Text>(second).unwrap().resolve(&app.world),
+        "SECOND 007"
+    );
+    assert_eq!(
+        dispatch_tap(&mut app.world, root, 8.into(), 8.into(), 1_000),
+        second
+    );
+    assert_eq!(state.tap_counts(), (1, 1));
+
+    state.select(false);
+    flush_signal_dirty(&mut app.world);
+    app.render_dirty().unwrap();
+    assert_eq!(
+        dispatch_tap(&mut app.world, root, 8.into(), 8.into(), 2_000),
+        first
+    );
+    assert_eq!(state.tap_counts(), (2, 1));
+    assert_eq!(app.world.find_by_id("branch_first"), Some(first));
+    assert_eq!(app.world.find_by_id("branch_second"), Some(second));
 }
