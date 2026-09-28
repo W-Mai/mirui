@@ -43,7 +43,7 @@ trunk build --release
 
 Output lands in `gallery/web/dist/`.
 
-The Trunk pre-build hook renders the Play card previews through the software backend. Generated PNG files live under `target/gallery-site/play-previews` and are copied into `dist`; preview bitmaps are not stored in the source tree. Unchanged Rust sources reuse the generated set on subsequent builds.
+The Trunk pre-build hook renders the demo card previews through the software backend. Generated PNG files live under `target/gallery-site/demo-previews` and are copied into `dist`; preview bitmaps are not stored in the source tree. Unchanged Rust sources reuse the generated set on subsequent builds.
 
 ## A note on artifact size
 

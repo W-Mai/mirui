@@ -22,13 +22,34 @@ use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::render::renderer::Renderer;
 use crate::text::{TextLayoutCapacity, WorkspaceCapacity};
-use crate::types::Fixed64;
+use crate::types::{Fixed64, Transform};
 use crate::ui::ComputedRect;
 use crate::ui::view::ViewCtx;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Switch, Text, TextAlign};
 use core::fmt;
 
 pub const VIEWPORT: (u16, u16) = (480, 320);
+const BOARD_WIDTH: i32 = 480;
+const BOARD_HEIGHT: i32 = 199;
+const BOARD_MODEL_Y_ORIGIN: i32 = 52;
+const SCENE_CARD_LEFT: i32 = 18;
+const SCENE_CARD_TOP: i32 = 18;
+const SCENE_CARD_STRIDE: i32 = 151;
+const SCENE_CARD_WIDTH: i32 = 140;
+const SCENE_CARD_HEIGHT: i32 = 163;
+
+const fn scene_card_x(index: usize) -> i32 {
+    SCENE_CARD_LEFT + index as i32 * SCENE_CARD_STRIDE
+}
+
+fn scene_card_rect(index: usize) -> Rect {
+    Rect::new(
+        scene_card_x(index),
+        SCENE_CARD_TOP,
+        SCENE_CARD_WIDTH,
+        SCENE_CARD_HEIGHT,
+    )
+}
 
 const TEXT_LAYOUT_CAPACITY: TextLayoutCapacity = TextLayoutCapacity {
     layout_slots: 33,
@@ -47,6 +68,16 @@ const TEXT_LAYOUT_CAPACITY: TextLayoutCapacity = TextLayoutCapacity {
 
 #[crate::component(bind(model))]
 struct MarbleBoard {
+    model: MarbleModel,
+}
+
+#[crate::component(bind(model))]
+struct MarbleSceneBoard {
+    model: MarbleModel,
+}
+
+#[crate::component(bind(model))]
+struct MarbleSettingsPanel {
     model: MarbleModel,
 }
 
@@ -267,7 +298,7 @@ fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, them
     for x in (23..463).step_by(16) {
         for y in (62..247).step_by(16) {
             painter.circle(
-                Point::new(x, y - 52),
+                Point::new(x, y - BOARD_MODEL_Y_ORIGIN),
                 Fixed::from_ratio(1, 2),
                 mix(
                     theme.bg,
@@ -290,20 +321,20 @@ fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, them
         (404, 144, 437, 122),
     ] {
         painter.line(
-            Point::new(ax, ay - 50),
-            Point::new(bx, by - 50),
+            Point::new(ax, ay - BOARD_MODEL_Y_ORIGIN + 2),
+            Point::new(bx, by - BOARD_MODEL_Y_ORIGIN + 2),
             mix(theme.bg, 0x05110a, Fixed::from_ratio(65, 100)),
             Fixed::from_int(6),
         );
         painter.line(
-            Point::new(ax, ay - 52),
-            Point::new(bx, by - 52),
+            Point::new(ax, ay - BOARD_MODEL_Y_ORIGIN),
+            Point::new(bx, by - BOARD_MODEL_Y_ORIGIN),
             Color::rgb(110, 131, 94),
             Fixed::from_int(5),
         );
         painter.line(
-            Point::new(ax, ay - 52),
-            Point::new(bx, by - 52),
+            Point::new(ax, ay - BOARD_MODEL_Y_ORIGIN),
+            Point::new(bx, by - BOARD_MODEL_Y_ORIGIN),
             Color::rgb(189, 204, 164),
             Fixed::from_int(2),
         );
@@ -319,7 +350,7 @@ fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, them
     );
     for ring in model.rings.iter().flatten() {
         painter.arc(
-            point(ring.pos, 52),
+            point(ring.pos, BOARD_MODEL_Y_ORIGIN),
             ring.radius.to_fixed(),
             Fixed::ZERO,
             Fixed::from_int(360),
@@ -335,7 +366,7 @@ fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, them
             Fixed64::ONE
         };
         let radius = (pad.radius * pulse).to_fixed();
-        let center = point(pad.pos, 52);
+        let center = point(pad.pos, BOARD_MODEL_Y_ORIGIN);
         painter.circle(
             Point {
                 y: center.y + Fixed::from_int(2),
@@ -404,14 +435,14 @@ fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, them
         if model.trails {
             for index in 1..ball.trail_len {
                 painter.line(
-                    point(ball.trail[index - 1], 52),
-                    point(ball.trail[index], 52),
+                    point(ball.trail[index - 1], BOARD_MODEL_Y_ORIGIN),
+                    point(ball.trail[index], BOARD_MODEL_Y_ORIGIN),
                     color(ball.color).scale_alpha((24 + index * 27) as u8),
                     Fixed::from_ratio(5 + index as i32, 4),
                 );
             }
         }
-        let center = point(ball.pos, 52);
+        let center = point(ball.pos, BOARD_MODEL_Y_ORIGIN);
         painter.circle(center, Fixed::from_int(4), color(ball.color));
         painter.circle(
             Point {
@@ -424,7 +455,7 @@ fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, them
     }
     for particle in model.particles.iter().flatten() {
         painter.circle(
-            point(particle.pos, 52),
+            point(particle.pos, BOARD_MODEL_Y_ORIGIN),
             Fixed::ONE,
             color(particle.color).scale_alpha(170),
         );
@@ -563,8 +594,8 @@ fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
         Fixed::from_int(10),
     );
     for (index, theme) in THEMES.into_iter().enumerate() {
-        let x = 18 + index as i32 * 151;
-        let area = Rect::new(x, 18, 140, 163);
+        let x = scene_card_x(index);
+        let area = scene_card_rect(index);
         painter.fill(area, color(theme.panel), Fixed::from_int(8));
         painter.border(
             area,
@@ -601,7 +632,7 @@ fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
     }
 }
 
-fn paint_settings(painter: &mut PlayPainter<'_, '_>, _model: &MarbleModel, theme: Theme) {
+fn paint_settings(painter: &mut PlayPainter<'_, '_>, theme: Theme) {
     painter.fill(
         Rect::new(10, 0, 460, 199),
         color(theme.bg),
@@ -631,21 +662,56 @@ fn paint_settings(painter: &mut PlayPainter<'_, '_>, _model: &MarbleModel, theme
 )]
 fn board_render(renderer: &mut dyn Renderer, model: &MarbleModel, rect: &Rect, ctx: &mut ViewCtx) {
     ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, 480, 199);
+    let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
-    match model.page {
-        Page::Play | Page::Edit => paint_play_board(&mut painter, model, model.theme()),
-        Page::Scenes => paint_scene_cards(&mut painter, model.scene),
-        Page::Settings => paint_settings(&mut painter, model, model.theme()),
-    }
+    paint_play_board(&mut painter, model, model.theme());
+}
+
+#[crate::view(
+    component = MarbleSceneBoard,
+    read(model),
+    watch(model.scene()),
+    name = "MarbleSceneBoard",
+    priority = 60
+)]
+fn scene_board_render(
+    renderer: &mut dyn Renderer,
+    model: &MarbleModel,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    ctx.bg_handled = true;
+    let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
+    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint_scene_cards(&mut painter, model.scene);
+}
+
+#[crate::view(
+    component = MarbleSettingsPanel,
+    read(model),
+    watch(model.scene()),
+    name = "MarbleSettingsPanel",
+    priority = 60
+)]
+fn settings_panel_render(
+    renderer: &mut dyn Renderer,
+    model: &MarbleModel,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    ctx.bg_handled = true;
+    let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
+    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint_settings(&mut painter, model.theme());
 }
 
 fn event_point(rect: Rect, x: Fixed, y: Fixed) -> Option<crate::gallery::play::marble::Vec2> {
-    if rect.w.is_zero() || rect.h.is_zero() {
+    let fit = fit_logical_canvas(rect, Transform::IDENTITY, BOARD_WIDTH, BOARD_HEIGHT);
+    if fit.m00 <= Fixed::ZERO {
         return None;
     }
-    let local_x = (x - rect.x) * Fixed::from_int(480) / rect.w;
-    let local_y = (y - rect.y) * Fixed::from_int(199) / rect.h + Fixed::from_int(52);
+    let local_x = (x - fit.tx) / fit.m00;
+    let local_y = (y - fit.ty) / fit.m11 + Fixed::from_int(BOARD_MODEL_Y_ORIGIN);
     Some(crate::gallery::play::marble::Vec2 {
         x: Fixed64::from_fixed(local_x),
         y: Fixed64::from_fixed(local_y),
@@ -662,42 +728,35 @@ fn board_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
         return false;
     };
-    let (x, y, action) = match ctx.event {
-        GestureEvent::Tap { x, y, .. } => (*x, *y, 4),
-        GestureEvent::DragStart { x, y, .. } => (*x, *y, 0),
-        GestureEvent::DragMove { x, y, .. } => (*x, *y, 1),
-        GestureEvent::DragEnd { x, y, .. } => (*x, *y, 2),
-        GestureEvent::DragCancel { x, y, .. } => (*x, *y, 3),
+    let (x, y) = match ctx.event {
+        GestureEvent::Tap { x, y, .. }
+        | GestureEvent::DragStart { x, y, .. }
+        | GestureEvent::DragMove { x, y, .. }
+        | GestureEvent::DragEnd { x, y, .. }
+        | GestureEvent::DragCancel { x, y, .. } => (*x, *y),
         _ => return false,
     };
     let Some(point) = event_point(rect, x, y) else {
         return false;
     };
-    match action {
-        0 => {
+    match ctx.event {
+        GestureEvent::DragStart { .. } => {
             model.begin_board_drag(point);
         }
-        1 => {
+        GestureEvent::DragMove { .. } => {
             model.move_board_drag(point);
         }
-        2 => {
+        GestureEvent::DragEnd { .. } => {
             model.end_board_drag(false);
         }
-        3 => {
+        GestureEvent::DragCancel { .. } => {
             model.end_board_drag(true);
         }
-        _ => {
-            let local_y = point.y - Fixed64::from_int(52);
-            if model.page() == Page::Scenes {
-                if (Fixed64::from_int(18)..=Fixed64::from_int(181)).contains(&local_y) {
-                    let slot = ((point.x.to_int() - 18) / 151).clamp(0, 2) as usize;
-                    model.reset_scene(slot);
-                }
-            } else if model.page() != Page::Settings {
-                model.begin_board_drag(point);
-                model.end_board_drag(false);
-            }
+        GestureEvent::Tap { .. } => {
+            model.begin_board_drag(point);
+            model.end_board_drag(false);
         }
+        _ => return false,
     };
     true
 }
@@ -713,6 +772,485 @@ fn symmetric_padding(vertical: i32, horizontal: i32) -> Padding {
         right: Dimension::px(horizontal),
         bottom: Dimension::px(vertical),
         left: Dimension::px(horizontal),
+    }
+}
+
+#[compose(bind(model))]
+fn marble_play_page(model: MarbleModel) -> Entity {
+    ui! {
+        View (
+            id: "marble_play_board",
+            width: BOARD_WIDTH,
+            height: BOARD_HEIGHT,
+            clip_children: true
+        ) [
+            MarbleBoard {
+                model: model.clone(),
+            },
+            TouchAction::None,
+        ] on Tap { board_gesture(&ctx); } on DragStart { board_gesture(&ctx); } on DragMove { board_gesture(&ctx); } on DragEnd { board_gesture(&ctx); } on DragCancel { board_gesture(&ctx); }
+    }
+}
+
+#[compose(bind(model))]
+fn marble_scenes_page(model: MarbleModel) -> Entity {
+    ui! {
+        View (
+            id: "marble_scene_board",
+            width: BOARD_WIDTH,
+            height: BOARD_HEIGHT,
+            clip_children: true
+        ) [
+            MarbleSceneBoard {
+                model: model.clone(),
+            },
+        ] {
+            View (
+                id: "marble_scene_card_0",
+                position: Position::Absolute,
+                left: scene_card_x(0),
+                top: SCENE_CARD_TOP,
+                width: SCENE_CARD_WIDTH,
+                height: SCENE_CARD_HEIGHT
+            ) [
+                TouchAction::None,
+            ] on Tap { model.reset_scene(0); }
+            {
+                Text (
+                    "DAYDREAM",
+                    id: "marble_scene_0_name",
+                    position: Position::Absolute,
+                    left: 14,
+                    top: 100,
+                    width: 112,
+                    height: 18,
+                    font_size: 8,
+                    text_color: Color::rgb(225, 233, 214),
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "SOFT GREEN",
+                    id: "marble_scene_0_sub",
+                    position: Position::Absolute,
+                    left: 14,
+                    top: 121,
+                    width: 112,
+                    height: 16,
+                    font_size: 7,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+            }
+            View (
+                id: "marble_scene_card_1",
+                position: Position::Absolute,
+                left: scene_card_x(1),
+                top: SCENE_CARD_TOP,
+                width: SCENE_CARD_WIDTH,
+                height: SCENE_CARD_HEIGHT
+            ) [
+                TouchAction::None,
+            ] on Tap { model.reset_scene(1); }
+            {
+                Text (
+                    "AFTER HOURS",
+                    id: "marble_scene_1_name",
+                    position: Position::Absolute,
+                    left: 14,
+                    top: 100,
+                    width: 112,
+                    height: 18,
+                    font_size: 8,
+                    text_color: Color::rgb(225, 233, 214),
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "BLUE GREY",
+                    id: "marble_scene_1_sub",
+                    position: Position::Absolute,
+                    left: 14,
+                    top: 121,
+                    width: 112,
+                    height: 16,
+                    font_size: 7,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+            }
+            View (
+                id: "marble_scene_card_2",
+                position: Position::Absolute,
+                left: scene_card_x(2),
+                top: SCENE_CARD_TOP,
+                width: SCENE_CARD_WIDTH,
+                height: SCENE_CARD_HEIGHT
+            ) [
+                TouchAction::None,
+            ] on Tap { model.reset_scene(2); }
+            {
+                Text (
+                    "ZERO GRAVITY",
+                    id: "marble_scene_2_name",
+                    position: Position::Absolute,
+                    left: 14,
+                    top: 100,
+                    width: 112,
+                    height: 18,
+                    font_size: 8,
+                    text_color: Color::rgb(225, 233, 214),
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Text (
+                    "COOL BLUE",
+                    id: "marble_scene_2_sub",
+                    position: Position::Absolute,
+                    left: 14,
+                    top: 121,
+                    width: 112,
+                    height: 16,
+                    font_size: 7,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+            }
+        }
+    }
+}
+
+#[compose(bind(model))]
+fn marble_settings_page(model: MarbleModel) -> Entity {
+    ui! {
+        View (
+            id: "marble_settings_panel",
+            width: BOARD_WIDTH,
+            height: BOARD_HEIGHT,
+            clip_children: true
+        ) [
+            MarbleSettingsPanel {
+                model: model.clone(),
+            },
+        ] {
+            Text (
+                "GRAVITY",
+                id: "marble_setting_gravity",
+                position: Position::Absolute,
+                left: 42,
+                top: 15,
+                width: 100,
+                height: 16,
+                font_size: 8,
+                text_color: TEXT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ format_args!("TEMPO · {} BPM", model.bpm()) },
+                text_capacity: 16,
+                id: "marble_setting_bpm",
+                position: Position::Absolute,
+                left: 42,
+                top: 65,
+                width: 180,
+                height: 16,
+                font_size: 8,
+                text_color: TEXT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "TRAILS · 6 POINTS PER MARBLE",
+                id: "marble_setting_trails",
+                position: Position::Absolute,
+                left: 42,
+                top: 122,
+                width: 260,
+                height: 18,
+                font_size: 8,
+                text_color: TEXT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "FEEDBACK · RINGS / PARTICLES",
+                id: "marble_setting_feedback",
+                position: Position::Absolute,
+                left: 42,
+                top: 157,
+                width: 260,
+                height: 18,
+                font_size: 8,
+                text_color: TEXT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Slider (
+                id: "marble_setting_gravity_control",
+                position: Position::Absolute,
+                left: 42,
+                top: 29,
+                width: 380,
+                height: 28,
+                min: Fixed::ZERO,
+                max: Fixed::from_ratio(16, 10),
+                value: ${ model.gravity().to_fixed() },
+                track_color: Color::rgb(69, 87, 70),
+                fill_color: Color::rgb(217, 248, 138),
+                thumb_color: Color::rgb(225, 233, 214)
+            ) on ValueChanged { model.set_gravity(Fixed64::from_fixed(*new)); }
+            Slider (
+                id: "marble_setting_bpm_control",
+                position: Position::Absolute,
+                left: 42,
+                top: 79,
+                width: 380,
+                height: 28,
+                min: Fixed::from_int(55),
+                max: Fixed::from_int(160),
+                value: ${ Fixed::from_int(i32::from(model.bpm())) },
+                track_color: Color::rgb(69, 87, 70),
+                fill_color: Color::rgb(198, 176, 239),
+                thumb_color: Color::rgb(225, 233, 214)
+            ) on ValueChanged { model.set_bpm(Fixed64::from_fixed(*new)); }
+            Switch (
+                id: "marble_setting_trails_control",
+                position: Position::Absolute,
+                left: 370,
+                top: 121,
+                width: 54,
+                height: 24,
+                on: ${ model.trails() },
+                on_color: Color::rgb(217, 248, 138),
+                off_color: Color::rgb(69, 87, 70),
+                thumb_color: Color::rgb(23, 34, 28)
+            ) on Toggled {
+                if model.trails() != *now {
+                    model.toggle_trails();
+                }
+            }
+            Switch (
+                id: "marble_setting_feedback_control",
+                position: Position::Absolute,
+                left: 370,
+                top: 156,
+                width: 54,
+                height: 24,
+                on: ${ model.feedback() },
+                on_color: Color::rgb(217, 248, 138),
+                off_color: Color::rgb(69, 87, 70),
+                thumb_color: Color::rgb(23, 34, 28)
+            ) on Toggled {
+                if model.feedback() != *now {
+                    model.toggle_feedback();
+                }
+            }
+        }
+    }
+}
+
+#[compose(bind(model))]
+fn marble_inspector(model: MarbleModel) -> Entity {
+    ui! {
+        View (
+            id: "marble_inspector",
+            visible: ${ model.inspector() },
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 286,
+            bg_color: Color::rgba(6, 12, 8, 150)
+        ) [
+            TouchAction::None,
+        ] on Tap { }
+        {
+            Column (
+                position: Position::Absolute,
+                left: 213,
+                top: 35,
+                width: 253,
+                height: 247,
+                padding: Padding::all(10),
+                row_gap: 4,
+                bg_color: Color::rgb(34, 47, 37),
+                border_color: Color::rgb(217, 248, 138),
+                border_width: 1,
+                border_radius: 9
+            ) {
+                Row (height: 22, align: AlignItems::Center) {
+                    Text (
+                        "PAD PROPERTIES",
+                        grow: 1.0,
+                        height: 20,
+                        font_size: 9,
+                        text_color: TEXT,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Button (
+                        "X",
+                        id: "marble_inspector_close",
+                        size: ButtonSize::Compact,
+                        width: 24,
+                        height: 22,
+                        font_size: 10,
+                        normal_color: Color::rgb(45, 61, 48),
+                        pressed_color: Color::rgb(217, 248, 138),
+                        text_color: TEXT,
+                        border_radius: 6
+                    ) on Tap { model.set_inspector(false); }
+                }
+                Text (
+                    "COLOR",
+                    height: 12,
+                    font_size: 8,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Row (height: 20, column_gap: 8) {
+                    Button (
+                        "",
+                        size: ButtonSize::Custom,
+                        grow: 1.0,
+                        height: 20,
+                        normal_color: Color::rgb(180, 234, 189),
+                        pressed_color: Color::rgb(180, 234, 189),
+                        border_radius: 5
+                    ) on Tap { model.set_color(0); }
+                    Button (
+                        "",
+                        size: ButtonSize::Custom,
+                        grow: 1.0,
+                        height: 20,
+                        normal_color: Color::rgb(198, 176, 239),
+                        pressed_color: Color::rgb(198, 176, 239),
+                        border_radius: 5
+                    ) on Tap { model.set_color(1); }
+                    Button (
+                        "",
+                        size: ButtonSize::Custom,
+                        grow: 1.0,
+                        height: 20,
+                        normal_color: Color::rgb(238, 217, 132),
+                        pressed_color: Color::rgb(238, 217, 132),
+                        border_radius: 5
+                    ) on Tap { model.set_color(2); }
+                    Button (
+                        "",
+                        size: ButtonSize::Custom,
+                        grow: 1.0,
+                        height: 20,
+                        normal_color: Color::rgb(238, 172, 139),
+                        pressed_color: Color::rgb(238, 172, 139),
+                        border_radius: 5
+                    ) on Tap { model.set_color(3); }
+                    Button (
+                        "",
+                        size: ButtonSize::Custom,
+                        grow: 1.0,
+                        height: 20,
+                        normal_color: Color::rgb(160, 210, 232),
+                        pressed_color: Color::rgb(160, 210, 232),
+                        border_radius: 5
+                    ) on Tap { model.set_color(4); }
+                }
+                Row (height: 24, align: AlignItems::Center, column_gap: 6) {
+                    Text (
+                        "PITCH",
+                        width: 50,
+                        height: 18,
+                        font_size: 8,
+                        text_color: MUTED,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Button (
+                        "-",
+                        id: "marble_pitch_down",
+                        size: ButtonSize::Compact,
+                        width: 34,
+                        height: 22,
+                        font_size: 10,
+                        normal_color: Color::rgb(45, 61, 48),
+                        pressed_color: Color::rgb(217, 248, 138),
+                        text_color: TEXT,
+                        border_radius: 5
+                    ) on Tap { model.adjust_pitch(-1); }
+                    Text (
+                        text: ${ pitch_label(model.selected_pitch()) },
+                        text_capacity: 4,
+                        id: "marble_pitch",
+                        grow: 1.0,
+                        height: 18,
+                        font_size: 9,
+                        text_color: TEXT,
+                        paragraph: ParagraphStyle::label()
+                    )
+                    Button (
+                        "+",
+                        id: "marble_pitch_up",
+                        size: ButtonSize::Compact,
+                        width: 34,
+                        height: 22,
+                        font_size: 10,
+                        normal_color: Color::rgb(45, 61, 48),
+                        pressed_color: Color::rgb(217, 248, 138),
+                        text_color: TEXT,
+                        border_radius: 5
+                    ) on Tap { model.adjust_pitch(1); }
+                }
+                Row (height: 24, align: AlignItems::Center, column_gap: 6) {
+                    Text (
+                        "TIMBRE",
+                        width: 50,
+                        height: 18,
+                        font_size: 8,
+                        text_color: MUTED,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Button (
+                        text: ${ model.selected_timbre().label() },
+                        text_capacity: 6,
+                        id: "marble_timbre",
+                        size: ButtonSize::Compact,
+                        grow: 1.0,
+                        height: 22,
+                        font_size: 8,
+                        normal_color: Color::rgb(45, 61, 48),
+                        pressed_color: Color::rgb(198, 176, 239),
+                        text_color: TEXT,
+                        border_radius: 5
+                    ) on Tap { model.cycle_timbre(); }
+                }
+                Text (
+                    "BOUNCE",
+                    height: 12,
+                    font_size: 8,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Slider (
+                    id: "marble_bounce",
+                    height: 20,
+                    min: Fixed::from_ratio(7, 10),
+                    max: Fixed::from_ratio(14, 10),
+                    value: ${ model.selected_bounce().to_fixed() },
+                    track_color: Color::rgb(69, 87, 70),
+                    fill_color: Color::rgb(217, 248, 138),
+                    thumb_color: Color::rgb(225, 233, 214)
+                ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(*new)); }
+                Text (
+                    "RADIUS",
+                    height: 12,
+                    font_size: 8,
+                    text_color: MUTED,
+                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                )
+                Slider (
+                    id: "marble_radius",
+                    height: 20,
+                    min: Fixed::from_int(13),
+                    max: Fixed::from_int(23),
+                    value: ${ model.selected_radius().to_fixed() },
+                    track_color: Color::rgb(69, 87, 70),
+                    fill_color: Color::rgb(217, 248, 138),
+                    thumb_color: Color::rgb(225, 233, 214)
+                ) on ValueChanged { model.set_radius(Fixed64::from_fixed(*new)); }
+            }
+        }
     }
 }
 
@@ -858,212 +1396,15 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     paragraph: ParagraphStyle::label().with_align(TextAlign::End)
                 )
             }
-            View (
-                id: "marble_play_board",
-                width: 480,
-                height: 199,
-                clip_children: true
-            ) [
-                MarbleBoard {
-                    model: model.clone(),
-                },
-                TouchAction::None,
-            ] on Tap { board_gesture(&ctx); } on DragStart { board_gesture(&ctx); } on DragMove { board_gesture(&ctx); } on DragEnd { board_gesture(&ctx); } on DragCancel { board_gesture(&ctx); }
-            {
-                Text (
-                    "DAYDREAM",
-                    id: "marble_scene_0_name",
-                    visible: ${ model.page() == Page::Scenes },
-                    position: Position::Absolute,
-                    left: 32,
-                    top: 118,
-                    width: 112,
-                    height: 18,
-                    font_size: 8,
-                    text_color: Color::rgb(225, 233, 214),
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "SOFT GREEN",
-                    id: "marble_scene_0_sub",
-                    visible: ${ model.page() == Page::Scenes },
-                    position: Position::Absolute,
-                    left: 32,
-                    top: 139,
-                    width: 112,
-                    height: 16,
-                    font_size: 7,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "AFTER HOURS",
-                    id: "marble_scene_1_name",
-                    visible: ${ model.page() == Page::Scenes },
-                    position: Position::Absolute,
-                    left: 183,
-                    top: 118,
-                    width: 112,
-                    height: 18,
-                    font_size: 8,
-                    text_color: Color::rgb(225, 233, 214),
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "BLUE GREY",
-                    id: "marble_scene_1_sub",
-                    visible: ${ model.page() == Page::Scenes },
-                    position: Position::Absolute,
-                    left: 183,
-                    top: 139,
-                    width: 112,
-                    height: 16,
-                    font_size: 7,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "ZERO GRAVITY",
-                    id: "marble_scene_2_name",
-                    visible: ${ model.page() == Page::Scenes },
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 118,
-                    width: 112,
-                    height: 18,
-                    font_size: 8,
-                    text_color: Color::rgb(225, 233, 214),
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "COOL BLUE",
-                    id: "marble_scene_2_sub",
-                    visible: ${ model.page() == Page::Scenes },
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 139,
-                    width: 112,
-                    height: 16,
-                    font_size: 7,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "GRAVITY",
-                    id: "marble_setting_gravity",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 15,
-                    width: 100,
-                    height: 16,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    text: ${ format_args!("TEMPO · {} BPM", model.bpm()) },
-                    text_capacity: 16,
-                    id: "marble_setting_bpm",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 65,
-                    width: 180,
-                    height: 16,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "TRAILS · 6 POINTS PER MARBLE",
-                    id: "marble_setting_trails",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 122,
-                    width: 260,
-                    height: 18,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "FEEDBACK · RINGS / PARTICLES",
-                    id: "marble_setting_feedback",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 157,
-                    width: 260,
-                    height: 18,
-                    font_size: 8,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Slider (
-                    id: "marble_setting_gravity_control",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 29,
-                    width: 380,
-                    height: 28,
-                    min: Fixed::ZERO,
-                    max: Fixed::from_ratio(16, 10),
-                    value: ${ model.gravity().to_fixed() },
-                    track_color: Color::rgb(69, 87, 70),
-                    fill_color: Color::rgb(217, 248, 138),
-                    thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { model.set_gravity(Fixed64::from_fixed(*new)); }
-                Slider (
-                    id: "marble_setting_bpm_control",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 79,
-                    width: 380,
-                    height: 28,
-                    min: Fixed::from_int(55),
-                    max: Fixed::from_int(160),
-                    value: ${ Fixed::from_int(i32::from(model.bpm())) },
-                    track_color: Color::rgb(69, 87, 70),
-                    fill_color: Color::rgb(198, 176, 239),
-                    thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { model.set_bpm(Fixed64::from_fixed(*new)); }
-                Switch (
-                    id: "marble_setting_trails_control",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 370,
-                    top: 121,
-                    width: 54,
-                    height: 24,
-                    on: ${ model.trails() },
-                    on_color: Color::rgb(217, 248, 138),
-                    off_color: Color::rgb(69, 87, 70),
-                    thumb_color: Color::rgb(23, 34, 28)
-                ) on Toggled {
-                    if model.trails() != *now {
-                        model.toggle_trails();
-                    }
+            match ${ model.page() } {
+                Page :: Play | Page :: Edit => {
+                    marble_play_page (model)
                 }
-                Switch (
-                    id: "marble_setting_feedback_control",
-                    visible: ${ model.page() == Page::Settings },
-                    position: Position::Absolute,
-                    left: 370,
-                    top: 156,
-                    width: 54,
-                    height: 24,
-                    on: ${ model.feedback() },
-                    on_color: Color::rgb(217, 248, 138),
-                    off_color: Color::rgb(69, 87, 70),
-                    thumb_color: Color::rgb(23, 34, 28)
-                ) on Toggled {
-                    if model.feedback() != *now {
-                        model.toggle_feedback();
-                    }
+                Page :: Scenes => {
+                    marble_scenes_page (model)
+                }
+                Page :: Settings => {
+                    marble_settings_page (model)
                 }
             }
             Row (
@@ -1091,45 +1432,44 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
-                Button (
-                    "PROPS",
-                    id: "marble_properties",
-                    visible: ${ model.page() == Page::Edit },
-                    size: ButtonSize::Compact,
-                    width: 52,
-                    height: 23,
-                    font_size: 8,
-                    normal_color: Color::rgb(34, 47, 37),
-                    pressed_color: Color::rgb(217, 248, 138),
-                    text_color: TEXT,
-                    border_radius: 6
-                ) on Tap { model.set_inspector(true); }
-                Button (
-                    "ADD",
-                    id: "marble_add",
-                    visible: ${ model.page() == Page::Edit },
-                    size: ButtonSize::Compact,
-                    width: 46,
-                    height: 23,
-                    font_size: 8,
-                    normal_color: Color::rgb(34, 47, 37),
-                    pressed_color: Color::rgb(217, 248, 138),
-                    text_color: TEXT,
-                    border_radius: 6
-                ) on Tap { model.toggle_add_mode(); }
-                Button (
-                    "REMOVE",
-                    id: "marble_remove",
-                    visible: ${ model.page() == Page::Edit },
-                    size: ButtonSize::Compact,
-                    width: 62,
-                    height: 23,
-                    font_size: 8,
-                    normal_color: Color::rgb(34, 47, 37),
-                    pressed_color: Color::rgb(238, 172, 139),
-                    text_color: TEXT,
-                    border_radius: 6
-                ) on Tap { model.remove_selected(); }
+                if ${ model.page() == Page::Edit } {
+                    Button (
+                        "PROPS",
+                        id: "marble_properties",
+                        size: ButtonSize::Compact,
+                        width: 52,
+                        height: 23,
+                        font_size: 8,
+                        normal_color: Color::rgb(34, 47, 37),
+                        pressed_color: Color::rgb(217, 248, 138),
+                        text_color: TEXT,
+                        border_radius: 6
+                    ) on Tap { model.set_inspector(true); }
+                    Button (
+                        "ADD",
+                        id: "marble_add",
+                        size: ButtonSize::Compact,
+                        width: 46,
+                        height: 23,
+                        font_size: 8,
+                        normal_color: Color::rgb(34, 47, 37),
+                        pressed_color: Color::rgb(217, 248, 138),
+                        text_color: TEXT,
+                        border_radius: 6
+                    ) on Tap { model.toggle_add_mode(); }
+                    Button (
+                        "REMOVE",
+                        id: "marble_remove",
+                        size: ButtonSize::Compact,
+                        width: 62,
+                        height: 23,
+                        font_size: 8,
+                        normal_color: Color::rgb(34, 47, 37),
+                        pressed_color: Color::rgb(238, 172, 139),
+                        text_color: TEXT,
+                        border_radius: 6
+                    ) on Tap { model.remove_selected(); }
+                }
             }
             Row (
                 height: 34,
@@ -1186,211 +1526,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                     border_radius: 6
                 ) on Tap { model.set_page(Page::Settings); }
             }
-            View (
-                id: "marble_inspector",
-                visible: ${ model.inspector() },
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 286,
-                bg_color: Color::rgba(6, 12, 8, 150)
-            ) [
-                TouchAction::None,
-            ] on Tap { }
-            {
-                Column (
-                    position: Position::Absolute,
-                    left: 213,
-                    top: 35,
-                    width: 253,
-                    height: 247,
-                    padding: Padding::all(10),
-                    row_gap: 4,
-                    bg_color: Color::rgb(34, 47, 37),
-                    border_color: Color::rgb(217, 248, 138),
-                    border_width: 1,
-                    border_radius: 9
-                ) {
-                    Row (height: 22, align: AlignItems::Center) {
-                        Text (
-                            "PAD PROPERTIES",
-                            grow: 1.0,
-                            height: 20,
-                            font_size: 9,
-                            text_color: TEXT,
-                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                        )
-                        Button (
-                            "X",
-                            id: "marble_inspector_close",
-                            size: ButtonSize::Compact,
-                            width: 24,
-                            height: 22,
-                            font_size: 10,
-                            normal_color: Color::rgb(45, 61, 48),
-                            pressed_color: Color::rgb(217, 248, 138),
-                            text_color: TEXT,
-                            border_radius: 6
-                        ) on Tap { model.set_inspector(false); }
-                    }
-                    Text (
-                        "COLOR",
-                        height: 12,
-                        font_size: 8,
-                        text_color: MUTED,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    Row (height: 20, column_gap: 8) {
-                        Button (
-                            "",
-                            size: ButtonSize::Custom,
-                            grow: 1.0,
-                            height: 20,
-                            normal_color: Color::rgb(180, 234, 189),
-                            pressed_color: Color::rgb(180, 234, 189),
-                            border_radius: 5
-                        ) on Tap { model.set_color(0); }
-                        Button (
-                            "",
-                            size: ButtonSize::Custom,
-                            grow: 1.0,
-                            height: 20,
-                            normal_color: Color::rgb(198, 176, 239),
-                            pressed_color: Color::rgb(198, 176, 239),
-                            border_radius: 5
-                        ) on Tap { model.set_color(1); }
-                        Button (
-                            "",
-                            size: ButtonSize::Custom,
-                            grow: 1.0,
-                            height: 20,
-                            normal_color: Color::rgb(238, 217, 132),
-                            pressed_color: Color::rgb(238, 217, 132),
-                            border_radius: 5
-                        ) on Tap { model.set_color(2); }
-                        Button (
-                            "",
-                            size: ButtonSize::Custom,
-                            grow: 1.0,
-                            height: 20,
-                            normal_color: Color::rgb(238, 172, 139),
-                            pressed_color: Color::rgb(238, 172, 139),
-                            border_radius: 5
-                        ) on Tap { model.set_color(3); }
-                        Button (
-                            "",
-                            size: ButtonSize::Custom,
-                            grow: 1.0,
-                            height: 20,
-                            normal_color: Color::rgb(160, 210, 232),
-                            pressed_color: Color::rgb(160, 210, 232),
-                            border_radius: 5
-                        ) on Tap { model.set_color(4); }
-                    }
-                    Row (height: 24, align: AlignItems::Center, column_gap: 6) {
-                        Text (
-                            "PITCH",
-                            width: 50,
-                            height: 18,
-                            font_size: 8,
-                            text_color: MUTED,
-                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                        )
-                        Button (
-                            "-",
-                            id: "marble_pitch_down",
-                            size: ButtonSize::Compact,
-                            width: 34,
-                            height: 22,
-                            font_size: 10,
-                            normal_color: Color::rgb(45, 61, 48),
-                            pressed_color: Color::rgb(217, 248, 138),
-                            text_color: TEXT,
-                            border_radius: 5
-                        ) on Tap { model.adjust_pitch(-1); }
-                        Text (
-                            text: ${ pitch_label(model.selected_pitch()) },
-                            text_capacity: 4,
-                            id: "marble_pitch",
-                            grow: 1.0,
-                            height: 18,
-                            font_size: 9,
-                            text_color: TEXT,
-                            paragraph: ParagraphStyle::label()
-                        )
-                        Button (
-                            "+",
-                            id: "marble_pitch_up",
-                            size: ButtonSize::Compact,
-                            width: 34,
-                            height: 22,
-                            font_size: 10,
-                            normal_color: Color::rgb(45, 61, 48),
-                            pressed_color: Color::rgb(217, 248, 138),
-                            text_color: TEXT,
-                            border_radius: 5
-                        ) on Tap { model.adjust_pitch(1); }
-                    }
-                    Row (height: 24, align: AlignItems::Center, column_gap: 6) {
-                        Text (
-                            "TIMBRE",
-                            width: 50,
-                            height: 18,
-                            font_size: 8,
-                            text_color: MUTED,
-                            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                        )
-                        Button (
-                            text: ${ model.selected_timbre().label() },
-                            text_capacity: 6,
-                            id: "marble_timbre",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 22,
-                            font_size: 8,
-                            normal_color: Color::rgb(45, 61, 48),
-                            pressed_color: Color::rgb(198, 176, 239),
-                            text_color: TEXT,
-                            border_radius: 5
-                        ) on Tap { model.cycle_timbre(); }
-                    }
-                    Text (
-                        "BOUNCE",
-                        height: 12,
-                        font_size: 8,
-                        text_color: MUTED,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    Slider (
-                        id: "marble_bounce",
-                        height: 20,
-                        min: Fixed::from_ratio(7, 10),
-                        max: Fixed::from_ratio(14, 10),
-                        value: ${ model.selected_bounce().to_fixed() },
-                        track_color: Color::rgb(69, 87, 70),
-                        fill_color: Color::rgb(217, 248, 138),
-                        thumb_color: Color::rgb(225, 233, 214)
-                    ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(*new)); }
-                    Text (
-                        "RADIUS",
-                        height: 12,
-                        font_size: 8,
-                        text_color: MUTED,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    Slider (
-                        id: "marble_radius",
-                        height: 20,
-                        min: Fixed::from_int(13),
-                        max: Fixed::from_int(23),
-                        value: ${ model.selected_radius().to_fixed() },
-                        track_color: Color::rgb(69, 87, 70),
-                        fill_color: Color::rgb(217, 248, 138),
-                        thumb_color: Color::rgb(225, 233, 214)
-                    ) on ValueChanged { model.set_radius(Fixed64::from_fixed(*new)); }
-                }
-            }
+            marble_inspector (model)
         }
     };
 }
@@ -1408,6 +1544,8 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(board_render::view());
+    app.with_widget(scene_board_render::view());
+    app.with_widget(settings_panel_render::view());
     let model = app.add_model(MarbleModel::new());
     #[cfg(feature = "audio")]
     {
@@ -1447,8 +1585,11 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(
 mod tests {
     use super::*;
     use crate::gallery::play::marble::MarbleModelHandle;
+    #[cfg(feature = "audio")]
+    use crate::ui::Hidden;
+    use crate::ui::branch::is_hidden_in_tree;
     use crate::ui::view::ViewRegistry;
-    use crate::ui::{Children, Hidden, IdMap, UiScope};
+    use crate::ui::{Children, IdMap, UiScope};
 
     #[crate::model]
     struct BoardSelection {
@@ -1501,6 +1642,8 @@ mod tests {
         let mut world = World::new();
         let mut registry = ViewRegistry::with_builtins();
         registry.insert(board_render::view());
+        registry.insert(scene_board_render::view());
+        registry.insert(settings_panel_render::view());
         world.insert_resource(registry);
         world.insert_resource(IdMap::new());
         let (cell, model) = crate::core::model::register(&mut world, MarbleModel::new());
@@ -1522,6 +1665,7 @@ mod tests {
         #[cfg(not(feature = "audio"))]
         build_widgets(&mut cx, model.clone());
         world.insert_resource(model);
+        crate::core::reactive::flush_signal_dirty(&mut world);
         assert!(world.get::<Children>(root).is_some());
         world
     }
@@ -1678,7 +1822,7 @@ mod tests {
             .storage::<Dirty>()
             .unwrap()
             .reserved_entity_capacity();
-        assert!(app.world.has::<Hidden>(properties));
+        assert!(is_hidden_in_tree(&app.world, properties));
 
         model.set_page(Page::Edit);
         crate::core::reactive::flush_signal_dirty(&mut app.world);
@@ -1688,7 +1832,7 @@ mod tests {
             .unwrap()
             .reserved_entity_capacity();
         assert_eq!(after, before);
-        assert!(!app.world.has::<Hidden>(properties));
+        assert!(!is_hidden_in_tree(&app.world, properties));
 
         app.render_dirty().unwrap();
         let edit_pixels = app
@@ -2024,15 +2168,15 @@ mod tests {
         let gravity = world.find_by_id("marble_setting_gravity_control").unwrap();
         let bpm = world.find_by_id("marble_setting_bpm_control").unwrap();
         let pitch = world.find_by_id("marble_pitch").unwrap();
-        assert!(world.has::<Hidden>(properties));
-        assert!(world.has::<Hidden>(scene_label));
+        assert!(is_hidden_in_tree(&world, properties));
+        assert!(is_hidden_in_tree(&world, scene_label));
 
         world
             .resource::<MarbleModelHandle>()
             .unwrap()
             .set_page(Page::Edit);
         crate::core::reactive::flush_signal_dirty(&mut world);
-        assert!(!world.has::<Hidden>(properties));
+        assert!(!is_hidden_in_tree(&world, properties));
 
         world
             .resource::<MarbleModelHandle>()
@@ -2053,15 +2197,15 @@ mod tests {
             .unwrap()
             .set_page(Page::Scenes);
         crate::core::reactive::flush_signal_dirty(&mut world);
-        assert!(world.has::<Hidden>(properties));
-        assert!(!world.has::<Hidden>(scene_label));
+        assert!(is_hidden_in_tree(&world, properties));
+        assert!(!is_hidden_in_tree(&world, scene_label));
 
         world
             .resource::<MarbleModelHandle>()
             .unwrap()
             .reset_scene(2);
         crate::core::reactive::flush_signal_dirty(&mut world);
-        assert!(world.has::<Hidden>(scene_label));
+        assert!(is_hidden_in_tree(&world, scene_label));
         assert_eq!(
             world.get::<Slider>(gravity).unwrap().value,
             THEMES[2].gravity.to_fixed()
@@ -2125,7 +2269,7 @@ mod tests {
             world.resource::<MarbleModelHandle>().unwrap().page(),
             Page::Edit
         );
-        assert!(!world.has::<Hidden>(properties));
+        assert!(!is_hidden_in_tree(&world, properties));
     }
 
     #[test]
@@ -2168,7 +2312,7 @@ mod tests {
         }
         crate::core::reactive::flush_signal_dirty(&mut app.world);
         let properties = app.world.find_by_id("marble_properties").unwrap();
-        assert!(!app.world.has::<Hidden>(properties));
+        assert!(!is_hidden_in_tree(&app.world, properties));
     }
 
     #[cfg(feature = "audio")]
@@ -2289,6 +2433,17 @@ mod tests {
     }
 
     #[test]
+    fn pointer_mapping_reverses_centered_uniform_canvas_fit() {
+        let rect = Rect::new(10, 20, 960, 600);
+        let fit = fit_logical_canvas(rect, Transform::IDENTITY, BOARD_WIDTH, BOARD_HEIGHT);
+        let painted = fit.apply_point(Point::new(120, 80));
+        let mapped = event_point(rect, painted.x, painted.y).unwrap();
+
+        assert_eq!(mapped.x, Fixed64::from_int(120));
+        assert_eq!(mapped.y, Fixed64::from_int(132));
+    }
+
+    #[test]
     fn tap_selects_a_pad_without_crossing_drag_threshold() {
         let mut world = fixture();
         let board = world.find_by_id("marble_play_board").unwrap();
@@ -2317,21 +2472,21 @@ mod tests {
     #[test]
     fn scene_card_tap_loads_selected_preset() {
         let mut world = fixture();
-        let board = world.find_by_id("marble_play_board").unwrap();
-        world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
+        let card = world.find_by_id("marble_scene_card_2").unwrap();
         world
             .resource::<MarbleModelHandle>()
             .unwrap()
             .set_page(Page::Scenes);
-        assert!(test_board_gesture(
+        crate::core::reactive::flush_signal_dirty(&mut world);
+        assert!(!is_hidden_in_tree(&world, card));
+        crate::input::event::bubble_dispatch(
             &mut world,
-            board,
             &GestureEvent::Tap {
                 x: Fixed::from_int(340),
                 y: Fixed::from_int(120),
-                target: board,
-            }
-        ));
+                target: card,
+            },
+        );
         let model = world.resource::<MarbleModelHandle>().unwrap();
         assert_eq!(model.scene(), 2);
         assert_eq!(model.page(), Page::Play);

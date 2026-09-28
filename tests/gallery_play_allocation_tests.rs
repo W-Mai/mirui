@@ -5,18 +5,83 @@ mod tracking_allocator;
 
 use mirui::app::App;
 use mirui::core::reactive::flush_signal_dirty;
+use mirui::ecs::{Entity, World};
 use mirui::input::event::gesture::{GestureEvent, GestureSystem};
 use mirui::input::event::hit_test::hit_test;
 use mirui::input::event::input::InputEvent;
 use mirui::input::event::{bubble_dispatch_at, dispatch_input};
 use mirui::surface::FramebufferAccess;
 use mirui::types::Fixed;
-use mirui::ui::ComputedRect;
 use mirui::ui::branch::is_effectively_hidden;
 use mirui::ui::widgets::{Button, Slider, Text};
+use mirui::ui::{ComputedRect, Parent};
 use tracking_allocator::tracked_allocations;
 
 const MAX_WARMED_RENDER_ALLOCATIONS: usize = 40;
+
+fn is_hidden_in_tree(world: &World, mut entity: Entity) -> bool {
+    loop {
+        if is_effectively_hidden(world, entity) {
+            return true;
+        }
+        let Some(parent) = world.get::<Parent>(entity) else {
+            return false;
+        };
+        entity = parent.0;
+    }
+}
+
+fn try_tap_at(
+    world: &mut World,
+    root: Entity,
+    x: Fixed,
+    y: Fixed,
+    now_ms: u32,
+    width: u16,
+    height: u16,
+) -> Option<Entity> {
+    dispatch_input(
+        world,
+        root,
+        &InputEvent::PointerDown { id: 0, x, y },
+        now_ms,
+        width,
+        height,
+    );
+    dispatch_input(
+        world,
+        root,
+        &InputEvent::PointerUp { id: 0, x, y },
+        now_ms + 50,
+        width,
+        height,
+    );
+    let event = {
+        let gestures = &mut world.resource_mut::<GestureSystem>().unwrap().events;
+        assert!(gestures.buffer.len() <= 1);
+        gestures.buffer.pop()
+    };
+    let event = event?;
+    let target = match &event {
+        GestureEvent::Tap { target, .. } => *target,
+        _ => panic!("pointer sequence did not produce a tap: {event:?}"),
+    };
+    bubble_dispatch_at(world, &event, now_ms + 50);
+    Some(target)
+}
+
+fn tap_at(
+    world: &mut World,
+    root: Entity,
+    x: Fixed,
+    y: Fixed,
+    now_ms: u32,
+    width: u16,
+    height: u16,
+) -> Entity {
+    try_tap_at(world, root, x, y, now_ms, width, height)
+        .expect("pointer sequence did not reach a target")
+}
 
 #[cfg(feature = "audio")]
 struct CountingAudioSink(std::rc::Rc<std::cell::Cell<usize>>);
@@ -92,14 +157,35 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
         .world
         .find_by_id("marble_setting_gravity_control")
         .unwrap();
+    let branches = [
+        app.world.find_by_id("marble_play_board").unwrap(),
+        app.world.find_by_id("marble_scene_board").unwrap(),
+        app.world.find_by_id("marble_settings_panel").unwrap(),
+    ];
     let steps = [
-        ("marble_nav_edit", [true, false, false]),
-        ("marble_nav_scenes", [false, true, false]),
-        ("marble_nav_settings", [false, false, true]),
-        ("marble_nav_play", [false, false, false]),
+        (
+            "marble_nav_edit",
+            [true, false, false],
+            [true, false, false],
+        ),
+        (
+            "marble_nav_scenes",
+            [false, true, false],
+            [false, true, false],
+        ),
+        (
+            "marble_nav_settings",
+            [false, false, true],
+            [false, false, true],
+        ),
+        (
+            "marble_nav_play",
+            [false, false, false],
+            [true, false, false],
+        ),
     ];
 
-    for (index, (id, visible)) in steps.into_iter().enumerate() {
+    for (index, (id, visible, visible_branches)) in steps.into_iter().enumerate() {
         let button = app.world.find_by_id(id).unwrap();
         let rect = app.world.get::<ComputedRect>(button).unwrap().0;
         let half = Fixed::from_ratio(1, 2);
@@ -150,12 +236,151 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
             (settings, visible[2]),
         ] {
             assert_eq!(
-                !is_effectively_hidden(&app.world, entity),
+                !is_hidden_in_tree(&app.world, entity),
                 expected_visible,
                 "{id} left an unexpected page visible"
             );
         }
+        for (index, (branch_id, branch)) in [
+            "marble_play_board",
+            "marble_scene_board",
+            "marble_settings_panel",
+        ]
+        .into_iter()
+        .zip(branches)
+        .enumerate()
+        {
+            assert_eq!(app.world.find_by_id(branch_id), Some(branch));
+            assert_eq!(
+                !is_hidden_in_tree(&app.world, branch),
+                visible_branches[index],
+                "{id} left {branch_id} in the wrong visibility state"
+            );
+        }
     }
+}
+
+#[test]
+fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
+    let (width, height) = mirui::gallery::demos::marble_play::VIEWPORT;
+    let mut app = App::headless(width, height);
+    app.with_default_widgets().with_default_systems();
+    app.with_text_layout_limits(mirui::text::TextLayoutLimits::EMBEDDED);
+    let root = app.spawn_root().id();
+    mirui::gallery::demos::marble_play::setup_app(&mut app, root);
+    app.set_root(root);
+    app.prepare_text_layout().unwrap();
+    app.systems.run_all(&mut app.world);
+    app.render().unwrap();
+
+    let scenes_nav = app.world.find_by_id("marble_nav_scenes").unwrap();
+    let nav_rect = app.world.get::<ComputedRect>(scenes_nav).unwrap().0;
+    let x = nav_rect.x + nav_rect.w / Fixed::from_int(2);
+    let y = nav_rect.y + nav_rect.h / Fixed::from_int(2);
+    assert_eq!(
+        tap_at(&mut app.world, root, x, y, 0, width, height),
+        scenes_nav
+    );
+    flush_signal_dirty(&mut app.world);
+    app.render_dirty().unwrap();
+
+    let scene_board = app.world.find_by_id("marble_scene_board").unwrap();
+    let second_card = app.world.find_by_id("marble_scene_card_1").unwrap();
+    let scene_label = app.world.find_by_id("marble_scene_1_name").unwrap();
+    let status = app.world.find_by_id("marble_status").unwrap();
+    assert!(!is_hidden_in_tree(&app.world, scene_board));
+    assert!(!is_hidden_in_tree(&app.world, scene_label));
+    assert_eq!(
+        app.world.get::<Text>(status).unwrap().resolve(&app.world),
+        "SCENES · CHOOSE A LITTLE WORLD"
+    );
+
+    let board_rect = app.world.get::<ComputedRect>(scene_board).unwrap().0;
+    let label_rect = app.world.get::<ComputedRect>(scene_label).unwrap().0;
+    assert_eq!(label_rect.x, board_rect.x + Fixed::from_int(183));
+    assert_eq!(label_rect.y, board_rect.y + Fixed::from_int(118));
+    let board_point = |local_x: i32, local_y: i32| {
+        (
+            board_rect.x + board_rect.w * Fixed::from_int(local_x) / Fixed::from_int(480),
+            board_rect.y + board_rect.h * Fixed::from_int(local_y) / Fixed::from_int(199),
+        )
+    };
+    for (index, local_x) in [12, 163, 314, 465].into_iter().enumerate() {
+        let (x, y) = board_point(local_x, 60);
+        assert_eq!(hit_test(&app.world, root, x, y, width, height), None);
+        assert_eq!(
+            try_tap_at(
+                &mut app.world,
+                root,
+                x,
+                y,
+                1_000 * (index as u32 + 1),
+                width,
+                height,
+            ),
+            None
+        );
+        flush_signal_dirty(&mut app.world);
+        app.render_dirty().unwrap();
+        assert!(!is_hidden_in_tree(&app.world, scene_board), "x={local_x}");
+        assert!(!is_hidden_in_tree(&app.world, scene_label), "x={local_x}");
+        assert_eq!(
+            app.world.get::<Text>(status).unwrap().resolve(&app.world),
+            "SCENES · CHOOSE A LITTLE WORLD",
+            "x={local_x} loaded a scene from outside its card"
+        );
+    }
+
+    for (local_x, card_id) in [(40, "marble_scene_card_0"), (340, "marble_scene_card_2")] {
+        let (x, y) = board_point(local_x, 126);
+        assert_eq!(
+            hit_test(&app.world, root, x, y, width, height),
+            app.world.find_by_id(card_id),
+            "{card_id} must own its painted area"
+        );
+    }
+    for local_y in [17, 182] {
+        let (x, y) = board_point(204, local_y);
+        assert_eq!(
+            hit_test(&app.world, root, x, y, width, height),
+            None,
+            "scene card must not claim y={local_y} outside its paint"
+        );
+    }
+
+    let (x, y) = board_point(204, 126);
+    let hit = hit_test(&app.world, root, x, y, width, height).unwrap();
+    assert_eq!(
+        hit, second_card,
+        "scene label must use its card's hit target"
+    );
+    assert_eq!(
+        tap_at(&mut app.world, root, x, y, 5_000, width, height),
+        hit
+    );
+    flush_signal_dirty(&mut app.world);
+    app.render_dirty().unwrap();
+    assert!(is_hidden_in_tree(&app.world, scene_board));
+    assert_eq!(
+        app.world.get::<Text>(status).unwrap().resolve(&app.world),
+        "LIVE · DRAG EMPTY SPACE TO TILT"
+    );
+
+    let settings_nav = app.world.find_by_id("marble_nav_settings").unwrap();
+    let nav_rect = app.world.get::<ComputedRect>(settings_nav).unwrap().0;
+    let x = nav_rect.x + nav_rect.w / Fixed::from_int(2);
+    let y = nav_rect.y + nav_rect.h / Fixed::from_int(2);
+    assert_eq!(
+        tap_at(&mut app.world, root, x, y, 6_000, width, height),
+        settings_nav
+    );
+    flush_signal_dirty(&mut app.world);
+    app.render_dirty().unwrap();
+    let bpm = app.world.find_by_id("marble_setting_bpm").unwrap();
+    assert_eq!(
+        app.world.get::<Text>(bpm).unwrap().resolve(&app.world),
+        "TEMPO · 72 BPM"
+    );
 }
 
 #[test]
@@ -175,7 +400,7 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
     let properties = app.world.find_by_id("marble_properties").unwrap();
     let inspector = app.world.find_by_id("marble_inspector").unwrap();
     let close = app.world.find_by_id("marble_inspector_close").unwrap();
-    assert!(is_effectively_hidden(&app.world, inspector));
+    assert!(is_hidden_in_tree(&app.world, inspector));
 
     let frame_hash = |pixels: &[u8]| {
         pixels.iter().fold(0u64, |hash, byte| {
@@ -236,8 +461,8 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
 
         assert_eq!(app.last_text_layout_failure(), None);
         assert_eq!(app.last_text_content_failure(), None);
-        assert_eq!(is_effectively_hidden(&app.world, inspector), !open);
-        assert!(!is_effectively_hidden(&app.world, properties));
+        assert_eq!(is_hidden_in_tree(&app.world, inspector), !open);
+        assert!(!is_hidden_in_tree(&app.world, properties));
 
         let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
         assert_ne!(
@@ -307,8 +532,8 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
 
     let label = app.world.find_by_id("marble_setting_bpm").unwrap();
     let slider = app.world.find_by_id("marble_setting_bpm_control").unwrap();
-    assert!(!is_effectively_hidden(&app.world, label));
-    assert!(!is_effectively_hidden(&app.world, slider));
+    assert!(!is_hidden_in_tree(&app.world, label));
+    assert!(!is_hidden_in_tree(&app.world, slider));
     assert_eq!(
         app.world.get::<Text>(label).unwrap().resolve(&app.world),
         "TEMPO · 96 BPM"
@@ -367,7 +592,7 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
             app.world.get::<Slider>(slider).unwrap().value,
             Fixed::from_int(value)
         );
-        assert!(!is_effectively_hidden(&app.world, label));
+        assert!(!is_hidden_in_tree(&app.world, label));
         let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
         assert_ne!(pixels, previous_pixels, "BPM {value} did not change pixels");
         previous_pixels = pixels;
@@ -434,7 +659,7 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
     let pitch = app.world.find_by_id("marble_pitch").unwrap();
     let pitch_up = app.world.find_by_id("marble_pitch_up").unwrap();
     let timbre = app.world.find_by_id("marble_timbre").unwrap();
-    assert!(!is_effectively_hidden(&app.world, inspector));
+    assert!(!is_hidden_in_tree(&app.world, inspector));
     assert_eq!(
         app.world.get::<Text>(pitch).unwrap().resolve(&app.world),
         "C5"
