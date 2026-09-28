@@ -128,3 +128,16 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    ECHO_WALKER,
+    "echo_walker",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);
