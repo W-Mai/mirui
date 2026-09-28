@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Marble Play Inspector text.** Audio-enabled Inspector controls reserve enough measurement and layout slots for the first pitch and timbre changes within the embedded text budget.
 - **Hidden subtree first reveal.** Apps reserve dirty-traversal capacity for their constructed entities so opening an initially hidden panel does not grow the traversal stack.
 - **Web bounded-text raster reuse.** A changed text run redraws in its own retained slot instead of evicting another run; resource counters distinguish run replacement and glyph-cache fallback causes.
 - **Single-handler gesture dispatch.** Internal widget gestures keep their handler snapshot on the stack when one View matches, avoiding an allocation on the first Slider update.

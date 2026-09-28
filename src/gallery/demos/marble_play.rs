@@ -31,8 +31,8 @@ use core::fmt;
 pub const VIEWPORT: (u16, u16) = (480, 320);
 
 const TEXT_LAYOUT_CAPACITY: TextLayoutCapacity = TextLayoutCapacity {
-    layout_slots: 32,
-    measurements: 32,
+    layout_slots: 33,
+    measurements: 33,
     lines: 32,
     runs: 32,
     glyphs: 384,
@@ -1299,6 +1299,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                         )
                         Button (
                             "-",
+                            id: "marble_pitch_down",
                             size: ButtonSize::Compact,
                             width: 34,
                             height: 22,
@@ -1320,6 +1321,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                         )
                         Button (
                             "+",
+                            id: "marble_pitch_up",
                             size: ButtonSize::Compact,
                             width: 34,
                             height: 22,
@@ -1562,6 +1564,18 @@ mod tests {
         let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
         app.with_default_widgets();
         app.with_text_layout_limits(crate::text::TextLayoutLimits::EMBEDDED);
+        #[cfg(feature = "audio")]
+        app.add_plugin(crate::app::plugins::AudioPlugin::new(
+            crate::audio::SilentAudioSink::default(),
+            audio_bank(),
+        ));
+        let reserved = crate::text::layout::TextLayoutCache::try_new_bounded(
+            crate::text::TextLayoutLimits::EMBEDDED,
+            TEXT_LAYOUT_CAPACITY,
+        )
+        .unwrap()
+        .resident_bytes();
+        assert!(reserved <= crate::text::TextLayoutLimits::EMBEDDED.cache_bytes);
         let root = app.spawn_root().id();
         setup_app(&mut app, root);
         app.prepare_text_layout().unwrap();
@@ -1576,6 +1590,15 @@ mod tests {
             .clone();
 
         app.render().unwrap();
+        #[cfg(feature = "audio")]
+        {
+            let audio = app.audio().unwrap();
+            assert!(audio.set_muted(false));
+            app.render_dirty().unwrap();
+            assert!(audio.set_muted(true));
+            app.render_dirty().unwrap();
+            assert_eq!(app.last_text_layout_failure(), None);
+        }
         for page in [
             Page::Edit,
             Page::Scenes,
@@ -1598,6 +1621,15 @@ mod tests {
             crate::core::reactive::flush_signal_dirty(&mut app.world);
             app.render_dirty().unwrap();
             assert_eq!(app.last_text_layout_failure(), None);
+            if page == Page::Edit {
+                model.adjust_pitch(1);
+                crate::core::reactive::flush_signal_dirty(&mut app.world);
+                app.render_dirty().unwrap();
+                model.cycle_timbre();
+                crate::core::reactive::flush_signal_dirty(&mut app.world);
+                app.render_dirty().unwrap();
+                assert_eq!(app.last_text_layout_failure(), None);
+            }
         }
     }
 

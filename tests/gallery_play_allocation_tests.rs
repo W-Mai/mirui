@@ -13,10 +13,29 @@ use mirui::surface::FramebufferAccess;
 use mirui::types::Fixed;
 use mirui::ui::ComputedRect;
 use mirui::ui::branch::is_effectively_hidden;
-use mirui::ui::widgets::{Slider, Text};
+use mirui::ui::widgets::{Button, Slider, Text};
 use tracking_allocator::tracked_allocations;
 
 const MAX_WARMED_RENDER_ALLOCATIONS: usize = 40;
+
+#[cfg(feature = "audio")]
+struct CountingAudioSink(std::rc::Rc<std::cell::Cell<usize>>);
+
+#[cfg(feature = "audio")]
+impl mirui::audio::AudioSink for CountingAudioSink {
+    type Error = std::convert::Infallible;
+
+    fn start(&mut self, _: &'static mirui::audio::AudioBank) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn submit(&mut self, command: mirui::audio::AudioCommand) -> Result<(), Self::Error> {
+        if matches!(command, mirui::audio::AudioCommand::Tone(_)) {
+            self.0.set(self.0.get() + 1);
+        }
+        Ok(())
+    }
+}
 
 #[test]
 fn warmed_marble_frame_stays_inside_allocation_budget() {
@@ -359,4 +378,142 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
         );
     }
     assert_eq!(allocation_counts, [(0, 0, 0); 2]);
+}
+
+#[test]
+fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
+    let (width, height) = mirui::gallery::demos::marble_play::VIEWPORT;
+    let mut app = App::headless(width, height);
+    app.with_default_widgets().with_default_systems();
+    app.with_text_layout_limits(mirui::text::TextLayoutLimits::EMBEDDED);
+    let root = app.spawn_root().id();
+    #[cfg(feature = "audio")]
+    let tone_count = {
+        let count = std::rc::Rc::new(std::cell::Cell::new(0));
+        app.add_plugin(mirui::app::plugins::AudioPlugin::new(
+            CountingAudioSink(count.clone()),
+            mirui::gallery::demos::marble_play::audio_bank(),
+        ));
+        count
+    };
+    mirui::gallery::demos::marble_play::setup_app(&mut app, root);
+    app.set_root(root);
+    app.prepare_text_layout().unwrap();
+    app.systems.run_all(&mut app.world);
+    app.render().unwrap();
+
+    for (index, id) in ["marble_nav_edit", "marble_properties"]
+        .into_iter()
+        .enumerate()
+    {
+        let target = app.world.find_by_id(id).unwrap();
+        let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+        bubble_dispatch_at(
+            &mut app.world,
+            &GestureEvent::Tap {
+                x: rect.x + rect.w / Fixed::from_int(2),
+                y: rect.y + rect.h / Fixed::from_int(2),
+                target,
+            },
+            index as u32 * 100 + 100,
+        );
+        flush_signal_dirty(&mut app.world);
+        app.render_dirty().unwrap();
+    }
+
+    let inspector = app.world.find_by_id("marble_inspector").unwrap();
+    let pitch = app.world.find_by_id("marble_pitch").unwrap();
+    let pitch_up = app.world.find_by_id("marble_pitch_up").unwrap();
+    let timbre = app.world.find_by_id("marble_timbre").unwrap();
+    assert!(!is_effectively_hidden(&app.world, inspector));
+    assert_eq!(
+        app.world.get::<Text>(pitch).unwrap().resolve(&app.world),
+        "C5"
+    );
+    assert!(app.world.has::<Button>(pitch_up));
+    assert_eq!(
+        app.world.get::<Text>(pitch_up).unwrap().resolve(&app.world),
+        "+"
+    );
+
+    let frame_hash = |pixels: &[u8]| {
+        pixels.iter().fold(0u64, |hash, byte| {
+            hash.wrapping_mul(16_777_619) ^ u64::from(*byte)
+        })
+    };
+    let mut previous_pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+    let mut allocation_counts = [(0, 0, 0); 2];
+    for (index, (target, expected_pitch, expected_timbre)) in
+        [(pitch_up, "D5", "MALLET"), (timbre, "D5", "SYNTH")]
+            .into_iter()
+            .enumerate()
+    {
+        let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+        let x = rect.x + rect.w / Fixed::from_int(2);
+        let y = rect.y + rect.h / Fixed::from_int(2);
+        assert_eq!(
+            hit_test(&app.world, root, x, y, width, height),
+            Some(target)
+        );
+        let now_ms = index as u32 * 1_000 + 300;
+        let tap_allocations = tracked_allocations(|| {
+            dispatch_input(
+                &mut app.world,
+                root,
+                &InputEvent::PointerDown { id: 0, x, y },
+                now_ms,
+                width,
+                height,
+            );
+            dispatch_input(
+                &mut app.world,
+                root,
+                &InputEvent::PointerUp { id: 0, x, y },
+                now_ms + 50,
+                width,
+                height,
+            );
+            let event = {
+                let gestures = &mut app.world.resource_mut::<GestureSystem>().unwrap().events;
+                assert_eq!(gestures.buffer.len(), 1);
+                gestures.buffer.pop().unwrap()
+            };
+            assert!(matches!(event, GestureEvent::Tap { target: tapped, .. } if tapped == target));
+            bubble_dispatch_at(&mut app.world, &event, now_ms + 50);
+        });
+        let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
+        let mut render_result = Ok(());
+        let render_allocations = tracked_allocations(|| render_result = app.render_dirty());
+        assert!(
+            render_result.is_ok(),
+            "render failed: {render_result:?}; text layout: {:?}; text content: {:?}",
+            app.last_text_layout_failure(),
+            app.last_text_content_failure()
+        );
+        allocation_counts[index] = (tap_allocations, flush_allocations, render_allocations);
+
+        assert_eq!(app.last_text_layout_failure(), None);
+        assert_eq!(app.last_text_content_failure(), None);
+        assert_eq!(
+            app.world.get::<Text>(pitch).unwrap().resolve(&app.world),
+            expected_pitch
+        );
+        assert_eq!(
+            app.world.get::<Text>(timbre).unwrap().resolve(&app.world),
+            expected_timbre
+        );
+        #[cfg(feature = "audio")]
+        assert_eq!(tone_count.get(), (index + 1) * 2);
+        let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+        assert_ne!(
+            pixels, previous_pixels,
+            "Inspector action {index} did not repaint"
+        );
+        previous_pixels = pixels;
+    }
+    assert_eq!(
+        allocation_counts,
+        [(0, 0, 0); 2],
+        "pitch/timbre action, flush, and render allocations"
+    );
 }
