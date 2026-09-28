@@ -175,7 +175,7 @@ register_demos! {
     ("moss_study",           "Moss Study",           "Play",        moss_study, source = demo_sources::MOSS_STUDY),
     ("pocket_post",          "Pocket Post",          "Play",        pocket_post, source = demo_sources::POCKET_POST),
     ("logic_circuit",        "Logic Circuit",        "Play",        logic_circuit, source = demo_sources::LOGIC_CIRCUIT),
-    ("module_factory",       "Module Factory",       "Play",        module_factory),
+    ("module_factory",       "Module Factory",       "Play",        module_factory, source = demo_sources::MODULE_FACTORY),
     ("orbital_mission",      "Orbital Mission",      "Play",        orbital_mission, source = demo_sources::ORBITAL_MISSION),
     ("tidal_atlas",          "Tidal Atlas",          "Play",        tidal_atlas),
     ("echo_walker",          "Echo Walker",          "Play",        echo_walker),
@@ -643,6 +643,18 @@ mod tests {
                     "tests.rs",
                 ][..],
                 "fn paint_circuit_surface",
+            ),
+            (
+                "module_factory",
+                &[
+                    "style.rs",
+                    "state.rs",
+                    "render.rs",
+                    "input.rs",
+                    "shell.rs",
+                    "tests.rs",
+                ][..],
+                "fn paint_factory_surface",
             ),
         ];
 

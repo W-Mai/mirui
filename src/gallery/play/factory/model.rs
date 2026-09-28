@@ -1,175 +1,11 @@
+use super::missions::MISSIONS;
+use super::types::{
+    CELL_COUNT, FactoryCell, FactoryError, FactoryItem, FactoryMission, FactoryModal, FactoryPage,
+    FactoryStatus, FactoryTelemetry, FactoryTool, GRID_HEIGHT, GRID_WIDTH, MAX_TELEMETRY, MAX_UNDO,
+    MISSION_COUNT, MaterialStage, ModuleKind,
+};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::clock::BoundedClock;
-
-pub(crate) const CELL_COUNT: usize = 54;
-pub(crate) const GRID_WIDTH: usize = 9;
-pub(crate) const GRID_HEIGHT: usize = 6;
-pub(crate) const MAX_UNDO: usize = 32;
-pub(crate) const MAX_TELEMETRY: usize = 80;
-pub(crate) const MISSION_COUNT: usize = 3;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ModuleKind {
-    Source,
-    Dock,
-    Belt,
-    Furnace,
-    Assembler,
-    Inspector,
-}
-
-impl ModuleKind {
-    pub(crate) const BUILDABLE: [Self; 4] =
-        [Self::Belt, Self::Furnace, Self::Assembler, Self::Inspector];
-
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Source => "IN",
-            Self::Dock => "OUT",
-            Self::Belt => "传送带",
-            Self::Furnace => "熔炼炉",
-            Self::Assembler => "装配机",
-            Self::Inspector => "质检台",
-        }
-    }
-
-    pub(crate) const fn cost(self) -> u8 {
-        match self {
-            Self::Belt => 1,
-            Self::Furnace => 4,
-            Self::Assembler => 5,
-            Self::Inspector => 3,
-            Self::Source | Self::Dock => 0,
-        }
-    }
-
-    pub(crate) const fn power(self) -> u8 {
-        match self {
-            Self::Furnace => 3,
-            Self::Assembler => 4,
-            Self::Inspector => 2,
-            Self::Source | Self::Dock | Self::Belt => 0,
-        }
-    }
-
-    const fn accepts(self, stage: MaterialStage) -> bool {
-        match self {
-            Self::Source => false,
-            Self::Furnace => matches!(stage, MaterialStage::Ore),
-            Self::Assembler => matches!(stage, MaterialStage::Plate),
-            Self::Inspector => matches!(stage, MaterialStage::Gear),
-            Self::Dock | Self::Belt => true,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FactoryCell {
-    pub(crate) kind: ModuleKind,
-    pub(crate) direction: u8,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum MaterialStage {
-    Ore,
-    Plate,
-    Gear,
-    Certified,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FactoryItem {
-    pub(crate) id: u16,
-    pub(crate) stage: MaterialStage,
-    pub(crate) age: u8,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct FactoryTelemetry {
-    pub(crate) tick: u16,
-    pub(crate) delivered: u16,
-    pub(crate) blocked: u8,
-    pub(crate) wip: u8,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FactoryPage {
-    Line,
-    Orders,
-    Telemetry,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FactoryTool {
-    Select,
-    Build(ModuleKind),
-    Erase,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FactoryModal {
-    None,
-    Tools,
-    Confirm { mission: u8, reference: bool },
-    Help,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FactoryStatus {
-    Ready,
-    Running,
-    Paused,
-    Won,
-    Timeout,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum FactoryError {
-    InvalidCell,
-    ImmutableCell,
-    InvalidModule,
-    Duplicate,
-    BudgetExceeded,
-    PowerExceeded,
-    NothingSelected,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FactoryMission {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
-    pub(crate) goal: u16,
-    pub(crate) budget: u8,
-    pub(crate) power: u8,
-    pub(crate) target: MaterialStage,
-}
-
-pub(crate) const MISSIONS: [FactoryMission; MISSION_COUNT] = [
-    FactoryMission {
-        name: "微型装配",
-        description: "把矿石变成零件，交付 8 件。先补齐第 6 列缺口。",
-        goal: 8,
-        budget: 23,
-        power: 9,
-        target: MaterialStage::Gear,
-    },
-    FactoryMission {
-        name: "折返产线",
-        description: "跨两条走廊生产零件。转弯必须指向下一格。",
-        goal: 10,
-        budget: 34,
-        power: 10,
-        target: MaterialStage::Gear,
-    },
-    FactoryMission {
-        name: "质量检验",
-        description: "装配后的零件要经过质检，才能计入订单。",
-        goal: 8,
-        budget: 27,
-        power: 10,
-        target: MaterialStage::Certified,
-    },
-];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct FactorySnapshot {
@@ -184,28 +20,28 @@ impl FactorySnapshot {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FactoryModel {
-    cells: [Option<FactoryCell>; CELL_COUNT],
-    items: [Option<FactoryItem>; CELL_COUNT],
+    pub(super) cells: [Option<FactoryCell>; CELL_COUNT],
+    pub(super) items: [Option<FactoryItem>; CELL_COUNT],
     history: [FactorySnapshot; MAX_UNDO],
     telemetry: [FactoryTelemetry; MAX_TELEMETRY],
     clock: BoundedClock,
     page: FactoryPage,
     tool: FactoryTool,
     modal: FactoryModal,
-    status: FactoryStatus,
+    pub(super) status: FactoryStatus,
     mission: u8,
-    selection: u8,
-    tool_direction: u8,
-    history_len: u8,
+    pub(super) selection: u8,
+    pub(super) tool_direction: u8,
+    pub(super) history_len: u8,
     telemetry_start: u8,
-    telemetry_len: u8,
+    pub(super) telemetry_len: u8,
     blocked: u8,
-    tick: u16,
-    delivered: u16,
-    rejected: u16,
-    produced: u16,
+    pub(super) tick: u16,
+    pub(super) delivered: u16,
+    pub(super) rejected: u16,
+    pub(super) produced: u16,
     next_item_id: u16,
-    running: bool,
+    pub(super) running: bool,
 }
 
 impl Default for FactoryModel {
@@ -518,7 +354,7 @@ impl FactoryModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    fn load_mission_state(&mut self, mission: u8, reference: bool) {
+    pub(super) fn load_mission_state(&mut self, mission: u8, reference: bool) {
         self.mission = mission.min((MISSION_COUNT - 1) as u8);
         self.cells = [None; CELL_COUNT];
         self.history_len = 0;
@@ -612,7 +448,7 @@ impl FactoryModel {
         self.clock.reset();
     }
 
-    fn step_model(&mut self) -> bool {
+    pub(super) fn step_model(&mut self) -> bool {
         if self.power() > self.mission().power
             || matches!(self.status, FactoryStatus::Won | FactoryStatus::Timeout)
         {
@@ -742,171 +578,5 @@ impl FactoryModel {
             self.telemetry[usize::from(self.telemetry_start)] = value;
             self.telemetry_start = (self.telemetry_start + 1) % MAX_TELEMETRY as u8;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_conserved(model: &FactoryModel) {
-        assert_eq!(
-            model.produced,
-            model.delivered + model.rejected + u16::from(model.wip())
-        );
-        let mut ids = [0_u16; CELL_COUNT];
-        let mut len = 0;
-        for item in model.items.iter().flatten() {
-            assert!(!ids[..len].contains(&item.id));
-            ids[len] = item.id;
-            len += 1;
-        }
-    }
-
-    #[test]
-    fn fixed_storage_budget_stays_small() {
-        assert!(core::mem::size_of::<FactoryModel>() <= 8 * 1024);
-    }
-
-    #[test]
-    fn reference_lines_finish_and_conserve_every_item() {
-        for mission in 0..MISSION_COUNT as u8 {
-            let mut model = FactoryModel::default();
-            model.load_mission_state(mission, true);
-            for _ in 0..300 {
-                if !model.step_model() {
-                    break;
-                }
-                assert_conserved(&model);
-            }
-            assert_eq!(model.status, FactoryStatus::Won);
-            assert_eq!(model.delivered, model.mission().goal);
-            assert!(!model.running);
-        }
-    }
-
-    #[test]
-    fn starter_lines_never_false_positive() {
-        for mission in 0..MISSION_COUNT as u8 {
-            let mut model = FactoryModel::default();
-            model.load_mission_state(mission, false);
-            for _ in 0..300 {
-                model.step_model();
-                assert_conserved(&model);
-            }
-            assert_ne!(model.status, FactoryStatus::Won);
-        }
-    }
-
-    #[test]
-    fn immutable_endpoints_and_budget_failures_are_atomic() {
-        let mut model = FactoryModel::default();
-        let before = model.cells;
-        assert_eq!(model.edit(18, None, 0), Err(FactoryError::ImmutableCell));
-        assert_eq!(model.cells, before);
-        for index in [0, 1] {
-            model.edit(index, Some(ModuleKind::Assembler), 0).unwrap();
-        }
-        let cells = model.cells;
-        let history = model.history_len;
-        assert_eq!(
-            model.edit(2, Some(ModuleKind::Assembler), 0),
-            Err(FactoryError::BudgetExceeded)
-        );
-        assert_eq!(model.cells, cells);
-        assert_eq!(model.history_len, history);
-    }
-
-    #[test]
-    fn rotate_undo_and_edit_reset_the_run() {
-        let mut model = FactoryModel::default();
-        let before = model.cells;
-        model.selection = 19;
-        model.rotate_selected().unwrap();
-        assert_eq!(model.cells[19].unwrap().direction, 1);
-        model.undo();
-        assert_eq!(model.cells, before);
-        model.load_mission_state(0, true);
-        for _ in 0..20 {
-            model.step_model();
-        }
-        model.edit(0, Some(ModuleKind::Belt), 0).unwrap();
-        assert_eq!(model.tick, 0);
-        assert_eq!(model.wip(), 0);
-        assert_eq!(model.delivered, 0);
-    }
-
-    #[test]
-    fn history_and_telemetry_are_bounded() {
-        let mut model = FactoryModel::default();
-        for index in 0..80 {
-            model
-                .edit(
-                    0,
-                    if index % 2 == 0 {
-                        Some(ModuleKind::Belt)
-                    } else {
-                        None
-                    },
-                    0,
-                )
-                .unwrap();
-        }
-        assert_eq!(usize::from(model.history_len), MAX_UNDO);
-        for _ in 0..300 {
-            model.step_model();
-        }
-        assert_eq!(usize::from(model.telemetry_len), MAX_TELEMETRY);
-        assert_eq!(model.telemetry(0).unwrap().tick, 221);
-        assert_eq!(model.telemetry(MAX_TELEMETRY - 1).unwrap().tick, 300);
-    }
-
-    #[test]
-    fn over_power_blocks_manual_and_automatic_steps() {
-        let mut model = FactoryModel::default();
-        model.edit(0, Some(ModuleKind::Assembler), 0).unwrap();
-        assert!(model.power() > model.mission().power);
-        assert_eq!(model.toggle_run(), Err(FactoryError::PowerExceeded));
-        assert_eq!(model.step_once(), Err(FactoryError::PowerExceeded));
-        assert_eq!(model.tick, 0);
-    }
-
-    #[test]
-    fn modal_time_does_not_accumulate_debt() {
-        let mut model = FactoryModel::default();
-        model.toggle_run().unwrap();
-        assert_eq!(model.advance_ms(400), ChangeSet::NONE);
-        model.open_modal(FactoryModal::Help);
-        assert_eq!(model.advance_ms(1_000), ChangeSet::NONE);
-        model.close_modal();
-        assert_eq!(model.advance_ms(100), ChangeSet::NONE);
-        assert_eq!(model.tick, 0);
-        assert!(model.advance_ms(400).contains(ChangeSet::MODEL));
-        assert_eq!(model.tick, 1);
-    }
-
-    #[test]
-    fn build_direction_cycles_without_editing_the_line() {
-        let mut model = FactoryModel::default();
-        let cells = model.cells;
-        for expected in [1, 2, 3, 0] {
-            model.rotate_tool();
-            assert_eq!(model.tool_direction, expected);
-            assert_eq!(model.cells, cells);
-        }
-    }
-
-    #[test]
-    fn wrong_stage_at_dock_is_rejected() {
-        let mut model = FactoryModel::default();
-        model.edit(20, Some(ModuleKind::Belt), 0).unwrap();
-        model.edit(22, Some(ModuleKind::Belt), 0).unwrap();
-        model.edit(23, Some(ModuleKind::Belt), 0).unwrap();
-        for _ in 0..100 {
-            model.step_model();
-        }
-        assert_eq!(model.delivered, 0);
-        assert!(model.rejected > 0);
-        assert_conserved(&model);
     }
 }

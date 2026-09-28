@@ -101,3 +101,16 @@ split_demo_source!(
         "tests.rs",
     ]
 );
+
+split_demo_source!(
+    MODULE_FACTORY,
+    "module_factory",
+    [
+        "style.rs",
+        "state.rs",
+        "render.rs",
+        "input.rs",
+        "shell.rs",
+        "tests.rs",
+    ]
+);
