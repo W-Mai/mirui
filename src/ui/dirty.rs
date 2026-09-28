@@ -121,6 +121,20 @@ impl ExactDirtyRegions {
 }
 
 impl World {
+    pub(crate) fn reserve_dirty_traversal_stack(&mut self) {
+        let required = self.live_entity_count();
+        if self.resource::<DirtyTraversalStack>().is_none() {
+            self.insert_resource(DirtyTraversalStack(Some(Vec::new())));
+        }
+        let stack = self
+            .resource_mut::<DirtyTraversalStack>()
+            .and_then(|storage| storage.0.as_mut())
+            .expect("dirty traversal cannot be nested");
+        if stack.capacity() < required {
+            stack.reserve_exact(required.saturating_sub(stack.len()));
+        }
+    }
+
     pub(crate) fn prepare_cached_branch_dirty(&mut self, parent: Entity, branches: &[Vec<Entity>]) {
         if self.resource::<ExactDirtyRegions>().is_none() {
             self.insert_resource(ExactDirtyRegions::default());
@@ -481,6 +495,42 @@ mod tests {
         world.mark_subtree_dirty(branch);
         assert!(world.has::<Dirty>(branch));
         assert!(world.has::<Dirty>(child));
+    }
+
+    #[test]
+    fn reserved_stack_covers_hidden_reveal_and_same_size_reparenting() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let shallow = world.spawn_empty();
+        let hidden = world.spawn_empty();
+        let children: Vec<_> = (0..8).map(|_| world.spawn_empty()).collect();
+        world.insert(root, Children(alloc::vec![shallow, hidden]));
+        world.insert(shallow, Children(children.clone()));
+        world.insert(hidden, Hidden);
+
+        world.reserve_dirty_traversal_stack();
+        let prepared = world
+            .resource::<DirtyTraversalStack>()
+            .unwrap()
+            .0
+            .as_ref()
+            .unwrap()
+            .capacity();
+        assert!(prepared >= world.live_entity_count());
+
+        world.insert(shallow, Children(Vec::new()));
+        world.insert(hidden, Children(children.clone()));
+        world.remove::<Hidden>(hidden);
+        world.mark_subtree_dirty(hidden);
+        let after = world
+            .resource::<DirtyTraversalStack>()
+            .unwrap()
+            .0
+            .as_ref()
+            .unwrap()
+            .capacity();
+        assert_eq!(after, prepared);
+        assert!(children.iter().all(|&entity| world.has::<Dirty>(entity)));
     }
 
     #[test]

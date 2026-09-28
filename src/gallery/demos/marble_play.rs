@@ -1223,6 +1223,7 @@ fn build_widgets(model: MarbleModel, #[cfg(feature = "audio")] audio: Option<Aud
                         )
                         Button (
                             "X",
+                            id: "marble_inspector_close",
                             size: ButtonSize::Compact,
                             width: 24,
                             height: 22,

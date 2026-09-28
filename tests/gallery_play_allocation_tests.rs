@@ -140,6 +140,126 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
 }
 
 #[test]
+fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
+    let (width, height) = mirui::gallery::demos::marble_play::VIEWPORT;
+    let mut app = App::headless(width, height);
+    app.with_default_widgets().with_default_systems();
+    app.with_text_layout_limits(mirui::text::TextLayoutLimits::EMBEDDED);
+    let root = app.spawn_root().id();
+    mirui::gallery::demos::marble_play::setup_app(&mut app, root);
+    app.set_root(root);
+    app.prepare_text_layout().unwrap();
+    app.systems.run_all(&mut app.world);
+    app.render().unwrap();
+
+    let edit = app.world.find_by_id("marble_nav_edit").unwrap();
+    let properties = app.world.find_by_id("marble_properties").unwrap();
+    let inspector = app.world.find_by_id("marble_inspector").unwrap();
+    let close = app.world.find_by_id("marble_inspector_close").unwrap();
+    assert!(is_effectively_hidden(&app.world, inspector));
+
+    let frame_hash = |pixels: &[u8]| {
+        pixels.iter().fold(0u64, |hash, byte| {
+            hash.wrapping_mul(16_777_619) ^ u64::from(*byte)
+        })
+    };
+    let mut previous_pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+    let mut allocation_counts = [(0, 0, 0); 4];
+    let mut close_point = None;
+
+    for (index, (target, open)) in [
+        (edit, false),
+        (properties, true),
+        (close, false),
+        (properties, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+        let half = Fixed::from_ratio(1, 2);
+        let x = rect.x + rect.w * half;
+        let y = rect.y + rect.h * half;
+        assert_eq!(
+            hit_test(&app.world, root, x, y, width, height),
+            Some(target)
+        );
+
+        let now_ms = index as u32 * 1_000;
+        let tap_allocations = tracked_allocations(|| {
+            dispatch_input(
+                &mut app.world,
+                root,
+                &InputEvent::PointerDown { id: 0, x, y },
+                now_ms,
+                width,
+                height,
+            );
+            dispatch_input(
+                &mut app.world,
+                root,
+                &InputEvent::PointerUp { id: 0, x, y },
+                now_ms + 50,
+                width,
+                height,
+            );
+            let event = {
+                let gestures = &mut app.world.resource_mut::<GestureSystem>().unwrap().events;
+                assert_eq!(gestures.buffer.len(), 1);
+                gestures.buffer.pop().unwrap()
+            };
+            assert!(matches!(event, GestureEvent::Tap { target: tapped, .. } if tapped == target));
+            bubble_dispatch_at(&mut app.world, &event, now_ms + 50);
+        });
+        let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
+        let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
+        allocation_counts[index] = (tap_allocations, flush_allocations, render_allocations);
+
+        assert_eq!(app.last_text_layout_failure(), None);
+        assert_eq!(app.last_text_content_failure(), None);
+        assert_eq!(is_effectively_hidden(&app.world, inspector), !open);
+        assert!(!is_effectively_hidden(&app.world, properties));
+
+        let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+        assert_ne!(
+            pixels, previous_pixels,
+            "step {index} did not change pixels"
+        );
+        previous_pixels = pixels;
+
+        let properties_rect = app.world.get::<ComputedRect>(properties).unwrap().0;
+        let px = properties_rect.x + properties_rect.w * half;
+        let py = properties_rect.y + properties_rect.h * half;
+        let properties_hit = hit_test(&app.world, root, px, py, width, height);
+        if open {
+            assert_ne!(properties_hit, Some(properties));
+            let close_rect = app.world.get::<ComputedRect>(close).unwrap().0;
+            let cx = close_rect.x + close_rect.w * half;
+            let cy = close_rect.y + close_rect.h * half;
+            close_point = Some((cx, cy));
+            assert_eq!(
+                hit_test(&app.world, root, cx, cy, width, height),
+                Some(close)
+            );
+        } else {
+            assert_eq!(properties_hit, Some(properties));
+            if let Some((cx, cy)) = close_point {
+                assert_ne!(
+                    hit_test(&app.world, root, cx, cy, width, height),
+                    Some(close)
+                );
+            }
+        }
+    }
+
+    assert_eq!(
+        allocation_counts,
+        [(0, 0, 0); 4],
+        "edit/open/close/reopen action, flush, and render allocations"
+    );
+}
+
+#[test]
 fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
     let (width, height) = mirui::gallery::demos::marble_play::VIEWPORT;
     let mut app = App::headless(width, height);

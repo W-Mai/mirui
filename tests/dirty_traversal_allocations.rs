@@ -1,10 +1,11 @@
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
 
+use mirui::app::App;
 use mirui::ecs::World;
 use mirui::types::Rect;
 use mirui::ui::{
-    Children, ComputedRect, Style, Widget, branch,
+    Children, ComputedRect, Hidden, Style, Widget, branch,
     dirty::{Dirty, PrevRect},
 };
 use tracking_allocator::tracked_allocations;
@@ -32,6 +33,31 @@ fn warmed_subtree_dirty_traversal_reuses_its_stack() {
     assert_eq!(allocations, 0);
     assert!(world.get::<Dirty>(root).is_none());
     assert!(world.get::<Dirty>(leaf).is_none());
+}
+
+#[test]
+fn first_hidden_reveal_after_same_size_reparenting_reuses_reserved_stack() {
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
+    let shallow = app.world.spawn_empty();
+    let hidden = app.world.spawn_empty();
+    let children: Vec<_> = (0..8).map(|_| app.world.spawn_empty()).collect();
+    app.world.insert(root, Children(vec![shallow, hidden]));
+    app.world.insert(shallow, Children(children.clone()));
+    app.world.insert(hidden, Hidden);
+    app.render().unwrap();
+
+    app.world.insert(shallow, Children(Vec::new()));
+    app.world.insert(hidden, Children(children.clone()));
+    app.world.remove::<Hidden>(hidden);
+    let allocations = tracked_allocations(|| app.world.mark_subtree_dirty(hidden));
+
+    assert_eq!(allocations, 0);
+    assert!(
+        children
+            .iter()
+            .all(|&entity| app.world.has::<Dirty>(entity))
+    );
 }
 
 #[test]

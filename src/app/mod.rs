@@ -742,6 +742,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world.insert_resource(crate::ui::WidgetRoot(root));
         crate::input::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
         crate::input::event::sim::set_sim_root(&mut self.world, root);
+        self.world.reserve_dirty_traversal_stack();
     }
 
     /// Reclaim the backend by value, dropping the rest of the `App`.
@@ -826,6 +827,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             );
         self.dirty_reserved_slots = slots;
         self.dirty_reserved_live_entities = live_entities;
+        self.world.reserve_dirty_traversal_stack();
     }
 
     fn prepare_render(&mut self, viewport: crate::types::Viewport) {
