@@ -102,19 +102,64 @@ fn assert_theme_pair(
 }
 
 fn registered_modules() -> BTreeSet<&'static str> {
-    include_str!("../gallery/src/lib.rs")
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if !line.starts_with("(\"") {
-                return None;
+    let source = include_str!("../gallery/src/lib.rs");
+    let body = source
+        .split_once("register_demos! {")
+        .expect("Gallery demo registry")
+        .1;
+    let bytes = body.as_bytes();
+    let mut modules = BTreeSet::new();
+    let mut tuple_depth = 0_usize;
+    let mut field = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut index = 0_usize;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
             }
-            line.split(',')
-                .nth(3)
-                .map(str::trim)
-                .map(|module| module.trim_end_matches(")"))
-        })
-        .collect()
+            index += 1;
+            continue;
+        }
+
+        match byte {
+            b'"' => in_string = true,
+            b'(' => {
+                if tuple_depth == 0 {
+                    field = 0;
+                }
+                tuple_depth += 1;
+            }
+            b')' => tuple_depth = tuple_depth.saturating_sub(1),
+            b',' if tuple_depth == 1 => field += 1,
+            b'}' if tuple_depth == 0 => break,
+            byte if tuple_depth == 1
+                && field == 3
+                && (byte.is_ascii_alphabetic() || byte == b'_') =>
+            {
+                let start = index;
+                index += 1;
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+                {
+                    index += 1;
+                }
+                modules.insert(&body[start..index]);
+                continue;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+
+    modules
 }
 
 #[test]
