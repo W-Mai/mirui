@@ -134,7 +134,7 @@ fn compose_header(model: MarbleModel, audio: MarbleAudio) -> Entity {
     #[cfg(not(feature = "audio"))]
     let audio_button_state = audio_state;
     #[cfg(not(feature = "audio"))]
-    let _ = audio;
+    let _ = &audio;
 
     ui! {
         Row (

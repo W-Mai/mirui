@@ -161,6 +161,47 @@ fn modal_time_does_not_accumulate_debt() {
 }
 
 #[test]
+fn reload_request_confirms_the_current_mission() {
+    let mut model = OrbitModel::default();
+    model.load_mission(2);
+
+    model.request_mission_reload();
+
+    assert_eq!(model.mission_index(), 2);
+    assert_eq!(model.modal(), OrbitModal::Confirm(2));
+}
+
+#[test]
+fn modal_options_follow_the_active_modal_state() {
+    let mut model = OrbitModel::default();
+
+    model.set_modal(OrbitModal::Missions);
+    model.select_modal_option(1);
+    assert_eq!(model.modal(), OrbitModal::Confirm(1));
+    assert_eq!(model.mission_index(), 0);
+
+    model.select_modal_option(0);
+    assert_eq!(model.modal(), OrbitModal::None);
+    assert_eq!(model.mission_index(), 0);
+
+    model.set_modal(OrbitModal::Missions);
+    model.select_modal_option(MISSION_COUNT + 1);
+    assert_eq!(model.modal(), OrbitModal::Missions);
+    model.select_modal_option(MISSION_COUNT);
+    assert_eq!(model.modal(), OrbitModal::None);
+
+    model.set_modal(OrbitModal::Missions);
+    model.select_modal_option(2);
+    model.select_modal_option(1);
+    assert_eq!(model.modal(), OrbitModal::None);
+    assert_eq!(model.mission_index(), 2);
+
+    model.set_modal(OrbitModal::Help);
+    model.select_modal_option(0);
+    assert_eq!(model.modal(), OrbitModal::None);
+}
+
+#[test]
 fn prograde_and_retrograde_impulses_diverge() {
     let mut prograde = OrbitModel::default().body();
     let mut retrograde = prograde;

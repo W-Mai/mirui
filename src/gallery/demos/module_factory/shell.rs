@@ -1,4 +1,4 @@
-use super::input::{factory_tick_system, footer_action, modal_action, surface_gesture};
+use super::input::{factory_tick_system, surface_gesture};
 use super::render::{modal_view, surface_view};
 use super::state::{FactoryModalSurface, FactorySurface};
 use super::style::{ACCENT, BACKGROUND, INK, LINE, MUTED};
@@ -762,7 +762,7 @@ fn compose_footer(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { footer_action(&model, 0); }
+            ) on Tap { model.open_modal(FactoryModal::Tools); }
     };
     ui! {
             Button (
@@ -789,7 +789,7 @@ fn compose_footer(model: FactoryModel) -> Entity {
                     }),
                 ) },
                 border_radius: 0
-            ) on Tap { footer_action(&model, 1); }
+            ) on Tap { let _ = model.rotate_active(); }
     };
     ui! {
             Button (
@@ -806,7 +806,7 @@ fn compose_footer(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: ${ control_text_color(false, model.history_len() > 0) },
                 border_radius: 0
-            ) on Tap { footer_action(&model, 2); }
+            ) on Tap { model.undo(); }
     };
     ui! {
             Button (
@@ -823,7 +823,7 @@ fn compose_footer(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: ${ control_text_color(false, model.power() <= model.mission().power) },
                 border_radius: 0
-            ) on Tap { footer_action(&model, 3); }
+            ) on Tap { let _ = model.step_once(); }
     };
     ui! {
             Button (
@@ -841,7 +841,7 @@ fn compose_footer(model: FactoryModel) -> Entity {
                 pressed_color: INK,
                 text_color: ${ control_text_color(true, model.power() <= model.mission().power) },
                 border_radius: 0
-            ) on Tap { footer_action(&model, 4); }
+            ) on Tap { let _ = model.toggle_run(); }
     }
 }
 
@@ -904,7 +904,7 @@ fn compose_modal(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 0); }
+            ) on Tap { model.select_modal_option(0); }
             Button (
                 text: ${ modal_button_label(model.modal(), 1) },
                 text_capacity: 32,
@@ -921,7 +921,7 @@ fn compose_modal(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 1); }
+            ) on Tap { model.select_modal_option(1); }
             Button (
                 text: ${ modal_button_label(model.modal(), 2) },
                 text_capacity: 32,
@@ -938,7 +938,7 @@ fn compose_modal(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 2); }
+            ) on Tap { model.select_modal_option(2); }
             Button (
                 text: ${ modal_button_label(model.modal(), 3) },
                 text_capacity: 32,
@@ -955,7 +955,7 @@ fn compose_modal(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 3); }
+            ) on Tap { model.select_modal_option(3); }
             Button (
                 text: ${ modal_button_label(model.modal(), 4) },
                 text_capacity: 32,
@@ -972,7 +972,7 @@ fn compose_modal(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 4); }
+            ) on Tap { model.select_modal_option(4); }
             Button (
                 text: ${ modal_button_label(model.modal(), 5) },
                 text_capacity: 32,
@@ -989,7 +989,7 @@ fn compose_modal(model: FactoryModel) -> Entity {
                 pressed_color: ACCENT,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 5); }
+            ) on Tap { model.select_modal_option(5); }
             Button (
                 "×",
                 position: Position::Absolute,

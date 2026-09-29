@@ -583,6 +583,7 @@ impl OrbitModel {
 
 #[crate::model]
 impl OrbitModel {
+    #[model(local)]
     pub(crate) fn load_mission(&mut self, mission: u8) -> ChangeSet {
         self.load_mission_raw(mission)
     }
@@ -620,6 +621,23 @@ impl OrbitModel {
 
     pub(crate) fn set_modal(&mut self, modal: OrbitModal) -> ChangeSet {
         self.set_modal_raw(modal)
+    }
+
+    pub(crate) fn request_mission_reload(&mut self) -> ChangeSet {
+        self.set_modal_raw(OrbitModal::Confirm(self.mission))
+    }
+
+    pub(crate) fn select_modal_option(&mut self, index: usize) -> ChangeSet {
+        match self.modal {
+            OrbitModal::Missions if index < MISSION_COUNT => {
+                self.set_modal_raw(OrbitModal::Confirm(index as u8))
+            }
+            OrbitModal::Missions if index == MISSION_COUNT => self.set_modal_raw(OrbitModal::None),
+            OrbitModal::Confirm(_) if index == 0 => self.set_modal_raw(OrbitModal::None),
+            OrbitModal::Confirm(mission) if index == 1 => self.load_mission(mission),
+            OrbitModal::Help => self.set_modal_raw(OrbitModal::None),
+            _ => ChangeSet::NONE,
+        }
     }
 
     pub(crate) fn adjust_dv(&mut self, delta_tenths: i8) -> ChangeSet {

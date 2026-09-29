@@ -1,4 +1,4 @@
-use super::input::{cancel_node, footer_action, modal_action, orbit_tick_system};
+use super::input::orbit_tick_system;
 use super::render::{modal_view, surface_view};
 use super::state::{OrbitModalSurface, OrbitSurface};
 use super::style::{BACKGROUND, CYAN, INK, MUTED, ORANGE, SPACE, label_style};
@@ -479,7 +479,7 @@ fn compose_plan_page(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { cancel_node(&model, 0); }
+            ) on Tap { let _ = model.cancel_at(0); }
             Text (
                 text: ${
                     NodeText {
@@ -511,7 +511,7 @@ fn compose_plan_page(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { cancel_node(&model, 1); }
+            ) on Tap { let _ = model.cancel_at(1); }
             Text (
                 text: ${
                     NodeText {
@@ -543,7 +543,7 @@ fn compose_plan_page(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { cancel_node(&model, 2); }
+            ) on Tap { let _ = model.cancel_at(2); }
             Text (
                 text: ${ format_args!("{} / 3 个节点", model.queue_len()) },
                 text_capacity: 24,
@@ -716,7 +716,7 @@ fn compose_footer(model: OrbitModel) -> Entity {
             border_radius: 0
         ) on Tap {
             if !model.status().terminal() {
-                footer_action(&model, 0);
+                model.toggle_running();
             }
         }
     };
@@ -737,7 +737,7 @@ fn compose_footer(model: OrbitModel) -> Entity {
             border_radius: 0
         ) on Tap {
             if !model.status().terminal() {
-                footer_action(&model, 1);
+                let _ = model.burn();
             }
         }
     };
@@ -759,7 +759,7 @@ fn compose_footer(model: OrbitModel) -> Entity {
             border_radius: 0
         ) on Tap {
             if model.eligible() && !model.status().terminal() {
-                footer_action(&model, 2);
+                let _ = model.scan();
             }
         }
     };
@@ -780,7 +780,7 @@ fn compose_footer(model: OrbitModel) -> Entity {
             border_radius: 0
         ) on Tap {
             if model.can_schedule() {
-                footer_action(&model, 3);
+                let _ = model.schedule();
             }
         }
     };
@@ -799,7 +799,7 @@ fn compose_footer(model: OrbitModel) -> Entity {
             pressed_color: ORANGE,
             text_color: BACKGROUND,
             border_radius: 0
-        ) on Tap { footer_action(&model, 4); }
+        ) on Tap { model.request_mission_reload(); }
     }
 }
 
@@ -861,7 +861,7 @@ fn compose_modal(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 0); }
+            ) on Tap { model.select_modal_option(0); }
             Button (
                 text: ${ modal_button(model.modal(), 1, model.mission()).0 },
                 text_capacity: 32,
@@ -878,7 +878,7 @@ fn compose_modal(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 1); }
+            ) on Tap { model.select_modal_option(1); }
             Button (
                 text: ${ modal_button(model.modal(), 2, model.mission()).0 },
                 text_capacity: 32,
@@ -895,7 +895,7 @@ fn compose_modal(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 2); }
+            ) on Tap { model.select_modal_option(2); }
             Button (
                 text: ${ modal_button(model.modal(), 3, model.mission()).0 },
                 text_capacity: 32,
@@ -912,7 +912,7 @@ fn compose_modal(model: OrbitModel) -> Entity {
                 pressed_color: ORANGE,
                 text_color: BACKGROUND,
                 border_radius: 0
-            ) on Tap { modal_action(&model, 3); }
+            ) on Tap { model.select_modal_option(3); }
             Button (
                 "×",
                 position: Position::Absolute,

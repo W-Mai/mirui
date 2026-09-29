@@ -142,6 +142,52 @@ fn modal_time_does_not_accumulate_debt() {
 }
 
 #[test]
+fn modal_options_apply_only_valid_transitions() {
+    let mut model = FactoryModel::default();
+    assert_eq!(model.select_modal_option(0), ChangeSet::NONE);
+    assert_eq!(model.modal(), FactoryModal::None);
+
+    let tools = [
+        super::types::FactoryTool::Select,
+        super::types::FactoryTool::Build(ModuleKind::Belt),
+        super::types::FactoryTool::Build(ModuleKind::Furnace),
+        super::types::FactoryTool::Build(ModuleKind::Assembler),
+        super::types::FactoryTool::Build(ModuleKind::Inspector),
+        super::types::FactoryTool::Erase,
+    ];
+    for (index, expected) in tools.into_iter().enumerate() {
+        model.open_modal(FactoryModal::Tools);
+        assert!(model.select_modal_option(index).contains(ChangeSet::MODEL));
+        assert_eq!(model.modal(), FactoryModal::None);
+        assert_eq!(model.tool(), expected);
+    }
+
+    model.open_modal(FactoryModal::Tools);
+    let tool = model.tool();
+    assert_eq!(model.select_modal_option(6), ChangeSet::NONE);
+    assert_eq!(model.modal(), FactoryModal::Tools);
+    assert_eq!(model.tool(), tool);
+
+    model.open_modal(FactoryModal::Help);
+    assert_eq!(model.select_modal_option(1), ChangeSet::NONE);
+    assert_eq!(model.modal(), FactoryModal::Help);
+    assert!(model.select_modal_option(0).contains(ChangeSet::MODEL));
+    assert_eq!(model.modal(), FactoryModal::None);
+
+    model.request_mission(1, false);
+    let confirm = model.modal();
+    assert_eq!(model.select_modal_option(2), ChangeSet::NONE);
+    assert_eq!(model.modal(), confirm);
+    assert!(model.select_modal_option(0).contains(ChangeSet::MODEL));
+    assert_eq!(model.modal(), FactoryModal::None);
+
+    model.request_mission(1, false);
+    assert!(model.select_modal_option(1).contains(ChangeSet::MODEL));
+    assert_eq!(model.modal(), FactoryModal::None);
+    assert_eq!(model.mission_index(), 1);
+}
+
+#[test]
 fn build_direction_cycles_without_editing_the_line() {
     let mut model = FactoryModel::default();
     let cells = model.cells;

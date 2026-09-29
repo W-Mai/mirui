@@ -1,8 +1,9 @@
 use super::render::{gate_input_position, signal_position};
 use super::state::CircuitSurface;
+use crate::core::model::{Model, ModelHandle};
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::play::circuit::{
-    CircuitModal, CircuitModel, CircuitModelHandle, CircuitPage, GateKind, SignalSource,
+    CircuitModal, CircuitModel, CircuitPage, GateKind, SignalSource,
 };
 use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
@@ -88,7 +89,7 @@ fn tap_action(model: &CircuitModel, point: Point) -> Option<SurfaceAction> {
     Some(hit_gate(model, point).map_or(SurfaceAction::ClearPending, SurfaceAction::SelectGate))
 }
 
-fn apply_tap(model: &CircuitModelHandle, action: SurfaceAction) {
+fn apply_tap(model: &<CircuitModel as Model>::Handle, action: SurfaceAction) {
     match action {
         SurfaceAction::ToggleInput(index) => {
             model.toggle_input(index);
@@ -128,16 +129,12 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     };
     match ctx.event {
         GestureEvent::Tap { .. } => {
-            if let Some(action) =
-                crate::core::model::ModelHandle::read(&model, |model| tap_action(model, point))
-            {
+            if let Some(action) = ModelHandle::read(&model, |model| tap_action(model, point)) {
                 apply_tap(&model, action);
             }
         }
         GestureEvent::DragStart { .. } => {
-            if let Some(gate) =
-                crate::core::model::ModelHandle::read(&model, |model| hit_gate(model, point))
-            {
+            if let Some(gate) = ModelHandle::read(&model, |model| hit_gate(model, point)) {
                 model.begin_drag_at(gate, point.x.to_int() as i16, point.y.to_int() as i16);
             }
         }
@@ -155,50 +152,6 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
         _ => unreachable!(),
     }
     true
-}
-
-pub(super) fn footer_action(model: &CircuitModelHandle, index: usize) {
-    if model.page() == CircuitPage::Trace {
-        match index {
-            0 => model.step_trace(),
-            1 => model.toggle_scanning(),
-            2 => model.clear_trace(),
-            3 => model.verify(),
-            _ => model.set_page(CircuitPage::Wire),
-        };
-    } else {
-        match index {
-            0 => model.open_modal(CircuitModal::GateTypes { adding: true }),
-            1 => model.open_modal(CircuitModal::GateTypes { adding: false }),
-            2 => model.toggle_disconnecting(),
-            3 => model.undo(),
-            _ => model.verify(),
-        };
-    }
-}
-
-pub(super) fn modal_action(model: &CircuitModelHandle, index: usize) {
-    match model.modal() {
-        CircuitModal::Tasks => {
-            model.load_task((index / 2) as u8, index % 2 == 1);
-        }
-        CircuitModal::GateTypes { adding } if index < GateKind::ALL.len() => {
-            if adding {
-                let _ = model.add_gate(GateKind::ALL[index]);
-            } else {
-                let _ = model.set_selected_kind(GateKind::ALL[index]);
-            }
-            model.close_modal();
-        }
-        CircuitModal::GateTypes { adding: false } if index == 5 => {
-            let _ = model.remove_selected();
-            model.close_modal();
-        }
-        CircuitModal::Help => {
-            model.close_modal();
-        }
-        _ => {}
-    }
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]

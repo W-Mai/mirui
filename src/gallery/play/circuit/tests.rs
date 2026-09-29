@@ -181,6 +181,44 @@ fn modal_and_pause_discard_scan_time_debt() {
 }
 
 #[test]
+fn modal_options_apply_the_selected_transition_and_close() {
+    let mut model = CircuitModel::default();
+
+    model.open_modal(CircuitModal::GateTypes { adding: true });
+    let gate_len = model.gate_len();
+    let changes = model.select_modal_option(0).unwrap();
+    assert!(changes.contains(ChangeSet::MODEL));
+    assert!(changes.contains(ChangeSet::VISUAL));
+    assert_eq!(model.gate_len(), gate_len + 1);
+    assert_eq!(model.modal(), CircuitModal::None);
+
+    model.open_modal(CircuitModal::GateTypes { adding: false });
+    model.select_modal_option(3).unwrap();
+    assert_eq!(
+        model.gate_by_id(model.selected()).unwrap().kind,
+        GateKind::Not
+    );
+    assert_eq!(model.modal(), CircuitModal::None);
+
+    model.open_modal(CircuitModal::Tasks);
+    model.select_modal_option(3).unwrap();
+    assert_eq!(model.task(), 1);
+    assert_eq!(model.modal(), CircuitModal::None);
+}
+
+#[test]
+fn failed_modal_mutation_keeps_the_modal_open() {
+    let mut model = CircuitModel::default();
+    while model.gate_len() < MAX_GATES as u8 {
+        model.add_gate(GateKind::And).unwrap();
+    }
+    model.open_modal(CircuitModal::GateTypes { adding: true });
+
+    assert_eq!(model.select_modal_option(0), Err(CircuitError::Full));
+    assert_eq!(model.modal(), CircuitModal::GateTypes { adding: true });
+}
+
+#[test]
 fn fixed_storage_budget_stays_small() {
     assert!(core::mem::size_of::<CircuitModel>() <= 4096);
     assert_eq!(MAX_DRIVEN_INPUTS, MAX_GATES * 2 + 1);

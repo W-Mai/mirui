@@ -391,7 +391,7 @@ impl FactoryModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
-    pub(crate) fn activate_modal_button(&mut self, index: usize) -> ChangeSet {
+    pub(crate) fn select_modal_option(&mut self, index: usize) -> ChangeSet {
         match self.modal {
             FactoryModal::Tools => {
                 let tool = match index {
@@ -400,13 +400,14 @@ impl FactoryModel {
                     2 => FactoryTool::Build(ModuleKind::Furnace),
                     3 => FactoryTool::Build(ModuleKind::Assembler),
                     4 => FactoryTool::Build(ModuleKind::Inspector),
-                    _ => FactoryTool::Erase,
+                    5 => FactoryTool::Erase,
+                    _ => return ChangeSet::NONE,
                 };
                 self.set_tool(tool)
             }
             FactoryModal::Confirm { .. } if index == 0 => self.close_modal(),
             FactoryModal::Confirm { .. } if index == 1 => self.confirm_mission(),
-            FactoryModal::Help => self.close_modal(),
+            FactoryModal::Help if index == 0 => self.close_modal(),
             _ => ChangeSet::NONE,
         }
     }

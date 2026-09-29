@@ -1,4 +1,4 @@
-use super::input::{circuit_tick_system, footer_action, modal_action, surface_gesture};
+use super::input::{circuit_tick_system, surface_gesture};
 use super::render::{modal_view, surface_view};
 use super::state::{CircuitModalSurface, CircuitSurface};
 use super::style::{ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, PANEL};
@@ -1317,7 +1317,13 @@ fn compose_footer(model: CircuitModel) -> Entity {
                 )
             },
             border_radius: 0
-        ) on Tap { footer_action(&model, 0); }
+        ) on Tap {
+            if model.page() == CircuitPage::Trace {
+                model.step_trace();
+            } else {
+                model.open_modal(CircuitModal::GateTypes { adding: true });
+            }
+        }
     };
     ui! {
         Button (
@@ -1359,7 +1365,13 @@ fn compose_footer(model: CircuitModel) -> Entity {
                 )
             },
             border_radius: 0
-        ) on Tap { footer_action(&model, 1); }
+        ) on Tap {
+            if model.page() == CircuitPage::Trace {
+                model.toggle_scanning();
+            } else {
+                model.open_modal(CircuitModal::GateTypes { adding: false });
+            }
+        }
     };
     ui! {
         Button (
@@ -1401,7 +1413,13 @@ fn compose_footer(model: CircuitModel) -> Entity {
                 )
             },
             border_radius: 0
-        ) on Tap { footer_action(&model, 2); }
+        ) on Tap {
+            if model.page() == CircuitPage::Trace {
+                model.clear_trace();
+            } else {
+                model.toggle_disconnecting();
+            }
+        }
     };
     ui! {
         Button (
@@ -1443,7 +1461,13 @@ fn compose_footer(model: CircuitModel) -> Entity {
                 )
             },
             border_radius: 0
-        ) on Tap { footer_action(&model, 3); }
+        ) on Tap {
+            if model.page() == CircuitPage::Trace {
+                model.verify();
+            } else {
+                model.undo();
+            }
+        }
     };
     ui! {
         Button (
@@ -1485,7 +1509,13 @@ fn compose_footer(model: CircuitModel) -> Entity {
                 )
             },
             border_radius: 0
-        ) on Tap { footer_action(&model, 4); }
+        ) on Tap {
+            if model.page() == CircuitPage::Trace {
+                model.set_page(CircuitPage::Wire);
+            } else {
+                model.verify();
+            }
+        }
     }
 }
 
@@ -1569,7 +1599,7 @@ fn compose_modal(model: CircuitModel) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 0) }
-            ) on Tap { modal_action(&model, 0); }
+            ) on Tap { let _ = model.select_modal_option(0); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1591,7 +1621,7 @@ fn compose_modal(model: CircuitModel) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 1) }
-            ) on Tap { modal_action(&model, 1); }
+            ) on Tap { let _ = model.select_modal_option(1); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1613,7 +1643,7 @@ fn compose_modal(model: CircuitModel) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 2) }
-            ) on Tap { modal_action(&model, 2); }
+            ) on Tap { let _ = model.select_modal_option(2); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1635,7 +1665,7 @@ fn compose_modal(model: CircuitModel) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 3) }
-            ) on Tap { modal_action(&model, 3); }
+            ) on Tap { let _ = model.select_modal_option(3); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1657,7 +1687,7 @@ fn compose_modal(model: CircuitModel) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 4) }
-            ) on Tap { modal_action(&model, 4); }
+            ) on Tap { let _ = model.select_modal_option(4); }
             Button (
                 text: ${
                     ModalButtonLabel {
@@ -1679,7 +1709,7 @@ fn compose_modal(model: CircuitModel) -> Entity {
                 text_color: BACKGROUND,
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 5) }
-            ) on Tap { modal_action(&model, 5); }
+            ) on Tap { let _ = model.select_modal_option(5); }
         }
     }
 }

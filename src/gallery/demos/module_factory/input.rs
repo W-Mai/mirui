@@ -1,9 +1,7 @@
 use super::state::FactorySurface;
 use crate::core::model::ModelHandle;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::factory::{
-    FactoryModal, FactoryModel, FactoryModelHandle, FactoryPage, GRID_WIDTH,
-};
+use crate::gallery::play::factory::{FactoryModal, FactoryModel, FactoryPage, GRID_WIDTH};
 use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::{Fixed, Point, Rect};
@@ -54,30 +52,6 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     };
     let _ = model.select_or_apply(cell);
     true
-}
-
-pub(super) fn footer_action(model: &FactoryModelHandle, index: usize) {
-    match index {
-        0 => {
-            model.open_modal(FactoryModal::Tools);
-        }
-        1 => {
-            let _ = model.rotate_active();
-        }
-        2 => {
-            model.undo();
-        }
-        3 => {
-            let _ = model.step_once();
-        }
-        _ => {
-            let _ = model.toggle_run();
-        }
-    }
-}
-
-pub(super) fn modal_action(model: &FactoryModelHandle, index: usize) {
-    model.activate_modal_button(index);
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]

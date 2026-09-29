@@ -4,7 +4,9 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use model::{CircuitModel, CircuitModelHandle};
+pub(crate) use model::CircuitModel;
+#[cfg(test)]
+pub(crate) use model::CircuitModelHandle;
 #[allow(unused_imports)]
 pub(crate) use types::{
     CircuitError, CircuitGate, CircuitModal, CircuitPage, Evaluation, GateKind, MAX_DRIVEN_INPUTS,

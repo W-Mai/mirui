@@ -238,6 +238,26 @@ impl CircuitModel {
         self.open_modal(CircuitModal::None)
     }
 
+    pub(crate) fn select_modal_option(&mut self, index: usize) -> Result<ChangeSet, CircuitError> {
+        match self.modal {
+            CircuitModal::Tasks => Ok(self.load_task((index / 2) as u8, index % 2 == 1)),
+            CircuitModal::GateTypes { adding } if index < GateKind::ALL.len() => {
+                let mutation = if adding {
+                    self.add_gate(GateKind::ALL[index])
+                } else {
+                    self.set_selected_kind(GateKind::ALL[index])
+                }?;
+                Ok(mutation | self.close_modal())
+            }
+            CircuitModal::GateTypes { adding: false } if index == 5 => {
+                let mutation = self.remove_selected()?;
+                Ok(mutation | self.close_modal())
+            }
+            CircuitModal::Help => Ok(self.close_modal()),
+            _ => Ok(ChangeSet::NONE),
+        }
+    }
+
     pub(crate) fn load_task(&mut self, task: u8, reference: bool) -> ChangeSet {
         if usize::from(task) >= TASK_COUNT {
             return ChangeSet::NONE;
