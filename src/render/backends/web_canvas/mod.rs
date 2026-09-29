@@ -18,7 +18,9 @@ use self::texture_pool::{
 use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
 use crate::render::backends::sw::SwRenderer;
-use crate::render::backends::web_raster_budget::{ScratchPrepareRequest, ScratchPrepareRetry};
+use crate::render::backends::web_raster_budget::{
+    ScratchPrepareRequest, ScratchPrepareRetry, physical_raster_scratch_extent,
+};
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
@@ -26,8 +28,8 @@ use crate::render::path::{Path, PathCmd};
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::{
-    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderResource,
-    RenderRoute, Renderer, TextRunIdentity,
+    DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
+    Renderer, TextRunIdentity,
 };
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
@@ -398,17 +400,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
         max_logical_height: u16,
         retained_runs: usize,
     ) -> Result<(), RenderError> {
-        fn physical_extent(logical: u16, scale: Fixed) -> Result<u16, RenderError> {
-            let raw_scale = i64::from(crate::types::fixed::storage::to_i32(scale));
-            let rounded = (i64::from(logical) * raw_scale + 255) / 256;
-            let with_phase_margin = rounded + 1;
-            u16::try_from(with_phase_margin)
-                .map_err(|_| RenderError::ResourceLimit(RenderResource::Target))
-        }
-
         let scale = viewport.scale();
-        let width = physical_extent(max_logical_width, scale)?;
-        let height = physical_extent(max_logical_height, scale)?;
+        let width = physical_raster_scratch_extent(max_logical_width, scale)?;
+        let height = physical_raster_scratch_extent(max_logical_height, scale)?;
         self.prepare_bounded_text_raster(width, height, retained_runs)
     }
 

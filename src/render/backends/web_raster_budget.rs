@@ -1,4 +1,21 @@
 use crate::render::renderer::{RenderError, RenderResource};
+use crate::types::{Fixed, Fixed64};
+
+/// Convert a logical scratch extent to physical pixels and retain one pixel
+/// for fractional glyph phase coverage.
+pub(super) fn physical_raster_scratch_extent(
+    logical: u16,
+    scale: Fixed,
+) -> Result<u16, RenderError> {
+    let scaled = Fixed64::from_int(i64::from(logical)).mul_wide(Fixed64::from_fixed(scale));
+    let rounded = (-scaled)
+        .to_int()
+        .checked_neg()
+        .and_then(|value| value.checked_add(1))
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or(RenderError::ResourceLimit(RenderResource::Target))?;
+    Ok(rounded)
+}
 
 /// Checked pixel and Rust slot-storage requests for one Web glyph scratch generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,6 +168,28 @@ mod tests {
     use super::*;
 
     const BUDGET: usize = 8 * 1024 * 1024;
+
+    #[test]
+    fn physical_extent_rounds_up_and_retains_phase_margin() {
+        let cases = [
+            (0, Fixed::ONE, 1),
+            (1, Fixed::from_ratio(1, 256), 2),
+            (2, Fixed::HALF, 2),
+            (3, Fixed::HALF, 3),
+            (17, Fixed::from_ratio(5, 4), 23),
+            (u16::MAX - 1, Fixed::ONE, u16::MAX),
+        ];
+        for (logical, scale, expected) in cases {
+            assert_eq!(physical_raster_scratch_extent(logical, scale), Ok(expected));
+        }
+    }
+
+    #[test]
+    fn physical_extent_rejects_values_beyond_target_limits() {
+        let error = Err(RenderError::ResourceLimit(RenderResource::Target));
+        assert_eq!(physical_raster_scratch_extent(u16::MAX, Fixed::ONE), error);
+        assert_eq!(physical_raster_scratch_extent(u16::MAX, Fixed::MAX), error);
+    }
 
     #[test]
     fn rejects_zero_geometry_and_checked_overflow() {
