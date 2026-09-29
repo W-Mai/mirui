@@ -1,19 +1,12 @@
-use super::render::{BG, CHANNEL_A, CHANNEL_B, ICE, ScopeCanvas};
-use super::state::{ScopeAction, ScopeModel, ScopeState, TriggerEdge};
-use crate::core::reactive::Signal;
+use super::render::{BG, CHANNEL_A, CHANNEL_B, ICE, ScopeCanvas, ScopeGrid};
+use super::signal::uart_label;
+use super::state::{ScopeControl, ScopeModel, TriggerEdge};
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Image, ParagraphStyle, Text};
 
 const CONTROL_TOP: i32 = 382;
 const CONTROL_HEIGHT: i32 = 58;
-
-fn model(cx: &mut crate::ui::UiScope<'_>) -> ScopeModel {
-    cx.world_mut()
-        .resource::<ScopeModel>()
-        .cloned()
-        .expect("Signal Scope model")
-}
 
 fn centered() -> ParagraphStyle {
     let mut paragraph = ParagraphStyle::label();
@@ -29,42 +22,6 @@ enum ScopeReadout {
     ChannelB,
     Time,
     Trigger,
-}
-
-impl ScopeReadout {
-    fn text(self, state: ScopeState) -> &'static str {
-        match self {
-            Self::Blank => "",
-            Self::Acquire => {
-                if state.running {
-                    "RUN"
-                } else {
-                    "HOLD"
-                }
-            }
-            Self::ChannelA => "500 mV",
-            Self::ChannelB => {
-                if state.channel_b {
-                    "500 mV"
-                } else {
-                    "OFF"
-                }
-            }
-            Self::Time => match state.time_scale {
-                0 => "20 ms/div",
-                1 => "10 ms/div",
-                2 => "5 ms/div",
-                _ => "2 ms/div",
-            },
-            Self::Trigger => {
-                if state.trigger_edge == TriggerEdge::Rising {
-                    "RISING"
-                } else {
-                    "FALLING"
-                }
-            }
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -107,11 +64,10 @@ const fn child_percent(px: i32, parent_px: i32) -> Dimension {
     Dimension::Percent(Fixed::from_ratio(px * 100, parent_px))
 }
 
-#[compose]
+#[compose(bind(model))]
 fn compose_button_control(
     spec: ButtonControlSpec,
-    value: Signal<ScopeState>,
-    action: ScopeAction,
+    control: ScopeControl,
     model: ScopeModel,
 ) -> Entity {
     ui! {
@@ -120,10 +76,15 @@ fn compose_button_control(
             left: x_dimension(spec.left_px), top: y_dimension(CONTROL_TOP),
             width: x_dimension(spec.width_px), height: y_dimension(CONTROL_HEIGHT),
             border_radius: 5
-        ) on Tap { action.publish(&model); }
+        ) on Tap { model.activate(control); }
         {
             Text (
-                text: ${ spec.readout.text(value.get()) },
+                text: ${ match spec.readout {
+                    ScopeReadout::Blank => "",
+                    ScopeReadout::Acquire if model.running() => "RUN",
+                    ScopeReadout::Acquire => "HOLD",
+                    _ => "",
+                } },
                 position: Position::Absolute,
                 left: 0, top: 0,
                 width: Dimension::percent(100), height: Dimension::percent(100),
@@ -137,11 +98,10 @@ fn compose_button_control(
     }
 }
 
-#[compose]
+#[compose(bind(model))]
 fn compose_channel_control(
     spec: ChannelControlSpec,
-    value: Signal<ScopeState>,
-    action: ScopeAction,
+    control: ScopeControl,
     model: ScopeModel,
 ) -> Entity {
     ui! {
@@ -150,7 +110,7 @@ fn compose_channel_control(
             left: x_dimension(spec.left_px), top: y_dimension(CONTROL_TOP),
             width: x_dimension(spec.width_px), height: y_dimension(CONTROL_HEIGHT),
             border_radius: 5
-        ) on Tap { action.publish(&model); }
+        ) on Tap { model.activate(control); }
         {
             Text (
                 spec.label,
@@ -164,7 +124,12 @@ fn compose_channel_control(
                 paragraph: centered()
             ) [IgnoreHitTest]
             Text (
-                text: ${ spec.readout.text(value.get()) },
+                text: ${ match spec.readout {
+                    ScopeReadout::ChannelA => "500 mV",
+                    ScopeReadout::ChannelB if model.channel_b() => "500 mV",
+                    ScopeReadout::ChannelB => "OFF",
+                    _ => "",
+                } },
                 position: Position::Absolute,
                 left: child_percent(spec.label_width_px, spec.width_px), top: 0,
                 width: child_percent(spec.value_width_px, spec.width_px), height: Dimension::percent(100),
@@ -178,23 +143,28 @@ fn compose_channel_control(
     }
 }
 
-#[compose]
-fn compose_step_control(
-    spec: StepControlSpec,
-    value: Signal<ScopeState>,
-    action: ScopeAction,
-    model: ScopeModel,
-) -> Entity {
+#[compose(bind(model))]
+fn compose_step_control(spec: StepControlSpec, control: ScopeControl, model: ScopeModel) -> Entity {
     ui! {
         View (
             position: Position::Absolute,
             left: x_dimension(spec.left_px), top: y_dimension(CONTROL_TOP),
             width: x_dimension(spec.width_px), height: y_dimension(CONTROL_HEIGHT),
             border_radius: 5
-        ) on Tap { action.publish(&model); }
+        ) on Tap { model.activate(control); }
         {
             Text (
-                text: ${ spec.readout.text(value.get()) },
+                text: ${ match spec.readout {
+                    ScopeReadout::Time => match model.time_scale() {
+                        0 => "20 ms/div",
+                        1 => "10 ms/div",
+                        2 => "5 ms/div",
+                        _ => "2 ms/div",
+                    },
+                    ScopeReadout::Trigger if model.trigger_edge() == TriggerEdge::Rising => "RISING",
+                    ScopeReadout::Trigger => "FALLING",
+                    _ => "",
+                } },
                 position: Position::Absolute,
                 left: 0, top: 0,
                 width: child_percent(spec.value_width_px, spec.width_px), height: spec.text_height,
@@ -208,24 +178,14 @@ fn compose_step_control(
     }
 }
 
-#[compose]
-pub fn build_widgets() {
-    let model = model(cx);
-    let canvas_revision = model.state.clone();
-    let controls_state = model.state.clone();
-    let uart_state = controls_state.clone();
-    let run_action = model.clone();
-    let wave_action = model.clone();
-    let gain_a_action = model.clone();
-    let channel_b_action = model.clone();
-    let time_action = model.clone();
-    let trigger_action = model;
-    let toggle_run = ScopeAction::ToggleRun;
-    let stop_scope = ScopeAction::Stop;
-    let gain_a = ScopeAction::GainA;
-    let toggle_channel_b = ScopeAction::ToggleChannelB;
-    let time_scale = ScopeAction::TimeScale;
-    let toggle_edge = ScopeAction::ToggleEdge;
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: ScopeModel) {
+    let acquire = ScopeControl::Acquire;
+    let stop = ScopeControl::Stop;
+    let channel_a = ScopeControl::ChannelA;
+    let channel_b = ScopeControl::ChannelB;
+    let time_scale = ScopeControl::TimeScale;
+    let trigger_edge = ScopeControl::TriggerEdge;
     let acquire_control = ButtonControlSpec {
         left_px: 20,
         width_px: 78,
@@ -283,16 +243,23 @@ pub fn build_widgets() {
                 height: Dimension::percent(100),
                 src: "signal_scope_housing"
             ) [IgnoreHitTest]
-            ScopeCanvas (
+            View (
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: Dimension::percent(100),
+                height: Dimension::percent(100),
+                min_height: 150
+            ) [ScopeGrid, IgnoreHitTest]
+            View (
                 id: "scope_canvas",
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
                 width: Dimension::percent(100),
                 height: Dimension::percent(100),
-                min_height: 150,
-                render_key: ${ u64::from(canvas_revision.get().revision) }
-            ) [IgnoreHitTest]
+                min_height: 150
+            ) [ScopeCanvas { model: model.clone() }, IgnoreHitTest]
             Text (
                 "SIGNAL SCOPE",
                 position: Position::Absolute,
@@ -324,7 +291,8 @@ pub fn build_widgets() {
                 paragraph: centered()
             ) [IgnoreHitTest]
             Text (
-                text: ${ uart_state.get().uart_label() },
+                id: "scope_uart_readout",
+                text: ${ uart_label(model.uart_symbol()) },
                 position: Position::Absolute,
                 left: Dimension::percent(71), top: Dimension::percent(68),
                 width: Dimension::percent(24), height: Dimension::percent(4),
@@ -335,12 +303,12 @@ pub fn build_widgets() {
                 text_color: CHANNEL_B,
                 paragraph: centered()
             ) [IgnoreHitTest]
-            compose_button_control (acquire_control, controls_state.clone(), toggle_run, run_action)
-            compose_button_control (ButtonControlSpec { left_px: 108, width_px: 62, readout: ScopeReadout::Blank, accent: ICE }, controls_state.clone(), stop_scope, wave_action)
-            compose_channel_control (channel_a_control, controls_state.clone(), gain_a, gain_a_action)
-            compose_channel_control (channel_b_control, controls_state.clone(), toggle_channel_b, channel_b_action)
-            compose_step_control (time_control, controls_state.clone(), time_scale, time_action)
-            compose_step_control (trigger_control, controls_state, toggle_edge, trigger_action)
+            compose_button_control (acquire_control, acquire, model)
+            compose_button_control (ButtonControlSpec { left_px: 108, width_px: 62, readout: ScopeReadout::Blank, accent: ICE }, stop, model)
+            compose_channel_control (channel_a_control, channel_a, model)
+            compose_channel_control (channel_b_control, channel_b, model)
+            compose_step_control (time_control, time_scale, model)
+            compose_step_control (trigger_control, trigger_edge, model)
         }
     };
 }

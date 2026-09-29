@@ -1,15 +1,13 @@
-use alloc::format;
-
+use super::caret::CaretOverlay;
 #[cfg(feature = "std")]
 use super::caret::caret_overlay_view;
-use super::caret::{CaretOverlay, bind_caret_overlay, set_path_probe};
 use super::contour::RasterContour;
 #[cfg(feature = "std")]
 use super::contour::raster_contour_view;
 use super::runtime::{ARABIC, CJK, DEVANAGARI, FEATURES_OFF, LIVE_SAMPLE, THAI, UI, mixed_stack};
 #[cfg(feature = "std")]
 use super::runtime::{register_fonts, register_path};
-use super::state::{TypographyAction, TypographyNodes, TypographyState};
+use super::state::{TypographyModel, align_label, live_paragraph, overflow_label, wrap_label};
 use super::style::{
     ACTIVE_RENDER_PATH, BACKGROUND, BLUE, BORDER, CYAN, GOLD, MUTED, PANEL, PANEL_ALT, TEXT, VIOLET,
 };
@@ -50,15 +48,6 @@ fn bounded_paragraph(lines: u16) -> ParagraphStyle {
         shaping: ShapingPolicy::Required,
         ..ParagraphStyle::default()
     }
-}
-
-fn geometry_cost_label() -> alloc::string::String {
-    format!(
-        "POSE {} B RAM / {} B WIRE · MATRIX {} B\nNATIVE OR CALLER-BUDGETED FALLBACK",
-        core::mem::size_of::<textflow::placement::GlyphFrame>(),
-        mirx::scene::GlyphPose::WIRE_SIZE,
-        mirx::types::Transform3D::WIRE_SIZE,
-    )
 }
 
 fn features_off() -> ParagraphStyle {
@@ -103,24 +92,8 @@ fn typography_controls_height(document_width: Fixed) -> Fixed {
     Fixed::from_int(content_height + CONTROL_HORIZONTAL_PADDING)
 }
 
-#[compose]
-pub fn build_widgets(wave_path: PathId) {
-    let state = Signal::new(TypographyState::default());
-    let sample_width = state.clone();
-    let caret_width = state.clone();
-    let sample_ppem = state.clone();
-    let sample_paragraph = state.clone();
-    let ppem_value = state.clone();
-    let width_value = state.clone();
-    let wrap_value = state.clone();
-    let align_value = state.clone();
-    let overflow_value = state.clone();
-    let ppem_action = state.clone();
-    let width_action = state.clone();
-    let wrap_action = state.clone();
-    let align_action = state.clone();
-    let overflow_action = state;
-
+#[compose(bind(model))]
+fn build_widgets(model: TypographyModel, wave_path: PathId) {
     //~focus-start
     ui! {
         Scroll (
@@ -454,14 +427,6 @@ pub fn build_widgets(wave_path: PathId) {
                     ) {
                         Text ("PATH + PROJECTIVE", font: UI, font_size: 12, text_color: CYAN)
                         View (height: 78) {
-                            CaretOverlay (
-                                id: "typography_path_carets",
-                                position: Position::Absolute,
-                                left: 0,
-                                top: 0,
-                                width: 190,
-                                height: 78
-                            )
                             Text (
                                 id: "typography_path_sample",
                                 "mirui 42 · مرحبا",
@@ -475,7 +440,12 @@ pub fn build_widgets(wave_path: PathId) {
                                 font_size: 17,
                                 text_color: TEXT,
                                 paragraph: paragraph(None, TextDirection::Auto)
-                            ) on Tap { set_path_probe(ctx.world, Point { x: *x, y: *y }); } on DragMove { set_path_probe(ctx.world, Point { x: *x, y: *y }); }
+                            ) [
+                                CaretOverlay {
+                                    model: model.clone(),
+                                    follows_probe: true,
+                                },
+                            ] on Tap { model.set_path_probe(Point { x: *x, y: *y }); } on DragMove { model.set_path_probe(Point { x: *x, y: *y }); }
                         }
                         View (id: "typography_projective_frame", height: 48, clip_children: true) [
                             WidgetTransform3D(
@@ -494,7 +464,13 @@ pub fn build_widgets(wave_path: PathId) {
                             )
                         }
                         Text (
-                            text: geometry_cost_label(),
+                            text: format_args!(
+                                "POSE {} B RAM / {} B WIRE · MATRIX {} B\nNATIVE OR CALLER-BUDGETED FALLBACK",
+                                core::mem::size_of::<textflow::placement::GlyphFrame>(),
+                                mirx::scene::GlyphPose::WIRE_SIZE,
+                                mirx::types::Transform3D::WIRE_SIZE,
+                            ),
+                            text_capacity: 96,
                             width: Dimension::percent(100),
                             height: 24,
                             font: UI,
@@ -535,21 +511,18 @@ pub fn build_widgets(wave_path: PathId) {
                                 position: Position::Absolute,
                                 left: 0,
                                 top: 0,
-                                width: ${ sample_width.get().width },
+                                width: ${ model.width() },
                                 height: 78,
                                 font_stack: mixed_stack(),
-                                font_size: ${ sample_ppem.get().ppem },
+                                font_size: ${ model.ppem() },
                                 text_color: TEXT,
-                                paragraph: ${ sample_paragraph.get().paragraph() }
-                            )
-                            CaretOverlay (
-                                id: "typography_carets",
-                                position: Position::Absolute,
-                                left: 0,
-                                top: 0,
-                                width: ${ caret_width.get().width },
-                                height: 78
-                            )
+                                paragraph: ${ live_paragraph(model.wrap(), model.align(), model.overflow()) }
+                            ) [
+                                CaretOverlay {
+                                    model: model.clone(),
+                                    follows_probe: false,
+                                },
+                            ]
                         }
                         Text (
                             "cyan LTR · violet RTL · lines are authoritative caret stops",
@@ -575,16 +548,18 @@ pub fn build_widgets(wave_path: PathId) {
                                 height: 12,
                                 min: Fixed::from_int(10),
                                 max: Fixed::from_int(64),
-                                value: Fixed::from_int(24),
+                                value: ${ Fixed::from_int(i32::from(model.ppem())) },
                                 track_color: BORDER,
                                 fill_color: CYAN,
                                 thumb_color: TEXT
                             ) on ValueChanged {
                                 let _ = old;
-                                TypographyAction::SetPpem(*new).publish(&ppem_action);
+                                model.set_ppem(*new);
                             }
                             Text (
-                                text: ${ format!("{}", ppem_value.get().ppem) },
+                                id: "typography_ppem_value",
+                                text: ${ format_args!("{}", model.ppem()) },
+                                text_capacity: 2,
                                 width: 34,
                                 font: UI,
                                 font_size: 11,
@@ -599,16 +574,18 @@ pub fn build_widgets(wave_path: PathId) {
                                 height: 12,
                                 min: Fixed::from_int(220),
                                 max: Fixed::from_int(560),
-                                value: Fixed::from_int(480),
+                                value: ${ Fixed::from_int(i32::from(model.width())) },
                                 track_color: BORDER,
                                 fill_color: BLUE,
                                 thumb_color: TEXT
                             ) on ValueChanged {
                                 let _ = old;
-                                TypographyAction::SetWidth(*new).publish(&width_action);
+                                model.set_width(*new);
                             }
                             Text (
-                                text: ${ format!("{}", width_value.get().width) },
+                                id: "typography_width_value",
+                                text: ${ format_args!("{}", model.width()) },
+                                text_capacity: 3,
                                 width: 34,
                                 font: UI,
                                 font_size: 11,
@@ -618,7 +595,8 @@ pub fn build_widgets(wave_path: PathId) {
                         Row (height: 28, column_gap: 7) {
                             Button (
                                 id: "typography_wrap",
-                                text: ${ wrap_value.get().wrap_label() },
+                                text: ${ wrap_label(model.wrap()) },
+                                text_capacity: 8,
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
@@ -629,10 +607,11 @@ pub fn build_widgets(wave_path: PathId) {
                                 font: UI,
                                 font_size: 10,
                                 text_color: CYAN
-                            ) on Tap { TypographyAction::CycleWrap.publish(&wrap_action); }
+                            ) on Tap { model.cycle_wrap(); }
                             Button (
                                 id: "typography_align",
-                                text: ${ align_value.get().align_label() },
+                                text: ${ align_label(model.align()) },
+                                text_capacity: 7,
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
@@ -643,10 +622,11 @@ pub fn build_widgets(wave_path: PathId) {
                                 font: UI,
                                 font_size: 10,
                                 text_color: BLUE
-                            ) on Tap { TypographyAction::CycleAlign.publish(&align_action); }
+                            ) on Tap { model.cycle_align(); }
                             Button (
                                 id: "typography_overflow",
-                                text: ${ overflow_value.get().overflow_label() },
+                                text: ${ overflow_label(model.overflow()) },
+                                text_capacity: 8,
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
@@ -657,25 +637,13 @@ pub fn build_widgets(wave_path: PathId) {
                                 font: UI,
                                 font_size: 10,
                                 text_color: GOLD
-                            ) on Tap { TypographyAction::ToggleOverflow.publish(&overflow_action); }
+                            ) on Tap { model.toggle_overflow(); }
                         }
                     }
                 }
             }
         }
     };
-    let path_overlay = bind_caret_overlay(
-        cx.world_mut(),
-        "typography_path_carets",
-        "typography_path_sample",
-    );
-    bind_caret_overlay(
-        cx.world_mut(),
-        "typography_carets",
-        "typography_live_sample",
-    );
-    cx.world_mut()
-        .insert_resource(TypographyNodes { path_overlay });
     //~focus-end
 }
 
@@ -690,5 +658,6 @@ where
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
     let wave_path = register_path(&mut app.world);
-    app.compose(parent, |cx| build_widgets(cx, wave_path));
+    let model = app.add_model(TypographyModel::default());
+    app.compose(parent, |cx| build_widgets(cx, model, wave_path));
 }

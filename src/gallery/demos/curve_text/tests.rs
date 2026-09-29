@@ -1,8 +1,7 @@
 use super::geometry::{CurvePaths, make_lane, path_window_end, update_lane_for_stage};
 use super::runtime::{CurveMotion, curve_text_animation_system};
-use super::state::{
-    BASE_STAGE_HEIGHT, BASE_STAGE_WIDTH, CurveAction, CurveModel, CurveNodes, CurveStageSize,
-};
+use super::stage::CurveStage;
+use super::state::{BASE_STAGE_HEIGHT, BASE_STAGE_WIDTH, CurveModel, CurveStageSize};
 use super::style::BACKGROUND;
 use super::{VIEWPORT, install};
 use crate::core::reactive::flush_signal_dirty;
@@ -14,7 +13,11 @@ use crate::render::path::PathStore;
 use crate::surface::FramebufferAccess;
 use crate::types::{Transform, Viewport};
 use crate::ui::Theme;
-use crate::ui::widgets::Text;
+use crate::ui::dirty::VisualDirty;
+use crate::ui::view::ViewRegistry;
+use crate::ui::widgets::{Slider, Text};
+
+type CurveHandle = <CurveModel as crate::core::model::Model>::Handle;
 
 type TestApp = App<
     crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
@@ -27,7 +30,31 @@ fn fixture() -> TestApp {
     let parent = app.spawn_root().id();
     install(&mut app, parent);
     app.set_root(parent);
+    ViewRegistry::reconcile_observations(&mut app.world);
+    flush_signal_dirty(&mut app.world);
     app
+}
+
+fn model_handle(world: &World) -> CurveHandle {
+    let stage = world.query::<CurveStage>().iter().next().unwrap().0;
+    world.get::<CurveStage>(stage).unwrap().model.clone()
+}
+
+fn stage_entity(world: &World) -> Entity {
+    world.query::<CurveStage>().iter().next().unwrap().0
+}
+
+fn motion_rate(world: &World) -> Fixed {
+    world
+        .get::<CurveMotion>(stage_entity(world))
+        .expect("CurveStage motion")
+        .rate()
+}
+
+fn clear_visual_dirty(world: &mut World, entities: &[Entity]) {
+    for &entity in entities {
+        world.remove::<VisualDirty>(entity);
+    }
 }
 
 #[test]
@@ -77,22 +104,14 @@ fn layout_binding_updates_responsive_geometry_without_animation() {
         &Viewport::new(400, 540, Fixed::ONE),
     );
 
-    let nodes = *app.world.resource::<CurveNodes>().unwrap();
+    let stage = app.world.find_by_id("curve_text_stage").unwrap();
+    let primary = app.world.find_by_id("curve_text_primary").unwrap();
     let controls = app
         .world
         .find_by_id("curve_text_controls")
         .expect("Curve Text controls");
-    let stage_rect = app
-        .world
-        .get::<crate::ui::ComputedRect>(nodes.stage)
-        .unwrap()
-        .0;
-    let stage_size = app
-        .world
-        .resource::<CurveModel>()
-        .unwrap()
-        .stage_size
-        .get_untracked();
+    let stage_rect = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+    let stage_size = model_handle(&app.world).stage_size();
     assert_eq!(
         stage_size,
         CurveStageSize::from_dimensions(stage_rect.w, stage_rect.h)
@@ -101,14 +120,11 @@ fn layout_binding_updates_responsive_geometry_without_animation() {
         app.world.get::<Style>(controls).unwrap().layout.height,
         Dimension::px(146)
     );
-    assert_eq!(
-        app.world.get::<Style>(nodes.primary).unwrap().font_size,
-        Some(18)
-    );
+    assert_eq!(app.world.get::<Style>(primary).unwrap().font_size, Some(18));
     super::super::assert_text_layouts_fit(&app.world);
     assert_eq!(
         app.world
-            .get::<crate::text::TextPath>(nodes.primary)
+            .get::<crate::text::TextPath>(primary)
             .unwrap()
             .end(),
         Some(path_window_end(stage_size.width))
@@ -123,10 +139,7 @@ fn layout_binding_updates_responsive_geometry_without_animation() {
         app.world.get::<Style>(controls).unwrap().layout.height,
         Dimension::px(62)
     );
-    assert_eq!(
-        app.world.get::<Style>(nodes.primary).unwrap().font_size,
-        Some(30)
-    );
+    assert_eq!(app.world.get::<Style>(primary).unwrap().font_size, Some(30));
 }
 
 #[test]
@@ -298,6 +311,8 @@ fn tap(world: &mut World, id: &'static str) {
 #[test]
 fn exposes_text_and_control_entities_by_id() {
     let app = fixture();
+    assert_eq!(app.world.query::<CurveStage>().collect().len(), 1);
+    assert!(app.world.resource::<CurveModel>().is_none());
     for id in [
         "curve_text_shell",
         "curve_text_stage",
@@ -351,45 +366,180 @@ fn animation_reuses_fixed_path_topology_and_capacity() {
 }
 
 #[test]
+#[should_panic(expected = "Curve Text animation requires DeltaTimeMs")]
+fn animation_requires_elapsed_time() {
+    let mut app = fixture();
+    curve_text_animation_system(&mut app.world);
+}
+
+#[test]
+#[should_panic(expected = "CurveStage requires CurveMotion")]
+fn every_stage_requires_its_own_motion_state() {
+    let mut app = fixture();
+    let stage = stage_entity(&app.world);
+    app.world.remove::<CurveMotion>(stage);
+    app.world.insert_resource(DeltaTimeMs(16));
+    curve_text_animation_system(&mut app.world);
+}
+
+#[test]
+fn animation_advances_each_registered_stage_instance() {
+    let mut app = App::headless(320, 240);
+    let forward = app.add_model(CurveModel::default());
+    let reverse = app.add_model(CurveModel::default());
+    reverse.toggle_direction();
+    app.world.spawn((
+        CurveStage {
+            model: forward.clone(),
+        },
+        CurveMotion::default(),
+    ));
+    app.world.spawn((
+        CurveStage {
+            model: reverse.clone(),
+        },
+        CurveMotion::default(),
+    ));
+    app.world.insert_resource(DeltaTimeMs(50));
+
+    curve_text_animation_system(&mut app.world);
+
+    assert!(forward.phase() > Fixed::ZERO);
+    assert!(reverse.phase() > Fixed::from_int(300));
+    assert_ne!(forward.phase(), reverse.phase());
+}
+
+#[test]
+fn phase_changes_dirty_only_the_stage_and_path_text() {
+    let mut app = fixture();
+    let stage = stage_entity(&app.world);
+    let path_text = [
+        "curve_text_primary",
+        "curve_text_multiscript",
+        "curve_text_caption",
+    ]
+    .map(|id| app.world.find_by_id(id).unwrap());
+    let unrelated = app.world.find_by_id("curve_text_speed").unwrap();
+    let observed = [stage, path_text[0], path_text[1], path_text[2]];
+    clear_visual_dirty(&mut app.world, &observed);
+    app.world.remove::<VisualDirty>(unrelated);
+    app.world.insert_resource(DeltaTimeMs(50));
+
+    curve_text_animation_system(&mut app.world);
+    flush_signal_dirty(&mut app.world);
+
+    for entity in observed {
+        assert!(app.world.has::<VisualDirty>(entity));
+    }
+    assert!(!app.world.has::<VisualDirty>(unrelated));
+}
+
+#[test]
 fn pause_brakes_and_resume_continues_from_relative_phase() {
     let mut app = fixture();
     app.world.insert_resource(DeltaTimeMs(50));
     curve_text_animation_system(&mut app.world);
-    let model = app.world.resource::<CurveModel>().unwrap().clone();
-    let moving = model.phase.get_untracked();
+    let model = model_handle(&app.world);
+    let moving = model.phase();
 
     tap(&mut app.world, "curve_text_pause");
     for _ in 0..12 {
         curve_text_animation_system(&mut app.world);
     }
-    let stopped = model.phase.get_untracked();
+    let stopped = model.phase();
     assert!(stopped > moving);
-    assert_eq!(
-        app.world.resource::<CurveMotion>().unwrap().rate(),
-        Fixed::ZERO
-    );
+    assert_eq!(motion_rate(&app.world), Fixed::ZERO);
 
     app.world.insert_resource(DeltaTimeMs(5_000));
     curve_text_animation_system(&mut app.world);
-    assert_eq!(model.phase.get_untracked(), stopped);
+    assert_eq!(model.phase(), stopped);
 
     tap(&mut app.world, "curve_text_pause");
     curve_text_animation_system(&mut app.world);
-    assert!(model.phase.get_untracked() > stopped);
-    assert!(app.world.resource::<CurveMotion>().unwrap().rate() < Fixed::ONE);
+    assert!(model.phase() > stopped);
+    assert!(motion_rate(&app.world) < Fixed::ONE);
+}
+
+#[test]
+fn fully_braked_animation_does_not_redirty_the_stage() {
+    let mut app = fixture();
+    app.world.insert_resource(DeltaTimeMs(50));
+    tap(&mut app.world, "curve_text_pause");
+    for _ in 0..12 {
+        curve_text_animation_system(&mut app.world);
+        flush_signal_dirty(&mut app.world);
+    }
+    assert_eq!(motion_rate(&app.world), Fixed::ZERO);
+
+    let observed = [
+        stage_entity(&app.world),
+        app.world.find_by_id("curve_text_primary").unwrap(),
+        app.world.find_by_id("curve_text_multiscript").unwrap(),
+        app.world.find_by_id("curve_text_caption").unwrap(),
+    ];
+    clear_visual_dirty(&mut app.world, &observed);
+
+    curve_text_animation_system(&mut app.world);
+    flush_signal_dirty(&mut app.world);
+
+    for entity in observed {
+        assert!(!app.world.has::<VisualDirty>(entity));
+    }
 }
 
 #[test]
 fn direction_and_sliders_publish_semantic_state() {
     let mut app = fixture();
-    let model = app.world.resource::<CurveModel>().unwrap().clone();
+    let model = model_handle(&app.world);
     tap(&mut app.world, "curve_text_direction");
-    assert!(model.reversed.get_untracked());
+    assert!(model.reversed());
 
-    CurveAction::SetAmplitude(Fixed::from_int(120)).publish(&mut app.world);
-    CurveAction::SetSpeed(Fixed::ZERO).publish(&mut app.world);
-    assert_eq!(model.amplitude.get_untracked(), Fixed::from_int(96));
-    assert_eq!(model.speed.get_untracked(), Fixed::from_int(20));
+    model.set_amplitude(Fixed::from_int(120));
+    model.set_speed(Fixed::ZERO);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(model.amplitude(), Fixed::from_int(96));
+    assert_eq!(model.speed(), Fixed::from_int(20));
+    assert_eq!(
+        app.world
+            .get::<Slider>(app.world.find_by_id("curve_text_amplitude").unwrap())
+            .unwrap()
+            .value,
+        Fixed::from_int(96)
+    );
+    assert_eq!(
+        app.world
+            .get::<Slider>(app.world.find_by_id("curve_text_speed").unwrap())
+            .unwrap()
+            .value,
+        Fixed::from_int(20)
+    );
+    for (id, expected) in [
+        ("curve_text_amplitude_value", "96"),
+        ("curve_text_speed_value", "20"),
+    ] {
+        let text = app
+            .world
+            .get::<Text>(app.world.find_by_id(id).unwrap())
+            .unwrap();
+        assert_eq!(text.resolve(&app.world), expected);
+        assert!(text.text_capacity().is_some());
+    }
+}
+
+#[test]
+fn reverse_control_applies_to_the_next_motion_step() {
+    let mut app = fixture();
+    let model = model_handle(&app.world);
+    app.world.insert_resource(DeltaTimeMs(50));
+
+    curve_text_animation_system(&mut app.world);
+    let forward = model.phase();
+    assert!(forward > Fixed::ZERO);
+
+    tap(&mut app.world, "curve_text_direction");
+    curve_text_animation_system(&mut app.world);
+    assert!(model.reversed());
+    assert!(model.phase() < forward);
 }
 
 #[test]

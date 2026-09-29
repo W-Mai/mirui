@@ -1,25 +1,26 @@
-use crate::prelude::{Fixed, Signal};
+use crate::prelude::Fixed;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct InteractionLabState {
-    pub(super) single: u16,
-    pub(super) double: u16,
-    pub(super) triple: u16,
-    pub(super) long: u16,
-    pub(super) switch_on: bool,
-    pub(super) switch_changes: u16,
-    pub(super) checkbox_on: bool,
-    pub(super) checkbox_changes: u16,
-    pub(super) drag_x: Fixed,
-    pub(super) drag_y: Fixed,
-    pub(super) errored: bool,
-    pub(super) disabled: bool,
-    pub(super) allow_bubble: bool,
-    pub(super) child_taps: u16,
-    pub(super) parent_taps: u16,
+#[crate::model]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct InteractionModel {
+    single: u16,
+    double: u16,
+    triple: u16,
+    long: u16,
+    switch_on: bool,
+    switch_changes: u16,
+    checkbox_on: bool,
+    checkbox_changes: u16,
+    drag_x: Fixed,
+    drag_y: Fixed,
+    errored: bool,
+    disabled: bool,
+    allow_bubble: bool,
+    child_taps: u16,
+    parent_taps: u16,
 }
 
-impl Default for InteractionLabState {
+impl Default for InteractionModel {
     fn default() -> Self {
         Self {
             single: 0,
@@ -41,84 +42,152 @@ impl Default for InteractionLabState {
     }
 }
 
-#[derive(Clone)]
-pub(super) struct InteractionModel {
-    pub(super) state: Signal<InteractionLabState>,
-}
-
-impl Default for InteractionModel {
-    fn default() -> Self {
-        Self {
-            state: Signal::new(InteractionLabState::default()),
-        }
-    }
-}
-
+#[crate::model]
 impl InteractionModel {
-    pub(super) fn signal(&self) -> Signal<InteractionLabState> {
-        self.state.clone()
+    #[observe]
+    pub(super) fn single(&self) -> u16 {
+        self.single
     }
-}
 
-pub(super) enum InteractionAction {
-    Single,
-    Double,
-    Triple,
-    Long,
-    Switch(bool),
-    Checkbox(bool),
-    Drag(Fixed, Fixed),
-    ResetDrag,
-    ToggleError,
-    ToggleDisabled,
-    ToggleBubble,
-    ChildTap,
-    ParentTap,
-}
+    #[observe]
+    pub(super) fn double(&self) -> u16 {
+        self.double
+    }
 
-impl InteractionAction {
-    pub(super) fn publish(self, signal: &Signal<InteractionLabState>) {
-        let current = signal.get_untracked();
-        let mut next = current;
-        match self {
-            Self::Single => next.single = next.single.saturating_add(1),
-            Self::Double => next.double = next.double.saturating_add(1),
-            Self::Triple => next.triple = next.triple.saturating_add(1),
-            Self::Long => next.long = next.long.saturating_add(1),
-            Self::Switch(on) => {
-                next.switch_on = on;
-                next.switch_changes = next.switch_changes.saturating_add(1);
-            }
-            Self::Checkbox(on) => {
-                next.checkbox_on = on;
-                next.checkbox_changes = next.checkbox_changes.saturating_add(1);
-            }
-            Self::Drag(x, y) => {
-                next.drag_x = x;
-                next.drag_y = y;
-            }
-            Self::ResetDrag => {
-                next.drag_x = Fixed::ZERO;
-                next.drag_y = Fixed::ZERO;
-            }
-            Self::ToggleError => next.errored = !next.errored,
-            Self::ToggleDisabled => next.disabled = !next.disabled,
-            Self::ToggleBubble => next.allow_bubble = !next.allow_bubble,
-            Self::ChildTap => next.child_taps = next.child_taps.saturating_add(1),
-            Self::ParentTap => next.parent_taps = next.parent_taps.saturating_add(1),
+    #[observe]
+    pub(super) fn triple(&self) -> u16 {
+        self.triple
+    }
+
+    #[observe]
+    pub(super) fn long(&self) -> u16 {
+        self.long
+    }
+
+    #[observe]
+    pub(super) fn switch_on(&self) -> bool {
+        self.switch_on
+    }
+
+    #[observe]
+    pub(super) fn switch_changes(&self) -> u16 {
+        self.switch_changes
+    }
+
+    #[observe]
+    pub(super) fn checkbox_on(&self) -> bool {
+        self.checkbox_on
+    }
+
+    #[observe]
+    pub(super) fn checkbox_changes(&self) -> u16 {
+        self.checkbox_changes
+    }
+
+    #[observe]
+    pub(super) fn drag_x(&self) -> Fixed {
+        self.drag_x
+    }
+
+    #[observe]
+    pub(super) fn drag_y(&self) -> Fixed {
+        self.drag_y
+    }
+
+    #[observe]
+    pub(super) fn errored(&self) -> bool {
+        self.errored
+    }
+
+    #[observe]
+    pub(super) fn disabled(&self) -> bool {
+        self.disabled
+    }
+
+    #[observe]
+    pub(super) fn allow_bubble(&self) -> bool {
+        self.allow_bubble
+    }
+
+    #[observe]
+    pub(super) fn child_taps(&self) -> u16 {
+        self.child_taps
+    }
+
+    #[observe]
+    pub(super) fn parent_taps(&self) -> u16 {
+        self.parent_taps
+    }
+
+    pub(super) fn record_single(&mut self) {
+        increment(&mut self.single)
+    }
+
+    pub(super) fn record_double(&mut self) {
+        increment(&mut self.double)
+    }
+
+    pub(super) fn record_triple(&mut self) {
+        increment(&mut self.triple)
+    }
+
+    pub(super) fn record_long_press(&mut self) {
+        increment(&mut self.long)
+    }
+
+    pub(super) fn set_switch(&mut self, on: bool) {
+        if self.switch_on == on {
+            return;
         }
-        if next != current {
-            signal.set(next);
+        self.switch_on = on;
+        self.switch_changes = self.switch_changes.saturating_add(1);
+    }
+
+    pub(super) fn set_checkbox(&mut self, on: bool) {
+        if self.checkbox_on == on {
+            return;
         }
+        self.checkbox_on = on;
+        self.checkbox_changes = self.checkbox_changes.saturating_add(1);
+    }
+
+    pub(super) fn set_drag(&mut self, x: Fixed, y: Fixed) {
+        if self.drag_x == x && self.drag_y == y {
+            return;
+        }
+        self.drag_x = x;
+        self.drag_y = y;
+    }
+
+    pub(super) fn reset_drag(&mut self) {
+        self.set_drag(Fixed::ZERO, Fixed::ZERO);
+    }
+
+    pub(super) fn toggle_error(&mut self) {
+        self.errored = !self.errored;
+    }
+
+    pub(super) fn toggle_disabled(&mut self) {
+        self.disabled = !self.disabled;
+    }
+
+    pub(super) fn toggle_bubble(&mut self) {
+        self.allow_bubble = !self.allow_bubble;
+    }
+
+    pub(super) fn record_child_tap(&mut self) {
+        increment(&mut self.child_taps)
+    }
+
+    pub(super) fn record_parent_tap(&mut self) {
+        increment(&mut self.parent_taps)
     }
 }
 
-pub(super) fn model_signal(cx: &mut crate::ui::UiScope<'_>) -> Signal<InteractionLabState> {
-    if cx.world_mut().resource::<InteractionModel>().is_none() {
-        cx.world_mut().insert_resource(InteractionModel::default());
+fn increment(value: &mut u16) {
+    let next = value.saturating_add(1);
+    if next == *value {
+        return;
     }
-    cx.world_mut()
-        .resource::<InteractionModel>()
-        .map(InteractionModel::signal)
-        .expect("Interaction Lab model")
+    *value = next;
 }

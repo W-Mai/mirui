@@ -1,5 +1,3 @@
-extern crate alloc;
-
 mod composition;
 mod runtime;
 mod state;
@@ -8,7 +6,6 @@ mod style;
 #[cfg(test)]
 mod tests;
 
-pub use composition::build_widgets;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 

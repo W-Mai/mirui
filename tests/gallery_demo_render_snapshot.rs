@@ -4,6 +4,7 @@ extern crate alloc;
 
 use mirui::ecs::World;
 use mirui::prelude::*;
+use mirui::render::SwRendererFactory;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
@@ -12,28 +13,35 @@ use mirui::types::Viewport;
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::render_system;
 
-/// Render the demo, return distinct quantized RGB colours encountered.
-/// A collapsed layout shows only the root bg (1 colour); real widget
-/// content emits multiple distinct colours.
-fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
-    width: u16,
-    height: u16,
-    build: F,
-) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
-    let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
+type SnapshotBackend = FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>;
+type SnapshotApp = App<SnapshotBackend, SwRendererFactory>;
+
+fn snapshot_app(width: u16, height: u16) -> SnapshotApp {
+    let flush: fn(&[u8], mirui::types::PhysicalRect) = |_, _| {};
+    let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, flush);
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
     app.add_plugin(mirui::app::plugins::StdInstantClockPlugin);
     app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
-    let parent = WidgetBuilder::new(&mut app.world)
+    app
+}
+
+fn snapshot_parent(app: &mut SnapshotApp) -> mirui::ecs::Entity {
+    WidgetBuilder::new(&mut app.world)
         .layout(mirui::ui::layout::LayoutStyle {
             direction: mirui::ui::layout::FlexDirection::Column,
             grow: Fixed::ONE,
             ..Default::default()
         })
-        .id();
-    build(&mut app.world, parent);
+        .id()
+}
 
+fn finish_snapshot(
+    app: &mut SnapshotApp,
+    parent: mirui::ecs::Entity,
+    width: u16,
+    height: u16,
+) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
     app.systems.run_all(&mut app.world);
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
@@ -57,6 +65,31 @@ fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
         }
     }
     colours
+}
+
+/// Render the demo, return distinct quantized RGB colours encountered.
+/// A collapsed layout shows only the root bg (1 colour); real widget
+/// content emits multiple distinct colours.
+fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
+    width: u16,
+    height: u16,
+    build: F,
+) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
+    let mut app = snapshot_app(width, height);
+    let parent = snapshot_parent(&mut app);
+    build(&mut app.world, parent);
+    finish_snapshot(&mut app, parent, width, height)
+}
+
+fn render_app_demo<F: FnOnce(&mut SnapshotApp, mirui::ecs::Entity)>(
+    width: u16,
+    height: u16,
+    build: F,
+) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
+    let mut app = snapshot_app(width, height);
+    let parent = snapshot_parent(&mut app);
+    build(&mut app, parent);
+    finish_snapshot(&mut app, parent, width, height)
 }
 
 /// Threshold: collapsed layout shows just the root bg (1 colour).
@@ -136,7 +169,13 @@ macro_rules! viewport_demo_ignored_noargs_scoped {
 basic_demo_scoped!(animation, 320, 180);
 basic_demo_scoped!(book_flip, 640, 360);
 basic_demo_scoped!(image_flip, 480, 320);
-basic_demo_scoped!(interaction_lab, 1024, 720);
+#[test]
+fn interaction_lab() {
+    let cs = render_app_demo(1024, 720, |app, parent| {
+        mirui::gallery::demos::interaction_lab::setup_app(app, parent);
+    });
+    assert_renders("interaction_lab", cs);
+}
 basic_demo_scoped!(layout_lab, 1024, 720);
 // Skip: LazyList pool warm-up needs multi-frame loop.
 // basic_demo_scoped!(lazy_list, 320, 320);
@@ -161,10 +200,10 @@ fn themed_demos_render_in_light_palette() {
     });
     assert_renders("layout_lab_light", layout);
 
-    let interaction = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::interaction_lab::build_widgets(&mut cx);
+    let interaction = render_app_demo(320, 568, |app, parent| {
+        mirui::gallery::demos::interaction_lab::setup_app(app, parent);
+        app.set_theme(mirui::gallery::showcase_theme::LIGHT_ID)
+            .unwrap();
     });
     assert_renders("interaction_lab_light", interaction);
 
@@ -228,36 +267,27 @@ viewport_demo_ignored_scoped!(cover_flow, 640, 360);
 viewport_demo_ignored_noargs_scoped!(flip_card, 480, 320);
 viewport_demo_ignored_noargs_scoped!(shapes, 480, 480);
 
-fn render_typography_lab(
-    theme: Option<mirui::ui::Theme>,
-) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
+fn render_typography_lab(light: bool) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
     let (width, height) = mirui::gallery::demos::typography_lab::VIEWPORT;
-    render_demo(width, height, |world, parent| {
-        if let Some(theme) = theme {
-            world.insert_resource(theme);
+    render_app_demo(width, height, |app, parent| {
+        mirui::gallery::demos::typography_lab::setup_app(app, parent);
+        if light {
+            app.set_theme(mirui::gallery::showcase_theme::LIGHT_ID)
+                .unwrap();
         }
-        let views = world
-            .resource_mut::<mirui::ui::view::ViewRegistry>()
-            .expect("view registry");
-        views.insert(mirui::gallery::demos::typography_lab::caret_overlay_view());
-        views.insert(mirui::gallery::demos::typography_lab::raster_contour_view());
-        mirui::gallery::demos::typography_lab::register_fonts(world);
-        let wave_path = mirui::gallery::demos::typography_lab::register_path(world);
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::typography_lab::build_widgets(&mut cx, wave_path);
     })
 }
 
 #[test]
 fn typography_lab_renders() {
-    let colours = render_typography_lab(None);
+    let colours = render_typography_lab(false);
     assert_renders("typography_lab", colours);
 }
 
 #[test]
 fn typography_lab_renders_in_light_palette() {
-    let dark = render_typography_lab(None);
-    let light = render_typography_lab(Some(mirui::ui::Theme::light()));
+    let dark = render_typography_lab(false);
+    let light = render_typography_lab(true);
     assert_renders("typography_lab_light", light.clone());
     assert_ne!(dark, light);
 }

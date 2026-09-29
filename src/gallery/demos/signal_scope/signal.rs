@@ -1,4 +1,4 @@
-use super::state::{ScopeState, TriggerEdge};
+use super::state::{ScopeModel, TriggerEdge};
 use crate::prelude::Fixed;
 
 pub(super) const UART_MESSAGE: &[u8] = b"HELLO WORLD";
@@ -16,6 +16,19 @@ pub(super) fn uart_bit(index: i32) -> bool {
         0 => false,
         1..=8 => byte & (1 << ((wrapped % UART_BITS_PER_SYMBOL) - 1)) != 0,
         _ => true,
+    }
+}
+
+pub(super) fn uart_label(symbol: usize) -> &'static str {
+    match symbol {
+        0 => "UART · H · 01001000",
+        1 => "UART · E · 01000101",
+        2 | 3 | 9 => "UART · L · 01001100",
+        4 | 7 => "UART · O · 01001111",
+        5 => "UART · SPACE · 00100000",
+        6 => "UART · W · 01010111",
+        8 => "UART · R · 01010010",
+        _ => "UART · D · 01000100",
     }
 }
 
@@ -60,7 +73,7 @@ pub(super) fn bandwidth_limited_step(distance: Fixed) -> Fixed {
     response
 }
 
-impl ScopeState {
+impl ScopeModel {
     pub(super) fn base_angle(self, channel: u8, unit_x: Fixed) -> Fixed {
         let cycles = Fixed::from_int(i32::from(self.time_scale + 4));
         if channel == 0 {
@@ -161,19 +174,6 @@ impl ScopeState {
                 TriggerEdge::Rising => UART_RISING_OFFSET,
                 TriggerEdge::Falling => UART_FALLING_OFFSET,
             }
-    }
-
-    pub(super) fn uart_label(self) -> &'static str {
-        match self.uart_symbol_index(0) {
-            0 => "UART · H · 01001000",
-            1 => "UART · E · 01000101",
-            2 | 3 | 9 => "UART · L · 01001100",
-            4 | 7 => "UART · O · 01001111",
-            5 => "UART · SPACE · 00100000",
-            6 => "UART · W · 01010111",
-            8 => "UART · R · 01010010",
-            _ => "UART · D · 01000100",
-        }
     }
 
     pub(super) fn uart_wave_sample(self, relative_bits: Fixed, history: u8) -> Fixed {

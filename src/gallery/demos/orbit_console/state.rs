@@ -1,5 +1,4 @@
 use super::style::{BLUE, MINT, SURFACE, TEXT_MUTED, VIOLET};
-use crate::core::reactive::Signal;
 use crate::prelude::{ColorToken, Fixed};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,14 +47,14 @@ impl ConsoleMode {
     }
 }
 
+#[crate::model]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConsoleState {
+pub(crate) struct ConsoleState {
     pub mode: ConsoleMode,
     pub intensity: u8,
     pub focused_node: u8,
     pub paused: bool,
     phase: Fixed,
-    revision: u32,
 }
 
 impl ConsoleState {
@@ -66,7 +65,6 @@ impl ConsoleState {
             focused_node: 1,
             paused: false,
             phase: Fixed::ZERO,
-            revision: 0,
         }
     }
 
@@ -77,58 +75,69 @@ impl ConsoleState {
             focused_node: 1,
             paused: false,
             phase: Fixed::from_int(32),
-            revision: 0,
         }
     }
+}
 
-    pub const fn phase(&self) -> Fixed {
+#[crate::model]
+impl ConsoleState {
+    #[observe]
+    pub fn phase(&self) -> Fixed {
         self.phase
     }
 
-    pub const fn revision(&self) -> u32 {
-        self.revision
+    #[observe]
+    pub(super) fn mode(&self) -> ConsoleMode {
+        self.mode
     }
 
-    fn select_mode(&mut self, mode: ConsoleMode) -> bool {
+    #[observe]
+    pub(super) fn intensity(&self) -> u8 {
+        self.intensity
+    }
+
+    #[observe]
+    pub(super) fn focused_node(&self) -> u8 {
+        self.focused_node
+    }
+
+    #[observe]
+    pub(super) fn paused(&self) -> bool {
+        self.paused
+    }
+
+    pub(super) fn select_mode(&mut self, mode: ConsoleMode) {
         if self.mode == mode {
-            return false;
+            return;
         }
         self.mode = mode;
-        self.revision = self.revision.wrapping_add(1);
-        true
     }
 
-    fn cycle_focus(&mut self) {
+    pub(super) fn cycle_focus(&mut self) {
         self.focused_node = (self.focused_node + 1) % 3;
-        self.revision = self.revision.wrapping_add(1);
     }
 
-    fn set_intensity(&mut self, value: Fixed) -> bool {
+    pub(super) fn set_intensity(&mut self, value: Fixed) {
         let next = value.to_int().clamp(0, 100) as u8;
         if self.intensity == next {
-            return false;
+            return;
         }
         self.intensity = next;
-        self.revision = self.revision.wrapping_add(1);
-        true
     }
 
     pub(super) fn toggle_paused(&mut self) {
         self.paused = !self.paused;
-        self.revision = self.revision.wrapping_add(1);
     }
 
-    pub(super) fn advance(&mut self, delta_ms: u16) -> bool {
+    pub(super) fn advance(&mut self, delta_ms: u16) {
         if self.paused || delta_ms == 0 {
-            return false;
+            return;
         }
         let elapsed = u32::from(delta_ms.min(100));
         self.phase += self.mode.phase_delta(elapsed);
         while self.phase >= Fixed::from_int(360) {
             self.phase -= Fixed::from_int(360);
         }
-        self.revision = self.revision.wrapping_add(1);
-        true
     }
 }
 
@@ -136,61 +145,4 @@ impl ConsoleState {
 pub enum DemoRunMode {
     Live,
     Capture,
-}
-
-#[derive(Clone)]
-pub(super) struct ConsoleModel {
-    state: Signal<ConsoleState>,
-}
-
-impl ConsoleModel {
-    #[cfg(any(feature = "std", test))]
-    pub(super) fn new(state: ConsoleState) -> Self {
-        Self {
-            state: Signal::new(state),
-        }
-    }
-
-    pub(super) fn signal(&self) -> Signal<ConsoleState> {
-        self.state.clone()
-    }
-
-    pub(super) fn snapshot(&self) -> ConsoleState {
-        self.state.get_untracked()
-    }
-
-    pub(super) fn advance(&self, delta_ms: u16) {
-        let mut state = self.snapshot();
-        if state.advance(delta_ms) {
-            self.state.set(state);
-        }
-    }
-}
-
-pub(super) enum ConsoleAction {
-    SelectMode(ConsoleMode),
-    CycleFocus,
-    SetIntensity(Fixed),
-    TogglePaused,
-}
-
-impl ConsoleAction {
-    pub(super) fn publish(self, signal: &Signal<ConsoleState>) {
-        let mut state = signal.get_untracked();
-        let changed = match self {
-            Self::SelectMode(mode) => state.select_mode(mode),
-            Self::CycleFocus => {
-                state.cycle_focus();
-                true
-            }
-            Self::SetIntensity(value) => state.set_intensity(value),
-            Self::TogglePaused => {
-                state.toggle_paused();
-                true
-            }
-        };
-        if changed {
-            signal.set(state);
-        }
-    }
 }

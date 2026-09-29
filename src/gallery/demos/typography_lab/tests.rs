@@ -1,5 +1,6 @@
 use super::caret::CaretOverlay;
 use super::runtime::{ARABIC, CJK, DEVANAGARI, ELLIPSIS, FALLBACKS, THAI, UI, mixed_stack};
+use super::state::TypographyModel;
 use super::style::BACKGROUND;
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
@@ -13,34 +14,15 @@ use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
 use crate::ui::widgets::{LanguageTag, Text, TextAlign, TextDirection, TextOverflow, TextWrap};
 use crate::ui::{ComputedRect, Parent};
-use crate::ui::{IdMap, UiScope};
 
 fn fixture_at(width: u16, height: u16) -> World {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut views = ViewRegistry::with_builtins();
-    views.insert(caret_overlay_view());
-    views.insert(raster_contour_view());
-    world.insert_resource(views);
-    world.insert_resource(crate::render::font::default_font_manager());
-    world.insert_resource(crate::text::layout::TextLayoutResource::new(
-        crate::text::TextLayoutLimits::HOST,
-    ));
-    world.insert_resource(crate::render::path::PathStore::new(1).unwrap());
-    world.insert_resource(crate::text::baseline::PathBaselineResource::default());
-    register_fonts(&mut world);
-    let wave_path = register_path(&mut world);
-    let parent = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            width: Dimension::px(i32::from(width)),
-            height: Dimension::px(i32::from(height)),
-            ..LayoutStyle::default()
-        })
-        .id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, wave_path);
-    drop(cx);
-    world
+    let mut app = App::headless(width, height);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    ViewRegistry::reconcile_observations(&mut app.world);
+    flush_signal_dirty(&mut app.world);
+    app.world
 }
 
 fn fixture() -> World {
@@ -61,6 +43,22 @@ fn tap(world: &mut World, id: &'static str) {
     flush_signal_dirty(world);
 }
 
+fn with_model<R>(world: &World, inspect: impl FnOnce(&TypographyModel) -> R) -> R {
+    let overlay = world.find_by_id("typography_path_sample").unwrap();
+    let overlay = world.get::<CaretOverlay>(overlay).unwrap();
+    crate::core::model::ModelHandle::read(&overlay.model, inspect)
+}
+
+fn bounded_text_pointer(world: &World, id: &'static str) -> *const u8 {
+    let text = world
+        .get::<Text>(world.find_by_id(id).unwrap())
+        .expect("bounded text");
+    match text.content() {
+        crate::ui::widgets::TextContent::Plain(alloc::borrow::Cow::Owned(value)) => value.as_ptr(),
+        _ => panic!("{id} does not own bounded text storage"),
+    }
+}
+
 #[test]
 fn builds_the_complete_typography_matrix() {
     let world = fixture();
@@ -75,8 +73,6 @@ fn builds_the_complete_typography_matrix() {
         "typography_rasters",
         "typography_path",
         "typography_contour",
-        "typography_carets",
-        "typography_path_carets",
         "typography_projective_sample",
     ] {
         assert!(world.find_by_id(id).is_some(), "missing {id}");
@@ -236,8 +232,13 @@ fn mixed_bidi_sample_ellipsizes_within_its_card() {
 fn path_tap_updates_the_caret_probe() {
     let mut world = fixture();
     let sample = world.find_by_id("typography_path_sample").unwrap();
-    let overlay = world.find_by_id("typography_path_carets").unwrap();
-    assert_eq!(world.get::<CaretOverlay>(overlay).unwrap().probe, None);
+    let overlay = sample;
+    let live_overlay = world.find_by_id("typography_live_sample").unwrap();
+    assert!(world.has::<CaretOverlay>(overlay));
+    assert!(world.has::<CaretOverlay>(live_overlay));
+    assert_eq!(with_model(&world, |model| model.path_probe), None);
+    world.remove::<crate::ui::dirty::VisualDirty>(overlay);
+    world.remove::<crate::ui::dirty::VisualDirty>(live_overlay);
 
     GestureHandler::trigger(
         &mut world,
@@ -251,10 +252,12 @@ fn path_tap_updates_the_caret_probe() {
     flush_signal_dirty(&mut world);
 
     assert_eq!(
-        world.get::<CaretOverlay>(overlay).unwrap().probe,
+        with_model(&world, |model| model.path_probe),
         Some(Point::new(42, 55))
     );
-    assert!(world.get::<crate::ui::dirty::Dirty>(overlay).is_some());
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(overlay));
+    assert!(!world.has::<crate::ui::dirty::VisualDirty>(live_overlay));
+    world.remove::<crate::ui::dirty::VisualDirty>(overlay);
 
     GestureHandler::trigger(
         &mut world,
@@ -267,10 +270,12 @@ fn path_tap_updates_the_caret_probe() {
             target: sample,
         },
     );
+    flush_signal_dirty(&mut world);
     assert_eq!(
-        world.get::<CaretOverlay>(overlay).unwrap().probe,
+        with_model(&world, |model| model.path_probe),
         Some(Point::new(70, 60))
     );
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(overlay));
 }
 
 #[test]
@@ -363,6 +368,14 @@ fn samples_keep_their_shaping_contracts() {
 #[test]
 fn controls_publish_into_the_live_paragraph() {
     let mut world = fixture();
+    let dynamic_ids = [
+        "typography_ppem_value",
+        "typography_width_value",
+        "typography_wrap",
+        "typography_align",
+        "typography_overflow",
+    ];
+    let text_buffers = dynamic_ids.map(|id| bounded_text_pointer(&world, id));
     let sample = world
         .find_by_id("typography_live_sample")
         .expect("sample id");
@@ -384,6 +397,7 @@ fn controls_publish_into_the_live_paragraph() {
             },
         );
     }
+    flush_signal_dirty(&mut world);
     tap(&mut world, "typography_wrap");
     tap(&mut world, "typography_align");
     tap(&mut world, "typography_overflow");
@@ -396,4 +410,22 @@ fn controls_publish_into_the_live_paragraph() {
     assert_eq!(paragraph.align, TextAlign::Center);
     assert_eq!(paragraph.overflow, TextOverflow::Ellipsis);
     assert_eq!(paragraph.max_lines, Some(2));
+
+    for (id, value, capacity) in [
+        ("typography_ppem_value", "42", 2),
+        ("typography_width_value", "320", 3),
+        ("typography_wrap", "GRAPHEME", 8),
+        ("typography_align", "CENTER", 7),
+        ("typography_overflow", "ELLIPSIS", 8),
+    ] {
+        let text = world
+            .get::<Text>(world.find_by_id(id).unwrap())
+            .expect("bounded value text");
+        assert_eq!(text.resolve(&world).as_ref(), value, "{id}");
+        assert_eq!(text.text_capacity(), Some(capacity), "{id}");
+        assert!(text.has_valid_content(), "{id}");
+    }
+    for (id, pointer) in dynamic_ids.into_iter().zip(text_buffers) {
+        assert_eq!(bounded_text_pointer(&world, id), pointer, "{id}");
+    }
 }

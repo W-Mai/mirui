@@ -1,35 +1,17 @@
 use super::render::{KineticOrbit, KineticWave};
-use super::state::{ConsoleAction, ConsoleMode, ConsoleModel};
+use super::state::{ConsoleMode, ConsoleModel, ConsoleMotion};
 use super::style::{AMBER, BACKGROUND, BORDER, CYAN, MUTED, PANEL, TEXT, VIOLET, header_label};
+use crate::core::reactive::Signal;
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text};
 
-fn console_model(cx: &mut crate::ui::UiScope<'_>) -> ConsoleModel {
-    cx.world_mut()
-        .resource::<ConsoleModel>()
-        .cloned()
-        .expect("Kinetic Console model")
-}
-
-#[compose]
-pub fn build_widgets() {
-    let model = console_model(cx);
-    let status_text = model.paused.clone();
-    let status_bg = model.paused.clone();
-    let status_action = model.clone();
-    let stage_action = model.clone();
-    let orbit_bg = model.mode.clone();
-    let orbit_fg = model.mode.clone();
-    let orbit_action = model.clone();
-    let flow_bg = model.mode.clone();
-    let flow_fg = model.mode.clone();
-    let flow_action = model.clone();
-    let pulse_bg = model.mode.clone();
-    let pulse_fg = model.mode.clone();
-    let pulse_action = model.clone();
-    let slider_action = model;
-
+#[compose(bind(model, motion))]
+pub(super) fn build_widgets(model: ConsoleModel, motion: Signal<ConsoleMotion>) {
+    let orbit_motion_key = motion.clone();
+    let orbit_motion = motion.clone();
+    let wave_motion_key = motion.clone();
+    let wave_motion = motion;
     ui! {
         Column (
             id: "kinetic_console_shell",
@@ -59,17 +41,17 @@ pub fn build_widgets() {
                     width: 38,
                     height: 18,
                     padding: Padding::all(2),
-                    normal_color: ${ if status_bg.get() { ColorToken::Error } else { ColorToken::Success } },
+                    normal_color: ${ if model.paused() { ColorToken::Error } else { ColorToken::Success } },
                     pressed_color: PANEL,
                     border_color: CYAN,
                     border_width: 1,
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { ConsoleAction::TogglePaused.publish(&status_action); }
+                ) on Tap { model.toggle_paused(); }
                 {
                     Text (
-                        text: ${ if status_text.get() { "HOLD" } else { "LIVE" } },
+                        text: ${ if model.paused() { "HOLD" } else { "LIVE" } },
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
@@ -96,17 +78,28 @@ pub fn build_widgets() {
                 ) [
                     IgnoreHitTest,
                 ] {
-                    KineticOrbit (
+                    View (
                         id: "kinetic_console_orbit_layer",
                         width: 52,
-                        height: Dimension::percent(100)
-                    ) on Tap { ConsoleAction::CycleFocus.publish(&stage_action); }
+                        height: Dimension::percent(100),
+                        render_key: ${ orbit_motion_key.get().orbit_render_key() }
+                    ) [
+                        KineticOrbit {
+                            model: model.clone(),
+                            motion: orbit_motion,
+                        },
+                    ] on Tap { model.cycle_focus(); }
                 }
-                KineticWave (
+                View (
                     id: "kinetic_console_wave_layer",
                     width: Dimension::percent(100),
-                    height: 14
+                    height: 14,
+                    render_key: ${ wave_motion_key.get().wave_render_key() }
                 ) [
+                    KineticWave {
+                        model: model.clone(),
+                        motion: wave_motion,
+                    },
                     IgnoreHitTest,
                 ]
             }
@@ -116,21 +109,21 @@ pub fn build_widgets() {
                     grow: 1.0,
                     height: 16,
                     padding: Padding::all(2),
-                    normal_color: ${ if orbit_bg.get() == ConsoleMode::Orbit { CYAN } else { PANEL } },
+                    normal_color: ${ if model.mode() == ConsoleMode::Orbit { CYAN } else { PANEL } },
                     pressed_color: CYAN,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { ConsoleAction::Select(ConsoleMode::Orbit).publish(&orbit_action); }
+                ) on Tap { model.select_mode(ConsoleMode::Orbit); }
                 {
                     Text (
                         "ORB",
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if orbit_fg.get() == ConsoleMode::Orbit { ColorToken::OnPrimary } else { MUTED } },
+                        text_color: ${ if model.mode() == ConsoleMode::Orbit { ColorToken::OnPrimary } else { MUTED } },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -141,21 +134,21 @@ pub fn build_widgets() {
                     grow: 1.0,
                     height: 16,
                     padding: Padding::all(2),
-                    normal_color: ${ if flow_bg.get() == ConsoleMode::Flow { VIOLET } else { PANEL } },
+                    normal_color: ${ if model.mode() == ConsoleMode::Flow { VIOLET } else { PANEL } },
                     pressed_color: VIOLET,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { ConsoleAction::Select(ConsoleMode::Flow).publish(&flow_action); }
+                ) on Tap { model.select_mode(ConsoleMode::Flow); }
                 {
                     Text (
                         "FLOW",
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if flow_fg.get() == ConsoleMode::Flow { ColorToken::OnTertiary } else { MUTED } },
+                        text_color: ${ if model.mode() == ConsoleMode::Flow { ColorToken::OnTertiary } else { MUTED } },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -166,21 +159,21 @@ pub fn build_widgets() {
                     grow: 1.0,
                     height: 16,
                     padding: Padding::all(2),
-                    normal_color: ${ if pulse_bg.get() == ConsoleMode::Pulse { AMBER } else { PANEL } },
+                    normal_color: ${ if model.mode() == ConsoleMode::Pulse { AMBER } else { PANEL } },
                     pressed_color: AMBER,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { ConsoleAction::Select(ConsoleMode::Pulse).publish(&pulse_action); }
+                ) on Tap { model.select_mode(ConsoleMode::Pulse); }
                 {
                     Text (
                         "PLS",
                         grow: 1.0,
                         height: Dimension::percent(100),
                         font_size: 7,
-                        text_color: ${ if pulse_fg.get() == ConsoleMode::Pulse { ColorToken::OnPrimary } else { MUTED } },
+                        text_color: ${ if model.mode() == ConsoleMode::Pulse { ColorToken::OnPrimary } else { MUTED } },
                         paragraph: ParagraphStyle::label()
                     ) [
                         IgnoreHitTest,
@@ -192,13 +185,13 @@ pub fn build_widgets() {
                 height: 10,
                 min: Fixed::ZERO,
                 max: Fixed::from_int(100),
-                value: Fixed::from_int(68),
+                value: ${ model.intensity() },
                 track_color: BORDER,
                 fill_color: CYAN,
                 thumb_color: TEXT
             ) on ValueChanged {
                 let _ = old;
-                ConsoleAction::SetIntensity(*new).publish(&slider_action);
+                model.set_intensity(*new);
             }
         }
     };

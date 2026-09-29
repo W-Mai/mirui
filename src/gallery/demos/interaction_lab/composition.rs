@@ -1,8 +1,4 @@
-use alloc::format;
-
-#[cfg(any(feature = "std", test))]
-use super::runtime::InteractionNodes;
-use super::state::{InteractionAction, model_signal};
+use super::state::InteractionModel;
 use super::style::{
     BACKGROUND, BLUE, BORDER, CYAN, ERROR, GOLD, MUTED, PANEL, PANEL_ALT, TEXT, VIOLET,
     bounded_text, card_width, ellipsis_label, gesture_cell_width, status_text,
@@ -10,10 +6,11 @@ use super::style::{
 use crate::input::event::BubbleControl;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::UserState;
 use crate::ui::widgets::{Button, Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput};
 
-#[compose]
-fn compose_header() -> Entity {
+#[compose(bind(model))]
+fn compose_header(model: InteractionModel) -> Entity {
     ui! {
         Column (
             id: "interaction_lab_header",
@@ -39,7 +36,7 @@ fn compose_header() -> Entity {
                         paragraph: bounded_text(1)
                     )
                     Text (
-                        "gesture actions / signal-owned state",
+                        "gesture actions / observed model state",
                         width: Dimension::percent(100),
                         min_height: 18,
                         font_size: 13,
@@ -50,7 +47,8 @@ fn compose_header() -> Entity {
             }
             Row (height: 30, justify: JustifyContent::FlexEnd) {
                 Text (
-                    "LIVE TIMELINE",
+                    text: ${ if model.disabled() { "TARGET LOCKED" } else { "LIVE TIMELINE" } },
+                    text_capacity: 13,
                     width: 144,
                     height: 30,
                     bg_color: PANEL_ALT,
@@ -66,18 +64,8 @@ fn compose_header() -> Entity {
     }
 }
 
-#[compose]
-fn compose_gesture_card() -> Entity {
-    let state = model_signal(cx);
-    let single_text = state.clone();
-    let double_text = state.clone();
-    let triple_text = state.clone();
-    let long_text = state.clone();
-    let single_action = state.clone();
-    let double_action = state.clone();
-    let triple_action = state.clone();
-    let long_action = state;
-
+#[compose(bind(model))]
+fn compose_gesture_card(model: InteractionModel) -> Entity {
     ui! {
         Column (
             id: "interaction_gestures",
@@ -117,7 +105,8 @@ fn compose_gesture_card() -> Entity {
             ) {
                 Text (
                     id: "interaction_single_status",
-                    text: ${ format!("single {}", single_text.get().single) },
+                    text: ${ format_args!("single {}", model.single()) },
+                    text_capacity: 14,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -129,7 +118,8 @@ fn compose_gesture_card() -> Entity {
                 )
                 Text (
                     id: "interaction_double_status",
-                    text: ${ format!("double {}", double_text.get().double) },
+                    text: ${ format_args!("double {}", model.double()) },
+                    text_capacity: 14,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -141,7 +131,8 @@ fn compose_gesture_card() -> Entity {
                 )
                 Text (
                     id: "interaction_triple_status",
-                    text: ${ format!("triple {}", triple_text.get().triple) },
+                    text: ${ format_args!("triple {}", model.triple()) },
+                    text_capacity: 14,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -153,7 +144,8 @@ fn compose_gesture_card() -> Entity {
                 )
                 Text (
                     id: "interaction_long_status",
-                    text: ${ format!("long {}", long_text.get().long) },
+                    text: ${ format_args!("long {}", model.long()) },
+                    text_capacity: 12,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -189,7 +181,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: CYAN
-                ) on Tap { InteractionAction::Single.publish(&single_action); }
+                ) on Tap { model.record_single(); }
                 Button (
                     "2 TAP",
                     id: "interaction_double",
@@ -205,7 +197,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: BLUE
-                ) on Tap(2) { InteractionAction::Double.publish(&double_action); }
+                ) on Tap(2) { model.record_double(); }
                 Button (
                     "3 TAP",
                     id: "interaction_triple",
@@ -221,7 +213,7 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: VIOLET
-                ) on Tap(3) { InteractionAction::Triple.publish(&triple_action); }
+                ) on Tap(3) { model.record_triple(); }
                 Button (
                     "HOLD",
                     id: "interaction_long",
@@ -237,11 +229,11 @@ fn compose_gesture_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: GOLD
-                ) on LongPress { InteractionAction::Long.publish(&long_action); }
+                ) on LongPress { model.record_long_press(); }
             }
             Text (
                 id: "interaction_gesture_caption",
-                "Each callback emits one domain action; counters render from a Computed value.",
+                "Each callback updates model state; observed counters refresh automatically.",
                 width: Dimension::percent(100),
                 min_height: 48,
                 font_size: 10,
@@ -252,13 +244,8 @@ fn compose_gesture_card() -> Entity {
     }
 }
 
-#[compose]
-fn compose_state_card() -> Entity {
-    let state = model_signal(cx);
-    let error_action = state.clone();
-    let disabled_text = state.clone();
-    let disabled_action = state;
-
+#[compose(bind(model))]
+fn compose_state_card(model: InteractionModel) -> Entity {
     ui! {
         Column (
             id: "interaction_states",
@@ -309,34 +296,68 @@ fn compose_state_card() -> Entity {
                     font_size: 8,
                     text_color: ColorToken::OnSecondary
                 )
-                Button (
-                    "ERROR",
-                    id: "interaction_error_target",
-                    grow: 1.0,
-                    min_width: 70,
-                    height: 36,
-                    normal_color: PANEL,
-                    pressed_color: ERROR,
-                    border_color: ERROR,
-                    border_width: 1,
-                    border_radius: 10,
-                    font_size: 8,
-                    text_color: TEXT
-                ) on Tap { InteractionAction::ToggleError.publish(&error_action); }
-                Button (
-                    "DISABLED",
-                    id: "interaction_disabled_target",
-                    grow: 1.0,
-                    min_width: 70,
-                    height: 36,
-                    normal_color: PANEL,
-                    pressed_color: PANEL,
-                    border_color: MUTED,
-                    border_width: 1,
-                    border_radius: 10,
-                    font_size: 8,
-                    text_color: TEXT
-                )
+                if ${ model.errored() } {
+                    Button (
+                        "ERROR",
+                        id: "interaction_error_target",
+                        grow: 1.0,
+                        min_width: 70,
+                        height: 36,
+                        normal_color: PANEL,
+                        pressed_color: ERROR,
+                        border_color: ERROR,
+                        border_width: 1,
+                        border_radius: 10,
+                        font_size: 8,
+                        text_color: TEXT
+                    ) [UserState::Errored] on Tap { model.toggle_error(); }
+                } else {
+                    Button (
+                        "ERROR",
+                        id: "interaction_error_clear_target",
+                        grow: 1.0,
+                        min_width: 70,
+                        height: 36,
+                        normal_color: PANEL,
+                        pressed_color: ERROR,
+                        border_color: ERROR,
+                        border_width: 1,
+                        border_radius: 10,
+                        font_size: 8,
+                        text_color: TEXT
+                    ) on Tap { model.toggle_error(); }
+                }
+                if ${ model.disabled() } {
+                    Button (
+                        "DISABLED",
+                        id: "interaction_disabled_target",
+                        grow: 1.0,
+                        min_width: 70,
+                        height: 36,
+                        normal_color: PANEL,
+                        pressed_color: PANEL,
+                        border_color: MUTED,
+                        border_width: 1,
+                        border_radius: 10,
+                        font_size: 8,
+                        text_color: TEXT
+                    ) [UserState::Disabled]
+                } else {
+                    Button (
+                        "DISABLED",
+                        id: "interaction_enabled_target",
+                        grow: 1.0,
+                        min_width: 70,
+                        height: 36,
+                        normal_color: PANEL,
+                        pressed_color: PANEL,
+                        border_color: MUTED,
+                        border_width: 1,
+                        border_radius: 10,
+                        font_size: 8,
+                        text_color: TEXT
+                    )
+                }
             }
             TextInput (
                 id: "interaction_focus_target",
@@ -350,7 +371,7 @@ fn compose_state_card() -> Entity {
             ]
             Button (
                 id: "interaction_toggle_disabled",
-                text: ${ if disabled_text.get().disabled { "ENABLE TARGET" } else { "DISABLE TARGET" } },
+                text: ${ if model.disabled() { "ENABLE TARGET" } else { "DISABLE TARGET" } },
                 height: 34,
                 normal_color: ColorToken::SurfaceVariant,
                 pressed_color: BLUE,
@@ -359,35 +380,13 @@ fn compose_state_card() -> Entity {
                 border_radius: 9,
                 font_size: 10,
                 text_color: TEXT
-            ) on Tap { InteractionAction::ToggleDisabled.publish(&disabled_action); }
+            ) on Tap { model.toggle_disabled(); }
         }
     }
 }
 
-#[compose]
-fn compose_motion_card() -> Entity {
-    let state = model_signal(cx);
-    let drag_action = state.clone();
-    let drag_reset = state.clone();
-    let parent_action = state.clone();
-    let child_action = state.clone();
-    let policy_text = state.clone();
-    let policy_action = state.clone();
-    let bubble_state = state;
-    let bubble_text = Computed::new(move || {
-        let value = bubble_state.get();
-        format!(
-            "child {} / parent {} / {}",
-            value.child_taps,
-            value.parent_taps,
-            if value.allow_bubble {
-                "allow"
-            } else {
-                "blocked"
-            }
-        )
-    });
-
+#[compose(bind(model))]
+fn compose_motion_card(model: InteractionModel) -> Entity {
     ui! {
         Column (
             id: "interaction_motion",
@@ -424,8 +423,8 @@ fn compose_motion_card() -> Entity {
                     "DRAG",
                     id: "interaction_drag_target",
                     position: Position::Absolute,
-                    left: 24,
-                    top: 27,
+                    left: ${ Fixed::from_int(24) + model.drag_x() },
+                    top: ${ Fixed::from_int(27) + model.drag_y() },
                     width: 92,
                     height: 40,
                     normal_color: VIOLET,
@@ -433,7 +432,7 @@ fn compose_motion_card() -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: ColorToken::OnTertiary
-                ) [TouchAction::None] on DragMove { InteractionAction::Drag(*dx, *dy).publish(&drag_action); } on DragEnd { InteractionAction::ResetDrag.publish(&drag_reset); }
+                ) [TouchAction::None] on DragMove { model.set_drag(*dx, *dy); } on DragEnd { model.reset_drag(); }
             }
             Row (height: 58, column_gap: 8) {
                 Row (
@@ -444,7 +443,7 @@ fn compose_motion_card() -> Entity {
                     border_color: BLUE,
                     border_width: 1,
                     border_radius: 10
-                ) on Tap { InteractionAction::ParentTap.publish(&parent_action); }
+                ) on Tap { model.record_parent_tap(); }
                 {
                     Button (
                         "CHILD TAP",
@@ -457,14 +456,14 @@ fn compose_motion_card() -> Entity {
                         font_size: 9,
                         text_color: ColorToken::OnSecondary
                     ) on Tap {
-                        let allow = child_action.get_untracked().allow_bubble;
-                        InteractionAction::ChildTap.publish(&child_action);
+                        let allow = model.allow_bubble();
+                        model.record_child_tap();
                         if allow { BubbleControl::Allow } else { BubbleControl::Prevent }
                     }
                 }
                 Button (
                     id: "interaction_bubble_policy",
-                    text: ${ if policy_text.get().allow_bubble { "ALLOW" } else { "BLOCK" } },
+                    text: ${ if model.allow_bubble() { "ALLOW" } else { "BLOCK" } },
                     width: 88,
                     height: 58,
                     normal_color: ColorToken::SurfaceVariant,
@@ -474,10 +473,16 @@ fn compose_motion_card() -> Entity {
                     border_radius: 10,
                     font_size: 9,
                     text_color: GOLD
-                ) on Tap { InteractionAction::ToggleBubble.publish(&policy_action); }
+                ) on Tap { model.toggle_bubble(); }
             }
             Text (
-                text: $bubble_text,
+                text: ${ format_args!(
+                    "child {} / parent {} / {}",
+                    model.child_taps(),
+                    model.parent_taps(),
+                    if model.allow_bubble() { "allow" } else { "blocked" },
+                ) },
+                text_capacity: 36,
                 id: "interaction_bubble_status",
                 width: Dimension::percent(100),
                 height: 24,
@@ -489,14 +494,8 @@ fn compose_motion_card() -> Entity {
     }
 }
 
-#[compose]
-fn compose_controls_card() -> Entity {
-    let state = model_signal(cx);
-    let switch_action = state.clone();
-    let checkbox_action = state.clone();
-    let switch_text = state.clone();
-    let checkbox_text = state;
-
+#[compose(bind(model))]
+fn compose_controls_card(model: InteractionModel) -> Entity {
     ui! {
         Column (
             id: "interaction_controls",
@@ -515,7 +514,7 @@ fn compose_controls_card() -> Entity {
             border_radius: 14
         ) {
             Text (
-                "CONTROLS / BUSINESS SIGNALS",
+                "CONTROLS / MODEL STATE",
                 width: Dimension::percent(100),
                 min_height: 28,
                 font_size: 12,
@@ -526,8 +525,9 @@ fn compose_controls_card() -> Entity {
                 Switch (
                     id: "interaction_switch",
                     width: 64,
-                    height: 34
-                ) on Toggled { InteractionAction::Switch(*now).publish(&switch_action); }
+                    height: 34,
+                    on: ${ model.switch_on() }
+                ) on Toggled { model.set_switch(*now); }
                 Text (
                     "Switch publishes its new value",
                     grow: 1.0,
@@ -540,8 +540,9 @@ fn compose_controls_card() -> Entity {
                 Checkbox (
                     id: "interaction_checkbox",
                     width: 34,
-                    height: 34
-                ) on Toggled { InteractionAction::Checkbox(*now).publish(&checkbox_action); }
+                    height: 34,
+                    checked: ${ model.checkbox_on() }
+                ) on Toggled { model.set_checkbox(*now); }
                 Text (
                     "Checkbox shares the same state",
                     grow: 1.0,
@@ -562,14 +563,12 @@ fn compose_controls_card() -> Entity {
             ) {
                 Text (
                     id: "interaction_switch_status",
-                    text: ${
-                        let value = switch_text.get();
-                        format!(
-                            "switch {} / {} changes",
-                            if value.switch_on { "ON" } else { "OFF" },
-                            value.switch_changes
-                        )
-                    },
+                    text: ${ format_args!(
+                        "switch {} / {} changes",
+                        if model.switch_on() { "ON" } else { "OFF" },
+                        model.switch_changes(),
+                    ) },
+                    text_capacity: 28,
                     grow: 1.0,
                     min_width: 150,
                     height: 24,
@@ -579,14 +578,12 @@ fn compose_controls_card() -> Entity {
                 )
                 Text (
                     id: "interaction_checkbox_status",
-                    text: ${
-                        let value = checkbox_text.get();
-                        format!(
-                            "check {} / {} changes",
-                            if value.checkbox_on { "ON" } else { "OFF" },
-                            value.checkbox_changes
-                        )
-                    },
+                    text: ${ format_args!(
+                        "check {} / {} changes",
+                        if model.checkbox_on() { "ON" } else { "OFF" },
+                        model.checkbox_changes(),
+                    ) },
+                    text_capacity: 27,
                     grow: 1.0,
                     min_width: 150,
                     height: 24,
@@ -609,8 +606,8 @@ fn compose_controls_card() -> Entity {
     }
 }
 
-#[compose]
-pub fn build_widgets() {
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: InteractionModel) {
     //~focus-start
     ui! {
         Scroll (
@@ -627,7 +624,7 @@ pub fn build_widgets() {
                 padding: Padding::all(18),
                 row_gap: 12
             ) {
-                compose_header ()
+                compose_header (model)
                 Row (
                     id: "interaction_lab_grid",
                     width: Dimension::percent(100),
@@ -637,31 +634,13 @@ pub fn build_widgets() {
                     row_gap: 12,
                     column_gap: 12
                 ) {
-                    compose_gesture_card ()
-                    compose_state_card ()
-                    compose_motion_card ()
-                    compose_controls_card ()
+                    compose_gesture_card (model)
+                    compose_state_card (model)
+                    compose_motion_card (model)
+                    compose_controls_card (model)
                 }
             }
         }
     };
-    #[cfg(any(feature = "std", test))]
-    {
-        let nodes = InteractionNodes {
-            error: cx
-                .world_mut()
-                .find_by_id("interaction_error_target")
-                .expect("Interaction Lab error target"),
-            disabled: cx
-                .world_mut()
-                .find_by_id("interaction_disabled_target")
-                .expect("Interaction Lab disabled target"),
-            drag: cx
-                .world_mut()
-                .find_by_id("interaction_drag_target")
-                .expect("Interaction Lab drag target"),
-        };
-        cx.world_mut().insert_resource(nodes);
-    }
     //~focus-end
 }

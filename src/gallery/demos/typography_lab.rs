@@ -10,12 +10,9 @@ mod style;
 #[cfg(test)]
 mod tests;
 
-pub use caret::caret_overlay_view;
-pub use composition::build_widgets;
 #[cfg(feature = "std")]
 pub use composition::setup_app;
-pub use contour::raster_contour_view;
-pub use runtime::{register_fonts, register_path};
+pub(crate) use runtime::register_fonts;
 
 pub const VIEWPORT: (u16, u16) = (1024, 720);
 

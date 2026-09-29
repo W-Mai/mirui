@@ -1,6 +1,7 @@
-use super::runtime::sync_interaction_user_states;
-use super::state::{InteractionLabState, InteractionModel};
+use super::runtime::install;
+use super::state::InteractionModel;
 use super::*;
+use crate::core::model::ModelHandle;
 use crate::core::reactive::flush_signal_dirty;
 use crate::input::event::focus::{FocusState, Focusable, focus_on_tap};
 use crate::input::event::gesture::GestureEvent;
@@ -8,34 +9,65 @@ use crate::input::event::scroll::TouchAction;
 use crate::input::event::{bubble_dispatch_at, entity_or_ancestor_disabled};
 use crate::input::feedback::{InputFeedback, InputFeedbackInput};
 use crate::prelude::*;
+use crate::ui::Children;
 use crate::ui::UserState;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::{Button, Checkbox, Switch, Text, TextInput};
-use crate::ui::{Children, IdMap, UiScope};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct InteractionSnapshot {
+    single: u16,
+    double: u16,
+    triple: u16,
+    long: u16,
+    switch_on: bool,
+    switch_changes: u16,
+    checkbox_on: bool,
+    checkbox_changes: u16,
+    drag_x: Fixed,
+    drag_y: Fixed,
+    child_taps: u16,
+    parent_taps: u16,
+}
+
+type InteractionHandle = <InteractionModel as crate::core::model::Model>::Handle;
+
+struct FixtureModel(InteractionHandle);
 
 fn fixture_tree() -> (World, Entity) {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::with_builtins());
-    world.insert_resource(InteractionModel::default());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
-    drop(cx);
-    sync_interaction_user_states(&mut world);
-    (world, parent)
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let parent = app.spawn_root().id();
+    let model = install(&mut app, parent);
+    app.world.insert_resource(FixtureModel(model));
+    ViewRegistry::reconcile_observations(&mut app.world);
+    flush_signal_dirty(&mut app.world);
+    (app.world, parent)
 }
 
 fn fixture() -> World {
     fixture_tree().0
 }
 
-fn state(world: &World) -> InteractionLabState {
-    world
-        .resource::<InteractionModel>()
-        .unwrap()
-        .state
-        .get_untracked()
+fn model_handle(world: &World) -> InteractionHandle {
+    world.resource::<FixtureModel>().unwrap().0.clone()
+}
+
+fn state(world: &World) -> InteractionSnapshot {
+    ModelHandle::read(&model_handle(world), |model| InteractionSnapshot {
+        single: model.single(),
+        double: model.double(),
+        triple: model.triple(),
+        long: model.long(),
+        switch_on: model.switch_on(),
+        switch_changes: model.switch_changes(),
+        checkbox_on: model.checkbox_on(),
+        checkbox_changes: model.checkbox_changes(),
+        drag_x: model.drag_x(),
+        drag_y: model.drag_y(),
+        child_taps: model.child_taps(),
+        parent_taps: model.parent_taps(),
+    })
 }
 
 fn tap(world: &mut World, id: &'static str, now_ms: u32) {
@@ -55,6 +87,7 @@ fn tap(world: &mut World, id: &'static str, now_ms: u32) {
 #[test]
 fn preserves_the_complete_interaction_matrix() {
     let world = fixture();
+    assert!(world.resource::<InteractionModel>().is_none());
     for id in [
         "interaction_single",
         "interaction_double",
@@ -95,7 +128,7 @@ fn preserves_the_complete_interaction_matrix() {
 }
 
 #[test]
-fn gesture_callbacks_publish_typed_actions() {
+fn gesture_callbacks_call_bound_model_commands() {
     let mut world = fixture();
     tap(&mut world, "interaction_single", 100);
     tap(&mut world, "interaction_double", 1_000);
@@ -127,7 +160,29 @@ fn gesture_callbacks_publish_typed_actions() {
         ("interaction_long_status", "long 1"),
     ] {
         let entity = world.find_by_id(id).unwrap();
-        assert_eq!(world.get::<Text>(entity).unwrap().resolve(&world), expected);
+        let text = world.get::<Text>(entity).unwrap();
+        assert_eq!(text.resolve(&world), expected);
+        assert!(text.text_capacity().is_some(), "{id}");
+    }
+}
+
+#[test]
+fn unchanged_commands_do_not_dirty_observers() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    let switch_status = world.find_by_id("interaction_switch_status").unwrap();
+    let checkbox_status = world.find_by_id("interaction_checkbox_status").unwrap();
+    for entity in [switch_status, checkbox_status] {
+        world.remove::<crate::ui::dirty::Dirty>(entity);
+        world.remove::<crate::ui::dirty::VisualDirty>(entity);
+    }
+
+    model.set_switch(false);
+    model.set_checkbox(false);
+    flush_signal_dirty(&mut world);
+    for entity in [switch_status, checkbox_status] {
+        assert!(!world.has::<crate::ui::dirty::Dirty>(entity));
+        assert!(!world.has::<crate::ui::dirty::VisualDirty>(entity));
     }
 }
 
@@ -146,10 +201,15 @@ fn drag_and_bubble_policy_update_only_the_model() {
         },
         100,
     );
+    flush_signal_dirty(&mut world);
     assert_eq!(
         (state(&world).drag_x, state(&world).drag_y),
         (Fixed::from_int(34), Fixed::from_int(18))
     );
+    let drag = world.find_by_id("interaction_drag_target").unwrap();
+    let style = world.get::<Style>(drag).unwrap();
+    assert_eq!(style.layout.left, Dimension::px(58));
+    assert_eq!(style.layout.top, Dimension::px(45));
 
     tap(&mut world, "interaction_bubble_child", 1_000);
     assert_eq!(
@@ -172,7 +232,7 @@ fn drag_and_bubble_policy_update_only_the_model() {
 }
 
 #[test]
-fn signal_state_projects_to_user_state_and_focus() {
+fn observed_model_state_projects_to_user_state_and_focus() {
     let mut world = fixture();
     let error = world.find_by_id("interaction_error_target").unwrap();
     let disabled = world.find_by_id("interaction_disabled_target").unwrap();
@@ -184,7 +244,8 @@ fn signal_state_projects_to_user_state_and_focus() {
 
     tap(&mut world, "interaction_error_target", 100);
     tap(&mut world, "interaction_toggle_disabled", 500);
-    sync_interaction_user_states(&mut world);
+    let error = world.find_by_id("interaction_error_clear_target").unwrap();
+    let disabled = world.find_by_id("interaction_enabled_target").unwrap();
     assert!(world.get::<UserState>(error).is_none());
     assert!(!entity_or_ancestor_disabled(&world, disabled));
 
@@ -216,8 +277,25 @@ fn switch_and_checkbox_publish_business_values() {
         ("interaction_checkbox_status", "check ON / 1 changes"),
     ] {
         let entity = world.find_by_id(id).unwrap();
-        assert_eq!(world.get::<Text>(entity).unwrap().resolve(&world), expected);
+        let text = world.get::<Text>(entity).unwrap();
+        assert_eq!(text.resolve(&world), expected);
+        assert!(text.text_capacity().is_some(), "{id}");
     }
+}
+
+#[test]
+fn model_updates_project_back_into_switch_and_checkbox() {
+    let mut world = fixture();
+    let switch = world.find_by_id("interaction_switch").unwrap();
+    let checkbox = world.find_by_id("interaction_checkbox").unwrap();
+    let model = model_handle(&world);
+
+    model.set_switch(true);
+    model.set_checkbox(true);
+    flush_signal_dirty(&mut world);
+
+    assert!(world.get::<Switch>(switch).unwrap().on);
+    assert!(world.get::<Checkbox>(checkbox).unwrap().checked);
 }
 
 #[test]

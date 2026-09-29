@@ -1,7 +1,7 @@
 use alloc::borrow::Cow;
 use alloc::vec;
 
-use super::state::{ConsoleModel, ConsoleState};
+use super::state::ConsoleState;
 use super::style::{BG, BLUE, BORDER, DATA_AMBER, MINT, SURFACE, TEXT, TEXT_MUTED, VIOLET};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
@@ -127,13 +127,13 @@ fn radial_paint(inner: Color, middle: Color, outer: Color) -> Paint {
 }
 
 #[crate::component]
-pub struct ConsoleBackdrop {
+pub(super) struct ConsoleBackdrop {
     mint: Paint,
     violet: Paint,
 }
 
 impl ConsoleBackdrop {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             mint: radial_paint(
                 Color::rgba(31, 209, 180, 120),
@@ -176,14 +176,16 @@ impl Default for ConsoleBackdrop {
     }
 }
 
-#[crate::component]
-pub struct OrbitInstrument {
+#[crate::component(bind(model))]
+pub(super) struct OrbitInstrument {
+    pub(super) model: ConsoleState,
     core_paints: [Paint; 3],
 }
 
 impl OrbitInstrument {
-    pub fn new() -> Self {
+    pub(super) fn new(model: <ConsoleState as crate::core::model::BindType>::Shared) -> Self {
         Self {
+            model,
             core_paints: [
                 radial_paint(
                     Color::rgb(236, 255, 251),
@@ -208,7 +210,7 @@ impl OrbitInstrument {
         &self,
         painter: &mut DemoPainter<'_>,
         rect: &Rect,
-        state: ConsoleState,
+        state: &ConsoleState,
         theme: &Theme,
     ) {
         let surface = theme.resolve(SURFACE);
@@ -406,22 +408,17 @@ impl OrbitInstrument {
     }
 }
 
-impl Default for OrbitInstrument {
-    fn default() -> Self {
-        Self::new()
-    }
+#[crate::component(bind(model))]
+pub(super) struct SignalMeter {
+    pub(super) model: ConsoleState,
 }
-
-#[crate::component]
-#[derive(Default)]
-pub struct SignalMeter;
 
 impl SignalMeter {
     fn render(
         &self,
         painter: &mut DemoPainter<'_>,
         rect: &Rect,
-        state: ConsoleState,
+        state: &ConsoleState,
         theme: &Theme,
     ) {
         let inset = (rect.w / Fixed::from_int(14))
@@ -469,16 +466,17 @@ impl SignalMeter {
     }
 }
 
-#[crate::component]
-#[derive(Default)]
-pub struct ActivityPlot;
+#[crate::component(bind(model))]
+pub(super) struct ActivityPlot {
+    pub(super) model: ConsoleState,
+}
 
 impl ActivityPlot {
     fn render(
         &self,
         painter: &mut DemoPainter<'_>,
         rect: &Rect,
-        state: ConsoleState,
+        state: &ConsoleState,
         theme: &Theme,
     ) {
         let inset = (rect.w / Fixed::from_int(16))
@@ -530,95 +528,100 @@ impl ActivityPlot {
     }
 }
 
+#[crate::view(
+    component = ConsoleBackdrop,
+    name = "ConsoleBackdrop",
+    priority = 10
+)]
 fn backdrop_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &ConsoleBackdrop,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    let Some(backdrop) = world.get::<ConsoleBackdrop>(entity) else {
-        return;
-    };
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    backdrop.render(&mut painter, rect, theme);
+    component.render(&mut painter, rect, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
+#[crate::view(
+    component = OrbitInstrument,
+    read(model),
+    watch(
+        model.mode(),
+        model.intensity(),
+        model.focused_node(),
+        model.phase()
+    ),
+    name = "OrbitInstrument",
+    priority = 60
+)]
 fn orbit_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &OrbitInstrument,
+    model: &ConsoleState,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    let (Some(instrument), Some(state)) = (
-        world.get::<OrbitInstrument>(entity),
-        world.resource::<ConsoleModel>().map(ConsoleModel::snapshot),
-    ) else {
-        return;
-    };
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    instrument.render(&mut painter, rect, state, theme);
+    component.render(&mut painter, rect, model, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
+#[crate::view(
+    component = SignalMeter,
+    read(model),
+    watch(model.mode(), model.intensity()),
+    name = "SignalMeter",
+    priority = 60
+)]
 fn signal_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &SignalMeter,
+    model: &ConsoleState,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    let (Some(meter), Some(state)) = (
-        world.get::<SignalMeter>(entity),
-        world.resource::<ConsoleModel>().map(ConsoleModel::snapshot),
-    ) else {
-        return;
-    };
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    meter.render(&mut painter, rect, state, theme);
+    component.render(&mut painter, rect, model, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
+#[crate::view(
+    component = ActivityPlot,
+    read(model),
+    watch(model.mode(), model.phase()),
+    name = "ActivityPlot",
+    priority = 60
+)]
 fn activity_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &ActivityPlot,
+    model: &ConsoleState,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    let (Some(plot), Some(state)) = (
-        world.get::<ActivityPlot>(entity),
-        world.resource::<ConsoleModel>().map(ConsoleModel::snapshot),
-    ) else {
-        return;
-    };
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    plot.render(&mut painter, rect, state, theme);
+    component.render(&mut painter, rect, model, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
-pub fn backdrop_view() -> View {
-    View::new("ConsoleBackdrop", 10, backdrop_render).with_filter::<ConsoleBackdrop>()
+pub(super) fn backdrop_view() -> View {
+    backdrop_render::view()
 }
 
-pub fn orbit_view() -> View {
-    View::new("OrbitInstrument", 60, orbit_render).with_filter::<OrbitInstrument>()
+pub(super) fn orbit_view() -> View {
+    orbit_render::view()
 }
 
-pub fn signal_view() -> View {
-    View::new("SignalMeter", 60, signal_render).with_filter::<SignalMeter>()
+pub(super) fn signal_view() -> View {
+    signal_render::view()
 }
 
-pub fn activity_view() -> View {
-    View::new("ActivityPlot", 60, activity_render).with_filter::<ActivityPlot>()
+pub(super) fn activity_view() -> View {
+    activity_render::view()
 }

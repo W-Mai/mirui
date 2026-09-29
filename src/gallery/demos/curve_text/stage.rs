@@ -9,9 +9,10 @@ use crate::types::Transform;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 
-#[crate::component]
-#[derive(Default)]
-pub(super) struct CurveStage;
+#[crate::component(bind(model))]
+pub(super) struct CurveStage {
+    pub(super) model: CurveModel,
+}
 
 fn fill(
     renderer: &mut dyn Renderer,
@@ -35,18 +36,22 @@ fn fill(
     );
 }
 
-fn curve_stage_render(
+#[crate::view(
+    component = CurveStage,
+    read(model),
+    watch(model.phase()),
+    name = "CurveStageBackdrop",
+    priority = 60
+)]
+fn curve_stage_background_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &CurveStage,
+    model: &CurveModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    if !world.has::<CurveStage>(entity) {
-        return;
-    }
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let _ = component;
     let panel = theme.resolve(PANEL);
     let border = theme.resolve(BORDER);
     let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
@@ -75,9 +80,7 @@ fn curve_stage_render(
         );
     }
 
-    let phase = world
-        .resource::<CurveModel>()
-        .map_or(Fixed::ZERO, |model| model.phase.get_untracked());
+    let phase = model.phase();
     for index in 0..5 {
         let angle = phase + Fixed::from_int(index * 72);
         let x = rect.x + rect.w / 2 + Fixed::cos_deg(angle) * Fixed::from_int(300);
@@ -92,7 +95,18 @@ fn curve_stage_render(
             32,
         );
     }
+}
 
+fn curve_paths_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    _entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let default_theme = Theme::default();
+    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
     let (Some(paths), Some(store)) = (
         world.resource::<CurvePaths>().copied(),
         world.resource::<PathStore>(),
@@ -138,6 +152,10 @@ fn curve_stage_render(
     }
 }
 
-pub(super) fn curve_stage_view() -> View {
-    View::new("CurveStage", 60, curve_stage_render).with_filter::<CurveStage>()
+pub(super) fn curve_stage_background_view() -> View {
+    curve_stage_background_render::view()
+}
+
+pub(super) fn curve_paths_view() -> View {
+    View::new("CurvePaths", 61, curve_paths_render).with_filter::<CurveStage>()
 }

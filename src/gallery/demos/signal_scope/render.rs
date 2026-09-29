@@ -6,7 +6,7 @@ use crate::prelude::*;
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
 use crate::types::Transform;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{View, ViewCtx, ViewObservationBindings};
 
 pub(super) const BG: ColorToken = ColorToken::Surface;
 pub(super) const ICE: Color = Color::rgb(222, 231, 237);
@@ -31,7 +31,12 @@ static TRIGGER_ARROW: Path = path!(M 0 0 L 8 4 L 0 8 Z);
 
 #[crate::component]
 #[derive(Default)]
-pub(super) struct ScopeCanvas;
+pub(super) struct ScopeGrid;
+
+#[crate::component(bind(model))]
+pub(super) struct ScopeCanvas {
+    pub(super) model: ScopeModel,
+}
 
 pub(super) struct ScopeWaveScratch {
     paths: RefCell<[Path; 2]>,
@@ -48,24 +53,7 @@ impl Default for ScopeWaveScratch {
     }
 }
 
-fn scope_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
-    if !world.has::<ScopeCanvas>(entity) {
-        return;
-    }
-    let Some(model) = world.resource::<ScopeModel>() else {
-        return;
-    };
-    let Some(scratch) = world.resource::<ScopeWaveScratch>() else {
-        return;
-    };
-    let state = model.snapshot();
-    let mut painter = InstrumentPainter::new(renderer, *ctx.clip, ctx.transform);
+fn canvas_geometry(rect: &Rect) -> (Fixed, Rect) {
     let scale = rect.w / Fixed::from_int(800);
     let plot = Rect::new(
         rect.x + rect.w * Fixed::from_ratio(6, 100),
@@ -73,6 +61,13 @@ fn scope_render(
         rect.w * Fixed::from_ratio(91, 100),
         rect.h * Fixed::from_ratio(64, 100),
     );
+    (scale, plot)
+}
+
+#[crate::view(component = ScopeGrid, name = "ScopeGrid", priority = 60)]
+pub(super) fn scope_grid_render(renderer: &mut dyn Renderer, rect: &Rect, ctx: &mut ViewCtx) {
+    let mut painter = InstrumentPainter::new(renderer, *ctx.clip, ctx.transform);
+    let (scale, plot) = canvas_geometry(rect);
     for column in 0..=12 {
         let x = plot.x + plot.w * Fixed::from_ratio(column, 12);
         painter.line(
@@ -93,7 +88,6 @@ fn scope_render(
             75,
         );
     }
-
     for channel in [0, 1] {
         let center = if channel == 0 {
             plot.y + plot.h * Fixed::from_ratio(31, 100)
@@ -121,7 +115,6 @@ fn scope_render(
             245,
         );
     }
-
     let tick = Fixed::from_int(4) * scale;
     for column in 0..=60 {
         let x = plot.x + plot.w * Fixed::from_ratio(column, 60);
@@ -157,7 +150,18 @@ fn scope_render(
             145,
         );
     }
+    ctx.record(painter.finish());
+}
 
+fn paint_scope(
+    renderer: &mut dyn Renderer,
+    scratch: &ScopeWaveScratch,
+    state: &ScopeModel,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let mut painter = InstrumentPainter::new(renderer, *ctx.clip, ctx.transform);
+    let (scale, plot) = canvas_geometry(rect);
     let samples = plot.w.to_int().clamp(128, MAX_WAVE_SAMPLES as i32) as usize;
     let mut paths = scratch.paths.borrow_mut();
     for channel in 0..=u8::from(state.channel_b) {
@@ -411,6 +415,37 @@ fn scope_render(
     ctx.record(painter.finish());
 }
 
+fn scope_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let Some(canvas) = world.get::<ScopeCanvas>(entity) else {
+        return;
+    };
+    let Some(scratch) = world.resource::<ScopeWaveScratch>() else {
+        return;
+    };
+    crate::core::model::with_model_read_only(|| {
+        crate::core::model::ModelHandle::read(&canvas.model, |model| {
+            paint_scope(renderer, scratch, model, rect, ctx);
+        });
+    });
+}
+
+fn scope_observe(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
+    let canvas = world.get::<ScopeCanvas>(entity).expect("scope canvas");
+    bindings.watch(
+        canvas
+            .model
+            .__mirui_subscribe_visual_revision(world, entity),
+    );
+}
+
 pub(super) fn scope_view() -> View {
-    View::new("ScopeCanvas", 60, scope_render).with_filter::<ScopeCanvas>()
+    View::new("ScopeCanvas", 61, scope_render)
+        .with_filter::<ScopeCanvas>()
+        .with_observation(scope_observe)
 }

@@ -1,18 +1,8 @@
-use alloc::format;
-
-use super::state::{ConsoleAction, ConsoleMode, ConsoleModel, ConsoleState};
+use super::state::{ConsoleMode, ConsoleState};
 use super::style::{BLUE, BORDER, MINT, SURFACE, TEXT, TEXT_MUTED};
 use super::visuals::{ActivityPlot, ConsoleBackdrop, OrbitInstrument, SignalMeter};
-use crate::core::reactive::Signal;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Slider, Text};
-
-fn console_signal(cx: &mut crate::ui::UiScope<'_>) -> Signal<ConsoleState> {
-    cx.world_mut()
-        .resource::<ConsoleModel>()
-        .map(ConsoleModel::signal)
-        .expect("Orbit Console model must be installed before composition")
-}
 
 #[compose]
 fn compose_header() -> Entity {
@@ -66,13 +56,8 @@ fn compose_header() -> Entity {
     }
 }
 
-#[compose]
-fn compose_orbit_stage() -> Entity {
-    let state_signal = console_signal(cx);
-    let stage_visual = state_signal.clone();
-    let stage_action = state_signal.clone();
-    let focus_text = state_signal;
-
+#[compose(bind(model))]
+fn compose_orbit_stage(model: ConsoleState) -> Entity {
     ui! {
         Column (
             id: "orbit_console_stage",
@@ -85,11 +70,10 @@ fn compose_orbit_stage() -> Entity {
             border_color: BORDER,
             border_width: 1,
             border_radius: 20,
-            clip_children: true,
-            render_key: ${ u64::from(stage_visual.get().revision()) }
+            clip_children: true
         ) [
-            OrbitInstrument::new(),
-        ] on Tap { ConsoleAction::CycleFocus.publish(&stage_action); }
+            OrbitInstrument::new(model.clone()),
+        ] on Tap { model.cycle_focus(); }
         {
             Row (height: 24, align: AlignItems::Center, column_gap: 8) {
                 Text (
@@ -114,9 +98,9 @@ fn compose_orbit_stage() -> Entity {
                 )
             }
             View (grow: 1.0)
-            Text (
-                text: ${
-                    match focus_text.get().focused_node {
+                Text (
+                    text: ${
+                    match model.focused_node() {
                         0 => "NODE 01 : ACTIVE",
                         1 => "NODE 02 : ACTIVE",
                         _ => "NODE 03 : ACTIVE",
@@ -132,10 +116,8 @@ fn compose_orbit_stage() -> Entity {
     }
 }
 
-#[compose]
-fn compose_signal_card() -> Entity {
-    let signal_visual = console_signal(cx);
-
+#[compose(bind(model))]
+fn compose_signal_card(model: ConsoleState) -> Entity {
     ui! {
         Row (
             id: "orbit_console_signal",
@@ -144,12 +126,13 @@ fn compose_signal_card() -> Entity {
             padding: Padding::all(10),
             align: AlignItems::Center,
             bg_color: SURFACE,
-            render_key: ${ u64::from(signal_visual.get().revision()) },
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
         ) [
-            SignalMeter,
+            SignalMeter {
+                model: model.clone(),
+            },
         ] {
             Column (grow: 1.0, row_gap: 2) {
                 Text (
@@ -170,10 +153,8 @@ fn compose_signal_card() -> Entity {
     }
 }
 
-#[compose]
-fn compose_activity_card() -> Entity {
-    let activity_visual = console_signal(cx);
-
+#[compose(bind(model))]
+fn compose_activity_card(model: ConsoleState) -> Entity {
     ui! {
         Column (
             id: "orbit_console_activity",
@@ -181,12 +162,13 @@ fn compose_activity_card() -> Entity {
             min_height: 48,
             padding: Padding::all(10),
             bg_color: SURFACE,
-            render_key: ${ u64::from(activity_visual.get().revision()) },
             border_color: BORDER,
             border_width: 1,
             border_radius: 16
         ) [
-            ActivityPlot,
+            ActivityPlot {
+                model: model.clone(),
+            },
         ] {
             Row (height: 18, align: AlignItems::Center) {
                 Text (
@@ -207,33 +189,8 @@ fn compose_activity_card() -> Entity {
     }
 }
 
-#[compose]
-fn compose_controls() -> Entity {
-    let state_signal = cx
-        .world_mut()
-        .resource::<ConsoleModel>()
-        .map(ConsoleModel::signal)
-        .expect("Orbit Console model must be installed before composition");
-    let state = state_signal.get_untracked();
-    let intensity_text = state_signal.clone();
-    let (orbit_bg, orbit_fg, orbit_action) = (
-        state_signal.clone(),
-        state_signal.clone(),
-        state_signal.clone(),
-    );
-    let (flow_bg, flow_fg, flow_action) = (
-        state_signal.clone(),
-        state_signal.clone(),
-        state_signal.clone(),
-    );
-    let (pulse_bg, pulse_fg, pulse_action) = (
-        state_signal.clone(),
-        state_signal.clone(),
-        state_signal.clone(),
-    );
-    let slider_action = state_signal.clone();
-    let (pause_text, pause_action) = (state_signal.clone(), state_signal);
-
+#[compose(bind(model))]
+fn compose_controls(model: ConsoleState) -> Entity {
     ui! {
         Column (
             id: "orbit_console_controls",
@@ -255,7 +212,8 @@ fn compose_controls() -> Entity {
                     text_color: TEXT_MUTED
                 )
                 Text (
-                    text: ${ format!("{}", intensity_text.get().intensity) },
+                    text: ${ format_args!("{}", model.intensity()) },
+                    text_capacity: 3,
                     id: "orbit_console_intensity_value",
                     font: FontToken::Mono,
                     font_size: 9,
@@ -268,49 +226,49 @@ fn compose_controls() -> Entity {
                     size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 20,
-                    normal_color: ${ ConsoleMode::Orbit.chip_background(orbit_bg.get().mode) },
+                    normal_color: ${ ConsoleMode::Orbit.chip_background(model.mode()) },
                     pressed_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: ${ ConsoleMode::Orbit.chip_foreground(orbit_fg.get().mode) }
+                    text_color: ${ ConsoleMode::Orbit.chip_foreground(model.mode()) }
                 ) [
                     Text::label("ORBIT"),
-                ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Orbit).publish(&orbit_action); }
+                ] on Tap { model.select_mode(ConsoleMode::Orbit); }
                 Button (
                     id: "orbit_console_mode_flow",
                     size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 20,
-                    normal_color: ${ ConsoleMode::Flow.chip_background(flow_bg.get().mode) },
+                    normal_color: ${ ConsoleMode::Flow.chip_background(model.mode()) },
                     pressed_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: ${ ConsoleMode::Flow.chip_foreground(flow_fg.get().mode) }
+                    text_color: ${ ConsoleMode::Flow.chip_foreground(model.mode()) }
                 ) [
                     Text::label("FLOW"),
-                ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Flow).publish(&flow_action); }
+                ] on Tap { model.select_mode(ConsoleMode::Flow); }
                 Button (
                     id: "orbit_console_mode_pulse",
                     size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 20,
-                    normal_color: ${ ConsoleMode::Pulse.chip_background(pulse_bg.get().mode) },
+                    normal_color: ${ ConsoleMode::Pulse.chip_background(model.mode()) },
                     pressed_color: SURFACE,
                     border_color: BORDER,
                     border_width: 1,
                     border_radius: 10,
                     font: FontToken::Mono,
                     font_size: 8,
-                    text_color: ${ ConsoleMode::Pulse.chip_foreground(pulse_fg.get().mode) }
+                    text_color: ${ ConsoleMode::Pulse.chip_foreground(model.mode()) }
                 ) [
                     Text::label("PULSE"),
-                ] on Tap { ConsoleAction::SelectMode(ConsoleMode::Pulse).publish(&pulse_action); }
+                ] on Tap { model.select_mode(ConsoleMode::Pulse); }
             }
             Row (grow: 1.0, min_height: 20, align: AlignItems::Center, column_gap: 6) {
                 Slider (
@@ -319,18 +277,18 @@ fn compose_controls() -> Entity {
                     height: 18,
                     min: Fixed::ZERO,
                     max: Fixed::from_int(100),
-                    value: Fixed::from_int(state.intensity as i32),
+                    value: ${ Fixed::from_int(i32::from(model.intensity())) },
                     track_color: BORDER,
                     fill_color: MINT,
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
-                    ConsoleAction::SetIntensity(*new).publish(&slider_action);
+                    model.set_intensity(*new);
                 }
                 Button (
                     id: "orbit_console_pause",
                     size: ButtonSize::Compact,
-                    text: ${ if pause_text.get().paused { "RESUME" } else { "PAUSE" } },
+                    text: ${ if model.paused() { "RESUME" } else { "PAUSE" } },
                     width: 54,
                     height: 20,
                     normal_color: SURFACE,
@@ -341,14 +299,14 @@ fn compose_controls() -> Entity {
                     font: FontToken::Mono,
                     font_size: 8,
                     text_color: TEXT
-                ) on Tap { ConsoleAction::TogglePaused.publish(&pause_action); }
+                ) on Tap { model.toggle_paused(); }
             }
         }
     }
 }
 
-#[compose]
-fn compose_inspector() -> Entity {
+#[compose(bind(model))]
+fn compose_inspector(model: ConsoleState) -> Entity {
     ui! {
         Column (
             id: "orbit_console_inspector",
@@ -357,15 +315,15 @@ fn compose_inspector() -> Entity {
             min_height: Dimension::percent(48),
             row_gap: 8
         ) {
-            compose_signal_card ()
-            compose_activity_card ()
-            compose_controls ()
+            compose_signal_card (model)
+            compose_activity_card (model)
+            compose_controls (model)
         }
     }
 }
 
-#[compose]
-fn compose_workspace() -> Entity {
+#[compose(bind(model))]
+fn compose_workspace(model: ConsoleState) -> Entity {
     ui! {
         Row (
             id: "orbit_console_workspace",
@@ -375,8 +333,8 @@ fn compose_workspace() -> Entity {
             row_gap: 10,
             column_gap: 12
         ) {
-            compose_orbit_stage ()
-            compose_inspector ()
+            compose_orbit_stage (model)
+            compose_inspector (model)
         }
     }
 }
@@ -409,8 +367,8 @@ fn compose_status_strip() -> Entity {
     }
 }
 
-#[compose]
-pub fn build_widgets() {
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: ConsoleState) {
     ui! {
         Column (
             id: "orbit_console_shell",
@@ -423,7 +381,7 @@ pub fn build_widgets() {
             ConsoleBackdrop::new(),
         ] {
             compose_header ()
-            compose_workspace ()
+            compose_workspace (model)
             compose_status_strip ()
         }
     };

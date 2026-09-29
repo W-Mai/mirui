@@ -1,4 +1,4 @@
-use super::state::TypographyNodes;
+use super::state::TypographyModel;
 use super::style::{BLUE, BORDER, CYAN, GOLD, VIOLET};
 use crate::prelude::*;
 use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
@@ -8,11 +8,10 @@ use crate::types::Transform;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 
-#[crate::component]
-#[derive(Default)]
+#[crate::component(bind(model))]
 pub(super) struct CaretOverlay {
-    pub(super) target: Option<Entity>,
-    pub(super) probe: Option<Point>,
+    pub(super) model: TypographyModel,
+    pub(super) follows_probe: bool,
 }
 
 fn draw_line(
@@ -46,9 +45,7 @@ fn caret_overlay_render(
     let Some(overlay) = world.get::<CaretOverlay>(entity) else {
         return;
     };
-    let Some(target) = overlay.target.filter(|target| world.is_alive(*target)) else {
-        return;
-    };
+    let target = entity;
     let (Some(style), Some(handle), Some(resource)) = (
         world.get::<crate::ui::Style>(target),
         world.get::<crate::text::TextLayoutHandle>(target).copied(),
@@ -78,9 +75,15 @@ fn caret_overlay_render(
         let Some(geometry) = crate::text::PathTextGeometry::for_widget(world, target) else {
             return;
         };
-        let probe_hit = overlay
-            .probe
-            .and_then(|probe| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten());
+        let probe = if overlay.follows_probe {
+            crate::core::model::with_model_read_only(|| {
+                crate::core::model::ModelHandle::read(&overlay.model, |model| model.path_probe)
+            })
+        } else {
+            None
+        };
+        let probe_hit =
+            probe.and_then(|probe| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten());
         let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
             return;
         };
@@ -166,35 +169,18 @@ fn caret_overlay_render(
 }
 
 pub fn caret_overlay_view() -> View {
-    View::new("CaretOverlay", 61, caret_overlay_render)
-}
-
-pub(super) fn set_path_probe(world: &mut World, point: Point) {
-    let Some(entity) = world
-        .resource::<TypographyNodes>()
-        .map(|nodes| nodes.path_overlay)
-    else {
-        return;
-    };
-    let Some(overlay) = world.get_mut::<CaretOverlay>(entity) else {
-        return;
-    };
-    if overlay.probe != Some(point) {
-        overlay.probe = Some(point);
-        world.invalidate(entity);
+    fn observe(
+        world: &World,
+        entity: Entity,
+        bindings: &mut crate::ui::view::ViewObservationBindings,
+    ) {
+        let overlay = world.get::<CaretOverlay>(entity).expect("caret overlay");
+        if overlay.follows_probe {
+            bindings.watch(overlay.model.__mirui_subscribe_path_probe(world, entity));
+        }
     }
-}
 
-pub(super) fn bind_caret_overlay(
-    world: &mut World,
-    overlay_id: &'static str,
-    target_id: &'static str,
-) -> Entity {
-    let overlay = world.find_by_id(overlay_id).expect("caret overlay id");
-    let target = world.find_by_id(target_id).expect("caret target id");
-    world
-        .get_mut::<CaretOverlay>(overlay)
-        .expect("caret overlay component")
-        .target = Some(target);
-    overlay
+    View::new("CaretOverlay", 61, caret_overlay_render)
+        .with_filter::<CaretOverlay>()
+        .with_observation(observe)
 }

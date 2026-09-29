@@ -1,9 +1,7 @@
-use alloc::format;
-
 use super::geometry::CurvePaths;
-use super::runtime::{bind_curve_paths, bind_stage_layout};
+use super::runtime::{CurveMotion, bind_curve_paths, bind_stage_layout};
 use super::stage::CurveStage;
-use super::state::{CurveAction, CurveModel, CurveNodes};
+use super::state::CurveModel;
 use super::style::{
     BACKGROUND, BORDER, CYAN, GOLD, MUTED, PANEL, PANEL_ALT, ROUTE_LABEL, TEXT, UI, VIOLET,
     bounded_text, mixed_stack, single_line,
@@ -77,8 +75,8 @@ fn compose_header() -> Entity {
     }
 }
 
-#[compose]
-fn compose_stage(paths: CurvePaths) -> Entity {
+#[compose(bind(model))]
+fn compose_stage(model: CurveModel, paths: CurvePaths) -> Entity {
     ui! {
         View (
             id: "curve_text_stage_shell",
@@ -98,7 +96,7 @@ fn compose_stage(paths: CurvePaths) -> Entity {
             border_width: 1,
             border_radius: 18
         ) {
-            CurveStage (
+            View (
                 id: "curve_text_stage",
                 position: Position::Absolute,
                 left: 0,
@@ -106,6 +104,8 @@ fn compose_stage(paths: CurvePaths) -> Entity {
                 width: Dimension::percent(100),
                 height: Dimension::percent(100)
             ) [
+                CurveStage { model: model.clone() },
+                CurveMotion::default(),
                 IgnoreHitTest,
             ]
             Text (
@@ -169,18 +169,8 @@ fn compose_stage(paths: CurvePaths) -> Entity {
     }
 }
 
-#[compose]
-fn compose_controls() -> Entity {
-    let model = cx
-        .world_mut()
-        .resource::<CurveModel>()
-        .cloned()
-        .expect("Curve Text model");
-    let amplitude_value = model.amplitude;
-    let speed_value = model.speed;
-    let direction_label = model.reversed;
-    let paused_label = model.paused;
-
+#[compose(bind(model))]
+fn compose_controls(model: CurveModel) -> Entity {
     ui! {
         Row (
             id: "curve_text_controls",
@@ -228,16 +218,18 @@ fn compose_controls() -> Entity {
                     height: 14,
                     min: Fixed::from_int(24),
                     max: Fixed::from_int(96),
-                    value: Fixed::from_int(68),
+                    value: ${ model.amplitude() },
                     track_color: BORDER,
                     fill_color: CYAN,
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
-                    CurveAction::SetAmplitude(*new).publish(ctx.world);
+                    model.set_amplitude(*new);
                 }
                 Text (
-                    text: ${ format!("{}", amplitude_value.get().to_int()) },
+                    id: "curve_text_amplitude_value",
+                    text: ${ format_args!("{}", model.amplitude().to_int()) },
+                    text_capacity: 3,
                     width: 28,
                     font: UI,
                     font_size: 11,
@@ -254,16 +246,18 @@ fn compose_controls() -> Entity {
                     height: 14,
                     min: Fixed::from_int(20),
                     max: Fixed::from_int(120),
-                    value: Fixed::from_int(64),
+                    value: ${ model.speed() },
                     track_color: BORDER,
                     fill_color: VIOLET,
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
-                    CurveAction::SetSpeed(*new).publish(ctx.world);
+                    model.set_speed(*new);
                 }
                 Text (
-                    text: ${ format!("{}", speed_value.get().to_int()) },
+                    id: "curve_text_speed_value",
+                    text: ${ format_args!("{}", model.speed().to_int()) },
+                    text_capacity: 3,
                     width: 30,
                     font: UI,
                     font_size: 11,
@@ -274,7 +268,7 @@ fn compose_controls() -> Entity {
             Row (grow: 1.0, min_width: 190, height: 34, column_gap: 8) {
                 Button (
                     id: "curve_text_direction",
-                    text: ${ if direction_label.get() { "REVERSE" } else { "FORWARD" } },
+                    text: ${ if model.reversed() { "REVERSE" } else { "FORWARD" } },
                     grow: 1.0,
                     min_width: 92,
                     height: 34,
@@ -286,10 +280,10 @@ fn compose_controls() -> Entity {
                     font: UI,
                     font_size: 10,
                     text_color: VIOLET
-                ) on Tap { CurveAction::ToggleDirection.publish(ctx.world); }
+                ) on Tap { model.toggle_direction(); }
                 Button (
                     id: "curve_text_pause",
-                    text: ${ if paused_label.get() { "RESUME" } else { "PAUSE" } },
+                    text: ${ if model.paused() { "RESUME" } else { "PAUSE" } },
                     grow: 1.0,
                     min_width: 82,
                     height: 34,
@@ -301,19 +295,14 @@ fn compose_controls() -> Entity {
                     font: UI,
                     font_size: 10,
                     text_color: CYAN
-                ) on Tap { CurveAction::TogglePaused.publish(ctx.world); }
+                ) on Tap { model.toggle_paused(); }
             }
         }
     }
 }
 
-#[compose]
-pub(super) fn build_widgets(paths: CurvePaths) {
-    let model = cx
-        .world_mut()
-        .resource::<CurveModel>()
-        .cloned()
-        .expect("Curve Text model");
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: CurveModel, paths: CurvePaths) {
     //~focus-start
     ui! {
         Scroll (
@@ -331,31 +320,28 @@ pub(super) fn build_widgets(paths: CurvePaths) {
                 row_gap: 12
             ) {
                 compose_header ()
-                compose_stage (paths)
-                compose_controls ()
+                compose_stage (model, paths)
+                compose_controls (model)
             }
         }
     };
-    let nodes = CurveNodes {
-        stage: cx
-            .world_mut()
-            .find_by_id("curve_text_stage")
-            .expect("Curve Text stage"),
-        primary: cx
-            .world_mut()
-            .find_by_id("curve_text_primary")
-            .expect("Curve Text primary text"),
-        multiscript: cx
-            .world_mut()
-            .find_by_id("curve_text_multiscript")
-            .expect("Curve Text multiscript text"),
-        caption: cx
-            .world_mut()
-            .find_by_id("curve_text_caption")
-            .expect("Curve Text caption"),
-    };
-    bind_curve_paths(cx, nodes.stage, paths, &model);
-    bind_stage_layout(cx, nodes, paths, model);
-    cx.world_mut().insert_resource(nodes);
+    let stage = cx
+        .world_mut()
+        .find_by_id("curve_text_stage")
+        .expect("Curve Text stage");
+    let primary = cx
+        .world_mut()
+        .find_by_id("curve_text_primary")
+        .expect("Curve Text primary text");
+    let multiscript = cx
+        .world_mut()
+        .find_by_id("curve_text_multiscript")
+        .expect("Curve Text multiscript text");
+    let caption = cx
+        .world_mut()
+        .find_by_id("curve_text_caption")
+        .expect("Curve Text caption");
+    bind_curve_paths(cx, stage, paths, model.clone());
+    bind_stage_layout(cx, stage, primary, multiscript, caption, paths, model);
     //~focus-end
 }

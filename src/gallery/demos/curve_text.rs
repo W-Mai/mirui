@@ -20,14 +20,14 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(&mut app.world);
-    app.with_widget(stage::curve_stage_view());
+    app.with_widget(stage::curve_stage_background_view())
+        .with_widget(stage::curve_paths_view());
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
-    app.world.insert_resource(state::CurveModel::default());
-    app.world.insert_resource(runtime::CurveMotion::default());
+    let model = app.add_model(state::CurveModel::default());
     let paths = geometry::register_paths(&mut app.world);
     app.world.insert_resource(paths);
     app.add_system(runtime::curve_text_animation_system::system());
-    app.compose(parent, |cx| composition::build_widgets(cx, paths));
+    app.compose(parent, |cx| composition::build_widgets(cx, model, paths));
 }
 
 #[cfg(feature = "std")]

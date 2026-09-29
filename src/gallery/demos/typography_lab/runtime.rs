@@ -21,7 +21,7 @@ fn font(bytes: &'static [u8], family: &'static str) -> Font {
         .expect("Typography Lab font")
 }
 
-pub fn register_fonts(world: &mut World) {
+pub(crate) fn register_fonts(world: &mut World) {
     let Some(manager) = world.resource::<FontManager>() else {
         return;
     };
@@ -36,7 +36,7 @@ pub fn register_fonts(world: &mut World) {
     manager.add_static(ELLIPSIS.cache_key(), font(ELLIPSIS_FONT, "Noto Sans"));
 }
 
-pub fn register_path(world: &mut World) -> PathId {
+pub(super) fn register_path(world: &mut World) -> PathId {
     world
         .paths()
         .insert_static(WAVE_BASELINE.commands())

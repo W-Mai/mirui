@@ -2,62 +2,46 @@ use alloc::vec;
 
 use super::composition::build_widgets;
 use super::render::{orbit_view, wave_view};
-use super::state::{ConsoleModel, ConsoleMotion, ConsoleNodes};
+use super::state::{ConsoleModel, ConsoleMotion};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::ecs::DeltaTimeMs;
+use crate::core::reactive::Signal;
+use crate::ecs::run_order::ANIMATION;
+use crate::ecs::{DeltaTimeMs, System};
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 use crate::types::DimPoint;
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn kinetic_animation_system(world: &mut World) {
-    const MAX_STEP_MS: u16 = 50;
-    const RATE_RAMP_MS: u16 = 450;
+type ConsoleHandle = <ConsoleModel as crate::core::model::Model>::Handle;
 
-    let Some(state) = world.resource::<ConsoleModel>().map(ConsoleModel::snapshot) else {
-        return;
-    };
-    let dt = world
-        .resource::<DeltaTimeMs>()
-        .map_or(16, |delta| delta.0)
-        .min(MAX_STEP_MS);
-    let Some(motion) = world.resource_mut::<ConsoleMotion>() else {
-        return;
-    };
-    let controls_changed = motion.state.mode != state.mode || motion.state.focused != state.focused;
-    let intensity_changed = motion.state.intensity != state.intensity;
-    motion.state = state;
-    let previous_phase = motion.phase.phase();
-    let speed = Fixed::from_int(state.mode.speed()) + state.intensity * Fixed::from_ratio(3, 5);
-    let phase = motion.phase.advance(
-        dt,
-        RATE_RAMP_MS,
-        speed,
-        Fixed::ONE,
-        state.paused,
-        Fixed::from_int(360),
-    );
-    let moving = phase != previous_phase;
-    if moving {
-        motion.wave_elapsed_ms = motion.wave_elapsed_ms.saturating_add(dt);
+pub(super) fn advance_motion(
+    model: &ConsoleHandle,
+    motion: &Signal<ConsoleMotion>,
+    delta: DeltaTimeMs,
+) {
+    let mut next = motion.get_untracked();
+    if next.advance(model.mode(), model.intensity(), model.paused(), delta.0) {
+        motion.set(next);
     }
-    let orbit_dirty = controls_changed || moving;
-    let wave_dirty = controls_changed || intensity_changed || motion.wave_elapsed_ms >= 64;
-    if wave_dirty {
-        motion.wave_elapsed_ms = 0;
-    }
-    if let Some(nodes) = world
-        .resource::<ConsoleNodes>()
-        .map(|nodes| (nodes.orbit, nodes.wave))
-    {
-        if orbit_dirty {
-            world.invalidate_visual(nodes.0);
-        }
-        if wave_dirty {
-            world.invalidate_visual(nodes.1);
-        }
-    }
+}
+
+pub(super) fn kinetic_animation_system(
+    model: ConsoleHandle,
+    motion: Signal<ConsoleMotion>,
+) -> System {
+    let bound_model = model.clone();
+    System::bound(
+        "kinetic_animation_system",
+        ANIMATION,
+        &model,
+        move |world| {
+            let delta = world
+                .resource::<DeltaTimeMs>()
+                .copied()
+                .expect("Kinetic Console requires DeltaTimeMs");
+            advance_motion(&bound_model, &motion, delta);
+        },
+    )
 }
 
 pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
@@ -113,20 +97,11 @@ where
 {
     crate::gallery::showcase_theme::install(&mut app.world);
     app.with_widget(orbit_view()).with_widget(wave_view());
-    app.world.insert_resource(ConsoleModel::default());
-    app.world.insert_resource(ConsoleMotion::default());
-    app.add_system(kinetic_animation_system::system());
-    app.compose(parent, build_widgets);
+    let model = app.add_model(ConsoleModel::default());
+    let motion = Signal::new(ConsoleMotion::default());
+    app.add_system(kinetic_animation_system(model.clone(), motion.clone()));
+    app.compose(parent, |cx| build_widgets(cx, model, motion));
 
-    let orbit = app
-        .world
-        .find_by_id("kinetic_console_orbit_layer")
-        .expect("Kinetic Console orbit layer");
-    let wave = app
-        .world
-        .find_by_id("kinetic_console_wave_layer")
-        .expect("Kinetic Console wave layer");
-    app.world.insert_resource(ConsoleNodes { orbit, wave });
     if autoplay && let Some(timeline) = build_sim_timeline(&app.world) {
         app.world.insert_resource(timeline);
         app.add_system(sim_timeline_system::system());

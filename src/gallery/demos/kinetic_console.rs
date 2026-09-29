@@ -9,10 +9,9 @@ mod style;
 #[cfg(test)]
 mod tests;
 
-pub use composition::build_widgets;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
-pub use runtime::{build_sim_timeline, install, kinetic_animation_system};
+pub use runtime::{build_sim_timeline, install};
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(128, 128);
 

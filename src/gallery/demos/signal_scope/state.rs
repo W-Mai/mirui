@@ -1,4 +1,4 @@
-use crate::core::reactive::Signal;
+use crate::gallery::play::change::ChangeSet;
 use crate::prelude::Fixed;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -18,7 +18,18 @@ impl TriggerEdge {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct ScopeState {
+pub(super) enum ScopeControl {
+    Acquire,
+    ChannelA,
+    ChannelB,
+    Stop,
+    TimeScale,
+    TriggerEdge,
+}
+
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ScopeModel {
     pub(super) running: bool,
     pub(super) channel_b: bool,
     pub(super) time_scale: u8,
@@ -26,10 +37,9 @@ pub(super) struct ScopeState {
     pub(super) trigger_level: Fixed,
     pub(super) trigger_edge: TriggerEdge,
     pub(super) trace_clock_ms: u32,
-    pub(super) revision: u32,
 }
 
-impl Default for ScopeState {
+impl Default for ScopeModel {
     fn default() -> Self {
         Self {
             running: true,
@@ -39,67 +49,59 @@ impl Default for ScopeState {
             trigger_level: Fixed::from_ratio(3, 10),
             trigger_edge: TriggerEdge::Rising,
             trace_clock_ms: 0,
-            revision: 0,
         }
     }
 }
 
-impl ScopeState {
-    pub(super) fn tick(&mut self, delta_ms: u16) -> bool {
+#[crate::model]
+impl ScopeModel {
+    #[observe]
+    pub(super) fn running(&self) -> bool {
+        self.running
+    }
+
+    #[observe]
+    pub(super) fn channel_b(&self) -> bool {
+        self.channel_b
+    }
+
+    #[observe]
+    pub(super) fn time_scale(&self) -> u8 {
+        self.time_scale
+    }
+
+    #[observe]
+    pub(super) fn trigger_edge(&self) -> TriggerEdge {
+        self.trigger_edge
+    }
+
+    #[observe]
+    pub(super) fn uart_symbol(&self) -> usize {
+        self.uart_symbol_index(0)
+    }
+
+    pub(super) fn activate(&mut self, control: ScopeControl) -> ChangeSet {
+        match control {
+            ScopeControl::Acquire => self.running = !self.running,
+            ScopeControl::ChannelA => self.gain_a = (self.gain_a + 1) % 4,
+            ScopeControl::ChannelB => self.channel_b = !self.channel_b,
+            ScopeControl::Stop => {
+                if !self.running {
+                    return ChangeSet::NONE;
+                }
+                self.running = false;
+            }
+            ScopeControl::TimeScale => self.time_scale = (self.time_scale + 1) % 4,
+            ScopeControl::TriggerEdge => self.trigger_edge = self.trigger_edge.toggled(),
+        }
+        ChangeSet::VISUAL
+    }
+
+    pub(super) fn advance_ms(&mut self, delta_ms: u16) -> ChangeSet {
         if !self.running || delta_ms == 0 {
-            return false;
+            return ChangeSet::NONE;
         }
         self.trace_clock_ms = self.trace_clock_ms.wrapping_add(u32::from(delta_ms));
-        self.revision = self.revision.wrapping_add(1);
-        true
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct ScopeModel {
-    pub(super) state: Signal<ScopeState>,
-}
-
-impl Default for ScopeModel {
-    fn default() -> Self {
-        Self {
-            state: Signal::new(ScopeState::default()),
-        }
-    }
-}
-
-impl ScopeModel {
-    pub(super) fn snapshot(&self) -> ScopeState {
-        self.state.get_untracked()
-    }
-
-    fn update(&self, update: impl FnOnce(&mut ScopeState)) {
-        let mut state = self.snapshot();
-        update(&mut state);
-        state.revision = state.revision.wrapping_add(1);
-        self.state.set(state);
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum ScopeAction {
-    ToggleRun,
-    ToggleChannelB,
-    Stop,
-    ToggleEdge,
-    TimeScale,
-    GainA,
-}
-
-impl ScopeAction {
-    pub(super) fn publish(self, model: &ScopeModel) {
-        model.update(|state| match self {
-            Self::ToggleRun => state.running = !state.running,
-            Self::ToggleChannelB => state.channel_b = !state.channel_b,
-            Self::Stop => state.running = false,
-            Self::ToggleEdge => state.trigger_edge = state.trigger_edge.toggled(),
-            Self::TimeScale => state.time_scale = (state.time_scale + 1) % 4,
-            Self::GainA => state.gain_a = (state.gain_a + 1) % 4,
-        });
+        ChangeSet::VISUAL
     }
 }

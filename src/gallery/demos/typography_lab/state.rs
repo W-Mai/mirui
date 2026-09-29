@@ -1,21 +1,24 @@
-use crate::prelude::{Entity, Fixed, Signal};
+use crate::prelude::{Fixed, Point};
 use crate::ui::widgets::{ParagraphStyle, ShapingPolicy, TextAlign, TextOverflow, TextWrap};
 
-#[derive(Clone, Copy)]
-pub(super) struct TypographyNodes {
-    pub(super) path_overlay: Entity,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct TypographyState {
+#[crate::model]
+#[derive(Debug, Eq, PartialEq)]
+pub(super) struct TypographyModel {
+    #[observe]
     pub(super) ppem: u16,
+    #[observe]
     pub(super) width: u16,
+    #[observe]
     pub(super) wrap: TextWrap,
+    #[observe]
     pub(super) align: TextAlign,
+    #[observe]
     pub(super) overflow: TextOverflow,
+    #[observe]
+    pub(super) path_probe: Option<Point>,
 }
 
-impl Default for TypographyState {
+impl Default for TypographyModel {
     fn default() -> Self {
         Self {
             ppem: 24,
@@ -23,89 +26,85 @@ impl Default for TypographyState {
             wrap: TextWrap::Word,
             align: TextAlign::Start,
             overflow: TextOverflow::Clip,
+            path_probe: None,
         }
     }
 }
 
-impl TypographyState {
-    pub(super) fn paragraph(self) -> ParagraphStyle {
-        ParagraphStyle {
-            wrap: self.wrap,
-            align: self.align,
-            overflow: self.overflow,
-            max_lines: Some(2),
-            shaping: ShapingPolicy::Required,
-            ..ParagraphStyle::default()
-        }
+#[crate::model]
+impl TypographyModel {
+    pub(super) fn set_ppem(&mut self, value: Fixed) {
+        self.ppem = value.round().to_int().clamp(10, 64) as u16;
     }
 
-    pub(super) fn wrap_label(self) -> &'static str {
-        match self.wrap {
-            TextWrap::NoWrap => "NO WRAP",
-            TextWrap::Word => "WORD",
-            TextWrap::Grapheme => "GRAPHEME",
-        }
+    pub(super) fn set_width(&mut self, value: Fixed) {
+        self.width = value.round().to_int().clamp(220, 560) as u16;
     }
 
-    pub(super) fn align_label(self) -> &'static str {
-        match self.align {
-            TextAlign::Start => "START",
-            TextAlign::Center => "CENTER",
-            TextAlign::End => "END",
-            TextAlign::Justify => "JUSTIFY",
-        }
+    pub(super) fn cycle_wrap(&mut self) {
+        self.wrap = match self.wrap {
+            TextWrap::NoWrap => TextWrap::Word,
+            TextWrap::Word => TextWrap::Grapheme,
+            TextWrap::Grapheme => TextWrap::NoWrap,
+        };
     }
 
-    pub(super) fn overflow_label(self) -> &'static str {
-        match self.overflow {
-            TextOverflow::Clip => "CLIP",
-            TextOverflow::Ellipsis => "ELLIPSIS",
-        }
+    pub(super) fn cycle_align(&mut self) {
+        self.align = match self.align {
+            TextAlign::Start => TextAlign::Center,
+            TextAlign::Center => TextAlign::End,
+            TextAlign::End => TextAlign::Justify,
+            TextAlign::Justify => TextAlign::Start,
+        };
+    }
+
+    pub(super) fn toggle_overflow(&mut self) {
+        self.overflow = match self.overflow {
+            TextOverflow::Clip => TextOverflow::Ellipsis,
+            TextOverflow::Ellipsis => TextOverflow::Clip,
+        };
+    }
+
+    pub(super) fn set_path_probe(&mut self, point: Point) {
+        self.path_probe = Some(point);
     }
 }
 
-pub(super) enum TypographyAction {
-    SetPpem(Fixed),
-    SetWidth(Fixed),
-    CycleWrap,
-    CycleAlign,
-    ToggleOverflow,
+pub(super) fn live_paragraph(
+    wrap: TextWrap,
+    align: TextAlign,
+    overflow: TextOverflow,
+) -> ParagraphStyle {
+    ParagraphStyle {
+        wrap,
+        align,
+        overflow,
+        max_lines: Some(2),
+        shaping: ShapingPolicy::Required,
+        ..ParagraphStyle::default()
+    }
 }
 
-impl TypographyAction {
-    pub(super) fn publish(self, state: &Signal<TypographyState>) {
-        let mut next = state.get_untracked();
-        match self {
-            Self::SetPpem(value) => {
-                next.ppem = value.round().to_int().clamp(10, 64) as u16;
-            }
-            Self::SetWidth(value) => {
-                next.width = value.round().to_int().clamp(220, 560) as u16;
-            }
-            Self::CycleWrap => {
-                next.wrap = match next.wrap {
-                    TextWrap::NoWrap => TextWrap::Word,
-                    TextWrap::Word => TextWrap::Grapheme,
-                    TextWrap::Grapheme => TextWrap::NoWrap,
-                };
-            }
-            Self::CycleAlign => {
-                next.align = match next.align {
-                    TextAlign::Start => TextAlign::Center,
-                    TextAlign::Center => TextAlign::End,
-                    TextAlign::End => TextAlign::Justify,
-                    TextAlign::Justify => TextAlign::Start,
-                };
-            }
-            Self::ToggleOverflow => {
-                next.overflow = match next.overflow {
-                    TextOverflow::Clip => TextOverflow::Ellipsis,
-                    TextOverflow::Ellipsis => TextOverflow::Clip,
-                };
-            }
-        }
-        if next != state.get_untracked() {
-            state.set(next);
-        }
+pub(super) const fn wrap_label(wrap: TextWrap) -> &'static str {
+    match wrap {
+        TextWrap::NoWrap => "NO WRAP",
+        TextWrap::Word => "WORD",
+        TextWrap::Grapheme => "GRAPHEME",
+    }
+}
+
+pub(super) const fn align_label(align: TextAlign) -> &'static str {
+    match align {
+        TextAlign::Start => "START",
+        TextAlign::Center => "CENTER",
+        TextAlign::End => "END",
+        TextAlign::Justify => "JUSTIFY",
+    }
+}
+
+pub(super) const fn overflow_label(overflow: TextOverflow) -> &'static str {
+    match overflow {
+        TextOverflow::Clip => "CLIP",
+        TextOverflow::Ellipsis => "ELLIPSIS",
     }
 }

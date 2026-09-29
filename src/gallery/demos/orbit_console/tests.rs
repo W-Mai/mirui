@@ -21,52 +21,54 @@ impl ConsoleNodes {
     const INTENSITY_LABEL: &'static str = "orbit_console_intensity_value";
 }
 
-use super::runtime::register_fonts;
-use super::state::ConsoleModel;
+use super::runtime::console_animation_system;
+use super::state::ConsoleState;
 use super::style::VIOLET;
-use super::visuals::UNIT_CIRCLE;
+use super::visuals::{ActivityPlot, OrbitInstrument, SignalMeter, UNIT_CIRCLE};
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::DeltaTimeMs;
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
-use crate::render::font::default_font_manager;
 use crate::surface::FramebufferAccess;
 use crate::ui::Children;
 use crate::ui::ComputedRect;
-use crate::ui::IdMap;
 use crate::ui::Parent;
-use crate::ui::UiScope;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
 use crate::ui::widgets::{Button, Slider, Text};
 
-fn fixture(state: ConsoleState) -> (World, Entity) {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(default_font_manager());
-    world.insert_resource(ConsoleModel::new(state));
-    let mut views = ViewRegistry::with_builtins();
-    views.insert(backdrop_view());
-    views.insert(orbit_view());
-    views.insert(signal_view());
-    views.insert(activity_view());
-    world.insert_resource(views);
-    register_fonts(&mut world);
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
-    drop(cx);
-    (world, parent)
+type ConsoleHandle = <ConsoleState as crate::core::model::Model>::Handle;
+
+fn fixture() -> (World, Entity) {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let parent = app.spawn_root().id();
+    setup(&mut app, parent, DemoRunMode::Capture);
+    ViewRegistry::reconcile_observations(&mut app.world);
+    flush_signal_dirty(&mut app.world);
+    (app.world, parent)
 }
 
 fn state(world: &World) -> ConsoleState {
+    crate::core::model::ModelHandle::read(&model(world), |state| *state)
+}
+
+fn model(world: &World) -> ConsoleHandle {
+    let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
     world
-        .resource::<ConsoleModel>()
-        .expect("console model")
-        .snapshot()
+        .get::<OrbitInstrument>(stage)
+        .expect("orbit instrument")
+        .model
+        .clone()
+}
+
+fn clear_canvas_dirty(world: &mut World, entities: [Entity; 3]) {
+    for entity in entities {
+        world.remove::<Dirty>(entity);
+        world.remove::<crate::ui::dirty::VisualDirty>(entity);
+    }
 }
 
 #[test]
@@ -88,30 +90,92 @@ fn capture_state_is_stable_and_explicit() {
 #[test]
 fn animation_uses_elapsed_time_and_honors_pause() {
     let mut state = ConsoleState::live();
-    assert!(state.advance(50));
+    state.advance(50);
     assert_eq!(state.phase(), Fixed::from_int(3));
-    assert!(!state.advance(0));
-    let revision = state.revision();
+    state.advance(0);
+    assert_eq!(state.phase(), Fixed::from_int(3));
     state.toggle_paused();
-    assert!(!state.advance(50));
+    state.advance(50);
     assert_eq!(state.phase(), Fixed::from_int(3));
-    assert_eq!(state.revision(), revision + 1);
 }
 
 #[test]
 fn animation_system_consumes_framework_delta_time() {
-    let mut world = World::new();
-    world.insert_resource(ConsoleModel::new(ConsoleState::live()));
-    world.insert_resource(DeltaTimeMs(50));
+    let (world, _) = fixture();
+    let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
+    let instrument = world
+        .get::<OrbitInstrument>(stage)
+        .expect("orbit instrument");
+    console_animation_system(&instrument.model, crate::ecs::DeltaTimeMs(50));
 
-    console_animation_system(&mut world);
+    assert_eq!(state(&world).phase(), Fixed::from_int(35));
+}
 
-    assert_eq!(state(&world).phase(), Fixed::from_int(3));
+#[test]
+fn phase_updates_only_invalidate_phase_consumers() {
+    let (mut world, _) = fixture();
+    let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
+    let signal = world.find_by_id(ConsoleNodes::SIGNAL).expect("signal id");
+    let activity = world
+        .find_by_id(ConsoleNodes::ACTIVITY)
+        .expect("activity id");
+    clear_canvas_dirty(&mut world, [stage, signal, activity]);
+
+    let model = world
+        .get::<OrbitInstrument>(stage)
+        .expect("orbit instrument")
+        .model
+        .clone();
+    console_animation_system(&model, crate::ecs::DeltaTimeMs(50));
+    flush_signal_dirty(&mut world);
+
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(stage));
+    assert!(!world.has::<crate::ui::dirty::VisualDirty>(signal));
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(activity));
+}
+
+#[test]
+fn observed_fields_invalidate_only_their_canvas_consumers() {
+    let (mut world, _) = fixture();
+    let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
+    let signal = world.find_by_id(ConsoleNodes::SIGNAL).expect("signal id");
+    let activity = world
+        .find_by_id(ConsoleNodes::ACTIVITY)
+        .expect("activity id");
+    let canvases = [stage, signal, activity];
+    let model = model(&world);
+
+    clear_canvas_dirty(&mut world, canvases);
+    model.set_intensity(Fixed::from_int(42));
+    flush_signal_dirty(&mut world);
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(stage));
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(signal));
+    assert!(!world.has::<crate::ui::dirty::VisualDirty>(activity));
+
+    clear_canvas_dirty(&mut world, canvases);
+    model.cycle_focus();
+    flush_signal_dirty(&mut world);
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(stage));
+    assert!(!world.has::<crate::ui::dirty::VisualDirty>(signal));
+    assert!(!world.has::<crate::ui::dirty::VisualDirty>(activity));
+
+    clear_canvas_dirty(&mut world, canvases);
+    model.toggle_paused();
+    flush_signal_dirty(&mut world);
+    for entity in canvases {
+        assert!(!world.has::<crate::ui::dirty::VisualDirty>(entity));
+    }
+    let pause = world.find_by_id(ConsoleNodes::PAUSE).expect("pause id");
+    assert!(
+        world
+            .get::<Text>(pause)
+            .is_some_and(|text| text.resolve(&world).contains("RESUME"))
+    );
 }
 
 #[test]
 fn build_widgets_creates_product_regions_and_controls() {
-    let (world, parent) = fixture(ConsoleState::capture());
+    let (world, parent) = fixture();
     let shell = world.find_by_id(ConsoleNodes::SHELL).expect("shell id");
     let workspace = world
         .find_by_id(ConsoleNodes::WORKSPACE)
@@ -168,7 +232,7 @@ fn workspace_responds_across_supported_viewports() {
     use crate::ui::render_system::update_layout;
 
     for (width, height) in [(320, 568), (480, 320), (768, 480), (1024, 640), (1440, 900)] {
-        let (mut world, parent) = fixture(ConsoleState::capture());
+        let (mut world, parent) = fixture();
         update_layout(
             &mut world,
             parent,
@@ -201,13 +265,16 @@ fn workspace_responds_across_supported_viewports() {
 
 #[test]
 fn controls_update_shared_state_and_visual_style() {
-    let (mut world, _) = fixture(ConsoleState::capture());
+    let (mut world, _) = fixture();
     let pulse = world
         .find_by_id(ConsoleNodes::MODE_CHIPS[2])
         .expect("pulse mode id");
     let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
-    world.remove::<Dirty>(stage);
-    world.remove::<crate::ui::dirty::VisualDirty>(stage);
+    let signal = world.find_by_id(ConsoleNodes::SIGNAL).expect("signal id");
+    let activity = world
+        .find_by_id(ConsoleNodes::ACTIVITY)
+        .expect("activity id");
+    clear_canvas_dirty(&mut world, [stage, signal, activity]);
     GestureHandler::trigger(
         &mut world,
         pulse,
@@ -226,7 +293,9 @@ fn controls_update_shared_state_and_visual_style() {
         Some(Theme::dark().resolve(VIOLET))
     );
     assert!(!world.has::<Dirty>(stage));
-    assert!(world.has::<crate::ui::dirty::VisualDirty>(stage));
+    for entity in [stage, signal, activity] {
+        assert!(world.has::<crate::ui::dirty::VisualDirty>(entity));
+    }
 }
 
 #[test]
@@ -253,7 +322,7 @@ fn shell_and_instruments_resolve_the_active_theme() {
 
 #[test]
 fn stage_tap_cycles_focus_without_allocation_state() {
-    let (mut world, _) = fixture(ConsoleState::capture());
+    let (mut world, _) = fixture();
     let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
     GestureHandler::trigger(
         &mut world,
@@ -278,7 +347,7 @@ fn stage_tap_cycles_focus_without_allocation_state() {
 
 #[test]
 fn intensity_and_pause_handlers_update_visible_state() {
-    let (mut world, _) = fixture(ConsoleState::capture());
+    let (mut world, _) = fixture();
     let slider = world.find_by_id(ConsoleNodes::SLIDER).expect("slider id");
     let intensity_label = world
         .find_by_id(ConsoleNodes::INTENSITY_LABEL)

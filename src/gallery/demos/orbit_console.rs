@@ -12,15 +12,9 @@ mod visuals;
 #[cfg(test)]
 mod tests;
 
-pub use composition::build_widgets;
-pub use runtime::console_animation_system;
 #[cfg(feature = "std")]
 pub use runtime::{setup, setup_app};
-pub use state::{ConsoleMode, ConsoleState, DemoRunMode};
-pub use visuals::{
-    ActivityPlot, ConsoleBackdrop, OrbitInstrument, SignalMeter, activity_view, backdrop_view,
-    orbit_view, signal_view,
-};
+pub use state::{ConsoleMode, DemoRunMode};
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 

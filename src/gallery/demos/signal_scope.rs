@@ -9,7 +9,6 @@ mod state;
 #[cfg(test)]
 mod tests;
 
-pub use controls::build_widgets;
 pub use runtime::setup_app;
 
 pub const VIEWPORT: (u16, u16) = (800, 480);

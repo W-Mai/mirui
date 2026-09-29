@@ -2,9 +2,9 @@
 use super::FONT_BYTES;
 #[cfg(feature = "std")]
 use super::composition::build_widgets;
-use super::state::ConsoleModel;
+use super::state::ConsoleState;
 #[cfg(feature = "std")]
-use super::state::{ConsoleState, DemoRunMode};
+use super::state::DemoRunMode;
 #[cfg(feature = "std")]
 use super::style::BG;
 #[cfg(feature = "std")]
@@ -39,12 +39,9 @@ pub(super) fn register_fonts(world: &mut World) {
     manager.add_static(FontToken::Mono.cache_key(), mono);
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn console_animation_system(world: &mut World) {
-    let delta_ms = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
-    if let Some(model) = world.resource::<ConsoleModel>().cloned() {
-        model.advance(delta_ms);
-    }
+#[mirui_macros::system(order = ANIMATION, bind(model))]
+pub(super) fn console_animation_system(model: &ConsoleState, delta: DeltaTimeMs) {
+    model.advance(delta.0);
 }
 
 #[cfg(feature = "std")]
@@ -58,7 +55,7 @@ where
         DemoRunMode::Live => ConsoleState::live(),
         DemoRunMode::Capture => ConsoleState::capture(),
     };
-    app.world.insert_resource(ConsoleModel::new(initial_state));
+    let model = app.add_model(initial_state);
     register_fonts(&mut app.world);
     if let Some(style) = app.world.get_mut::<Style>(parent) {
         style.set_bg_color(BG);
@@ -67,13 +64,11 @@ where
         .with_widget(orbit_view())
         .with_widget(signal_view())
         .with_widget(activity_view());
-    if run_mode == DemoRunMode::Live {
-        if app.world.resource::<MonoClock>().is_none() {
-            app.add_plugin(StdInstantClockPlugin);
-        }
-        app.add_system(console_animation_system::system());
+    if run_mode == DemoRunMode::Live && app.world.resource::<MonoClock>().is_none() {
+        app.add_plugin(StdInstantClockPlugin);
     }
-    app.compose(parent, build_widgets);
+    app.add_system(console_animation_system::system(model.clone()));
+    app.compose(parent, |cx| build_widgets(cx, model));
 }
 
 #[cfg(feature = "std")]

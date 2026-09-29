@@ -113,5 +113,5 @@ fn raster_contour_render(
 }
 
 pub fn raster_contour_view() -> View {
-    View::new("RasterContour", 61, raster_contour_render)
+    View::new("RasterContour", 61, raster_contour_render).with_filter::<RasterContour>()
 }

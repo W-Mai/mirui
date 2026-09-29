@@ -1,18 +1,23 @@
 use super::state::{ConsoleModel, ConsoleMotion};
 use super::style::{BORDER, MUTED, PANEL, TEXT};
+use crate::core::reactive::Signal;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 
-#[crate::component]
-#[derive(Default)]
-pub(super) struct KineticOrbit;
+#[crate::component(bind(model))]
+pub(super) struct KineticOrbit {
+    pub(super) model: ConsoleModel,
+    pub(super) motion: Signal<ConsoleMotion>,
+}
 
-#[crate::component]
-#[derive(Default)]
-pub(super) struct KineticWave;
+#[crate::component(bind(model))]
+pub(super) struct KineticWave {
+    pub(super) model: ConsoleModel,
+    pub(super) motion: Signal<ConsoleMotion>,
+}
 
 struct InstrumentPainter<'a, 'ctx> {
     renderer: &'a mut dyn Renderer,
@@ -37,30 +42,27 @@ impl InstrumentPainter<'_, '_> {
     }
 }
 
+#[crate::view(
+    component = KineticOrbit,
+    read(model),
+    watch(model.visual_revision()),
+    name = "KineticOrbit",
+    priority = 60
+)]
 fn orbit_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &KineticOrbit,
+    model: &ConsoleModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    if !world.has::<KineticOrbit>(entity) {
-        return;
-    }
-    let Some(model) = world.resource::<ConsoleModel>() else {
-        return;
-    };
-    let state = model.snapshot();
-    let phase = world
-        .resource::<ConsoleMotion>()
-        .map_or(Fixed::ZERO, |motion| motion.phase.phase());
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let phase = component.motion.get_untracked().phase.phase();
     let panel = theme.resolve(PANEL);
     let border = theme.resolve(BORDER);
     let text = theme.resolve(TEXT);
-    let accent = theme.resolve(state.mode.accent());
-    let secondary = theme.resolve(state.mode.secondary());
+    let accent = theme.resolve(model.mode.accent());
+    let secondary = theme.resolve(model.mode.secondary());
 
     ctx.bg_handled = true;
     let clip = *ctx.clip;
@@ -115,14 +117,14 @@ fn orbit_render(
                 x: center.x + Fixed::cos_deg(angle) * radius,
                 y: center.y + Fixed::sin_deg(angle) * radius,
             };
-            let size = if ring == state.focused as i32 && trail <= 2 {
+            let size = if ring == model.focused as i32 && trail <= 2 {
                 Fixed::from_int(2)
             } else {
                 Fixed::ONE
             };
             painter.fill(
                 Rect::new(point.x - size / 2, point.y - size / 2, size, size),
-                if ring == state.focused as i32 {
+                if ring == model.focused as i32 {
                     accent
                 } else {
                     secondary
@@ -135,7 +137,7 @@ fn orbit_render(
             x: center.x + Fixed::cos_deg(node_angle) * radius,
             y: center.y + Fixed::sin_deg(node_angle) * radius,
         };
-        let size = if ring == state.focused as i32 { 5 } else { 3 };
+        let size = if ring == model.focused as i32 { 5 } else { 3 };
         painter.fill(
             Rect::new(
                 node.x - Fixed::from_ratio(size, 2),
@@ -143,7 +145,7 @@ fn orbit_render(
                 Fixed::from_int(size),
                 Fixed::from_int(size),
             ),
-            if ring == state.focused as i32 {
+            if ring == model.focused as i32 {
                 text
             } else {
                 secondary
@@ -175,28 +177,25 @@ fn orbit_render(
     }
 }
 
+#[crate::view(
+    component = KineticWave,
+    read(model),
+    watch(model.visual_revision()),
+    name = "KineticWave",
+    priority = 61
+)]
 fn wave_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
+    component: &KineticWave,
+    model: &ConsoleModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
+    theme: &Theme,
 ) {
-    if !world.has::<KineticWave>(entity) {
-        return;
-    }
-    let Some(model) = world.resource::<ConsoleModel>() else {
-        return;
-    };
-    let state = model.snapshot();
-    let phase = world
-        .resource::<ConsoleMotion>()
-        .map_or(Fixed::ZERO, |motion| motion.phase.phase());
-    let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let phase = component.motion.get_untracked().phase.phase();
     let panel = theme.resolve(PANEL);
     let muted = theme.resolve(MUTED);
-    let accent = theme.resolve(state.mode.accent());
+    let accent = theme.resolve(model.mode.accent());
     ctx.bg_handled = true;
     let clip = *ctx.clip;
     let mut painter = InstrumentPainter {
@@ -213,11 +212,11 @@ fn wave_render(
     for bar in 0..13 {
         let wave = Fixed::sin_deg(phase * Fixed::from_int(2) + Fixed::from_int(bar * 37));
         let height = Fixed::from_int(2)
-            + wave.abs() * Fixed::from_int(7) * state.intensity / Fixed::from_int(100);
+            + wave.abs() * Fixed::from_int(7) * model.intensity / Fixed::from_int(100);
         let x = rect.x + plot_inset + plot_span * Fixed::from_ratio(bar, 12);
         painter.fill(
             Rect::new(x, plot_y - height, bar_width, height),
-            if bar % 3 == state.focused as i32 {
+            if bar % 3 == model.focused as i32 {
                 accent
             } else {
                 muted
@@ -229,9 +228,9 @@ fn wave_render(
 }
 
 pub(super) fn orbit_view() -> View {
-    View::new("KineticOrbit", 60, orbit_render).with_filter::<KineticOrbit>()
+    orbit_render::view()
 }
 
 pub(super) fn wave_view() -> View {
-    View::new("KineticWave", 61, wave_render).with_filter::<KineticWave>()
+    wave_render::view()
 }
