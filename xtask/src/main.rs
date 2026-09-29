@@ -861,6 +861,15 @@ fn cmd_release() -> Result {
     if !output.stdout.is_empty() {
         return Err("working tree not clean".into());
     }
+    let branch = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(&root)
+        .output()?;
+    if !branch.status.success() {
+        return Err("git branch --show-current failed".into());
+    }
+    verify_release_branch(String::from_utf8_lossy(&branch.stdout).trim())?;
+    let release_head = current_git_head(&root)?;
 
     let version = read_version(&root)?;
     let tag = format!("v{version}");
@@ -868,49 +877,51 @@ fn cmd_release() -> Result {
 
     run_cmd("git", &["push", "origin", "main"])?;
 
-    // Wait for CI to pass
-    println!("  → waiting for CI...");
-    wait_for_ci(&root)?;
+    println!("  → waiting for release workflows...");
+    wait_for_release_workflows(&root, &release_head)?;
+    verify_release_head(&release_head, &current_git_head(&root)?)?;
 
-    // Idempotent: skip `git tag` when the tag already points at HEAD.
-    let head = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(&root)
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+    // Read both tag states before mutating either repository.
+    let local_tag_ref = format!("{tag}^{{commit}}");
     let tag_sha = Command::new("git")
-        .args(["rev-parse", "--verify", "--quiet", &tag])
+        .args(["rev-parse", "--verify", "--quiet", &local_tag_ref])
         .current_dir(&root)
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
-    if tag_sha.is_empty() {
-        run_cmd("git", &["tag", &tag])?;
-    } else if tag_sha != head {
-        return Err(format!("tag {tag} exists but points at {tag_sha}, not HEAD {head}").into());
-    } else {
-        println!("  → tag {tag} already at HEAD, skip");
-    }
-
-    // Idempotent: skip tag push when origin already has the same sha.
+    let remote_tag_ref = format!("refs/tags/{tag}");
+    let remote_peeled_ref = format!("{remote_tag_ref}^{{}}");
     let remote_tag = Command::new("git")
-        .args(["ls-remote", "--tags", "origin", &format!("refs/tags/{tag}")])
+        .args([
+            "ls-remote",
+            "--tags",
+            "origin",
+            &remote_tag_ref,
+            &remote_peeled_ref,
+        ])
         .current_dir(&root)
-        .output()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .next()
-                .and_then(|l| l.split_whitespace().next())
-                .unwrap_or("")
-                .to_string()
-        })
-        .unwrap_or_default();
-    if remote_tag.is_empty() {
-        run_cmd("git", &["push", "origin", &tag])?;
-    } else {
-        println!("  → tag {tag} already on origin, skip");
+        .output()?;
+    if !remote_tag.status.success() {
+        return Err(format!(
+            "git ls-remote failed: {}",
+            String::from_utf8_lossy(&remote_tag.stderr).trim()
+        )
+        .into());
+    }
+    let remote_tag = parse_remote_tag_sha(&remote_tag.stdout, &remote_tag_ref, &remote_peeled_ref);
+    match verify_remote_tag(&tag, &release_head, remote_tag.as_deref())? {
+        RemoteTagState::Missing => {
+            if !verify_local_tag(&tag, &release_head, &tag_sha)? {
+                run_cmd("git", &["tag", &tag, &release_head])?;
+            } else {
+                println!("  → tag {tag} already at release HEAD");
+            }
+            run_cmd("git", &["push", "origin", &tag])?;
+        }
+        RemoteTagState::AtHead => {
+            verify_local_tag(&tag, &release_head, &tag_sha)?;
+            println!("  → tag {tag} already on origin at release HEAD, skip");
+        }
     }
 
     // Create GitHub release with changelog content
@@ -944,56 +955,235 @@ fn cmd_release() -> Result {
     Ok(())
 }
 
-fn wait_for_ci(root: &str) -> Result {
+fn verify_release_branch(branch: &str) -> std::result::Result<(), String> {
+    if branch == "main" {
+        Ok(())
+    } else {
+        let branch = if branch.is_empty() {
+            "detached HEAD"
+        } else {
+            branch
+        };
+        Err(format!(
+            "release must run from main; current branch is {branch}"
+        ))
+    }
+}
+
+fn current_git_head(root: &str) -> Result<String> {
     let head = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(root)
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+        .output()?;
+    if !head.status.success() {
+        return Err("git rev-parse HEAD failed".into());
+    }
+    Ok(String::from_utf8_lossy(&head.stdout).trim().to_string())
+}
 
-    let timeout = std::time::Duration::from_secs(10 * 60);
+fn verify_release_head(expected: &str, current: &str) -> std::result::Result<(), String> {
+    if current == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "HEAD changed during release workflow wait: expected {expected}, found {current}"
+        ))
+    }
+}
+
+const RELEASE_WORKFLOW_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+const RELEASE_WORKFLOW_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
+#[derive(Clone, Copy)]
+struct ReleaseWorkflow {
+    file: &'static str,
+    label: &'static str,
+}
+
+const RELEASE_WORKFLOWS: [ReleaseWorkflow; 3] = [
+    ReleaseWorkflow {
+        file: "ci.yml",
+        label: "CI",
+    },
+    ReleaseWorkflow {
+        file: "pages.yml",
+        label: "Pages",
+    },
+    ReleaseWorkflow {
+        file: "nuttx-check.yml",
+        label: "NuttX target check",
+    },
+];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct WorkflowRun {
+    status: String,
+    conclusion: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct WorkflowProgress {
+    complete: bool,
+}
+
+fn wait_for_release_workflows(root: &str, head: &str) -> Result {
     let start = std::time::Instant::now();
+    let mut progress = vec![WorkflowProgress::default(); RELEASE_WORKFLOWS.len()];
 
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(15));
-
-        let output = Command::new("gh")
-            .args([
-                "run",
-                "list",
-                "--workflow",
-                "ci.yml",
-                "--limit",
-                "5",
-                "--json",
-                "status,conclusion,headSha",
-                "-q",
-                &format!(".[] | select(.headSha == \"{head}\") | [.status, .conclusion] | @tsv"),
-            ])
-            .current_dir(root)
-            .output()?;
-
-        let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if let Some(first) = out.lines().next() {
-            let parts: Vec<&str> = first.split('\t').collect();
-            let status = parts.first().copied().unwrap_or("");
-            let conclusion = parts.get(1).copied().unwrap_or("");
-
-            if status == "completed" {
-                if conclusion == "success" {
-                    println!("  ✅ CI passed");
-                    return Ok(());
-                } else {
-                    return Err(format!("CI failed: {conclusion}").into());
+        let observations = RELEASE_WORKFLOWS
+            .iter()
+            .map(|workflow| query_workflow_run(root, head, workflow.file))
+            .collect::<Result<Vec<_>>>()?;
+        let was_complete: Vec<bool> = progress.iter().map(|item| item.complete).collect();
+        if update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &observations)? {
+            for (index, workflow) in RELEASE_WORKFLOWS.iter().enumerate() {
+                if !was_complete[index] && progress[index].complete {
+                    println!("  ✅ {} passed", workflow.label);
                 }
             }
-            println!("    CI: {status}...");
+            return Ok(());
+        }
+        for (index, workflow) in RELEASE_WORKFLOWS.iter().enumerate() {
+            if !was_complete[index] && progress[index].complete {
+                println!("  ✅ {} passed", workflow.label);
+            } else if let Some(run) = &observations[index]
+                && !progress[index].complete
+            {
+                println!("    {}: {}...", workflow.label, run.status);
+            }
         }
 
-        if start.elapsed() > timeout {
-            return Err("CI timeout (10 min)".into());
+        if start.elapsed() >= RELEASE_WORKFLOW_TIMEOUT {
+            let pending = RELEASE_WORKFLOWS
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !progress[*index].complete)
+                .map(|(_, workflow)| workflow.label)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!("release workflow timeout (20 min): {pending}").into());
         }
+        std::thread::sleep(RELEASE_WORKFLOW_POLL_INTERVAL);
+    }
+}
+
+fn query_workflow_run(root: &str, head: &str, workflow: &str) -> Result<Option<WorkflowRun>> {
+    let output = Command::new("gh")
+        .args(workflow_run_list_args(head, workflow))
+        .current_dir(root)
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "gh run list failed for {workflow}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    parse_workflow_run(&output.stdout)
+}
+
+fn workflow_run_list_args<'a>(head: &'a str, workflow: &'a str) -> [&'a str; 14] {
+    [
+        "run",
+        "list",
+        "--workflow",
+        workflow,
+        "--branch",
+        "main",
+        "--event",
+        "push",
+        "--commit",
+        head,
+        "--limit",
+        "1",
+        "--json",
+        "status,conclusion",
+    ]
+}
+
+fn parse_workflow_run(bytes: &[u8]) -> Result<Option<WorkflowRun>> {
+    let runs: serde_json::Value = serde_json::from_slice(bytes)?;
+    let Some(run) = runs.as_array().and_then(|runs| runs.first()) else {
+        return Ok(None);
+    };
+    Ok(Some(WorkflowRun {
+        status: run["status"].as_str().unwrap_or_default().to_string(),
+        conclusion: run["conclusion"].as_str().unwrap_or_default().to_string(),
+    }))
+}
+
+fn update_workflow_progress(
+    workflows: &[ReleaseWorkflow],
+    progress: &mut [WorkflowProgress],
+    observations: &[Option<WorkflowRun>],
+) -> std::result::Result<bool, String> {
+    for (index, observation) in observations.iter().enumerate() {
+        let Some(run) = observation else {
+            continue;
+        };
+        if run.status != "completed" {
+            progress[index].complete = false;
+            continue;
+        }
+        if run.conclusion != "success" {
+            return Err(format!(
+                "{} failed: {}",
+                workflows[index].label, run.conclusion
+            ));
+        }
+        progress[index].complete = true;
+    }
+
+    Ok(progress.iter().all(|item| item.complete))
+}
+
+fn parse_remote_tag_sha(bytes: &[u8], direct_ref: &str, peeled_ref: &str) -> Option<String> {
+    let mut direct = None;
+    let mut peeled = None;
+    for line in String::from_utf8_lossy(bytes).lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(sha), Some(reference)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        if reference == peeled_ref {
+            peeled = Some(sha.to_string());
+        } else if reference == direct_ref {
+            direct = Some(sha.to_string());
+        }
+    }
+    peeled.or(direct)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemoteTagState {
+    Missing,
+    AtHead,
+}
+
+fn verify_remote_tag(
+    tag: &str,
+    head: &str,
+    remote_sha: Option<&str>,
+) -> std::result::Result<RemoteTagState, String> {
+    match remote_sha {
+        None => Ok(RemoteTagState::Missing),
+        Some(remote_sha) if remote_sha == head => Ok(RemoteTagState::AtHead),
+        Some(remote_sha) => Err(format!(
+            "remote tag {tag} points at {remote_sha}, not HEAD {head}"
+        )),
+    }
+}
+
+fn verify_local_tag(tag: &str, head: &str, local_sha: &str) -> std::result::Result<bool, String> {
+    if local_sha.is_empty() {
+        Ok(false)
+    } else if local_sha == head {
+        Ok(true)
+    } else {
+        Err(format!(
+            "local tag {tag} points at {local_sha}, not release HEAD {head}"
+        ))
     }
 }
 
@@ -1172,7 +1362,63 @@ fn bump_version(version: &str, level: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::workspace_manifests_from_metadata;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{
+        RELEASE_WORKFLOW_TIMEOUT, RELEASE_WORKFLOWS, RemoteTagState, WorkflowRun,
+        ensure_clean_worktree, parse_remote_tag_sha, parse_workflow_run, stage_changed_files,
+        update_workflow_progress, verify_local_tag, verify_release_branch, verify_release_head,
+        verify_remote_tag, workflow_run_list_args, workspace_manifests_from_metadata,
+    };
+
+    struct TempRepo(PathBuf);
+
+    impl TempRepo {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "mirui-xtask-{label}-{}-{nonce}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            let status = Command::new("git")
+                .args(["init", "--quiet"])
+                .current_dir(&path)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn completed(conclusion: &str) -> Option<WorkflowRun> {
+        Some(WorkflowRun {
+            status: "completed".to_string(),
+            conclusion: conclusion.to_string(),
+        })
+    }
+
+    fn pending() -> Option<WorkflowRun> {
+        Some(WorkflowRun {
+            status: "in_progress".to_string(),
+            conclusion: String::new(),
+        })
+    }
 
     #[test]
     fn bump_targets_only_workspace_members() {
@@ -1197,6 +1443,232 @@ mod tests {
         let manifests = workspace_manifests_from_metadata(metadata).unwrap();
         assert_eq!(manifests, ["/repo/Cargo.toml", "/repo/member/Cargo.toml"]);
     }
+
+    #[test]
+    fn release_workflow_timeout_is_twenty_minutes() {
+        assert_eq!(RELEASE_WORKFLOW_TIMEOUT.as_secs(), 20 * 60);
+    }
+
+    #[test]
+    fn release_waits_for_all_expected_workflows() {
+        assert_eq!(
+            RELEASE_WORKFLOWS.map(|workflow| workflow.file),
+            ["ci.yml", "pages.yml", "nuttx-check.yml"]
+        );
+    }
+
+    #[test]
+    fn release_requires_main_branch() {
+        assert_eq!(verify_release_branch("main"), Ok(()));
+        assert_eq!(
+            verify_release_branch("feature/release").unwrap_err(),
+            "release must run from main; current branch is feature/release"
+        );
+        assert_eq!(
+            verify_release_branch("").unwrap_err(),
+            "release must run from main; current branch is detached HEAD"
+        );
+    }
+
+    #[test]
+    fn release_head_must_remain_stable_while_workflows_run() {
+        assert_eq!(verify_release_head("head", "head"), Ok(()));
+        assert_eq!(
+            verify_release_head("head", "new-head").unwrap_err(),
+            "HEAD changed during release workflow wait: expected head, found new-head"
+        );
+    }
+
+    #[test]
+    fn parses_workflow_run_states() {
+        let run = parse_workflow_run(br#"[{"status":"completed","conclusion":"success"}]"#)
+            .unwrap()
+            .unwrap();
+        assert_eq!(run.status, "completed");
+        assert_eq!(run.conclusion, "success");
+        assert_eq!(parse_workflow_run(b"[]").unwrap(), None);
+    }
+
+    #[test]
+    fn workflow_query_targets_main_push_for_head() {
+        assert_eq!(
+            workflow_run_list_args("head-sha", "ci.yml"),
+            [
+                "run",
+                "list",
+                "--workflow",
+                "ci.yml",
+                "--branch",
+                "main",
+                "--event",
+                "push",
+                "--commit",
+                "head-sha",
+                "--limit",
+                "1",
+                "--json",
+                "status,conclusion",
+            ]
+        );
+    }
+
+    #[test]
+    fn missing_release_workflow_never_completes() {
+        let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
+        let observations = vec![completed("success"), completed("success"), None];
+
+        for _ in 0..10 {
+            assert!(
+                !update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &observations)
+                    .unwrap()
+            );
+        }
+        assert!(!progress[2].complete);
+    }
+
+    #[test]
+    fn all_release_workflows_must_complete() {
+        let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
+        let pending_observations = vec![completed("success"), completed("success"), pending()];
+        assert!(
+            !update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &pending_observations)
+                .unwrap()
+        );
+
+        let complete_observations = vec![
+            completed("success"),
+            completed("success"),
+            completed("success"),
+        ];
+        assert!(
+            update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &complete_observations)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn a_newer_pending_observation_resumes_waiting() {
+        let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
+        let first_observations = vec![completed("success"), pending(), pending()];
+        assert!(
+            !update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &first_observations)
+                .unwrap()
+        );
+        assert!(progress[0].complete);
+
+        let second_observations = vec![pending(), pending(), pending()];
+        assert!(
+            !update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &second_observations)
+                .unwrap()
+        );
+        assert!(!progress[0].complete);
+    }
+
+    #[test]
+    fn failed_release_workflow_stops_the_wait() {
+        let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
+        let observations = vec![completed("failure"), completed("success"), None];
+        let error =
+            update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &observations).unwrap_err();
+        assert_eq!(error, "CI failed: failure");
+    }
+
+    #[test]
+    fn failed_nuttx_workflow_stops_the_wait() {
+        let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
+        let observations = vec![
+            completed("success"),
+            completed("success"),
+            completed("failure"),
+        ];
+        let error =
+            update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &observations).unwrap_err();
+        assert_eq!(error, "NuttX target check failed: failure");
+    }
+
+    #[test]
+    fn remote_tag_parser_prefers_peeled_commit() {
+        let direct = "refs/tags/v1.2.3";
+        let peeled = "refs/tags/v1.2.3^{}";
+        let output = b"tag-object\trefs/tags/v1.2.3\ncommit-sha\trefs/tags/v1.2.3^{}\n";
+        assert_eq!(
+            parse_remote_tag_sha(output, direct, peeled).as_deref(),
+            Some("commit-sha")
+        );
+        assert_eq!(
+            parse_remote_tag_sha(b"commit-sha\trefs/tags/v1.2.3\n", direct, peeled).as_deref(),
+            Some("commit-sha")
+        );
+        assert_eq!(parse_remote_tag_sha(b"", direct, peeled), None);
+    }
+
+    #[test]
+    fn remote_tag_must_resolve_to_head() {
+        assert_eq!(
+            verify_remote_tag("v1.2.3", "head", None).unwrap(),
+            RemoteTagState::Missing
+        );
+        assert_eq!(
+            verify_remote_tag("v1.2.3", "head", Some("head")).unwrap(),
+            RemoteTagState::AtHead
+        );
+        assert_eq!(
+            verify_remote_tag("v1.2.3", "head", Some("other")).unwrap_err(),
+            "remote tag v1.2.3 points at other, not HEAD head"
+        );
+    }
+
+    #[test]
+    fn local_tag_must_be_missing_or_resolve_to_release_head() {
+        assert!(!verify_local_tag("v1.2.3", "head", "").unwrap());
+        assert!(verify_local_tag("v1.2.3", "head", "head").unwrap());
+        assert_eq!(
+            verify_local_tag("v1.2.3", "head", "other").unwrap_err(),
+            "local tag v1.2.3 points at other, not release HEAD head"
+        );
+    }
+
+    #[test]
+    fn templates_bump_rejects_a_dirty_repository() {
+        let repo = TempRepo::new("dirty");
+        ensure_clean_worktree(repo.path()).unwrap();
+        std::fs::write(repo.path().join("unrelated.txt"), "dirty\n").unwrap();
+        let error = ensure_clean_worktree(repo.path()).unwrap_err().to_string();
+        assert!(error.contains("working tree not clean"));
+    }
+
+    #[test]
+    fn templates_bump_stages_only_changed_template_files() {
+        let repo = TempRepo::new("stage");
+        let template = repo.path().join("templates/desktop/cargo-generate.toml");
+        let unrelated = repo.path().join("unrelated.txt");
+        std::fs::create_dir_all(template.parent().unwrap()).unwrap();
+        std::fs::write(&template, "default = \"0.47\"\n").unwrap();
+        std::fs::write(&unrelated, "leave unstaged\n").unwrap();
+
+        stage_changed_files(repo.path(), &[template.to_string_lossy().into_owned()]).unwrap();
+
+        let staged = Command::new("git")
+            .args(["diff", "--cached", "--name-only"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        assert!(staged.status.success());
+        assert_eq!(
+            String::from_utf8(staged.stdout).unwrap().trim(),
+            "templates/desktop/cargo-generate.toml"
+        );
+        let status = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8(status.stdout)
+                .unwrap()
+                .contains("?? unrelated.txt")
+        );
+    }
 }
 
 fn cmd_templates_bump() -> Result {
@@ -1213,6 +1685,7 @@ fn cmd_templates_bump() -> Result {
         );
         return Ok(());
     }
+    ensure_clean_worktree(&templates_root)?;
 
     let templates_root_str = templates_root.to_string_lossy().to_string();
     let version = read_version(&mirui_root)?;
@@ -1244,14 +1717,7 @@ fn cmd_templates_bump() -> Result {
     }
 
     let msg = format!("🔧(release): bump mirui-version default to {minor}");
-    let status = Command::new("git")
-        .args(["add", "."])
-        .current_dir(&templates_root)
-        .status()
-        .map_err(|e| format!("git add failed: {e}"))?;
-    if !status.success() {
-        return Err("git add failed in mirui-templates".into());
-    }
+    stage_changed_files(&templates_root, &changed_files)?;
     let status = Command::new("git")
         .args(["commit", "-m", &msg])
         .current_dir(&templates_root)
@@ -1265,6 +1731,49 @@ fn cmd_templates_bump() -> Result {
     println!("  ⚠ push manually:");
     println!("      cd {} && git push", templates_root.display());
 
+    Ok(())
+}
+
+fn ensure_clean_worktree(root: &std::path::Path) -> Result {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("git status failed in {}: {e}", root.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git status failed in {}: {}",
+            root.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    if !output.stdout.is_empty() {
+        return Err(format!(
+            "working tree not clean in {}; refusing templates bump",
+            root.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn stage_changed_files(root: &std::path::Path, files: &[String]) -> Result {
+    let mut command = Command::new("git");
+    command.arg("add").arg("--");
+    for file in files {
+        let relative = std::path::Path::new(file)
+            .strip_prefix(root)
+            .map_err(|_| format!("changed template {} is outside {}", file, root.display()))?;
+        command.arg(relative);
+    }
+    let status = command
+        .current_dir(root)
+        .status()
+        .map_err(|e| format!("git add failed in {}: {e}", root.display()))?;
+    if !status.success() {
+        return Err("git add failed in mirui-templates".into());
+    }
     Ok(())
 }
 
