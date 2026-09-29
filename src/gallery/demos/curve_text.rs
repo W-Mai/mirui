@@ -20,7 +20,7 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(&mut app.world);
-    app.with_widget(stage::curve_stage_background_view())
+    app.with_widget(stage::curve_stage_background_render::view())
         .with_widget(stage::curve_paths_view());
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
     let model = app.add_model(state::CurveModel::default());

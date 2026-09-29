@@ -6,7 +6,7 @@ use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::twin::TwinModel;
 use crate::prelude::*;
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn paint_board(
     painter: &mut PlayPainter<'_, '_>,
@@ -100,8 +100,4 @@ pub(super) fn surface_render(
     }
     painter.circle(Point::new(338, 73), Fixed::from_int(5), MINT);
     painter.circle(Point::new(355, 73), Fixed::from_int(5), LAVENDER);
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
 }

@@ -9,7 +9,7 @@ use crate::gallery::play::circuit::{
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 pub(super) fn signal_position(model: &CircuitModel, source: SignalSource) -> Option<Point> {
     match source {
@@ -363,12 +363,4 @@ pub(super) fn modal_render(
         Fixed::ZERO,
     );
     painter.fill(Rect::new(29, 66, 422, 32), INK, Fixed::ZERO);
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

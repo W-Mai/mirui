@@ -1,5 +1,5 @@
 use super::input::{pixel_tick_system, surface_gesture};
-use super::render::{modal_view, surface_view};
+use super::render::{modal_render, surface_render};
 use super::state::{PixelModalSurface, PixelSurface};
 use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
 #[cfg(feature = "std")]
@@ -734,7 +734,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
-    app.with_widget(surface_view()).with_widget(modal_view());
+    app.with_widget(surface_render::view())
+        .with_widget(modal_render::view());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     let model = app.add_model(PixelModel::default());

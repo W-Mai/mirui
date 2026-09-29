@@ -26,7 +26,7 @@ fn unit(v: f32) -> mirx::types::Fixed {
 pub struct Gradient;
 
 #[crate::view(component = Gradient, name = "Gradient", priority = 60)]
-fn gradient_render(renderer: &mut dyn Renderer, rect: &Rect, ctx: &mut ViewCtx) {
+pub fn gradient_render(renderer: &mut dyn Renderer, rect: &Rect, ctx: &mut ViewCtx) {
     let canvas =
         crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
     let linear = Paint::LinearGradient(LinearGradient {
@@ -74,8 +74,4 @@ fn gradient_render(renderer: &mut dyn Renderer, rect: &Rect, ctx: &mut ViewCtx) 
         },
         ctx.clip,
     );
-}
-
-pub fn gradient_view() -> View {
-    gradient_render::view()
 }

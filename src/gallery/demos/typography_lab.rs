@@ -1,10 +1,15 @@
 extern crate alloc;
 
+#[cfg(any(feature = "std", test))]
 mod caret;
+#[cfg(any(feature = "std", test))]
 mod composition;
+#[cfg(any(feature = "std", test))]
 mod contour;
 mod runtime;
+#[cfg(any(feature = "std", test))]
 mod state;
+#[cfg(any(feature = "std", test))]
 mod style;
 
 #[cfg(test)]

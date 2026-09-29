@@ -5,7 +5,7 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::ui::Theme;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 #[crate::component(bind(model))]
 pub(super) struct KineticOrbit {
@@ -49,7 +49,7 @@ impl InstrumentPainter<'_, '_> {
     name = "KineticOrbit",
     priority = 60
 )]
-fn orbit_render(
+pub(super) fn orbit_render(
     renderer: &mut dyn Renderer,
     component: &KineticOrbit,
     model: &ConsoleModel,
@@ -184,7 +184,7 @@ fn orbit_render(
     name = "KineticWave",
     priority = 61
 )]
-fn wave_render(
+pub(super) fn wave_render(
     renderer: &mut dyn Renderer,
     component: &KineticWave,
     model: &ConsoleModel,
@@ -225,12 +225,4 @@ fn wave_render(
             220,
         );
     }
-}
-
-pub(super) fn orbit_view() -> View {
-    orbit_render::view()
-}
-
-pub(super) fn wave_view() -> View {
-    wave_render::view()
 }

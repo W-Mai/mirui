@@ -1,4 +1,6 @@
 mod input;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod render;
 mod shell;
 mod state;

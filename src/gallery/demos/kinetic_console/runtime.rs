@@ -1,7 +1,7 @@
 use alloc::vec;
 
 use super::composition::build_widgets;
-use super::render::{orbit_view, wave_view};
+use super::render::{orbit_render, wave_render};
 use super::state::{ConsoleModel, ConsoleMotion};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
@@ -96,7 +96,8 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(&mut app.world);
-    app.with_widget(orbit_view()).with_widget(wave_view());
+    app.with_widget(orbit_render::view())
+        .with_widget(wave_render::view());
     let model = app.add_model(ConsoleModel::default());
     let motion = Signal::new(ConsoleMotion::default());
     app.add_system(kinetic_animation_system(model.clone(), motion.clone()));

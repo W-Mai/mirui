@@ -1,11 +1,11 @@
 use super::input::{EchoKeyboardPlugin, surface_gesture};
-use super::render::{modal_view, surface_view};
+#[cfg(feature = "persistence")]
+use super::persistence::install_persistence;
+use super::render::{modal_render, surface_render};
 use super::state::{EchoModalSurface, EchoSurface};
 use super::style::{ACCENT, BACKGROUND, HEADER, LINE, MUTED, PANEL, RUST, TEXT};
 use crate::gallery::play::echo::{Direction, EchoMessage, EchoModal, EchoModel};
 use crate::gallery::play::font::PlayFontPlugin;
-#[cfg(feature = "persistence")]
-use crate::gallery::play::storage::{EchoReplayLog, ReplayKind, replay_echo};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
@@ -664,39 +664,8 @@ where
     let model = app.add_model(EchoModel::default());
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
-    app.with_widget(surface_view()).with_widget(modal_view());
+    app.with_widget(surface_render::view())
+        .with_widget(modal_render::view());
     app.add_plugin(EchoKeyboardPlugin::new(model.clone()));
     app.compose(parent, |cx| build_widgets(cx, model));
-}
-
-#[cfg(feature = "persistence")]
-fn install_persistence<B, F>(
-    app: &mut App<B, F>,
-    model: <EchoModel as crate::core::model::Model>::Handle,
-) where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    use crate::core::model::ModelHandle;
-    use crate::core::persistence::PersistencePlugin;
-    use crate::gallery::play::storage::gallery_storage;
-
-    let save_model = model.clone();
-    let restore_model = model;
-    let plugin = PersistencePlugin::new(gallery_storage("mirui_echo_walker.bin"))
-        .bytes(
-            "echo_walker/replay",
-            move |_world| Some(ModelHandle::read(&save_model, EchoModel::encode_replay)),
-            move |_world, bytes| {
-                let Ok(log) = EchoReplayLog::decode(bytes, ReplayKind::Echo) else {
-                    return;
-                };
-                let Ok(model) = replay_echo(&log) else {
-                    return;
-                };
-                restore_model.restore_replay(model);
-            },
-        )
-        .autosave_every_ms(1000);
-    app.add_plugin(plugin);
 }

@@ -179,6 +179,37 @@ fn drag_cancel_restores_pad_and_commit_keeps_it() {
 }
 
 #[test]
+fn board_taps_use_one_semantic_command_without_a_trailing_drag_change() {
+    let mut model = MarbleModel::new();
+    let _ = model.set_page(Page::Edit);
+    for _ in 0..4 {
+        let _ = model.remove_selected();
+    }
+    let _ = model.toggle_add_mode();
+
+    let changes = model.tap_board(Vec2::new(143, 108));
+
+    assert!(changes.contains(ChangeSet::MODEL));
+    assert!(changes.contains(ChangeSet::VISUAL));
+    assert!(changes.contains(ChangeSet::PERSISTENCE));
+    assert_eq!(model.pad_count(), 2);
+    assert_eq!(model.end_board_drag(false), ChangeSet::NONE);
+}
+
+#[test]
+fn registered_board_tap_publishes_one_visual_revision() {
+    let mut app = App::headless(480, 320);
+    let model = app.add_model(MarbleModel::new());
+    model.set_page(Page::Edit);
+    let point = crate::core::model::ModelHandle::read(&model, |model| model.selected_pad().pos);
+    let before = model.visual_revision();
+
+    model.tap_board(point);
+
+    assert_eq!(model.visual_revision(), before + 1);
+}
+
+#[test]
 fn deleting_and_adding_preserves_unique_ids() {
     let mut model = MarbleModel::new();
     for _ in 0..4 {

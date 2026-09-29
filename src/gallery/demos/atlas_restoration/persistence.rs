@@ -15,7 +15,7 @@ where
     let plugin = PersistencePlugin::new(gallery_storage("mirui_atlas_restoration.bin"))
         .bytes(
             "atlas_restoration/save",
-            move |_world| Some(ModelHandle::read(&save_model, PictureModel::encode_vec)),
+            move |_world| ModelHandle::read(&save_model, PictureModel::encode_snapshot),
             move |_world, bytes| {
                 if let Ok(model) = PictureModel::decode(bytes) {
                     restore_model.restore(model);

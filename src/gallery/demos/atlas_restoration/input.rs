@@ -1,7 +1,9 @@
 use super::geometry::board_geometry;
 use super::state::PictureSurface;
 use crate::core::model::{Model, ModelHandle};
-use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModel};
+use crate::gallery::play::expeditions::{
+    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel,
+};
 use crate::gallery::play::picture::{PictureModel, PictureTool};
 use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
@@ -45,12 +47,34 @@ fn event_cell(
 }
 
 pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let Some(model) = ctx
+    let Some((model, expedition)) = ctx
         .component::<PictureSurface>(ctx.entity)
-        .map(|surface| surface.model.clone())
+        .map(|surface| (surface.model.clone(), surface.expedition.clone()))
     else {
         return false;
     };
+
+    match ctx.event {
+        GestureEvent::DragEnd { .. } => {
+            model.end_stroke(false);
+            return true;
+        }
+        GestureEvent::DragCancel { .. } => {
+            model.end_stroke(true);
+            return true;
+        }
+        _ => {}
+    }
+
+    if expedition.panel() != ExpeditionPanel::None || model.modal() != ExpeditionModal::None {
+        return matches!(
+            ctx.event,
+            GestureEvent::Tap { .. }
+                | GestureEvent::DragStart { .. }
+                | GestureEvent::DragMove { .. }
+        );
+    }
+
     match ctx.event {
         GestureEvent::Tap { x, y, .. } => {
             let Some(cell) = event_cell(ctx, &model, *x, *y) else {
@@ -70,12 +94,6 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
             };
             model.continue_stroke(cell);
         }
-        GestureEvent::DragEnd { .. } => {
-            model.end_stroke(false);
-        }
-        GestureEvent::DragCancel { .. } => {
-            model.end_stroke(true);
-        }
         _ => return false,
     }
     true
@@ -93,20 +111,11 @@ impl PictureKeyboardPlugin {
     ) -> Self {
         Self { model, expedition }
     }
-}
 
-impl<B, F> Plugin<B, F> for PictureKeyboardPlugin
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    fn build(&mut self, _app: &mut App<B, F>) {}
-
-    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
-        let InputEvent::CharInput { ch } = event else {
-            return false;
-        };
-        if self.expedition.panel() != ExpeditionPanel::None {
+    pub(super) fn on_char(&self, ch: char) -> bool {
+        if self.expedition.panel() != ExpeditionPanel::None
+            || self.model.modal() != ExpeditionModal::None
+        {
             return false;
         }
         match ch {
@@ -121,5 +130,20 @@ where
             _ => return false,
         };
         true
+    }
+}
+
+impl<B, F> Plugin<B, F> for PictureKeyboardPlugin
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    fn build(&mut self, _app: &mut App<B, F>) {}
+
+    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
+        let InputEvent::CharInput { ch } = event else {
+            return false;
+        };
+        self.on_char(*ch)
     }
 }

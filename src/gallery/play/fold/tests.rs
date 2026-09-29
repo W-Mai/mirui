@@ -1,6 +1,7 @@
 use super::model::{FoldModel, SAVE_LEN};
 use super::rules::{initial, moved, won};
 use super::solver::solve;
+use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
     Direction4, EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionSaveError, fold_level,
 };
@@ -32,8 +33,20 @@ fn exact_hint_solves_every_initial_state() {
 fn invalid_moves_do_not_enter_history() {
     let mut model = FoldModel::default();
     let steps = model.steps();
-    model.move_direction(Direction4::Left);
+    let changes = model.move_direction(Direction4::Left);
     assert_eq!(model.steps(), steps);
+    assert!(changes.contains(ChangeSet::MODEL));
+    assert!(!changes.contains(ChangeSet::VISUAL));
+    assert!(!changes.contains(ChangeSet::PERSISTENCE));
+}
+
+#[test]
+fn hints_only_change_observed_and_persisted_state() {
+    let mut model = FoldModel::default();
+    let changes = model.request_hint(&mut ExpeditionHintWorkspace::new());
+    assert!(changes.contains(ChangeSet::MODEL));
+    assert!(changes.contains(ChangeSet::PERSISTENCE));
+    assert!(!changes.contains(ChangeSet::VISUAL));
 }
 
 #[test]

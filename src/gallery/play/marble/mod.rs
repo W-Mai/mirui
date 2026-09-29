@@ -8,7 +8,9 @@ mod types;
 mod tests;
 
 #[allow(unused_imports)]
-pub(crate) use model::{MarbleModel, MarbleModelHandle};
+pub(crate) use model::MarbleModel;
+#[cfg(test)]
+pub(crate) use model::MarbleModelHandle;
 #[allow(unused_imports)]
 pub(crate) use types::{
     Ball, MAX_BALLS, MAX_PADS, MAX_PARTICLES, MAX_RINGS, MarbleSound, PAD_PITCHES, PALETTE, Pad,

@@ -79,6 +79,7 @@ fn cancelled_drag_restores_the_whole_garden_transaction() {
             target: surface,
         },
     ));
+    world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
         surface,
@@ -191,6 +192,7 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
             target: surface,
         },
     ));
+    world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
         surface,

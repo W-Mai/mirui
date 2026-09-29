@@ -1,5 +1,5 @@
 use super::input::orbit_tick_system;
-use super::render::{modal_view, surface_view};
+use super::render::{modal_render, surface_render};
 use super::state::{OrbitModalSurface, OrbitSurface};
 use super::style::{BACKGROUND, CYAN, INK, MUTED, ORANGE, SPACE, label_style};
 #[cfg(feature = "std")]
@@ -958,7 +958,8 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
     let model = app.add_model(OrbitModel::default());
-    app.with_widget(surface_view()).with_widget(modal_view());
+    app.with_widget(surface_render::view())
+        .with_widget(modal_render::view());
     app.add_system(orbit_tick_system::system(model.clone()));
     app.compose(parent, |cx| build_widgets(cx, model));
 }

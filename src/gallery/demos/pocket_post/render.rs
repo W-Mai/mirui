@@ -7,7 +7,7 @@ use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::post::{PostModal, PostModel, PostParcel};
 use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn paint_track(painter: &mut PlayPainter<'_, '_>, from: Point, to: Point, active: bool) {
     painter.line(from, to, Color::rgb(12, 22, 26), Fixed::from_int(12));
@@ -412,12 +412,4 @@ pub(super) fn modal_render(
         painter.fill(Rect::new(49, 124, 96, 96), BOARD, Fixed::from_int(48));
         painter.circle(Point::new(97, 172), Fixed::from_int(8), ACCENT);
     }
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

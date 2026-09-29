@@ -8,10 +8,9 @@ use crate::gallery::play::expeditions::{
 };
 use crate::gallery::play::fold::FoldModel;
 
-#[crate::component(bind(game, expedition))]
+#[crate::component(bind(game))]
 pub(super) struct FoldSurface {
     pub(super) game: FoldModel,
-    pub(super) expedition: ExpeditionUiModel,
 }
 
 #[derive(Clone)]

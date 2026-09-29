@@ -1,5 +1,7 @@
 use super::input::TwinKeyboardPlugin;
-use super::render::surface_view;
+#[cfg(feature = "persistence")]
+use super::persistence::install_persistence;
+use super::render::surface_render;
 use super::state::{TwinHintService, TwinSurface, next, select_map_level};
 use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
 use crate::gallery::play::expeditions::{
@@ -1219,7 +1221,6 @@ fn build_widgets(game: TwinModel, expedition: ExpeditionUiModel, hints: TwinHint
         View (id: "twin_surface", width: 480, height: 320, clip_children: true) [
             TwinSurface {
                 game: game.clone(),
-                expedition: expedition.clone(),
             },
         ] {
             compose_hud (game)
@@ -1234,15 +1235,20 @@ fn build_widgets(game: TwinModel, expedition: ExpeditionUiModel, hints: TwinHint
     };
 }
 
-pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
+fn setup_with_models<B, F, Capture>(app: &mut App<B, F>, parent: Entity, capture: Capture)
 where
     B: Surface,
     F: RendererFactory<B>,
+    Capture: FnOnce(
+        &<TwinModel as crate::core::model::Model>::Handle,
+        &<ExpeditionUiModel as crate::core::model::Model>::Handle,
+    ),
 {
     app.add_plugin(PlayFontPlugin);
-    app.with_widget(surface_view());
+    app.with_widget(surface_render::view());
     let game = app.add_model(TwinModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());
+    capture(&game, &expedition);
     let hints = TwinHintService::new();
     #[cfg(feature = "persistence")]
     install_persistence(app, game.clone());
@@ -1254,30 +1260,29 @@ where
     app.compose(parent, |cx| build_widgets(cx, game, expedition, hints));
 }
 
-#[cfg(feature = "persistence")]
-fn install_persistence<B, F>(
-    app: &mut App<B, F>,
-    game: <TwinModel as crate::core::model::Model>::Handle,
-) where
+pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
+where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::core::model::ModelHandle;
-    use crate::core::persistence::PersistencePlugin;
-    use crate::gallery::play::storage::gallery_storage;
+    setup_with_models(app, parent, |_, _| {});
+}
 
-    let save_game = game.clone();
-    let restore_game = game;
-    let plugin = PersistencePlugin::new(gallery_storage("mirui_twin_beacons.bin"))
-        .bytes(
-            "twin_beacons/save",
-            move |_world| Some(ModelHandle::read(&save_game, TwinModel::encode_vec)),
-            move |_world, bytes| {
-                if let Ok(restored) = TwinModel::decode(bytes) {
-                    restore_game.restore(restored);
-                }
-            },
-        )
-        .autosave_every_ms(1000);
-    app.add_plugin(plugin);
+#[cfg(test)]
+pub(super) fn setup_test_app<B, F>(
+    app: &mut App<B, F>,
+    parent: Entity,
+) -> (
+    <TwinModel as crate::core::model::Model>::Handle,
+    <ExpeditionUiModel as crate::core::model::Model>::Handle,
+)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    let mut handles = None;
+    setup_with_models(app, parent, |game, expedition| {
+        handles = Some((game.clone(), expedition.clone()));
+    });
+    handles.expect("Twin models are captured during setup")
 }

@@ -1,6 +1,19 @@
 use super::model::PictureModel;
-use super::types::{HISTORY_CAPACITY, PictureCell, SAVE_LEN};
-use crate::gallery::play::expeditions::{EXPEDITION_LEVELS, ExpeditionSaveError};
+use super::types::{HISTORY_CAPACITY, PictureCell, PictureTool, SAVE_LEN};
+use crate::gallery::play::change::ChangeSet;
+use crate::gallery::play::expeditions::{
+    Direction4, EXPEDITION_LEVELS, ExpeditionModal, ExpeditionSaveError,
+};
+
+fn completed_model(level: u8) -> PictureModel {
+    let mut model = PictureModel::default();
+    model.level = level;
+    model.reset_board();
+    while model.modal() == ExpeditionModal::None {
+        assert_ne!(model.reveal_hint(), ChangeSet::NONE);
+    }
+    model
+}
 
 #[test]
 fn generated_clues_match_every_target() {
@@ -59,6 +72,57 @@ fn observed_cells_cannot_be_changed() {
     model.begin_stroke(cell);
     assert_eq!(model.cell(cell), before);
     assert_eq!(model.history_len(), 0);
+}
+
+#[test]
+fn result_and_final_modals_freeze_picture_commands() {
+    for (level, modal) in [
+        (0, ExpeditionModal::Result),
+        (EXPEDITION_LEVELS as u8 - 1, ExpeditionModal::Final),
+    ] {
+        let mut model = completed_model(level);
+        assert_eq!(model.modal(), modal);
+        let before = (
+            model.cells,
+            model.cursor,
+            model.tool(),
+            model.history_len(),
+            model.hints(),
+            model.message(),
+        );
+
+        assert_eq!(model.move_cursor(Direction4::Right), ChangeSet::NONE);
+        assert_eq!(model.apply_cursor(Some(PictureTool::Mark)), ChangeSet::NONE);
+        assert_eq!(model.begin_stroke(0), ChangeSet::NONE);
+        assert_eq!(model.continue_stroke(1), ChangeSet::NONE);
+        assert_eq!(model.apply_cell(0), ChangeSet::NONE);
+        assert_eq!(model.check(), ChangeSet::NONE);
+        assert_eq!(
+            (
+                model.cells,
+                model.cursor,
+                model.tool(),
+                model.history_len(),
+                model.hints(),
+                model.message(),
+            ),
+            before
+        );
+    }
+}
+
+#[test]
+fn snapshots_only_include_committed_strokes() {
+    let mut model = PictureModel::default();
+    let cell = (0..model.level().size() * model.level().size())
+        .find(|cell| !model.level().is_given(*cell))
+        .expect("Picture level has an editable cell");
+
+    assert!(model.encode_snapshot().is_some());
+    assert_ne!(model.begin_stroke(cell), ChangeSet::NONE);
+    assert!(model.encode_snapshot().is_none());
+    assert_ne!(model.end_stroke(false), ChangeSet::NONE);
+    assert!(model.encode_snapshot().is_some());
 }
 
 #[test]

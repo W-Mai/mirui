@@ -1,7 +1,10 @@
+#[cfg(any(feature = "std", test))]
 mod composition;
+#[cfg(any(feature = "std", test))]
 mod gesture;
 #[cfg(feature = "std")]
 mod runtime;
+#[cfg(any(feature = "std", test))]
 mod state;
 
 #[cfg(test)]

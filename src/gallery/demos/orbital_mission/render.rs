@@ -5,7 +5,7 @@ use crate::gallery::play::orbit::{OrbitModal, OrbitModel, OrbitPage, OrbitPoint}
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn map_point(point: OrbitPoint) -> Point {
     Point {
@@ -188,7 +188,12 @@ fn paint_record(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     name = "OrbitSurface",
     priority = 60
 )]
-fn surface_render(renderer: &mut dyn Renderer, model: &OrbitModel, rect: &Rect, ctx: &mut ViewCtx) {
+pub(super) fn surface_render(
+    renderer: &mut dyn Renderer,
+    model: &OrbitModel,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
@@ -207,7 +212,12 @@ fn surface_render(renderer: &mut dyn Renderer, model: &OrbitModel, rect: &Rect, 
     name = "OrbitModalSurface",
     priority = 70
 )]
-fn modal_render(renderer: &mut dyn Renderer, model: &OrbitModel, rect: &Rect, ctx: &mut ViewCtx) {
+pub(super) fn modal_render(
+    renderer: &mut dyn Renderer,
+    model: &OrbitModel,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
     if model.modal() == OrbitModal::None {
         return;
     }
@@ -227,11 +237,4 @@ fn modal_render(renderer: &mut dyn Renderer, model: &OrbitModel, rect: &Rect, ct
         Fixed::ZERO,
     );
     painter.fill(Rect::new(42, 73, 396, 32), INK, Fixed::ZERO);
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

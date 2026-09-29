@@ -367,6 +367,7 @@ impl EchoModel {
         self.state.tick
     }
 
+    #[model(local)]
     pub(crate) fn position(&self) -> u8 {
         self.state.pos
     }

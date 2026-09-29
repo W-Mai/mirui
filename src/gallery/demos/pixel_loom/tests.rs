@@ -108,7 +108,7 @@ fn tap_uses_the_bound_model_and_commits_one_undo_step() {
 }
 
 #[test]
-fn cancelled_drag_restores_the_whole_stroke() {
+fn stroke_completion_does_not_depend_on_layout_components() {
     let mut world = fixture();
     let surface = world.find_by_id("pixel_surface").unwrap();
     let rect = Rect::new(0, 0, 480, 320);
@@ -138,6 +138,7 @@ fn cancelled_drag_restores_the_whole_stroke() {
             target: surface,
         },
     ));
+    world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
         surface,
@@ -148,6 +149,32 @@ fn cancelled_drag_restores_the_whole_stroke() {
         },
     ));
     assert_eq!(with_model(&world, |model| *model.frames()), before);
+    assert_eq!(with_model(&world, PixelModel::history_len), 0);
+
+    world.insert(surface, ComputedRect(rect));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragStart {
+            x: Fixed::from_int(18),
+            y: Fixed::from_int(60),
+            target: surface,
+        },
+    ));
+    world.remove::<ComputedRect>(surface);
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragEnd {
+            x: Fixed::from_int(18),
+            y: Fixed::from_int(60),
+            vx: Fixed::ZERO,
+            vy: Fixed::ZERO,
+            target: surface,
+        },
+    ));
+    assert_ne!(with_model(&world, |model| *model.frames()), before);
+    assert_eq!(with_model(&world, PixelModel::history_len), 1);
 }
 
 #[test]

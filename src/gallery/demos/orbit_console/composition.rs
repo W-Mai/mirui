@@ -1,4 +1,5 @@
-use super::state::{ConsoleMode, ConsoleState};
+use super::ConsoleMode;
+use super::state::ConsoleState;
 use super::style::{BLUE, BORDER, MINT, SURFACE, TEXT, TEXT_MUTED};
 use super::visuals::{ActivityPlot, ConsoleBackdrop, OrbitInstrument, SignalMeter};
 use crate::prelude::*;

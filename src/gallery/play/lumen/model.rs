@@ -174,6 +174,7 @@ impl LumenModel {
         self.rotate(index)
     }
 
+    #[model(local)]
     pub(crate) fn rotate(&mut self, index: usize) -> ChangeSet {
         if self.levels_open || index >= self.level().mirrors.len() {
             return ChangeSet::NONE;

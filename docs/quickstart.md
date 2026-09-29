@@ -349,7 +349,7 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/andr
 cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios --name hello-mirui-ios
 ```
 
-`--name` supplies the project name. The generator asks for the mirui version and, where applicable, the rendering backend, then fills the Cargo manifests and source files. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
+`--name` supplies the generated package name. The generator asks for the mirui version and, where applicable, the rendering backend, then fills the Cargo manifests and source files. The `wasm` template uses the shipped `web-canvas` Surface and runs through trunk.
 
 ## Where to go next
 

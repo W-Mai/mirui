@@ -1,12 +1,6 @@
+use super::ConsoleMode;
 use super::style::{BLUE, MINT, SURFACE, TEXT_MUTED, VIOLET};
 use crate::prelude::{ColorToken, Fixed};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConsoleMode {
-    Orbit,
-    Flow,
-    Pulse,
-}
 
 impl ConsoleMode {
     pub(super) const fn accent(self) -> ColorToken {
@@ -139,10 +133,4 @@ impl ConsoleState {
             self.phase -= Fixed::from_int(360);
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DemoRunMode {
-    Live,
-    Capture,
 }

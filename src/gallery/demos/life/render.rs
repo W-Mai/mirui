@@ -2,10 +2,10 @@ use super::state::LifeBoard;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 #[crate::view(component = LifeBoard, name = "LifeBoard", priority = 60)]
-fn life_render(
+pub fn life_render(
     renderer: &mut dyn Renderer,
     component: &LifeBoard,
     rect: &Rect,
@@ -68,8 +68,4 @@ fn life_render(
             );
         }
     }
-}
-
-pub fn life_view() -> View {
-    life_render::view()
 }

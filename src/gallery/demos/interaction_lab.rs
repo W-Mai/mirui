@@ -1,6 +1,10 @@
+#[cfg(any(feature = "std", test))]
 mod composition;
+#[cfg(any(feature = "std", test))]
 mod runtime;
+#[cfg(any(feature = "std", test))]
 mod state;
+#[cfg(any(feature = "std", test))]
 mod style;
 
 #[cfg(test)]

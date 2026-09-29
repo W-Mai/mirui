@@ -1,17 +1,18 @@
+#[cfg(feature = "std")]
+use super::DemoRunMode;
 #[cfg(any(feature = "std", test))]
 use super::FONT_BYTES;
 #[cfg(feature = "std")]
 use super::composition::build_widgets;
 use super::state::ConsoleState;
 #[cfg(feature = "std")]
-use super::state::DemoRunMode;
-#[cfg(feature = "std")]
 use super::style::BG;
 #[cfg(feature = "std")]
-use super::visuals::{activity_view, backdrop_view, orbit_view, signal_view};
+use super::visuals::{activity_render, backdrop_render, orbit_render, signal_render};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
+#[cfg(any(feature = "std", test))]
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::render::font::{Font, FontManager};
@@ -60,10 +61,10 @@ where
     if let Some(style) = app.world.get_mut::<Style>(parent) {
         style.set_bg_color(BG);
     }
-    app.with_widget(backdrop_view())
-        .with_widget(orbit_view())
-        .with_widget(signal_view())
-        .with_widget(activity_view());
+    app.with_widget(backdrop_render::view())
+        .with_widget(orbit_render::view())
+        .with_widget(signal_render::view())
+        .with_widget(activity_render::view());
     if run_mode == DemoRunMode::Live && app.world.resource::<MonoClock>().is_none() {
         app.add_plugin(StdInstantClockPlugin);
     }

@@ -6,7 +6,7 @@ use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::picture::{PictureCell, PictureModel};
 use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &PictureModel) {
     let level = model.level();
@@ -92,7 +92,7 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &PictureModel) {
     name = "PictureSurface",
     priority = 60
 )]
-fn surface_render(
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
     model: &PictureModel,
     rect: &Rect,
@@ -112,8 +112,4 @@ fn surface_render(
         Fixed::ONE,
         Fixed::from_int(9),
     );
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
 }

@@ -10,7 +10,7 @@ use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
 use crate::ui::Theme;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 struct DemoPainter<'a> {
     renderer: &'a mut dyn Renderer,
@@ -533,7 +533,7 @@ impl ActivityPlot {
     name = "ConsoleBackdrop",
     priority = 10
 )]
-fn backdrop_render(
+pub(super) fn backdrop_render(
     renderer: &mut dyn Renderer,
     component: &ConsoleBackdrop,
     rect: &Rect,
@@ -557,7 +557,7 @@ fn backdrop_render(
     name = "OrbitInstrument",
     priority = 60
 )]
-fn orbit_render(
+pub(super) fn orbit_render(
     renderer: &mut dyn Renderer,
     component: &OrbitInstrument,
     model: &ConsoleState,
@@ -577,7 +577,7 @@ fn orbit_render(
     name = "SignalMeter",
     priority = 60
 )]
-fn signal_render(
+pub(super) fn signal_render(
     renderer: &mut dyn Renderer,
     component: &SignalMeter,
     model: &ConsoleState,
@@ -597,7 +597,7 @@ fn signal_render(
     name = "ActivityPlot",
     priority = 60
 )]
-fn activity_render(
+pub(super) fn activity_render(
     renderer: &mut dyn Renderer,
     component: &ActivityPlot,
     model: &ConsoleState,
@@ -608,20 +608,4 @@ fn activity_render(
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     component.render(&mut painter, rect, model, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
-}
-
-pub(super) fn backdrop_view() -> View {
-    backdrop_render::view()
-}
-
-pub(super) fn orbit_view() -> View {
-    orbit_render::view()
-}
-
-pub(super) fn signal_view() -> View {
-    signal_render::view()
-}
-
-pub(super) fn activity_view() -> View {
-    activity_render::view()
 }

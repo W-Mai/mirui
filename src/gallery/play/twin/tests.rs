@@ -1,8 +1,9 @@
 use super::model::{SAVE_LEN, TwinModel};
 use super::rules::{initial, moved, won};
 use super::solver::solve;
+use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
-    EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionSaveError, twin_level,
+    Direction4, EXPEDITION_LEVELS, ExpeditionHintWorkspace, ExpeditionSaveError, twin_level,
 };
 
 #[test]
@@ -46,6 +47,30 @@ fn exact_hint_solves_every_initial_state() {
         let (_, remaining) = solve(level, initial(level), &mut workspace).unwrap();
         assert_eq!(remaining, u16::from(level.par()), "Twin level {index}");
     }
+}
+
+#[test]
+fn invalid_moves_only_change_observed_message() {
+    let mut model = TwinModel::default();
+    let steps = model.steps();
+    let direction = Direction4::ALL
+        .into_iter()
+        .find(|direction| moved(model.level(), model.state, *direction).is_none())
+        .expect("initial Twin state has a blocked direction");
+    let changes = model.move_direction(direction);
+    assert_eq!(model.steps(), steps);
+    assert!(changes.contains(ChangeSet::MODEL));
+    assert!(!changes.contains(ChangeSet::VISUAL));
+    assert!(!changes.contains(ChangeSet::PERSISTENCE));
+}
+
+#[test]
+fn hints_only_change_observed_and_persisted_state() {
+    let mut model = TwinModel::default();
+    let changes = model.request_hint(&mut ExpeditionHintWorkspace::new());
+    assert!(changes.contains(ChangeSet::MODEL));
+    assert!(changes.contains(ChangeSet::PERSISTENCE));
+    assert!(!changes.contains(ChangeSet::VISUAL));
 }
 
 #[test]

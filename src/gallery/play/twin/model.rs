@@ -21,7 +21,13 @@ const SAVE_PAYLOAD: usize = 10 + RECORD_BYTES + ACTION_BYTES;
 #[cfg(any(feature = "persistence", test))]
 pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(
+    change = ChangeSet,
+    watch(
+        visual = ChangeSet::VISUAL,
+        persistence = ChangeSet::PERSISTENCE
+    )
+)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TwinModel {
     pub(super) level: u8,
@@ -127,12 +133,12 @@ impl TwinModel {
         }
     }
 
-    #[observe]
+    #[model(local)]
     pub(crate) fn par(&self) -> u8 {
         self.level().par()
     }
 
-    #[observe]
+    #[model(local)]
     pub(crate) fn won(&self) -> bool {
         won(self.level(), self.state)
     }
@@ -143,8 +149,11 @@ impl TwinModel {
         }
         let level = self.level();
         let Some(next) = moved(level, self.state, direction) else {
+            if self.message == TwinMessage::Blocked {
+                return ChangeSet::NONE;
+            }
             self.message = TwinMessage::Blocked;
-            return ChangeSet::MODEL | ChangeSet::VISUAL;
+            return ChangeSet::MODEL;
         };
         let collected = !self.state.key && next.key;
         self.state = next;
@@ -157,7 +166,7 @@ impl TwinModel {
             TwinMessage::Ready
         };
         if self.won() {
-            let stars = movement_stars(self.hints, self.steps(), level.par());
+            let stars = movement_stars(self.hints, self.steps(), self.par());
             self.records[usize::from(self.level)].submit(self.steps(), stars);
             self.modal = if self.level as usize + 1 == EXPEDITION_LEVELS {
                 ExpeditionModal::Final
@@ -213,12 +222,19 @@ impl TwinModel {
         let Some((direction, remaining)) = solve(self.level(), self.state, workspace) else {
             return ChangeSet::NONE;
         };
-        if self.last_hint != Some(signature) {
+        let hint_changed = self.last_hint != Some(signature);
+        if hint_changed {
             self.hints = self.hints.saturating_add(1);
             self.last_hint = Some(signature);
         }
-        self.message = TwinMessage::Hint(direction, remaining);
-        accepted_change()
+        let message = TwinMessage::Hint(direction, remaining);
+        let message_changed = self.message != message;
+        self.message = message;
+        match (hint_changed, message_changed) {
+            (true, _) => ChangeSet::MODEL | ChangeSet::PERSISTENCE,
+            (false, true) => ChangeSet::MODEL,
+            (false, false) => ChangeSet::NONE,
+        }
     }
 
     #[model(local)]
@@ -306,7 +322,7 @@ impl TwinModel {
             return ChangeSet::NONE;
         }
         *self = restored;
-        accepted_change()
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
     #[cfg(feature = "persistence")]

@@ -1,6 +1,8 @@
 //! Echo Walker is a deterministic route-recording puzzle with fixed-capacity state.
 
 mod input;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod render;
 mod shell;
 mod state;

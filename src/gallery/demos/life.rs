@@ -9,7 +9,7 @@ mod tests;
 pub use composition::build_widgets;
 #[cfg(feature = "std")]
 pub use composition::setup_app;
-pub use render::life_view;
+pub use render::life_render::view as life_view;
 pub use runtime::life_step_system;
 pub use state::LifeBoard;
 

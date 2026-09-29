@@ -2,8 +2,8 @@ use super::geometry::{board_geometry_for_level, clues_for_level};
 use super::input::{PictureKeyboardPlugin, surface_gesture};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
-use super::render::surface_view;
-use super::state::{PictureExpeditionState, PictureSurface};
+use super::render::surface_render;
+use super::state::PictureSurface;
 use super::style::{APRICOT, BG, CELL, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
 use crate::gallery::play::expeditions::{
     ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
@@ -1453,8 +1453,8 @@ fn compose_summary_panel(model: PictureModel, expedition: ExpeditionUiModel) -> 
 fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
     ui! {
         View (id: "picture_surface", width: 480, height: 320, clip_children: true) [
-            PictureSurface { model: model.clone() },
-            PictureExpeditionState {
+            PictureSurface {
+                model: model.clone(),
                 expedition: expedition.clone(),
             },
             TouchAction::None,
@@ -1487,6 +1487,6 @@ where
     ));
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
-    app.with_widget(surface_view());
+    app.with_widget(surface_render::view());
     app.compose(parent, |cx| build_widgets(cx, model, expedition));
 }

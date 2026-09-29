@@ -32,6 +32,17 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     else {
         return false;
     };
+    match ctx.event {
+        GestureEvent::DragEnd { .. } => {
+            model.end_stroke(false);
+            return true;
+        }
+        GestureEvent::DragCancel { .. } => {
+            model.end_stroke(true);
+            return true;
+        }
+        _ => {}
+    }
     let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
         return false;
     };
@@ -53,12 +64,6 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
                 return true;
             };
             model.continue_stroke(cell_x, cell_y);
-        }
-        GestureEvent::DragEnd { .. } => {
-            model.end_stroke(false);
-        }
-        GestureEvent::DragCancel { .. } => {
-            model.end_stroke(true);
         }
         _ => return false,
     }

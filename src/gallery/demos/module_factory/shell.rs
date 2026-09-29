@@ -1,5 +1,5 @@
 use super::input::{factory_tick_system, surface_gesture};
-use super::render::{modal_view, surface_view};
+use super::render::{modal_render, surface_render};
 use super::state::{FactoryModalSurface, FactorySurface};
 use super::style::{ACCENT, BACKGROUND, INK, LINE, MUTED};
 #[cfg(feature = "std")]
@@ -1036,7 +1036,8 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
-    app.with_widget(surface_view()).with_widget(modal_view());
+    app.with_widget(surface_render::view())
+        .with_widget(modal_render::view());
     let model = app.add_model(FactoryModel::default());
     app.add_system(factory_tick_system::system(model.clone()));
     app.compose(parent, |cx| build_widgets(cx, model));

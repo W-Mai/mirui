@@ -10,7 +10,8 @@ mod scene;
 mod tests;
 
 pub use composition::build_widgets;
-pub use render::{Gradient, gradient_view};
+pub use render::Gradient;
+pub use render::gradient_render::view as gradient_view;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 

@@ -372,15 +372,24 @@ pub(super) fn board_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     else {
         return false;
     };
+    match ctx.event {
+        GestureEvent::DragEnd { .. } => {
+            model.end_board_drag(false);
+            return true;
+        }
+        GestureEvent::DragCancel { .. } => {
+            model.end_board_drag(true);
+            return true;
+        }
+        _ => {}
+    }
     let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
         return false;
     };
     let (x, y) = match ctx.event {
         GestureEvent::Tap { x, y, .. }
         | GestureEvent::DragStart { x, y, .. }
-        | GestureEvent::DragMove { x, y, .. }
-        | GestureEvent::DragEnd { x, y, .. }
-        | GestureEvent::DragCancel { x, y, .. } => (*x, *y),
+        | GestureEvent::DragMove { x, y, .. } => (*x, *y),
         _ => return false,
     };
     let Some(point) = event_point(rect, x, y) else {
@@ -393,15 +402,8 @@ pub(super) fn board_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
         GestureEvent::DragMove { .. } => {
             model.move_board_drag(point);
         }
-        GestureEvent::DragEnd { .. } => {
-            model.end_board_drag(false);
-        }
-        GestureEvent::DragCancel { .. } => {
-            model.end_board_drag(true);
-        }
         GestureEvent::Tap { .. } => {
-            model.begin_board_drag(point);
-            model.end_board_drag(false);
+            model.tap_board(point);
         }
         _ => return false,
     };

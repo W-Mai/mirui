@@ -1,7 +1,9 @@
 use super::geometry::board_geometry;
+use super::input::PictureKeyboardPlugin;
 use super::setup_app;
-use super::state::{PictureExpeditionState, PictureSurface};
+use super::state::PictureSurface;
 use crate::core::model::ModelHandle;
+use crate::gallery::play::expeditions::{ExpeditionModal, ExpeditionUiModelHandle};
 use crate::gallery::play::picture::{PictureModel, PictureModelHandle};
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
@@ -21,21 +23,10 @@ fn fixture() -> World {
     app.world
 }
 
-fn handles(
-    world: &World,
-) -> (
-    PictureModelHandle,
-    crate::gallery::play::expeditions::ExpeditionUiModelHandle,
-) {
+fn handles(world: &World) -> (PictureModelHandle, ExpeditionUiModelHandle) {
     let surface = world.find_by_id("picture_surface").unwrap();
-    (
-        world.get::<PictureSurface>(surface).unwrap().model.clone(),
-        world
-            .get::<PictureExpeditionState>(surface)
-            .unwrap()
-            .expedition
-            .clone(),
-    )
+    let surface = world.get::<PictureSurface>(surface).unwrap();
+    (surface.model.clone(), surface.expedition.clone())
 }
 
 fn flush(world: &mut World) {
@@ -124,10 +115,89 @@ fn surface_gesture_uses_the_bound_picture_model() {
 }
 
 #[test]
+fn overlays_block_surface_taps_drags_and_keyboard_commands() {
+    let mut world = fixture();
+    let surface = world.find_by_id("picture_surface").unwrap();
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    let (model, expedition) = handles(&world);
+    let keyboard = PictureKeyboardPlugin::new(model.clone(), expedition.clone());
+    let (cell, x, y) = editable_cell(&model);
+    let before = ModelHandle::read(&model, |model| model.cell(cell));
+    let cursor = ModelHandle::read(&model, PictureModel::cursor);
+
+    expedition.open_rules();
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::Tap {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragStart {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragMove {
+            x: Fixed::from_int(x + 10),
+            y: Fixed::from_int(y),
+            dx: Fixed::from_int(10),
+            dy: Fixed::ZERO,
+            target: surface,
+        },
+    ));
+    assert!(!keyboard.on_char('d'));
+    assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
+    assert_eq!(ModelHandle::read(&model, PictureModel::cursor), cursor);
+    assert_eq!(model.history_len(), 0);
+
+    expedition.close();
+    while model.modal() == ExpeditionModal::None {
+        model.reveal_hint();
+    }
+    assert_eq!(model.modal(), ExpeditionModal::Result);
+    let cursor = ModelHandle::read(&model, PictureModel::cursor);
+    let tool = model.tool();
+    let history_len = model.history_len();
+    assert!(!keyboard.on_char('d'));
+    assert!(!keyboard.on_char('x'));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::Tap {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragStart {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert_eq!(ModelHandle::read(&model, PictureModel::cursor), cursor);
+    assert_eq!(model.tool(), tool);
+    assert_eq!(model.history_len(), history_len);
+}
+
+#[test]
 fn stroke_completion_does_not_depend_on_layout_components() {
     let mut world = fixture();
     let surface = world.find_by_id("picture_surface").unwrap();
-    let (model, _) = handles(&world);
+    let (model, expedition) = handles(&world);
     let (cell, x, y) = editable_cell(&model);
     let before = ModelHandle::read(&model, |model| model.cell(cell));
 
@@ -141,6 +211,7 @@ fn stroke_completion_does_not_depend_on_layout_components() {
             target: surface,
         },
     ));
+    expedition.open_rules();
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
@@ -154,6 +225,7 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(model.history_len(), 0);
 
+    expedition.close();
     world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
     assert!(trigger(
         &mut world,
@@ -164,6 +236,7 @@ fn stroke_completion_does_not_depend_on_layout_components() {
             target: surface,
         },
     ));
+    expedition.open_rules();
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
@@ -178,6 +251,47 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     ));
     assert_ne!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(model.history_len(), 1);
+}
+
+#[test]
+fn keyboard_commands_wait_for_the_active_stroke_transaction() {
+    let mut world = fixture();
+    let surface = world.find_by_id("picture_surface").unwrap();
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    let (model, expedition) = handles(&world);
+    let keyboard = PictureKeyboardPlugin::new(model.clone(), expedition);
+    let (cell, x, y) = editable_cell(&model);
+    let before = ModelHandle::read(&model, |model| model.cell(cell));
+    let hints = model.hints();
+    let history_len = model.history_len();
+
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragStart {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert!(keyboard.on_char('h'));
+    assert_eq!(model.hints(), hints);
+    assert_eq!(model.history_len(), history_len);
+
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragEnd {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            vx: Fixed::ZERO,
+            vy: Fixed::ZERO,
+            target: surface,
+        },
+    ));
+    assert_eq!(model.history_len(), history_len + 1);
+    model.undo();
+    assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
 }
 
 #[test]

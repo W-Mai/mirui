@@ -3,7 +3,7 @@ use crate::prelude::*;
 use crate::render::renderer::Renderer;
 use crate::render::scene::{LineCap, LineJoin, Paint};
 use crate::types::Transform;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 pub(super) static DIAMOND_PATH: Path = path!(M 50 0 L 100 50 L 50 100 L 0 50 Z);
 
@@ -23,7 +23,7 @@ impl Default for Diamond {
 }
 
 #[crate::view(component = Diamond, name = "Diamond", priority = 60)]
-fn diamond_render(
+pub fn diamond_render(
     renderer: &mut dyn Renderer,
     component: &Diamond,
     rect: &Rect,
@@ -53,10 +53,6 @@ fn diamond_render(
         },
         ctx.clip,
     );
-}
-
-pub fn diamond_view() -> View {
-    diamond_render::view()
 }
 
 pub const PALETTE: [Color; 3] = [

@@ -134,7 +134,7 @@ impl PictureModel {
     }
 
     pub(crate) fn set_tool(&mut self, tool: PictureTool) -> ChangeSet {
-        if self.tool == tool || self.modal != ExpeditionModal::None {
+        if self.stroke_active || self.tool == tool || self.modal != ExpeditionModal::None {
             return ChangeSet::NONE;
         }
         self.tool = tool;
@@ -142,11 +142,11 @@ impl PictureModel {
     }
 
     pub(crate) fn begin_stroke(&mut self, cell: u8) -> ChangeSet {
+        if self.stroke_active || self.modal != ExpeditionModal::None {
+            return ChangeSet::NONE;
+        }
         let level = self.level();
-        if self.modal != ExpeditionModal::None
-            || usize::from(cell) >= usize::from(level.size()).pow(2)
-            || level.is_given(cell)
-        {
+        if usize::from(cell) >= usize::from(level.size()).pow(2) || level.is_given(cell) {
             self.message = PictureMessage::Observed;
             return ChangeSet::MODEL | ChangeSet::VISUAL;
         }
@@ -164,7 +164,7 @@ impl PictureModel {
     }
 
     pub(crate) fn continue_stroke(&mut self, cell: u8) -> ChangeSet {
-        if !self.stroke_active || cell == self.stroke_last {
+        if self.modal != ExpeditionModal::None || !self.stroke_active || cell == self.stroke_last {
             return ChangeSet::NONE;
         }
         let size = self.level().size();
@@ -221,7 +221,7 @@ impl PictureModel {
     }
 
     pub(crate) fn undo(&mut self) -> ChangeSet {
-        if self.modal != ExpeditionModal::None || self.history_len == 0 {
+        if self.stroke_active || self.modal != ExpeditionModal::None || self.history_len == 0 {
             return ChangeSet::NONE;
         }
         self.history_len -= 1;
@@ -232,7 +232,7 @@ impl PictureModel {
     }
 
     pub(crate) fn reveal_hint(&mut self) -> ChangeSet {
-        if self.modal != ExpeditionModal::None || self.complete() {
+        if self.stroke_active || self.modal != ExpeditionModal::None || self.complete() {
             return ChangeSet::NONE;
         }
         let level = self.level();
@@ -259,6 +259,9 @@ impl PictureModel {
     }
 
     pub(crate) fn check(&mut self) -> ChangeSet {
+        if self.stroke_active || self.modal != ExpeditionModal::None {
+            return ChangeSet::NONE;
+        }
         let level = self.level();
         let mut errors = 0;
         for cell in 0..level.size() * level.size() {
@@ -277,6 +280,9 @@ impl PictureModel {
         &mut self,
         direction: crate::gallery::play::expeditions::Direction4,
     ) -> ChangeSet {
+        if self.stroke_active || self.modal != ExpeditionModal::None {
+            return ChangeSet::NONE;
+        }
         let size = self.level().size();
         let x = self.cursor % size;
         let y = self.cursor / size;
@@ -293,6 +299,9 @@ impl PictureModel {
     }
 
     pub(crate) fn apply_cursor(&mut self, tool: Option<PictureTool>) -> ChangeSet {
+        if self.stroke_active || self.modal != ExpeditionModal::None {
+            return ChangeSet::NONE;
+        }
         if let Some(tool) = tool {
             self.tool = tool;
         }
@@ -305,6 +314,9 @@ impl PictureModel {
     }
 
     pub(crate) fn apply_cell(&mut self, cell: u8) -> ChangeSet {
+        if self.stroke_active || self.modal != ExpeditionModal::None {
+            return ChangeSet::NONE;
+        }
         let changes = self.begin_stroke(cell);
         if !self.stroke_active {
             return changes;
@@ -313,6 +325,9 @@ impl PictureModel {
     }
 
     pub(crate) fn restart(&mut self) -> ChangeSet {
+        if self.stroke_active {
+            return ChangeSet::NONE;
+        }
         self.reset_board();
         self.hints = 0;
         self.modal = ExpeditionModal::None;
@@ -321,7 +336,7 @@ impl PictureModel {
     }
 
     pub(crate) fn select_level(&mut self, level: u8) -> ChangeSet {
-        if level > self.unlocked() || picture_level(level).is_none() {
+        if self.stroke_active || level > self.unlocked() || picture_level(level).is_none() {
             return ChangeSet::NONE;
         }
         self.level = level;
@@ -329,7 +344,10 @@ impl PictureModel {
     }
 
     pub(crate) fn continue_campaign(&mut self) -> ChangeSet {
-        if self.modal != ExpeditionModal::Result || self.level as usize + 1 >= EXPEDITION_LEVELS {
+        if self.stroke_active
+            || self.modal != ExpeditionModal::Result
+            || self.level as usize + 1 >= EXPEDITION_LEVELS
+        {
             return ChangeSet::NONE;
         }
         self.level += 1;
@@ -540,12 +558,15 @@ impl PictureModel {
         Ok(model)
     }
 
-    #[cfg(feature = "persistence")]
+    #[cfg(any(feature = "persistence", test))]
     #[model(local)]
-    pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
+    pub(crate) fn encode_snapshot(&self) -> Option<alloc::vec::Vec<u8>> {
+        if self.stroke_active {
+            return None;
+        }
         let mut output = alloc::vec![0; SAVE_LEN];
         self.encode_into(&mut output)
             .expect("exact Atlas save buffer");
-        output
+        Some(output)
     }
 }

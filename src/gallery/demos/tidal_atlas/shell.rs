@@ -1,7 +1,7 @@
 use super::input::surface_gesture;
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
-use super::render::{modal_view, surface_view};
+use super::render::{modal_render, surface_render};
 use super::state::{TideModalSurface, TideSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, DARK, MUTED, PANEL, PAPER, TEXT};
 use crate::gallery::play::font::PlayFontPlugin;
@@ -933,7 +933,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
-    app.with_widget(surface_view()).with_widget(modal_view());
+    app.with_widget(surface_render::view())
+        .with_widget(modal_render::view());
     let model = app.add_model(TideModel::default());
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());

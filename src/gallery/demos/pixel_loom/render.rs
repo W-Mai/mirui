@@ -7,7 +7,7 @@ use crate::gallery::play::pixel::{
 };
 use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn paint_sprite(
     painter: &mut PlayPainter<'_, '_>,
@@ -227,12 +227,4 @@ pub(super) fn modal_render(
             true,
         );
     }
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

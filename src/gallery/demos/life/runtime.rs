@@ -1,5 +1,5 @@
 #[cfg(feature = "std")]
-use super::render::life_view;
+use super::render::life_render;
 use super::state::{LifeBoard, MAX_GRID_EDGE};
 use crate::prelude::*;
 
@@ -43,7 +43,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     use crate::prelude::plugin::FpsSummaryPlugin;
-    app.with_widget(life_view())
+    app.with_widget(life_render::view())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
     LifeTick::install(&mut app.world);

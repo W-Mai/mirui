@@ -8,7 +8,7 @@ use crate::gallery::play::factory::{
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn paint_shell(painter: &mut PlayPainter<'_, '_>) {
     painter.fill(Rect::new(0, 0, 480, 320), BACKGROUND, Fixed::ZERO);
@@ -312,12 +312,4 @@ pub(super) fn modal_render(
         Fixed::ZERO,
     );
     painter.fill(Rect::new(29, 66, 422, 32), INK, Fixed::ZERO);
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

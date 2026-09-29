@@ -71,7 +71,7 @@ split_demo_sources! {
     },
     KINETIC_TYPE => {
         demo: "curve_text",
-        marker: "fn curve_stage_render",
+        marker: "fn curve_paths_render",
         parts: [
             "style.rs",
             "state.rs",
@@ -350,7 +350,7 @@ split_demo_sources! {
     },
     PINCH_ROTATE => {
         demo: "pinch_rotate",
-        marker: "fn refresh",
+        marker: "fn pinch_target",
         parts: [
             "state.rs",
             "gesture.rs",
@@ -542,6 +542,7 @@ split_demo_sources! {
             "state.rs",
             "render.rs",
             "input.rs",
+            "persistence.rs",
             "shell.rs",
             "tests.rs",
         ]
@@ -554,6 +555,7 @@ split_demo_sources! {
             "state.rs",
             "render.rs",
             "input.rs",
+            "persistence.rs",
             "shell.rs",
             "tests.rs",
         ]
@@ -566,6 +568,7 @@ split_demo_sources! {
             "state.rs",
             "render.rs",
             "input.rs",
+            "persistence.rs",
             "shell.rs",
             "tests.rs",
         ]

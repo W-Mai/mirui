@@ -1,6 +1,6 @@
 use core::any::TypeId;
 
-use super::render::{Gradient, gradient_view};
+use super::render::{Gradient, gradient_render};
 use super::scene::{
     LINEAR_PANEL, LINEAR_STOPS, LOGICAL_HEIGHT, LOGICAL_WIDTH, RADIAL_DISC, RADIAL_STOPS,
 };
@@ -9,7 +9,7 @@ use crate::types::Transform;
 
 #[test]
 fn gradient_view_keeps_its_dispatch_contract() {
-    let view = gradient_view();
+    let view = gradient_render::view();
     assert_eq!(view.name(), "Gradient");
     assert_eq!(view.priority(), 60);
     assert_eq!(view.component_filter(), Some(TypeId::of::<Gradient>()));

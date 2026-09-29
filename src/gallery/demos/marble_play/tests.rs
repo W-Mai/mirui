@@ -865,6 +865,7 @@ fn drag_cancel_reaches_transactional_model_path() {
             target: board,
         }
     ));
+    world.remove::<ComputedRect>(board);
     assert!(test_board_gesture(
         &mut world,
         board,
@@ -880,6 +881,60 @@ fn drag_cancel_reaches_transactional_model_path() {
             |model| model.selected_pad().pos,
         ),
         original
+    );
+}
+
+#[test]
+fn drag_end_commits_after_layout_component_is_removed() {
+    let mut world = fixture();
+    let board = world.find_by_id("marble_play_board").unwrap();
+    world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
+    let original = crate::core::model::ModelHandle::read(
+        world.resource::<MarbleModelHandle>().unwrap(),
+        |model| model.selected_pad().pos,
+    );
+    world
+        .resource::<MarbleModelHandle>()
+        .unwrap()
+        .set_page(Page::Edit);
+    assert!(test_board_gesture(
+        &mut world,
+        board,
+        &GestureEvent::DragStart {
+            x: original.x.to_fixed(),
+            y: original.y.to_fixed(),
+            target: board,
+        }
+    ));
+    assert!(test_board_gesture(
+        &mut world,
+        board,
+        &GestureEvent::DragMove {
+            x: original.x.to_fixed() + Fixed::from_int(20),
+            y: original.y.to_fixed(),
+            dx: Fixed::from_int(20),
+            dy: Fixed::ZERO,
+            target: board,
+        }
+    ));
+    world.remove::<ComputedRect>(board);
+    assert!(test_board_gesture(
+        &mut world,
+        board,
+        &GestureEvent::DragEnd {
+            x: original.x.to_fixed() + Fixed::from_int(20),
+            y: original.y.to_fixed(),
+            vx: Fixed::ZERO,
+            vy: Fixed::ZERO,
+            target: board,
+        }
+    ));
+    assert_eq!(
+        crate::core::model::ModelHandle::read(
+            world.resource::<MarbleModelHandle>().unwrap(),
+            |model| model.selected_pad().pos.x,
+        ),
+        original.x + Fixed64::from_int(20)
     );
 }
 

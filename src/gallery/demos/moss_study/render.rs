@@ -5,7 +5,7 @@ use crate::gallery::play::moss::{GRID_HEIGHT, GRID_WIDTH, MossCells, MossModal, 
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn paint_cells(painter: &mut PlayPainter<'_, '_>, cells: &MossCells, previous: &MossCells) {
     for y in 0..GRID_HEIGHT {
@@ -236,12 +236,4 @@ pub(super) fn modal_render(
         painter.circle(Point::new(83, 143), Fixed::from_int(12), ACTIVE);
         painter.circle(Point::new(111, 133), Fixed::from_int(9), ACTIVE);
     }
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

@@ -5,7 +5,7 @@ use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::tidal::{BOARD_SIZE, TideModal, TideModel, Tile};
 use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::ViewCtx;
 
 fn tile_color(tile: Tile) -> Color {
     match tile {
@@ -285,12 +285,4 @@ pub(super) fn modal_render(
         Fixed::from_int(7),
     );
     painter.line(Point::new(35, 96), Point::new(445, 96), LINE, Fixed::ONE);
-}
-
-pub(super) fn surface_view() -> View {
-    surface_render::view()
-}
-
-pub(super) fn modal_view() -> View {
-    modal_render::view()
 }

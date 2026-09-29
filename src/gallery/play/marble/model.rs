@@ -290,6 +290,7 @@ impl MarbleModel {
         }
     }
 
+    #[model(local)]
     pub(crate) fn add_pad(&mut self, position: Vec2) -> ChangeSet {
         let Some(slot) = self.pads.iter().position(Option::is_none) else {
             self.notify("MAXIMUM 6 PADS");
@@ -506,6 +507,14 @@ impl MarbleModel {
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
+    pub(crate) fn tap_board(&mut self, point: Vec2) -> ChangeSet {
+        let changes = self.begin_board_drag(point);
+        if changes == ChangeSet::NONE || self.drag.is_none() {
+            return changes;
+        }
+        changes | self.end_board_drag(false)
+    }
+
     pub(crate) fn move_board_drag(&mut self, point: Vec2) -> ChangeSet {
         let Some(mut drag) = self.drag else {
             return ChangeSet::NONE;
@@ -534,19 +543,29 @@ impl MarbleModel {
     }
 
     pub(crate) fn end_board_drag(&mut self, cancel: bool) -> ChangeSet {
-        if let Some(drag) = self.drag.take() {
-            if let (Some(slot), Some(transaction)) = (drag.slot, drag.position) {
-                if let Some(pad) = self.pads[slot].as_mut() {
-                    pad.pos = if cancel {
-                        transaction.cancel()
-                    } else {
-                        transaction.commit()
-                    };
-                }
+        let Some(drag) = self.drag.take() else {
+            if self.target == Vec2::default() {
+                return ChangeSet::NONE;
+            }
+            self.target = Vec2::default();
+            return ChangeSet::MODEL | ChangeSet::VISUAL;
+        };
+        let mut changes = ChangeSet::MODEL | ChangeSet::VISUAL;
+        if let (Some(slot), Some(transaction)) = (drag.slot, drag.position)
+            && let Some(pad) = self.pads[slot].as_mut()
+        {
+            let changed = transaction.commit() != transaction.cancel();
+            pad.pos = if cancel {
+                transaction.cancel()
+            } else {
+                transaction.commit()
+            };
+            if changed && !cancel {
+                changes = changes | ChangeSet::PERSISTENCE;
             }
         }
         self.target = Vec2::default();
-        ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
+        changes
     }
 
     #[effects]

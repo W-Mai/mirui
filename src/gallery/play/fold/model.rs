@@ -21,7 +21,13 @@ const SAVE_PAYLOAD: usize = 10 + RECORD_BYTES + ACTION_BYTES;
 #[cfg(any(feature = "persistence", test))]
 pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(
+    change = ChangeSet,
+    watch(
+        visual = ChangeSet::VISUAL,
+        persistence = ChangeSet::PERSISTENCE
+    )
+)]
 #[derive(Clone, Copy)]
 pub(crate) struct FoldModel {
     pub(super) level: u8,
@@ -139,8 +145,11 @@ impl FoldModel {
         }
         let level = self.level();
         let Some(next) = moved(level, self.state, direction) else {
+            if self.message == FoldMessage::Unsupported {
+                return ChangeSet::NONE;
+            }
             self.message = FoldMessage::Unsupported;
-            return ChangeSet::MODEL | ChangeSet::VISUAL;
+            return ChangeSet::MODEL;
         };
         let seal_changed = next.seals != self.state.seals;
         let bridge_changed = next.bridge != self.state.bridge;
@@ -212,12 +221,19 @@ impl FoldModel {
         let Some((direction, remaining)) = solve(self.level(), self.state, workspace) else {
             return ChangeSet::NONE;
         };
-        if self.last_hint != Some(signature) {
+        let hint_changed = self.last_hint != Some(signature);
+        if hint_changed {
             self.hints = self.hints.saturating_add(1);
             self.last_hint = Some(signature);
         }
-        self.message = FoldMessage::Hint(direction, remaining);
-        accepted_change()
+        let message = FoldMessage::Hint(direction, remaining);
+        let message_changed = self.message != message;
+        self.message = message;
+        match (hint_changed, message_changed) {
+            (true, _) => ChangeSet::MODEL | ChangeSet::PERSISTENCE,
+            (false, true) => ChangeSet::MODEL,
+            (false, false) => ChangeSet::NONE,
+        }
     }
 
     #[model(local)]

@@ -1,5 +1,5 @@
 use super::input::{PostKeyboardPlugin, post_tick_system, surface_gesture};
-use super::render::{modal_view, surface_view};
+use super::render::{modal_render, surface_render};
 use super::state::{PostModalSurface, PostSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT};
 #[cfg(feature = "std")]
@@ -807,7 +807,8 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
-    app.with_widget(surface_view()).with_widget(modal_view());
+    app.with_widget(surface_render::view())
+        .with_widget(modal_render::view());
     let model = app.add_model(PostModel::default());
     app.add_plugin(PostKeyboardPlugin::new(model.clone()));
     app.add_system(post_tick_system::system(model.clone()));

@@ -1,5 +1,5 @@
 use super::composition::build_widgets;
-use super::render::gradient_view;
+use super::render::gradient_render;
 use crate::prelude::*;
 
 #[cfg(feature = "std")]
@@ -8,6 +8,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_widget(gradient_view());
+    app.with_widget(gradient_render::view());
     app.compose(parent, build_widgets);
 }

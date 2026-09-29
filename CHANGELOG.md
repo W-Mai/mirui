@@ -49,11 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **System construction.** `System::run` stores a `SystemCallback`; use `System::new` for static functions and `System::bound` for callbacks tied to registered model instances. Direct `System` struct literals are no longer supported.
+- **Owned reactive cleanup.** `core::reactive::cleanup_effects_for` now takes `&World` before the entity so effect and widget cleanup stays within the owning application.
+- **Macro-bound Gallery games.** Game demos separate composition, rendering, input, persistence, systems, and domain state while registering generated Views directly and routing controls through bound model commands.
 - **Reactive Todo example.** One observed model owns the three item states and derives the remaining count; row taps update the bound instance.
 - **Marble collision checks.** Distant rails, pads, and ball pairs are rejected by squared distance before fixed-point square root; near-contact thresholds and response remain unchanged.
 
 ### Fixed
 
+- **Gallery game interaction boundaries.** Drag transactions finish after layout replacement, expedition overlays block underlying edits, message-only updates avoid canvas invalidation, and unchanged persistent state skips serialization.
 - **Marble Play slider notifications.** BPM, gravity, and bounce controls skip model change notifications when different input values resolve to the current setting.
 - **Marble Play scene cards.** Tap targets match the painted cards; gaps and margins no longer select a scene. Play/Edit gestures and Settings controls stay in their respective panels.
 - **Resource replacement.** Updating an existing World resource reuses its allocated slot, including per-frame timing resources.

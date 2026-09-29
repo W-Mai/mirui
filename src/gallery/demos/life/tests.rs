@@ -1,7 +1,7 @@
 use core::any::TypeId;
 
 use super::composition::build_widgets;
-use super::render::life_view;
+use super::render::life_render;
 use super::runtime::dims_from_px;
 use super::state::{GLIDER, GOSPER_GUN, LifeBoard, MAX_GRID_EDGE};
 use crate::prelude::*;
@@ -11,7 +11,7 @@ use crate::ui::render_system::update_layout;
 
 #[test]
 fn life_view_keeps_its_dispatch_contract() {
-    let view = life_view();
+    let view = life_render::view();
     assert_eq!(view.name(), "LifeBoard");
     assert_eq!(view.priority(), 60);
     assert_eq!(view.component_filter(), Some(TypeId::of::<LifeBoard>()));
@@ -37,7 +37,7 @@ fn responsive_shell_contains_the_board_at_supported_viewports() {
         let mut app = App::headless(width, height);
         app.with_default_widgets()
             .with_default_systems()
-            .with_widget(life_view());
+            .with_widget(life_render::view());
         let root = app.spawn_root().id();
         app.compose(root, |cx| build_widgets(cx, width, height));
         app.set_root(root);

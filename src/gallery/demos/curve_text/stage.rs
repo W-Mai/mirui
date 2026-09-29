@@ -43,7 +43,7 @@ fn fill(
     name = "CurveStageBackdrop",
     priority = 60
 )]
-fn curve_stage_background_render(
+pub(super) fn curve_stage_background_render(
     renderer: &mut dyn Renderer,
     component: &CurveStage,
     model: &CurveModel,
@@ -150,10 +150,6 @@ fn curve_paths_render(
             ctx.clip,
         );
     }
-}
-
-pub(super) fn curve_stage_background_view() -> View {
-    curve_stage_background_render::view()
 }
 
 pub(super) fn curve_paths_view() -> View {
