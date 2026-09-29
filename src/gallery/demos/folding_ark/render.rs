@@ -70,23 +70,21 @@ fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &FoldModel) {
     }
 }
 
-fn surface_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
-    let Some(model) = world.resource::<FoldModel>() else {
-        return;
-    };
+#[crate::view(
+    component = FoldSurface,
+    read(game),
+    watch(game.visual_revision()),
+    name = "FoldSurface",
+    priority = 60
+)]
+fn surface_render(renderer: &mut dyn Renderer, game: &FoldModel, rect: &Rect, ctx: &mut ViewCtx) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     painter.fill(Rect::new(0, 0, 480, 320), BG, Fixed::ZERO);
     painter.fill(Rect::new(0, 0, 480, 39), PANEL, Fixed::ZERO);
     painter.line(Point::new(14, 39), Point::new(466, 39), GRID, Fixed::ONE);
-    paint_map(&mut painter, model);
+    paint_map(&mut painter, game);
     painter.fill(Rect::new(317, 50, 149, 205), PANEL, Fixed::from_int(9));
     painter.border(
         Rect::new(317, 50, 149, 205),
@@ -97,12 +95,12 @@ fn surface_render(
     painter.circle(
         Point::new(337, 70),
         Fixed::from_int(5),
-        if model.bridge_on() { BLUE } else { MUTED },
+        if game.bridge_on() { BLUE } else { MUTED },
     );
     painter.circle(Point::new(355, 70), Fixed::from_int(5), APRICOT);
     painter.line(Point::new(329, 91), Point::new(454, 91), GRID, Fixed::ONE);
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("FoldSurface", 60, surface_render).with_filter::<FoldSurface>()
+    surface_render::view()
 }

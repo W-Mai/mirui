@@ -67,24 +67,27 @@ fn paint_board(
     painter.circle(Point::new(x, y), Fixed::from_int(3), BG);
 }
 
-fn surface_render(
+#[crate::view(
+    component = TwinSurface,
+    read(game),
+    watch(game.visual_revision()),
+    name = "TwinSurface",
+    priority = 60
+)]
+pub(super) fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    game: &TwinModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<TwinModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
     painter.fill(Rect::new(0, 0, 480, 320), BG, Fixed::ZERO);
     painter.fill(Rect::new(0, 0, 480, 39), PANEL, Fixed::ZERO);
     painter.line(Point::new(14, 39), Point::new(466, 39), GRID, Fixed::ONE);
-    paint_board(&mut painter, model, 0, 18, MINT);
-    paint_board(&mut painter, model, 1, 165, LAVENDER);
+    paint_board(&mut painter, game, 0, 18, MINT);
+    paint_board(&mut painter, game, 1, 165, LAVENDER);
     painter.fill(Rect::new(316, 54, 150, 205), PANEL, Fixed::from_int(8));
     painter.border(
         Rect::new(316, 54, 150, 205),
@@ -100,5 +103,5 @@ fn surface_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("TwinSurface", 60, surface_render).with_filter::<TwinSurface>()
+    surface_render::view()
 }

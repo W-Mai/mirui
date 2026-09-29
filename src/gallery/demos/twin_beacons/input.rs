@@ -1,15 +1,33 @@
-use super::state::TwinNodes;
-use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiState};
-use crate::gallery::play::twin::TwinModel;
+use super::state::TwinHintService;
+use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModelHandle};
+use crate::gallery::play::twin::TwinModelHandle;
 use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
 use crate::surface::InputEvent;
 
-pub(super) fn move_model(world: &mut World, direction: Direction4) {
-    TwinNodes::update(world, |model| model.move_direction(direction));
+pub(super) fn move_model(game: &TwinModelHandle, direction: Direction4) {
+    game.move_direction(direction);
 }
 
-pub(super) struct TwinKeyboardPlugin;
+pub(super) struct TwinKeyboardPlugin {
+    game: TwinModelHandle,
+    expedition: ExpeditionUiModelHandle,
+    hints: TwinHintService,
+}
+
+impl TwinKeyboardPlugin {
+    pub(super) fn new(
+        game: TwinModelHandle,
+        expedition: ExpeditionUiModelHandle,
+        hints: TwinHintService,
+    ) -> Self {
+        Self {
+            game,
+            expedition,
+            hints,
+        }
+    }
+}
 
 impl<B, F> Plugin<B, F> for TwinKeyboardPlugin
 where
@@ -18,23 +36,22 @@ where
 {
     fn build(&mut self, _app: &mut App<B, F>) {}
 
-    fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
+    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
         let InputEvent::CharInput { ch } = event else {
             return false;
         };
-        if world
-            .resource::<ExpeditionUiState>()
-            .is_some_and(|state| state.panel() != ExpeditionPanel::None)
-        {
+        if self.expedition.panel() != ExpeditionPanel::None {
             return false;
         }
         match ch {
-            'w' | 'W' => move_model(world, Direction4::Up),
-            'd' | 'D' => move_model(world, Direction4::Right),
-            's' | 'S' => move_model(world, Direction4::Down),
-            'a' | 'A' => move_model(world, Direction4::Left),
-            'z' | 'Z' => TwinNodes::update(world, TwinModel::undo),
-            'h' | 'H' => TwinNodes::hint(world),
+            'w' | 'W' => move_model(&self.game, Direction4::Up),
+            'd' | 'D' => move_model(&self.game, Direction4::Right),
+            's' | 'S' => move_model(&self.game, Direction4::Down),
+            'a' | 'A' => move_model(&self.game, Direction4::Left),
+            'z' | 'Z' => {
+                self.game.undo();
+            }
+            'h' | 'H' => self.hints.request(&self.game),
             _ => return false,
         }
         true

@@ -4,7 +4,7 @@ use super::style::{APRICOT, BG, CELL, GRID, LAVENDER, MINT, MUTED, PANEL};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::picture::{PictureCell, PictureModel};
-use crate::prelude::{Color, Entity, Fixed, Point, Rect, World};
+use crate::prelude::{Color, Fixed, Point, Rect};
 use crate::render::renderer::Renderer;
 use crate::ui::view::{View, ViewCtx};
 
@@ -85,16 +85,19 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &PictureModel) {
     }
 }
 
+#[crate::view(
+    component = PictureSurface,
+    read(model),
+    watch(model.visual_revision()),
+    name = "PictureSurface",
+    priority = 60
+)]
 fn surface_render(
     renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
+    model: &PictureModel,
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(model) = world.resource::<PictureModel>() else {
-        return;
-    };
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
@@ -112,5 +115,5 @@ fn surface_render(
 }
 
 pub(super) fn surface_view() -> View {
-    View::new("PictureSurface", 60, surface_render).with_filter::<PictureSurface>()
+    surface_render::view()
 }

@@ -11,6 +11,7 @@ use crate::gallery::play::expeditions::{
     ExpeditionSaveError, RECORD_BYTES, finish_packet, read_records, validate_packet, write_records,
 };
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 #[derive(Clone, Copy)]
 pub(crate) struct PictureModel {
     pub(super) level: u8,
@@ -28,6 +29,25 @@ pub(crate) struct PictureModel {
     hints: u16,
     modal: ExpeditionModal,
     message: PictureMessage,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PictureProgress {
+    stars: [u8; EXPEDITION_LEVELS],
+}
+
+impl PictureProgress {
+    pub(crate) const fn stars(self, level: u8) -> u8 {
+        self.stars[level as usize]
+    }
+
+    pub(crate) const fn completed(self, level: u8) -> bool {
+        self.stars(level) != 0
+    }
+
+    pub(crate) fn completed_count(self) -> u8 {
+        self.stars.iter().filter(|stars| **stars != 0).count() as u8
+    }
 }
 
 impl Default for PictureModel {
@@ -54,49 +74,63 @@ impl Default for PictureModel {
     }
 }
 
+#[crate::model]
 impl PictureModel {
-    pub(crate) const fn level_index(&self) -> u8 {
+    #[observe]
+    pub(crate) fn level_index(&self) -> u8 {
         self.level
     }
 
+    #[model(local)]
     pub(crate) fn level(&self) -> PictureLevelRef {
         picture_level(self.level).expect("validated Picture level")
     }
 
+    #[model(local)]
     pub(crate) const fn cell(&self, cell: u8) -> PictureCell {
         self.cells.get(cell)
     }
 
-    pub(crate) const fn tool(&self) -> PictureTool {
+    #[observe]
+    pub(crate) fn tool(&self) -> PictureTool {
         self.tool
     }
 
+    #[model(local)]
     pub(crate) const fn cursor(&self) -> u8 {
         self.cursor
     }
 
-    pub(crate) const fn hints(&self) -> u16 {
+    #[observe]
+    pub(crate) fn hints(&self) -> u16 {
         self.hints
     }
 
-    pub(crate) const fn history_len(&self) -> u8 {
+    #[observe]
+    pub(crate) fn history_len(&self) -> u8 {
         self.history_len
     }
 
-    pub(crate) const fn modal(&self) -> ExpeditionModal {
+    #[observe]
+    pub(crate) fn modal(&self) -> ExpeditionModal {
         self.modal
     }
 
-    pub(crate) const fn message(&self) -> PictureMessage {
+    #[observe]
+    pub(crate) fn message(&self) -> PictureMessage {
         self.message
     }
 
-    pub(crate) const fn unlocked(&self) -> u8 {
+    #[observe]
+    pub(crate) fn unlocked(&self) -> u8 {
         unlocked_level(&self.records)
     }
 
-    pub(crate) const fn record(&self, level: u8) -> LevelRecord {
-        self.records[level as usize]
+    #[observe]
+    pub(crate) fn progress(&self) -> PictureProgress {
+        PictureProgress {
+            stars: self.records.map(LevelRecord::stars),
+        }
     }
 
     pub(crate) fn set_tool(&mut self, tool: PictureTool) -> ChangeSet {
@@ -270,6 +304,14 @@ impl PictureModel {
         changes | self.end_stroke(false)
     }
 
+    pub(crate) fn apply_cell(&mut self, cell: u8) -> ChangeSet {
+        let changes = self.begin_stroke(cell);
+        if !self.stroke_active {
+            return changes;
+        }
+        changes | self.end_stroke(false)
+    }
+
     pub(crate) fn restart(&mut self) -> ChangeSet {
         self.reset_board();
         self.hints = 0;
@@ -294,12 +336,21 @@ impl PictureModel {
         self.restart()
     }
 
+    #[cfg(feature = "persistence")]
+    pub(crate) fn restore(&mut self, restored: PictureModel) -> ChangeSet {
+        *self = restored;
+        ChangeSet::MODEL | ChangeSet::VISUAL
+    }
+
+    #[model(local)]
     pub(crate) fn complete(&self) -> bool {
         let level = self.level();
         (0..level.size() * level.size())
             .all(|cell| (self.cells.get(cell) == PictureCell::Filled) == level.target(cell))
     }
 
+    #[cfg(test)]
+    #[model(local)]
     pub(crate) fn clues(&self, row: bool, line: u8, output: &mut [u8; 5]) -> usize {
         let level = self.level();
         let size = level.size();
@@ -332,6 +383,7 @@ impl PictureModel {
         }
     }
 
+    #[model(local)]
     fn finish_action(&mut self) -> ChangeSet {
         if self.complete() {
             let stars = picture_stars(self.hints);
@@ -348,6 +400,7 @@ impl PictureModel {
         accepted_change()
     }
 
+    #[model(local)]
     pub(super) fn reset_board(&mut self) {
         self.cells = PackedPicture::default();
         let level = self.level();
@@ -369,6 +422,7 @@ impl PictureModel {
         self.cursor = 0;
     }
 
+    #[model(local)]
     fn push_history(&mut self, picture: PackedPicture) {
         if usize::from(self.history_len) == HISTORY_CAPACITY {
             self.history[self.history_start as usize] = picture;
@@ -381,6 +435,7 @@ impl PictureModel {
     }
 
     #[cfg(any(feature = "persistence", test))]
+    #[model(local)]
     pub(crate) fn encode_into(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
         if output.len() < SAVE_LEN {
             return Err(ExpeditionSaveError::BufferTooSmall);
@@ -406,6 +461,7 @@ impl PictureModel {
     }
 
     #[cfg(any(feature = "persistence", test))]
+    #[model(local)]
     pub(crate) fn decode(input: &[u8]) -> Result<Self, ExpeditionSaveError> {
         validate_packet(input, SAVE_PAYLOAD)?;
         if input[..4] != SAVE_MAGIC {
@@ -485,6 +541,7 @@ impl PictureModel {
     }
 
     #[cfg(feature = "persistence")]
+    #[model(local)]
     pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
         let mut output = alloc::vec![0; SAVE_LEN];
         self.encode_into(&mut output)

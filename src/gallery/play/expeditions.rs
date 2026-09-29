@@ -304,44 +304,71 @@ pub(crate) enum ExpeditionPanel {
     Summary,
 }
 
+#[crate::model(change = ChangeSet)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ExpeditionUiState {
+pub(crate) struct ExpeditionUiModel {
     panel: ExpeditionPanel,
     chapter: u8,
 }
 
-impl ExpeditionUiState {
-    pub(crate) const fn panel(self) -> ExpeditionPanel {
+#[crate::model]
+impl ExpeditionUiModel {
+    #[observe]
+    pub(crate) fn panel(&self) -> ExpeditionPanel {
         self.panel
     }
 
-    pub(crate) const fn chapter(self) -> u8 {
+    #[observe]
+    pub(crate) fn chapter(&self) -> u8 {
         self.chapter
     }
 
-    pub(crate) fn open(&mut self, level: u8) {
-        self.panel = ExpeditionPanel::Map;
-        self.chapter = (level / 6).min(5);
+    pub(crate) fn open(&mut self, level: u8) -> ChangeSet {
+        self.set(ExpeditionPanel::Map, (level / 6).min(5))
     }
 
-    pub(crate) fn open_rules(&mut self) {
-        self.panel = ExpeditionPanel::Rules;
+    pub(crate) fn open_rules(&mut self) -> ChangeSet {
+        self.set_panel(ExpeditionPanel::Rules)
     }
 
-    pub(crate) fn open_briefing(&mut self) {
-        self.panel = ExpeditionPanel::Briefing;
+    pub(crate) fn open_briefing(&mut self) -> ChangeSet {
+        self.set_panel(ExpeditionPanel::Briefing)
     }
 
-    pub(crate) fn open_summary(&mut self) {
-        self.panel = ExpeditionPanel::Summary;
+    pub(crate) fn open_summary(&mut self) -> ChangeSet {
+        self.set_panel(ExpeditionPanel::Summary)
     }
 
-    pub(crate) fn close(&mut self) {
-        self.panel = ExpeditionPanel::None;
+    pub(crate) fn close(&mut self) -> ChangeSet {
+        self.set_panel(ExpeditionPanel::None)
     }
 
-    pub(crate) fn select_chapter(&mut self, chapter: u8) {
-        self.chapter = chapter.min(5);
+    pub(crate) fn select_chapter(&mut self, chapter: u8) -> ChangeSet {
+        let chapter = chapter.min(5);
+        if self.chapter == chapter {
+            return ChangeSet::NONE;
+        }
+        self.chapter = chapter;
+        ChangeSet::MODEL
+    }
+
+    #[model(local)]
+    fn set_panel(&mut self, panel: ExpeditionPanel) -> ChangeSet {
+        if self.panel == panel {
+            return ChangeSet::NONE;
+        }
+        self.panel = panel;
+        ChangeSet::MODEL
+    }
+
+    #[model(local)]
+    fn set(&mut self, panel: ExpeditionPanel, chapter: u8) -> ChangeSet {
+        if self.panel == panel && self.chapter == chapter {
+            return ChangeSet::NONE;
+        }
+        self.panel = panel;
+        self.chapter = chapter;
+        ChangeSet::MODEL
     }
 }
 
@@ -746,7 +773,7 @@ mod tests {
 
     #[test]
     fn expedition_panels_preserve_the_selected_chapter() {
-        let mut state = ExpeditionUiState::default();
+        let mut state = ExpeditionUiModel::default();
         state.open(17);
         assert_eq!(state.panel(), ExpeditionPanel::Map);
         assert_eq!(state.chapter(), 2);
@@ -760,5 +787,8 @@ mod tests {
         assert_eq!(state.panel(), ExpeditionPanel::Summary);
         state.close();
         assert_eq!(state.panel(), ExpeditionPanel::None);
+        assert_eq!(state.close(), ChangeSet::NONE);
+        assert_eq!(state.select_chapter(99), ChangeSet::NONE);
+        assert_eq!(state.chapter(), 5);
     }
 }

@@ -11,5 +11,5 @@ pub(crate) use chapters::{CHAPTER_MECHANICS, CHAPTER_NAMES};
 #[cfg(any(feature = "persistence", test))]
 #[allow(unused_imports)]
 pub(crate) use model::SAVE_LEN;
-pub(crate) use model::TwinModel;
+pub(crate) use model::{TwinModel, TwinModelHandle, TwinProgress};
 pub(crate) use types::TwinMessage;

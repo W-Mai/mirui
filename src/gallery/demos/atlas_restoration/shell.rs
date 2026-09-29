@@ -1,71 +1,252 @@
+use super::geometry::{board_geometry_for_level, clues_for_level};
 use super::input::{PictureKeyboardPlugin, surface_gesture};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::surface_view;
-use super::state::{PictureNodes, PictureSurface};
+use super::state::{PictureExpeditionState, PictureSurface};
 use super::style::{APRICOT, BG, CELL, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
-use crate::gallery::play::expeditions::ExpeditionUiState;
+use crate::gallery::play::expeditions::{
+    ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, ExpeditionUiModelHandle, picture_level,
+};
 use crate::gallery::play::font::register_play_font;
-use crate::gallery::play::picture::{PictureModel, PictureTool};
+use crate::gallery::play::picture::{
+    CHAPTER_MECHANICS, CHAPTER_NAMES, PictureMessage, PictureModel, PictureModelHandle,
+    PictureProgress, PictureTool,
+};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
-const ROW_IDS: [&str; 10] = [
-    "pic_row_0",
-    "pic_row_1",
-    "pic_row_2",
-    "pic_row_3",
-    "pic_row_4",
-    "pic_row_5",
-    "pic_row_6",
-    "pic_row_7",
-    "pic_row_8",
-    "pic_row_9",
-];
-const COLUMN_IDS: [&str; 10] = [
-    "pic_col_0",
-    "pic_col_1",
-    "pic_col_2",
-    "pic_col_3",
-    "pic_col_4",
-    "pic_col_5",
-    "pic_col_6",
-    "pic_col_7",
-    "pic_col_8",
-    "pic_col_9",
-];
-const MAP_CHAPTER_IDS: [&str; 6] = [
-    "picture_map_chapter_0",
-    "picture_map_chapter_1",
-    "picture_map_chapter_2",
-    "picture_map_chapter_3",
-    "picture_map_chapter_4",
-    "picture_map_chapter_5",
-];
-const MAP_LEVEL_IDS: [&str; 6] = [
-    "picture_map_level_0",
-    "picture_map_level_1",
-    "picture_map_level_2",
-    "picture_map_level_3",
-    "picture_map_level_4",
-    "picture_map_level_5",
-];
-const SUMMARY_LINE_IDS: [&str; 6] = [
-    "picture_summary_line_0",
-    "picture_summary_line_1",
-    "picture_summary_line_2",
-    "picture_summary_line_3",
-    "picture_summary_line_4",
-    "picture_summary_line_5",
-];
+struct ClueLabel {
+    level: u8,
+    row: bool,
+    line: u8,
+}
 
-#[compose]
-fn build_widgets() {
+impl fmt::Display for ClueLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let level = picture_level(self.level).expect("validated Picture level");
+        if self.line >= level.size() {
+            return Ok(());
+        }
+        let mut clues = [0; 5];
+        let len = clues_for_level(self.level, self.row, self.line, &mut clues);
+        for (index, clue) in clues[..len].iter().enumerate() {
+            if index != 0 {
+                out.write_str(if self.row { " " } else { "\n" })?;
+            }
+            write!(out, "{clue}")?;
+        }
+        Ok(())
+    }
+}
+
+struct StatusLabel(PictureMessage);
+
+impl fmt::Display for StatusLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            PictureMessage::Ready => out.write_str("读出行列线索，修复失落图谱"),
+            PictureMessage::Observed => out.write_str("观测点已锁定，不能覆盖"),
+            PictureMessage::Undone => out.write_str("已撤回上一笔"),
+            PictureMessage::Hint(cell) => write!(out, "提示已校准格点 {}", cell + 1),
+            PictureMessage::Checked(0) => out.write_str("当前标记没有冲突"),
+            PictureMessage::Checked(errors) => write!(out, "发现 {errors} 个冲突标记"),
+            PictureMessage::Complete => out.write_str("图谱修复完成"),
+        }
+    }
+}
+
+struct MapLevelLabel {
+    level: u8,
+    current: u8,
+    stars: u8,
+}
+
+impl fmt::Display for MapLevelLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.stars != 0 {
+            write!(out, "{:02}\n{} STAR", self.level + 1, self.stars)
+        } else if self.level == self.current {
+            write!(out, "{:02}\nPLAY", self.level + 1)
+        } else {
+            write!(out, "{:02}\nOPEN", self.level + 1)
+        }
+    }
+}
+
+struct LockedLevelLabel(u8);
+
+impl fmt::Display for LockedLevelLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "{:02}\nLOCK", self.0 + 1)
+    }
+}
+
+struct SummaryLabel {
+    chapter: u8,
+    completed: u8,
+    stars: u8,
+}
+
+impl fmt::Display for SummaryLabel {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            out,
+            "0{}  {}   {}/6   {}/18 ★",
+            self.chapter + 1,
+            CHAPTER_NAMES[usize::from(self.chapter)],
+            self.completed,
+            self.stars
+        )
+    }
+}
+
+fn chapter_summary(progress: PictureProgress, chapter: u8) -> SummaryLabel {
+    let mut completed = 0;
+    let mut stars = 0;
+    for slot in 0..6 {
+        let level = chapter * 6 + slot;
+        if progress.completed(level) {
+            completed += 1;
+            stars += progress.stars(level);
+        }
+    }
+    SummaryLabel {
+        chapter,
+        completed,
+        stars,
+    }
+}
+
+fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
+    match modal {
+        ExpeditionModal::Result => "下一幅",
+        ExpeditionModal::Final => "重新观测",
+        ExpeditionModal::None if level < unlocked => "换一幅",
+        ExpeditionModal::None => "第一幅",
+    }
+}
+
+fn next_picture(model: &PictureModelHandle, expedition: &ExpeditionUiModelHandle) {
+    let level = model.level_index();
+    match model.modal() {
+        ExpeditionModal::Final => {
+            expedition.open_summary();
+        }
+        ExpeditionModal::Result => {
+            model.continue_campaign();
+            if level % 6 == 5 {
+                expedition.open_briefing();
+            }
+        }
+        ExpeditionModal::None => {
+            let next = if level < model.unlocked() {
+                level + 1
+            } else {
+                0
+            };
+            model.select_level(next);
+        }
+    }
+}
+
+fn select_map_level(model: &PictureModelHandle, expedition: &ExpeditionUiModelHandle, slot: u8) {
+    let level = expedition.chapter() * 6 + slot;
+    if level > model.unlocked() {
+        return;
+    }
+    let briefing = level > 0 && level % 6 == 0 && !model.progress().completed(level);
+    model.select_level(level);
+    if briefing {
+        expedition.open_briefing();
+    } else {
+        expedition.close();
+    }
+}
+
+fn map_level_color(level: u8, current: u8) -> Color {
+    if level == current { APRICOT } else { CELL }
+}
+
+fn map_level_text_color(level: u8, current: u8) -> Color {
+    if level == current { BG } else { TEXT }
+}
+
+fn level_size(level: u8) -> u8 {
+    picture_level(level)
+        .expect("validated Picture level")
+        .size()
+}
+
+fn row_clue_top(level: u8, line: u8) -> i32 {
+    let geometry = board_geometry_for_level(level);
+    geometry.y + i32::from(line) * geometry.cell
+}
+
+fn column_clue_left(level: u8, line: u8) -> i32 {
+    let geometry = board_geometry_for_level(level);
+    geometry.x + i32::from(line) * geometry.cell
+}
+
+#[compose(bind(model, expedition))]
+fn map_level_button(model: PictureModel, expedition: ExpeditionUiModel, slot: u8) -> Entity {
     ui! {
-        PictureSurface (id: "picture_surface", width: 480, height: 320, clip_children: true) [
+        View (grow: 1.0, height: 57) {
+            if ${ expedition.chapter() * 6 + slot > model.unlocked() } {
+                View (
+                    grow: 1.0,
+                    height: 57,
+                    padding: Padding::all(4),
+                    bg_color: Color::rgb(22, 35, 48),
+                    border_radius: 7,
+                    justify: JustifyContent::Center,
+                    align: AlignItems::Center
+                ) [IgnoreHitTest] {
+                    Text (
+                        text: ${ LockedLevelLabel(expedition.chapter() * 6 + slot) },
+                        text_capacity: 8,
+                        grow: 1.0,
+                        height: 49,
+                        font_size: 10,
+                        text_color: Color::rgb(74, 96, 109),
+                        paragraph: ParagraphStyle::label()
+                    )
+                }
+            } else {
+                Button (
+                    text: ${ MapLevelLabel {
+                        level: expedition.chapter() * 6 + slot,
+                        current: model.level_index(),
+                        stars: model.progress().stars(expedition.chapter() * 6 + slot),
+                    } },
+                    text_capacity: 20,
+                    size: ButtonSize::Compact,
+                    grow: 1.0,
+                    height: 57,
+                    font_size: 10,
+                    normal_color: ${ map_level_color(expedition.chapter() * 6 + slot, model.level_index()) },
+                    pressed_color: APRICOT,
+                    text_color: ${ map_level_text_color(expedition.chapter() * 6 + slot, model.level_index()) },
+                    border_radius: 7
+                ) on Tap { select_map_level(&model, &expedition, slot); }
+            }
+        }
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
+    ui! {
+        View (id: "picture_surface", width: 480, height: 320, clip_children: true) [
+            PictureSurface { model: model.clone() },
+            PictureExpeditionState {
+                expedition: expedition.clone(),
+            },
             TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, ctx.entity, ctx.event); }
+        ] on Tap { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); }
         {
             Text (
                 "ATLAS RESTORATION",
@@ -79,7 +260,8 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "",
+                text: ${ CHAPTER_NAMES[usize::from(model.level_index() / 6)] },
+                text_capacity: 32,
                 id: "picture_chapter",
                 position: Position::Absolute,
                 left: 247,
@@ -91,7 +273,8 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ format_args!("A{:02} / 36", model.level_index() + 1) },
+                text_capacity: 16,
                 id: "picture_level",
                 position: Position::Absolute,
                 left: 383,
@@ -103,241 +286,261 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 0 } },
+                text_capacity: 16,
                 id: "pic_row_0",
                 position: Position::Absolute,
-                left: 25,
-                top: 82,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 0) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 1 } },
+                text_capacity: 16,
                 id: "pic_row_1",
                 position: Position::Absolute,
-                left: 25,
-                top: 100,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 1) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 2 } },
+                text_capacity: 16,
                 id: "pic_row_2",
                 position: Position::Absolute,
-                left: 25,
-                top: 118,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 2) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 3 } },
+                text_capacity: 16,
                 id: "pic_row_3",
                 position: Position::Absolute,
-                left: 25,
-                top: 136,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 3) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 4 } },
+                text_capacity: 16,
                 id: "pic_row_4",
                 position: Position::Absolute,
-                left: 25,
-                top: 154,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 4) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 5 } },
+                text_capacity: 16,
                 id: "pic_row_5",
                 position: Position::Absolute,
-                left: 25,
-                top: 172,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 5) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 6 } },
+                text_capacity: 16,
                 id: "pic_row_6",
                 position: Position::Absolute,
-                left: 25,
-                top: 190,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 6) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 7 } },
+                text_capacity: 16,
                 id: "pic_row_7",
                 position: Position::Absolute,
-                left: 25,
-                top: 208,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 7) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 8 } },
+                text_capacity: 16,
                 id: "pic_row_8",
                 position: Position::Absolute,
-                left: 25,
-                top: 226,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 8) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: true, line: 9 } },
+                text_capacity: 16,
                 id: "pic_row_9",
                 position: Position::Absolute,
-                left: 25,
-                top: 244,
-                width: 91,
-                height: 18,
+                left: 20,
+                top: ${ row_clue_top(model.level_index(), 9) },
+                width: ${ board_geometry_for_level(model.level_index()).x - 28 },
+                height: ${ board_geometry_for_level(model.level_index()).cell },
                 font_size: 7,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 0 } },
+                text_capacity: 16,
                 id: "pic_col_0",
                 position: Position::Absolute,
-                left: 125,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 0) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 1 } },
+                text_capacity: 16,
                 id: "pic_col_1",
                 position: Position::Absolute,
-                left: 143,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 1) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 2 } },
+                text_capacity: 16,
                 id: "pic_col_2",
                 position: Position::Absolute,
-                left: 161,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 2) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 3 } },
+                text_capacity: 16,
                 id: "pic_col_3",
                 position: Position::Absolute,
-                left: 179,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 3) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 4 } },
+                text_capacity: 16,
                 id: "pic_col_4",
                 position: Position::Absolute,
-                left: 197,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 4) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 5 } },
+                text_capacity: 16,
                 id: "pic_col_5",
                 position: Position::Absolute,
-                left: 215,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 5) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 6 } },
+                text_capacity: 16,
                 id: "pic_col_6",
                 position: Position::Absolute,
-                left: 233,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 6) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 7 } },
+                text_capacity: 16,
                 id: "pic_col_7",
                 position: Position::Absolute,
-                left: 251,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 7) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 8 } },
+                text_capacity: 16,
                 id: "pic_col_8",
                 position: Position::Absolute,
-                left: 269,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 8) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
             Text (
-                "",
+                text: ${ ClueLabel { level: model.level_index(), row: false, line: 9 } },
+                text_capacity: 16,
                 id: "pic_col_9",
                 position: Position::Absolute,
-                left: 287,
-                top: 42,
-                width: 18,
-                height: 38,
+                left: ${ column_clue_left(model.level_index(), 9) },
+                top: 43,
+                width: ${ board_geometry_for_level(model.level_index()).cell },
+                height: ${ (board_geometry_for_level(model.level_index()).y - 45).max(12) },
                 font_size: 6,
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
@@ -363,11 +566,11 @@ fn build_widgets() {
                 height: 31,
                 size: ButtonSize::Compact,
                 font_size: 8,
-                normal_color: MINT,
+                normal_color: ${ if model.tool() == PictureTool::Fill { MINT } else { CELL } },
                 pressed_color: MINT,
-                text_color: BG,
+                text_color: ${ if model.tool() == PictureTool::Fill { BG } else { TEXT } },
                 border_radius: 7
-            ) on Tap { PictureNodes::update(ctx.world, |model| model.set_tool(PictureTool::Fill)); }
+            ) on Tap { model.set_tool(PictureTool::Fill); }
             Button (
                 "MARK",
                 id: "picture_mark",
@@ -378,11 +581,11 @@ fn build_widgets() {
                 height: 31,
                 size: ButtonSize::Compact,
                 font_size: 8,
-                normal_color: CELL,
+                normal_color: ${ if model.tool() == PictureTool::Mark { LAVENDER } else { CELL } },
                 pressed_color: LAVENDER,
-                text_color: TEXT,
+                text_color: ${ if model.tool() == PictureTool::Mark { BG } else { TEXT } },
                 border_radius: 7
-            ) on Tap { PictureNodes::update(ctx.world, |model| model.set_tool(PictureTool::Mark)); }
+            ) on Tap { model.set_tool(PictureTool::Mark); }
             Button (
                 "UNDO",
                 position: Position::Absolute,
@@ -396,7 +599,7 @@ fn build_widgets() {
                 pressed_color: LAVENDER,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PictureNodes::update(ctx.world, PictureModel::undo); }
+            ) on Tap { model.undo(); }
             Button (
                 "REVEAL ONE",
                 position: Position::Absolute,
@@ -410,7 +613,7 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PictureNodes::update(ctx.world, PictureModel::reveal_hint); }
+            ) on Tap { model.reveal_hint(); }
             Button (
                 "CHECK",
                 position: Position::Absolute,
@@ -424,9 +627,16 @@ fn build_widgets() {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PictureNodes::update(ctx.world, PictureModel::check); }
+            ) on Tap { model.check(); }
             Text (
-                "",
+                text: ${ format_args!(
+                    "{}×{}   UNDO {:02}   HINT {}",
+                    level_size(model.level_index()),
+                    level_size(model.level_index()),
+                    model.history_len(),
+                    model.hints()
+                ) },
+                text_capacity: 48,
                 id: "picture_progress",
                 position: Position::Absolute,
                 left: 334,
@@ -438,7 +648,8 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "",
+                text: ${ StatusLabel(model.message()) },
+                text_capacity: 48,
                 id: "picture_status",
                 position: Position::Absolute,
                 left: 18,
@@ -462,7 +673,7 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PictureNodes::open_map(ctx.world); }
+            ) on Tap { expedition.open(model.level_index()); }
             Button (
                 "RULES",
                 position: Position::Absolute,
@@ -476,7 +687,7 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PictureNodes::open_rules(ctx.world); }
+            ) on Tap { expedition.open_rules(); }
             Button (
                 "RESET",
                 position: Position::Absolute,
@@ -490,9 +701,10 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { PictureNodes::update(ctx.world, PictureModel::restart); }
+            ) on Tap { model.restart(); }
             Button (
-                "",
+                text: ${ next_label(model.modal(), model.level_index(), model.unlocked()) },
+                text_capacity: 16,
                 id: "picture_next",
                 position: Position::Absolute,
                 left: 391,
@@ -505,7 +717,7 @@ fn build_widgets() {
                 pressed_color: LAVENDER,
                 text_color: BG,
                 border_radius: 7
-            ) on Tap { PictureNodes::next(ctx.world); }
+            ) on Tap { next_picture(&model, &expedition); }
             View (
                 id: "picture_result",
                 position: Position::Absolute,
@@ -513,7 +725,8 @@ fn build_widgets() {
                 top: 0,
                 width: 480,
                 height: 320,
-                bg_color: Color::rgba(7, 13, 22, 244)
+                bg_color: Color::rgba(7, 13, 22, 244),
+                visible: ${ model.modal() != ExpeditionModal::None }
             ) [
                 TouchAction::None,
             ] on Tap { }
@@ -532,7 +745,14 @@ fn build_widgets() {
                     border_radius: 9
                 ) {
                     Text (
-                        "",
+                        text: ${ if model.modal() == ExpeditionModal::Final {
+                            "远征完成"
+                        } else if model.level_index() % 6 == 5 {
+                            "章节完成"
+                        } else {
+                            "图谱已复原"
+                        } },
+                        text_capacity: 24,
                         id: "picture_result_title",
                         height: 28,
                         font_size: 15,
@@ -540,7 +760,14 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
-                        "",
+                        text: ${ format_args!(
+                            "星级 {} / 3   提示 {} 次   图纸 {}×{}",
+                            model.progress().stars(model.level_index()),
+                            model.hints(),
+                            level_size(model.level_index()),
+                            level_size(model.level_index())
+                        ) },
+                        text_capacity: 64,
                         id: "picture_result_stats",
                         height: 22,
                         font_size: 10,
@@ -565,7 +792,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 7
-                        ) on Tap { PictureNodes::update(ctx.world, PictureModel::restart); }
+                        ) on Tap { model.restart(); }
                         Button (
                             "查看航图",
                             size: ButtonSize::Compact,
@@ -576,7 +803,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 7
-                        ) on Tap { PictureNodes::open_map(ctx.world); }
+                        ) on Tap { expedition.open(model.level_index()); }
                         Button (
                             "继续远征 →",
                             size: ButtonSize::Compact,
@@ -587,7 +814,7 @@ fn build_widgets() {
                             pressed_color: LAVENDER,
                             text_color: BG,
                             border_radius: 7
-                        ) on Tap { PictureNodes::next(ctx.world); }
+                        ) on Tap { next_picture(&model, &expedition); }
                     }
                 }
             }
@@ -598,7 +825,8 @@ fn build_widgets() {
                 top: 0,
                 width: 480,
                 height: 320,
-                bg_color: Color::rgba(7, 13, 22, 244)
+                bg_color: Color::rgba(7, 13, 22, 244),
+                visible: ${ expedition.panel() == ExpeditionPanel::Map }
             ) [
                 TouchAction::None,
             ] on Tap { }
@@ -635,10 +863,15 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::close_map(ctx.world); }
+                        ) on Tap { expedition.close(); }
                     }
                     Text (
-                        "",
+                        text: ${ format_args!(
+                            "COMPLETE {:02} / 36   CHAPTER {:02} / 06",
+                            model.progress().completed_count(),
+                            expedition.chapter() + 1
+                        ) },
+                        text_capacity: 48,
                         id: "picture_map_summary",
                         height: 14,
                         font_size: 8,
@@ -653,11 +886,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: CELL,
+                            normal_color: ${ if expedition.chapter() == 0 { APRICOT } else { CELL } },
                             pressed_color: APRICOT,
-                            text_color: TEXT,
+                            text_color: ${ if expedition.chapter() == 0 { BG } else { TEXT } },
                             border_radius: 6
-                        ) on Tap { PictureNodes::set_map_chapter(ctx.world, 0); }
+                        ) on Tap { expedition.select_chapter(0); }
                         Button (
                             "02",
                             id: "picture_map_chapter_1",
@@ -665,11 +898,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: CELL,
+                            normal_color: ${ if expedition.chapter() == 1 { APRICOT } else { CELL } },
                             pressed_color: APRICOT,
-                            text_color: TEXT,
+                            text_color: ${ if expedition.chapter() == 1 { BG } else { TEXT } },
                             border_radius: 6
-                        ) on Tap { PictureNodes::set_map_chapter(ctx.world, 1); }
+                        ) on Tap { expedition.select_chapter(1); }
                         Button (
                             "03",
                             id: "picture_map_chapter_2",
@@ -677,11 +910,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: CELL,
+                            normal_color: ${ if expedition.chapter() == 2 { APRICOT } else { CELL } },
                             pressed_color: APRICOT,
-                            text_color: TEXT,
+                            text_color: ${ if expedition.chapter() == 2 { BG } else { TEXT } },
                             border_radius: 6
-                        ) on Tap { PictureNodes::set_map_chapter(ctx.world, 2); }
+                        ) on Tap { expedition.select_chapter(2); }
                         Button (
                             "04",
                             id: "picture_map_chapter_3",
@@ -689,11 +922,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: CELL,
+                            normal_color: ${ if expedition.chapter() == 3 { APRICOT } else { CELL } },
                             pressed_color: APRICOT,
-                            text_color: TEXT,
+                            text_color: ${ if expedition.chapter() == 3 { BG } else { TEXT } },
                             border_radius: 6
-                        ) on Tap { PictureNodes::set_map_chapter(ctx.world, 3); }
+                        ) on Tap { expedition.select_chapter(3); }
                         Button (
                             "05",
                             id: "picture_map_chapter_4",
@@ -701,11 +934,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: CELL,
+                            normal_color: ${ if expedition.chapter() == 4 { APRICOT } else { CELL } },
                             pressed_color: APRICOT,
-                            text_color: TEXT,
+                            text_color: ${ if expedition.chapter() == 4 { BG } else { TEXT } },
                             border_radius: 6
-                        ) on Tap { PictureNodes::set_map_chapter(ctx.world, 4); }
+                        ) on Tap { expedition.select_chapter(4); }
                         Button (
                             "06",
                             id: "picture_map_chapter_5",
@@ -713,14 +946,15 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: CELL,
+                            normal_color: ${ if expedition.chapter() == 5 { APRICOT } else { CELL } },
                             pressed_color: APRICOT,
-                            text_color: TEXT,
+                            text_color: ${ if expedition.chapter() == 5 { BG } else { TEXT } },
                             border_radius: 6
-                        ) on Tap { PictureNodes::set_map_chapter(ctx.world, 5); }
+                        ) on Tap { expedition.select_chapter(5); }
                     }
                     Text (
-                        "",
+                        text: ${ CHAPTER_NAMES[usize::from(expedition.chapter())] },
+                        text_capacity: 32,
                         id: "picture_map_chapter_name",
                         height: 16,
                         font_size: 12,
@@ -728,7 +962,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ CHAPTER_MECHANICS[usize::from(expedition.chapter())] },
+                        text_capacity: 64,
                         id: "picture_map_chapter_mechanic",
                         height: 14,
                         font_size: 9,
@@ -736,78 +971,24 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Row (height: 58, column_gap: 7) {
-                        Button (
-                            "01",
-                            id: "picture_map_level_0",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: CELL,
-                            pressed_color: APRICOT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { PictureNodes::select_map_level(ctx.world, 0); }
-                        Button (
-                            "02",
-                            id: "picture_map_level_1",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: CELL,
-                            pressed_color: APRICOT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { PictureNodes::select_map_level(ctx.world, 1); }
-                        Button (
-                            "03",
-                            id: "picture_map_level_2",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: CELL,
-                            pressed_color: APRICOT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { PictureNodes::select_map_level(ctx.world, 2); }
-                        Button (
-                            "04",
-                            id: "picture_map_level_3",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: CELL,
-                            pressed_color: APRICOT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { PictureNodes::select_map_level(ctx.world, 3); }
-                        Button (
-                            "05",
-                            id: "picture_map_level_4",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: CELL,
-                            pressed_color: APRICOT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { PictureNodes::select_map_level(ctx.world, 4); }
-                        Button (
-                            "06",
-                            id: "picture_map_level_5",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: CELL,
-                            pressed_color: APRICOT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { PictureNodes::select_map_level(ctx.world, 5); }
+                        View (id: "picture_map_level_0", grow: 1.0, height: 57) {
+                            map_level_button (model, expedition, 0)
+                        }
+                        View (id: "picture_map_level_1", grow: 1.0, height: 57) {
+                            map_level_button (model, expedition, 1)
+                        }
+                        View (id: "picture_map_level_2", grow: 1.0, height: 57) {
+                            map_level_button (model, expedition, 2)
+                        }
+                        View (id: "picture_map_level_3", grow: 1.0, height: 57) {
+                            map_level_button (model, expedition, 3)
+                        }
+                        View (id: "picture_map_level_4", grow: 1.0, height: 57) {
+                            map_level_button (model, expedition, 4)
+                        }
+                        View (id: "picture_map_level_5", grow: 1.0, height: 57) {
+                            map_level_button (model, expedition, 5)
+                        }
                     }
                     Text (
                         "6 CHAPTERS × 6 LEVELS · COMPLETE TO UNLOCK",
@@ -825,7 +1006,8 @@ fn build_widgets() {
                 top: 0,
                 width: 480,
                 height: 320,
-                bg_color: Color::rgba(7, 13, 22, 244)
+                bg_color: Color::rgba(7, 13, 22, 244),
+                visible: ${ expedition.panel() == ExpeditionPanel::Rules }
             ) [
                 TouchAction::None,
             ] on Tap { }
@@ -862,7 +1044,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::close_map(ctx.world); }
+                        ) on Tap { expedition.close(); }
                     }
                     Text (
                         "01  边缘数字表示这一行或列中连续填色段的长度。",
@@ -908,7 +1090,8 @@ fn build_widgets() {
                 top: 0,
                 width: 480,
                 height: 320,
-                bg_color: Color::rgba(7, 13, 22, 244)
+                bg_color: Color::rgba(7, 13, 22, 244),
+                visible: ${ expedition.panel() == ExpeditionPanel::Briefing }
             ) [
                 TouchAction::None,
             ] on Tap { }
@@ -927,7 +1110,12 @@ fn build_widgets() {
                     border_radius: 9
                 ) {
                     Text (
-                        "",
+                        text: ${ format_args!(
+                            "第 {} 章 · {}",
+                            model.level_index() / 6 + 1,
+                            CHAPTER_NAMES[usize::from(model.level_index() / 6)]
+                        ) },
+                        text_capacity: 48,
                         id: "picture_briefing_title",
                         height: 24,
                         font_size: 13,
@@ -942,7 +1130,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
-                        "",
+                        text: ${ CHAPTER_MECHANICS[usize::from(model.level_index() / 6)] },
+                        text_capacity: 64,
                         id: "picture_briefing_mechanic",
                         height: 20,
                         font_size: 11,
@@ -973,7 +1162,7 @@ fn build_widgets() {
                         pressed_color: LAVENDER,
                         text_color: BG,
                         border_radius: 7
-                    ) on Tap { PictureNodes::close_map(ctx.world); }
+                    ) on Tap { expedition.close(); }
                 }
             }
             View (
@@ -983,7 +1172,8 @@ fn build_widgets() {
                 top: 0,
                 width: 480,
                 height: 320,
-                bg_color: Color::rgba(7, 13, 22, 248)
+                bg_color: Color::rgba(7, 13, 22, 248),
+                visible: ${ expedition.panel() == ExpeditionPanel::Summary }
             ) [
                 TouchAction::None,
             ] on Tap { }
@@ -1016,7 +1206,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
-                        "",
+                        text: ${ chapter_summary(model.progress(), 0) },
+                        text_capacity: 48,
                         id: "picture_summary_line_0",
                         height: 17,
                         font_size: 9,
@@ -1024,7 +1215,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ chapter_summary(model.progress(), 1) },
+                        text_capacity: 48,
                         id: "picture_summary_line_1",
                         height: 17,
                         font_size: 9,
@@ -1032,7 +1224,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ chapter_summary(model.progress(), 2) },
+                        text_capacity: 48,
                         id: "picture_summary_line_2",
                         height: 17,
                         font_size: 9,
@@ -1040,7 +1233,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ chapter_summary(model.progress(), 3) },
+                        text_capacity: 48,
                         id: "picture_summary_line_3",
                         height: 17,
                         font_size: 9,
@@ -1048,7 +1242,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ chapter_summary(model.progress(), 4) },
+                        text_capacity: 48,
                         id: "picture_summary_line_4",
                         height: 17,
                         font_size: 9,
@@ -1056,7 +1251,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ chapter_summary(model.progress(), 5) },
+                        text_capacity: 48,
                         id: "picture_summary_line_5",
                         height: 17,
                         font_size: 9,
@@ -1074,7 +1270,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::open_map_chapter(ctx.world, 0); }
+                        ) on Tap { expedition.open(0); }
                         Button (
                             "02",
                             size: ButtonSize::Compact,
@@ -1085,7 +1281,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::open_map_chapter(ctx.world, 1); }
+                        ) on Tap { expedition.open(6); }
                         Button (
                             "03",
                             size: ButtonSize::Compact,
@@ -1096,7 +1292,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::open_map_chapter(ctx.world, 2); }
+                        ) on Tap { expedition.open(12); }
                         Button (
                             "04",
                             size: ButtonSize::Compact,
@@ -1107,7 +1303,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::open_map_chapter(ctx.world, 3); }
+                        ) on Tap { expedition.open(18); }
                         Button (
                             "05",
                             size: ButtonSize::Compact,
@@ -1118,7 +1314,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::open_map_chapter(ctx.world, 4); }
+                        ) on Tap { expedition.open(24); }
                         Button (
                             "06",
                             size: ButtonSize::Compact,
@@ -1129,7 +1325,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { PictureNodes::open_map_chapter(ctx.world, 5); }
+                        ) on Tap { expedition.open(30); }
                     }
                 }
             }
@@ -1142,41 +1338,15 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_plugin(PictureKeyboardPlugin);
     register_play_font(&mut app.world);
-    app.world.insert_resource(PictureModel::default());
-    app.world.insert_resource(ExpeditionUiState::default());
+    let model = app.add_model(PictureModel::default());
+    let expedition = app.add_model(ExpeditionUiModel::default());
+    app.add_plugin(PictureKeyboardPlugin::new(
+        model.clone(),
+        expedition.clone(),
+    ));
     #[cfg(feature = "persistence")]
-    install_persistence(app);
+    install_persistence(app, model.clone());
     app.with_widget(surface_view());
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Atlas Restoration node");
-    app.world.insert_resource(PictureNodes {
-        surface: find("picture_surface"),
-        level: find("picture_level"),
-        chapter: find("picture_chapter"),
-        status: find("picture_status"),
-        progress: find("picture_progress"),
-        next: find("picture_next"),
-        fill: find("picture_fill"),
-        mark: find("picture_mark"),
-        map: find("picture_map"),
-        map_summary: find("picture_map_summary"),
-        map_chapter_name: find("picture_map_chapter_name"),
-        map_chapter_mechanic: find("picture_map_chapter_mechanic"),
-        map_chapters: core::array::from_fn(|index| find(MAP_CHAPTER_IDS[index])),
-        map_levels: core::array::from_fn(|index| find(MAP_LEVEL_IDS[index])),
-        rules: find("picture_rules"),
-        result: find("picture_result"),
-        result_title: find("picture_result_title"),
-        result_stats: find("picture_result_stats"),
-        briefing: find("picture_briefing"),
-        briefing_title: find("picture_briefing_title"),
-        briefing_mechanic: find("picture_briefing_mechanic"),
-        summary: find("picture_summary"),
-        summary_lines: core::array::from_fn(|index| find(SUMMARY_LINE_IDS[index])),
-        row_clues: core::array::from_fn(|index| find(ROW_IDS[index])),
-        column_clues: core::array::from_fn(|index| find(COLUMN_IDS[index])),
-    });
-    PictureNodes::sync(&mut app.world);
+    app.compose(parent, |cx| build_widgets(cx, model, expedition));
 }

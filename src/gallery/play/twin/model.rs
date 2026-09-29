@@ -21,7 +21,8 @@ const SAVE_PAYLOAD: usize = 10 + RECORD_BYTES + ACTION_BYTES;
 #[cfg(any(feature = "persistence", test))]
 pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
-#[derive(Clone, Copy)]
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TwinModel {
     pub(super) level: u8,
     pub(super) state: TwinState,
@@ -31,6 +32,25 @@ pub(crate) struct TwinModel {
     pub(super) last_hint: Option<(u8, u16, bool)>,
     pub(super) modal: ExpeditionModal,
     pub(super) message: TwinMessage,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TwinProgress {
+    stars: [u8; EXPEDITION_LEVELS],
+}
+
+impl TwinProgress {
+    pub(crate) const fn stars(self, level: u8) -> u8 {
+        self.stars[level as usize]
+    }
+
+    pub(crate) const fn completed(self, level: u8) -> bool {
+        self.stars(level) != 0
+    }
+
+    pub(crate) fn completed_count(self) -> u8 {
+        self.stars.iter().filter(|stars| **stars != 0).count() as u8
+    }
 }
 
 impl Default for TwinModel {
@@ -49,16 +69,20 @@ impl Default for TwinModel {
     }
 }
 
+#[crate::model]
 impl TwinModel {
-    pub(crate) const fn level_index(&self) -> u8 {
+    #[observe]
+    pub(crate) fn level_index(&self) -> u8 {
         self.level
     }
 
+    #[model(local)]
     pub(crate) fn level(&self) -> TwinLevelRef {
         twin_level(self.level).expect("validated Twin level")
     }
 
-    pub(crate) const fn position(&self, station: usize) -> u8 {
+    #[model(local)]
+    pub(crate) fn position(&self, station: usize) -> u8 {
         if station == 0 {
             self.state.a
         } else {
@@ -66,34 +90,49 @@ impl TwinModel {
         }
     }
 
-    pub(crate) const fn has_key(&self) -> bool {
+    #[model(local)]
+    pub(crate) fn has_key(&self) -> bool {
         self.state.key
     }
 
-    pub(crate) const fn steps(&self) -> u16 {
+    #[observe]
+    pub(crate) fn steps(&self) -> u16 {
         self.actions.len()
     }
 
-    pub(crate) const fn hints(&self) -> u16 {
+    #[observe]
+    pub(crate) fn hints(&self) -> u16 {
         self.hints
     }
 
-    pub(crate) const fn modal(&self) -> ExpeditionModal {
+    #[observe]
+    pub(crate) fn modal(&self) -> ExpeditionModal {
         self.modal
     }
 
-    pub(crate) const fn message(&self) -> TwinMessage {
+    #[observe]
+    pub(crate) fn message(&self) -> TwinMessage {
         self.message
     }
 
-    pub(crate) const fn unlocked(&self) -> u8 {
+    #[observe]
+    pub(crate) fn unlocked(&self) -> u8 {
         unlocked_level(&self.records)
     }
 
-    pub(crate) const fn record(&self, level: u8) -> LevelRecord {
-        self.records[level as usize]
+    #[observe]
+    pub(crate) fn progress(&self) -> TwinProgress {
+        TwinProgress {
+            stars: core::array::from_fn(|index| self.records[index].stars()),
+        }
     }
 
+    #[observe]
+    pub(crate) fn par(&self) -> u8 {
+        self.level().par()
+    }
+
+    #[observe]
     pub(crate) fn won(&self) -> bool {
         won(self.level(), self.state)
     }
@@ -182,6 +221,7 @@ impl TwinModel {
         accepted_change()
     }
 
+    #[model(local)]
     fn replay(&mut self) {
         let level = self.level();
         let mut state = initial(level);
@@ -194,6 +234,7 @@ impl TwinModel {
     }
 
     #[cfg(any(feature = "persistence", test))]
+    #[model(local)]
     pub(crate) fn encode_into(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
         if output.len() < SAVE_LEN {
             return Err(ExpeditionSaveError::BufferTooSmall);
@@ -210,6 +251,7 @@ impl TwinModel {
     }
 
     #[cfg(any(feature = "persistence", test))]
+    #[model(local)]
     pub(crate) fn decode(input: &[u8]) -> Result<Self, ExpeditionSaveError> {
         validate_packet(input, SAVE_PAYLOAD)?;
         if input[..4] != SAVE_MAGIC {
@@ -259,6 +301,16 @@ impl TwinModel {
     }
 
     #[cfg(feature = "persistence")]
+    pub(crate) fn restore(&mut self, restored: TwinModel) -> ChangeSet {
+        if *self == restored {
+            return ChangeSet::NONE;
+        }
+        *self = restored;
+        accepted_change()
+    }
+
+    #[cfg(feature = "persistence")]
+    #[model(local)]
     pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
         let mut output = alloc::vec![0; SAVE_LEN];
         self.encode_into(&mut output)

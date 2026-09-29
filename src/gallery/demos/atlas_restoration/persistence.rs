@@ -1,7 +1,8 @@
-use crate::gallery::play::picture::PictureModel;
+use crate::core::model::ModelHandle;
+use crate::gallery::play::picture::{PictureModel, PictureModelHandle};
 use crate::prelude::{App, RendererFactory, Surface};
 
-pub(super) fn install_persistence<B, F>(app: &mut App<B, F>)
+pub(super) fn install_persistence<B, F>(app: &mut App<B, F>, model: PictureModelHandle)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -9,17 +10,15 @@ where
     use crate::core::persistence::PersistencePlugin;
     use crate::gallery::play::storage::gallery_storage;
 
+    let save_model = model.clone();
+    let restore_model = model;
     let plugin = PersistencePlugin::new(gallery_storage("mirui_atlas_restoration.bin"))
         .bytes(
             "atlas_restoration/save",
-            |world| {
-                world
-                    .resource::<PictureModel>()
-                    .map(PictureModel::encode_vec)
-            },
-            |world, bytes| {
+            move |_world| Some(ModelHandle::read(&save_model, PictureModel::encode_vec)),
+            move |_world, bytes| {
                 if let Ok(model) = PictureModel::decode(bytes) {
-                    world.insert_resource(model);
+                    restore_model.restore(model);
                 }
             },
         )

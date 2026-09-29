@@ -1,43 +1,245 @@
 use super::input::{TwinKeyboardPlugin, move_model};
 use super::render::surface_view;
-use super::state::{TwinNodes, TwinSurface};
+use super::state::{TwinHintService, TwinSurface, next, select_map_level};
 use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
-use crate::gallery::play::expeditions::{Direction4, ExpeditionHintWorkspace, ExpeditionUiState};
+use crate::gallery::play::expeditions::{
+    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, twin_level,
+};
 use crate::gallery::play::font::register_play_font;
-use crate::gallery::play::twin::TwinModel;
+#[cfg(feature = "persistence")]
+use crate::gallery::play::twin::TwinModelHandle;
+use crate::gallery::play::twin::{
+    CHAPTER_MECHANICS, CHAPTER_NAMES, TwinMessage, TwinModel, TwinProgress,
+};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use core::fmt;
 
-const MAP_CHAPTER_IDS: [&str; 6] = [
-    "twin_map_chapter_0",
-    "twin_map_chapter_1",
-    "twin_map_chapter_2",
-    "twin_map_chapter_3",
-    "twin_map_chapter_4",
-    "twin_map_chapter_5",
-];
-const MAP_LEVEL_IDS: [&str; 6] = [
-    "twin_map_level_0",
-    "twin_map_level_1",
-    "twin_map_level_2",
-    "twin_map_level_3",
-    "twin_map_level_4",
-    "twin_map_level_5",
-];
-const SUMMARY_LINE_IDS: [&str; 6] = [
-    "twin_summary_line_0",
-    "twin_summary_line_1",
-    "twin_summary_line_2",
-    "twin_summary_line_3",
-    "twin_summary_line_4",
-    "twin_summary_line_5",
-];
+fn level_par(level: u8) -> u8 {
+    twin_level(level).map_or(0, |level| level.par())
+}
 
-#[compose]
-fn build_widgets() {
+fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
+    match modal {
+        ExpeditionModal::Result => "下一站",
+        ExpeditionModal::Final => "再航行",
+        ExpeditionModal::None if level < unlocked => "换一站",
+        ExpeditionModal::None => "第一站",
+    }
+}
+
+fn result_title(modal: ExpeditionModal, level: u8) -> &'static str {
+    if modal == ExpeditionModal::Final {
+        "远征完成"
+    } else if level % 6 == 5 {
+        "章节完成"
+    } else {
+        "两座信标已同步"
+    }
+}
+
+fn chapter_color(active: bool) -> Color {
+    if active { MINT } else { FLOOR }
+}
+
+fn chapter_text_color(active: bool) -> Color {
+    if active { BG } else { TEXT }
+}
+
+fn level_color(active: bool) -> Color {
+    if active { MINT } else { FLOOR }
+}
+
+fn level_text_color(active: bool) -> Color {
+    if active { BG } else { TEXT }
+}
+
+struct StatusText(TwinMessage);
+
+impl fmt::Display for StatusText {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            TwinMessage::Ready => output.write_str("双站同步，单次输入驱动两边"),
+            TwinMessage::Blocked => output.write_str("路径受阻；另一座信标也保持原位"),
+            TwinMessage::KeyCollected => output.write_str("访问密钥已同步，闸门开放"),
+            TwinMessage::Undone => output.write_str("已撤回上一条指令"),
+            TwinMessage::Hint(direction, remaining) => write!(
+                output,
+                "提示 {} · 最短还需 {remaining} 步",
+                direction.label()
+            ),
+            TwinMessage::Complete => output.write_str("两座信标已同时归位"),
+        }
+    }
+}
+
+struct StepText {
+    steps: u16,
+    par: u8,
+    hints: u16,
+}
+
+impl fmt::Display for StepText {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            output,
+            "STEP {:02}   PAR {:02}   HINT {}",
+            self.steps, self.par, self.hints
+        )
+    }
+}
+
+struct MapSummary {
+    progress: TwinProgress,
+    chapter: u8,
+}
+
+impl fmt::Display for MapSummary {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            output,
+            "COMPLETE {:02} / 36   CHAPTER {:02} / 06",
+            self.progress.completed_count(),
+            self.chapter + 1
+        )
+    }
+}
+
+struct MapLevelLabel {
+    progress: TwinProgress,
+    current: u8,
+    level: u8,
+}
+
+impl fmt::Display for MapLevelLabel {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.progress.completed(self.level) {
+            write!(
+                output,
+                "{:02}\n{} STAR",
+                self.level + 1,
+                self.progress.stars(self.level)
+            )
+        } else if self.level == self.current {
+            write!(output, "{:02}\nPLAY", self.level + 1)
+        } else {
+            write!(output, "{:02}\nOPEN", self.level + 1)
+        }
+    }
+}
+
+struct LockedLevelLabel(u8);
+
+impl fmt::Display for LockedLevelLabel {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(output, "{:02}\nLOCK", self.0 + 1)
+    }
+}
+
+struct ResultStats {
+    stars: u8,
+    steps: u16,
+    par: u8,
+}
+
+impl fmt::Display for ResultStats {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            output,
+            "星级 {} / 3   完成 {:02} 步   最短 {:02} 步",
+            self.stars, self.steps, self.par
+        )
+    }
+}
+
+struct SummaryLine {
+    progress: TwinProgress,
+    chapter: u8,
+}
+
+impl fmt::Display for SummaryLine {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut completed = 0;
+        let mut stars = 0;
+        for slot in 0..6 {
+            let level = self.chapter * 6 + slot;
+            let level_stars = self.progress.stars(level);
+            if level_stars != 0 {
+                completed += 1;
+                stars += level_stars;
+            }
+        }
+        write!(
+            output,
+            "0{}  {}   {completed}/6   {stars}/18 ★",
+            self.chapter + 1,
+            CHAPTER_NAMES[usize::from(self.chapter)]
+        )
+    }
+}
+
+#[compose(bind(game, expedition))]
+fn map_level_button(game: TwinModel, expedition: ExpeditionUiModel, slot: u8) -> Entity {
     ui! {
-        TwinSurface (id: "twin_surface", width: 480, height: 320, clip_children: true) {
+        View (grow: 1.0, height: 57) {
+            if ${ expedition.chapter() * 6 + slot > game.unlocked() } {
+                View (
+                    grow: 1.0,
+                    height: 57,
+                    padding: Padding::all(4),
+                    bg_color: BG,
+                    border_radius: 7,
+                    justify: JustifyContent::Center,
+                    align: AlignItems::Center
+                ) [IgnoreHitTest] {
+                    Text (
+                        text: ${ LockedLevelLabel(expedition.chapter() * 6 + slot) },
+                        text_capacity: 8,
+                        grow: 1.0,
+                        height: 49,
+                        font_size: 10,
+                        text_color: Color::rgb(67, 91, 101),
+                        paragraph: ParagraphStyle::label()
+                    )
+                }
+            } else {
+                Button (
+                    text: ${ MapLevelLabel {
+                        progress: game.progress(),
+                        current: game.level_index(),
+                        level: expedition.chapter() * 6 + slot,
+                    } },
+                    text_capacity: 10,
+                    grow: 1.0,
+                    height: 57,
+                    size: ButtonSize::Compact,
+                    font_size: 10,
+                    normal_color: ${ level_color(expedition.chapter() * 6 + slot == game.level_index()) },
+                    pressed_color: MINT,
+                    text_color: ${ level_text_color(expedition.chapter() * 6 + slot == game.level_index()) },
+                    border_radius: 7
+                ) on Tap { select_map_level(&game, &expedition, slot); }
+            }
+        }
+    }
+}
+
+#[compose(bind(game, expedition))]
+fn build_widgets(game: TwinModel, expedition: ExpeditionUiModel, hints: TwinHintService) {
+    ui! {
+        View (
+            id: "twin_surface",
+            width: 480,
+            height: 320,
+            clip_children: true
+        ) [
+            TwinSurface {
+                game: game.clone(),
+                expedition: expedition.clone(),
+            },
+        ] {
             Text (
                 "TWIN BEACONS",
                 position: Position::Absolute,
@@ -50,7 +252,8 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "",
+                text: ${ CHAPTER_NAMES[usize::from(game.level_index() / 6)] },
+                text_capacity: 24,
                 id: "twin_chapter",
                 position: Position::Absolute,
                 left: 238,
@@ -62,7 +265,8 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
             Text (
-                "",
+                text: ${ format_args!("T{:02} / 36", game.level_index() + 1) },
+                text_capacity: 8,
                 id: "twin_level",
                 position: Position::Absolute,
                 left: 383,
@@ -130,7 +334,7 @@ fn build_widgets() {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(ctx.world, Direction4::Up); }
+            ) on Tap { move_model(&game, Direction4::Up); }
             Button (
                 "←",
                 position: Position::Absolute,
@@ -144,7 +348,7 @@ fn build_widgets() {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(ctx.world, Direction4::Left); }
+            ) on Tap { move_model(&game, Direction4::Left); }
             Button (
                 "↓",
                 position: Position::Absolute,
@@ -158,7 +362,7 @@ fn build_widgets() {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(ctx.world, Direction4::Down); }
+            ) on Tap { move_model(&game, Direction4::Down); }
             Button (
                 "→",
                 position: Position::Absolute,
@@ -172,7 +376,7 @@ fn build_widgets() {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(ctx.world, Direction4::Right); }
+            ) on Tap { move_model(&game, Direction4::Right); }
             Button (
                 "UNDO",
                 position: Position::Absolute,
@@ -186,7 +390,7 @@ fn build_widgets() {
                 pressed_color: LAVENDER,
                 text_color: TEXT,
                 border_radius: 6
-            ) on Tap { TwinNodes::update(ctx.world, TwinModel::undo); }
+            ) on Tap { game.undo(); }
             Button (
                 "HINT",
                 position: Position::Absolute,
@@ -200,9 +404,10 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 6
-            ) on Tap { TwinNodes::hint(ctx.world); }
+            ) on Tap { hints.request(&game); }
             Text (
-                "",
+                text: ${ StatusText(game.message()) },
+                text_capacity: 48,
                 id: "twin_status",
                 position: Position::Absolute,
                 left: 16,
@@ -214,7 +419,12 @@ fn build_widgets() {
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
             )
             Text (
-                "",
+                text: ${ StepText {
+                    steps: game.steps(),
+                    par: level_par(game.level_index()),
+                    hints: game.hints(),
+                } },
+                text_capacity: 40,
                 id: "twin_steps",
                 position: Position::Absolute,
                 left: 16,
@@ -238,7 +448,7 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { TwinNodes::update(ctx.world, TwinModel::restart); }
+            ) on Tap { game.restart(); }
             Button (
                 "CHAPTERS",
                 position: Position::Absolute,
@@ -252,7 +462,7 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { TwinNodes::open_map(ctx.world); }
+            ) on Tap { expedition.open(game.level_index()); }
             Button (
                 "RULES",
                 position: Position::Absolute,
@@ -266,9 +476,10 @@ fn build_widgets() {
                 pressed_color: APRICOT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { TwinNodes::open_rules(ctx.world); }
+            ) on Tap { expedition.open_rules(); }
             Button (
-                "",
+                text: ${ next_label(game.modal(), game.level_index(), game.unlocked()) },
+                text_capacity: 16,
                 id: "twin_next",
                 position: Position::Absolute,
                 left: 228,
@@ -281,7 +492,7 @@ fn build_widgets() {
                 pressed_color: LAVENDER,
                 text_color: BG,
                 border_radius: 7
-            ) on Tap { TwinNodes::next(ctx.world); }
+            ) on Tap { next(&game, &expedition); }
             Text (
                 "WASD · Z UNDO · H HINT",
                 position: Position::Absolute,
@@ -295,6 +506,7 @@ fn build_widgets() {
             )
             View (
                 id: "twin_result",
+                visible: ${ game.modal() != ExpeditionModal::None },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -317,18 +529,24 @@ fn build_widgets() {
                     border_color: MINT,
                     border_width: 1,
                     border_radius: 9
-                ) {
-                    Text (
-                        "",
-                        id: "twin_result_title",
+                    ) {
+                        Text (
+                            text: ${ result_title(game.modal(), game.level_index()) },
+                            text_capacity: 24,
+                            id: "twin_result_title",
                         height: 28,
                         font_size: 15,
                         text_color: MINT,
                         paragraph: ParagraphStyle::label()
-                    )
-                    Text (
-                        "",
-                        id: "twin_result_stats",
+                        )
+                        Text (
+                            text: ${ ResultStats {
+                                stars: game.progress().stars(game.level_index()),
+                                steps: game.steps(),
+                                par: level_par(game.level_index()),
+                            } },
+                            text_capacity: 48,
+                            id: "twin_result_stats",
                         height: 22,
                         font_size: 10,
                         text_color: TEXT,
@@ -352,7 +570,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 7
-                        ) on Tap { TwinNodes::update(ctx.world, TwinModel::restart); }
+                        ) on Tap { game.restart(); }
                         Button (
                             "查看航图",
                             size: ButtonSize::Compact,
@@ -363,7 +581,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 7
-                        ) on Tap { TwinNodes::open_map(ctx.world); }
+                        ) on Tap { expedition.open(game.level_index()); }
                         Button (
                             "继续远征 →",
                             size: ButtonSize::Compact,
@@ -374,12 +592,13 @@ fn build_widgets() {
                             pressed_color: LAVENDER,
                             text_color: BG,
                             border_radius: 7
-                        ) on Tap { TwinNodes::next(ctx.world); }
+                        ) on Tap { next(&game, &expedition); }
                     }
                 }
             }
             View (
                 id: "twin_map",
+                visible: ${ expedition.panel() == ExpeditionPanel::Map },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -422,10 +641,14 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::close_map(ctx.world); }
+                        ) on Tap { expedition.close(); }
                     }
                     Text (
-                        "",
+                        text: ${ MapSummary {
+                            progress: game.progress(),
+                            chapter: expedition.chapter(),
+                        } },
+                        text_capacity: 40,
                         id: "twin_map_summary",
                         height: 14,
                         font_size: 8,
@@ -440,11 +663,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: FLOOR,
+                            normal_color: ${ chapter_color(expedition.chapter() == 0) },
                             pressed_color: MINT,
-                            text_color: TEXT,
+                            text_color: ${ chapter_text_color(expedition.chapter() == 0) },
                             border_radius: 6
-                        ) on Tap { TwinNodes::set_map_chapter(ctx.world, 0); }
+                        ) on Tap { expedition.select_chapter(0); }
                         Button (
                             "02",
                             id: "twin_map_chapter_1",
@@ -452,11 +675,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: FLOOR,
+                            normal_color: ${ chapter_color(expedition.chapter() == 1) },
                             pressed_color: MINT,
-                            text_color: TEXT,
+                            text_color: ${ chapter_text_color(expedition.chapter() == 1) },
                             border_radius: 6
-                        ) on Tap { TwinNodes::set_map_chapter(ctx.world, 1); }
+                        ) on Tap { expedition.select_chapter(1); }
                         Button (
                             "03",
                             id: "twin_map_chapter_2",
@@ -464,11 +687,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: FLOOR,
+                            normal_color: ${ chapter_color(expedition.chapter() == 2) },
                             pressed_color: MINT,
-                            text_color: TEXT,
+                            text_color: ${ chapter_text_color(expedition.chapter() == 2) },
                             border_radius: 6
-                        ) on Tap { TwinNodes::set_map_chapter(ctx.world, 2); }
+                        ) on Tap { expedition.select_chapter(2); }
                         Button (
                             "04",
                             id: "twin_map_chapter_3",
@@ -476,11 +699,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: FLOOR,
+                            normal_color: ${ chapter_color(expedition.chapter() == 3) },
                             pressed_color: MINT,
-                            text_color: TEXT,
+                            text_color: ${ chapter_text_color(expedition.chapter() == 3) },
                             border_radius: 6
-                        ) on Tap { TwinNodes::set_map_chapter(ctx.world, 3); }
+                        ) on Tap { expedition.select_chapter(3); }
                         Button (
                             "05",
                             id: "twin_map_chapter_4",
@@ -488,11 +711,11 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: FLOOR,
+                            normal_color: ${ chapter_color(expedition.chapter() == 4) },
                             pressed_color: MINT,
-                            text_color: TEXT,
+                            text_color: ${ chapter_text_color(expedition.chapter() == 4) },
                             border_radius: 6
-                        ) on Tap { TwinNodes::set_map_chapter(ctx.world, 4); }
+                        ) on Tap { expedition.select_chapter(4); }
                         Button (
                             "06",
                             id: "twin_map_chapter_5",
@@ -500,14 +723,15 @@ fn build_widgets() {
                             grow: 1.0,
                             height: 25,
                             font_size: 9,
-                            normal_color: FLOOR,
+                            normal_color: ${ chapter_color(expedition.chapter() == 5) },
                             pressed_color: MINT,
-                            text_color: TEXT,
+                            text_color: ${ chapter_text_color(expedition.chapter() == 5) },
                             border_radius: 6
-                        ) on Tap { TwinNodes::set_map_chapter(ctx.world, 5); }
+                        ) on Tap { expedition.select_chapter(5); }
                     }
                     Text (
-                        "",
+                        text: ${ CHAPTER_NAMES[usize::from(expedition.chapter())] },
+                        text_capacity: 24,
                         id: "twin_map_chapter_name",
                         height: 16,
                         font_size: 12,
@@ -515,7 +739,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ CHAPTER_MECHANICS[usize::from(expedition.chapter())] },
+                        text_capacity: 48,
                         id: "twin_map_chapter_mechanic",
                         height: 14,
                         font_size: 9,
@@ -523,78 +748,24 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Row (height: 58, column_gap: 7) {
-                        Button (
-                            "01",
-                            id: "twin_map_level_0",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: FLOOR,
-                            pressed_color: MINT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { TwinNodes::select_map_level(ctx.world, 0); }
-                        Button (
-                            "02",
-                            id: "twin_map_level_1",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: FLOOR,
-                            pressed_color: MINT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { TwinNodes::select_map_level(ctx.world, 1); }
-                        Button (
-                            "03",
-                            id: "twin_map_level_2",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: FLOOR,
-                            pressed_color: MINT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { TwinNodes::select_map_level(ctx.world, 2); }
-                        Button (
-                            "04",
-                            id: "twin_map_level_3",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: FLOOR,
-                            pressed_color: MINT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { TwinNodes::select_map_level(ctx.world, 3); }
-                        Button (
-                            "05",
-                            id: "twin_map_level_4",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: FLOOR,
-                            pressed_color: MINT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { TwinNodes::select_map_level(ctx.world, 4); }
-                        Button (
-                            "06",
-                            id: "twin_map_level_5",
-                            size: ButtonSize::Compact,
-                            grow: 1.0,
-                            height: 57,
-                            font_size: 10,
-                            normal_color: FLOOR,
-                            pressed_color: MINT,
-                            text_color: TEXT,
-                            border_radius: 7
-                        ) on Tap { TwinNodes::select_map_level(ctx.world, 5); }
+                        View (id: "twin_map_level_0", grow: 1.0, height: 57) {
+                            map_level_button (game, expedition, 0)
+                        }
+                        View (id: "twin_map_level_1", grow: 1.0, height: 57) {
+                            map_level_button (game, expedition, 1)
+                        }
+                        View (id: "twin_map_level_2", grow: 1.0, height: 57) {
+                            map_level_button (game, expedition, 2)
+                        }
+                        View (id: "twin_map_level_3", grow: 1.0, height: 57) {
+                            map_level_button (game, expedition, 3)
+                        }
+                        View (id: "twin_map_level_4", grow: 1.0, height: 57) {
+                            map_level_button (game, expedition, 4)
+                        }
+                        View (id: "twin_map_level_5", grow: 1.0, height: 57) {
+                            map_level_button (game, expedition, 5)
+                        }
                     }
                     Text (
                         "6 CHAPTERS × 6 LEVELS · COMPLETE TO UNLOCK",
@@ -607,6 +778,7 @@ fn build_widgets() {
             }
             View (
                 id: "twin_rules",
+                visible: ${ expedition.panel() == ExpeditionPanel::Rules },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -649,7 +821,7 @@ fn build_widgets() {
                             pressed_color: APRICOT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::close_map(ctx.world); }
+                        ) on Tap { expedition.close(); }
                     }
                     Text (
                         "01  方向键同时移动两位探索者，撞墙的一位会停住。",
@@ -690,6 +862,7 @@ fn build_widgets() {
             }
             View (
                 id: "twin_briefing",
+                visible: ${ expedition.panel() == ExpeditionPanel::Briefing },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -712,10 +885,15 @@ fn build_widgets() {
                     border_color: MINT,
                     border_width: 1,
                     border_radius: 9
-                ) {
-                    Text (
-                        "",
-                        id: "twin_briefing_title",
+                    ) {
+                        Text (
+                            text: ${ format_args!(
+                                "第 {} 章 · {}",
+                                game.level_index() / 6 + 1,
+                                CHAPTER_NAMES[usize::from(game.level_index() / 6)],
+                            ) },
+                            text_capacity: 32,
+                            id: "twin_briefing_title",
                         height: 24,
                         font_size: 13,
                         text_color: MINT,
@@ -727,10 +905,11 @@ fn build_widgets() {
                         font_size: 9,
                         text_color: MUTED,
                         paragraph: ParagraphStyle::label()
-                    )
-                    Text (
-                        "",
-                        id: "twin_briefing_mechanic",
+                        )
+                        Text (
+                            text: ${ CHAPTER_MECHANICS[usize::from(game.level_index() / 6)] },
+                            text_capacity: 48,
+                            id: "twin_briefing_mechanic",
                         height: 20,
                         font_size: 11,
                         text_color: TEXT,
@@ -760,11 +939,12 @@ fn build_widgets() {
                         pressed_color: LAVENDER,
                         text_color: BG,
                         border_radius: 7
-                    ) on Tap { TwinNodes::close_map(ctx.world); }
+                    ) on Tap { expedition.close(); }
                 }
             }
             View (
                 id: "twin_summary",
+                visible: ${ expedition.panel() == ExpeditionPanel::Summary },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -803,7 +983,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label()
                     )
                     Text (
-                        "",
+                        text: ${ SummaryLine { progress: game.progress(), chapter: 0 } },
+                        text_capacity: 48,
                         id: "twin_summary_line_0",
                         height: 17,
                         font_size: 9,
@@ -811,7 +992,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ SummaryLine { progress: game.progress(), chapter: 1 } },
+                        text_capacity: 48,
                         id: "twin_summary_line_1",
                         height: 17,
                         font_size: 9,
@@ -819,7 +1001,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ SummaryLine { progress: game.progress(), chapter: 2 } },
+                        text_capacity: 48,
                         id: "twin_summary_line_2",
                         height: 17,
                         font_size: 9,
@@ -827,7 +1010,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ SummaryLine { progress: game.progress(), chapter: 3 } },
+                        text_capacity: 48,
                         id: "twin_summary_line_3",
                         height: 17,
                         font_size: 9,
@@ -835,7 +1019,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ SummaryLine { progress: game.progress(), chapter: 4 } },
+                        text_capacity: 48,
                         id: "twin_summary_line_4",
                         height: 17,
                         font_size: 9,
@@ -843,7 +1028,8 @@ fn build_widgets() {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "",
+                        text: ${ SummaryLine { progress: game.progress(), chapter: 5 } },
+                        text_capacity: 48,
                         id: "twin_summary_line_5",
                         height: 17,
                         font_size: 9,
@@ -861,7 +1047,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::open_map_chapter(ctx.world, 0); }
+                        ) on Tap { expedition.open(0); }
                         Button (
                             "02",
                             size: ButtonSize::Compact,
@@ -872,7 +1058,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::open_map_chapter(ctx.world, 1); }
+                        ) on Tap { expedition.open(6); }
                         Button (
                             "03",
                             size: ButtonSize::Compact,
@@ -883,7 +1069,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::open_map_chapter(ctx.world, 2); }
+                        ) on Tap { expedition.open(12); }
                         Button (
                             "04",
                             size: ButtonSize::Compact,
@@ -894,7 +1080,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::open_map_chapter(ctx.world, 3); }
+                        ) on Tap { expedition.open(18); }
                         Button (
                             "05",
                             size: ButtonSize::Compact,
@@ -905,7 +1091,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::open_map_chapter(ctx.world, 4); }
+                        ) on Tap { expedition.open(24); }
                         Button (
                             "06",
                             size: ButtonSize::Compact,
@@ -916,7 +1102,7 @@ fn build_widgets() {
                             pressed_color: MINT,
                             text_color: TEXT,
                             border_radius: 6
-                        ) on Tap { TwinNodes::open_map_chapter(ctx.world, 5); }
+                        ) on Tap { expedition.open(30); }
                     }
                 }
             }
@@ -929,59 +1115,40 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_plugin(TwinKeyboardPlugin);
     register_play_font(&mut app.world);
-    app.world.insert_resource(TwinModel::default());
-    app.world.insert_resource(ExpeditionUiState::default());
-    app.world
-        .insert_resource(ExpeditionHintWorkspace::default());
-    #[cfg(feature = "persistence")]
-    install_persistence(app);
     app.with_widget(surface_view());
-    app.compose(parent, build_widgets);
-    let find = |id| app.world.find_by_id(id).expect("Twin Beacons node");
-    app.world.insert_resource(TwinNodes {
-        surface: find("twin_surface"),
-        level: find("twin_level"),
-        chapter: find("twin_chapter"),
-        status: find("twin_status"),
-        steps: find("twin_steps"),
-        next: find("twin_next"),
-        map: find("twin_map"),
-        map_summary: find("twin_map_summary"),
-        map_chapter_name: find("twin_map_chapter_name"),
-        map_chapter_mechanic: find("twin_map_chapter_mechanic"),
-        map_chapters: core::array::from_fn(|index| find(MAP_CHAPTER_IDS[index])),
-        map_levels: core::array::from_fn(|index| find(MAP_LEVEL_IDS[index])),
-        rules: find("twin_rules"),
-        result: find("twin_result"),
-        result_title: find("twin_result_title"),
-        result_stats: find("twin_result_stats"),
-        briefing: find("twin_briefing"),
-        briefing_title: find("twin_briefing_title"),
-        briefing_mechanic: find("twin_briefing_mechanic"),
-        summary: find("twin_summary"),
-        summary_lines: core::array::from_fn(|index| find(SUMMARY_LINE_IDS[index])),
-    });
-    TwinNodes::sync(&mut app.world);
+    let game = app.add_model(TwinModel::default());
+    let expedition = app.add_model(ExpeditionUiModel::default());
+    let hints = TwinHintService::new();
+    #[cfg(feature = "persistence")]
+    install_persistence(app, game.clone());
+    app.add_plugin(TwinKeyboardPlugin::new(
+        game.clone(),
+        expedition.clone(),
+        hints.clone(),
+    ));
+    app.compose(parent, |cx| build_widgets(cx, game, expedition, hints));
 }
 
 #[cfg(feature = "persistence")]
-fn install_persistence<B, F>(app: &mut App<B, F>)
+fn install_persistence<B, F>(app: &mut App<B, F>, game: TwinModelHandle)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
+    use crate::core::model::ModelHandle;
     use crate::core::persistence::PersistencePlugin;
     use crate::gallery::play::storage::gallery_storage;
 
+    let save_game = game.clone();
+    let restore_game = game;
     let plugin = PersistencePlugin::new(gallery_storage("mirui_twin_beacons.bin"))
         .bytes(
             "twin_beacons/save",
-            |world| world.resource::<TwinModel>().map(TwinModel::encode_vec),
-            |world, bytes| {
-                if let Ok(model) = TwinModel::decode(bytes) {
-                    world.insert_resource(model);
+            move |_world| Some(ModelHandle::read(&save_game, TwinModel::encode_vec)),
+            move |_world, bytes| {
+                if let Ok(restored) = TwinModel::decode(bytes) {
+                    restore_game.restore(restored);
                 }
             },
         )

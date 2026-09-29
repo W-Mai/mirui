@@ -21,6 +21,7 @@ const SAVE_PAYLOAD: usize = 10 + RECORD_BYTES + ACTION_BYTES;
 #[cfg(any(feature = "persistence", test))]
 pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
 #[derive(Clone, Copy)]
 pub(crate) struct FoldModel {
     pub(super) level: u8,
@@ -31,6 +32,25 @@ pub(crate) struct FoldModel {
     last_hint: Option<u16>,
     modal: ExpeditionModal,
     message: FoldMessage,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FoldProgress {
+    stars: [u8; EXPEDITION_LEVELS],
+}
+
+impl FoldProgress {
+    pub(crate) const fn stars(self, level: u8) -> u8 {
+        self.stars[level as usize]
+    }
+
+    pub(crate) const fn completed(self, level: u8) -> bool {
+        self.stars(level) != 0
+    }
+
+    pub(crate) fn completed_count(self) -> u8 {
+        self.stars.iter().filter(|stars| **stars != 0).count() as u8
+    }
 }
 
 impl Default for FoldModel {
@@ -49,51 +69,66 @@ impl Default for FoldModel {
     }
 }
 
+#[crate::model]
 impl FoldModel {
-    pub(crate) const fn level_index(&self) -> u8 {
+    #[observe]
+    pub(crate) fn level_index(&self) -> u8 {
         self.level
     }
 
+    #[model(local)]
     pub(crate) fn level(&self) -> FoldLevelRef {
         fold_level(self.level).expect("validated Fold level")
     }
 
-    pub(crate) const fn pose(&self) -> HullPose {
+    #[observe]
+    pub(crate) fn pose(&self) -> HullPose {
         self.state.pose
     }
 
-    pub(crate) const fn bridge_on(&self) -> bool {
+    #[model(local)]
+    pub(crate) fn bridge_on(&self) -> bool {
         self.state.bridge
     }
 
-    pub(crate) const fn seal_bits(&self) -> u8 {
+    #[model(local)]
+    pub(crate) fn seal_bits(&self) -> u8 {
         self.state.seals
     }
 
-    pub(crate) const fn steps(&self) -> u16 {
+    #[observe]
+    pub(crate) fn steps(&self) -> u16 {
         self.actions.len()
     }
 
-    pub(crate) const fn modal(&self) -> ExpeditionModal {
+    #[observe]
+    pub(crate) fn modal(&self) -> ExpeditionModal {
         self.modal
     }
 
-    pub(crate) const fn message(&self) -> FoldMessage {
+    #[observe]
+    pub(crate) fn message(&self) -> FoldMessage {
         self.message
     }
 
-    pub(crate) const fn unlocked(&self) -> u8 {
+    #[observe]
+    pub(crate) fn unlocked(&self) -> u8 {
         unlocked_level(&self.records)
     }
 
-    pub(crate) const fn record(&self, level: u8) -> LevelRecord {
-        self.records[level as usize]
+    #[observe]
+    pub(crate) fn progress(&self) -> FoldProgress {
+        FoldProgress {
+            stars: self.records.map(LevelRecord::stars),
+        }
     }
 
-    pub(crate) const fn occupied(&self) -> ([u8; 2], u8) {
+    #[model(local)]
+    pub(crate) fn occupied(&self) -> ([u8; 2], u8) {
         occupied(self.state)
     }
 
+    #[model(local)]
     pub(crate) fn won(&self) -> bool {
         won(self.level(), self.state)
     }
@@ -185,6 +220,7 @@ impl FoldModel {
         accepted_change()
     }
 
+    #[model(local)]
     fn replay(&mut self) {
         let level = self.level();
         let mut state = initial(level);
@@ -197,6 +233,7 @@ impl FoldModel {
     }
 
     #[cfg(any(feature = "persistence", test))]
+    #[model(local)]
     pub(crate) fn encode_into(&self, output: &mut [u8]) -> Result<usize, ExpeditionSaveError> {
         if output.len() < SAVE_LEN {
             return Err(ExpeditionSaveError::BufferTooSmall);
@@ -213,6 +250,7 @@ impl FoldModel {
     }
 
     #[cfg(any(feature = "persistence", test))]
+    #[model(local)]
     pub(crate) fn decode(input: &[u8]) -> Result<Self, ExpeditionSaveError> {
         validate_packet(input, SAVE_PAYLOAD)?;
         if input[..4] != SAVE_MAGIC {
@@ -262,10 +300,17 @@ impl FoldModel {
     }
 
     #[cfg(feature = "persistence")]
+    #[model(local)]
     pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
         let mut output = alloc::vec![0; SAVE_LEN];
         self.encode_into(&mut output)
             .expect("exact Fold save buffer");
         output
+    }
+
+    #[cfg(feature = "persistence")]
+    pub(crate) fn restore(&mut self, restored: FoldModel) -> ChangeSet {
+        *self = restored;
+        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 }
