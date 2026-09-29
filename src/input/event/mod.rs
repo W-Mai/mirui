@@ -17,13 +17,26 @@ use hit_test::hit_test;
 use input::InputEvent;
 use scroll::{ScrollDragState, scroll_system_with_target};
 
-#[derive(Clone, Copy, Default)]
+const INACTIVE_POINTER_COORDINATE: Fixed = Fixed::from_int(-1);
+
+#[derive(Clone, Copy)]
 pub struct PointerCursor {
     pub x: Fixed,
     pub y: Fixed,
     pub down: bool,
     /// Bumps on every pointer press, release, or cancellation.
     pub event_seq: u32,
+}
+
+impl Default for PointerCursor {
+    fn default() -> Self {
+        Self {
+            x: INACTIVE_POINTER_COORDINATE,
+            y: INACTIVE_POINTER_COORDINATE,
+            down: false,
+            event_seq: 0,
+        }
+    }
 }
 
 fn update_pointer_cursor(world: &mut World, update: impl FnOnce(&mut PointerCursor)) {

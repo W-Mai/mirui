@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Initial pointer state.** Preallocated pointer state begins outside the viewport, preventing hover feedback before the first pointer event.
 - **Gallery game interaction boundaries.** Drag transactions finish after layout replacement, expedition overlays block underlying edits, message-only updates avoid canvas invalidation, and unchanged persistent state skips serialization.
 - **Marble Play slider notifications.** BPM, gravity, and bounce controls skip model change notifications when different input values resolve to the current setting.
 - **Marble Play scene cards.** Tap targets match the painted cards; gaps and margins no longer select a scene. Play/Edit gestures and Settings controls stay in their respective panels.
