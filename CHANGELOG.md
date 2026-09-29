@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-09-29
+
 ### Added
 
 - **Bounded text content.** `Text` and `Button` accept `text_capacity` for reactive labels, format into reserved UTF-8 storage, retain valid content on overflow, and report invalid first values before rendering.
