@@ -81,6 +81,6 @@ pub(super) fn modal_action(model: &FactoryModelHandle, index: usize) {
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn factory_tick_system(model: &FactoryModel, delta: Option<DeltaTimeMs>) {
-    model.advance_ms(delta.map_or(16, |delta| delta.0));
+pub(super) fn factory_tick_system(model: &FactoryModel, delta: DeltaTimeMs) {
+    model.advance_ms(delta.0);
 }

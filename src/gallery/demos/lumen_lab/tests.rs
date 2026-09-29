@@ -1,6 +1,8 @@
 use super::board::{LumenBoard, cell_center};
+use super::runtime::lumen_tick_system;
 use super::{VIEWPORT, setup_app};
-use crate::gallery::play::lumen::LumenModelHandle;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::gallery::play::lumen::{LumenModel, LumenModelHandle};
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
@@ -21,6 +23,10 @@ fn fixture() -> World {
 fn model(world: &World) -> LumenModelHandle {
     let board = world.find_by_id("lumen_board").unwrap();
     world.get::<LumenBoard>(board).unwrap().model.clone()
+}
+
+fn scan_phase(model: &LumenModelHandle) -> u16 {
+    crate::core::model::ModelHandle::read(model, LumenModel::scan_phase)
 }
 
 fn tap_board(world: &mut World, board: Entity, event: &GestureEvent) -> bool {
@@ -95,4 +101,31 @@ fn visual_changes_dirty_the_bound_board_without_node_sync() {
     crate::core::reactive::flush_signal_dirty(&mut world);
 
     assert!(world.has::<VisualDirty>(board));
+}
+
+#[test]
+fn bound_tick_uses_the_frame_delta_and_zero_does_not_advance() {
+    let mut world = fixture();
+    let model = model(&world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lumen_tick_system::system(model.clone()));
+
+    world.insert_resource(DeltaTimeMs(7));
+    scheduler.run_all(&mut world);
+    assert_eq!(scan_phase(&model), 7 * 23);
+
+    world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut world);
+    assert_eq!(scan_phase(&model), 7 * 23);
+}
+
+#[test]
+#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+fn bound_tick_requires_the_frame_delta_resource() {
+    let mut world = fixture();
+    let model = model(&world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lumen_tick_system::system(model));
+
+    scheduler.run_all(&mut world);
 }

@@ -1,12 +1,10 @@
 use super::gesture::pinch_target;
-use super::state::PinchStatus;
+use super::state::PinchModel;
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text};
 
-#[compose]
-pub fn build_widgets() {
-    let status = Signal::new(PinchStatus::IDLE);
-    let status_text = status.clone();
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: PinchModel) {
     ui! {
         Column (
             grow: 1.0,
@@ -21,7 +19,8 @@ pub fn build_widgets() {
                 border_radius: 16
             ) {
                 Text (
-                    text: ${ status_text.get().label() },
+                    text: ${ format_args!("{}", model.status()) },
+                    text_capacity: 64,
                     grow: 1.0,
                     width: Dimension::percent(100),
                     height: 32,
@@ -37,7 +36,7 @@ pub fn build_widgets() {
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) {
-                pinch_target (status)
+                pinch_target (model.clone())
             }
             Text (
                 "TWO-POINTER GESTURE · LIVE TRANSFORM",

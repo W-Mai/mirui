@@ -1,6 +1,7 @@
 use alloc::vec;
 
 use super::composition::build_widgets;
+use super::state::PinchModel;
 use crate::anim::ease;
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
@@ -12,7 +13,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.compose(parent, build_widgets);
+    let model = app.add_model(PinchModel::default());
+    app.compose(parent, |cx| build_widgets(cx, model));
 
     let target = app
         .world

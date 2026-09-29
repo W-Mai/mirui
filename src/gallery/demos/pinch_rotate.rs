@@ -7,10 +7,8 @@ mod state;
 #[cfg(test)]
 mod tests;
 
-pub use composition::build_widgets;
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
-pub use state::PinchTarget;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 360);
 

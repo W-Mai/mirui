@@ -1,6 +1,8 @@
+use super::input::circuit_tick_system;
 use super::setup_app;
 use super::state::CircuitSurface;
 use crate::core::model::ModelHandle;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::circuit::{CircuitError, CircuitModel, CircuitModelHandle, CircuitPage};
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
@@ -40,6 +42,28 @@ fn assert_text(world: &World, id: &'static str, expected: &str) {
     assert_eq!(text.resolve(world).as_ref(), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
+}
+
+#[test]
+fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    model.set_page(CircuitPage::Trace);
+    model.toggle_scanning();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(circuit_tick_system::system(model.clone()));
+
+    world.insert_resource(DeltaTimeMs(120));
+    for _ in 0..5 {
+        scheduler.run_all(&mut world);
+    }
+    assert_eq!(model.trace_len(), 1);
+
+    let revision = model.visual_revision();
+    world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut world);
+    assert_eq!(model.trace_len(), 1);
+    assert_eq!(model.visual_revision(), revision);
 }
 
 #[test]

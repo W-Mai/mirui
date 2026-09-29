@@ -558,6 +558,9 @@ impl MarbleModel {
     }
 
     pub(crate) fn advance_ms(&mut self, elapsed_ms: u16) -> ChangeSet {
+        if elapsed_ms == 0 {
+            return ChangeSet::NONE;
+        }
         self.transport_steps +=
             Fixed64::from_ratio(i64::from(elapsed_ms) * i64::from(self.bpm), 15_000);
         let active = self.running();

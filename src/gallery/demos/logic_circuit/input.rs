@@ -202,6 +202,6 @@ pub(super) fn modal_action(model: &CircuitModelHandle, index: usize) {
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn circuit_tick_system(model: &CircuitModel, delta: Option<DeltaTimeMs>) {
-    model.advance_ms(delta.map_or(16, |delta| delta.0));
+pub(super) fn circuit_tick_system(model: &CircuitModel, delta: DeltaTimeMs) {
+    model.advance_ms(delta.0);
 }

@@ -1,4 +1,4 @@
-use super::composition::build_widgets;
+use super::runtime::setup_app;
 use super::state::{PinchStatus, PinchTarget};
 use crate::core::reactive::flush_signal_dirty;
 use crate::input::event::GestureHandler;
@@ -6,20 +6,28 @@ use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::types::Fixed64;
 use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
 use crate::ui::widgets::{ParagraphStyle, Text, WidgetTransform};
+
+type TestApp = App<
+    crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
+    crate::app::SwRendererFactory,
+>;
+
+fn fixture(width: u16, height: u16) -> TestApp {
+    let mut app = App::headless(width, height);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.set_root(root);
+    app
+}
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
-    drop(cx);
+    let app = fixture(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
+    let parent = app.root.expect("root");
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty()),
     );
@@ -27,21 +35,14 @@ fn build_widgets_smoke() {
 
 #[test]
 fn pinch_updates_target_and_status() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
-    drop(cx);
-    let target = world.find_by_id("pinch_target").expect("target id");
-    let status = world.find_by_id("pinch_status").expect("status id");
+    let mut app = fixture(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
+    let target = app.world.find_by_id("pinch_target").expect("target id");
+    let status = app.world.find_by_id("pinch_status").expect("status id");
+    let model = app.world.get::<PinchTarget>(target).unwrap().model.clone();
 
-    assert_eq!(
-        world.get::<PinchTarget>(target).map(|t| t.pinch_events),
-        Some(0)
-    );
+    assert_eq!(model.status().pinch_events, 0);
     GestureHandler::trigger(
-        &mut world,
+        &mut app.world,
         target,
         &GestureEvent::Pinch {
             x: Fixed::ZERO,
@@ -50,26 +51,30 @@ fn pinch_updates_target_and_status() {
             target,
         },
     );
-    assert_eq!(
-        world.get::<PinchTarget>(target).map(|t| t.pinch_events),
-        Some(1)
-    );
-    assert_eq!(
-        world.get::<PinchTarget>(target).map(|t| t.mode),
-        Some("EXPAND")
-    );
-    flush_signal_dirty(&mut world);
+    assert_eq!(model.status().pinch_events, 1);
+    assert_eq!(model.status().mode, "EXPAND");
+    flush_signal_dirty(&mut app.world);
     assert!(
-        world
+        app.world
             .get::<Text>(status)
             .expect("status text")
-            .resolve(&world)
+            .resolve(&app.world)
             .contains("EXPAND")
     );
-    assert!(world.has::<WidgetTransform>(target));
     assert_eq!(
-        world.get::<Text>(status).map(Text::paragraph),
+        app.world
+            .get::<WidgetTransform>(target)
+            .map(|value| value.0),
+        Some(model.transform())
+    );
+    assert_eq!(
+        app.world.get::<Text>(status).map(Text::paragraph),
         Some(&ParagraphStyle::label())
+    );
+    assert!(
+        app.world
+            .get::<Text>(status)
+            .is_some_and(|text| text.text_capacity() == Some(64))
     );
 }
 
@@ -79,11 +84,8 @@ fn portrait_layout_reflows_the_target_between_status_and_footer() {
     use crate::ui::ComputedRect;
     use crate::ui::render_system::update_layout;
 
-    let mut app = App::headless(360, 480);
-    app.with_default_widgets().with_default_systems();
-    let root = app.spawn_root().id();
-    app.compose(root, build_widgets);
-    app.set_root(root);
+    let mut app = fixture(360, 480);
+    let root = app.root.expect("root");
     update_layout(&mut app.world, root, &Viewport::new(360, 480, Fixed::ONE));
 
     let target = app.world.find_by_id("pinch_target").expect("target id");
@@ -108,14 +110,16 @@ fn portrait_layout_reflows_the_target_between_status_and_footer() {
 
 #[test]
 fn portrait_status_uses_the_compact_vocabulary() {
-    let label = PinchStatus {
+    let status = PinchStatus {
         mode: "ROTATE",
         scale_pct: 158,
         rotation_deg: 25,
         pinch_events: 791,
         rotate_events: 3,
-    }
-    .label();
+    };
 
-    assert_eq!(label, "ROTATE · 158% · 25 DEG · P791 R3");
+    assert_eq!(
+        alloc::format!("{status}"),
+        "ROTATE · 158% · 25 DEG · P791 R3"
+    );
 }

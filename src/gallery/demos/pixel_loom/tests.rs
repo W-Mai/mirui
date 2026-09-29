@@ -1,6 +1,7 @@
-use super::input::local_cell;
+use super::input::{local_cell, pixel_tick_system};
 use super::state::PixelSurface;
 use super::{VIEWPORT, setup_app};
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::pixel::PixelModel;
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
@@ -27,6 +28,38 @@ fn with_model<R>(world: &World, inspect: impl FnOnce(&PixelModel) -> R) -> R {
 
 fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
     GestureHandler::trigger(world, surface, event).unwrap_or(false)
+}
+
+#[test]
+fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    let model = app.add_model(PixelModel::default());
+    model.toggle_playback();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(pixel_tick_system::system(model.clone()));
+
+    app.world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut app.world);
+    assert_eq!(model.visible_frame(), 0);
+
+    app.world.insert_resource(DeltaTimeMs(249));
+    scheduler.run_all(&mut app.world);
+    assert_eq!(model.visible_frame(), 0);
+
+    app.world.insert_resource(DeltaTimeMs(1));
+    scheduler.run_all(&mut app.world);
+    assert_eq!(model.visible_frame(), 1);
+}
+
+#[test]
+#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+fn tick_system_rejects_a_missing_delta_resource() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    let model = app.add_model(PixelModel::default());
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(pixel_tick_system::system(model));
+
+    scheduler.run_all(&mut app.world);
 }
 
 #[test]

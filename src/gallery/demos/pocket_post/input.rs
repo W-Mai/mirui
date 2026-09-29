@@ -46,8 +46,8 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn post_tick_system(model: &PostModel, delta: Option<DeltaTimeMs>) {
-    model.advance_ms(delta.map_or(16, |delta| delta.0));
+pub(super) fn post_tick_system(model: &PostModel, delta: DeltaTimeMs) {
+    model.advance_ms(delta.0);
 }
 
 pub(super) struct PostKeyboardPlugin {

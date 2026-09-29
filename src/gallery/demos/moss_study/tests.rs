@@ -1,7 +1,7 @@
 use super::input::{local_cell, moss_tick_system};
 use super::state::MossSurface;
 use super::{VIEWPORT, setup_app};
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::moss::MossModel;
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
@@ -205,8 +205,15 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
     assert_eq!(with_model(&world, MossModel::history_len), 2);
 
     model.toggle_running();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(moss_tick_system::system(model.clone()));
+
+    world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut world);
+    assert_eq!(with_model(&world, MossModel::generation), 0);
+
     world.insert_resource(DeltaTimeMs(250));
-    (moss_tick_system::system(model.clone()).run)(&mut world);
+    scheduler.run_all(&mut world);
     crate::core::reactive::flush_signal_dirty(&mut world);
 
     assert_eq!(with_model(&world, MossModel::generation), 1);
@@ -217,4 +224,16 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
         .unwrap()
         .resolve(&world);
     assert_eq!(live_text.as_ref().parse::<u16>(), Ok(live));
+}
+
+#[test]
+#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+fn bound_tick_requires_the_frame_delta_resource() {
+    let mut world = fixture();
+    let surface = world.find_by_id("moss_surface").unwrap();
+    let model = world.get::<MossSurface>(surface).unwrap().model.clone();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(moss_tick_system::system(model));
+
+    scheduler.run_all(&mut world);
 }

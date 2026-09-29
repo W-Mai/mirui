@@ -5,8 +5,6 @@ use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT}
 use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, fold_level,
 };
-#[cfg(feature = "persistence")]
-use crate::gallery::play::fold::FoldModelHandle;
 use crate::gallery::play::fold::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, FoldMessage, FoldModel, FoldProgress, HullPose,
 };
@@ -235,74 +233,82 @@ fn map_level_button(game: FoldModel, expedition: ExpeditionUiModel, slot: u8) ->
     }
 }
 
-#[compose(bind(game, expedition))]
-fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHintService) {
+#[compose(bind(game))]
+fn compose_hud(game: FoldModel) {
     ui! {
-        View (id: "fold_surface", width: 480, height: 320, clip_children: true) [
-            FoldSurface {
-                game: game.clone(),
-                expedition: expedition.clone(),
-            },
-        ] {
-            Text (
-                "FOLDING ARK",
-                position: Position::Absolute,
-                left: 15,
-                top: 7,
-                width: 210,
-                height: 22,
-                font_size: 15,
-                text_color: TEXT,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ CHAPTER_NAMES[usize::from(game.level_index() / 6)] },
-                text_capacity: 24,
-                id: "fold_chapter",
-                position: Position::Absolute,
-                left: 228,
-                top: 10,
-                width: 146,
-                height: 16,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                text: ${ format_args!("F{:02} / 36", game.level_index() + 1) },
-                text_capacity: 8,
-                id: "fold_level",
-                position: Position::Absolute,
-                left: 383,
-                top: 9,
-                width: 81,
-                height: 17,
-                font_size: 9,
-                text_color: MINT,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "BRIDGE / SEALS",
-                position: Position::Absolute,
-                left: 369,
-                top: 61,
-                width: 84,
-                height: 16,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "Roll across the chart.\nFragile tiles reject\nan upright hull.",
-                position: Position::Absolute,
-                left: 330,
-                top: 98,
-                width: 122,
-                height: 50,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
-            )
+        Text (
+            "FOLDING ARK",
+            position: Position::Absolute,
+            left: 15,
+            top: 7,
+            width: 210,
+            height: 22,
+            font_size: 15,
+            text_color: TEXT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ CHAPTER_NAMES[usize::from(game.level_index() / 6)] },
+            text_capacity: 24,
+            id: "fold_chapter",
+            position: Position::Absolute,
+            left: 228,
+            top: 10,
+            width: 146,
+            height: 16,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("F{:02} / 36", game.level_index() + 1) },
+            text_capacity: 8,
+            id: "fold_level",
+            position: Position::Absolute,
+            left: 383,
+            top: 9,
+            width: 81,
+            height: 17,
+            font_size: 9,
+            text_color: MINT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            "BRIDGE / SEALS",
+            position: Position::Absolute,
+            left: 369,
+            top: 61,
+            width: 84,
+            height: 16,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            "Roll across the chart.\nFragile tiles reject\nan upright hull.",
+            position: Position::Absolute,
+            left: 330,
+            top: 98,
+            width: 122,
+            height: 50,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
+        )
+    };
+}
+
+#[compose(bind(game))]
+fn compose_controls(game: FoldModel, hints: FoldHintService) {
+    ui! {
             Button (
                 "↑",
                 position: Position::Absolute,
@@ -317,6 +323,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { move_model(&game, Direction4::Up); }
+    };
+    ui! {
             Button (
                 "←",
                 position: Position::Absolute,
@@ -331,6 +339,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { move_model(&game, Direction4::Left); }
+    };
+    ui! {
             Button (
                 "↓",
                 position: Position::Absolute,
@@ -345,6 +355,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { move_model(&game, Direction4::Down); }
+    };
+    ui! {
             Button (
                 "→",
                 position: Position::Absolute,
@@ -359,6 +371,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { move_model(&game, Direction4::Right); }
+    };
+    ui! {
             Button (
                 "UNDO",
                 position: Position::Absolute,
@@ -373,6 +387,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { game.undo(); }
+    };
+    ui! {
             Button (
                 "HINT",
                 position: Position::Absolute,
@@ -387,6 +403,12 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { hints.request(&game); }
+    };
+}
+
+#[compose(bind(game, expedition))]
+fn compose_footer(game: FoldModel, expedition: ExpeditionUiModel) {
+    ui! {
             Text (
                 text: ${ StatusText(game.message()) },
                 text_capacity: 48,
@@ -400,6 +422,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Text (
                 text: ${ StepText {
                     pose: game.pose(),
@@ -417,6 +441,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Button (
                 "CHAPTERS",
                 position: Position::Absolute,
@@ -431,6 +457,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { expedition.open(game.level_index()); }
+    };
+    ui! {
             Button (
                 "RULES",
                 position: Position::Absolute,
@@ -445,6 +473,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { expedition.open_rules(); }
+    };
+    ui! {
             Button (
                 "RESET",
                 position: Position::Absolute,
@@ -459,6 +489,8 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { game.restart(); }
+    };
+    ui! {
             Button (
                 text: ${ next_label(game.modal(), game.level_index(), game.unlocked()) },
                 text_capacity: 16,
@@ -475,6 +507,12 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                 text_color: BG,
                 border_radius: 7
             ) on Tap { next(&game, &expedition); }
+    };
+}
+
+#[compose(bind(game, expedition))]
+fn compose_result_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "fold_result",
                 visible: ${ game.modal() != ExpeditionModal::None },
@@ -567,6 +605,12 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                     }
                 }
             }
+    }
+}
+
+#[compose(bind(game, expedition))]
+fn compose_map_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "fold_map",
                 visible: ${ expedition.panel() == ExpeditionPanel::Map },
@@ -747,6 +791,12 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                     )
                 }
             }
+    }
+}
+
+#[compose(bind(expedition))]
+fn compose_rules_overlay(expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "fold_rules",
                 visible: ${ expedition.panel() == ExpeditionPanel::Rules },
@@ -831,6 +881,12 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                     )
                 }
             }
+    }
+}
+
+#[compose(bind(game, expedition))]
+fn compose_briefing_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "fold_briefing",
                 visible: ${ expedition.panel() == ExpeditionPanel::Briefing },
@@ -913,6 +969,12 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                     ) on Tap { expedition.close(); }
                 }
             }
+    }
+}
+
+#[compose(bind(game, expedition))]
+fn compose_summary_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "fold_summary",
                 visible: ${ expedition.panel() == ExpeditionPanel::Summary },
@@ -1077,8 +1139,29 @@ fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHint
                     }
                 }
             }
-        }
+    }
+}
+
+#[compose(bind(game, expedition))]
+fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHintService) {
+    let surface = ui! {
+        View (id: "fold_surface", width: 480, height: 320, clip_children: true) [
+            FoldSurface {
+                game: game.clone(),
+                expedition: expedition.clone(),
+            },
+        ]
     };
+    let mut child_scope = cx.with_parent(surface);
+    let cx = &mut child_scope;
+    ui!(compose_hud(game));
+    ui!(compose_controls(game, hints));
+    ui!(compose_footer(game, expedition));
+    ui!(compose_result_overlay(game, expedition));
+    ui!(compose_map_overlay(game, expedition));
+    ui!(compose_rules_overlay(expedition));
+    ui!(compose_briefing_overlay(game, expedition));
+    ui!(compose_summary_overlay(game, expedition));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
@@ -1102,8 +1185,10 @@ where
 }
 
 #[cfg(feature = "persistence")]
-fn install_persistence<B, F>(app: &mut App<B, F>, game: FoldModelHandle)
-where
+fn install_persistence<B, F>(
+    app: &mut App<B, F>,
+    game: <FoldModel as crate::core::model::Model>::Handle,
+) where
     B: Surface,
     F: RendererFactory<B>,
 {

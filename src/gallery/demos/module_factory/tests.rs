@@ -1,7 +1,8 @@
-use super::input::local_cell;
+use super::input::{factory_tick_system, local_cell};
 use super::setup_app;
 use super::state::FactorySurface;
 use crate::core::model::ModelHandle;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::factory::{
     FactoryError, FactoryModel, FactoryModelHandle, FactoryTool, ModuleKind,
 };
@@ -29,6 +30,25 @@ fn model_handle(world: &World) -> FactoryModelHandle {
 
 fn with_model<R>(world: &World, inspect: impl FnOnce(&FactoryModel) -> R) -> R {
     ModelHandle::read(&model_handle(world), inspect)
+}
+
+#[test]
+fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    model.toggle_run().unwrap();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(factory_tick_system::system(model.clone()));
+
+    world.insert_resource(DeltaTimeMs(1_000));
+    scheduler.run_all(&mut world);
+    assert_eq!(model.tick(), 2);
+
+    let revision = model.visual_revision();
+    world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut world);
+    assert_eq!(model.tick(), 2);
+    assert_eq!(model.visual_revision(), revision);
 }
 
 #[test]

@@ -1,6 +1,8 @@
+use super::input::orbit_tick_system;
 use super::setup_app;
 use super::state::OrbitSurface;
 use crate::core::model::ModelHandle;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::orbit::{OrbitError, OrbitModel, OrbitModelHandle, OrbitPage};
 use crate::prelude::{App, World};
 use crate::ui::Hidden;
@@ -38,6 +40,26 @@ fn assert_text(world: &World, id: &'static str, expected: &str) {
     assert_eq!(text.resolve(world).as_ref(), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
+}
+
+#[test]
+fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
+    let mut world = fixture();
+    let model = model_handle(&world);
+    model.toggle_running();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(orbit_tick_system::system(model.clone()));
+
+    world.insert_resource(DeltaTimeMs(100));
+    scheduler.run_all(&mut world);
+    let time = with_model(&world, OrbitModel::time);
+    assert!(time.is_positive());
+
+    let revision = model.visual_revision();
+    world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut world);
+    assert_eq!(with_model(&world, OrbitModel::time), time);
+    assert_eq!(model.visual_revision(), revision);
 }
 
 #[test]

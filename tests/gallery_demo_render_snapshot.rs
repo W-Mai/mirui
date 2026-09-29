@@ -182,7 +182,13 @@ basic_demo_scoped!(layout_lab, 1024, 720);
 basic_demo_scoped!(nested_scroll, 480, 400);
 basic_demo_scoped!(offscreen, 360, 360);
 basic_demo_scoped!(offscreen_modal, 360, 360);
-basic_demo_scoped!(pinch_rotate, 480, 360);
+#[test]
+fn pinch_rotate() {
+    let cs = render_app_demo(480, 360, |app, parent| {
+        mirui::gallery::demos::pinch_rotate::setup_app(app, parent);
+    });
+    assert_renders("pinch_rotate", cs);
+}
 basic_demo_scoped!(scroll, 480, 320);
 basic_demo_scoped!(slider_value_changed, 720, 320);
 basic_demo_scoped!(spatial_anim, 400, 300);

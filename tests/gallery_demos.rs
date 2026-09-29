@@ -1,6 +1,7 @@
 #![cfg(feature = "gallery")]
 
 use mirui::ecs::World;
+use mirui::prelude::App;
 use mirui::ui::Children;
 use mirui::ui::UiScope;
 use mirui::ui::builder::WidgetBuilder;
@@ -29,7 +30,6 @@ fn all_demos_build_widgets_smoke() {
     smoke_scoped!(mirui::gallery::demos::nested_scroll::build_widgets);
     smoke_scoped!(mirui::gallery::demos::offscreen::build_widgets);
     smoke_scoped!(mirui::gallery::demos::offscreen_modal::build_widgets);
-    smoke_scoped!(mirui::gallery::demos::pinch_rotate::build_widgets);
     smoke_scoped!(mirui::gallery::demos::scroll::build_widgets);
     smoke_scoped!(mirui::gallery::demos::slider_value_changed::build_widgets);
     smoke_scoped!(mirui::gallery::demos::spatial_anim::build_widgets);
@@ -37,6 +37,16 @@ fn all_demos_build_widgets_smoke() {
     smoke_scoped!(mirui::gallery::demos::text_input::build_widgets);
     smoke_scoped!(mirui::gallery::demos::transform::build_widgets);
     smoke_scoped!(mirui::gallery::demos::widgets_compact::build_widgets);
+}
+
+#[test]
+fn pinch_rotate_demo_smoke() {
+    let (width, height) = mirui::gallery::demos::pinch_rotate::DEFAULT_VIEW;
+    let mut app = App::headless(width, height);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    mirui::gallery::demos::pinch_rotate::setup_app(&mut app, root);
+    assert_demo_built(&app.world, root);
 }
 
 fn assert_demo_built(world: &World, parent: mirui::ecs::Entity) {

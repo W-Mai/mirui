@@ -138,6 +138,7 @@ pub mod prop {
     pub struct BorderWidth;
     pub struct ButtonNormalColor;
     pub struct RenderKey;
+    pub struct Transform;
     pub struct FontSize;
     pub struct Paragraph;
     pub struct Direction;
@@ -341,6 +342,21 @@ pub mod prop {
         }
     }
 
+    impl Property for Transform {
+        type Value = crate::types::Transform;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            if world
+                .get::<crate::ui::widgets::WidgetTransform>(entity)
+                .is_some_and(|current| current.0 == value)
+            {
+                return PropertyChange::Unchanged;
+            }
+            world.insert(entity, crate::ui::widgets::WidgetTransform(value));
+            PropertyChange::Visual
+        }
+    }
+
     impl Property for FontSize {
         type Value = u16;
 
@@ -512,10 +528,36 @@ pub mod prop {
 mod tests {
     use super::*;
     use crate::core::reactive::{Signal, flush_signal_dirty};
-    use crate::types::{Dimension, Fixed, Rect};
+    use crate::types::{Dimension, Fixed, Rect, Transform};
     use crate::ui::dirty::{Dirty, VisualDirty};
     use crate::ui::widgets::{Button, Checkbox, ParagraphStyle, ProgressBar, Slider, Switch, Text};
     use crate::ui::{Children, Parent, Widget};
+
+    #[test]
+    fn transform_property_invalidates_only_changed_values() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        let transform = Transform::scale(Fixed::from_int(2), Fixed::from_int(2));
+
+        assert_eq!(
+            apply_to_world::<prop::Transform>(&mut world, entity, transform),
+            PropertyChange::Visual
+        );
+        assert_eq!(
+            world
+                .get::<crate::ui::widgets::WidgetTransform>(entity)
+                .map(|value| value.0),
+            Some(transform)
+        );
+        world.remove::<VisualDirty>(entity);
+
+        assert_eq!(
+            apply_to_world::<prop::Transform>(&mut world, entity, transform),
+            PropertyChange::Unchanged
+        );
+        assert!(!world.has::<VisualDirty>(entity));
+    }
 
     #[test]
     fn render_key_invalidates_visuals_only_when_it_changes() {

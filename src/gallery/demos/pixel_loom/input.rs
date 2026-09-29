@@ -69,6 +69,6 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn pixel_tick_system(model: &PixelModel, delta: Option<DeltaTimeMs>) {
-    model.advance_ms(delta.map_or(16, |delta| delta.0));
+pub(super) fn pixel_tick_system(model: &PixelModel, delta: DeltaTimeMs) {
+    model.advance_ms(delta.0);
 }

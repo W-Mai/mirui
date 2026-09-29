@@ -1,5 +1,6 @@
 use super::state::PostSurface;
 use super::{VIEWPORT, setup_app};
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::post::{PostModel, PostModelHandle};
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
@@ -77,6 +78,47 @@ fn is_hidden(world: &World, id: &'static str) -> bool {
 
 fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
     GestureHandler::trigger(world, surface, event).unwrap_or(false)
+}
+
+#[test]
+fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    let model = app.add_model(PostModel::default());
+    model.toggle_running();
+    let distance = || {
+        crate::core::model::ModelHandle::read(&model, |model| {
+            model
+                .active(0)
+                .expect("running starts one parcel")
+                .distance()
+        })
+    };
+    let initial = distance();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(super::input::post_tick_system::system(model.clone()));
+
+    app.world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut app.world);
+    assert_eq!(distance(), initial);
+
+    app.world.insert_resource(DeltaTimeMs(16));
+    scheduler.run_all(&mut app.world);
+    assert_eq!(distance(), initial);
+
+    app.world.insert_resource(DeltaTimeMs(1));
+    scheduler.run_all(&mut app.world);
+    assert!(distance() > initial);
+}
+
+#[test]
+#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+fn tick_system_rejects_a_missing_delta_resource() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    let model = app.add_model(PostModel::default());
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(super::input::post_tick_system::system(model));
+
+    scheduler.run_all(&mut app.world);
 }
 
 #[test]

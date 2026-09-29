@@ -47,6 +47,6 @@ pub(super) fn cancel_node(model: &OrbitModelHandle, index: usize) {
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn orbit_tick_system(model: &OrbitModel, delta: Option<DeltaTimeMs>) {
-    model.advance_ms(delta.map_or(16, |delta| delta.0));
+pub(super) fn orbit_tick_system(model: &OrbitModel, delta: DeltaTimeMs) {
+    model.advance_ms(delta.0);
 }

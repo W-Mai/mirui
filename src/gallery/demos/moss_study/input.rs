@@ -66,6 +66,6 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
 }
 
 #[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn moss_tick_system(model: &MossModel, delta: Option<DeltaTimeMs>) {
-    model.advance_ms(delta.map_or(16, |delta| delta.0));
+pub(super) fn moss_tick_system(model: &MossModel, delta: DeltaTimeMs) {
+    model.advance_ms(delta.0);
 }

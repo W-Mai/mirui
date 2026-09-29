@@ -5,9 +5,10 @@ use super::scenes::scene_board_render;
 use super::settings::settings_panel_render;
 use super::shell::build_widgets;
 use super::style::{BOARD_HEIGHT, BOARD_WIDTH};
-use super::{TEXT_LAYOUT_CAPACITY, VIEWPORT, setup_app};
+use super::{TEXT_LAYOUT_CAPACITY, VIEWPORT, marble_tick_system, setup_app};
 #[cfg(feature = "audio")]
 use crate::audio::{AudioHandle, AudioOutputState};
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::marble::{MarbleModel, MarbleModelHandle, Page, THEMES};
@@ -110,6 +111,24 @@ fn test_board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -
         entity,
         event,
     })
+}
+
+#[test]
+fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
+    let mut world = fixture();
+    let model = world.resource::<MarbleModelHandle>().unwrap().clone();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(marble_tick_system::system(model.clone()));
+
+    let revision = model.visual_revision();
+    world.insert_resource(DeltaTimeMs(60));
+    scheduler.run_all(&mut world);
+    assert!(model.visual_revision() > revision);
+
+    let revision = model.visual_revision();
+    world.insert_resource(DeltaTimeMs(0));
+    scheduler.run_all(&mut world);
+    assert_eq!(model.visual_revision(), revision);
 }
 
 #[test]
