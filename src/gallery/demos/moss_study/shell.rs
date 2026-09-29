@@ -48,7 +48,7 @@ fn control_text_color(active: bool, enabled: bool) -> Color {
 }
 
 #[compose(bind(model))]
-fn compose_header_tools(model: MossModel) {
+fn compose_header_tools(model: MossModel) -> Entity {
     ui! {
             Text (
                 "MOSS STUDY",
@@ -145,11 +145,11 @@ fn compose_header_tools(model: MossModel) {
                 text_color: ${ control_text_color(false, model.tool() == MossTool::Glider) },
                 border_radius: 6
             ) on Tap { model.rotate_glider(); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_metrics(model: MossModel) {
+fn compose_metrics(model: MossModel) -> Entity {
     ui! {
             Text (
                 "GENERATION",
@@ -266,11 +266,11 @@ fn compose_metrics(model: MossModel) {
                 text_color: Color::rgb(128, 153, 115),
                 paragraph: ParagraphStyle::label()
             )
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_footer(model: MossModel) {
+fn compose_footer(model: MossModel) -> Entity {
     ui! {
             Button (
                 text: ${ if model.running() { "暂停" } else { "运行" } },
@@ -336,11 +336,11 @@ fn compose_footer(model: MossModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.open_clear(); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_modal(model: MossModel) {
+fn compose_modal(model: MossModel) -> Entity {
     ui! {
             View (
                 id: "moss_modal",
@@ -509,25 +509,25 @@ fn compose_modal(model: MossModel) {
                     paragraph: ParagraphStyle::label()
                 )
             }
-    };
+    }
 }
 
 #[compose(bind(model))]
 pub(super) fn build_widgets(model: MossModel) {
-    let surface = ui! {
+    ui! {
         View (id: "moss_surface", width: 480, height: 320, clip_children: true) [
             MossSurface {
                 model: model.clone(),
             },
             TouchAction::None,
         ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+        {
+            compose_header_tools (model)
+            compose_metrics (model)
+            compose_footer (model)
+            compose_modal (model)
+        }
     };
-    let mut child_scope = cx.with_parent(surface);
-    let cx = &mut child_scope;
-    ui!(compose_header_tools(model));
-    ui!(compose_metrics(model));
-    ui!(compose_footer(model));
-    ui!(compose_modal(model));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

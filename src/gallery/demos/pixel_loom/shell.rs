@@ -74,7 +74,7 @@ fn palette_border(active: bool) -> Color {
 }
 
 #[compose(bind(model))]
-fn compose_header(model: PixelModel) {
+fn compose_header(model: PixelModel) -> Entity {
     ui! {
         Text (
             "PIXEL LOOM",
@@ -195,11 +195,11 @@ fn compose_header(model: PixelModel) {
             text_color: MUTED,
             border_radius: 7
         ) on Tap { model.cycle_fps(); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_frame_selector(model: PixelModel) {
+fn compose_frame_selector(model: PixelModel) -> Entity {
     ui! {
         Button (
             "01",
@@ -267,11 +267,11 @@ fn compose_frame_selector(model: PixelModel) {
             text_color: ${ frame_text_color(model.visible_frame() == 3, !model.playing()) },
             border_radius: 6
         ) on Tap { model.select_frame(3); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_tool_controls(model: PixelModel) {
+fn compose_tool_controls(model: PixelModel) -> Entity {
     ui! {
         Button (
             "画笔",
@@ -339,11 +339,11 @@ fn compose_tool_controls(model: PixelModel) {
             text_color: ${ control_text_color(model.onion(), !model.playing()) },
             border_radius: 7
         ) on Tap { model.toggle_onion(); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_edit_actions(model: PixelModel) {
+fn compose_edit_actions(model: PixelModel) -> Entity {
     ui! {
         Button (
             "",
@@ -477,11 +477,11 @@ fn compose_edit_actions(model: PixelModel) {
             text_color: TEXT,
             border_radius: 6
         ) on Tap { model.open_clear(); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_footer(model: PixelModel) {
+fn compose_footer(model: PixelModel) -> Entity {
     ui! {
         Button (
             "模板",
@@ -532,11 +532,11 @@ fn compose_footer(model: PixelModel) {
             text_color: ${ control_text_color(model.playing(), true) },
             border_radius: 7
         ) on Tap { model.toggle_playback(); }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_modal(model: PixelModel) {
+fn compose_modal(model: PixelModel) -> Entity {
     ui! {
         View (
             id: "pixel_modal",
@@ -700,12 +700,12 @@ fn compose_modal(model: PixelModel) {
                 border_radius: 7
             ) on Tap { model.close_modal(); }
         }
-    };
+    }
 }
 
 #[compose(bind(model))]
 pub(super) fn build_widgets(model: PixelModel) {
-    let surface = ui! {
+    ui! {
         View (
             id: "pixel_surface",
             width: 480,
@@ -717,15 +717,15 @@ pub(super) fn build_widgets(model: PixelModel) {
             },
             TouchAction::None,
         ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+        {
+            compose_header (model)
+            compose_frame_selector (model)
+            compose_tool_controls (model)
+            compose_edit_actions (model)
+            compose_footer (model)
+            compose_modal (model)
+        }
     };
-    let mut child_scope = cx.with_parent(surface);
-    let cx = &mut child_scope;
-    ui!(compose_header(model));
-    ui!(compose_frame_selector(model));
-    ui!(compose_tool_controls(model));
-    ui!(compose_edit_actions(model));
-    ui!(compose_footer(model));
-    ui!(compose_modal(model));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

@@ -1,67 +1,71 @@
 use super::geometry::board_geometry;
+use super::state::PictureSurface;
 use crate::core::model::ModelHandle;
 use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModelHandle};
-use crate::gallery::play::picture::{PictureModelHandle, PictureTool};
+use crate::gallery::play::picture::{PictureModel, PictureModelHandle, PictureTool};
+use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
-use crate::prelude::{App, Entity, Fixed, RendererFactory, Surface, World};
+use crate::prelude::{App, Fixed, Rect, RendererFactory, Surface, World};
 use crate::surface::InputEvent;
 use crate::ui::ComputedRect;
 
-fn local_cell(
-    world: &World,
-    model: &PictureModelHandle,
-    entity: Entity,
-    x: Fixed,
-    y: Fixed,
-) -> Option<u8> {
-    let rect = world.get::<ComputedRect>(entity)?.0;
+fn local_cell(model: &PictureModel, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
     let local_x = (x - rect.x) * Fixed::from_int(480) / rect.w;
     let local_y = (y - rect.y) * Fixed::from_int(320) / rect.h;
-    ModelHandle::read(model, |model| {
-        let size = model.level().size();
-        let geometry = board_geometry(model);
-        if local_x < Fixed::from_int(geometry.x)
-            || local_y < Fixed::from_int(geometry.y)
-            || local_x >= Fixed::from_int(geometry.x + geometry.size)
-            || local_y >= Fixed::from_int(geometry.y + geometry.size)
-        {
-            return None;
-        }
-        let column = (local_x.to_int() - geometry.x) / geometry.cell;
-        let row = (local_y.to_int() - geometry.y) / geometry.cell;
-        if column >= 0 && row >= 0 && column < i32::from(size) && row < i32::from(size) {
-            Some((row as u8) * size + column as u8)
-        } else {
-            None
-        }
-    })
+    let size = model.level().size();
+    let geometry = board_geometry(model);
+    if local_x < Fixed::from_int(geometry.x)
+        || local_y < Fixed::from_int(geometry.y)
+        || local_x >= Fixed::from_int(geometry.x + geometry.size)
+        || local_y >= Fixed::from_int(geometry.y + geometry.size)
+    {
+        return None;
+    }
+    let column = (local_x.to_int() - geometry.x) / geometry.cell;
+    let row = (local_y.to_int() - geometry.y) / geometry.cell;
+    if column >= 0 && row >= 0 && column < i32::from(size) && row < i32::from(size) {
+        Some((row as u8) * size + column as u8)
+    } else {
+        None
+    }
 }
 
-pub(super) fn surface_gesture(
-    world: &World,
+fn event_cell(
+    ctx: &HandlerCtx<'_, GestureEvent>,
     model: &PictureModelHandle,
-    entity: Entity,
-    event: &GestureEvent,
-) -> bool {
-    match event {
+    x: Fixed,
+    y: Fixed,
+) -> Option<u8> {
+    let rect = ctx.component::<ComputedRect>(ctx.entity)?.0;
+    ModelHandle::read(model, |model| local_cell(model, rect, x, y))
+}
+
+pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
+    let Some(model) = ctx
+        .component::<PictureSurface>(ctx.entity)
+        .map(|surface| surface.model.clone())
+    else {
+        return false;
+    };
+    match ctx.event {
         GestureEvent::Tap { x, y, .. } => {
-            let Some(cell) = local_cell(world, model, entity, *x, *y) else {
+            let Some(cell) = event_cell(ctx, &model, *x, *y) else {
                 return false;
             };
             model.apply_cell(cell);
         }
         GestureEvent::DragStart { x, y, .. } => {
-            let Some(cell) = local_cell(world, model, entity, *x, *y) else {
+            let Some(cell) = event_cell(ctx, &model, *x, *y) else {
                 return false;
             };
             model.begin_stroke(cell);
         }
         GestureEvent::DragMove { x, y, .. } => {
-            let Some(cell) = local_cell(world, model, entity, *x, *y) else {
+            let Some(cell) = event_cell(ctx, &model, *x, *y) else {
                 return true;
             };
             model.continue_stroke(cell);

@@ -1,12 +1,15 @@
 use super::geometry::board_geometry;
 use super::setup_app;
 use super::state::{PictureExpeditionState, PictureSurface};
+use crate::core::model::ModelHandle;
 use crate::gallery::play::picture::{PictureModel, PictureModelHandle};
+use crate::input::event::GestureHandler;
+use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::Text;
-use crate::ui::{Children, Hidden, HitTarget, InteractionFeedback};
+use crate::ui::{Children, ComputedRect, Hidden, HitTarget, InteractionFeedback};
 
 fn fixture() -> World {
     let mut app = App::headless(480, 320);
@@ -37,6 +40,23 @@ fn handles(
 
 fn flush(world: &mut World) {
     crate::core::reactive::flush_signal_dirty(world);
+}
+
+fn editable_cell(model: &PictureModelHandle) -> (u8, i32, i32) {
+    ModelHandle::read(model, |model| {
+        let size = model.level().size();
+        let cell = (0..size * size)
+            .find(|cell| !model.level().is_given(*cell))
+            .expect("the first picture has an editable cell");
+        let geometry = board_geometry(model);
+        let x = geometry.x + i32::from(cell % size) * geometry.cell + 1;
+        let y = geometry.y + i32::from(cell / size) * geometry.cell + 1;
+        (cell, x, y)
+    })
+}
+
+fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
+    GestureHandler::trigger(world, surface, event).unwrap_or(false)
 }
 
 fn visible_interactive_descendant(world: &World, entity: Entity) -> bool {
@@ -79,6 +99,85 @@ fn composition_binds_game_and_expedition_models() {
     expedition.close();
     flush(&mut world);
     assert!(world.has::<Hidden>(world.find_by_id("picture_rules").unwrap()));
+}
+
+#[test]
+fn surface_gesture_uses_the_bound_picture_model() {
+    let mut world = fixture();
+    let surface = world.find_by_id("picture_surface").unwrap();
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    let (model, _) = handles(&world);
+    let (cell, x, y) = editable_cell(&model);
+    let before = ModelHandle::read(&model, |model| model.cell(cell));
+
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::Tap {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert_ne!(ModelHandle::read(&model, |model| model.cell(cell)), before);
+    assert_eq!(model.history_len(), 1);
+}
+
+#[test]
+fn stroke_completion_does_not_depend_on_layout_components() {
+    let mut world = fixture();
+    let surface = world.find_by_id("picture_surface").unwrap();
+    let (model, _) = handles(&world);
+    let (cell, x, y) = editable_cell(&model);
+    let before = ModelHandle::read(&model, |model| model.cell(cell));
+
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragStart {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    world.remove::<ComputedRect>(surface);
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragCancel {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
+    assert_eq!(model.history_len(), 0);
+
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragStart {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            target: surface,
+        },
+    ));
+    world.remove::<ComputedRect>(surface);
+    assert!(trigger(
+        &mut world,
+        surface,
+        &GestureEvent::DragEnd {
+            x: Fixed::from_int(x),
+            y: Fixed::from_int(y),
+            vx: Fixed::ZERO,
+            vy: Fixed::ZERO,
+            target: surface,
+        },
+    ));
+    assert_ne!(ModelHandle::read(&model, |model| model.cell(cell)), before);
+    assert_eq!(model.history_len(), 1);
 }
 
 #[test]

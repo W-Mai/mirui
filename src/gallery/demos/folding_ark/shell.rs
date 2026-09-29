@@ -234,7 +234,7 @@ fn map_level_button(game: FoldModel, expedition: ExpeditionUiModel, slot: u8) ->
 }
 
 #[compose(bind(game))]
-fn compose_hud(game: FoldModel) {
+fn compose_hud(game: FoldModel) -> Entity {
     ui! {
         Text (
             "FOLDING ARK",
@@ -303,11 +303,11 @@ fn compose_hud(game: FoldModel) {
             text_color: MUTED,
             paragraph: ParagraphStyle::default().with_align(TextAlign::Start)
         )
-    };
+    }
 }
 
 #[compose(bind(game))]
-fn compose_controls(game: FoldModel, hints: FoldHintService) {
+fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
     ui! {
             Button (
                 "↑",
@@ -403,11 +403,11 @@ fn compose_controls(game: FoldModel, hints: FoldHintService) {
                 text_color: TEXT,
                 border_radius: 6
             ) on Tap { hints.request(&game); }
-    };
+    }
 }
 
 #[compose(bind(game, expedition))]
-fn compose_footer(game: FoldModel, expedition: ExpeditionUiModel) {
+fn compose_footer(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
     ui! {
             Text (
                 text: ${ StatusText(game.message()) },
@@ -507,7 +507,7 @@ fn compose_footer(game: FoldModel, expedition: ExpeditionUiModel) {
                 text_color: BG,
                 border_radius: 7
             ) on Tap { next(&game, &expedition); }
-    };
+    }
 }
 
 #[compose(bind(game, expedition))]
@@ -1144,24 +1144,23 @@ fn compose_summary_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> En
 
 #[compose(bind(game, expedition))]
 fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHintService) {
-    let surface = ui! {
+    ui! {
         View (id: "fold_surface", width: 480, height: 320, clip_children: true) [
             FoldSurface {
                 game: game.clone(),
                 expedition: expedition.clone(),
             },
-        ]
+        ] {
+            compose_hud (game)
+            compose_controls (game, hints)
+            compose_footer (game, expedition)
+            compose_result_overlay (game, expedition)
+            compose_map_overlay (game, expedition)
+            compose_rules_overlay (expedition)
+            compose_briefing_overlay (game, expedition)
+            compose_summary_overlay (game, expedition)
+        }
     };
-    let mut child_scope = cx.with_parent(surface);
-    let cx = &mut child_scope;
-    ui!(compose_hud(game));
-    ui!(compose_controls(game, hints));
-    ui!(compose_footer(game, expedition));
-    ui!(compose_result_overlay(game, expedition));
-    ui!(compose_map_overlay(game, expedition));
-    ui!(compose_rules_overlay(expedition));
-    ui!(compose_briefing_overlay(game, expedition));
-    ui!(compose_summary_overlay(game, expedition));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

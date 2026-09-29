@@ -260,7 +260,7 @@ fn compose_header(model: PictureModel) -> Entity {
 }
 
 #[compose(bind(model))]
-fn compose_clues(model: PictureModel) -> Entity {
+fn compose_row_clues(model: PictureModel) -> Entity {
     ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 0 } },
@@ -410,7 +410,11 @@ fn compose_clues(model: PictureModel) -> Entity {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
-    };
+    }
+}
+
+#[compose(bind(model))]
+fn compose_column_clues(model: PictureModel) -> Entity {
     ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 0 } },
@@ -561,6 +565,12 @@ fn compose_clues(model: PictureModel) -> Entity {
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
     }
+}
+
+#[compose(bind(model))]
+fn compose_clues(model: PictureModel) -> Entity {
+    ui!(compose_row_clues(model));
+    ui!(compose_column_clues(model))
 }
 
 #[compose(bind(model))]
@@ -1448,7 +1458,7 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 expedition: expedition.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); }
+        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
         {
             compose_header (model)
             compose_clues (model)

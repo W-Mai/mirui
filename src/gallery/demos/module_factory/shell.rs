@@ -153,7 +153,7 @@ fn modal_button_active(modal: FactoryModal, tool: FactoryTool, index: usize) -> 
 }
 
 #[compose(bind(model))]
-fn compose_header(model: FactoryModel) {
+fn compose_header(model: FactoryModel) -> Entity {
     ui! {
         Text (
             "模块工厂",
@@ -283,7 +283,7 @@ fn compose_header(model: FactoryModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
-    };
+    }
 }
 
 #[compose(bind(model))]
@@ -746,7 +746,7 @@ fn compose_telemetry_page(model: FactoryModel) -> Entity {
 }
 
 #[compose(bind(model))]
-fn compose_footer(model: FactoryModel) {
+fn compose_footer(model: FactoryModel) -> Entity {
     ui! {
             Button (
                 "＋ 建造",
@@ -842,7 +842,7 @@ fn compose_footer(model: FactoryModel) {
                 text_color: ${ control_text_color(true, model.power() <= model.mission().power) },
                 border_radius: 0
             ) on Tap { footer_action(&model, 4); }
-    };
+    }
 }
 
 #[compose(bind(model))]
@@ -1010,22 +1010,22 @@ fn compose_modal(model: FactoryModel) -> Entity {
 
 #[compose(bind(model))]
 pub(super) fn build_widgets(model: FactoryModel) {
-    let surface = ui! {
+    ui! {
         View (id: "factory_surface", width: 480, height: 320, clip_children: true) [
             FactorySurface {
                 model: model.clone(),
             },
             TouchAction::None,
         ] on Tap { surface_gesture(&ctx); }
+        {
+            compose_header (model)
+            compose_line_page (model)
+            compose_orders_page (model)
+            compose_telemetry_page (model)
+            compose_footer (model)
+            compose_modal (model)
+        }
     };
-    let mut child_scope = cx.with_parent(surface);
-    let cx = &mut child_scope;
-    ui!(compose_header(model));
-    ui!(compose_line_page(model));
-    ui!(compose_orders_page(model));
-    ui!(compose_telemetry_page(model));
-    ui!(compose_footer(model));
-    ui!(compose_modal(model));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

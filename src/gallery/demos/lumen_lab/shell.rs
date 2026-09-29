@@ -165,7 +165,7 @@ fn mirror_labels(model: LumenModel) -> Entity {
 }
 
 #[compose(bind(model))]
-fn compose_header(model: LumenModel) {
+fn compose_header(model: LumenModel) -> Entity {
     ui! {
         Row (
             height: 35,
@@ -194,11 +194,11 @@ fn compose_header(model: LumenModel) {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
         }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_level_intro(model: LumenModel) {
+fn compose_level_intro(model: LumenModel) -> Entity {
     ui! {
         Row (
             height: 28,
@@ -227,11 +227,11 @@ fn compose_level_intro(model: LumenModel) {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
         }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_playfield(model: LumenModel) {
+fn compose_playfield(model: LumenModel) -> Entity {
     ui! {
         Row (height: 204, padding: padding(0, 12), column_gap: 11) {
             View (
@@ -347,11 +347,11 @@ fn compose_playfield(model: LumenModel) {
                 )
             }
         }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_footer(model: LumenModel) {
+fn compose_footer(model: LumenModel) -> Entity {
     ui! {
         View (height: 15)
     };
@@ -411,11 +411,11 @@ fn compose_footer(model: LumenModel) {
                 border_radius: 7
             ) on Tap { model.next_level(); }
         }
-    };
+    }
 }
 
 #[compose(bind(model))]
-fn compose_level_modal(model: LumenModel) {
+fn compose_level_modal(model: LumenModel) -> Entity {
     ui! {
         View (
             id: "lumen_levels_modal",
@@ -593,19 +593,18 @@ fn compose_level_modal(model: LumenModel) {
                 )
             }
         }
-    };
+    }
 }
 
 #[compose(bind(model))]
 pub(super) fn build_widgets(model: LumenModel) {
-    let root = ui! {
-        Column (width: 480, height: 320, bg_color: BACKGROUND)
+    ui! {
+        Column (width: 480, height: 320, bg_color: BACKGROUND) {
+            compose_header (model)
+            compose_level_intro (model)
+            compose_playfield (model)
+            compose_footer (model)
+            compose_level_modal (model)
+        }
     };
-    let mut child_scope = cx.with_parent(root);
-    let cx = &mut child_scope;
-    ui!(compose_header(model));
-    ui!(compose_level_intro(model));
-    ui!(compose_playfield(model));
-    ui!(compose_footer(model));
-    ui!(compose_level_modal(model));
 }
