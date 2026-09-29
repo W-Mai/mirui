@@ -998,20 +998,25 @@ const RELEASE_WORKFLOW_POLL_INTERVAL: std::time::Duration = std::time::Duration:
 struct ReleaseWorkflow {
     file: &'static str,
     label: &'static str,
+    /// Whether every push is expected to create an exact-head run.
+    required_run: bool,
 }
 
 const RELEASE_WORKFLOWS: [ReleaseWorkflow; 3] = [
     ReleaseWorkflow {
         file: "ci.yml",
         label: "CI",
+        required_run: true,
     },
     ReleaseWorkflow {
         file: "pages.yml",
         label: "Pages",
+        required_run: true,
     },
     ReleaseWorkflow {
         file: "nuttx-check.yml",
         label: "NuttX target check",
+        required_run: false,
     },
 ];
 
@@ -1038,14 +1043,15 @@ fn wait_for_release_workflows(root: &str, head: &str) -> Result {
         let was_complete: Vec<bool> = progress.iter().map(|item| item.complete).collect();
         if update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &observations)? {
             for (index, workflow) in RELEASE_WORKFLOWS.iter().enumerate() {
-                if !was_complete[index] && progress[index].complete {
+                if !was_complete[index] && progress[index].complete && observations[index].is_some()
+                {
                     println!("  ✅ {} passed", workflow.label);
                 }
             }
             return Ok(());
         }
         for (index, workflow) in RELEASE_WORKFLOWS.iter().enumerate() {
-            if !was_complete[index] && progress[index].complete {
+            if !was_complete[index] && progress[index].complete && observations[index].is_some() {
                 println!("  ✅ {} passed", workflow.label);
             } else if let Some(run) = &observations[index]
                 && !progress[index].complete
@@ -1120,6 +1126,7 @@ fn update_workflow_progress(
 ) -> std::result::Result<bool, String> {
     for (index, observation) in observations.iter().enumerate() {
         let Some(run) = observation else {
+            progress[index].complete = !workflows[index].required_run;
             continue;
         };
         if run.status != "completed" {
@@ -1455,6 +1462,10 @@ mod tests {
             RELEASE_WORKFLOWS.map(|workflow| workflow.file),
             ["ci.yml", "pages.yml", "nuttx-check.yml"]
         );
+        assert_eq!(
+            RELEASE_WORKFLOWS.map(|workflow| workflow.required_run),
+            [true, true, false]
+        );
     }
 
     #[test]
@@ -1513,9 +1524,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_release_workflow_never_completes() {
+    fn missing_required_release_workflow_never_completes() {
         let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
-        let observations = vec![completed("success"), completed("success"), None];
+        let observations = vec![completed("success"), None, None];
 
         for _ in 0..10 {
             assert!(
@@ -1523,7 +1534,18 @@ mod tests {
                     .unwrap()
             );
         }
-        assert!(!progress[2].complete);
+        assert!(!progress[1].complete);
+        assert!(progress[2].complete);
+    }
+
+    #[test]
+    fn missing_path_filtered_workflow_does_not_block_release() {
+        let mut progress = vec![Default::default(); RELEASE_WORKFLOWS.len()];
+        let observations = vec![completed("success"), completed("success"), None];
+
+        assert!(
+            update_workflow_progress(&RELEASE_WORKFLOWS, &mut progress, &observations).unwrap()
+        );
     }
 
     #[test]
