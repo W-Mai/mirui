@@ -8,7 +8,7 @@ use crate::gallery::play::circuit::{
     CircuitGate, CircuitModal, CircuitModel, CircuitPage, Evaluation, GateKind, MAX_GATES,
     SignalSource, TruthRow, VerifyResult,
 };
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
@@ -1711,7 +1711,7 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view()).with_widget(modal_view());
     let model = app.add_model(CircuitModel::default());
     app.add_system(circuit_tick_system::system(model.clone()));

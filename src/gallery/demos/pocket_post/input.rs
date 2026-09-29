@@ -1,6 +1,7 @@
 use super::state::PostSurface;
+use crate::core::model::Model;
 use crate::ecs::DeltaTimeMs;
-use crate::gallery::play::post::{PostModel, PostModelHandle};
+use crate::gallery::play::post::PostModel;
 use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
@@ -51,11 +52,11 @@ pub(super) fn post_tick_system(model: &PostModel, delta: DeltaTimeMs) {
 }
 
 pub(super) struct PostKeyboardPlugin {
-    model: PostModelHandle,
+    model: <PostModel as Model>::Handle,
 }
 
 impl PostKeyboardPlugin {
-    pub(super) fn new(model: PostModelHandle) -> Self {
+    pub(super) fn new(model: <PostModel as Model>::Handle) -> Self {
         Self { model }
     }
 

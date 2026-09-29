@@ -2,10 +2,8 @@ use super::input::{EchoKeyboardPlugin, surface_gesture};
 use super::render::{modal_view, surface_view};
 use super::state::{EchoModalSurface, EchoSurface};
 use super::style::{ACCENT, BACKGROUND, HEADER, LINE, MUTED, PANEL, RUST, TEXT};
-#[cfg(feature = "persistence")]
-use crate::gallery::play::echo::EchoModelHandle;
 use crate::gallery::play::echo::{Direction, EchoMessage, EchoModal, EchoModel};
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 #[cfg(feature = "persistence")]
 use crate::gallery::play::storage::{EchoReplayLog, ReplayKind, replay_echo};
 use crate::input::event::scroll::TouchAction;
@@ -662,7 +660,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     let model = app.add_model(EchoModel::default());
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
@@ -672,8 +670,10 @@ where
 }
 
 #[cfg(feature = "persistence")]
-fn install_persistence<B, F>(app: &mut App<B, F>, model: EchoModelHandle)
-where
+fn install_persistence<B, F>(
+    app: &mut App<B, F>,
+    model: <EchoModel as crate::core::model::Model>::Handle,
+) where
     B: Surface,
     F: RendererFactory<B>,
 {

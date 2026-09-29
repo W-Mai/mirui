@@ -1,4 +1,4 @@
-use super::input::{FoldKeyboardPlugin, move_model};
+use super::input::FoldKeyboardPlugin;
 use super::render::surface_view;
 use super::state::{FoldHintService, FoldSurface, next, select_map_level};
 use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
@@ -8,7 +8,7 @@ use crate::gallery::play::expeditions::{
 use crate::gallery::play::fold::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, FoldMessage, FoldModel, FoldProgress, HullPose,
 };
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
@@ -322,7 +322,7 @@ fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(&game, Direction4::Up); }
+            ) on Tap { game.move_direction(Direction4::Up); }
     };
     ui! {
             Button (
@@ -338,7 +338,7 @@ fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(&game, Direction4::Left); }
+            ) on Tap { game.move_direction(Direction4::Left); }
     };
     ui! {
             Button (
@@ -354,7 +354,7 @@ fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(&game, Direction4::Down); }
+            ) on Tap { game.move_direction(Direction4::Down); }
     };
     ui! {
             Button (
@@ -370,7 +370,7 @@ fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
                 pressed_color: MINT,
                 text_color: TEXT,
                 border_radius: 7
-            ) on Tap { move_model(&game, Direction4::Right); }
+            ) on Tap { game.move_direction(Direction4::Right); }
     };
     ui! {
             Button (
@@ -1168,7 +1168,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view());
     let game = app.add_model(FoldModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());

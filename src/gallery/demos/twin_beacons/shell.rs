@@ -1,13 +1,11 @@
-use super::input::{TwinKeyboardPlugin, move_model};
+use super::input::TwinKeyboardPlugin;
 use super::render::surface_view;
 use super::state::{TwinHintService, TwinSurface, next, select_map_level};
 use super::style::{APRICOT, BG, FLOOR, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
 use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, twin_level,
 };
-use crate::gallery::play::font::register_play_font;
-#[cfg(feature = "persistence")]
-use crate::gallery::play::twin::TwinModelHandle;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::twin::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, TwinMessage, TwinModel, TwinProgress,
 };
@@ -345,7 +343,7 @@ fn compose_controls(game: TwinModel, hints: TwinHintService) -> Entity {
             pressed_color: MINT,
             text_color: TEXT,
             border_radius: 7
-        ) on Tap { move_model(&game, Direction4::Up); }
+        ) on Tap { game.move_direction(Direction4::Up); }
     };
     ui! {
         Button (
@@ -361,7 +359,7 @@ fn compose_controls(game: TwinModel, hints: TwinHintService) -> Entity {
             pressed_color: MINT,
             text_color: TEXT,
             border_radius: 7
-        ) on Tap { move_model(&game, Direction4::Left); }
+        ) on Tap { game.move_direction(Direction4::Left); }
     };
     ui! {
         Button (
@@ -377,7 +375,7 @@ fn compose_controls(game: TwinModel, hints: TwinHintService) -> Entity {
             pressed_color: MINT,
             text_color: TEXT,
             border_radius: 7
-        ) on Tap { move_model(&game, Direction4::Down); }
+        ) on Tap { game.move_direction(Direction4::Down); }
     };
     ui! {
         Button (
@@ -393,7 +391,7 @@ fn compose_controls(game: TwinModel, hints: TwinHintService) -> Entity {
             pressed_color: MINT,
             text_color: TEXT,
             border_radius: 7
-        ) on Tap { move_model(&game, Direction4::Right); }
+        ) on Tap { game.move_direction(Direction4::Right); }
     };
     ui! {
         Button (
@@ -1241,7 +1239,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view());
     let game = app.add_model(TwinModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());
@@ -1257,8 +1255,10 @@ where
 }
 
 #[cfg(feature = "persistence")]
-fn install_persistence<B, F>(app: &mut App<B, F>, game: TwinModelHandle)
-where
+fn install_persistence<B, F>(
+    app: &mut App<B, F>,
+    game: <TwinModel as crate::core::model::Model>::Handle,
+) where
     B: Surface,
     F: RendererFactory<B>,
 {

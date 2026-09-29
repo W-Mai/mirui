@@ -6,6 +6,7 @@ mod types;
 mod tests;
 
 #[cfg(any(feature = "persistence", test))]
+#[cfg(test)]
 pub(crate) use model::TideModelHandle;
 pub(crate) use model::{TideModel, TidePreview};
 #[allow(unused_imports)]

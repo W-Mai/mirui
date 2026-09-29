@@ -8,7 +8,7 @@ use super::style::{APRICOT, BG, CELL, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
 use crate::gallery::play::expeditions::{
     ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
 };
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::picture::{
     CHAPTER_MECHANICS, CHAPTER_NAMES, PictureMessage, PictureModel, PictureProgress, PictureTool,
 };
@@ -1478,7 +1478,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     let model = app.add_model(PictureModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());
     app.add_plugin(PictureKeyboardPlugin::new(

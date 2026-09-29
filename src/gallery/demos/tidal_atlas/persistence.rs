@@ -1,9 +1,9 @@
-use crate::core::model::ModelHandle;
+use crate::core::model::{Model, ModelHandle};
 use crate::gallery::play::storage::{ReplayKind, TidalReplayLog, replay_tide};
-use crate::gallery::play::tidal::{TideModel, TideModelHandle};
+use crate::gallery::play::tidal::TideModel;
 use crate::prelude::{App, RendererFactory, Surface};
 
-pub(super) fn install_persistence<B, F>(app: &mut App<B, F>, model: TideModelHandle)
+pub(super) fn install_persistence<B, F>(app: &mut App<B, F>, model: <TideModel as Model>::Handle)
 where
     B: Surface,
     F: RendererFactory<B>,

@@ -1,8 +1,8 @@
-use crate::core::model::ModelHandle;
-use crate::gallery::play::picture::{PictureModel, PictureModelHandle};
+use crate::core::model::{Model, ModelHandle};
+use crate::gallery::play::picture::PictureModel;
 use crate::prelude::{App, RendererFactory, Surface};
 
-pub(super) fn install_persistence<B, F>(app: &mut App<B, F>, model: PictureModelHandle)
+pub(super) fn install_persistence<B, F>(app: &mut App<B, F>, model: <PictureModel as Model>::Handle)
 where
     B: Surface,
     F: RendererFactory<B>,

@@ -1,24 +1,40 @@
-use crate::ecs::World;
+use crate::app::plugin::Plugin;
+use crate::app::{App, RendererFactory};
 use crate::render::font::{Font, FontManager, FontToken};
+use crate::surface::Surface;
 
 const FONT_BYTES: &[u8] = include_bytes!("../demos/assets/play_ui.mirx");
 #[cfg(test)]
 const FONT_CHARSET: &str = include_str!("../demos/assets/play_charset.txt");
 
-pub(crate) fn register_play_font(world: &mut World) {
-    let Some(manager) = world.resource::<FontManager>() else {
-        return;
-    };
-    let base = Font::from_mirx(
-        "MIRUI Play",
-        12,
-        FONT_BYTES,
-        &mirx::reader::PayloadLimits::HOST,
-    )
-    .expect("MIRUI Play font must decode");
-    manager.add_static(FontToken::Default.cache_key(), base.clone());
-    manager.add_static(FontToken::Heading.cache_key(), base.clone());
-    manager.add_static(FontToken::Mono.cache_key(), base);
+/// Registers the bundled play typeface for every semantic font role used by
+/// the gallery games.
+///
+/// **Inserts**
+/// - resource: `FontManager` static entries for `Default`, `Heading`, and `Mono`
+#[derive(Default)]
+pub(in crate::gallery) struct PlayFontPlugin;
+
+impl<B, F> Plugin<B, F> for PlayFontPlugin
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    fn build(&mut self, app: &mut App<B, F>) {
+        let Some(manager) = app.world.resource::<FontManager>() else {
+            return;
+        };
+        let base = Font::from_mirx(
+            "MIRUI Play",
+            12,
+            FONT_BYTES,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("MIRUI Play font must decode");
+        manager.add_static(FontToken::Default.cache_key(), base.clone());
+        manager.add_static(FontToken::Heading.cache_key(), base.clone());
+        manager.add_static(FontToken::Mono.cache_key(), base);
+    }
 }
 
 #[cfg(test)]
@@ -117,6 +133,19 @@ mod tests {
         "\n",
         include_str!("../demos/atlas_restoration/tests.rs"),
     );
+
+    #[test]
+    fn plugin_registers_every_play_font_role() {
+        let mut app = App::headless(32, 32);
+        app.add_plugin(PlayFontPlugin);
+
+        let manager = app.world.resource::<FontManager>().unwrap();
+        for token in [FontToken::Default, FontToken::Heading, FontToken::Mono] {
+            let font = manager.resolve(token.cache_key());
+            assert_eq!(font.family, "MIRUI Play");
+            assert_eq!(font.size, 12);
+        }
+    }
 
     #[test]
     fn play_font_covers_declared_charset_and_small_sizes() {

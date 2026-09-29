@@ -1,11 +1,12 @@
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
+use crate::core::model::Model;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
-    ExpeditionHintWorkspace, ExpeditionModal, ExpeditionUiModel, ExpeditionUiModelHandle,
+    ExpeditionHintWorkspace, ExpeditionModal, ExpeditionUiModel,
 };
-use crate::gallery::play::twin::{TwinModel, TwinModelHandle};
+use crate::gallery::play::twin::TwinModel;
 
 #[crate::component(bind(game, expedition))]
 pub(super) struct TwinSurface {
@@ -21,12 +22,15 @@ impl TwinHintService {
         Self(Rc::new(RefCell::new(ExpeditionHintWorkspace::new())))
     }
 
-    pub(super) fn request(&self, game: &TwinModelHandle) {
+    pub(super) fn request(&self, game: &<TwinModel as Model>::Handle) {
         game.request_hint(&mut self.0.borrow_mut());
     }
 }
 
-pub(super) fn next(game: &TwinModelHandle, expedition: &ExpeditionUiModelHandle) {
+pub(super) fn next(
+    game: &<TwinModel as Model>::Handle,
+    expedition: &<ExpeditionUiModel as Model>::Handle,
+) {
     let level = game.level_index();
     match game.modal() {
         ExpeditionModal::Final => {
@@ -50,8 +54,8 @@ pub(super) fn next(game: &TwinModelHandle, expedition: &ExpeditionUiModelHandle)
 }
 
 pub(super) fn select_map_level(
-    game: &TwinModelHandle,
-    expedition: &ExpeditionUiModelHandle,
+    game: &<TwinModel as Model>::Handle,
+    expedition: &<ExpeditionUiModel as Model>::Handle,
     slot: u8,
 ) {
     let level = expedition.chapter() * 6 + slot;

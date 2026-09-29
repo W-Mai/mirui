@@ -1,11 +1,12 @@
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
+use crate::core::model::Model;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
-    ExpeditionHintWorkspace, ExpeditionModal, ExpeditionUiModel, ExpeditionUiModelHandle,
+    ExpeditionHintWorkspace, ExpeditionModal, ExpeditionUiModel,
 };
-use crate::gallery::play::fold::{FoldModel, FoldModelHandle};
+use crate::gallery::play::fold::FoldModel;
 
 #[crate::component(bind(game, expedition))]
 pub(super) struct FoldSurface {
@@ -21,12 +22,15 @@ impl FoldHintService {
         Self(Rc::new(RefCell::new(ExpeditionHintWorkspace::new())))
     }
 
-    pub(super) fn request(&self, game: &FoldModelHandle) {
+    pub(super) fn request(&self, game: &<FoldModel as Model>::Handle) {
         game.request_hint(&mut self.0.borrow_mut());
     }
 }
 
-pub(super) fn next(game: &FoldModelHandle, expedition: &ExpeditionUiModelHandle) {
+pub(super) fn next(
+    game: &<FoldModel as Model>::Handle,
+    expedition: &<ExpeditionUiModel as Model>::Handle,
+) {
     let level = game.level_index();
     match game.modal() {
         ExpeditionModal::Final => {
@@ -50,8 +54,8 @@ pub(super) fn next(game: &FoldModelHandle, expedition: &ExpeditionUiModelHandle)
 }
 
 pub(super) fn select_map_level(
-    game: &FoldModelHandle,
-    expedition: &ExpeditionUiModelHandle,
+    game: &<FoldModel as Model>::Handle,
+    expedition: &<ExpeditionUiModel as Model>::Handle,
     slot: u8,
 ) {
     let level = expedition.chapter() * 6 + slot;

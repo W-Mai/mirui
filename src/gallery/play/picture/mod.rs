@@ -6,7 +6,9 @@ mod types;
 mod tests;
 
 pub(crate) use chapters::{CHAPTER_MECHANICS, CHAPTER_NAMES};
-pub(crate) use model::{PictureModel, PictureModelHandle, PictureProgress};
+#[cfg(test)]
+pub(crate) use model::PictureModelHandle;
+pub(crate) use model::{PictureModel, PictureProgress};
 #[cfg(any(feature = "persistence", test))]
 #[allow(unused_imports)]
 pub(crate) use types::SAVE_LEN;

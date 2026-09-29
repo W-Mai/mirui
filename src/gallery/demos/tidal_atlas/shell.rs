@@ -4,7 +4,7 @@ use super::persistence::install_persistence;
 use super::render::{modal_view, surface_view};
 use super::state::{TideModalSurface, TideSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, DARK, MUTED, PANEL, PAPER, TEXT};
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::tidal::{
     IslandResult, Perk, TideMessage, TideModal, TideModel, TidePreview,
 };
@@ -932,7 +932,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view()).with_widget(modal_view());
     let model = app.add_model(TideModel::default());
     #[cfg(feature = "persistence")]

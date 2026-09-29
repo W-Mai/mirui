@@ -4,7 +4,7 @@ use super::state::{MossModalSurface, MossSurface};
 use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::moss::{MossModal, MossModel, MossTool};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -537,7 +537,7 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view()).with_widget(modal_view());
     let model = app.add_model(MossModel::default());
     app.add_system(moss_tick_system::system(model.clone()));

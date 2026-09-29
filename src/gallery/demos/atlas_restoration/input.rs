@@ -1,8 +1,8 @@
 use super::geometry::board_geometry;
 use super::state::PictureSurface;
-use crate::core::model::ModelHandle;
-use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModelHandle};
-use crate::gallery::play::picture::{PictureModel, PictureModelHandle, PictureTool};
+use crate::core::model::{Model, ModelHandle};
+use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModel};
+use crate::gallery::play::picture::{PictureModel, PictureTool};
 use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
@@ -36,7 +36,7 @@ fn local_cell(model: &PictureModel, rect: Rect, x: Fixed, y: Fixed) -> Option<u8
 
 fn event_cell(
     ctx: &HandlerCtx<'_, GestureEvent>,
-    model: &PictureModelHandle,
+    model: &<PictureModel as Model>::Handle,
     x: Fixed,
     y: Fixed,
 ) -> Option<u8> {
@@ -82,12 +82,15 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
 }
 
 pub(super) struct PictureKeyboardPlugin {
-    model: PictureModelHandle,
-    expedition: ExpeditionUiModelHandle,
+    model: <PictureModel as Model>::Handle,
+    expedition: <ExpeditionUiModel as Model>::Handle,
 }
 
 impl PictureKeyboardPlugin {
-    pub(super) fn new(model: PictureModelHandle, expedition: ExpeditionUiModelHandle) -> Self {
+    pub(super) fn new(
+        model: <PictureModel as Model>::Handle,
+        expedition: <ExpeditionUiModel as Model>::Handle,
+    ) -> Self {
         Self { model, expedition }
     }
 }

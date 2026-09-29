@@ -1,8 +1,7 @@
 use super::render::map_box;
 use super::state::EchoSurface;
-use crate::gallery::play::echo::{
-    BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoModel, EchoModelHandle,
-};
+use crate::core::model::{Model, ModelHandle};
+use crate::gallery::play::echo::{BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoModel};
 use crate::input::event::HandlerCtx;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
@@ -45,7 +44,7 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
         return false;
     };
-    let Some((cell, position)) = crate::core::model::ModelHandle::read(&model, |model| {
+    let Some((cell, position)) = ModelHandle::read(&model, |model| {
         local_cell(model, rect, *x, *y).map(|cell| (cell, model.position()))
     }) else {
         return false;
@@ -65,7 +64,7 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
     true
 }
 
-pub(super) fn handle_key(model: &EchoModelHandle, ch: char) -> bool {
+pub(super) fn handle_key(model: &<EchoModel as Model>::Handle, ch: char) -> bool {
     match ch {
         'w' | 'W' => model.step(Direction::Up),
         'a' | 'A' => model.step(Direction::Left),
@@ -80,11 +79,11 @@ pub(super) fn handle_key(model: &EchoModelHandle, ch: char) -> bool {
 }
 
 pub(super) struct EchoKeyboardPlugin {
-    model: EchoModelHandle,
+    model: <EchoModel as Model>::Handle,
 }
 
 impl EchoKeyboardPlugin {
-    pub(super) fn new(model: EchoModelHandle) -> Self {
+    pub(super) fn new(model: <EchoModel as Model>::Handle) -> Self {
         Self { model }
     }
 }
@@ -116,7 +115,7 @@ mod tests {
         drop(model);
 
         assert!(handle_key(&plugin.model, ' '));
-        crate::core::model::ModelHandle::read(&plugin.model, |model| {
+        ModelHandle::read(&plugin.model, |model| {
             assert_eq!(model.tick(), 1);
         });
         assert!(!handle_key(&plugin.model, 'x'));

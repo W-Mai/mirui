@@ -8,7 +8,7 @@ use crate::gallery::play::factory::{
     FactoryModal, FactoryModel, FactoryPage, FactoryStatus, FactoryTool, GRID_WIDTH, MISSIONS,
     ModuleKind,
 };
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
@@ -1035,7 +1035,7 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view()).with_widget(modal_view());
     let model = app.add_model(FactoryModel::default());
     app.add_system(factory_tick_system::system(model.clone()));

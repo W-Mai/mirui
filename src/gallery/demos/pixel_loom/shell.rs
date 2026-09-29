@@ -4,7 +4,7 @@ use super::state::{PixelModalSurface, PixelSurface};
 use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::pixel::{PixelModal, PixelModel, PixelTool};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -733,7 +733,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_view()).with_widget(modal_view());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);

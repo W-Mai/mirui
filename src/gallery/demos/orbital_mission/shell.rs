@@ -4,7 +4,7 @@ use super::state::{OrbitModalSurface, OrbitSurface};
 use super::style::{BACKGROUND, CYAN, INK, MUTED, ORANGE, SPACE, label_style};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::gallery::play::font::register_play_font;
+use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::orbit::{
     MISSIONS, ManeuverNode, OrbitEventKind, OrbitModal, OrbitModel, OrbitPage, OrbitStatus,
 };
@@ -956,7 +956,7 @@ where
 {
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    register_play_font(&mut app.world);
+    app.add_plugin(PlayFontPlugin);
     let model = app.add_model(OrbitModel::default());
     app.with_widget(surface_view()).with_widget(modal_view());
     app.add_system(orbit_tick_system::system(model.clone()));

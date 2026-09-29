@@ -1,24 +1,21 @@
 use super::state::FoldHintService;
-use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModelHandle};
-use crate::gallery::play::fold::FoldModelHandle;
+use crate::core::model::Model;
+use crate::gallery::play::expeditions::{Direction4, ExpeditionPanel, ExpeditionUiModel};
+use crate::gallery::play::fold::FoldModel;
 use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
 use crate::surface::InputEvent;
 
-pub(super) fn move_model(game: &FoldModelHandle, direction: Direction4) {
-    game.move_direction(direction);
-}
-
 pub(super) struct FoldKeyboardPlugin {
-    game: FoldModelHandle,
-    expedition: ExpeditionUiModelHandle,
+    game: <FoldModel as Model>::Handle,
+    expedition: <ExpeditionUiModel as Model>::Handle,
     hints: FoldHintService,
 }
 
 impl FoldKeyboardPlugin {
     pub(super) fn new(
-        game: FoldModelHandle,
-        expedition: ExpeditionUiModelHandle,
+        game: <FoldModel as Model>::Handle,
+        expedition: <ExpeditionUiModel as Model>::Handle,
         hints: FoldHintService,
     ) -> Self {
         Self {
@@ -44,10 +41,18 @@ where
             return false;
         }
         match ch {
-            'w' | 'W' => move_model(&self.game, Direction4::Up),
-            'd' | 'D' => move_model(&self.game, Direction4::Right),
-            's' | 'S' => move_model(&self.game, Direction4::Down),
-            'a' | 'A' => move_model(&self.game, Direction4::Left),
+            'w' | 'W' => {
+                self.game.move_direction(Direction4::Up);
+            }
+            'd' | 'D' => {
+                self.game.move_direction(Direction4::Right);
+            }
+            's' | 'S' => {
+                self.game.move_direction(Direction4::Down);
+            }
+            'a' | 'A' => {
+                self.game.move_direction(Direction4::Left);
+            }
             'z' | 'Z' => {
                 self.game.undo();
             }

@@ -8,8 +8,10 @@ mod types;
 mod tests;
 
 pub(crate) use chapters::{CHAPTER_MECHANICS, CHAPTER_NAMES};
+#[cfg(test)]
+pub(crate) use model::FoldModelHandle;
 #[cfg(any(feature = "persistence", test))]
 #[allow(unused_imports)]
 pub(crate) use model::SAVE_LEN;
-pub(crate) use model::{FoldModel, FoldModelHandle, FoldProgress};
+pub(crate) use model::{FoldModel, FoldProgress};
 pub(crate) use types::{FoldMessage, HullPose};
