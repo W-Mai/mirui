@@ -6,12 +6,11 @@ use super::render::surface_view;
 use super::state::{PictureExpeditionState, PictureSurface};
 use super::style::{APRICOT, BG, CELL, GRID, LAVENDER, MINT, MUTED, PANEL, TEXT};
 use crate::gallery::play::expeditions::{
-    ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, ExpeditionUiModelHandle, picture_level,
+    ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
 };
 use crate::gallery::play::font::register_play_font;
 use crate::gallery::play::picture::{
-    CHAPTER_MECHANICS, CHAPTER_NAMES, PictureMessage, PictureModel, PictureModelHandle,
-    PictureProgress, PictureTool,
+    CHAPTER_MECHANICS, CHAPTER_NAMES, PictureMessage, PictureModel, PictureProgress, PictureTool,
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
@@ -130,43 +129,6 @@ fn next_label(modal: ExpeditionModal, level: u8, unlocked: u8) -> &'static str {
     }
 }
 
-fn next_picture(model: &PictureModelHandle, expedition: &ExpeditionUiModelHandle) {
-    let level = model.level_index();
-    match model.modal() {
-        ExpeditionModal::Final => {
-            expedition.open_summary();
-        }
-        ExpeditionModal::Result => {
-            model.continue_campaign();
-            if level % 6 == 5 {
-                expedition.open_briefing();
-            }
-        }
-        ExpeditionModal::None => {
-            let next = if level < model.unlocked() {
-                level + 1
-            } else {
-                0
-            };
-            model.select_level(next);
-        }
-    }
-}
-
-fn select_map_level(model: &PictureModelHandle, expedition: &ExpeditionUiModelHandle, slot: u8) {
-    let level = expedition.chapter() * 6 + slot;
-    if level > model.unlocked() {
-        return;
-    }
-    let briefing = level > 0 && level % 6 == 0 && !model.progress().completed(level);
-    model.select_level(level);
-    if briefing {
-        expedition.open_briefing();
-    } else {
-        expedition.close();
-    }
-}
-
 fn map_level_color(level: u8, current: u8) -> Color {
     if level == current { APRICOT } else { CELL }
 }
@@ -231,23 +193,28 @@ fn map_level_button(model: PictureModel, expedition: ExpeditionUiModel, slot: u8
                     pressed_color: APRICOT,
                     text_color: ${ map_level_text_color(expedition.chapter() * 6 + slot, model.level_index()) },
                     border_radius: 7
-                ) on Tap { select_map_level(&model, &expedition, slot); }
+                ) on Tap {
+                    let level = expedition.chapter() * 6 + slot;
+                    if level <= model.unlocked() {
+                        let briefing = level > 0
+                            && level % 6 == 0
+                            && !model.progress().completed(level);
+                        model.select_level(level);
+                        if briefing {
+                            expedition.open_briefing();
+                        } else {
+                            expedition.close();
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-#[compose(bind(model, expedition))]
-fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
+#[compose(bind(model))]
+fn compose_header(model: PictureModel) -> Entity {
     ui! {
-        View (id: "picture_surface", width: 480, height: 320, clip_children: true) [
-            PictureSurface { model: model.clone() },
-            PictureExpeditionState {
-                expedition: expedition.clone(),
-            },
-            TouchAction::None,
-        ] on Tap { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); }
-        {
             Text (
                 "ATLAS RESTORATION",
                 position: Position::Absolute,
@@ -259,6 +226,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Text (
                 text: ${ CHAPTER_NAMES[usize::from(model.level_index() / 6)] },
                 text_capacity: 32,
@@ -272,6 +241,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ format_args!("A{:02} / 36", model.level_index() + 1) },
                 text_capacity: 16,
@@ -285,6 +256,12 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MINT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    }
+}
+
+#[compose(bind(model))]
+fn compose_clues(model: PictureModel) -> Entity {
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 0 } },
                 text_capacity: 16,
@@ -298,6 +275,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 1 } },
                 text_capacity: 16,
@@ -311,6 +290,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 2 } },
                 text_capacity: 16,
@@ -324,6 +305,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 3 } },
                 text_capacity: 16,
@@ -337,6 +320,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 4 } },
                 text_capacity: 16,
@@ -350,6 +335,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 5 } },
                 text_capacity: 16,
@@ -363,6 +350,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 6 } },
                 text_capacity: 16,
@@ -376,6 +365,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 7 } },
                 text_capacity: 16,
@@ -389,6 +380,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 8 } },
                 text_capacity: 16,
@@ -402,6 +395,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: true, line: 9 } },
                 text_capacity: 16,
@@ -415,6 +410,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 0 } },
                 text_capacity: 16,
@@ -428,6 +425,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 1 } },
                 text_capacity: 16,
@@ -441,6 +440,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 2 } },
                 text_capacity: 16,
@@ -454,6 +455,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 3 } },
                 text_capacity: 16,
@@ -467,6 +470,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 4 } },
                 text_capacity: 16,
@@ -480,6 +485,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 5 } },
                 text_capacity: 16,
@@ -493,6 +500,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 6 } },
                 text_capacity: 16,
@@ -506,6 +515,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 7 } },
                 text_capacity: 16,
@@ -519,6 +530,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 8 } },
                 text_capacity: 16,
@@ -532,6 +545,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    };
+    ui! {
             Text (
                 text: ${ ClueLabel { level: model.level_index(), row: false, line: 9 } },
                 text_capacity: 16,
@@ -545,6 +560,12 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
             )
+    }
+}
+
+#[compose(bind(model))]
+fn compose_tools(model: PictureModel) -> Entity {
+    ui! {
             Text (
                 "OBSERVATION TOOLS",
                 position: Position::Absolute,
@@ -556,6 +577,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Button (
                 "FILL",
                 id: "picture_fill",
@@ -571,6 +594,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: ${ if model.tool() == PictureTool::Fill { BG } else { TEXT } },
                 border_radius: 7
             ) on Tap { model.set_tool(PictureTool::Fill); }
+    };
+    ui! {
             Button (
                 "MARK",
                 id: "picture_mark",
@@ -586,6 +611,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: ${ if model.tool() == PictureTool::Mark { BG } else { TEXT } },
                 border_radius: 7
             ) on Tap { model.set_tool(PictureTool::Mark); }
+    };
+    ui! {
             Button (
                 "UNDO",
                 position: Position::Absolute,
@@ -600,6 +627,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.undo(); }
+    };
+    ui! {
             Button (
                 "REVEAL ONE",
                 position: Position::Absolute,
@@ -614,6 +643,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.reveal_hint(); }
+    };
+    ui! {
             Button (
                 "CHECK",
                 position: Position::Absolute,
@@ -628,6 +659,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.check(); }
+    };
+    ui! {
             Text (
                 text: ${ format_args!(
                     "{}×{}   UNDO {:02}   HINT {}",
@@ -647,6 +680,12 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn compose_footer(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             Text (
                 text: ${ StatusLabel(model.message()) },
                 text_capacity: 48,
@@ -660,6 +699,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Button (
                 "CHAPTERS",
                 position: Position::Absolute,
@@ -674,6 +715,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { expedition.open(model.level_index()); }
+    };
+    ui! {
             Button (
                 "RULES",
                 position: Position::Absolute,
@@ -688,6 +731,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { expedition.open_rules(); }
+    };
+    ui! {
             Button (
                 "RESET",
                 position: Position::Absolute,
@@ -702,6 +747,8 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.restart(); }
+    };
+    ui! {
             Button (
                 text: ${ next_label(model.modal(), model.level_index(), model.unlocked()) },
                 text_capacity: 16,
@@ -717,7 +764,28 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 pressed_color: LAVENDER,
                 text_color: BG,
                 border_radius: 7
-            ) on Tap { next_picture(&model, &expedition); }
+            ) on Tap {
+                let level = model.level_index();
+                match model.modal() {
+                    ExpeditionModal::Final => expedition.open_summary(),
+                    ExpeditionModal::Result => {
+                        model.continue_campaign();
+                        if level % 6 == 5 {
+                            expedition.open_briefing();
+                        }
+                    }
+                    ExpeditionModal::None => {
+                        let next = if level < model.unlocked() { level + 1 } else { 0 };
+                        model.select_level(next);
+                    }
+                }
+            }
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn compose_result_modal(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "picture_result",
                 position: Position::Absolute,
@@ -814,10 +882,31 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                             pressed_color: LAVENDER,
                             text_color: BG,
                             border_radius: 7
-                        ) on Tap { next_picture(&model, &expedition); }
+                        ) on Tap {
+                            let level = model.level_index();
+                            match model.modal() {
+                                ExpeditionModal::Final => expedition.open_summary(),
+                                ExpeditionModal::Result => {
+                                    model.continue_campaign();
+                                    if level % 6 == 5 {
+                                        expedition.open_briefing();
+                                    }
+                                }
+                                ExpeditionModal::None => {
+                                    let next = if level < model.unlocked() { level + 1 } else { 0 };
+                                    model.select_level(next);
+                                }
+                            }
+                        }
                     }
                 }
             }
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn compose_map_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "picture_map",
                 position: Position::Absolute,
@@ -999,6 +1088,12 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                     )
                 }
             }
+    }
+}
+
+#[compose(bind(expedition))]
+fn compose_rules_panel(expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "picture_rules",
                 position: Position::Absolute,
@@ -1083,6 +1178,12 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                     )
                 }
             }
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn compose_briefing_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "picture_briefing",
                 position: Position::Absolute,
@@ -1165,6 +1266,12 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                     ) on Tap { expedition.close(); }
                 }
             }
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn compose_summary_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+    ui! {
             View (
                 id: "picture_summary",
                 position: Position::Absolute,
@@ -1329,6 +1436,29 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                     }
                 }
             }
+    }
+}
+
+#[compose(bind(model, expedition))]
+fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
+    ui! {
+        View (id: "picture_surface", width: 480, height: 320, clip_children: true) [
+            PictureSurface { model: model.clone() },
+            PictureExpeditionState {
+                expedition: expedition.clone(),
+            },
+            TouchAction::None,
+        ] on Tap { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragStart { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragMove { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragEnd { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); } on DragCancel { surface_gesture(ctx.world, &model, ctx.entity, ctx.event); }
+        {
+            compose_header (model)
+            compose_clues (model)
+            compose_tools (model)
+            compose_footer (model, expedition)
+            compose_result_modal (model, expedition)
+            compose_map_panel (model, expedition)
+            compose_rules_panel (expedition)
+            compose_briefing_panel (model, expedition)
+            compose_summary_panel (model, expedition)
         }
     };
 }

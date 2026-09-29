@@ -47,3 +47,9 @@ fn page_motion_uses_frame_delta_and_reflects_at_bounds() {
     assert!(state.angle_deg < Fixed::from_int(120));
     assert!(state.speed_deg_per_second < Fixed::ZERO);
 }
+
+#[test]
+#[should_panic(expected = "Book Flip animation requires DeltaTimeMs")]
+fn page_motion_requires_frame_delta() {
+    flip_system(&mut World::new());
+}

@@ -343,1022 +343,1084 @@ fn modal_button_active(modal: CircuitModal, index: usize, task: u8) -> bool {
 }
 
 #[compose(bind(model))]
-pub(super) fn build_widgets(model: CircuitModel) {
+fn compose_header(model: CircuitModel) {
     ui! {
+        Text (
+            "逻辑工作台",
+            position: Position::Absolute,
+            left: 24,
+            top: 6,
+            width: 180,
+            height: 20,
+            font_size: 14,
+            text_color: BACKGROUND,
+            paragraph: label_style()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("NET / {}:6 GATES", model.gate_len()) },
+            text_capacity: 15,
+            id: "circuit_gate_count",
+            position: Position::Absolute,
+            left: 320,
+            top: 8,
+            width: 130,
+            height: 16,
+            font_size: 9,
+            text_color: Color::rgb(174, 186, 190),
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Button (
+            "?",
+            position: Position::Absolute,
+            left: 451,
+            top: 4,
+            width: 24,
+            height: 23,
+            size: ButtonSize::Compact,
+            font_size: 12,
+            normal_color: INK,
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.open_modal(CircuitModal::Help); }
+    };
+    ui! {
+        Button (
+            "布线",
+            id: "circuit_tab_wire",
+            position: Position::Absolute,
+            left: 24,
+            top: 33,
+            width: 96,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.page() == CircuitPage::Wire, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.set_page(CircuitPage::Wire); }
+    };
+    ui! {
+        Button (
+            "真值",
+            id: "circuit_tab_truth",
+            position: Position::Absolute,
+            left: 124,
+            top: 33,
+            width: 82,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.page() == CircuitPage::Truth, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.set_page(CircuitPage::Truth); }
+    };
+    ui! {
+        Button (
+            "时序",
+            id: "circuit_tab_trace",
+            position: Position::Absolute,
+            left: 210,
+            top: 33,
+            width: 82,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.page() == CircuitPage::Trace, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.set_page(CircuitPage::Trace); }
+    };
+    ui! {
+        Button (
+            text: ${ TaskLabel(model.task()) },
+            text_capacity: 32,
+            id: "circuit_task",
+            position: Position::Absolute,
+            left: 310,
+            top: 34,
+            width: 159,
+            height: 22,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: PANEL,
+            pressed_color: ACCENT,
+            text_color: INK,
+            border_radius: 0
+        ) on Tap { model.open_modal(CircuitModal::Tasks); }
+    };
+}
+
+#[compose(bind(model))]
+fn compose_wire_page(model: CircuitModel) -> Entity {
+    ui! {
+        View (
+            id: "circuit_wire_page",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 282,
+            visible: ${ model.page() == CircuitPage::Wire }
+        ) {
+            Button (
+                text: ${ InputLabel { index: 0, on: model.input_values()[0] } },
+                text_capacity: 3,
+                id: "circuit_input_0",
+                position: Position::Absolute,
+                left: 17,
+                top: 87,
+                width: 30,
+                height: 26,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(model.input_values()[0], true) },
+                pressed_color: ACCENT,
+                text_color: ${ control_text_color(model.input_values()[0], true) },
+                border_radius: 0
+            ) on Tap { model.toggle_input(0); }
+            Button (
+                text: ${ InputLabel { index: 1, on: model.input_values()[1] } },
+                text_capacity: 3,
+                id: "circuit_input_1",
+                position: Position::Absolute,
+                left: 17,
+                top: 141,
+                width: 30,
+                height: 26,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(model.input_values()[1], true) },
+                pressed_color: ACCENT,
+                text_color: ${ control_text_color(model.input_values()[1], true) },
+                border_radius: 0
+            ) on Tap { model.toggle_input(1); }
+            Button (
+                text: ${ InputLabel { index: 2, on: model.input_values()[2] } },
+                text_capacity: 3,
+                id: "circuit_input_2",
+                position: Position::Absolute,
+                left: 17,
+                top: 195,
+                width: 30,
+                height: 26,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(model.input_values()[2], true) },
+                pressed_color: ACCENT,
+                text_color: ${ control_text_color(model.input_values()[2], true) },
+                border_radius: 0,
+                visible: ${ model.input_count() == 3 }
+            ) on Tap { model.toggle_input(2); }
+            Text (
+                text: ${ GateLabel(model.gates()[0]) },
+                text_capacity: 8,
+                id: "circuit_gate_0",
+                position: Position::Absolute,
+                left: ${ gate_left(model.gate_positions(), 0) },
+                top: ${ gate_top(model.gate_positions(), 0) },
+                width: 58,
+                height: 28,
+                font_size: 8,
+                text_color: ${ gate_color(model.gates()[0], model.selected()) },
+                line_height: 9,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
+                visible: ${ model.gates()[0].is_some() }
+            )
+            Text (
+                text: ${ GateLabel(model.gates()[1]) },
+                text_capacity: 8,
+                id: "circuit_gate_1",
+                position: Position::Absolute,
+                left: ${ gate_left(model.gate_positions(), 1) },
+                top: ${ gate_top(model.gate_positions(), 1) },
+                width: 58,
+                height: 28,
+                font_size: 8,
+                text_color: ${ gate_color(model.gates()[1], model.selected()) },
+                line_height: 9,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
+                visible: ${ model.gates()[1].is_some() }
+            )
+            Text (
+                text: ${ GateLabel(model.gates()[2]) },
+                text_capacity: 8,
+                id: "circuit_gate_2",
+                position: Position::Absolute,
+                left: ${ gate_left(model.gate_positions(), 2) },
+                top: ${ gate_top(model.gate_positions(), 2) },
+                width: 58,
+                height: 28,
+                font_size: 8,
+                text_color: ${ gate_color(model.gates()[2], model.selected()) },
+                line_height: 9,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
+                visible: ${ model.gates()[2].is_some() }
+            )
+            Text (
+                text: ${ GateLabel(model.gates()[3]) },
+                text_capacity: 8,
+                id: "circuit_gate_3",
+                position: Position::Absolute,
+                left: ${ gate_left(model.gate_positions(), 3) },
+                top: ${ gate_top(model.gate_positions(), 3) },
+                width: 58,
+                height: 28,
+                font_size: 8,
+                text_color: ${ gate_color(model.gates()[3], model.selected()) },
+                line_height: 9,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
+                visible: ${ model.gates()[3].is_some() }
+            )
+            Text (
+                text: ${ GateLabel(model.gates()[4]) },
+                text_capacity: 8,
+                id: "circuit_gate_4",
+                position: Position::Absolute,
+                left: ${ gate_left(model.gate_positions(), 4) },
+                top: ${ gate_top(model.gate_positions(), 4) },
+                width: 58,
+                height: 28,
+                font_size: 8,
+                text_color: ${ gate_color(model.gates()[4], model.selected()) },
+                line_height: 9,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
+                visible: ${ model.gates()[4].is_some() }
+            )
+            Text (
+                text: ${ GateLabel(model.gates()[5]) },
+                text_capacity: 8,
+                id: "circuit_gate_5",
+                position: Position::Absolute,
+                left: ${ gate_left(model.gate_positions(), 5) },
+                top: ${ gate_top(model.gate_positions(), 5) },
+                width: 58,
+                height: 28,
+                font_size: 8,
+                text_color: ${ gate_color(model.gates()[5], model.selected()) },
+                line_height: 9,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
+                visible: ${ model.gates()[5].is_some() }
+            )
+            Text (
+                text: ${ OutputLabel(model.evaluation()) },
+                text_capacity: 3,
+                id: "circuit_output",
+                position: Position::Absolute,
+                left: 288,
+                top: 139,
+                width: 24,
+                height: 28,
+                font_size: 8,
+                text_color: BACKGROUND,
+                line_height: 10,
+                paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
+            )
+            Text (
+                "LIVE TRUTH TABLE",
+                position: Position::Absolute,
+                left: 334,
+                top: 76,
+                width: 125,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ target_code(model.task()) },
+                text_capacity: 16,
+                id: "circuit_live_code",
+                position: Position::Absolute,
+                left: 334,
+                top: 94,
+                width: 125,
+                height: 13,
+                font_size: 9,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Text (
+                "A B C → Y / 目标",
+                position: Position::Absolute,
+                left: 334,
+                top: 108,
+                width: 125,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[0], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_0",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 0) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[0].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[1], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_1",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 1) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[1].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[2], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_2",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 2) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[2].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[3], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_3",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 3) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[3].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[4], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_4",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 4) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[4].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[5], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_5",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 5) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[5].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[6], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_6",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 6) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[6].is_some() }
+            )
+            Text (
+                text: ${ CompactTruthRow { row: model.truth_rows()[7], count: model.input_count() } },
+                text_capacity: 32,
+                id: "circuit_live_7",
+                position: Position::Absolute,
+                left: 335,
+                top: ${ live_row_top(model.input_count(), 7) },
+                width: 126,
+                height: 13,
+                font_size: 7,
+                text_color: GREEN,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[7].is_some() }
+            )
+            Text (
+                text: ${ WireStatus {
+                    verify: model.verify_result(),
+                    disconnecting: model.disconnecting(),
+                    pending: model.pending(),
+                } },
+                text_capacity: 128,
+                id: "circuit_wire_status",
+                position: Position::Absolute,
+                left: 16,
+                top: 259,
+                width: 447,
+                height: 18,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+        }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_truth_page(model: CircuitModel) -> Entity {
+    ui! {
+        View (
+            id: "circuit_truth_page",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 282,
+            visible: ${ model.page() == CircuitPage::Truth }
+        ) {
+            Text (
+                "EXHAUSTIVE INPUT TEST",
+                position: Position::Absolute,
+                left: 23,
+                top: 77,
+                width: 250,
+                height: 13,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "A   B   C      EXPECT     ACTUAL     RESULT",
+                position: Position::Absolute,
+                left: 27,
+                top: 98,
+                width: 265,
+                height: 13,
+                font_size: 7,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[0], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_0",
+                position: Position::Absolute,
+                left: 27,
+                top: 115,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[0].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[1], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_1",
+                position: Position::Absolute,
+                left: 27,
+                top: 131,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[1].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[2], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_2",
+                position: Position::Absolute,
+                left: 27,
+                top: 147,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[2].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[3], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_3",
+                position: Position::Absolute,
+                left: 27,
+                top: 163,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[3].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[4], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_4",
+                position: Position::Absolute,
+                left: 27,
+                top: 179,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[4].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[5], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_5",
+                position: Position::Absolute,
+                left: 27,
+                top: 195,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[5].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[6], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_6",
+                position: Position::Absolute,
+                left: 27,
+                top: 211,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[6].is_some() }
+            )
+            Text (
+                text: ${ ExpandedTruthRow { row: model.truth_rows()[7], count: model.input_count() } },
+                text_capacity: 48,
+                id: "circuit_truth_7",
+                position: Position::Absolute,
+                left: 27,
+                top: 227,
+                width: 265,
+                height: 16,
+                font_size: 7,
+                text_color: INK,
+                paragraph: label_style(),
+                visible: ${ model.truth_rows()[7].is_some() }
+            )
+            Text (
+                "TARGET SPECIFICATION",
+                position: Position::Absolute,
+                left: 334,
+                top: 78,
+                width: 125,
+                height: 13,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ task_name(model.task()) },
+                text_capacity: 24,
+                id: "circuit_truth_title",
+                position: Position::Absolute,
+                left: 334,
+                top: 100,
+                width: 125,
+                height: 22,
+                font_size: 13,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ task_description(model.task()) },
+                text_capacity: 64,
+                id: "circuit_truth_desc",
+                position: Position::Absolute,
+                left: 334,
+                top: 132,
+                width: 120,
+                height: 54,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::default()
+            )
+            Text (
+                "未连接输入按 0 求值，但不会通过完整性验证。",
+                position: Position::Absolute,
+                left: 334,
+                top: 190,
+                width: 120,
+                height: 48,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::default()
+            )
+        }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_trace_page(model: CircuitModel) -> Entity {
+    ui! {
+        View (
+            id: "circuit_trace_page",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 282,
+            visible: ${ model.page() == CircuitPage::Trace }
+        ) {
+            Text (
+                "A",
+                id: "circuit_trace_a",
+                position: Position::Absolute,
+                left: 22,
+                top: ${ trace_label_top(0, model.input_count()) },
+                width: 18,
+                height: 14,
+                font_size: 9,
+                text_color: Color::rgb(182, 204, 211),
+                paragraph: label_style()
+            )
+            Text (
+                "B",
+                id: "circuit_trace_b",
+                position: Position::Absolute,
+                left: 22,
+                top: ${ trace_label_top(1, model.input_count()) },
+                width: 18,
+                height: 14,
+                font_size: 9,
+                text_color: Color::rgb(182, 204, 211),
+                paragraph: label_style()
+            )
+            Text (
+                "C",
+                id: "circuit_trace_c",
+                position: Position::Absolute,
+                left: 22,
+                top: ${ trace_label_top(2, model.input_count()) },
+                width: 18,
+                height: 14,
+                font_size: 9,
+                text_color: Color::rgb(182, 204, 211),
+                paragraph: label_style(),
+                visible: ${ model.input_count() == 3 }
+            )
+            Text (
+                "Y",
+                id: "circuit_trace_y",
+                position: Position::Absolute,
+                left: 22,
+                top: ${ trace_label_top(3, model.input_count()) },
+                width: 18,
+                height: 14,
+                font_size: 9,
+                text_color: ACCENT,
+                paragraph: label_style()
+            )
+            Text (
+                "LAST 32 SAMPLES / LOGICAL TIME",
+                position: Position::Absolute,
+                left: 22,
+                top: 240,
+                width: 260,
+                height: 12,
+                font_size: 7,
+                text_color: Color::rgb(156, 174, 183),
+                paragraph: label_style()
+            )
+            Text (
+                "SIGNAL SCANNER",
+                position: Position::Absolute,
+                left: 334,
+                top: 78,
+                width: 125,
+                height: 13,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ if model.scanning() { "AUTO / ON" } else { "STEP / READY" } },
+                text_capacity: 12,
+                id: "circuit_trace_mode",
+                position: Position::Absolute,
+                left: 334,
+                top: 103,
+                width: 125,
+                height: 16,
+                font_size: 10,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ format_args!("{} / 32", model.trace_len()) },
+                text_capacity: 7,
+                id: "circuit_trace_count",
+                position: Position::Absolute,
+                left: 334,
+                top: 127,
+                width: 125,
+                height: 28,
+                font_size: 18,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                "扫描按顺序遍历输入组合，记录 A/B/C/Y。它不模拟传播延迟。",
+                position: Position::Absolute,
+                left: 334,
+                top: 164,
+                width: 120,
+                height: 70,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::default()
+            )
+        }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_footer(model: CircuitModel) {
+    ui! {
+        Button (
+            text: ${ footer_label(model.page(), 0, model.scanning(), model.disconnecting()) },
+            text_capacity: 32,
+            id: "circuit_footer_0",
+            position: Position::Absolute,
+            left: 7,
+            top: 287,
+            width: 90,
+            height: 27,
+            size: ButtonSize::Compact,
+            font_size: 8,
+            normal_color: ${ control_color(
+                footer_active(model.page(), 0, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 0, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(
+                footer_active(model.page(), 0, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 0, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            border_radius: 0
+        ) on Tap { footer_action(&model, 0); }
+    };
+    ui! {
+        Button (
+            text: ${ footer_label(model.page(), 1, model.scanning(), model.disconnecting()) },
+            text_capacity: 32,
+            id: "circuit_footer_1",
+            position: Position::Absolute,
+            left: 101,
+            top: 287,
+            width: 90,
+            height: 27,
+            size: ButtonSize::Compact,
+            font_size: 8,
+            normal_color: ${ control_color(
+                footer_active(model.page(), 1, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 1, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(
+                footer_active(model.page(), 1, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 1, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            border_radius: 0
+        ) on Tap { footer_action(&model, 1); }
+    };
+    ui! {
+        Button (
+            text: ${ footer_label(model.page(), 2, model.scanning(), model.disconnecting()) },
+            text_capacity: 32,
+            id: "circuit_footer_2",
+            position: Position::Absolute,
+            left: 195,
+            top: 287,
+            width: 90,
+            height: 27,
+            size: ButtonSize::Compact,
+            font_size: 8,
+            normal_color: ${ control_color(
+                footer_active(model.page(), 2, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 2, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(
+                footer_active(model.page(), 2, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 2, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            border_radius: 0
+        ) on Tap { footer_action(&model, 2); }
+    };
+    ui! {
+        Button (
+            text: ${ footer_label(model.page(), 3, model.scanning(), model.disconnecting()) },
+            text_capacity: 32,
+            id: "circuit_footer_3",
+            position: Position::Absolute,
+            left: 289,
+            top: 287,
+            width: 90,
+            height: 27,
+            size: ButtonSize::Compact,
+            font_size: 8,
+            normal_color: ${ control_color(
+                footer_active(model.page(), 3, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 3, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(
+                footer_active(model.page(), 3, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 3, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            border_radius: 0
+        ) on Tap { footer_action(&model, 3); }
+    };
+    ui! {
+        Button (
+            text: ${ footer_label(model.page(), 4, model.scanning(), model.disconnecting()) },
+            text_capacity: 32,
+            id: "circuit_footer_4",
+            position: Position::Absolute,
+            left: 383,
+            top: 287,
+            width: 90,
+            height: 27,
+            size: ButtonSize::Compact,
+            font_size: 8,
+            normal_color: ${ control_color(
+                footer_active(model.page(), 4, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 4, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(
+                footer_active(model.page(), 4, model.scanning(), model.disconnecting()),
+                footer_enabled(model.page(), 4, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
+            ) },
+            border_radius: 0
+        ) on Tap { footer_action(&model, 4); }
+    };
+}
+
+#[compose(bind(model))]
+fn compose_modal(model: CircuitModel) -> Entity {
+    ui! {
+        View (
+            id: "circuit_modal",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320,
+            clip_children: true,
+            visible: ${ model.modal() != CircuitModal::None }
+        ) [
+            CircuitModalSurface {
+                model: model.clone(),
+            },
+            TouchAction::None,
+        ] on Tap { }
+        {
+            Text (
+                text: ${ modal_title(model.modal()) },
+                text_capacity: 48,
+                id: "circuit_modal_title",
+                position: Position::Absolute,
+                left: 43,
+                top: 72,
+                width: 330,
+                height: 20,
+                font_size: 12,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ modal_subtitle(model.modal()) },
+                text_capacity: 128,
+                id: "circuit_modal_subtitle",
+                position: Position::Absolute,
+                left: 43,
+                top: 105,
+                width: 360,
+                height: 18,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Button (
+                "×",
+                position: Position::Absolute,
+                left: 417,
+                top: 69,
+                width: 28,
+                height: 26,
+                size: ButtonSize::Compact,
+                font_size: 13,
+                normal_color: INK,
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.close_modal(); }
+            Button (
+                text: ${ ModalButtonLabel { modal: model.modal(), index: 0 } },
+                text_capacity: 24,
+                id: "circuit_modal_0",
+                position: Position::Absolute,
+                left: 43,
+                top: 128,
+                width: 120,
+                height: 42,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), 0, model.task()), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0,
+                visible: ${ modal_button_visible(model.modal(), 0) }
+            ) on Tap { modal_action(&model, 0); }
+            Button (
+                text: ${ ModalButtonLabel { modal: model.modal(), index: 1 } },
+                text_capacity: 24,
+                id: "circuit_modal_1",
+                position: Position::Absolute,
+                left: 173,
+                top: 128,
+                width: 120,
+                height: 42,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), 1, model.task()), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0,
+                visible: ${ modal_button_visible(model.modal(), 1) }
+            ) on Tap { modal_action(&model, 1); }
+            Button (
+                text: ${ ModalButtonLabel { modal: model.modal(), index: 2 } },
+                text_capacity: 24,
+                id: "circuit_modal_2",
+                position: Position::Absolute,
+                left: 303,
+                top: 128,
+                width: 120,
+                height: 42,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), 2, model.task()), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0,
+                visible: ${ modal_button_visible(model.modal(), 2) }
+            ) on Tap { modal_action(&model, 2); }
+            Button (
+                text: ${ ModalButtonLabel { modal: model.modal(), index: 3 } },
+                text_capacity: 24,
+                id: "circuit_modal_3",
+                position: Position::Absolute,
+                left: 43,
+                top: 183,
+                width: 120,
+                height: 42,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), 3, model.task()), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0,
+                visible: ${ modal_button_visible(model.modal(), 3) }
+            ) on Tap { modal_action(&model, 3); }
+            Button (
+                text: ${ ModalButtonLabel { modal: model.modal(), index: 4 } },
+                text_capacity: 24,
+                id: "circuit_modal_4",
+                position: Position::Absolute,
+                left: 173,
+                top: 183,
+                width: 120,
+                height: 42,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), 4, model.task()), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0,
+                visible: ${ modal_button_visible(model.modal(), 4) }
+            ) on Tap { modal_action(&model, 4); }
+            Button (
+                text: ${ ModalButtonLabel { modal: model.modal(), index: 5 } },
+                text_capacity: 24,
+                id: "circuit_modal_5",
+                position: Position::Absolute,
+                left: 303,
+                top: 183,
+                width: 120,
+                height: 42,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), 5, model.task()), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0,
+                visible: ${ modal_button_visible(model.modal(), 5) }
+            ) on Tap { modal_action(&model, 5); }
+        }
+    }
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: CircuitModel) {
+    let surface = ui! {
         View (id: "circuit_surface", width: 480, height: 320, clip_children: true) [
             CircuitSurface {
                 model: model.clone(),
             },
             TouchAction::None,
         ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
-        {
-            Text (
-                "逻辑工作台",
-                position: Position::Absolute,
-                left: 24,
-                top: 6,
-                width: 180,
-                height: 20,
-                font_size: 14,
-                text_color: BACKGROUND,
-                paragraph: label_style()
-            )
-            Text (
-                text: ${ format_args!("NET / {}:6 GATES", model.gate_len()) },
-                text_capacity: 15,
-                id: "circuit_gate_count",
-                position: Position::Absolute,
-                left: 320,
-                top: 8,
-                width: 130,
-                height: 16,
-                font_size: 9,
-                text_color: Color::rgb(174, 186, 190),
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Button (
-                "?",
-                position: Position::Absolute,
-                left: 451,
-                top: 4,
-                width: 24,
-                height: 23,
-                size: ButtonSize::Compact,
-                font_size: 12,
-                normal_color: INK,
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.open_modal(CircuitModal::Help); }
-            Button (
-                "布线",
-                id: "circuit_tab_wire",
-                position: Position::Absolute,
-                left: 24,
-                top: 33,
-                width: 96,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.page() == CircuitPage::Wire, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.set_page(CircuitPage::Wire); }
-            Button (
-                "真值",
-                id: "circuit_tab_truth",
-                position: Position::Absolute,
-                left: 124,
-                top: 33,
-                width: 82,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.page() == CircuitPage::Truth, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.set_page(CircuitPage::Truth); }
-            Button (
-                "时序",
-                id: "circuit_tab_trace",
-                position: Position::Absolute,
-                left: 210,
-                top: 33,
-                width: 82,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.page() == CircuitPage::Trace, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.set_page(CircuitPage::Trace); }
-            Button (
-                text: ${ TaskLabel(model.task()) },
-                text_capacity: 32,
-                id: "circuit_task",
-                position: Position::Absolute,
-                left: 310,
-                top: 34,
-                width: 159,
-                height: 22,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: PANEL,
-                pressed_color: ACCENT,
-                text_color: INK,
-                border_radius: 0
-            ) on Tap { model.open_modal(CircuitModal::Tasks); }
-            View (
-                id: "circuit_wire_page",
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 282,
-                visible: ${ model.page() == CircuitPage::Wire }
-            ) {
-                Button (
-                    text: ${ InputLabel { index: 0, on: model.input_values()[0] } },
-                    text_capacity: 3,
-                    id: "circuit_input_0",
-                    position: Position::Absolute,
-                    left: 17,
-                    top: 87,
-                    width: 30,
-                    height: 26,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(model.input_values()[0], true) },
-                    pressed_color: ACCENT,
-                    text_color: ${ control_text_color(model.input_values()[0], true) },
-                    border_radius: 0
-                ) on Tap { model.toggle_input(0); }
-                Button (
-                    text: ${ InputLabel { index: 1, on: model.input_values()[1] } },
-                    text_capacity: 3,
-                    id: "circuit_input_1",
-                    position: Position::Absolute,
-                    left: 17,
-                    top: 141,
-                    width: 30,
-                    height: 26,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(model.input_values()[1], true) },
-                    pressed_color: ACCENT,
-                    text_color: ${ control_text_color(model.input_values()[1], true) },
-                    border_radius: 0
-                ) on Tap { model.toggle_input(1); }
-                Button (
-                    text: ${ InputLabel { index: 2, on: model.input_values()[2] } },
-                    text_capacity: 3,
-                    id: "circuit_input_2",
-                    position: Position::Absolute,
-                    left: 17,
-                    top: 195,
-                    width: 30,
-                    height: 26,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(model.input_values()[2], true) },
-                    pressed_color: ACCENT,
-                    text_color: ${ control_text_color(model.input_values()[2], true) },
-                    border_radius: 0,
-                    visible: ${ model.input_count() == 3 }
-                ) on Tap { model.toggle_input(2); }
-                Text (
-                    text: ${ GateLabel(model.gates()[0]) },
-                    text_capacity: 8,
-                    id: "circuit_gate_0",
-                    position: Position::Absolute,
-                    left: ${ gate_left(model.gate_positions(), 0) },
-                    top: ${ gate_top(model.gate_positions(), 0) },
-                    width: 58,
-                    height: 28,
-                    font_size: 8,
-                    text_color: ${ gate_color(model.gates()[0], model.selected()) },
-                    line_height: 9,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
-                    visible: ${ model.gates()[0].is_some() }
-                )
-                Text (
-                    text: ${ GateLabel(model.gates()[1]) },
-                    text_capacity: 8,
-                    id: "circuit_gate_1",
-                    position: Position::Absolute,
-                    left: ${ gate_left(model.gate_positions(), 1) },
-                    top: ${ gate_top(model.gate_positions(), 1) },
-                    width: 58,
-                    height: 28,
-                    font_size: 8,
-                    text_color: ${ gate_color(model.gates()[1], model.selected()) },
-                    line_height: 9,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
-                    visible: ${ model.gates()[1].is_some() }
-                )
-                Text (
-                    text: ${ GateLabel(model.gates()[2]) },
-                    text_capacity: 8,
-                    id: "circuit_gate_2",
-                    position: Position::Absolute,
-                    left: ${ gate_left(model.gate_positions(), 2) },
-                    top: ${ gate_top(model.gate_positions(), 2) },
-                    width: 58,
-                    height: 28,
-                    font_size: 8,
-                    text_color: ${ gate_color(model.gates()[2], model.selected()) },
-                    line_height: 9,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
-                    visible: ${ model.gates()[2].is_some() }
-                )
-                Text (
-                    text: ${ GateLabel(model.gates()[3]) },
-                    text_capacity: 8,
-                    id: "circuit_gate_3",
-                    position: Position::Absolute,
-                    left: ${ gate_left(model.gate_positions(), 3) },
-                    top: ${ gate_top(model.gate_positions(), 3) },
-                    width: 58,
-                    height: 28,
-                    font_size: 8,
-                    text_color: ${ gate_color(model.gates()[3], model.selected()) },
-                    line_height: 9,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
-                    visible: ${ model.gates()[3].is_some() }
-                )
-                Text (
-                    text: ${ GateLabel(model.gates()[4]) },
-                    text_capacity: 8,
-                    id: "circuit_gate_4",
-                    position: Position::Absolute,
-                    left: ${ gate_left(model.gate_positions(), 4) },
-                    top: ${ gate_top(model.gate_positions(), 4) },
-                    width: 58,
-                    height: 28,
-                    font_size: 8,
-                    text_color: ${ gate_color(model.gates()[4], model.selected()) },
-                    line_height: 9,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
-                    visible: ${ model.gates()[4].is_some() }
-                )
-                Text (
-                    text: ${ GateLabel(model.gates()[5]) },
-                    text_capacity: 8,
-                    id: "circuit_gate_5",
-                    position: Position::Absolute,
-                    left: ${ gate_left(model.gate_positions(), 5) },
-                    top: ${ gate_top(model.gate_positions(), 5) },
-                    width: 58,
-                    height: 28,
-                    font_size: 8,
-                    text_color: ${ gate_color(model.gates()[5], model.selected()) },
-                    line_height: 9,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center),
-                    visible: ${ model.gates()[5].is_some() }
-                )
-                Text (
-                    text: ${ OutputLabel(model.evaluation()) },
-                    text_capacity: 3,
-                    id: "circuit_output",
-                    position: Position::Absolute,
-                    left: 288,
-                    top: 139,
-                    width: 24,
-                    height: 28,
-                    font_size: 8,
-                    text_color: BACKGROUND,
-                    line_height: 10,
-                    paragraph: ParagraphStyle::default().with_align(TextAlign::Center)
-                )
-                Text (
-                    "LIVE TRUTH TABLE",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 76,
-                    width: 125,
-                    height: 12,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ target_code(model.task()) },
-                    text_capacity: 16,
-                    id: "circuit_live_code",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 94,
-                    width: 125,
-                    height: 13,
-                    font_size: 9,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-                Text (
-                    "A B C → Y / 目标",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 108,
-                    width: 125,
-                    height: 12,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[0], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_0",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 0) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[0].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[1], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_1",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 1) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[1].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[2], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_2",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 2) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[2].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[3], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_3",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 3) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[3].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[4], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_4",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 4) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[4].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[5], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_5",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 5) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[5].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[6], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_6",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 6) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[6].is_some() }
-                )
-                Text (
-                    text: ${ CompactTruthRow { row: model.truth_rows()[7], count: model.input_count() } },
-                    text_capacity: 32,
-                    id: "circuit_live_7",
-                    position: Position::Absolute,
-                    left: 335,
-                    top: ${ live_row_top(model.input_count(), 7) },
-                    width: 126,
-                    height: 13,
-                    font_size: 7,
-                    text_color: GREEN,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[7].is_some() }
-                )
-                Text (
-                    text: ${ WireStatus {
-                        verify: model.verify_result(),
-                        disconnecting: model.disconnecting(),
-                        pending: model.pending(),
-                    } },
-                    text_capacity: 128,
-                    id: "circuit_wire_status",
-                    position: Position::Absolute,
-                    left: 16,
-                    top: 259,
-                    width: 447,
-                    height: 18,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-            }
-            View (
-                id: "circuit_truth_page",
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 282,
-                visible: ${ model.page() == CircuitPage::Truth }
-            ) {
-                Text (
-                    "EXHAUSTIVE INPUT TEST",
-                    position: Position::Absolute,
-                    left: 23,
-                    top: 77,
-                    width: 250,
-                    height: 13,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "A   B   C      EXPECT     ACTUAL     RESULT",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 98,
-                    width: 265,
-                    height: 13,
-                    font_size: 7,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[0], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_0",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 115,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[0].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[1], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_1",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 131,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[1].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[2], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_2",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 147,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[2].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[3], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_3",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 163,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[3].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[4], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_4",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 179,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[4].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[5], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_5",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 195,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[5].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[6], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_6",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 211,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[6].is_some() }
-                )
-                Text (
-                    text: ${ ExpandedTruthRow { row: model.truth_rows()[7], count: model.input_count() } },
-                    text_capacity: 48,
-                    id: "circuit_truth_7",
-                    position: Position::Absolute,
-                    left: 27,
-                    top: 227,
-                    width: 265,
-                    height: 16,
-                    font_size: 7,
-                    text_color: INK,
-                    paragraph: label_style(),
-                    visible: ${ model.truth_rows()[7].is_some() }
-                )
-                Text (
-                    "TARGET SPECIFICATION",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 78,
-                    width: 125,
-                    height: 13,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ task_name(model.task()) },
-                    text_capacity: 24,
-                    id: "circuit_truth_title",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 100,
-                    width: 125,
-                    height: 22,
-                    font_size: 13,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ task_description(model.task()) },
-                    text_capacity: 64,
-                    id: "circuit_truth_desc",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 132,
-                    width: 120,
-                    height: 54,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::default()
-                )
-                Text (
-                    "未连接输入按 0 求值，但不会通过完整性验证。",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 190,
-                    width: 120,
-                    height: 48,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::default()
-                )
-            }
-            View (
-                id: "circuit_trace_page",
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 282,
-                visible: ${ model.page() == CircuitPage::Trace }
-            ) {
-                Text (
-                    "A",
-                    id: "circuit_trace_a",
-                    position: Position::Absolute,
-                    left: 22,
-                    top: ${ trace_label_top(0, model.input_count()) },
-                    width: 18,
-                    height: 14,
-                    font_size: 9,
-                    text_color: Color::rgb(182, 204, 211),
-                    paragraph: label_style()
-                )
-                Text (
-                    "B",
-                    id: "circuit_trace_b",
-                    position: Position::Absolute,
-                    left: 22,
-                    top: ${ trace_label_top(1, model.input_count()) },
-                    width: 18,
-                    height: 14,
-                    font_size: 9,
-                    text_color: Color::rgb(182, 204, 211),
-                    paragraph: label_style()
-                )
-                Text (
-                    "C",
-                    id: "circuit_trace_c",
-                    position: Position::Absolute,
-                    left: 22,
-                    top: ${ trace_label_top(2, model.input_count()) },
-                    width: 18,
-                    height: 14,
-                    font_size: 9,
-                    text_color: Color::rgb(182, 204, 211),
-                    paragraph: label_style(),
-                    visible: ${ model.input_count() == 3 }
-                )
-                Text (
-                    "Y",
-                    id: "circuit_trace_y",
-                    position: Position::Absolute,
-                    left: 22,
-                    top: ${ trace_label_top(3, model.input_count()) },
-                    width: 18,
-                    height: 14,
-                    font_size: 9,
-                    text_color: ACCENT,
-                    paragraph: label_style()
-                )
-                Text (
-                    "LAST 32 SAMPLES / LOGICAL TIME",
-                    position: Position::Absolute,
-                    left: 22,
-                    top: 240,
-                    width: 260,
-                    height: 12,
-                    font_size: 7,
-                    text_color: Color::rgb(156, 174, 183),
-                    paragraph: label_style()
-                )
-                Text (
-                    "SIGNAL SCANNER",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 78,
-                    width: 125,
-                    height: 13,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ if model.scanning() { "AUTO / ON" } else { "STEP / READY" } },
-                    text_capacity: 12,
-                    id: "circuit_trace_mode",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 103,
-                    width: 125,
-                    height: 16,
-                    font_size: 10,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ format_args!("{} / 32", model.trace_len()) },
-                    text_capacity: 7,
-                    id: "circuit_trace_count",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 127,
-                    width: 125,
-                    height: 28,
-                    font_size: 18,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    "扫描按顺序遍历输入组合，记录 A/B/C/Y。它不模拟传播延迟。",
-                    position: Position::Absolute,
-                    left: 334,
-                    top: 164,
-                    width: 120,
-                    height: 70,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::default()
-                )
-            }
-            Button (
-                text: ${ footer_label(model.page(), 0, model.scanning(), model.disconnecting()) },
-                text_capacity: 32,
-                id: "circuit_footer_0",
-                position: Position::Absolute,
-                left: 7,
-                top: 287,
-                width: 90,
-                height: 27,
-                size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: ${ control_color(
-                    footer_active(model.page(), 0, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 0, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(
-                    footer_active(model.page(), 0, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 0, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                border_radius: 0
-            ) on Tap { footer_action(&model, 0); }
-            Button (
-                text: ${ footer_label(model.page(), 1, model.scanning(), model.disconnecting()) },
-                text_capacity: 32,
-                id: "circuit_footer_1",
-                position: Position::Absolute,
-                left: 101,
-                top: 287,
-                width: 90,
-                height: 27,
-                size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: ${ control_color(
-                    footer_active(model.page(), 1, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 1, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(
-                    footer_active(model.page(), 1, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 1, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                border_radius: 0
-            ) on Tap { footer_action(&model, 1); }
-            Button (
-                text: ${ footer_label(model.page(), 2, model.scanning(), model.disconnecting()) },
-                text_capacity: 32,
-                id: "circuit_footer_2",
-                position: Position::Absolute,
-                left: 195,
-                top: 287,
-                width: 90,
-                height: 27,
-                size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: ${ control_color(
-                    footer_active(model.page(), 2, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 2, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(
-                    footer_active(model.page(), 2, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 2, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                border_radius: 0
-            ) on Tap { footer_action(&model, 2); }
-            Button (
-                text: ${ footer_label(model.page(), 3, model.scanning(), model.disconnecting()) },
-                text_capacity: 32,
-                id: "circuit_footer_3",
-                position: Position::Absolute,
-                left: 289,
-                top: 287,
-                width: 90,
-                height: 27,
-                size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: ${ control_color(
-                    footer_active(model.page(), 3, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 3, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(
-                    footer_active(model.page(), 3, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 3, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                border_radius: 0
-            ) on Tap { footer_action(&model, 3); }
-            Button (
-                text: ${ footer_label(model.page(), 4, model.scanning(), model.disconnecting()) },
-                text_capacity: 32,
-                id: "circuit_footer_4",
-                position: Position::Absolute,
-                left: 383,
-                top: 287,
-                width: 90,
-                height: 27,
-                size: ButtonSize::Compact,
-                font_size: 8,
-                normal_color: ${ control_color(
-                    footer_active(model.page(), 4, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 4, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(
-                    footer_active(model.page(), 4, model.scanning(), model.disconnecting()),
-                    footer_enabled(model.page(), 4, model.trace_len(), model.gate_len(), model.selected(), model.history_len()),
-                ) },
-                border_radius: 0
-            ) on Tap { footer_action(&model, 4); }
-            View (
-                id: "circuit_modal",
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 320,
-                clip_children: true,
-                visible: ${ model.modal() != CircuitModal::None }
-            ) [
-                CircuitModalSurface {
-                    model: model.clone(),
-                },
-                TouchAction::None,
-            ] on Tap { }
-            {
-                Text (
-                    text: ${ modal_title(model.modal()) },
-                    text_capacity: 48,
-                    id: "circuit_modal_title",
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 72,
-                    width: 330,
-                    height: 20,
-                    font_size: 12,
-                    text_color: BACKGROUND,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ modal_subtitle(model.modal()) },
-                    text_capacity: 128,
-                    id: "circuit_modal_subtitle",
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 105,
-                    width: 360,
-                    height: 18,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Button (
-                    "×",
-                    position: Position::Absolute,
-                    left: 417,
-                    top: 69,
-                    width: 28,
-                    height: 26,
-                    size: ButtonSize::Compact,
-                    font_size: 13,
-                    normal_color: INK,
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { model.close_modal(); }
-                Button (
-                    text: ${ ModalButtonLabel { modal: model.modal(), index: 0 } },
-                    text_capacity: 24,
-                    id: "circuit_modal_0",
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 128,
-                    width: 120,
-                    height: 42,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), 0, model.task()), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0,
-                    visible: ${ modal_button_visible(model.modal(), 0) }
-                ) on Tap { modal_action(&model, 0); }
-                Button (
-                    text: ${ ModalButtonLabel { modal: model.modal(), index: 1 } },
-                    text_capacity: 24,
-                    id: "circuit_modal_1",
-                    position: Position::Absolute,
-                    left: 173,
-                    top: 128,
-                    width: 120,
-                    height: 42,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), 1, model.task()), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0,
-                    visible: ${ modal_button_visible(model.modal(), 1) }
-                ) on Tap { modal_action(&model, 1); }
-                Button (
-                    text: ${ ModalButtonLabel { modal: model.modal(), index: 2 } },
-                    text_capacity: 24,
-                    id: "circuit_modal_2",
-                    position: Position::Absolute,
-                    left: 303,
-                    top: 128,
-                    width: 120,
-                    height: 42,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), 2, model.task()), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0,
-                    visible: ${ modal_button_visible(model.modal(), 2) }
-                ) on Tap { modal_action(&model, 2); }
-                Button (
-                    text: ${ ModalButtonLabel { modal: model.modal(), index: 3 } },
-                    text_capacity: 24,
-                    id: "circuit_modal_3",
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 183,
-                    width: 120,
-                    height: 42,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), 3, model.task()), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0,
-                    visible: ${ modal_button_visible(model.modal(), 3) }
-                ) on Tap { modal_action(&model, 3); }
-                Button (
-                    text: ${ ModalButtonLabel { modal: model.modal(), index: 4 } },
-                    text_capacity: 24,
-                    id: "circuit_modal_4",
-                    position: Position::Absolute,
-                    left: 173,
-                    top: 183,
-                    width: 120,
-                    height: 42,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), 4, model.task()), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0,
-                    visible: ${ modal_button_visible(model.modal(), 4) }
-                ) on Tap { modal_action(&model, 4); }
-                Button (
-                    text: ${ ModalButtonLabel { modal: model.modal(), index: 5 } },
-                    text_capacity: 24,
-                    id: "circuit_modal_5",
-                    position: Position::Absolute,
-                    left: 303,
-                    top: 183,
-                    width: 120,
-                    height: 42,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), 5, model.task()), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0,
-                    visible: ${ modal_button_visible(model.modal(), 5) }
-                ) on Tap { modal_action(&model, 5); }
-            }
-        }
     };
+    let mut child_scope = cx.with_parent(surface);
+    let cx = &mut child_scope;
+    ui!(compose_header(model));
+    ui!(compose_wire_page(model));
+    ui!(compose_truth_page(model));
+    ui!(compose_trace_page(model));
+    ui!(compose_footer(model));
+    ui!(compose_modal(model));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

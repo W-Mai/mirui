@@ -83,3 +83,9 @@ fn bars_follow_theme_and_live_arena_bounds() {
     );
     assert!(smooth_state.y > Fixed::from_int(START_Y));
 }
+
+#[test]
+#[should_panic(expected = "Subpixel animation requires DeltaTimeMs")]
+fn bar_motion_requires_frame_delta() {
+    bar_move_system(&mut World::new());
+}

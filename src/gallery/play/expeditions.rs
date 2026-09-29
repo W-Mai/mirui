@@ -304,7 +304,7 @@ pub(crate) enum ExpeditionPanel {
     Summary,
 }
 
-#[crate::model(change = ChangeSet)]
+#[crate::model]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ExpeditionUiModel {
     panel: ExpeditionPanel,
@@ -323,52 +323,46 @@ impl ExpeditionUiModel {
         self.chapter
     }
 
-    pub(crate) fn open(&mut self, level: u8) -> ChangeSet {
+    pub(crate) fn open(&mut self, level: u8) {
         self.set(ExpeditionPanel::Map, (level / 6).min(5))
     }
 
-    pub(crate) fn open_rules(&mut self) -> ChangeSet {
+    pub(crate) fn open_rules(&mut self) {
         self.set_panel(ExpeditionPanel::Rules)
     }
 
-    pub(crate) fn open_briefing(&mut self) -> ChangeSet {
+    pub(crate) fn open_briefing(&mut self) {
         self.set_panel(ExpeditionPanel::Briefing)
     }
 
-    pub(crate) fn open_summary(&mut self) -> ChangeSet {
+    pub(crate) fn open_summary(&mut self) {
         self.set_panel(ExpeditionPanel::Summary)
     }
 
-    pub(crate) fn close(&mut self) -> ChangeSet {
+    pub(crate) fn close(&mut self) {
         self.set_panel(ExpeditionPanel::None)
     }
 
-    pub(crate) fn select_chapter(&mut self, chapter: u8) -> ChangeSet {
+    pub(crate) fn select_chapter(&mut self, chapter: u8) {
         let chapter = chapter.min(5);
-        if self.chapter == chapter {
-            return ChangeSet::NONE;
+        if self.chapter != chapter {
+            self.chapter = chapter;
         }
-        self.chapter = chapter;
-        ChangeSet::MODEL
     }
 
     #[model(local)]
-    fn set_panel(&mut self, panel: ExpeditionPanel) -> ChangeSet {
-        if self.panel == panel {
-            return ChangeSet::NONE;
+    fn set_panel(&mut self, panel: ExpeditionPanel) {
+        if self.panel != panel {
+            self.panel = panel;
         }
-        self.panel = panel;
-        ChangeSet::MODEL
     }
 
     #[model(local)]
-    fn set(&mut self, panel: ExpeditionPanel, chapter: u8) -> ChangeSet {
-        if self.panel == panel && self.chapter == chapter {
-            return ChangeSet::NONE;
+    fn set(&mut self, panel: ExpeditionPanel, chapter: u8) {
+        if self.panel != panel || self.chapter != chapter {
+            self.panel = panel;
+            self.chapter = chapter;
         }
-        self.panel = panel;
-        self.chapter = chapter;
-        ChangeSet::MODEL
     }
 }
 
@@ -723,6 +717,10 @@ pub(crate) const fn accepted_change() -> ChangeSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::reactive::{Effect, flush_signal_dirty};
+    use crate::ecs::World;
+    use alloc::rc::Rc;
+    use core::cell::Cell;
 
     #[test]
     fn packed_directions_round_trip_and_bound_capacity() {
@@ -787,8 +785,38 @@ mod tests {
         assert_eq!(state.panel(), ExpeditionPanel::Summary);
         state.close();
         assert_eq!(state.panel(), ExpeditionPanel::None);
-        assert_eq!(state.close(), ChangeSet::NONE);
-        assert_eq!(state.select_chapter(99), ChangeSet::NONE);
+        state.close();
+        state.select_chapter(99);
         assert_eq!(state.chapter(), 5);
+    }
+
+    #[test]
+    fn expedition_model_notifies_only_when_observed_state_changes() {
+        let mut world = World::new();
+        let (cell, model) = crate::core::model::register(&mut world, ExpeditionUiModel::default());
+        let registration = world.spawn_empty();
+        world.insert(registration, cell);
+        let reads = Rc::new(Cell::new(0));
+        let observed = model.clone();
+        let effect_reads = reads.clone();
+        let _effect = Effect::new(move || {
+            let _ = (observed.panel(), observed.chapter());
+            effect_reads.set(effect_reads.get() + 1);
+        });
+
+        model.close();
+        model.select_chapter(0);
+        flush_signal_dirty(&mut world);
+        assert_eq!(reads.get(), 1);
+
+        model.open(17);
+        flush_signal_dirty(&mut world);
+        assert_eq!(reads.get(), 2);
+        assert_eq!(model.panel(), ExpeditionPanel::Map);
+        assert_eq!(model.chapter(), 2);
+
+        model.open(17);
+        flush_signal_dirty(&mut world);
+        assert_eq!(reads.get(), 2);
     }
 }

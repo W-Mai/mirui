@@ -15,7 +15,8 @@ pub struct Spinner {
 pub fn spin_system(world: &mut World) {
     let dt = world
         .resource::<DeltaTimeMs>()
-        .map_or(16, |delta| delta.0)
+        .expect("Image Flip animation requires DeltaTimeMs")
+        .0
         .min(50);
     world.for_each_stable::<Spinner>(|world, e| {
         let (angle, bounce) = if let Some(s) = world.get_mut::<Spinner>(e) {

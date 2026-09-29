@@ -78,3 +78,9 @@ fn compact_shell_resolves_the_active_theme() {
         &[surface.r, surface.g, surface.b]
     );
 }
+
+#[test]
+#[should_panic(expected = "Compact Curve Text animation requires DeltaTimeMs")]
+fn compact_curve_motion_requires_frame_delta() {
+    compact_curve_animation_system(&mut World::new());
+}

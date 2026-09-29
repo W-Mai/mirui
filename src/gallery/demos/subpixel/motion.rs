@@ -5,16 +5,16 @@ use crate::ui;
 //~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn bar_move_system(world: &mut World) {
+    let delta_ms = world
+        .resource::<crate::ecs::DeltaTimeMs>()
+        .expect("Subpixel animation requires DeltaTimeMs")
+        .0;
     let Some(arena) = world.resource::<BarArena>().copied() else {
         return;
     };
     let Some(bounds) = world.get::<ui::ComputedRect>(arena.0).map(|rect| rect.0) else {
         return;
     };
-    let delta_ms = world
-        .resource::<crate::ecs::DeltaTimeMs>()
-        .map(|delta| delta.0)
-        .unwrap_or(16);
     let elapsed = Fixed::from_ratio(delta_ms as i32, 1_000);
     let bound_w = bounds.w.to_int();
     let bound_h = bounds.h.to_int();

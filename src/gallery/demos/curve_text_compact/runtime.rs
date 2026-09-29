@@ -11,7 +11,8 @@ use crate::render::path::PathStore;
 pub(super) fn compact_curve_animation_system(world: &mut World) {
     let dt = world
         .resource::<DeltaTimeMs>()
-        .map_or(16, |delta| delta.0)
+        .expect("Compact Curve Text animation requires DeltaTimeMs")
+        .0
         .min(50);
     let Some(motion) = world.resource_mut::<CompactCurveMotion>() else {
         return;

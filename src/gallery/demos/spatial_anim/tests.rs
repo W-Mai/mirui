@@ -1,4 +1,5 @@
 use super::composition::build_widgets;
+use super::motion::spring_system;
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::Children;
@@ -42,4 +43,10 @@ fn labels_stay_inside_phone_stage() {
     let header = rect("spatial_animation_header");
     assert!(header.x >= stage.x);
     assert!(header.x + header.w <= stage.x + stage.w);
+}
+
+#[test]
+#[should_panic(expected = "Spatial Animation requires DeltaTimeMs")]
+fn spring_motion_requires_frame_delta() {
+    spring_system(&mut World::new());
 }

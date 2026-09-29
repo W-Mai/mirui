@@ -8,7 +8,8 @@ use crate::ui::widgets::WidgetTransform3D;
 pub fn flip_system(world: &mut World) {
     let dt = world
         .resource::<DeltaTimeMs>()
-        .map_or(16, |delta| delta.0)
+        .expect("Book Flip animation requires DeltaTimeMs")
+        .0
         .min(50);
     world.for_each_stable::<Page>(|world, e| {
         let angle = if let Some(p) = world.get_mut::<Page>(e) {

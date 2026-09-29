@@ -47,3 +47,9 @@ fn card_rotation_uses_frame_delta() {
     );
     assert!(world.get::<WidgetTransform3D>(card).is_some());
 }
+
+#[test]
+#[should_panic(expected = "Flip Card animation requires DeltaTimeMs")]
+fn card_rotation_requires_frame_delta() {
+    flip_system(&mut World::new());
+}

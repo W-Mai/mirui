@@ -153,26 +153,21 @@ fn modal_button_active(modal: FactoryModal, tool: FactoryTool, index: usize) -> 
 }
 
 #[compose(bind(model))]
-pub(super) fn build_widgets(model: FactoryModel) {
+fn compose_header(model: FactoryModel) {
     ui! {
-        View (id: "factory_surface", width: 480, height: 320, clip_children: true) [
-            FactorySurface {
-                model: model.clone(),
-            },
-            TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); }
-        {
-            Text (
-                "模块工厂",
-                position: Position::Absolute,
-                left: 24,
-                top: 6,
-                width: 170,
-                height: 20,
-                font_size: 14,
-                text_color: BACKGROUND,
-                paragraph: label_style()
-            )
+        Text (
+            "模块工厂",
+            position: Position::Absolute,
+            left: 24,
+            top: 6,
+            width: 170,
+            height: 20,
+            font_size: 14,
+            text_color: BACKGROUND,
+            paragraph: label_style()
+        )
+    };
+    ui! {
             Text (
                 text: ${ format_args!(
                     "ORDER 0{} / {}:{}",
@@ -191,6 +186,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: Color::rgb(174, 186, 190),
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Button (
                 "?",
                 position: Position::Absolute,
@@ -205,6 +202,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.open_modal(FactoryModal::Help); }
+    };
+    ui! {
             Button (
                 "产线",
                 id: "factory_tab_line",
@@ -220,6 +219,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.set_page(FactoryPage::Line); }
+    };
+    ui! {
             Button (
                 "订单",
                 id: "factory_tab_orders",
@@ -235,6 +236,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.set_page(FactoryPage::Orders); }
+    };
+    ui! {
             Button (
                 "遥测",
                 id: "factory_tab_telemetry",
@@ -250,6 +253,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { model.set_page(FactoryPage::Telemetry); }
+    };
+    ui! {
             Text (
                 text: ${ format_args!("PWR {}/{}", model.power(), model.mission().power) },
                 text_capacity: 12,
@@ -263,6 +268,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: MUTED,
                 paragraph: label_style()
             )
+    };
+    ui! {
             Text (
                 text: ${ format_args!("T+{:03}", model.tick()) },
                 text_capacity: 8,
@@ -276,6 +283,12 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+}
+
+#[compose(bind(model))]
+fn compose_line_page(model: FactoryModel) -> Entity {
+    ui! {
             View (
                 id: "factory_line_page",
                 visible: ${ model.page() == FactoryPage::Line },
@@ -419,6 +432,12 @@ pub(super) fn build_widgets(model: FactoryModel) {
                     paragraph: label_style()
                 )
             }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_orders_page(model: FactoryModel) -> Entity {
+    ui! {
             View (
                 id: "factory_orders_page",
                 visible: ${ model.page() == FactoryPage::Orders },
@@ -554,6 +573,12 @@ pub(super) fn build_widgets(model: FactoryModel) {
                     border_radius: 0
                 ) on Tap { model.request_reference(); }
             }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_telemetry_page(model: FactoryModel) -> Entity {
+    ui! {
             View (
                 id: "factory_telemetry_page",
                 visible: ${ model.page() == FactoryPage::Telemetry },
@@ -717,6 +742,12 @@ pub(super) fn build_widgets(model: FactoryModel) {
                     paragraph: label_style()
                 )
             }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_footer(model: FactoryModel) {
+    ui! {
             Button (
                 "＋ 建造",
                 id: "factory_footer_0",
@@ -732,6 +763,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: BACKGROUND,
                 border_radius: 0
             ) on Tap { footer_action(&model, 0); }
+    };
+    ui! {
             Button (
                 "旋转 ↻",
                 id: "factory_footer_1",
@@ -757,6 +790,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 ) },
                 border_radius: 0
             ) on Tap { footer_action(&model, 1); }
+    };
+    ui! {
             Button (
                 "撤销",
                 id: "factory_footer_2",
@@ -772,6 +807,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: ${ control_text_color(false, model.history_len() > 0) },
                 border_radius: 0
             ) on Tap { footer_action(&model, 2); }
+    };
+    ui! {
             Button (
                 "单步",
                 id: "factory_footer_3",
@@ -787,6 +824,8 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: ${ control_text_color(false, model.power() <= model.mission().power) },
                 border_radius: 0
             ) on Tap { footer_action(&model, 3); }
+    };
+    ui! {
             Button (
                 text: ${ if model.running() { "Ⅱ 暂停" } else { "▶ 运行" } },
                 text_capacity: 12,
@@ -803,165 +842,190 @@ pub(super) fn build_widgets(model: FactoryModel) {
                 text_color: ${ control_text_color(true, model.power() <= model.mission().power) },
                 border_radius: 0
             ) on Tap { footer_action(&model, 4); }
-            View (
-                id: "factory_modal",
-                visible: ${ model.modal() != FactoryModal::None },
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 320
-            ) [
-                FactoryModalSurface {
-                    model: model.clone(),
-                },
-            ] on Tap { }
-            {
-                Text (
-                    text: ${ modal_title(model.modal()) },
-                    text_capacity: 32,
-                    id: "factory_modal_title",
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 72,
-                    width: 330,
-                    height: 20,
-                    font_size: 14,
-                    text_color: BACKGROUND,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ modal_subtitle(model.modal()) },
-                    text_capacity: 96,
-                    id: "factory_modal_subtitle",
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 107,
-                    width: 386,
-                    height: 28,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Button (
-                    text: ${ modal_button_label(model.modal(), 0) },
-                    text_capacity: 32,
-                    id: "factory_modal_0",
-                    visible: ${ modal_button_visible(model.modal(), 0) },
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 137,
-                    width: 188,
-                    height: 35,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 0), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { modal_action(&model, 0); }
-                Button (
-                    text: ${ modal_button_label(model.modal(), 1) },
-                    text_capacity: 32,
-                    id: "factory_modal_1",
-                    visible: ${ modal_button_visible(model.modal(), 1) },
-                    position: Position::Absolute,
-                    left: 249,
-                    top: 137,
-                    width: 188,
-                    height: 35,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 1), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { modal_action(&model, 1); }
-                Button (
-                    text: ${ modal_button_label(model.modal(), 2) },
-                    text_capacity: 32,
-                    id: "factory_modal_2",
-                    visible: ${ modal_button_visible(model.modal(), 2) },
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 180,
-                    width: 188,
-                    height: 35,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 2), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { modal_action(&model, 2); }
-                Button (
-                    text: ${ modal_button_label(model.modal(), 3) },
-                    text_capacity: 32,
-                    id: "factory_modal_3",
-                    visible: ${ modal_button_visible(model.modal(), 3) },
-                    position: Position::Absolute,
-                    left: 249,
-                    top: 180,
-                    width: 188,
-                    height: 35,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 3), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { modal_action(&model, 3); }
-                Button (
-                    text: ${ modal_button_label(model.modal(), 4) },
-                    text_capacity: 32,
-                    id: "factory_modal_4",
-                    visible: ${ modal_button_visible(model.modal(), 4) },
-                    position: Position::Absolute,
-                    left: 43,
-                    top: 223,
-                    width: 188,
-                    height: 35,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 4), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { modal_action(&model, 4); }
-                Button (
-                    text: ${ modal_button_label(model.modal(), 5) },
-                    text_capacity: 32,
-                    id: "factory_modal_5",
-                    visible: ${ modal_button_visible(model.modal(), 5) },
-                    position: Position::Absolute,
-                    left: 249,
-                    top: 223,
-                    width: 188,
-                    height: 35,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 5), true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { modal_action(&model, 5); }
-                Button (
-                    "×",
-                    position: Position::Absolute,
-                    left: 414,
-                    top: 70,
-                    width: 24,
-                    height: 24,
-                    size: ButtonSize::Compact,
-                    font_size: 12,
-                    normal_color: INK,
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { model.close_modal(); }
-            }
-        }
     };
+}
+
+#[compose(bind(model))]
+fn compose_modal(model: FactoryModel) -> Entity {
+    ui! {
+        View (
+            id: "factory_modal",
+            visible: ${ model.modal() != FactoryModal::None },
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320
+        ) [
+            FactoryModalSurface {
+                model: model.clone(),
+            },
+        ] on Tap { }
+        {
+            Text (
+                text: ${ modal_title(model.modal()) },
+                text_capacity: 32,
+                id: "factory_modal_title",
+                position: Position::Absolute,
+                left: 43,
+                top: 72,
+                width: 330,
+                height: 20,
+                font_size: 14,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ modal_subtitle(model.modal()) },
+                text_capacity: 96,
+                id: "factory_modal_subtitle",
+                position: Position::Absolute,
+                left: 43,
+                top: 107,
+                width: 386,
+                height: 28,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Button (
+                text: ${ modal_button_label(model.modal(), 0) },
+                text_capacity: 32,
+                id: "factory_modal_0",
+                visible: ${ modal_button_visible(model.modal(), 0) },
+                position: Position::Absolute,
+                left: 43,
+                top: 137,
+                width: 188,
+                height: 35,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 0), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { modal_action(&model, 0); }
+            Button (
+                text: ${ modal_button_label(model.modal(), 1) },
+                text_capacity: 32,
+                id: "factory_modal_1",
+                visible: ${ modal_button_visible(model.modal(), 1) },
+                position: Position::Absolute,
+                left: 249,
+                top: 137,
+                width: 188,
+                height: 35,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 1), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { modal_action(&model, 1); }
+            Button (
+                text: ${ modal_button_label(model.modal(), 2) },
+                text_capacity: 32,
+                id: "factory_modal_2",
+                visible: ${ modal_button_visible(model.modal(), 2) },
+                position: Position::Absolute,
+                left: 43,
+                top: 180,
+                width: 188,
+                height: 35,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 2), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { modal_action(&model, 2); }
+            Button (
+                text: ${ modal_button_label(model.modal(), 3) },
+                text_capacity: 32,
+                id: "factory_modal_3",
+                visible: ${ modal_button_visible(model.modal(), 3) },
+                position: Position::Absolute,
+                left: 249,
+                top: 180,
+                width: 188,
+                height: 35,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 3), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { modal_action(&model, 3); }
+            Button (
+                text: ${ modal_button_label(model.modal(), 4) },
+                text_capacity: 32,
+                id: "factory_modal_4",
+                visible: ${ modal_button_visible(model.modal(), 4) },
+                position: Position::Absolute,
+                left: 43,
+                top: 223,
+                width: 188,
+                height: 35,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 4), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { modal_action(&model, 4); }
+            Button (
+                text: ${ modal_button_label(model.modal(), 5) },
+                text_capacity: 32,
+                id: "factory_modal_5",
+                visible: ${ modal_button_visible(model.modal(), 5) },
+                position: Position::Absolute,
+                left: 249,
+                top: 223,
+                width: 188,
+                height: 35,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: ${ control_color(modal_button_active(model.modal(), model.tool(), 5), true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { modal_action(&model, 5); }
+            Button (
+                "×",
+                position: Position::Absolute,
+                left: 414,
+                top: 70,
+                width: 24,
+                height: 24,
+                size: ButtonSize::Compact,
+                font_size: 12,
+                normal_color: INK,
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.close_modal(); }
+        }
+    }
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: FactoryModel) {
+    let surface = ui! {
+        View (id: "factory_surface", width: 480, height: 320, clip_children: true) [
+            FactorySurface {
+                model: model.clone(),
+            },
+            TouchAction::None,
+        ] on Tap { surface_gesture(&ctx); }
+    };
+    let mut child_scope = cx.with_parent(surface);
+    let cx = &mut child_scope;
+    ui!(compose_header(model));
+    ui!(compose_line_page(model));
+    ui!(compose_orders_page(model));
+    ui!(compose_telemetry_page(model));
+    ui!(compose_footer(model));
+    ui!(compose_modal(model));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

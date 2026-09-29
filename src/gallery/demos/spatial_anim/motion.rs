@@ -16,7 +16,10 @@ pub struct SpringBall {
 //~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spring_system(world: &mut World) {
-    let dt = world.resource::<DeltaTimeMs>().map_or(16, |r| r.0);
+    let dt = world
+        .resource::<DeltaTimeMs>()
+        .expect("Spatial Animation requires DeltaTimeMs")
+        .0;
     world.for_each_stable::<SpringBall>(|world, e| {
         let (pos, settled, target, x) = {
             let Some(sb) = world.get_mut::<SpringBall>(e) else {

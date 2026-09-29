@@ -96,6 +96,435 @@ fn modal_subtitle(modal: PostModal) -> &'static str {
 }
 
 #[compose(bind(model))]
+fn compose_header(model: PostModel) -> Entity {
+    ui! {
+        Text (
+            "POCKET POST",
+            position: Position::Absolute,
+            left: 35,
+            top: 7,
+            width: 240,
+            height: 22,
+            font_size: 14,
+            text_color: TEXT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("SORTED {} / {}", model.delivered(), model.manifest_len()) },
+            text_capacity: 14,
+            id: "post_sorted",
+            position: Position::Absolute,
+            left: 306,
+            top: 9,
+            width: 158,
+            height: 18,
+            font_size: 9,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ status_label(model.finished(), model.running(), model.started()) },
+            text_capacity: 39,
+            id: "post_status",
+            position: Position::Absolute,
+            left: 16,
+            top: 42,
+            width: 282,
+            height: 17,
+            font_size: 10,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("错投 {}   连对 {}", model.missed(), model.streak()) },
+            text_capacity: 23,
+            id: "post_misses",
+            position: Position::Absolute,
+            left: 304,
+            top: 43,
+            width: 160,
+            height: 15,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    }
+}
+
+#[compose(bind(model))]
+fn compose_route_summary(model: PostModel) -> Entity {
+    ui! {
+        Text (
+            "IN",
+            position: Position::Absolute,
+            left: 19,
+            top: 142,
+            width: 28,
+            height: 13,
+            font_size: 8,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            "S1",
+            position: Position::Absolute,
+            left: 137,
+            top: 181,
+            width: 28,
+            height: 14,
+            font_size: 8,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            "S2",
+            position: Position::Absolute,
+            left: 251,
+            top: 181,
+            width: 28,
+            height: 14,
+            font_size: 8,
+            text_color: ACCENT,
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            "A",
+            position: Position::Absolute,
+            left: 393,
+            top: 75,
+            width: 18,
+            height: 14,
+            font_size: 9,
+            text_color: STATION_COLORS[0],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            "薄荷港",
+            position: Position::Absolute,
+            left: 393,
+            top: 90,
+            width: 48,
+            height: 12,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("{}", model.station_a_count()) },
+            text_capacity: 3,
+            id: "post_station_0",
+            position: Position::Absolute,
+            left: 432,
+            top: 80,
+            width: 15,
+            height: 18,
+            font_size: 13,
+            text_color: STATION_COLORS[0],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            "B",
+            position: Position::Absolute,
+            left: 393,
+            top: 143,
+            width: 18,
+            height: 14,
+            font_size: 9,
+            text_color: STATION_COLORS[1],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            "紫藤站",
+            position: Position::Absolute,
+            left: 393,
+            top: 158,
+            width: 48,
+            height: 12,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("{}", model.station_b_count()) },
+            text_capacity: 3,
+            id: "post_station_1",
+            position: Position::Absolute,
+            left: 432,
+            top: 148,
+            width: 15,
+            height: 18,
+            font_size: 13,
+            text_color: STATION_COLORS[1],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            "C",
+            position: Position::Absolute,
+            left: 393,
+            top: 211,
+            width: 18,
+            height: 14,
+            font_size: 9,
+            text_color: STATION_COLORS[2],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            "日落湾",
+            position: Position::Absolute,
+            left: 393,
+            top: 226,
+            width: 48,
+            height: 12,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("{}", model.station_c_count()) },
+            text_capacity: 3,
+            id: "post_station_2",
+            position: Position::Absolute,
+            left: 432,
+            top: 216,
+            width: 15,
+            height: 18,
+            font_size: 13,
+            text_color: STATION_COLORS[2],
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    }
+}
+
+#[compose(bind(model))]
+fn compose_dispatch_queue(model: PostModel) -> Entity {
+    ui! {
+        Text (
+            "待发",
+            position: Position::Absolute,
+            left: 23,
+            top: 243,
+            width: 28,
+            height: 13,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ destination_letter(model.queued_slots()[0]) },
+            text_capacity: 1,
+            id: "post_queue_0",
+            visible: ${ model.queued_slots()[0].is_some() },
+            position: Position::Absolute,
+            left: 47,
+            top: 241,
+            width: 17,
+            height: 15,
+            font_size: 8,
+            text_color: ${ destination_color(model.queued_slots()[0]) },
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ destination_letter(model.queued_slots()[1]) },
+            text_capacity: 1,
+            id: "post_queue_1",
+            visible: ${ model.queued_slots()[1].is_some() },
+            position: Position::Absolute,
+            left: 72,
+            top: 241,
+            width: 17,
+            height: 15,
+            font_size: 8,
+            text_color: ${ destination_color(model.queued_slots()[1]) },
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ destination_letter(model.queued_slots()[2]) },
+            text_capacity: 1,
+            id: "post_queue_2",
+            visible: ${ model.queued_slots()[2].is_some() },
+            position: Position::Absolute,
+            left: 97,
+            top: 241,
+            width: 17,
+            height: 15,
+            font_size: 8,
+            text_color: ${ destination_color(model.queued_slots()[2]) },
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ destination_letter(model.queued_slots()[3]) },
+            text_capacity: 1,
+            id: "post_queue_3",
+            visible: ${ model.queued_slots()[3].is_some() },
+            position: Position::Absolute,
+            left: 122,
+            top: 241,
+            width: 17,
+            height: 15,
+            font_size: 8,
+            text_color: ${ destination_color(model.queued_slots()[3]) },
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ destination_letter(model.queued_slots()[4]) },
+            text_capacity: 1,
+            id: "post_queue_4",
+            visible: ${ model.queued_slots()[4].is_some() },
+            position: Position::Absolute,
+            left: 147,
+            top: 241,
+            width: 17,
+            height: 15,
+            font_size: 8,
+            text_color: ${ destination_color(model.queued_slots()[4]) },
+            paragraph: ParagraphStyle::label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("{} / 3 在途", model.active_len()) },
+            text_capacity: 12,
+            id: "post_in_transit",
+            position: Position::Absolute,
+            left: 218,
+            top: 243,
+            width: 86,
+            height: 13,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Button (
+            "班次",
+            position: Position::Absolute,
+            left: 387,
+            top: 242,
+            width: 66,
+            height: 22,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: Color::rgb(49, 72, 76),
+            pressed_color: ACCENT,
+            text_color: TEXT,
+            border_radius: 6
+        ) on Tap { model.open_manifests(); }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_footer(model: PostModel) -> Entity {
+    ui! {
+        Button (
+            text: ${ run_label(model.finished(), model.running(), model.started()) },
+            text_capacity: 12,
+            id: "post_run",
+            position: Position::Absolute,
+            left: 12,
+            top: 288,
+            width: 129,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.running() || !model.started(), model.modal() == PostModal::None) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(model.running() || !model.started(), model.modal() == PostModal::None) },
+            border_radius: 7
+        ) on Tap { model.toggle_running(); }
+    };
+    ui! {
+        Button (
+            "加发一件",
+            id: "post_send",
+            position: Position::Absolute,
+            left: 148,
+            top: 288,
+            width: 113,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(false, model.can_send()) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(false, model.can_send()) },
+            border_radius: 7
+        ) on Tap { model.spawn_manual(); }
+    };
+    ui! {
+        Button (
+            text: ${ speed_label(model.speed_x2()) },
+            text_capacity: 12,
+            id: "post_speed",
+            position: Position::Absolute,
+            left: 268,
+            top: 288,
+            width: 95,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(false, model.modal() == PostModal::None) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(false, model.modal() == PostModal::None) },
+            border_radius: 7
+        ) on Tap { model.cycle_speed(); }
+    };
+    ui! {
+        Button (
+            "重来",
+            position: Position::Absolute,
+            left: 370,
+            top: 288,
+            width: 98,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: CONTROL,
+            pressed_color: ACCENT,
+            text_color: TEXT,
+            border_radius: 7
+        ) on Tap { model.open_reset(); }
+    }
+}
+
+#[compose(bind(model))]
 pub(super) fn build_widgets(model: PostModel) {
     ui! {
         View (id: "post_surface", width: 480, height: 320, clip_children: true) [
@@ -105,364 +534,19 @@ pub(super) fn build_widgets(model: PostModel) {
             TouchAction::None,
         ] on Tap { surface_gesture(&ctx); }
         {
-            Text (
-                "POCKET POST",
-                position: Position::Absolute,
-                left: 35,
-                top: 7,
-                width: 240,
-                height: 22,
-                font_size: 14,
-                text_color: TEXT,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("SORTED {} / {}", model.delivered(), model.manifest_len()) },
-                text_capacity: 14,
-                id: "post_sorted",
-                position: Position::Absolute,
-                left: 306,
-                top: 9,
-                width: 158,
-                height: 18,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                text: ${ status_label(model.finished(), model.running(), model.started()) },
-                text_capacity: 39,
-                id: "post_status",
-                position: Position::Absolute,
-                left: 16,
-                top: 42,
-                width: 282,
-                height: 17,
-                font_size: 10,
-                text_color: ACCENT,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("错投 {}   连对 {}", model.missed(), model.streak()) },
-                text_capacity: 23,
-                id: "post_misses",
-                position: Position::Absolute,
-                left: 304,
-                top: 43,
-                width: 160,
-                height: 15,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "IN",
-                position: Position::Absolute,
-                left: 19,
-                top: 142,
-                width: 28,
-                height: 13,
-                font_size: 8,
-                text_color: ACCENT,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "S1",
-                position: Position::Absolute,
-                left: 137,
-                top: 181,
-                width: 28,
-                height: 14,
-                font_size: 8,
-                text_color: ACCENT,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "S2",
-                position: Position::Absolute,
-                left: 251,
-                top: 181,
-                width: 28,
-                height: 14,
-                font_size: 8,
-                text_color: ACCENT,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "A",
-                position: Position::Absolute,
-                left: 393,
-                top: 75,
-                width: 18,
-                height: 14,
-                font_size: 9,
-                text_color: STATION_COLORS[0],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                "薄荷港",
-                position: Position::Absolute,
-                left: 393,
-                top: 90,
-                width: 48,
-                height: 12,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("{}", model.station_a_count()) },
-                text_capacity: 3,
-                id: "post_station_0",
-                position: Position::Absolute,
-                left: 432,
-                top: 80,
-                width: 15,
-                height: 18,
-                font_size: 13,
-                text_color: STATION_COLORS[0],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "B",
-                position: Position::Absolute,
-                left: 393,
-                top: 143,
-                width: 18,
-                height: 14,
-                font_size: 9,
-                text_color: STATION_COLORS[1],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                "紫藤站",
-                position: Position::Absolute,
-                left: 393,
-                top: 158,
-                width: 48,
-                height: 12,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("{}", model.station_b_count()) },
-                text_capacity: 3,
-                id: "post_station_1",
-                position: Position::Absolute,
-                left: 432,
-                top: 148,
-                width: 15,
-                height: 18,
-                font_size: 13,
-                text_color: STATION_COLORS[1],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "C",
-                position: Position::Absolute,
-                left: 393,
-                top: 211,
-                width: 18,
-                height: 14,
-                font_size: 9,
-                text_color: STATION_COLORS[2],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                "日落湾",
-                position: Position::Absolute,
-                left: 393,
-                top: 226,
-                width: 48,
-                height: 12,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ format_args!("{}", model.station_c_count()) },
-                text_capacity: 3,
-                id: "post_station_2",
-                position: Position::Absolute,
-                left: 432,
-                top: 216,
-                width: 15,
-                height: 18,
-                font_size: 13,
-                text_color: STATION_COLORS[2],
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "待发",
-                position: Position::Absolute,
-                left: 23,
-                top: 243,
-                width: 28,
-                height: 13,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-            )
-            Text (
-                text: ${ destination_letter(model.queued_slots()[0]) },
-                text_capacity: 1,
-                id: "post_queue_0",
-                visible: ${ model.queued_slots()[0].is_some() },
-                position: Position::Absolute,
-                left: 47,
-                top: 241,
-                width: 17,
-                height: 15,
-                font_size: 8,
-                text_color: ${ destination_color(model.queued_slots()[0]) },
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                text: ${ destination_letter(model.queued_slots()[1]) },
-                text_capacity: 1,
-                id: "post_queue_1",
-                visible: ${ model.queued_slots()[1].is_some() },
-                position: Position::Absolute,
-                left: 72,
-                top: 241,
-                width: 17,
-                height: 15,
-                font_size: 8,
-                text_color: ${ destination_color(model.queued_slots()[1]) },
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                text: ${ destination_letter(model.queued_slots()[2]) },
-                text_capacity: 1,
-                id: "post_queue_2",
-                visible: ${ model.queued_slots()[2].is_some() },
-                position: Position::Absolute,
-                left: 97,
-                top: 241,
-                width: 17,
-                height: 15,
-                font_size: 8,
-                text_color: ${ destination_color(model.queued_slots()[2]) },
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                text: ${ destination_letter(model.queued_slots()[3]) },
-                text_capacity: 1,
-                id: "post_queue_3",
-                visible: ${ model.queued_slots()[3].is_some() },
-                position: Position::Absolute,
-                left: 122,
-                top: 241,
-                width: 17,
-                height: 15,
-                font_size: 8,
-                text_color: ${ destination_color(model.queued_slots()[3]) },
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                text: ${ destination_letter(model.queued_slots()[4]) },
-                text_capacity: 1,
-                id: "post_queue_4",
-                visible: ${ model.queued_slots()[4].is_some() },
-                position: Position::Absolute,
-                left: 147,
-                top: 241,
-                width: 17,
-                height: 15,
-                font_size: 8,
-                text_color: ${ destination_color(model.queued_slots()[4]) },
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                text: ${ format_args!("{} / 3 在途", model.active_len()) },
-                text_capacity: 12,
-                id: "post_in_transit",
-                position: Position::Absolute,
-                left: 218,
-                top: 243,
-                width: 86,
-                height: 13,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Button (
-                "班次",
-                position: Position::Absolute,
-                left: 387,
-                top: 242,
-                width: 66,
-                height: 22,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: Color::rgb(49, 72, 76),
-                pressed_color: ACCENT,
-                text_color: TEXT,
-                border_radius: 6
-            ) on Tap { model.open_manifests(); }
-            Button (
-                text: ${ run_label(model.finished(), model.running(), model.started()) },
-                text_capacity: 12,
-                id: "post_run",
-                position: Position::Absolute,
-                left: 12,
-                top: 288,
-                width: 129,
-                height: 26,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.running() || !model.started(), model.modal() == PostModal::None) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(model.running() || !model.started(), model.modal() == PostModal::None) },
-                border_radius: 7
-            ) on Tap { model.toggle_running(); }
-            Button (
-                "加发一件",
-                id: "post_send",
-                position: Position::Absolute,
-                left: 148,
-                top: 288,
-                width: 113,
-                height: 26,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(false, model.can_send()) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(false, model.can_send()) },
-                border_radius: 7
-            ) on Tap { model.spawn_manual(); }
-            Button (
-                text: ${ speed_label(model.speed_x2()) },
-                text_capacity: 12,
-                id: "post_speed",
-                position: Position::Absolute,
-                left: 268,
-                top: 288,
-                width: 95,
-                height: 26,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(false, model.modal() == PostModal::None) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(false, model.modal() == PostModal::None) },
-                border_radius: 7
-            ) on Tap { model.cycle_speed(); }
-            Button (
-                "重来",
-                position: Position::Absolute,
-                left: 370,
-                top: 288,
-                width: 98,
-                height: 26,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: CONTROL,
-                pressed_color: ACCENT,
-                text_color: TEXT,
-                border_radius: 7
-            ) on Tap { model.open_reset(); }
-            View (
+            compose_header (model)
+            compose_route_summary (model)
+            compose_dispatch_queue (model)
+            compose_footer (model)
+            compose_modal (model)
+        }
+    };
+}
+
+#[compose(bind(model))]
+fn compose_modal(model: PostModel) -> Entity {
+    ui! {
+        View (
                 id: "post_modal",
                 position: Position::Absolute,
                 left: 0,
@@ -711,9 +795,8 @@ pub(super) fn build_widgets(model: PostModel) {
                     text_color: ACCENT,
                     paragraph: ParagraphStyle::label()
                 )
-            }
         }
-    };
+    }
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

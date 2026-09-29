@@ -21,7 +21,8 @@ pub fn flip_system(world: &mut World) {
     let card_top = (vh - card_h) / 2;
     let dt = world
         .resource::<DeltaTimeMs>()
-        .map_or(16, |delta| delta.0)
+        .expect("Flip Card animation requires DeltaTimeMs")
+        .0
         .min(50);
 
     world.for_each_stable::<FlipCard>(|world, e| {

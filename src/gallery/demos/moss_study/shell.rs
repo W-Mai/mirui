@@ -48,15 +48,8 @@ fn control_text_color(active: bool, enabled: bool) -> Color {
 }
 
 #[compose(bind(model))]
-pub(super) fn build_widgets(model: MossModel) {
+fn compose_header_tools(model: MossModel) {
     ui! {
-        View (id: "moss_surface", width: 480, height: 320, clip_children: true) [
-            MossSurface {
-                model: model.clone(),
-            },
-            TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
-        {
             Text (
                 "MOSS STUDY",
                 position: Position::Absolute,
@@ -68,6 +61,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: TEXT,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Text (
                 text: ${ if model.running() { "B3 / S23 · RUN" } else { "B3 / S23 · PAUSE" } },
                 text_capacity: 17,
@@ -81,6 +76,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Button (
                 "播种",
                 id: "moss_tool_plant",
@@ -96,6 +93,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ${ control_text_color(model.tool() == MossTool::Plant, true) },
                 border_radius: 6
             ) on Tap { model.set_tool(MossTool::Plant); }
+    };
+    ui! {
             Button (
                 "擦除",
                 id: "moss_tool_erase",
@@ -111,6 +110,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ${ control_text_color(model.tool() == MossTool::Erase, true) },
                 border_radius: 6
             ) on Tap { model.set_tool(MossTool::Erase); }
+    };
+    ui! {
             Button (
                 "滑翔机",
                 id: "moss_tool_glider",
@@ -126,6 +127,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ${ control_text_color(model.tool() == MossTool::Glider, true) },
                 border_radius: 6
             ) on Tap { model.set_tool(MossTool::Glider); }
+    };
+    ui! {
             Button (
                 text: ${ format_args!("{} 度旋转", model.rotation() * 90) },
                 text_capacity: 13,
@@ -142,6 +145,12 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ${ control_text_color(false, model.tool() == MossTool::Glider) },
                 border_radius: 6
             ) on Tap { model.rotate_glider(); }
+    };
+}
+
+#[compose(bind(model))]
+fn compose_metrics(model: MossModel) {
+    ui! {
             Text (
                 "GENERATION",
                 position: Position::Absolute,
@@ -153,6 +162,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Text (
                 text: ${ format_args!("{:03}", model.generation()) },
                 text_capacity: 10,
@@ -166,6 +177,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ACTIVE,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Text (
                 "活细胞",
                 position: Position::Absolute,
@@ -177,6 +190,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
+    };
+    ui! {
             Text (
                 text: ${ format_args!("{}", model.live_count()) },
                 text_capacity: 3,
@@ -190,6 +205,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: Color::rgb(213, 233, 192),
                 paragraph: ParagraphStyle::label().with_align(TextAlign::End)
             )
+    };
+    ui! {
             Button (
                 text: ${ format_args!("{} 代/秒 ↻", model.rate()) },
                 text_capacity: 13,
@@ -206,6 +223,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.cycle_rate(); }
+    };
+    ui! {
             Button (
                 "撤销",
                 id: "moss_undo",
@@ -221,6 +240,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ${ control_text_color(false, model.can_undo() && model.modal() == MossModal::None) },
                 border_radius: 7
             ) on Tap { model.undo(); }
+    };
+    ui! {
             Text (
                 "边缘之外为空",
                 position: Position::Absolute,
@@ -232,6 +253,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: MUTED,
                 paragraph: ParagraphStyle::label()
             )
+    };
+    ui! {
             Text (
                 "生命 ≠ 生物模拟",
                 position: Position::Absolute,
@@ -243,6 +266,12 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: Color::rgb(128, 153, 115),
                 paragraph: ParagraphStyle::label()
             )
+    };
+}
+
+#[compose(bind(model))]
+fn compose_footer(model: MossModel) {
+    ui! {
             Button (
                 text: ${ if model.running() { "暂停" } else { "运行" } },
                 text_capacity: 6,
@@ -259,6 +288,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: ${ control_text_color(model.running(), model.modal() == MossModal::None) },
                 border_radius: 7
             ) on Tap { model.toggle_running(); }
+    };
+    ui! {
             Button (
                 "单步",
                 position: Position::Absolute,
@@ -273,6 +304,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.step(); }
+    };
+    ui! {
             Button (
                 "种子",
                 position: Position::Absolute,
@@ -287,6 +320,8 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.open_seeds(); }
+    };
+    ui! {
             Button (
                 "清空",
                 position: Position::Absolute,
@@ -301,6 +336,12 @@ pub(super) fn build_widgets(model: MossModel) {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.open_clear(); }
+    };
+}
+
+#[compose(bind(model))]
+fn compose_modal(model: MossModel) {
+    ui! {
             View (
                 id: "moss_modal",
                 position: Position::Absolute,
@@ -468,8 +509,25 @@ pub(super) fn build_widgets(model: MossModel) {
                     paragraph: ParagraphStyle::label()
                 )
             }
-        }
     };
+}
+
+#[compose(bind(model))]
+pub(super) fn build_widgets(model: MossModel) {
+    let surface = ui! {
+        View (id: "moss_surface", width: 480, height: 320, clip_children: true) [
+            MossSurface {
+                model: model.clone(),
+            },
+            TouchAction::None,
+        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+    };
+    let mut child_scope = cx.with_parent(surface);
+    let cx = &mut child_scope;
+    ui!(compose_header_tools(model));
+    ui!(compose_metrics(model));
+    ui!(compose_footer(model));
+    ui!(compose_modal(model));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

@@ -41,3 +41,9 @@ fn image_motion_uses_frame_delta() {
     assert_eq!(spinner.bounce_phase, expected);
     assert!(world.get::<WidgetTransform3D>(image).is_some());
 }
+
+#[test]
+#[should_panic(expected = "Image Flip animation requires DeltaTimeMs")]
+fn image_motion_requires_frame_delta() {
+    spin_system(&mut World::new());
+}

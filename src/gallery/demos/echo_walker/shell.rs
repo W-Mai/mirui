@@ -131,6 +131,515 @@ impl core::fmt::Display for TapeLabel {
 }
 
 #[compose(bind(model))]
+fn compose_header(model: EchoModel) -> Entity {
+    ui! {
+        Text (
+            "ECHO WALKER",
+            position: Position::Absolute,
+            left: 14,
+            top: 7,
+            width: 120,
+            height: 22,
+            font_size: 15,
+            text_color: TEXT,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            "ECHO WALKER / 002718",
+            position: Position::Absolute,
+            left: 123,
+            top: 10,
+            width: 190,
+            height: 16,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("ARCHIVE {:02} / 12", model.level() + 1) },
+            text_capacity: 15,
+            id: "echo_room",
+            position: Position::Absolute,
+            left: 14,
+            top: 39,
+            width: 110,
+            height: 16,
+            font_size: 9,
+            text_color: ACCENT,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("MEMORY {}/{}", model.collected_count(), model.gem_count()) },
+            text_capacity: 10,
+            id: "echo_memory",
+            position: Position::Absolute,
+            left: 146,
+            top: 39,
+            width: 90,
+            height: 16,
+            font_size: 9,
+            text_color: MUTED,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("ECHOES {}/3", model.ghost_count()) },
+            text_capacity: 10,
+            id: "echo_ghosts",
+            position: Position::Absolute,
+            left: 220,
+            top: 39,
+            width: 70,
+            height: 16,
+            font_size: 9,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    }
+}
+
+#[compose(bind(model))]
+fn compose_controls(model: EchoModel) -> Entity {
+    ui! {
+        Text (
+            "THE PRESENT",
+            position: Position::Absolute,
+            left: 305,
+            top: 66,
+            width: 150,
+            height: 12,
+            font_size: 8,
+            text_color: ACCENT,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("{:02}", model.tick()) },
+            text_capacity: 2,
+            id: "echo_tick",
+            position: Position::Absolute,
+            left: 305,
+            top: 82,
+            width: 48,
+            height: 38,
+            font_size: 29,
+            text_color: TEXT,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            "/ 48 BEATS",
+            position: Position::Absolute,
+            left: 351,
+            top: 99,
+            width: 90,
+            height: 14,
+            font_size: 9,
+            text_color: MUTED,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            "PAST MOVES ON EVERY BEAT",
+            position: Position::Absolute,
+            left: 305,
+            top: 119,
+            width: 161,
+            height: 14,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Button (
+            "↑",
+            position: Position::Absolute,
+            left: 354,
+            top: 133,
+            width: 29,
+            height: 29,
+            size: ButtonSize::Compact,
+            font_size: 15,
+            normal_color: PANEL,
+            pressed_color: LINE,
+            text_color: TEXT,
+            border_radius: 4
+        ) on Tap { model.step(Direction::Up); }
+    };
+    ui! {
+        Button (
+            "←",
+            position: Position::Absolute,
+            left: 321,
+            top: 166,
+            width: 29,
+            height: 29,
+            size: ButtonSize::Compact,
+            font_size: 15,
+            normal_color: PANEL,
+            pressed_color: LINE,
+            text_color: TEXT,
+            border_radius: 4
+        ) on Tap { model.step(Direction::Left); }
+    };
+    ui! {
+        Button (
+            "·",
+            position: Position::Absolute,
+            left: 354,
+            top: 166,
+            width: 29,
+            height: 29,
+            size: ButtonSize::Compact,
+            font_size: 14,
+            normal_color: PANEL,
+            pressed_color: LINE,
+            text_color: TEXT,
+            border_radius: 4
+        ) on Tap { model.step(Direction::Wait); }
+    };
+    ui! {
+        Button (
+            "→",
+            position: Position::Absolute,
+            left: 387,
+            top: 166,
+            width: 29,
+            height: 29,
+            size: ButtonSize::Compact,
+            font_size: 15,
+            normal_color: PANEL,
+            pressed_color: LINE,
+            text_color: TEXT,
+            border_radius: 4
+        ) on Tap { model.step(Direction::Right); }
+    };
+    ui! {
+        Button (
+            "↓",
+            position: Position::Absolute,
+            left: 354,
+            top: 199,
+            width: 29,
+            height: 29,
+            size: ButtonSize::Compact,
+            font_size: 15,
+            normal_color: PANEL,
+            pressed_color: LINE,
+            text_color: TEXT,
+            border_radius: 4
+        ) on Tap { model.step(Direction::Down); }
+    };
+    ui! {
+        Button (
+            "RECORD ECHO",
+            id: "echo_rewind",
+            position: Position::Absolute,
+            left: 305,
+            top: 236,
+            width: 161,
+            height: 27,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ${ action_color(model.can_rewind()) },
+            pressed_color: RUST,
+            text_color: ${ action_text_color(model.can_rewind()) },
+            border_radius: 4
+        ) on Tap { model.rewind(); }
+    };
+    ui! {
+        Button (
+            "UNDO",
+            id: "echo_undo",
+            position: Position::Absolute,
+            left: 305,
+            top: 270,
+            width: 48,
+            height: 23,
+            size: ButtonSize::Compact,
+            font_size: 7,
+            normal_color: ${ action_color(model.can_undo()) },
+            pressed_color: LINE,
+            text_color: ${ action_text_color(model.can_undo()) },
+            border_radius: 4
+        ) on Tap { model.undo(); }
+    };
+    ui! {
+        Button (
+            "RETRY",
+            id: "echo_restart",
+            position: Position::Absolute,
+            left: 360,
+            top: 270,
+            width: 49,
+            height: 23,
+            size: ButtonSize::Compact,
+            font_size: 7,
+            normal_color: ${ action_color(model.can_restart()) },
+            pressed_color: LINE,
+            text_color: ${ action_text_color(model.can_restart()) },
+            border_radius: 4
+        ) on Tap { model.restart(); }
+    };
+    ui! {
+        Button (
+            "TAPES",
+            id: "echo_tapes",
+            position: Position::Absolute,
+            left: 416,
+            top: 270,
+            width: 50,
+            height: 23,
+            size: ButtonSize::Compact,
+            font_size: 7,
+            normal_color: PANEL,
+            pressed_color: LINE,
+            text_color: TEXT,
+            border_radius: 4
+        ) on Tap { model.set_modal(EchoModal::Tapes); }
+    }
+}
+
+#[compose(bind(model))]
+fn compose_route_status(model: EchoModel) -> Entity {
+    ui! {
+        Text (
+            "CURRENT ROUTE",
+            position: Position::Absolute,
+            left: 14,
+            top: 281,
+            width: 90,
+            height: 12,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: label()
+        )
+    };
+    ui! {
+        Text (
+            text: ${ format_args!("{} STEPS / {} ECHOES", model.steps(), model.loops()) },
+            text_capacity: 22,
+            id: "echo_run",
+            position: Position::Absolute,
+            left: 165,
+            top: 281,
+            width: 123,
+            height: 12,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
+    ui! {
+        Text (
+            text: ${ MessageLabel(model.message()) },
+            text_capacity: 64,
+            id: "echo_message",
+            position: Position::Absolute,
+            left: 14,
+            top: 301,
+            width: 452,
+            height: 14,
+            font_size: 7,
+            text_color: MUTED,
+            paragraph: label()
+        )
+    }
+}
+
+#[compose(bind(model))]
+fn compose_modal(model: EchoModel) -> Entity {
+    ui! {
+        View (
+            id: "echo_modal",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320,
+            clip_children: true,
+            visible: ${ model.modal() != EchoModal::None }
+        ) [
+            EchoModalSurface {
+                model: model.clone(),
+            },
+        ] {
+            Text (
+                text: ${ modal_title(model.modal(), model.complete()) },
+                text_capacity: 23,
+                id: "echo_modal_title",
+                position: Position::Absolute,
+                left: 35,
+                top: 54,
+                width: 310,
+                height: 22,
+                font_size: 14,
+                text_color: TEXT,
+                paragraph: label()
+            )
+            Text (
+                text: ${ modal_subtitle(model.modal(), model.complete()) },
+                text_capacity: 52,
+                id: "echo_modal_subtitle",
+                position: Position::Absolute,
+                left: 35,
+                top: 78,
+                width: 390,
+                height: 14,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label()
+            )
+            Button (
+                "×",
+                position: Position::Absolute,
+                left: 421,
+                top: 50,
+                width: 26,
+                height: 24,
+                size: ButtonSize::Compact,
+                font_size: 15,
+                normal_color: HEADER,
+                pressed_color: LINE,
+                text_color: TEXT,
+                border_radius: 4
+            ) on Tap { model.set_modal(EchoModal::None); }
+            Button (
+                text: ${ TapeLabel {
+                    index: 0,
+                    beats: model.ghost_route_lengths()[0],
+                    solo: model.peek_ghost() == Some(0),
+                } },
+                text_capacity: 32,
+                id: "echo_tape_0",
+                position: Position::Absolute,
+                left: 35,
+                top: 111,
+                width: 412,
+                height: 32,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: HEADER,
+                pressed_color: LINE,
+                text_color: TEXT,
+                border_radius: 4,
+                visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 0 }
+            ) on Tap {
+                model.toggle_peek_ghost(0);
+            }
+            Button (
+                text: ${ TapeLabel {
+                    index: 1,
+                    beats: model.ghost_route_lengths()[1],
+                    solo: model.peek_ghost() == Some(1),
+                } },
+                text_capacity: 32,
+                id: "echo_tape_1",
+                position: Position::Absolute,
+                left: 35,
+                top: 150,
+                width: 412,
+                height: 32,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: HEADER,
+                pressed_color: LINE,
+                text_color: TEXT,
+                border_radius: 4,
+                visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 1 }
+            ) on Tap {
+                model.toggle_peek_ghost(1);
+            }
+            Button (
+                text: ${ TapeLabel {
+                    index: 2,
+                    beats: model.ghost_route_lengths()[2],
+                    solo: model.peek_ghost() == Some(2),
+                } },
+                text_capacity: 32,
+                id: "echo_tape_2",
+                position: Position::Absolute,
+                left: 35,
+                top: 189,
+                width: 412,
+                height: 32,
+                size: ButtonSize::Compact,
+                font_size: 9,
+                normal_color: HEADER,
+                pressed_color: LINE,
+                text_color: TEXT,
+                border_radius: 4,
+                visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 2 }
+            ) on Tap {
+                model.toggle_peek_ghost(2);
+            }
+            Text (
+                text: ${ ResultStats {
+                    complete: model.complete(),
+                    steps: if model.complete() { model.total_steps() } else { model.steps() },
+                    loops: if model.complete() { model.total_loops() } else { u16::from(model.loops()) },
+                } },
+                text_capacity: 40,
+                id: "echo_result_stats",
+                position: Position::Absolute,
+                left: 35,
+                top: 126,
+                width: 380,
+                height: 30,
+                font_size: 20,
+                text_color: ACCENT,
+                paragraph: label(),
+                visible: ${ model.modal() == EchoModal::Result }
+            )
+            Button (
+                text: ${ primary_label(model.complete(), model.result_len()) },
+                text_capacity: 16,
+                id: "echo_modal_primary",
+                position: Position::Absolute,
+                left: 35,
+                top: 236,
+                width: 255,
+                height: 36,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: ACCENT,
+                pressed_color: RUST,
+                text_color: BACKGROUND,
+                border_radius: 4,
+                visible: ${ model.modal() == EchoModal::Result }
+            ) on Tap { model.continue_archive(); }
+            Button (
+                "CLEAR ROOM",
+                id: "echo_modal_secondary",
+                position: Position::Absolute,
+                left: 303,
+                top: 236,
+                width: 144,
+                height: 36,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: HEADER,
+                pressed_color: LINE,
+                text_color: TEXT,
+                border_radius: 4,
+                visible: ${ model.modal() == EchoModal::Tapes }
+            ) on Tap { model.clear_room(); }
+        }
+    }
+}
+
+#[compose(bind(model))]
 fn build_widgets(model: EchoModel) {
     ui! {
         View (id: "echo_surface", width: 480, height: 320, clip_children: true) [
@@ -140,455 +649,10 @@ fn build_widgets(model: EchoModel) {
             TouchAction::None,
         ] on Tap { surface_gesture(&ctx); }
         {
-            Text (
-                "ECHO WALKER",
-                position: Position::Absolute,
-                left: 14,
-                top: 7,
-                width: 120,
-                height: 22,
-                font_size: 15,
-                text_color: TEXT,
-                paragraph: label()
-            )
-            Text (
-                "ECHO WALKER / 002718",
-                position: Position::Absolute,
-                left: 123,
-                top: 10,
-                width: 190,
-                height: 16,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: label()
-            )
-            Text (
-                text: ${ format_args!("ARCHIVE {:02} / 12", model.level() + 1) },
-                text_capacity: 15,
-                id: "echo_room",
-                position: Position::Absolute,
-                left: 14,
-                top: 39,
-                width: 110,
-                height: 16,
-                font_size: 9,
-                text_color: ACCENT,
-                paragraph: label()
-            )
-            Text (
-                text: ${ format_args!("MEMORY {}/{}", model.collected_count(), model.gem_count()) },
-                text_capacity: 10,
-                id: "echo_memory",
-                position: Position::Absolute,
-                left: 146,
-                top: 39,
-                width: 90,
-                height: 16,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: label()
-            )
-            Text (
-                text: ${ format_args!("ECHOES {}/3", model.ghost_count()) },
-                text_capacity: 10,
-                id: "echo_ghosts",
-                position: Position::Absolute,
-                left: 220,
-                top: 39,
-                width: 70,
-                height: 16,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                "THE PRESENT",
-                position: Position::Absolute,
-                left: 305,
-                top: 66,
-                width: 150,
-                height: 12,
-                font_size: 8,
-                text_color: ACCENT,
-                paragraph: label()
-            )
-            Text (
-                text: ${ format_args!("{:02}", model.tick()) },
-                text_capacity: 2,
-                id: "echo_tick",
-                position: Position::Absolute,
-                left: 305,
-                top: 82,
-                width: 48,
-                height: 38,
-                font_size: 29,
-                text_color: TEXT,
-                paragraph: label()
-            )
-            Text (
-                "/ 48 BEATS",
-                position: Position::Absolute,
-                left: 351,
-                top: 99,
-                width: 90,
-                height: 14,
-                font_size: 9,
-                text_color: MUTED,
-                paragraph: label()
-            )
-            Text (
-                "PAST MOVES ON EVERY BEAT",
-                position: Position::Absolute,
-                left: 305,
-                top: 119,
-                width: 161,
-                height: 14,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: label()
-            )
-            Button (
-                "↑",
-                position: Position::Absolute,
-                left: 354,
-                top: 133,
-                width: 29,
-                height: 29,
-                size: ButtonSize::Compact,
-                font_size: 15,
-                normal_color: PANEL,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4
-            ) on Tap { model.step(Direction::Up); }
-            Button (
-                "←",
-                position: Position::Absolute,
-                left: 321,
-                top: 166,
-                width: 29,
-                height: 29,
-                size: ButtonSize::Compact,
-                font_size: 15,
-                normal_color: PANEL,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4
-            ) on Tap { model.step(Direction::Left); }
-            Button (
-                "·",
-                position: Position::Absolute,
-                left: 354,
-                top: 166,
-                width: 29,
-                height: 29,
-                size: ButtonSize::Compact,
-                font_size: 14,
-                normal_color: PANEL,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4
-            ) on Tap { model.step(Direction::Wait); }
-            Button (
-                "→",
-                position: Position::Absolute,
-                left: 387,
-                top: 166,
-                width: 29,
-                height: 29,
-                size: ButtonSize::Compact,
-                font_size: 15,
-                normal_color: PANEL,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4
-            ) on Tap { model.step(Direction::Right); }
-            Button (
-                "↓",
-                position: Position::Absolute,
-                left: 354,
-                top: 199,
-                width: 29,
-                height: 29,
-                size: ButtonSize::Compact,
-                font_size: 15,
-                normal_color: PANEL,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4
-            ) on Tap { model.step(Direction::Down); }
-            Button (
-                "RECORD ECHO",
-                id: "echo_rewind",
-                position: Position::Absolute,
-                left: 305,
-                top: 236,
-                width: 161,
-                height: 27,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ action_color(model.can_rewind()) },
-                pressed_color: RUST,
-                text_color: ${ action_text_color(model.can_rewind()) },
-                border_radius: 4
-            ) on Tap { model.rewind(); }
-            Button (
-                "UNDO",
-                id: "echo_undo",
-                position: Position::Absolute,
-                left: 305,
-                top: 270,
-                width: 48,
-                height: 23,
-                size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: ${ action_color(model.can_undo()) },
-                pressed_color: LINE,
-                text_color: ${ action_text_color(model.can_undo()) },
-                border_radius: 4
-            ) on Tap { model.undo(); }
-            Button (
-                "RETRY",
-                id: "echo_restart",
-                position: Position::Absolute,
-                left: 360,
-                top: 270,
-                width: 49,
-                height: 23,
-                size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: ${ action_color(model.can_restart()) },
-                pressed_color: LINE,
-                text_color: ${ action_text_color(model.can_restart()) },
-                border_radius: 4
-            ) on Tap { model.restart(); }
-            Button (
-                "TAPES",
-                id: "echo_tapes",
-                position: Position::Absolute,
-                left: 416,
-                top: 270,
-                width: 50,
-                height: 23,
-                size: ButtonSize::Compact,
-                font_size: 7,
-                normal_color: PANEL,
-                pressed_color: LINE,
-                text_color: TEXT,
-                border_radius: 4
-            ) on Tap { model.set_modal(EchoModal::Tapes); }
-            Text (
-                "CURRENT ROUTE",
-                position: Position::Absolute,
-                left: 14,
-                top: 281,
-                width: 90,
-                height: 12,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: label()
-            )
-            Text (
-                text: ${ format_args!("{} STEPS / {} ECHOES", model.steps(), model.loops()) },
-                text_capacity: 22,
-                id: "echo_run",
-                position: Position::Absolute,
-                left: 165,
-                top: 281,
-                width: 123,
-                height: 12,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
-            Text (
-                text: ${ MessageLabel(model.message()) },
-                text_capacity: 64,
-                id: "echo_message",
-                position: Position::Absolute,
-                left: 14,
-                top: 301,
-                width: 452,
-                height: 14,
-                font_size: 7,
-                text_color: MUTED,
-                paragraph: label()
-            )
-            View (
-                id: "echo_modal",
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 320,
-                clip_children: true,
-                visible: ${ model.modal() != EchoModal::None }
-            ) [
-                EchoModalSurface {
-                    model: model.clone(),
-                },
-            ] {
-                Text (
-                    text: ${ modal_title(model.modal(), model.complete()) },
-                    text_capacity: 23,
-                    id: "echo_modal_title",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 54,
-                    width: 310,
-                    height: 22,
-                    font_size: 14,
-                    text_color: TEXT,
-                    paragraph: label()
-                )
-                Text (
-                    text: ${ modal_subtitle(model.modal(), model.complete()) },
-                    text_capacity: 52,
-                    id: "echo_modal_subtitle",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 78,
-                    width: 390,
-                    height: 14,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label()
-                )
-                Button (
-                    "×",
-                    position: Position::Absolute,
-                    left: 421,
-                    top: 50,
-                    width: 26,
-                    height: 24,
-                    size: ButtonSize::Compact,
-                    font_size: 15,
-                    normal_color: HEADER,
-                    pressed_color: LINE,
-                    text_color: TEXT,
-                    border_radius: 4
-                ) on Tap { model.set_modal(EchoModal::None); }
-                Button (
-                    text: ${ TapeLabel {
-                        index: 0,
-                        beats: model.ghost_route_lengths()[0],
-                        solo: model.peek_ghost() == Some(0),
-                    } },
-                    text_capacity: 32,
-                    id: "echo_tape_0",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 111,
-                    width: 412,
-                    height: 32,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: HEADER,
-                    pressed_color: LINE,
-                    text_color: TEXT,
-                    border_radius: 4,
-                    visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 0 }
-                ) on Tap {
-                    model.toggle_peek_ghost(0);
-                }
-                Button (
-                    text: ${ TapeLabel {
-                        index: 1,
-                        beats: model.ghost_route_lengths()[1],
-                        solo: model.peek_ghost() == Some(1),
-                    } },
-                    text_capacity: 32,
-                    id: "echo_tape_1",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 150,
-                    width: 412,
-                    height: 32,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: HEADER,
-                    pressed_color: LINE,
-                    text_color: TEXT,
-                    border_radius: 4,
-                    visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 1 }
-                ) on Tap {
-                    model.toggle_peek_ghost(1);
-                }
-                Button (
-                    text: ${ TapeLabel {
-                        index: 2,
-                        beats: model.ghost_route_lengths()[2],
-                        solo: model.peek_ghost() == Some(2),
-                    } },
-                    text_capacity: 32,
-                    id: "echo_tape_2",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 189,
-                    width: 412,
-                    height: 32,
-                    size: ButtonSize::Compact,
-                    font_size: 9,
-                    normal_color: HEADER,
-                    pressed_color: LINE,
-                    text_color: TEXT,
-                    border_radius: 4,
-                    visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 2 }
-                ) on Tap {
-                    model.toggle_peek_ghost(2);
-                }
-                Text (
-                    text: ${ ResultStats {
-                        complete: model.complete(),
-                        steps: if model.complete() { model.total_steps() } else { model.steps() },
-                        loops: if model.complete() { model.total_loops() } else { u16::from(model.loops()) },
-                    } },
-                    text_capacity: 40,
-                    id: "echo_result_stats",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 126,
-                    width: 380,
-                    height: 30,
-                    font_size: 20,
-                    text_color: ACCENT,
-                    paragraph: label(),
-                    visible: ${ model.modal() == EchoModal::Result }
-                )
-                Button (
-                    text: ${ primary_label(model.complete(), model.result_len()) },
-                    text_capacity: 16,
-                    id: "echo_modal_primary",
-                    position: Position::Absolute,
-                    left: 35,
-                    top: 236,
-                    width: 255,
-                    height: 36,
-                    size: ButtonSize::Compact,
-                    font_size: 10,
-                    normal_color: ACCENT,
-                    pressed_color: RUST,
-                    text_color: BACKGROUND,
-                    border_radius: 4,
-                    visible: ${ model.modal() == EchoModal::Result }
-                ) on Tap { model.continue_archive(); }
-                Button (
-                    "CLEAR ROOM",
-                    id: "echo_modal_secondary",
-                    position: Position::Absolute,
-                    left: 303,
-                    top: 236,
-                    width: 144,
-                    height: 36,
-                    size: ButtonSize::Compact,
-                    font_size: 10,
-                    normal_color: HEADER,
-                    pressed_color: LINE,
-                    text_color: TEXT,
-                    border_radius: 4,
-                    visible: ${ model.modal() == EchoModal::Tapes }
-                ) on Tap { model.clear_room(); }
-            }
+            compose_header (model)
+            compose_controls (model)
+            compose_route_status (model)
+            compose_modal (model)
         }
     };
 }
