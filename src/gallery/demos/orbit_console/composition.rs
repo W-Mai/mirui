@@ -99,8 +99,8 @@ fn compose_orbit_stage(model: ConsoleState) -> Entity {
                 )
             }
             View (grow: 1.0)
-                Text (
-                    text: ${
+            Text (
+                text: ${
                     match model.focused_node() {
                         0 => "NODE 01 : ACTIVE",
                         1 => "NODE 02 : ACTIVE",

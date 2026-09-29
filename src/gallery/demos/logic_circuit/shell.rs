@@ -1321,7 +1321,10 @@ fn compose_footer(model: CircuitModel) -> Entity {
             if model.page() == CircuitPage::Trace {
                 model.step_trace();
             } else {
-                model.open_modal(CircuitModal::GateTypes { adding: true });
+                model
+                    .open_modal(CircuitModal::GateTypes {
+                        adding: true,
+                    });
             }
         }
     };
@@ -1369,7 +1372,10 @@ fn compose_footer(model: CircuitModel) -> Entity {
             if model.page() == CircuitPage::Trace {
                 model.toggle_scanning();
             } else {
-                model.open_modal(CircuitModal::GateTypes { adding: false });
+                model
+                    .open_modal(CircuitModal::GateTypes {
+                        adding: false,
+                    });
             }
         }
     };

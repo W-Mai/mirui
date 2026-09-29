@@ -231,15 +231,13 @@ fn compose_forecast(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!(
-                "{} · {}",
-                if model.forecast().tide == crate::gallery::play::tidal::TideLevel::High {
-                    "涨潮"
-                } else {
-                    "退潮"
-                },
-                model.forecast().weather.name()
-            ) },
+            text: ${
+                format_args!(
+                    "{} · {}", if model.forecast().tide == crate
+                    ::gallery::play::tidal::TideLevel::High { "涨潮" } else { "退潮" }, model
+                    .forecast().weather.name()
+                )
+            },
             text_capacity: 24,
             id: "tide_forecast",
             position: Position::Absolute,
@@ -269,11 +267,12 @@ fn compose_forecast(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ format_args!(
-                "再落 {} 块结算 · 进阶参考线 {}",
-                if model.settled() { 0 } else { 6 - model.turn() % 6 },
-                model.target()
-            ) },
+            text: ${
+                format_args!(
+                    "再落 {} 块结算 · 进阶参考线 {}", if model.settled() { 0 } else { 6 -
+                    model.turn() % 6 }, model.target()
+                )
+            },
             text_capacity: 56,
             id: "tide_until",
             position: Position::Absolute,
@@ -378,11 +377,12 @@ fn compose_offers(model: TideModel) -> Entity {
 fn compose_tile_info(model: TideModel) -> Entity {
     ui! {
         Text (
-            text: ${ format_args!(
-                "{} · {}",
-                if model.selected().is_some() { "已落位" } else { "待落位" },
-                model.display_tile().name()
-            ) },
+            text: ${
+                format_args!(
+                    "{} · {}", if model.selected().is_some() { "已落位" } else { "待落位" },
+                    model.display_tile().name()
+                )
+            },
             text_capacity: 32,
             id: "tide_info_title",
             position: Position::Absolute,
@@ -458,7 +458,12 @@ fn compose_actions(model: TideModel) -> Entity {
             visible: ${ model.pending().is_none() && !model.settled() && !model.complete() },
             normal_color: ${ control_color(false, model.rerolls() > 0 && !model.settled() && !model.complete()) },
             pressed_color: ACCENT,
-            text_color: ${ control_text_color(false, model.rerolls() > 0 && !model.settled() && !model.complete()) },
+            text_color: ${
+                control_text_color(
+                    false,
+                    model.rerolls() > 0 && !model.settled() && !model.complete(),
+                )
+            },
             border_radius: 5
         ) on Tap { model.reroll(); }
     };
@@ -522,13 +527,15 @@ fn compose_actions(model: TideModel) -> Entity {
     };
     ui! {
         Button (
-            text: ${ if model.pending().is_some() {
-                "取消"
-            } else if model.complete() {
-                "航行完成 · 查看总览"
-            } else {
-                "本岛结算 · 选择新学说"
-            } },
+            text: ${
+                if model.pending().is_some() {
+                    "取消"
+                } else if model.complete() {
+                    "航行完成 · 查看总览"
+                } else {
+                    "本岛结算 · 选择新学说"
+                }
+            },
             text_capacity: 40,
             id: "tide_cancel_result",
             visible: ${ model.pending().is_some() || model.settled() || model.complete() },
@@ -606,13 +613,15 @@ fn compose_footer(model: TideModel) -> Entity {
 fn compose_modal_header(model: TideModel) -> Entity {
     ui! {
         Text (
-            text: ${ if model.modal() == TideModal::Voyage {
-                "四岛航行图"
-            } else if model.complete() {
-                "四岛远航 / 完成"
-            } else {
-                "本岛结算"
-            } },
+            text: ${
+                if model.modal() == TideModal::Voyage {
+                    "四岛航行图"
+                } else if model.complete() {
+                    "四岛远航 / 完成"
+                } else {
+                    "本岛结算"
+                }
+            },
             text_capacity: 32,
             id: "tide_modal_title",
             position: Position::Absolute,
@@ -627,11 +636,13 @@ fn compose_modal_header(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ if model.modal() == TideModal::Voyage {
-                "96 次落子 / 16 次季节结算 / 3 次学说选择"
-            } else {
-                "评级不锁关。选择学说，继续前往下一座岛。"
-            } },
+            text: ${
+                if model.modal() == TideModal::Voyage {
+                    "96 次落子 / 16 次季节结算 / 3 次学说选择"
+                } else {
+                    "评级不锁关。选择学说，继续前往下一座岛。"
+                }
+            },
             text_capacity: 128,
             id: "tide_modal_subtitle",
             position: Position::Absolute,
@@ -682,10 +693,12 @@ fn compose_modal_result(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ ModalDetailText(HarvestText {
-                values: model.harvests(),
-                len: model.harvest_len(),
-            }) },
+            text: ${
+                ModalDetailText(HarvestText {
+                    values: model.harvests(),
+                    len: model.harvest_len(),
+                })
+            },
             text_capacity: 48,
             id: "tide_modal_detail",
             visible: ${ model.modal() == TideModal::Result },
@@ -705,9 +718,7 @@ fn compose_modal_result(model: TideModel) -> Entity {
             text_capacity: 64,
             id: "tide_perk_0",
             visible: ${
-                model.modal() == TideModal::Result
-                    && model.settled()
-                    && model.chapter() != 3
+                model.modal() == TideModal::Result && model.settled() && model.chapter() != 3
                     && !model.complete()
             },
             position: Position::Absolute,
@@ -729,9 +740,7 @@ fn compose_modal_result(model: TideModel) -> Entity {
             text_capacity: 64,
             id: "tide_perk_1",
             visible: ${
-                model.modal() == TideModal::Result
-                    && model.settled()
-                    && model.chapter() != 3
+                model.modal() == TideModal::Result && model.settled() && model.chapter() != 3
                     && !model.complete()
             },
             position: Position::Absolute,
@@ -753,9 +762,7 @@ fn compose_modal_result(model: TideModel) -> Entity {
             text_capacity: 64,
             id: "tide_perk_2",
             visible: ${
-                model.modal() == TideModal::Result
-                    && model.settled()
-                    && model.chapter() != 3
+                model.modal() == TideModal::Result && model.settled() && model.chapter() != 3
                     && !model.complete()
             },
             position: Position::Absolute,
@@ -776,9 +783,7 @@ fn compose_modal_result(model: TideModel) -> Entity {
             "完成四岛航行",
             id: "tide_finish",
             visible: ${
-                model.modal() == TideModal::Result
-                    && model.chapter() == 3
-                    && model.settled()
+                model.modal() == TideModal::Result && model.chapter() == 3 && model.settled()
                     && !model.complete()
             },
             position: Position::Absolute,
@@ -800,11 +805,13 @@ fn compose_modal_result(model: TideModel) -> Entity {
 fn compose_modal_voyage(model: TideModel) -> Entity {
     ui! {
         Text (
-            text: ${ VoyageRowText {
-                index: 0,
-                chapter: model.chapter(),
-                results: model.results(),
-            } },
+            text: ${
+                VoyageRowText {
+                    index: 0,
+                    chapter: model.chapter(),
+                    results: model.results(),
+                }
+            },
             text_capacity: 32,
             id: "tide_voyage_0",
             visible: ${ model.modal() == TideModal::Voyage },
@@ -820,11 +827,13 @@ fn compose_modal_voyage(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ VoyageRowText {
-                index: 1,
-                chapter: model.chapter(),
-                results: model.results(),
-            } },
+            text: ${
+                VoyageRowText {
+                    index: 1,
+                    chapter: model.chapter(),
+                    results: model.results(),
+                }
+            },
             text_capacity: 32,
             id: "tide_voyage_1",
             visible: ${ model.modal() == TideModal::Voyage },
@@ -840,11 +849,13 @@ fn compose_modal_voyage(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ VoyageRowText {
-                index: 2,
-                chapter: model.chapter(),
-                results: model.results(),
-            } },
+            text: ${
+                VoyageRowText {
+                    index: 2,
+                    chapter: model.chapter(),
+                    results: model.results(),
+                }
+            },
             text_capacity: 32,
             id: "tide_voyage_2",
             visible: ${ model.modal() == TideModal::Voyage },
@@ -860,11 +871,13 @@ fn compose_modal_voyage(model: TideModel) -> Entity {
     };
     ui! {
         Text (
-            text: ${ VoyageRowText {
-                index: 3,
-                chapter: model.chapter(),
-                results: model.results(),
-            } },
+            text: ${
+                VoyageRowText {
+                    index: 3,
+                    chapter: model.chapter(),
+                    results: model.results(),
+                }
+            },
             text_capacity: 32,
             id: "tide_voyage_3",
             visible: ${ model.modal() == TideModal::Voyage },

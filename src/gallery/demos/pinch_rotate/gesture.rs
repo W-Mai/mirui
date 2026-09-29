@@ -24,11 +24,7 @@ pub(super) fn pinch_target(model: PinchModel) -> Entity {
             PinchTarget {
                 model: model.clone(),
             },
-        ] on Pinch {
-            model.apply_pinch(*scale_delta);
-        } on Rotate {
-            model.apply_rotation(*angle);
-        }
+        ] on Pinch { model.apply_pinch(*scale_delta); } on Rotate { model.apply_rotation(*angle); }
         {
             Icon (
                 path: ICON_PLUS,

@@ -514,11 +514,13 @@ fn compose_modal(model: EchoModel) -> Entity {
                 border_radius: 4
             ) on Tap { model.set_modal(EchoModal::None); }
             Button (
-                text: ${ TapeLabel {
-                    index: 0,
-                    beats: model.ghost_route_lengths()[0],
-                    solo: model.peek_ghost() == Some(0),
-                } },
+                text: ${
+                    TapeLabel {
+                        index: 0,
+                        beats: model.ghost_route_lengths()[0],
+                        solo: model.peek_ghost() == Some(0),
+                    }
+                },
                 text_capacity: 32,
                 id: "echo_tape_0",
                 position: Position::Absolute,
@@ -533,15 +535,15 @@ fn compose_modal(model: EchoModel) -> Entity {
                 text_color: TEXT,
                 border_radius: 4,
                 visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 0 }
-            ) on Tap {
-                model.toggle_peek_ghost(0);
-            }
+            ) on Tap { model.toggle_peek_ghost(0); }
             Button (
-                text: ${ TapeLabel {
-                    index: 1,
-                    beats: model.ghost_route_lengths()[1],
-                    solo: model.peek_ghost() == Some(1),
-                } },
+                text: ${
+                    TapeLabel {
+                        index: 1,
+                        beats: model.ghost_route_lengths()[1],
+                        solo: model.peek_ghost() == Some(1),
+                    }
+                },
                 text_capacity: 32,
                 id: "echo_tape_1",
                 position: Position::Absolute,
@@ -556,15 +558,15 @@ fn compose_modal(model: EchoModel) -> Entity {
                 text_color: TEXT,
                 border_radius: 4,
                 visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 1 }
-            ) on Tap {
-                model.toggle_peek_ghost(1);
-            }
+            ) on Tap { model.toggle_peek_ghost(1); }
             Button (
-                text: ${ TapeLabel {
-                    index: 2,
-                    beats: model.ghost_route_lengths()[2],
-                    solo: model.peek_ghost() == Some(2),
-                } },
+                text: ${
+                    TapeLabel {
+                        index: 2,
+                        beats: model.ghost_route_lengths()[2],
+                        solo: model.peek_ghost() == Some(2),
+                    }
+                },
                 text_capacity: 32,
                 id: "echo_tape_2",
                 position: Position::Absolute,
@@ -579,15 +581,19 @@ fn compose_modal(model: EchoModel) -> Entity {
                 text_color: TEXT,
                 border_radius: 4,
                 visible: ${ model.modal() == EchoModal::Tapes && model.ghost_count() > 2 }
-            ) on Tap {
-                model.toggle_peek_ghost(2);
-            }
+            ) on Tap { model.toggle_peek_ghost(2); }
             Text (
-                text: ${ ResultStats {
-                    complete: model.complete(),
-                    steps: if model.complete() { model.total_steps() } else { model.steps() },
-                    loops: if model.complete() { model.total_loops() } else { u16::from(model.loops()) },
-                } },
+                text: ${
+                    ResultStats {
+                        complete: model.complete(),
+                        steps: if model.complete() { model.total_steps() } else { model.steps() },
+                        loops: if model.complete() {
+                            model.total_loops()
+                        } else {
+                            u16::from(model.loops())
+                        },
+                    }
+                },
                 text_capacity: 40,
                 id: "echo_result_stats",
                 position: Position::Absolute,

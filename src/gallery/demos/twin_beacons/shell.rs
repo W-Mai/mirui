@@ -1219,9 +1219,7 @@ fn compose_summary_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> En
 fn build_widgets(game: TwinModel, expedition: ExpeditionUiModel, hints: TwinHintService) {
     ui! {
         View (id: "twin_surface", width: 480, height: 320, clip_children: true) [
-            TwinSurface {
-                game: game.clone(),
-            },
+            TwinSurface { game: game.clone() },
         ] {
             compose_hud (game)
             compose_controls (game, hints)

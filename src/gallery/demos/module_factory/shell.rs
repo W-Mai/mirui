@@ -168,680 +168,693 @@ fn compose_header(model: FactoryModel) -> Entity {
         )
     };
     ui! {
-            Text (
-                text: ${ format_args!(
-                    "ORDER 0{} / {}:{}",
-                    model.mission_index() + 1,
-                    model.delivered(),
-                    model.mission().goal,
-                ) },
-                text_capacity: 24,
-                id: "factory_order_meta",
-                position: Position::Absolute,
-                left: 304,
-                top: 8,
-                width: 135,
-                height: 16,
-                font_size: 9,
-                text_color: Color::rgb(174, 186, 190),
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
+        Text (
+            text: ${
+                format_args!(
+                    "ORDER 0{} / {}:{}", model.mission_index() + 1, model.delivered(), model
+                    .mission().goal,
+                )
+            },
+            text_capacity: 24,
+            id: "factory_order_meta",
+            position: Position::Absolute,
+            left: 304,
+            top: 8,
+            width: 135,
+            height: 16,
+            font_size: 9,
+            text_color: Color::rgb(174, 186, 190),
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
     };
     ui! {
-            Button (
-                "?",
-                position: Position::Absolute,
-                left: 451,
-                top: 4,
-                width: 24,
-                height: 23,
-                size: ButtonSize::Compact,
-                font_size: 12,
-                normal_color: INK,
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.open_modal(FactoryModal::Help); }
+        Button (
+            "?",
+            position: Position::Absolute,
+            left: 451,
+            top: 4,
+            width: 24,
+            height: 23,
+            size: ButtonSize::Compact,
+            font_size: 12,
+            normal_color: INK,
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.open_modal(FactoryModal::Help); }
     };
     ui! {
-            Button (
-                "产线",
-                id: "factory_tab_line",
-                position: Position::Absolute,
-                left: 24,
-                top: 33,
-                width: 96,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.page() == FactoryPage::Line, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.set_page(FactoryPage::Line); }
+        Button (
+            "产线",
+            id: "factory_tab_line",
+            position: Position::Absolute,
+            left: 24,
+            top: 33,
+            width: 96,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.page() == FactoryPage::Line, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.set_page(FactoryPage::Line); }
     };
     ui! {
-            Button (
-                "订单",
-                id: "factory_tab_orders",
-                position: Position::Absolute,
-                left: 124,
-                top: 33,
-                width: 82,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.page() == FactoryPage::Orders, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.set_page(FactoryPage::Orders); }
+        Button (
+            "订单",
+            id: "factory_tab_orders",
+            position: Position::Absolute,
+            left: 124,
+            top: 33,
+            width: 82,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.page() == FactoryPage::Orders, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.set_page(FactoryPage::Orders); }
     };
     ui! {
-            Button (
-                "遥测",
-                id: "factory_tab_telemetry",
-                position: Position::Absolute,
-                left: 210,
-                top: 33,
-                width: 82,
-                height: 24,
-                size: ButtonSize::Compact,
-                font_size: 10,
-                normal_color: ${ control_color(model.page() == FactoryPage::Telemetry, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.set_page(FactoryPage::Telemetry); }
+        Button (
+            "遥测",
+            id: "factory_tab_telemetry",
+            position: Position::Absolute,
+            left: 210,
+            top: 33,
+            width: 82,
+            height: 24,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: ${ control_color(model.page() == FactoryPage::Telemetry, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.set_page(FactoryPage::Telemetry); }
     };
     ui! {
-            Text (
-                text: ${ format_args!("PWR {}/{}", model.power(), model.mission().power) },
-                text_capacity: 12,
-                id: "factory_power_meta",
-                position: Position::Absolute,
-                left: 302,
-                top: 39,
-                width: 80,
-                height: 14,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: label_style()
-            )
+        Text (
+            text: ${ format_args!("PWR {}/{}", model.power(), model.mission().power) },
+            text_capacity: 12,
+            id: "factory_power_meta",
+            position: Position::Absolute,
+            left: 302,
+            top: 39,
+            width: 80,
+            height: 14,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: label_style()
+        )
     };
     ui! {
-            Text (
-                text: ${ format_args!("T+{:03}", model.tick()) },
-                text_capacity: 8,
-                id: "factory_tick_meta",
-                position: Position::Absolute,
-                left: 394,
-                top: 39,
-                width: 63,
-                height: 14,
-                font_size: 8,
-                text_color: MUTED,
-                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-            )
+        Text (
+            text: ${ format_args!("T+{:03}", model.tick()) },
+            text_capacity: 8,
+            id: "factory_tick_meta",
+            position: Position::Absolute,
+            left: 394,
+            top: 39,
+            width: 63,
+            height: 14,
+            font_size: 8,
+            text_color: MUTED,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
     }
 }
 
 #[compose(bind(model))]
 fn compose_line_page(model: FactoryModel) -> Entity {
     ui! {
-            View (
-                id: "factory_line_page",
-                visible: ${ model.page() == FactoryPage::Line },
+        View (
+            id: "factory_line_page",
+            visible: ${ model.page() == FactoryPage::Line },
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 282
+        ) {
+            Text (
+                "PRODUCTION ORDER",
                 position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 282
-            ) {
-                Text (
-                    "PRODUCTION ORDER",
-                    position: Position::Absolute,
-                    left: 318,
-                    top: 76,
-                    width: 140,
-                    height: 12,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ format_args!("{} / {}", model.delivered(), model.mission().goal) },
-                    text_capacity: 16,
-                    id: "factory_delivered",
-                    position: Position::Absolute,
-                    left: 319,
-                    top: 88,
-                    width: 139,
-                    height: 27,
-                    font_size: 20,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-                Text (
-                    "BUILD CREDITS",
-                    position: Position::Absolute,
-                    left: 318,
-                    top: 128,
-                    width: 140,
-                    height: 12,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ format_args!("{} / {}", model.cost(), model.mission().budget) },
-                    text_capacity: 16,
-                    id: "factory_cost",
-                    position: Position::Absolute,
-                    left: 388,
-                    top: 128,
-                    width: 68,
-                    height: 15,
-                    font_size: 10,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    "SELECTED MODULE",
-                    position: Position::Absolute,
-                    left: 318,
-                    top: 169,
-                    width: 140,
-                    height: 12,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ model.selected_cell().map_or("待建造空位", |cell| cell.kind.label()) },
-                    text_capacity: 18,
-                    id: "factory_selected",
-                    position: Position::Absolute,
-                    left: 318,
-                    top: 186,
-                    width: 138,
-                    height: 23,
-                    font_size: 13,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ format_args!(
-                        "C{} · R{}",
-                        model.selected() % GRID_WIDTH + 1,
-                        model.selected() / GRID_WIDTH + 1,
-                    ) },
-                    text_capacity: 12,
-                    id: "factory_selected_coord",
-                    position: Position::Absolute,
-                    left: 388,
-                    top: 189,
-                    width: 68,
-                    height: 15,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    text: ${ StatusText {
+                left: 318,
+                top: 76,
+                width: 140,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ format_args!("{} / {}", model.delivered(), model.mission().goal) },
+                text_capacity: 16,
+                id: "factory_delivered",
+                position: Position::Absolute,
+                left: 319,
+                top: 88,
+                width: 139,
+                height: 27,
+                font_size: 20,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Text (
+                "BUILD CREDITS",
+                position: Position::Absolute,
+                left: 318,
+                top: 128,
+                width: 140,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ format_args!("{} / {}", model.cost(), model.mission().budget) },
+                text_capacity: 16,
+                id: "factory_cost",
+                position: Position::Absolute,
+                left: 388,
+                top: 128,
+                width: 68,
+                height: 15,
+                font_size: 10,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                "SELECTED MODULE",
+                position: Position::Absolute,
+                left: 318,
+                top: 169,
+                width: 140,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ model.selected_cell().map_or("待建造空位", |cell| cell.kind.label()) },
+                text_capacity: 18,
+                id: "factory_selected",
+                position: Position::Absolute,
+                left: 318,
+                top: 186,
+                width: 138,
+                height: 23,
+                font_size: 13,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${
+                    format_args!(
+                        "C{} · R{}", model.selected() % GRID_WIDTH + 1, model.selected() / GRID_WIDTH +
+                        1,
+                    )
+                },
+                text_capacity: 12,
+                id: "factory_selected_coord",
+                position: Position::Absolute,
+                left: 388,
+                top: 189,
+                width: 68,
+                height: 15,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                text: ${
+                    StatusText {
                         status: model.status(),
                         wip: model.wip(),
                         blocked: model.blocked(),
                         rejected: model.rejected(),
-                    } },
-                    text_capacity: 96,
-                    id: "factory_status",
-                    position: Position::Absolute,
-                    left: 16,
-                    top: 259,
-                    width: 447,
-                    height: 18,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ format_args!("方向 {}", direction_glyph(model.tool_direction())) },
-                    text_capacity: 12,
-                    id: "factory_direction",
-                    position: Position::Absolute,
-                    left: 318,
-                    top: 213,
-                    width: 65,
-                    height: 15,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ tool_label(model.tool()) },
-                    text_capacity: 18,
-                    id: "factory_tool",
-                    position: Position::Absolute,
-                    left: 318,
-                    top: 232,
-                    width: 140,
-                    height: 15,
-                    font_size: 9,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-            }
+                    }
+                },
+                text_capacity: 96,
+                id: "factory_status",
+                position: Position::Absolute,
+                left: 16,
+                top: 259,
+                width: 447,
+                height: 18,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ format_args!("方向 {}", direction_glyph(model.tool_direction())) },
+                text_capacity: 12,
+                id: "factory_direction",
+                position: Position::Absolute,
+                left: 318,
+                top: 213,
+                width: 65,
+                height: 15,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ tool_label(model.tool()) },
+                text_capacity: 18,
+                id: "factory_tool",
+                position: Position::Absolute,
+                left: 318,
+                top: 232,
+                width: 140,
+                height: 15,
+                font_size: 9,
+                text_color: INK,
+                paragraph: label_style()
+            )
+        }
     }
 }
 
 #[compose(bind(model))]
 fn compose_orders_page(model: FactoryModel) -> Entity {
     ui! {
-            View (
-                id: "factory_orders_page",
-                visible: ${ model.page() == FactoryPage::Orders },
+        View (
+            id: "factory_orders_page",
+            visible: ${ model.page() == FactoryPage::Orders },
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 282
+        ) {
+            Button (
+                "01  微型装配",
+                id: "factory_order_0",
                 position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 282
-            ) {
-                Button (
-                    "01  微型装配",
-                    id: "factory_order_0",
-                    position: Position::Absolute,
-                    left: 20,
-                    top: 92,
-                    width: 276,
-                    height: 45,
-                    size: ButtonSize::Compact,
-                    font_size: 10,
-                    normal_color: ${ control_color(model.mission_index() == 0, true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { model.request_mission(0, false); }
-                Button (
-                    "02  折返产线",
-                    id: "factory_order_1",
-                    position: Position::Absolute,
-                    left: 20,
-                    top: 148,
-                    width: 276,
-                    height: 45,
-                    size: ButtonSize::Compact,
-                    font_size: 10,
-                    normal_color: ${ control_color(model.mission_index() == 1, true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { model.request_mission(1, false); }
-                Button (
-                    "03  质量检验",
-                    id: "factory_order_2",
-                    position: Position::Absolute,
-                    left: 20,
-                    top: 204,
-                    width: 276,
-                    height: 45,
-                    size: ButtonSize::Compact,
-                    font_size: 10,
-                    normal_color: ${ control_color(model.mission_index() == 2, true) },
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { model.request_mission(2, false); }
-                Text (
-                    text: ${ MissionDescription(0) },
-                    text_capacity: 96,
-                    id: "factory_order_desc_0",
-                    position: Position::Absolute,
-                    left: 98,
-                    top: 97,
-                    width: 188,
-                    height: 35,
-                    font_size: 7,
-                    line_height: 11,
-                    text_color: BACKGROUND,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ MissionDescription(1) },
-                    text_capacity: 96,
-                    id: "factory_order_desc_1",
-                    position: Position::Absolute,
-                    left: 98,
-                    top: 153,
-                    width: 188,
-                    height: 35,
-                    font_size: 7,
-                    line_height: 11,
-                    text_color: BACKGROUND,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ MissionDescription(2) },
-                    text_capacity: 96,
-                    id: "factory_order_desc_2",
-                    position: Position::Absolute,
-                    left: 98,
-                    top: 209,
-                    width: 188,
-                    height: 35,
-                    font_size: 7,
-                    line_height: 11,
-                    text_color: BACKGROUND,
-                    paragraph: label_style()
-                )
-                Text (
-                    "MATERIAL FLOW",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 78,
-                    width: 120,
-                    height: 12,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "矿石 / ORE\n↓ 熔炼 3 tick\n板材 / PLATE\n↓ 装配 4 tick\n零件 / GEAR\n↓ 质检 2 tick\n合格品 / CERT",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 94,
-                    width: 125,
-                    height: 108,
-                    font_size: 8,
-                    line_height: 15,
-                    text_color: INK,
-                    paragraph: label_style()
-                )
-                Button (
-                    "装载示范布局",
-                    id: "factory_reference",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 216,
-                    width: 124,
-                    height: 26,
-                    size: ButtonSize::Compact,
-                    font_size: 8,
-                    normal_color: ACCENT,
-                    pressed_color: INK,
-                    text_color: BACKGROUND,
-                    border_radius: 0
-                ) on Tap { model.request_reference(); }
-            }
+                left: 20,
+                top: 92,
+                width: 276,
+                height: 45,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: ${ control_color(model.mission_index() == 0, true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.request_mission(0, false); }
+            Button (
+                "02  折返产线",
+                id: "factory_order_1",
+                position: Position::Absolute,
+                left: 20,
+                top: 148,
+                width: 276,
+                height: 45,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: ${ control_color(model.mission_index() == 1, true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.request_mission(1, false); }
+            Button (
+                "03  质量检验",
+                id: "factory_order_2",
+                position: Position::Absolute,
+                left: 20,
+                top: 204,
+                width: 276,
+                height: 45,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: ${ control_color(model.mission_index() == 2, true) },
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.request_mission(2, false); }
+            Text (
+                text: ${ MissionDescription(0) },
+                text_capacity: 96,
+                id: "factory_order_desc_0",
+                position: Position::Absolute,
+                left: 98,
+                top: 97,
+                width: 188,
+                height: 35,
+                font_size: 7,
+                line_height: 11,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ MissionDescription(1) },
+                text_capacity: 96,
+                id: "factory_order_desc_1",
+                position: Position::Absolute,
+                left: 98,
+                top: 153,
+                width: 188,
+                height: 35,
+                font_size: 7,
+                line_height: 11,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ MissionDescription(2) },
+                text_capacity: 96,
+                id: "factory_order_desc_2",
+                position: Position::Absolute,
+                left: 98,
+                top: 209,
+                width: 188,
+                height: 35,
+                font_size: 7,
+                line_height: 11,
+                text_color: BACKGROUND,
+                paragraph: label_style()
+            )
+            Text (
+                "MATERIAL FLOW",
+                position: Position::Absolute,
+                left: 327,
+                top: 78,
+                width: 120,
+                height: 12,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "矿石 / ORE\n↓ 熔炼 3 tick\n板材 / PLATE\n↓ 装配 4 tick\n零件 / GEAR\n↓ 质检 2 tick\n合格品 / CERT",
+                position: Position::Absolute,
+                left: 327,
+                top: 94,
+                width: 125,
+                height: 108,
+                font_size: 8,
+                line_height: 15,
+                text_color: INK,
+                paragraph: label_style()
+            )
+            Button (
+                "装载示范布局",
+                id: "factory_reference",
+                position: Position::Absolute,
+                left: 327,
+                top: 216,
+                width: 124,
+                height: 26,
+                size: ButtonSize::Compact,
+                font_size: 8,
+                normal_color: ACCENT,
+                pressed_color: INK,
+                text_color: BACKGROUND,
+                border_radius: 0
+            ) on Tap { model.request_reference(); }
+        }
     }
 }
 
 #[compose(bind(model))]
 fn compose_telemetry_page(model: FactoryModel) -> Entity {
     ui! {
-            View (
-                id: "factory_telemetry_page",
-                visible: ${ model.page() == FactoryPage::Telemetry },
+        View (
+            id: "factory_telemetry_page",
+            visible: ${ model.page() == FactoryPage::Telemetry },
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 282
+        ) {
+            Text (
+                "DELIVERED / LAST 80 TICKS",
                 position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 282
-            ) {
-                Text (
-                    "DELIVERED / LAST 80 TICKS",
-                    position: Position::Absolute,
-                    left: 18,
-                    top: 72,
-                    width: 280,
-                    height: 14,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "BLOCKED CELLS",
-                    position: Position::Absolute,
-                    left: 18,
-                    top: 180,
-                    width: 280,
-                    height: 14,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "试运行 tick",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 83,
-                    width: 90,
-                    height: 14,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "累计投料",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 112,
-                    width: 90,
-                    height: 14,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "正确交付",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 141,
-                    width: 90,
-                    height: 14,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "退回产品",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 170,
-                    width: 90,
-                    height: 14,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    "当前在制",
-                    position: Position::Absolute,
-                    left: 327,
-                    top: 199,
-                    width: 90,
-                    height: 14,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-                Text (
-                    text: ${ format_args!("{}", model.tick()) },
-                    text_capacity: 8,
-                    id: "factory_telemetry_tick",
-                    position: Position::Absolute,
-                    left: 419,
-                    top: 81,
-                    width: 35,
-                    height: 18,
-                    font_size: 12,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    text: ${ format_args!("{}", model.produced()) },
-                    text_capacity: 8,
-                    id: "factory_telemetry_produced",
-                    position: Position::Absolute,
-                    left: 419,
-                    top: 110,
-                    width: 35,
-                    height: 18,
-                    font_size: 12,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    text: ${ format_args!("{}", model.delivered()) },
-                    text_capacity: 8,
-                    id: "factory_telemetry_delivered",
-                    position: Position::Absolute,
-                    left: 419,
-                    top: 139,
-                    width: 35,
-                    height: 18,
-                    font_size: 12,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    text: ${ format_args!("{}", model.rejected()) },
-                    text_capacity: 8,
-                    id: "factory_telemetry_rejected",
-                    position: Position::Absolute,
-                    left: 419,
-                    top: 168,
-                    width: 35,
-                    height: 18,
-                    font_size: 12,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    text: ${ format_args!("{}", model.wip()) },
-                    text_capacity: 8,
-                    id: "factory_telemetry_wip",
-                    position: Position::Absolute,
-                    left: 419,
-                    top: 197,
-                    width: 35,
-                    height: 18,
-                    font_size: 12,
-                    text_color: INK,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::End)
-                )
-                Text (
-                    "曲线来自真实模型状态，不是设备性能数据。",
-                    position: Position::Absolute,
-                    left: 16,
-                    top: 259,
-                    width: 447,
-                    height: 18,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: label_style()
-                )
-            }
+                left: 18,
+                top: 72,
+                width: 280,
+                height: 14,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "BLOCKED CELLS",
+                position: Position::Absolute,
+                left: 18,
+                top: 180,
+                width: 280,
+                height: 14,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "试运行 tick",
+                position: Position::Absolute,
+                left: 327,
+                top: 83,
+                width: 90,
+                height: 14,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "累计投料",
+                position: Position::Absolute,
+                left: 327,
+                top: 112,
+                width: 90,
+                height: 14,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "正确交付",
+                position: Position::Absolute,
+                left: 327,
+                top: 141,
+                width: 90,
+                height: 14,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "退回产品",
+                position: Position::Absolute,
+                left: 327,
+                top: 170,
+                width: 90,
+                height: 14,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                "当前在制",
+                position: Position::Absolute,
+                left: 327,
+                top: 199,
+                width: 90,
+                height: 14,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+            Text (
+                text: ${ format_args!("{}", model.tick()) },
+                text_capacity: 8,
+                id: "factory_telemetry_tick",
+                position: Position::Absolute,
+                left: 419,
+                top: 81,
+                width: 35,
+                height: 18,
+                font_size: 12,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                text: ${ format_args!("{}", model.produced()) },
+                text_capacity: 8,
+                id: "factory_telemetry_produced",
+                position: Position::Absolute,
+                left: 419,
+                top: 110,
+                width: 35,
+                height: 18,
+                font_size: 12,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                text: ${ format_args!("{}", model.delivered()) },
+                text_capacity: 8,
+                id: "factory_telemetry_delivered",
+                position: Position::Absolute,
+                left: 419,
+                top: 139,
+                width: 35,
+                height: 18,
+                font_size: 12,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                text: ${ format_args!("{}", model.rejected()) },
+                text_capacity: 8,
+                id: "factory_telemetry_rejected",
+                position: Position::Absolute,
+                left: 419,
+                top: 168,
+                width: 35,
+                height: 18,
+                font_size: 12,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                text: ${ format_args!("{}", model.wip()) },
+                text_capacity: 8,
+                id: "factory_telemetry_wip",
+                position: Position::Absolute,
+                left: 419,
+                top: 197,
+                width: 35,
+                height: 18,
+                font_size: 12,
+                text_color: INK,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+            )
+            Text (
+                "曲线来自真实模型状态，不是设备性能数据。",
+                position: Position::Absolute,
+                left: 16,
+                top: 259,
+                width: 447,
+                height: 18,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: label_style()
+            )
+        }
     }
 }
 
 #[compose(bind(model))]
 fn compose_footer(model: FactoryModel) -> Entity {
     ui! {
-            Button (
-                "＋ 建造",
-                id: "factory_footer_0",
-                position: Position::Absolute,
-                left: 8,
-                top: 287,
-                width: 88,
-                height: 28,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(model.modal() == FactoryModal::Tools, true) },
-                pressed_color: ACCENT,
-                text_color: BACKGROUND,
-                border_radius: 0
-            ) on Tap { model.open_modal(FactoryModal::Tools); }
+        Button (
+            "＋ 建造",
+            id: "factory_footer_0",
+            position: Position::Absolute,
+            left: 8,
+            top: 287,
+            width: 88,
+            height: 28,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ${ control_color(model.modal() == FactoryModal::Tools, true) },
+            pressed_color: ACCENT,
+            text_color: BACKGROUND,
+            border_radius: 0
+        ) on Tap { model.open_modal(FactoryModal::Tools); }
     };
     ui! {
-            Button (
-                "旋转 ↻",
-                id: "factory_footer_1",
-                position: Position::Absolute,
-                left: 101,
-                top: 287,
-                width: 88,
-                height: 28,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(
+        Button (
+            "旋转 ↻",
+            id: "factory_footer_1",
+            position: Position::Absolute,
+            left: 101,
+            top: 287,
+            width: 88,
+            height: 28,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ${
+                control_color(
                     false,
-                    model.tool() != FactoryTool::Select || model.selected_cell().is_some_and(|cell| {
-                        !matches!(cell.kind, ModuleKind::Source | ModuleKind::Dock)
-                    }),
-                ) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(
+                    model.tool() != FactoryTool::Select
+                        || model
+                            .selected_cell()
+                            .is_some_and(|cell| {
+                                !matches!(cell.kind, ModuleKind::Source | ModuleKind::Dock)
+                            }),
+                )
+            },
+            pressed_color: ACCENT,
+            text_color: ${
+                control_text_color(
                     false,
-                    model.tool() != FactoryTool::Select || model.selected_cell().is_some_and(|cell| {
-                        !matches!(cell.kind, ModuleKind::Source | ModuleKind::Dock)
-                    }),
-                ) },
-                border_radius: 0
-            ) on Tap { let _ = model.rotate_active(); }
+                    model.tool() != FactoryTool::Select
+                        || model
+                            .selected_cell()
+                            .is_some_and(|cell| {
+                                !matches!(cell.kind, ModuleKind::Source | ModuleKind::Dock)
+                            }),
+                )
+            },
+            border_radius: 0
+        ) on Tap { let _ = model.rotate_active(); }
     };
     ui! {
-            Button (
-                "撤销",
-                id: "factory_footer_2",
-                position: Position::Absolute,
-                left: 194,
-                top: 287,
-                width: 83,
-                height: 28,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(false, model.history_len() > 0) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(false, model.history_len() > 0) },
-                border_radius: 0
-            ) on Tap { model.undo(); }
+        Button (
+            "撤销",
+            id: "factory_footer_2",
+            position: Position::Absolute,
+            left: 194,
+            top: 287,
+            width: 83,
+            height: 28,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ${ control_color(false, model.history_len() > 0) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(false, model.history_len() > 0) },
+            border_radius: 0
+        ) on Tap { model.undo(); }
     };
     ui! {
-            Button (
-                "单步",
-                id: "factory_footer_3",
-                position: Position::Absolute,
-                left: 282,
-                top: 287,
-                width: 82,
-                height: 28,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(false, model.power() <= model.mission().power) },
-                pressed_color: ACCENT,
-                text_color: ${ control_text_color(false, model.power() <= model.mission().power) },
-                border_radius: 0
-            ) on Tap { let _ = model.step_once(); }
+        Button (
+            "单步",
+            id: "factory_footer_3",
+            position: Position::Absolute,
+            left: 282,
+            top: 287,
+            width: 82,
+            height: 28,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ${ control_color(false, model.power() <= model.mission().power) },
+            pressed_color: ACCENT,
+            text_color: ${ control_text_color(false, model.power() <= model.mission().power) },
+            border_radius: 0
+        ) on Tap { let _ = model.step_once(); }
     };
     ui! {
-            Button (
-                text: ${ if model.running() { "Ⅱ 暂停" } else { "▶ 运行" } },
-                text_capacity: 12,
-                id: "factory_footer_4",
-                position: Position::Absolute,
-                left: 369,
-                top: 287,
-                width: 103,
-                height: 28,
-                size: ButtonSize::Compact,
-                font_size: 9,
-                normal_color: ${ control_color(true, model.power() <= model.mission().power) },
-                pressed_color: INK,
-                text_color: ${ control_text_color(true, model.power() <= model.mission().power) },
-                border_radius: 0
-            ) on Tap { let _ = model.toggle_run(); }
+        Button (
+            text: ${ if model.running() { "Ⅱ 暂停" } else { "▶ 运行" } },
+            text_capacity: 12,
+            id: "factory_footer_4",
+            position: Position::Absolute,
+            left: 369,
+            top: 287,
+            width: 103,
+            height: 28,
+            size: ButtonSize::Compact,
+            font_size: 9,
+            normal_color: ${ control_color(true, model.power() <= model.mission().power) },
+            pressed_color: INK,
+            text_color: ${ control_text_color(true, model.power() <= model.mission().power) },
+            border_radius: 0
+        ) on Tap { let _ = model.toggle_run(); }
     }
 }
 

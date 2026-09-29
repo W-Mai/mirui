@@ -467,7 +467,12 @@ fn compose_footer(model: PostModel) -> Entity {
             font_size: 10,
             normal_color: ${ control_color(model.running() || !model.started(), model.modal() == PostModal::None) },
             pressed_color: ACCENT,
-            text_color: ${ control_text_color(model.running() || !model.started(), model.modal() == PostModal::None) },
+            text_color: ${
+                control_text_color(
+                    model.running() || !model.started(),
+                    model.modal() == PostModal::None,
+                )
+            },
             border_radius: 7
         ) on Tap { model.toggle_running(); }
     };
@@ -547,254 +552,254 @@ pub(super) fn build_widgets(model: PostModel) {
 fn compose_modal(model: PostModel) -> Entity {
     ui! {
         View (
-                id: "post_modal",
+            id: "post_modal",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320,
+            clip_children: true,
+            visible: ${ model.modal() != PostModal::None }
+        ) [
+            PostModalSurface {
+                model: model.clone(),
+            },
+            TouchAction::None,
+        ] on Tap { }
+        {
+            Text (
+                text: ${ modal_title(model.modal()) },
+                text_capacity: 24,
+                id: "post_modal_title",
                 position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: 480,
-                height: 320,
-                clip_children: true,
-                visible: ${ model.modal() != PostModal::None }
-            ) [
-                PostModalSurface {
-                    model: model.clone(),
-                },
-                TouchAction::None,
-            ] on Tap { }
-            {
-                Text (
-                    text: ${ modal_title(model.modal()) },
-                    text_capacity: 24,
-                    id: "post_modal_title",
-                    position: Position::Absolute,
-                    left: 29,
-                    top: 76,
-                    width: 390,
-                    height: 22,
-                    font_size: 13,
-                    text_color: TEXT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    text: ${ modal_subtitle(model.modal()) },
-                    text_capacity: 72,
-                    id: "post_modal_subtitle",
-                    position: Position::Absolute,
-                    left: 29,
-                    top: 96,
-                    width: 410,
-                    height: 15,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Button (
-                    "×",
-                    position: Position::Absolute,
-                    left: 428,
-                    top: 73,
-                    width: 24,
-                    height: 22,
-                    size: ButtonSize::Compact,
-                    font_size: 12,
-                    normal_color: CONTROL,
-                    pressed_color: ACCENT,
-                    text_color: TEXT,
-                    border_radius: 6
-                ) on Tap { model.close_modal(); }
-                Button (
-                    "晨间邮路 · 9 件",
-                    id: "post_manifest_0",
-                    visible: ${ model.modal() == PostModal::Manifests },
-                    position: Position::Absolute,
-                    left: 29,
-                    top: 113,
-                    width: 420,
-                    height: 37,
-                    size: ButtonSize::Compact,
-                    font_size: 11,
-                    normal_color: ${ control_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
-                    pressed_color: ACCENT,
-                    text_color: ${ control_text_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
-                    border_radius: 7
-                ) on Tap { model.load_manifest(0); }
-                Button (
-                    "忙碌午后 · 12 件",
-                    id: "post_manifest_1",
-                    visible: ${ model.modal() == PostModal::Manifests },
-                    position: Position::Absolute,
-                    left: 29,
-                    top: 160,
-                    width: 420,
-                    height: 37,
-                    size: ButtonSize::Compact,
-                    font_size: 11,
-                    normal_color: ${ control_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
-                    pressed_color: ACCENT,
-                    text_color: ${ control_text_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
-                    border_radius: 7
-                ) on Tap { model.load_manifest(1); }
-                Button (
-                    "慢慢练习 · 6 件",
-                    id: "post_manifest_2",
-                    visible: ${ model.modal() == PostModal::Manifests },
-                    position: Position::Absolute,
-                    left: 29,
-                    top: 207,
-                    width: 420,
-                    height: 37,
-                    size: ButtonSize::Compact,
-                    font_size: 11,
-                    normal_color: ${ control_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
-                    pressed_color: ACCENT,
-                    text_color: ${ control_text_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
-                    border_radius: 7
-                ) on Tap { model.load_manifest(2); }
-                Text (
-                    text: ${ format_args!("{:04}", model.score()) },
-                    text_capacity: 5,
-                    id: "post_summary_score",
-                    visible: ${ model.modal() == PostModal::Summary },
-                    position: Position::Absolute,
-                    left: 42,
-                    top: 119,
-                    width: 175,
-                    height: 48,
-                    font_size: 35,
-                    text_color: ACCENT,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "POST POINTS",
-                    id: "post_summary_points",
-                    visible: ${ model.modal() == PostModal::Summary },
-                    position: Position::Absolute,
-                    left: 44,
-                    top: 166,
-                    width: 130,
-                    height: 13,
-                    font_size: 8,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    text: ${ format_args!("正确 {} 件", model.delivered()) },
-                    text_capacity: 14,
-                    id: "post_summary_correct",
-                    visible: ${ model.modal() == PostModal::Summary },
-                    position: Position::Absolute,
-                    left: 270,
-                    top: 121,
-                    width: 150,
-                    height: 22,
-                    font_size: 14,
-                    text_color: STATION_COLORS[0],
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    text: ${ format_args!("错投 {} 件", model.missed()) },
-                    text_capacity: 14,
-                    id: "post_summary_missed",
-                    visible: ${ model.modal() == PostModal::Summary },
-                    position: Position::Absolute,
-                    left: 270,
-                    top: 150,
-                    width: 150,
-                    height: 20,
-                    font_size: 12,
-                    text_color: STATION_COLORS[2],
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Button (
-                    "再开一班",
-                    id: "post_summary_again",
-                    visible: ${ model.modal() == PostModal::Summary },
-                    position: Position::Absolute,
-                    left: 29,
-                    top: 217,
-                    width: 204,
-                    height: 34,
-                    size: ButtonSize::Compact,
-                    font_size: 11,
-                    normal_color: ACCENT,
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 7
-                ) on Tap { model.restart(); }
-                Button (
-                    "换个班次",
-                    id: "post_summary_choose",
-                    visible: ${ model.modal() == PostModal::Summary },
-                    position: Position::Absolute,
-                    left: 245,
-                    top: 217,
-                    width: 204,
-                    height: 34,
-                    size: ButtonSize::Compact,
-                    font_size: 11,
-                    normal_color: CONTROL,
-                    pressed_color: ACCENT,
-                    text_color: TEXT,
-                    border_radius: 7
-                ) on Tap { model.open_manifests(); }
-                Text (
-                    "只影响当前内存中的进度。",
-                    id: "post_reset_note",
-                    visible: ${ model.modal() == PostModal::Reset },
-                    position: Position::Absolute,
-                    left: 171,
-                    top: 146,
-                    width: 257,
-                    height: 16,
-                    font_size: 9,
-                    text_color: MUTED,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Button (
-                    "重新开始",
-                    id: "post_reset_confirm",
-                    visible: ${ model.modal() == PostModal::Reset },
-                    position: Position::Absolute,
-                    left: 171,
-                    top: 185,
-                    width: 257,
-                    height: 32,
-                    size: ButtonSize::Compact,
-                    font_size: 11,
-                    normal_color: ACCENT,
-                    pressed_color: ACCENT,
-                    text_color: BACKGROUND,
-                    border_radius: 7
-                ) on Tap { model.restart(); }
-                Button (
-                    "保留班次",
-                    id: "post_reset_cancel",
-                    visible: ${ model.modal() == PostModal::Reset },
-                    position: Position::Absolute,
-                    left: 171,
-                    top: 225,
-                    width: 257,
-                    height: 25,
-                    size: ButtonSize::Compact,
-                    font_size: 10,
-                    normal_color: CONTROL,
-                    pressed_color: ACCENT,
-                    text_color: TEXT,
-                    border_radius: 7
-                ) on Tap { model.close_modal(); }
-                Text (
-                    "当前班次",
-                    id: "post_reset_badge",
-                    visible: ${ model.modal() == PostModal::Reset },
-                    position: Position::Absolute,
-                    left: 67,
-                    top: 226,
-                    width: 61,
-                    height: 14,
-                    font_size: 8,
-                    text_color: ACCENT,
-                    paragraph: ParagraphStyle::label()
-                )
+                left: 29,
+                top: 76,
+                width: 390,
+                height: 22,
+                font_size: 13,
+                text_color: TEXT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ modal_subtitle(model.modal()) },
+                text_capacity: 72,
+                id: "post_modal_subtitle",
+                position: Position::Absolute,
+                left: 29,
+                top: 96,
+                width: 410,
+                height: 15,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Button (
+                "×",
+                position: Position::Absolute,
+                left: 428,
+                top: 73,
+                width: 24,
+                height: 22,
+                size: ButtonSize::Compact,
+                font_size: 12,
+                normal_color: CONTROL,
+                pressed_color: ACCENT,
+                text_color: TEXT,
+                border_radius: 6
+            ) on Tap { model.close_modal(); }
+            Button (
+                "晨间邮路 · 9 件",
+                id: "post_manifest_0",
+                visible: ${ model.modal() == PostModal::Manifests },
+                position: Position::Absolute,
+                left: 29,
+                top: 113,
+                width: 420,
+                height: 37,
+                size: ButtonSize::Compact,
+                font_size: 11,
+                normal_color: ${ control_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
+                pressed_color: ACCENT,
+                text_color: ${ control_text_color(model.manifest_id() == 0, model.modal() == PostModal::Manifests) },
+                border_radius: 7
+            ) on Tap { model.load_manifest(0); }
+            Button (
+                "忙碌午后 · 12 件",
+                id: "post_manifest_1",
+                visible: ${ model.modal() == PostModal::Manifests },
+                position: Position::Absolute,
+                left: 29,
+                top: 160,
+                width: 420,
+                height: 37,
+                size: ButtonSize::Compact,
+                font_size: 11,
+                normal_color: ${ control_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
+                pressed_color: ACCENT,
+                text_color: ${ control_text_color(model.manifest_id() == 1, model.modal() == PostModal::Manifests) },
+                border_radius: 7
+            ) on Tap { model.load_manifest(1); }
+            Button (
+                "慢慢练习 · 6 件",
+                id: "post_manifest_2",
+                visible: ${ model.modal() == PostModal::Manifests },
+                position: Position::Absolute,
+                left: 29,
+                top: 207,
+                width: 420,
+                height: 37,
+                size: ButtonSize::Compact,
+                font_size: 11,
+                normal_color: ${ control_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
+                pressed_color: ACCENT,
+                text_color: ${ control_text_color(model.manifest_id() == 2, model.modal() == PostModal::Manifests) },
+                border_radius: 7
+            ) on Tap { model.load_manifest(2); }
+            Text (
+                text: ${ format_args!("{:04}", model.score()) },
+                text_capacity: 5,
+                id: "post_summary_score",
+                visible: ${ model.modal() == PostModal::Summary },
+                position: Position::Absolute,
+                left: 42,
+                top: 119,
+                width: 175,
+                height: 48,
+                font_size: 35,
+                text_color: ACCENT,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                "POST POINTS",
+                id: "post_summary_points",
+                visible: ${ model.modal() == PostModal::Summary },
+                position: Position::Absolute,
+                left: 44,
+                top: 166,
+                width: 130,
+                height: 13,
+                font_size: 8,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ format_args!("正确 {} 件", model.delivered()) },
+                text_capacity: 14,
+                id: "post_summary_correct",
+                visible: ${ model.modal() == PostModal::Summary },
+                position: Position::Absolute,
+                left: 270,
+                top: 121,
+                width: 150,
+                height: 22,
+                font_size: 14,
+                text_color: STATION_COLORS[0],
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Text (
+                text: ${ format_args!("错投 {} 件", model.missed()) },
+                text_capacity: 14,
+                id: "post_summary_missed",
+                visible: ${ model.modal() == PostModal::Summary },
+                position: Position::Absolute,
+                left: 270,
+                top: 150,
+                width: 150,
+                height: 20,
+                font_size: 12,
+                text_color: STATION_COLORS[2],
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Button (
+                "再开一班",
+                id: "post_summary_again",
+                visible: ${ model.modal() == PostModal::Summary },
+                position: Position::Absolute,
+                left: 29,
+                top: 217,
+                width: 204,
+                height: 34,
+                size: ButtonSize::Compact,
+                font_size: 11,
+                normal_color: ACCENT,
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 7
+            ) on Tap { model.restart(); }
+            Button (
+                "换个班次",
+                id: "post_summary_choose",
+                visible: ${ model.modal() == PostModal::Summary },
+                position: Position::Absolute,
+                left: 245,
+                top: 217,
+                width: 204,
+                height: 34,
+                size: ButtonSize::Compact,
+                font_size: 11,
+                normal_color: CONTROL,
+                pressed_color: ACCENT,
+                text_color: TEXT,
+                border_radius: 7
+            ) on Tap { model.open_manifests(); }
+            Text (
+                "只影响当前内存中的进度。",
+                id: "post_reset_note",
+                visible: ${ model.modal() == PostModal::Reset },
+                position: Position::Absolute,
+                left: 171,
+                top: 146,
+                width: 257,
+                height: 16,
+                font_size: 9,
+                text_color: MUTED,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+            Button (
+                "重新开始",
+                id: "post_reset_confirm",
+                visible: ${ model.modal() == PostModal::Reset },
+                position: Position::Absolute,
+                left: 171,
+                top: 185,
+                width: 257,
+                height: 32,
+                size: ButtonSize::Compact,
+                font_size: 11,
+                normal_color: ACCENT,
+                pressed_color: ACCENT,
+                text_color: BACKGROUND,
+                border_radius: 7
+            ) on Tap { model.restart(); }
+            Button (
+                "保留班次",
+                id: "post_reset_cancel",
+                visible: ${ model.modal() == PostModal::Reset },
+                position: Position::Absolute,
+                left: 171,
+                top: 225,
+                width: 257,
+                height: 25,
+                size: ButtonSize::Compact,
+                font_size: 10,
+                normal_color: CONTROL,
+                pressed_color: ACCENT,
+                text_color: TEXT,
+                border_radius: 7
+            ) on Tap { model.close_modal(); }
+            Text (
+                "当前班次",
+                id: "post_reset_badge",
+                visible: ${ model.modal() == PostModal::Reset },
+                position: Position::Absolute,
+                left: 67,
+                top: 226,
+                width: 61,
+                height: 14,
+                font_size: 8,
+                text_color: ACCENT,
+                paragraph: ParagraphStyle::label()
+            )
         }
     }
 }
