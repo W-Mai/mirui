@@ -189,8 +189,12 @@ impl fmt::Display for SummaryLine {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn map_level_button(game: FoldModel, expedition: ExpeditionUiModel, slot: u8) -> Entity {
+#[compose]
+fn map_level_button(
+    game: model!(FoldModel),
+    expedition: model!(ExpeditionUiModel),
+    slot: u8,
+) -> Entity {
     ui! {
         View (grow: 1.0, height: 57) {
             if ${ expedition.chapter() * 6 + slot > game.unlocked() } {
@@ -239,8 +243,8 @@ fn map_level_button(game: FoldModel, expedition: ExpeditionUiModel, slot: u8) ->
     }
 }
 
-#[compose(bind(game))]
-fn compose_hud(game: FoldModel) -> Entity {
+#[compose]
+fn compose_hud(game: model!(FoldModel)) -> Entity {
     ui! {
         Text (
             "FOLDING ARK",
@@ -312,8 +316,8 @@ fn compose_hud(game: FoldModel) -> Entity {
     }
 }
 
-#[compose(bind(game))]
-fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
+#[compose]
+fn compose_controls(game: model!(FoldModel), hints: FoldHintService) -> Entity {
     ui! {
         Button (
             "↑",
@@ -412,8 +416,8 @@ fn compose_controls(game: FoldModel, hints: FoldHintService) -> Entity {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_footer(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_footer(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         Text (
             text: ${ StatusText(game.message()) },
@@ -518,8 +522,11 @@ fn compose_footer(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_result_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_result_overlay(
+    game: model!(FoldModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "fold_result",
@@ -618,8 +625,8 @@ fn compose_result_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Ent
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_map_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_map_overlay(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         View (
             id: "fold_map",
@@ -806,8 +813,8 @@ fn compose_map_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity
     }
 }
 
-#[compose(bind(expedition))]
-fn compose_rules_overlay(expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         View (
             id: "fold_rules",
@@ -896,8 +903,11 @@ fn compose_rules_overlay(expedition: ExpeditionUiModel) -> Entity {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_briefing_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_briefing_overlay(
+    game: model!(FoldModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "fold_briefing",
@@ -985,8 +995,11 @@ fn compose_briefing_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> E
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_summary_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_summary_overlay(
+    game: model!(FoldModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "fold_summary",
@@ -1185,8 +1198,12 @@ fn compose_summary_overlay(game: FoldModel, expedition: ExpeditionUiModel) -> En
     }
 }
 
-#[compose(bind(game, expedition))]
-fn build_widgets(game: FoldModel, expedition: ExpeditionUiModel, hints: FoldHintService) {
+#[compose]
+fn build_widgets(
+    game: model!(FoldModel),
+    expedition: model!(ExpeditionUiModel),
+    hints: FoldHintService,
+) {
     ui! {
         View (id: "fold_surface", width: 480, height: 320, clip_children: true) [
             FoldSurface { game: game.clone() },

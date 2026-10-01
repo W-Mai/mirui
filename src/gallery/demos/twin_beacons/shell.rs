@@ -180,8 +180,12 @@ impl fmt::Display for SummaryLine {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn map_level_button(game: TwinModel, expedition: ExpeditionUiModel, slot: u8) -> Entity {
+#[compose]
+fn map_level_button(
+    game: model!(TwinModel),
+    expedition: model!(ExpeditionUiModel),
+    slot: u8,
+) -> Entity {
     ui! {
         View (grow: 1.0, height: 57) {
             if ${ expedition.chapter() * 6 + slot > game.unlocked() } {
@@ -230,8 +234,8 @@ fn map_level_button(game: TwinModel, expedition: ExpeditionUiModel, slot: u8) ->
     }
 }
 
-#[compose(bind(game))]
-fn compose_hud(game: TwinModel) -> Entity {
+#[compose]
+fn compose_hud(game: model!(TwinModel)) -> Entity {
     ui! {
         Text (
             "TWIN BEACONS",
@@ -329,8 +333,8 @@ fn compose_hud(game: TwinModel) -> Entity {
     }
 }
 
-#[compose(bind(game))]
-fn compose_controls(game: TwinModel, hints: TwinHintService) -> Entity {
+#[compose]
+fn compose_controls(game: model!(TwinModel), hints: TwinHintService) -> Entity {
     ui! {
         Button (
             "↑",
@@ -429,8 +433,8 @@ fn compose_controls(game: TwinModel, hints: TwinHintService) -> Entity {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_footer(game: TwinModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_footer(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         Text (
             text: ${ StatusText(game.message()) },
@@ -548,8 +552,11 @@ fn compose_footer(game: TwinModel, expedition: ExpeditionUiModel) -> Entity {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_result_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_result_overlay(
+    game: model!(TwinModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "twin_result",
@@ -648,8 +655,8 @@ fn compose_result_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> Ent
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_map_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         View (
             id: "twin_map",
@@ -836,8 +843,8 @@ fn compose_map_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> Entity
     }
 }
 
-#[compose(bind(expedition))]
-fn compose_rules_overlay(expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         View (
             id: "twin_rules",
@@ -926,8 +933,11 @@ fn compose_rules_overlay(expedition: ExpeditionUiModel) -> Entity {
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_briefing_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_briefing_overlay(
+    game: model!(TwinModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "twin_briefing",
@@ -1015,8 +1025,11 @@ fn compose_briefing_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> E
     }
 }
 
-#[compose(bind(game, expedition))]
-fn compose_summary_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_summary_overlay(
+    game: model!(TwinModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "twin_summary",
@@ -1215,8 +1228,12 @@ fn compose_summary_overlay(game: TwinModel, expedition: ExpeditionUiModel) -> En
     }
 }
 
-#[compose(bind(game, expedition))]
-fn build_widgets(game: TwinModel, expedition: ExpeditionUiModel, hints: TwinHintService) {
+#[compose]
+fn build_widgets(
+    game: model!(TwinModel),
+    expedition: model!(ExpeditionUiModel),
+    hints: TwinHintService,
+) {
     ui! {
         View (id: "twin_surface", width: 480, height: 320, clip_children: true) [
             TwinSurface { game: game.clone() },

@@ -8,9 +8,9 @@ use crate::gallery::play::expeditions::{
 };
 use crate::gallery::play::twin::TwinModel;
 
-#[crate::component(bind(game))]
+#[crate::component]
 pub(super) struct TwinSurface {
-    pub(super) game: TwinModel,
+    pub(super) game: model!(TwinModel),
 }
 
 #[derive(Clone)]

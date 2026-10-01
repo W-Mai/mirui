@@ -5,8 +5,6 @@ use crate::gallery::play::expeditions::TwinCell;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::twin::TwinModel;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_board(
     painter: &mut PlayPainter<'_, '_>,
@@ -67,18 +65,13 @@ fn paint_board(
     painter.circle(Point::new(x, y), Fixed::from_int(3), BG);
 }
 
-#[crate::view(
-    component = TwinSurface,
-    read(game),
-    watch(game.visual_revision()),
-    name = "TwinSurface",
-    priority = 60
-)]
+#[crate::view(name = "TwinSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    game: &TwinModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(TwinSurface),
+    game: model!(surface.game, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);

@@ -5,8 +5,6 @@ use crate::gallery::play::expeditions::FoldCell;
 use crate::gallery::play::fold::FoldModel;
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &FoldModel) {
     let level = model.level();
@@ -70,18 +68,13 @@ fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &FoldModel) {
     }
 }
 
-#[crate::view(
-    component = FoldSurface,
-    read(game),
-    watch(game.visual_revision()),
-    name = "FoldSurface",
-    priority = 60
-)]
+#[crate::view(name = "FoldSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    game: &FoldModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(FoldSurface),
+    game: model!(surface.game, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
