@@ -229,7 +229,7 @@ fn mixed_bidi_sample_ellipsizes_within_its_card() {
 }
 
 #[test]
-fn path_tap_updates_the_caret_probe() {
+fn path_tap_updates_the_probe_and_subscribed_caret_views() {
     let mut world = fixture();
     let sample = world.find_by_id("typography_path_sample").unwrap();
     let overlay = sample;
@@ -256,7 +256,7 @@ fn path_tap_updates_the_caret_probe() {
         Some(Point::new(42, 55))
     );
     assert!(world.has::<crate::ui::dirty::VisualDirty>(overlay));
-    assert!(!world.has::<crate::ui::dirty::VisualDirty>(live_overlay));
+    assert!(world.has::<crate::ui::dirty::VisualDirty>(live_overlay));
     world.remove::<crate::ui::dirty::VisualDirty>(overlay);
 
     GestureHandler::trigger(

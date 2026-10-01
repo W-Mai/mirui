@@ -3,11 +3,17 @@ use super::geometry::{TEXT_WINDOW, WAVE};
 use super::runtime::{compact_curve_animation_system, install};
 use super::style::BACKGROUND;
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::prelude::*;
 use crate::render::font::FontToken;
 use crate::render::path::PathCmd;
 use crate::surface::FramebufferAccess;
+
+fn run_compact_animation(world: &mut World) {
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(compact_curve_animation_system::system());
+    scheduler.run_all(world);
+}
 
 #[test]
 fn wave_has_fixed_topology_and_alternating_extrema() {
@@ -50,7 +56,7 @@ fn embedded_layout_uses_bitmap_text_and_constant_path_window() {
     );
 
     app.world.insert_resource(DeltaTimeMs(16));
-    compact_curve_animation_system(&mut app.world);
+    run_compact_animation(&mut app.world);
     let current = *app.world.get::<crate::text::TextPath>(text).unwrap();
     assert!(current.offset() > initial.offset());
     assert_eq!(
@@ -80,7 +86,7 @@ fn compact_shell_resolves_the_active_theme() {
 }
 
 #[test]
-#[should_panic(expected = "Compact Curve Text animation requires DeltaTimeMs")]
+#[should_panic(expected = "requires resource")]
 fn compact_curve_motion_requires_frame_delta() {
-    compact_curve_animation_system(&mut World::new());
+    run_compact_animation(&mut World::new());
 }

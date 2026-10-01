@@ -5,7 +5,7 @@ use super::state::{BASE_STAGE_HEIGHT, BASE_STAGE_WIDTH, CurveModel, CurveStageSi
 use super::style::BACKGROUND;
 use super::{VIEWPORT, install};
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
@@ -33,6 +33,12 @@ fn fixture() -> TestApp {
     ViewRegistry::reconcile_observations(&mut app.world);
     flush_signal_dirty(&mut app.world);
     app
+}
+
+fn run_curve_animation(world: &mut World) {
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(curve_text_animation_system::system());
+    scheduler.run_all(world);
 }
 
 fn model_handle(world: &World) -> CurveHandle {
@@ -353,7 +359,7 @@ fn animation_reuses_fixed_path_topology_and_capacity() {
     });
     app.world.insert_resource(DeltaTimeMs(16));
     for _ in 0..12 {
-        curve_text_animation_system(&mut app.world);
+        run_curve_animation(&mut app.world);
         flush_signal_dirty(&mut app.world);
     }
     for (index, id) in paths.ids.into_iter().enumerate() {
@@ -366,10 +372,10 @@ fn animation_reuses_fixed_path_topology_and_capacity() {
 }
 
 #[test]
-#[should_panic(expected = "Curve Text animation requires DeltaTimeMs")]
+#[should_panic(expected = "requires resource")]
 fn animation_requires_elapsed_time() {
     let mut app = fixture();
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
 }
 
 #[test]
@@ -379,7 +385,7 @@ fn every_stage_requires_its_own_motion_state() {
     let stage = stage_entity(&app.world);
     app.world.remove::<CurveMotion>(stage);
     app.world.insert_resource(DeltaTimeMs(16));
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
 }
 
 #[test]
@@ -402,7 +408,7 @@ fn animation_advances_each_registered_stage_instance() {
     ));
     app.world.insert_resource(DeltaTimeMs(50));
 
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
 
     assert!(forward.phase() > Fixed::ZERO);
     assert!(reverse.phase() > Fixed::from_int(300));
@@ -425,7 +431,7 @@ fn phase_changes_dirty_only_the_stage_and_path_text() {
     app.world.remove::<VisualDirty>(unrelated);
     app.world.insert_resource(DeltaTimeMs(50));
 
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     flush_signal_dirty(&mut app.world);
 
     for entity in observed {
@@ -438,24 +444,24 @@ fn phase_changes_dirty_only_the_stage_and_path_text() {
 fn pause_brakes_and_resume_continues_from_relative_phase() {
     let mut app = fixture();
     app.world.insert_resource(DeltaTimeMs(50));
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     let model = model_handle(&app.world);
     let moving = model.phase();
 
     tap(&mut app.world, "curve_text_pause");
     for _ in 0..12 {
-        curve_text_animation_system(&mut app.world);
+        run_curve_animation(&mut app.world);
     }
     let stopped = model.phase();
     assert!(stopped > moving);
     assert_eq!(motion_rate(&app.world), Fixed::ZERO);
 
     app.world.insert_resource(DeltaTimeMs(5_000));
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     assert_eq!(model.phase(), stopped);
 
     tap(&mut app.world, "curve_text_pause");
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     assert!(model.phase() > stopped);
     assert!(motion_rate(&app.world) < Fixed::ONE);
 }
@@ -466,7 +472,7 @@ fn fully_braked_animation_does_not_redirty_the_stage() {
     app.world.insert_resource(DeltaTimeMs(50));
     tap(&mut app.world, "curve_text_pause");
     for _ in 0..12 {
-        curve_text_animation_system(&mut app.world);
+        run_curve_animation(&mut app.world);
         flush_signal_dirty(&mut app.world);
     }
     assert_eq!(motion_rate(&app.world), Fixed::ZERO);
@@ -479,7 +485,7 @@ fn fully_braked_animation_does_not_redirty_the_stage() {
     ];
     clear_visual_dirty(&mut app.world, &observed);
 
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     flush_signal_dirty(&mut app.world);
 
     for entity in observed {
@@ -532,12 +538,12 @@ fn reverse_control_applies_to_the_next_motion_step() {
     let model = model_handle(&app.world);
     app.world.insert_resource(DeltaTimeMs(50));
 
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     let forward = model.phase();
     assert!(forward > Fixed::ZERO);
 
     tap(&mut app.world, "curve_text_direction");
-    curve_text_animation_system(&mut app.world);
+    run_curve_animation(&mut app.world);
     assert!(model.reversed());
     assert!(model.phase() < forward);
 }

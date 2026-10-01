@@ -6,17 +6,16 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::render::path::PathStore;
+use crate::ui::property::prop;
 
-#[mirui_macros::system(order = ANIMATION)]
-pub(super) fn compact_curve_animation_system(world: &mut World) {
-    let dt = world
-        .resource::<DeltaTimeMs>()
-        .expect("Compact Curve Text animation requires DeltaTimeMs")
-        .0
-        .min(50);
-    let Some(motion) = world.resource_mut::<CompactCurveMotion>() else {
-        return;
-    };
+#[mirui_macros::system(order = Animation)]
+pub(super) fn compact_curve_animation_system(
+    delta: res!(DeltaTimeMs),
+    motion: res!(mut CompactCurveMotion),
+    nodes: res!(CompactCurveNodes),
+    commands: commands!(),
+) {
+    let dt = delta.0.min(50);
     let phase = motion.0.advance(
         dt,
         520,
@@ -25,12 +24,7 @@ pub(super) fn compact_curve_animation_system(world: &mut World) {
         false,
         Fixed::from_int(360),
     );
-    let Some(nodes) = world.resource::<CompactCurveNodes>().copied() else {
-        return;
-    };
-    if let Some(mut text) = world.widget_mut(nodes.text) {
-        text.text_path(text_path(nodes.path, phase));
-    }
+    commands.set::<prop::TextPath>(nodes.text, text_path(nodes.path, phase));
 }
 
 pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)

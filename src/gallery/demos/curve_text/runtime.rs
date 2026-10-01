@@ -9,14 +9,14 @@ use crate::ui::{LayoutAxis, LayoutDependency};
 #[derive(Default)]
 pub(super) struct CurveMotion(super::super::motion::BrakedPhase);
 
-#[compose(bind(model))]
+#[compose]
 pub(super) fn bind_stage_layout(
     stage: Entity,
     primary: Entity,
     multiscript: Entity,
     caption: Entity,
     paths: CurvePaths,
-    model: CurveModel,
+    model: model!(CurveModel),
 ) {
     let dependencies = [
         LayoutDependency::entity(stage, LayoutAxis::Width),
@@ -40,51 +40,46 @@ pub(super) fn bind_stage_layout(
     });
 }
 
-#[mirui_macros::system(order = ANIMATION, expect = CurveStage)]
-pub(super) fn curve_text_animation_system(world: &mut World) {
+#[mirui_macros::system(order = Animation, expect = CurveStage)]
+pub(super) fn curve_text_animation_system(
+    delta: res!(DeltaTimeMs),
+    stages: query!(Entity; with CurveStage;),
+    animated: query!(CurveStage, mut CurveMotion),
+) {
     const MAX_STEP_MS: u16 = 50;
     const RATE_RAMP_MS: u16 = 520;
 
-    let dt = world
-        .resource::<DeltaTimeMs>()
-        .expect("Curve Text animation requires DeltaTimeMs")
-        .0
-        .min(MAX_STEP_MS);
-    world.for_each_stable::<CurveStage>(|world, entity| {
-        let model = world
-            .get::<CurveStage>(entity)
-            .expect("CurveStage disappeared during animation")
-            .model
-            .clone();
+    let dt = delta.0.min(MAX_STEP_MS);
+    let expected = stages.into_iter().count();
+    let mut updated = 0usize;
+    for (stage, motion) in animated {
+        updated += 1;
+        let model = &stage.model;
         let (paused, reversed, speed) = crate::core::model::with_model_read_only(|| {
-            crate::core::model::ModelHandle::read(&model, |model| {
+            crate::core::model::ModelHandle::read(model, |model| {
                 (model.paused(), model.reversed(), model.speed())
             })
         });
-        let phase = {
-            let motion = world
-                .get_mut::<CurveMotion>(entity)
-                .expect("CurveStage requires CurveMotion");
-            let direction = if reversed {
-                Fixed::from_int(-1)
-            } else {
-                Fixed::ONE
-            };
-            motion.0.advance(
-                dt,
-                RATE_RAMP_MS,
-                speed,
-                direction,
-                paused,
-                Fixed::from_int(360),
-            )
+        let direction = if reversed {
+            Fixed::from_int(-1)
+        } else {
+            Fixed::ONE
         };
+        let phase = motion.0.advance(
+            dt,
+            RATE_RAMP_MS,
+            speed,
+            direction,
+            paused,
+            Fixed::from_int(360),
+        );
         model.set_phase(phase);
-    });
+    }
+    assert_eq!(updated, expected, "CurveStage requires CurveMotion");
 }
 
-#[compose(bind(model))]
-pub(super) fn bind_curve_paths(stage: Entity, paths: CurvePaths, model: CurveModel) {
+#[compose]
+pub(super) fn bind_curve_paths(stage: Entity, paths: CurvePaths, model: model!(CurveModel)) {
     for (lane, path) in paths.ids.into_iter().enumerate() {
         let model = model.clone();
         cx.bind_path_visual(stage, path, move |geometry| {

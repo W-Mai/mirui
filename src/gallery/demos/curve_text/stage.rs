@@ -9,9 +9,9 @@ use crate::types::Transform;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct CurveStage {
-    pub(super) model: CurveModel,
+    pub(super) model: model!(CurveModel),
 }
 
 fn fill(
@@ -37,19 +37,17 @@ fn fill(
 }
 
 #[crate::view(
-    component = CurveStage,
-    read(model),
-    watch(model.phase()),
     name = "CurveStageBackdrop",
-    priority = 60
+    priority = 60,
+    invalidation = Visual
 )]
 pub(super) fn curve_stage_background_render(
-    renderer: &mut dyn Renderer,
-    component: &CurveStage,
-    model: &CurveModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    component: component!(CurveStage),
+    model: model!(component.model, watch(phase)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
     let _ = component;
     let panel = theme.resolve(PANEL);

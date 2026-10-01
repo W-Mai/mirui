@@ -92,8 +92,8 @@ fn typography_controls_height(document_width: Fixed) -> Fixed {
     Fixed::from_int(content_height + CONTROL_HORIZONTAL_PADDING)
 }
 
-#[compose(bind(model))]
-fn build_widgets(model: TypographyModel, wave_path: PathId) {
+#[compose]
+fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
     //~focus-start
     ui! {
         Scroll (
@@ -445,7 +445,7 @@ fn build_widgets(model: TypographyModel, wave_path: PathId) {
                                     model: model.clone(),
                                     follows_probe: true,
                                 },
-                            ] on Tap { model.set_path_probe(Point { x: *x, y: *y }); } on DragMove { model.set_path_probe(Point { x: *x, y: *y }); }
+                            ] on Tap { model.set_path_probe(Point { x, y }); } on DragMove { model.set_path_probe(Point { x, y }); }
                         }
                         View (id: "typography_projective_frame", height: 48, clip_children: true) [
                             WidgetTransform3D(
@@ -554,7 +554,7 @@ fn build_widgets(model: TypographyModel, wave_path: PathId) {
                                 thumb_color: TEXT
                             ) on ValueChanged {
                                 let _ = old;
-                                model.set_ppem(*new);
+                                model.set_ppem(new);
                             }
                             Text (
                                 id: "typography_ppem_value",
@@ -580,7 +580,7 @@ fn build_widgets(model: TypographyModel, wave_path: PathId) {
                                 thumb_color: TEXT
                             ) on ValueChanged {
                                 let _ = old;
-                                model.set_width(*new);
+                                model.set_width(new);
                             }
                             Text (
                                 id: "typography_width_value",

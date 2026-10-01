@@ -8,9 +8,9 @@ use crate::types::Transform;
 use crate::ui::Theme;
 use crate::ui::view::{View, ViewCtx};
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct CaretOverlay {
-    pub(super) model: TypographyModel,
+    pub(super) model: model!(TypographyModel),
     pub(super) follows_probe: bool,
 }
 
@@ -175,12 +175,14 @@ pub fn caret_overlay_view() -> View {
         bindings: &mut crate::ui::view::ViewObservationBindings,
     ) {
         let overlay = world.get::<CaretOverlay>(entity).expect("caret overlay");
-        if overlay.follows_probe {
-            bindings.watch(overlay.model.__mirui_subscribe_path_probe(world, entity));
-        }
+        bindings.watch(|invalidation| {
+            overlay
+                .model
+                .__mirui_subscribe_path_probe(world, entity, invalidation)
+        });
     }
 
     View::new("CaretOverlay", 61, caret_overlay_render)
         .with_filter::<CaretOverlay>()
-        .with_observation(observe)
+        .with_observation(observe, 1)
 }

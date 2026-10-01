@@ -75,8 +75,8 @@ fn compose_header() -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_stage(model: CurveModel, paths: CurvePaths) -> Entity {
+#[compose]
+fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
     ui! {
         View (
             id: "curve_text_stage_shell",
@@ -169,8 +169,8 @@ fn compose_stage(model: CurveModel, paths: CurvePaths) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_controls(model: CurveModel) -> Entity {
+#[compose]
+fn compose_controls(model: model!(CurveModel)) -> Entity {
     ui! {
         Row (
             id: "curve_text_controls",
@@ -224,7 +224,7 @@ fn compose_controls(model: CurveModel) -> Entity {
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
-                    model.set_amplitude(*new);
+                    model.set_amplitude(new);
                 }
                 Text (
                     id: "curve_text_amplitude_value",
@@ -252,7 +252,7 @@ fn compose_controls(model: CurveModel) -> Entity {
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
-                    model.set_speed(*new);
+                    model.set_speed(new);
                 }
                 Text (
                     id: "curve_text_speed_value",
@@ -301,8 +301,8 @@ fn compose_controls(model: CurveModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: CurveModel, paths: CurvePaths) {
+#[compose]
+pub(super) fn build_widgets(model: model!(CurveModel), paths: CurvePaths) {
     //~focus-start
     ui! {
         Scroll (
