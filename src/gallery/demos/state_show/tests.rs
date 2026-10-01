@@ -53,19 +53,17 @@ fn reactive_if_else_swaps_branch() {
 fn build_match_widgets(world: &mut World, parent: Entity) -> Signal<u8> {
     let mode = Signal::new(0u8);
     let m = mode.clone();
-    ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
-        Column (grow: 1.0) {
-            match $m {
-                0 => {
-                    Text ("zero", height: 30)
-                }
-                _ => {
-                    Text ("other", height: 30)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(world, parent);
+        ui! {
+            Column (grow: 1.0) {
+                match $m {
+                    0 => {
+                        Text ("zero", height: 30)
+                    }
+                    _ => {
+                        Text ("other", height: 30)
+                    }
                 }
             }
         }
@@ -106,20 +104,18 @@ fn reactive_match_swaps_arm() {
 fn build_sandwich(world: &mut World, parent: Entity) -> Signal<bool> {
     let flag = Signal::new(false);
     let f = flag.clone();
-    ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
-        Column (grow: 1.0) {
-            Text ("top", height: 20)
-            if $f {
-                Text ("on", height: 20)
-            } else {
-                Text ("off", height: 20)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(world, parent);
+        ui! {
+            Column (grow: 1.0) {
+                Text ("top", height: 20)
+                if $f {
+                    Text ("on", height: 20)
+                } else {
+                    Text ("off", height: 20)
+                }
+                Text ("bottom", height: 20)
             }
-            Text ("bottom", height: 20)
         }
     };
     flag

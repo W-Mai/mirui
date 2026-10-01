@@ -27,38 +27,34 @@ fn main() {
         .id();
 
     // FIRST in children: a fully opaque purple square at (60, 60) 80x80.
-    let purple = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(120, 40, 180),
-            position: Position::Absolute,
-            left: 60,
-            top: 60,
-            width: 80,
-            height: 80
-        )
+    let purple = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(120, 40, 180),
+                position: Position::Absolute,
+                left: 60,
+                top: 60,
+                width: 80,
+                height: 80
+            )
+        }
     };
 
     // SECOND in children: a fully opaque white square at (60, 60) 80x80
     // — exact same position, same size.
-    let white = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(245, 245, 250),
-            position: Position::Absolute,
-            left: 60,
-            top: 60,
-            width: 80,
-            height: 80
-        )
+    let white = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(245, 245, 250),
+                position: Position::Absolute,
+                left: 60,
+                top: 60,
+                width: 80,
+                height: 80
+            )
+        }
     };
 
     if let Some(c) = app.world.get::<mirui::ui::Children>(root) {

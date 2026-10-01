@@ -37,86 +37,82 @@ fn main() {
         })
         .id();
 
-    let tabs = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(40, 40, 56),
-            width: 480,
-            height: 40
-        ) [
-            TabBar::new(3).with_indicator_height(3),
-        ] {
-            Text (
-                "Home",
-                text_color: Color::rgb(220, 220, 230),
-                grow: 1.0,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "Search",
-                text_color: Color::rgb(220, 220, 230),
-                grow: 1.0,
-                paragraph: ParagraphStyle::label()
-            )
-            Text (
-                "Profile",
-                text_color: Color::rgb(220, 220, 230),
-                grow: 1.0,
-                paragraph: ParagraphStyle::label()
-            )
+    let tabs = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(40, 40, 56),
+                width: 480,
+                height: 40
+            ) [
+                TabBar::new(3).with_indicator_height(3),
+            ] {
+                Text (
+                    "Home",
+                    text_color: Color::rgb(220, 220, 230),
+                    grow: 1.0,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "Search",
+                    text_color: Color::rgb(220, 220, 230),
+                    grow: 1.0,
+                    paragraph: ParagraphStyle::label()
+                )
+                Text (
+                    "Profile",
+                    text_color: Color::rgb(220, 220, 230),
+                    grow: 1.0,
+                    paragraph: ParagraphStyle::label()
+                )
+            }
         }
     };
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (width: 480, height: 160) {
-            Text (
-                "Home page",
-                bg_color: Color::rgb(63, 185, 80),
-                text_color: Color::rgb(255, 255, 255),
-                width: 480,
-                height: 160,
-                paragraph: ParagraphStyle::label()
-            ) [
-                TabContent {
-                    tab_bar: tabs,
-                    index: 0,
-                },
-            ]
-            Text (
-                "Search page",
-                bg_color: Color::rgb(255, 165, 80),
-                text_color: Color::rgb(255, 255, 255),
-                width: 480,
-                height: 160,
-                paragraph: ParagraphStyle::label()
-            ) [
-                TabContent {
-                    tab_bar: tabs,
-                    index: 1,
-                },
-            ]
-            Text (
-                "Profile page",
-                bg_color: Color::rgb(210, 168, 255),
-                text_color: Color::rgb(40, 40, 56),
-                width: 480,
-                height: 160,
-                paragraph: ParagraphStyle::label()
-            ) [
-                TabContent {
-                    tab_bar: tabs,
-                    index: 2,
-                },
-            ]
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (width: 480, height: 160) {
+                Text (
+                    "Home page",
+                    bg_color: Color::rgb(63, 185, 80),
+                    text_color: Color::rgb(255, 255, 255),
+                    width: 480,
+                    height: 160,
+                    paragraph: ParagraphStyle::label()
+                ) [
+                    TabContent {
+                        tab_bar: tabs,
+                        index: 0,
+                    },
+                ]
+                Text (
+                    "Search page",
+                    bg_color: Color::rgb(255, 165, 80),
+                    text_color: Color::rgb(255, 255, 255),
+                    width: 480,
+                    height: 160,
+                    paragraph: ParagraphStyle::label()
+                ) [
+                    TabContent {
+                        tab_bar: tabs,
+                        index: 1,
+                    },
+                ]
+                Text (
+                    "Profile page",
+                    bg_color: Color::rgb(210, 168, 255),
+                    text_color: Color::rgb(40, 40, 56),
+                    width: 480,
+                    height: 160,
+                    paragraph: ParagraphStyle::label()
+                ) [
+                    TabContent {
+                        tab_bar: tabs,
+                        index: 2,
+                    },
+                ]
+            }
         }
     };
 

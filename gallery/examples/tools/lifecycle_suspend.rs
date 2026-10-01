@@ -76,42 +76,40 @@ fn build_ui(world: &mut World, parent: Entity, counters: LifecycleCounters) {
     let suspend_label = counters.on_suspend.clone();
     let resume_label = counters.on_resume.clone();
 
-    ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
-        Column (
-            grow: 1.0,
-            padding: Padding::all(16),
-            justify: JustifyContent::Center,
-            align: AlignItems::Center
-        ) {
-            Text (
-                height: 40,
-                text: ${
-                    if state_label.get() {
-                        alloc::string::String::from("State: SUSPENDED")
-                    } else {
-                        alloc::string::String::from("State: running")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(world, parent);
+        ui! {
+            Column (
+                grow: 1.0,
+                padding: Padding::all(16),
+                justify: JustifyContent::Center,
+                align: AlignItems::Center
+            ) {
+                Text (
+                    height: 40,
+                    text: ${
+                        if state_label.get() {
+                            alloc::string::String::from("State: SUSPENDED")
+                        } else {
+                            alloc::string::String::from("State: running")
+                        }
                     }
-                }
-            )
-            Text (
-                height: 32,
-                text: ${ alloc::format!("Ticks: {}", ticks_label.get()) }
-            )
-            Text (
-                height: 32,
-                text: ${ alloc::format!("on_suspend: {}", suspend_label.get()) }
-            )
-            Text (
-                height: 32,
-                text: ${ alloc::format!("on_resume: {}", resume_label.get()) }
-            )
-            Text ("ENTER toggle suspend, ESC quit", height: 24)
-            Text ("alt-tab / minimize to test AutoSuspendPlugin", height: 24)
+                )
+                Text (
+                    height: 32,
+                    text: ${ alloc::format!("Ticks: {}", ticks_label.get()) }
+                )
+                Text (
+                    height: 32,
+                    text: ${ alloc::format!("on_suspend: {}", suspend_label.get()) }
+                )
+                Text (
+                    height: 32,
+                    text: ${ alloc::format!("on_resume: {}", resume_label.get()) }
+                )
+                Text ("ENTER toggle suspend, ESC quit", height: 24)
+                Text ("alt-tab / minimize to test AutoSuspendPlugin", height: 24)
+            }
         }
     };
 }

@@ -26,46 +26,49 @@ fn main() {
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (direction: FlexDirection::Column, grow: 1.0) {
-            Text (
-                "Hello wgpu!",
-                bg_color: Color::rgb(88, 166, 255),
-                height: 40,
-                border_radius: 8,
-                border_color: Color::rgb(255, 255, 255)
-            )
-            Row (direction: FlexDirection::Row, grow: 1.0) {
-                Button ("OK", normal_color: Color::rgb(63, 185, 80), grow: 1.0, border_radius: 6)
-                Button (
-                    "Cancel",
-                    normal_color: Color::rgb(248, 81, 73),
-                    grow: 1.0,
-                    border_radius: 6
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (direction: FlexDirection::Column, grow: 1.0) {
+                Text (
+                    "Hello wgpu!",
+                    bg_color: Color::rgb(88, 166, 255),
+                    height: 40,
+                    border_radius: 8,
+                    border_color: Color::rgb(255, 255, 255)
                 )
-                Button (
-                    "Maybe",
-                    normal_color: Color::rgb(210, 168, 255),
-                    grow: 1.0,
-                    border_radius: 6
+                Row (direction: FlexDirection::Row, grow: 1.0) {
+                    Button (
+                        "OK",
+                        normal_color: Color::rgb(63, 185, 80),
+                        grow: 1.0,
+                        border_radius: 6
+                    )
+                    Button (
+                        "Cancel",
+                        normal_color: Color::rgb(248, 81, 73),
+                        grow: 1.0,
+                        border_radius: 6
+                    )
+                    Button (
+                        "Maybe",
+                        normal_color: Color::rgb(210, 168, 255),
+                        grow: 1.0,
+                        border_radius: 6
+                    )
+                }
+                View (
+                    width: IMG_THUMBS_UP.width as i32 * 4,
+                    height: IMG_THUMBS_UP.height as i32 * 4
+                ) [
+                    Image::new("thumbs_up"),
+                ]
+                Text (
+                    "wgpu backend",
+                    bg_color: Color::rgb(50, 50, 70),
+                    height: 30
                 )
             }
-            View (
-                width: IMG_THUMBS_UP.width as i32 * 4,
-                height: IMG_THUMBS_UP.height as i32 * 4
-            ) [
-                Image::new("thumbs_up"),
-            ]
-            Text (
-                "wgpu backend",
-                bg_color: Color::rgb(50, 50, 70),
-                height: 30
-            )
         }
     };
 

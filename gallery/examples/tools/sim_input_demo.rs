@@ -72,41 +72,37 @@ fn main() {
         })
         .id();
 
-    let tap_box = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(63, 185, 80),
-            position: Position::Absolute,
-            left: 30,
-            top: 30,
-            width: 80,
-            height: 80,
-            border_radius: 10
-        )
+    let tap_box = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(63, 185, 80),
+                position: Position::Absolute,
+                left: 30,
+                top: 30,
+                width: 80,
+                height: 80,
+                border_radius: 10
+            )
+        }
     };
     app.world.insert(tap_box, TapCount(0));
     app.world
         .insert(tap_box, GestureHandler::from_fn(tap_handler));
 
-    let drag_box = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(88, 166, 255),
-            position: Position::Absolute,
-            left: 140,
-            top: 90,
-            width: 60,
-            height: 60,
-            border_radius: 30
-        )
+    let drag_box = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(88, 166, 255),
+                position: Position::Absolute,
+                left: 140,
+                top: 90,
+                width: 60,
+                height: 60,
+                border_radius: 30
+            )
+        }
     };
     app.world
         .insert(drag_box, GestureHandler::from_fn(drag_handler));

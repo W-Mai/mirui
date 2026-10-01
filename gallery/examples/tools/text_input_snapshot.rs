@@ -91,21 +91,19 @@ fn main() {
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(40, 40, 56),
-            border_color: Color::rgb(80, 80, 100),
-            width: 288,
-            height: 28
-        ) [
-            ti,
-            Placeholder("type something..."),
-        ]
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(40, 40, 56),
+                border_color: Color::rgb(80, 80, 100),
+                width: 288,
+                height: 28
+            ) [
+                ti,
+                Placeholder("type something..."),
+            ]
+        }
     };
 
     // Deterministic cursor: pin the blink phase ON so the snapshot

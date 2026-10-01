@@ -60,39 +60,37 @@ fn main() {
         })
         .id();
 
-    let list = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(40, 40, 56),
-            grow: 1.0
-        ) [
-            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
-            LazyListBinder { bind: row_binder },
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-            ScrollConfig {
-                direction: ScrollAxis::Vertical,
-                elastic: false,
-                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-                content_width: Fixed::ZERO,
-            },
-        ] {
-            walk 0..POOL_SIZE with _i {
-                Row (
-                    bg_color: Color::rgb(60, 60, 80),
-                    text_color: Color::rgb(220, 220, 230),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: 320,
-                    height: ROW_H
-                )
+    let list = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(40, 40, 56),
+                grow: 1.0
+            ) [
+                LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+                LazyListBinder { bind: row_binder },
+                ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                },
+                ScrollConfig {
+                    direction: ScrollAxis::Vertical,
+                    elastic: false,
+                    content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
+                    content_width: Fixed::ZERO,
+                },
+            ] {
+                walk 0..POOL_SIZE with _i {
+                    Row (
+                        bg_color: Color::rgb(60, 60, 80),
+                        text_color: Color::rgb(220, 220, 230),
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 0,
+                        width: 320,
+                        height: ROW_H
+                    )
+                }
             }
         }
     };

@@ -88,17 +88,15 @@ fn main() {
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Text (
-            text.clone(),
-            font: FontToken::Heading,
-            text_color: Color::rgb(255, 220, 140)
-        )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text (
+                text.clone(),
+                font: FontToken::Heading,
+                text_color: Color::rgb(255, 220, 140)
+            )
+        }
     };
 
     app.set_root(root);

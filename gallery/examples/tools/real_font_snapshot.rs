@@ -57,31 +57,29 @@ fn main() {
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        walk SIZES.iter() with size {
-            Row (
-                height: i32::from((*size).max(24)) + 10,
-                align: AlignItems::Center,
-                column_gap: 18
-            ) {
-                Text (
-                    format!("{:>2} px", size),
-                    width: 58,
-                    font: FONT,
-                    font_size: 14,
-                    text_color: Color::rgb(112, 126, 150)
-                )
-                Text (
-                    "Ag AVATAR mirui 0123",
-                    font: FONT,
-                    font_size: *size,
-                    text_color: Color::rgb(255, 220, 140)
-                )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            walk SIZES.iter() with size {
+                Row (
+                    height: i32::from((*size).max(24)) + 10,
+                    align: AlignItems::Center,
+                    column_gap: 18
+                ) {
+                    Text (
+                        format!("{:>2} px", size),
+                        width: 58,
+                        font: FONT,
+                        font_size: 14,
+                        text_color: Color::rgb(112, 126, 150)
+                    )
+                    Text (
+                        "Ag AVATAR mirui 0123",
+                        font: FONT,
+                        font_size: *size,
+                        text_color: Color::rgb(255, 220, 140)
+                    )
+                }
             }
         }
     };
