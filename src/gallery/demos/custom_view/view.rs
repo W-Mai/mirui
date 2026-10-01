@@ -1,16 +1,28 @@
 use crate::prelude::draw::*;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
 use crate::render::scene::{LineCap, LineJoin, Paint};
 use crate::types::Transform;
-use crate::ui::view::ViewCtx;
 
 pub(super) static DIAMOND_PATH: Path = path!(M 50 0 L 100 50 L 50 100 L 0 50 Z);
 
 #[crate::component]
+#[derive(Clone, Copy)]
 pub struct Diamond {
     pub color: Color,
     pub line_width: Fixed,
+}
+
+impl Diamond {
+    pub(super) fn next_color(self) -> Self {
+        let index = PALETTE
+            .iter()
+            .position(|color| *color == self.color)
+            .unwrap_or(0);
+        Self {
+            color: PALETTE[(index + 1) % PALETTE.len()],
+            ..self
+        }
+    }
 }
 
 impl Default for Diamond {
@@ -22,12 +34,12 @@ impl Default for Diamond {
     }
 }
 
-#[crate::view(component = Diamond, name = "Diamond", priority = 60)]
+#[crate::view(name = "Diamond", priority = 60)]
 pub fn diamond_render(
-    renderer: &mut dyn Renderer,
-    component: &Diamond,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    component: component!(Diamond),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     let transform = ctx
         .transform

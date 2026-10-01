@@ -103,9 +103,7 @@ pub fn shapes_view() -> View {
     View::new("Shapes", 60, shapes_render).with_filter::<Shapes>()
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn shapes_anim_system(world: &mut World) {
-    world.for_each_stable::<Shapes>(|world, e| {
-        world.invalidate(e);
-    });
+#[mirui_macros::system(order = Animation)]
+pub fn shapes_anim_system(shapes: query!(mut Shapes)) {
+    for _shape in shapes {}
 }

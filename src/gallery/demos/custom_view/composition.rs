@@ -51,11 +51,10 @@ pub fn build_widgets() {
                     bg_color: ColorToken::SurfaceVariant,
                     border_radius: 18
                 ) on Tap {
-                    if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
-                        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-                        d.color = PALETTE[(i + 1) % PALETTE.len()];
+                    let next = com!(target, Diamond).copied().map(Diamond::next_color);
+                    if let Some(next) = next {
+                        commands!().insert(target, next);
                     }
-                    ctx.world.invalidate(ctx.entity);
                 }
                 Diamond (
                     color: PALETTE[1],
@@ -65,11 +64,10 @@ pub fn build_widgets() {
                     bg_color: ColorToken::SurfaceVariant,
                     border_radius: 18
                 ) on Tap {
-                    if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
-                        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-                        d.color = PALETTE[(i + 1) % PALETTE.len()];
+                    let next = com!(target, Diamond).copied().map(Diamond::next_color);
+                    if let Some(next) = next {
+                        commands!().insert(target, next);
                     }
-                    ctx.world.invalidate(ctx.entity);
                 }
                 Diamond (
                     color: PALETTE[2],
@@ -79,11 +77,10 @@ pub fn build_widgets() {
                     bg_color: ColorToken::SurfaceVariant,
                     border_radius: 18
                 ) on Tap {
-                    if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
-                        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-                        d.color = PALETTE[(i + 1) % PALETTE.len()];
+                    let next = com!(target, Diamond).copied().map(Diamond::next_color);
+                    if let Some(next) = next {
+                        commands!().insert(target, next);
                     }
-                    ctx.world.invalidate(ctx.entity);
                 }
             }
         }
