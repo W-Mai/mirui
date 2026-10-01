@@ -2,6 +2,8 @@
 /// rendering, and hit-test. Toggle by inserting / removing.
 pub struct Hidden;
 
+impl crate::ecs::Component for Hidden {}
+
 /// Marks a widget as an eligible pointer hit-test target.
 ///
 /// Layout and clipping still traverse widgets without this marker; only the
@@ -21,3 +23,5 @@ pub struct InteractionFeedback;
 /// rendering still apply. Use for visual overlays (cursor, debug grids,
 /// drag ghosts) that must be drawn but should never intercept input.
 pub struct IgnoreHitTest;
+
+impl crate::ecs::Component for IgnoreHitTest {}

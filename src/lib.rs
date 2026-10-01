@@ -21,29 +21,31 @@
 //! use mirui::surface::framebuf::FramebufSurface;
 //! use mirui::render::texture::ColorFormat;
 //! use mirui::types::PhysicalRect;
+//! use mirui::ui::widgets::Text;
+//!
+//! #[compose]
+//! fn build_ui() {
+//!     ui! {
+//!         View (
+//!             bg_color: ColorToken::Primary,
+//!             text_color: ColorToken::OnPrimary,
+//!             border_radius: 8,
+//!             padding: Padding::all(10)
+//!         ) {
+//!             Text ("Hello mirui!")
+//!         }
+//!     };
+//! }
 //!
 //! let backend = FramebufSurface::with_format(
 //!     480, 320, ColorFormat::RGBA8888,
-//!     |_bytes: &[u8], _area: PhysicalRect| { /* push to your display */ },
+//!     |_bytes: &[u8], _area: PhysicalRect| { /* push to the display */ },
 //! );
 //! let mut app = App::new(backend);
 //! app.with_default_widgets().with_default_systems();
 //!
 //! let root = app.spawn_root().id();
-//!
-//! ui! {
-//!     :(
-//!         parent: root
-//!         world: &mut app.world
-//!     :)
-//!
-//!     header (
-//!         bg_color: ColorToken::Primary,
-//!         text_color: ColorToken::OnPrimary,
-//!         text: "Hello mirui!",
-//!         border_radius: 8
-//!     ) {}
-//! };
+//! app.compose(root, build_ui);
 //!
 //! app.run();
 //! ```
@@ -85,9 +87,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+
+#[cfg(test)]
+mod test_support;
 // Lets `trace_span!` / `trace_fn` expand to `mirui::core::perf::enter(...)`
 // uniformly — the crate has to be able to refer to itself by name
-// for the absolute path to resolve in our own modules.
+// for the absolute path to resolve inside this crate.
 extern crate self as mirui;
 
 pub mod anim;
@@ -103,27 +108,39 @@ pub mod text;
 pub mod types;
 pub mod ui;
 
+/// Runtime types used only by generated authoring macros.
+#[doc(hidden)]
+pub mod __macro_support {
+    pub use crate::anim::MotionComponent;
+    pub use crate::anim::generated::{MotionFrame, advance_motion};
+    pub use crate::core::timer::generated::{
+        TimerSchedule, bound_timer, require_timer_model, static_timer,
+    };
+    pub use crate::ecs::commands::DeferredCommands;
+    pub use crate::ecs::query::system::{
+        ComponentDriver, EntityItem, OptionalRead, Read, With, Without, Write,
+    };
+    pub use crate::ecs::system::access::SystemAccess;
+    pub use crate::ecs::system::generated::{
+        bound_deferred_system, bound_system, deferred_system, require_same_owner, static_system,
+        with_metadata,
+    };
+    pub use crate::ecs::system::param::{
+        OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
+    };
+    pub use ::core::cell::{Cell as __Cell, RefCell as __RefCell};
+    pub use alloc::borrow::Cow as __Cow;
+    pub use alloc::rc::{Rc as __Rc, Weak as __Weak};
+    pub use alloc::vec::Vec as __Vec;
+}
+
 #[cfg(feature = "gallery")]
 pub mod gallery;
 
 pub use mirui_macros::{
-    Component, com, component, compose, model, path, scene, system, trace_fn, trace_span, ui, view,
+    animate, com, component, compose, model, path, scene, system, timer, trace_fn, trace_span, ui,
+    view,
 };
-
-// Re-export so `ui!`-generated code references `Rc` through `mirui`, working in
-// both std and no_std user crates without an `extern crate alloc` of their own.
-#[doc(hidden)]
-pub use ::core::cell::Cell as __Cell;
-#[doc(hidden)]
-pub use ::core::cell::RefCell as __RefCell;
-#[doc(hidden)]
-pub use alloc::borrow::Cow as __Cow;
-#[doc(hidden)]
-pub use alloc::rc::Rc as __Rc;
-#[doc(hidden)]
-pub use alloc::rc::Weak as __Weak;
-#[doc(hidden)]
-pub use alloc::vec::Vec as __Vec;
 
 /// Glob-imports the types and macros nearly every application file
 /// needs. Default prelude — `use mirui::prelude::*;`.
@@ -186,6 +203,6 @@ pub mod prelude {
     pub mod draw {
         pub use crate::render::path::Path;
         pub use crate::render::{Canvas, CompositeMode, DrawCommand, Renderer};
-        pub use crate::ui::view::{View, ViewCtx, ViewRegistry};
+        pub use crate::ui::view::{View, ViewCtx, ViewInvalidation, ViewRegistry};
     }
 }

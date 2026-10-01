@@ -69,6 +69,21 @@ impl World {
     }
 }
 
+impl crate::ecs::commands::DeferredCommands<'_> {
+    #[doc(hidden)]
+    pub fn set<P>(&mut self, entity: Entity, value: P::Value)
+    where
+        P: Property,
+        P::Value: 'static,
+    {
+        self.apply(entity, value, apply_deferred::<P>);
+    }
+}
+
+fn apply_deferred<P: Property>(world: &mut World, entity: Entity, value: P::Value) {
+    apply_to_world::<P>(world, entity, value);
+}
+
 #[doc(hidden)]
 pub fn apply<P: Property>(entity: Entity, value: P::Value) {
     crate::core::reactive::with_world(|world| {
@@ -528,6 +543,7 @@ pub mod prop {
 mod tests {
     use super::*;
     use crate::core::reactive::{Signal, flush_signal_dirty};
+    use crate::test_support::tracked_allocations;
     use crate::types::{Dimension, Fixed, Rect, Transform};
     use crate::ui::dirty::{Dirty, VisualDirty};
     use crate::ui::widgets::{Button, Checkbox, ParagraphStyle, ProgressBar, Slider, Switch, Text};
@@ -578,6 +594,32 @@ mod tests {
             PropertyChange::Unchanged
         );
         assert!(!world.has::<crate::ui::dirty::VisualDirty>(entity));
+    }
+
+    #[test]
+    fn deferred_property_uses_the_same_change_classification() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        let mut queue = crate::ecs::commands::CommandQueue::default();
+
+        let mut batch = queue.begin();
+        batch.commands().set::<prop::RenderKey>(entity, 9);
+        batch.finish(&mut world);
+
+        assert_eq!(world.get::<crate::ui::RenderKey>(entity).unwrap().0, 9);
+        assert!(world.has::<VisualDirty>(entity));
+        assert!(!world.has::<Dirty>(entity));
+
+        world.remove::<VisualDirty>(entity);
+        let allocations = tracked_allocations(|| {
+            let mut batch = queue.begin();
+            batch.commands().set::<prop::RenderKey>(entity, 10);
+            batch.finish(&mut world);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(world.get::<crate::ui::RenderKey>(entity).unwrap().0, 10);
+        assert!(world.has::<VisualDirty>(entity));
     }
 
     #[test]
@@ -768,19 +810,18 @@ mod tests {
         let bound_enabled = enabled.clone();
         let bound_checked = checked.clone();
 
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-            Column () {
-                Slider(
-                    min: Fixed::ZERO,
-                    max: Fixed::from_int(10),
-                    value: ${ bound_level.get() }
-                )
-                Switch(on: ${ bound_enabled.get() })
-                Checkbox(checked: ${ bound_checked.get() })
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                Column () {
+                    Slider (
+                        min: Fixed::ZERO,
+                        max: Fixed::from_int(10),
+                        value: ${ bound_level.get() }
+                    )
+                    Switch (on: ${ bound_enabled.get() })
+                    Checkbox (checked: ${ bound_checked.get() })
+                }
             }
         };
 
@@ -817,15 +858,14 @@ mod tests {
         let bound_left = left.clone();
         let bound_top = top.clone();
 
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-            View(
-                left: ${ bound_left.get() },
-                top: ${ bound_top.get() },
-            )
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                View (
+                    left: ${ bound_left.get() },
+                    top: ${ bound_top.get() }
+                )
+            }
         };
 
         let view = world.get::<Children>(root).unwrap().0[0];
@@ -853,15 +893,14 @@ mod tests {
         let bound_color = color.clone();
         let bound_width = width.clone();
 
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-            View(
-                border_color: ${ bound_color.get() },
-                border_width: ${ bound_width.get() },
-            )
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                View (
+                    border_color: ${ bound_color.get() },
+                    border_width: ${ bound_width.get() }
+                )
+            }
         };
 
         let view = world.get::<Children>(root).unwrap().0[0];
@@ -932,16 +971,14 @@ mod tests {
         let label = Signal::new(alloc::string::String::from("Idle"));
         let bound_label = label.clone();
 
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Column () {
-                Button("Save")
-                Button(text: ${ bound_label.get() })
-                Text("Body")
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                Column () {
+                    Button ("Save")
+                    Button (text: ${ bound_label.get() })
+                    Text ("Body")
+                }
             }
         };
 

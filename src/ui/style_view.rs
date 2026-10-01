@@ -4,7 +4,7 @@ use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 
 use super::Style;
-use super::view::{View, ViewCtx};
+use super::view::{View, ViewCtx, ViewInvalidation};
 
 fn style_render(
     renderer: &mut dyn Renderer,
@@ -56,5 +56,7 @@ fn style_render(
 }
 
 pub fn view() -> View {
-    View::new("Style", 50, style_render).with_filter::<Style>()
+    View::new("Style", 50, style_render)
+        .with_filter::<Style>()
+        .with_invalidation(ViewInvalidation::Layout)
 }

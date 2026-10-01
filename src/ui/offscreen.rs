@@ -72,6 +72,8 @@ pub struct OffscreenRender {
     pub opacity: u8,
 }
 
+impl crate::ecs::Component for OffscreenRender {}
+
 impl Default for OffscreenRender {
     fn default() -> Self {
         Self::new()
@@ -105,6 +107,8 @@ impl OffscreenRender {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OffscreenGeneration(pub u32);
 
+impl crate::ecs::Component for OffscreenGeneration {}
+
 /// Mark on a consumer entity to keep `source`'s OffscreenRender
 /// alive. mirui maintains a refcount per source — first ref adds
 /// OffscreenRender to source; the last ref removed restores source
@@ -117,12 +121,16 @@ pub struct OffscreenGeneration(pub u32);
 #[derive(Clone, Copy, Debug)]
 pub struct WidgetTextureRef(pub Entity);
 
+impl crate::ecs::Component for WidgetTextureRef {}
+
 /// Internal marker on a source entity that received `OffscreenRender`
 /// from `maintain_widget_texture_refs` (not from user code). Only
 /// auto-added entries get removed when the last `WidgetTextureRef`
 /// goes away; user-explicit `OffscreenRender` is left alone.
 #[derive(Clone, Copy, Debug)]
 pub struct OffscreenAutoAdded;
+
+impl crate::ecs::Component for OffscreenAutoAdded {}
 
 /// Mark on an `OffscreenRender` source so its buffer initialises to
 /// fully-transparent black instead of a copy of the framebuffer
@@ -153,6 +161,8 @@ impl OffscreenAlphaMode {
 /// when the source's buffer changes.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WidgetTextureRefPrevGen(pub u32);
+
+impl crate::ecs::Component for WidgetTextureRefPrevGen {}
 
 /// Cache key for [`OffscreenBufferPool`]. `entity` is part of the key so
 /// each offscreen entity owns its own slot — sharing buffers across
@@ -318,7 +328,6 @@ impl WidgetTextureAccess for World {
 /// Walk every `WidgetTextureRef` and reconcile each referenced
 /// source's `OffscreenRender` state. Auto-add when a source gains
 /// its first ref; auto-remove when the last ref drops.
-#[crate::system(order = PRE_RENDER, expect = [WidgetTextureRef, OffscreenAutoAdded])]
 pub fn maintain_widget_texture_refs(world: &mut World) {
     use alloc::vec::Vec;
     use hashbrown::HashMap;
@@ -412,6 +421,12 @@ pub fn maintain_widget_texture_refs(world: &mut World) {
         }
     }
 }
+
+crate::ecs::system::framework_system!(
+    pub maintain_widget_texture_refs,
+    PreRender,
+    expect = [WidgetTextureRef, OffscreenAutoAdded],
+);
 
 #[cfg(test)]
 mod tests {

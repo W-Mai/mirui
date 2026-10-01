@@ -435,6 +435,17 @@ pub fn set_theme(world: &mut World, source: impl Into<ThemeSource>) -> Result<()
     Ok(())
 }
 
+impl crate::ecs::commands::DeferredCommands<'_> {
+    /// Queue a theme change after the current authored callback releases its
+    /// short-lived reads.
+    #[doc(hidden)]
+    pub fn set_theme(&mut self, source: impl Into<ThemeSource>) {
+        self.apply_resource(source.into(), |world, source| {
+            let _ = set_theme(world, source);
+        });
+    }
+}
+
 pub fn register(world: &mut World, theme: Theme) -> Option<Theme> {
     if world.resource::<ThemeCatalog>().is_none() {
         world.insert_resource(ThemeCatalog::new());

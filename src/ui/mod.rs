@@ -44,7 +44,7 @@ pub use property::WidgetMut;
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};
 pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};
-pub use view::{View, ViewRegistry};
+pub use view::{View, ViewInvalidation, ViewRegistry};
 pub use visibility::{Hidden, HitTarget, IgnoreHitTest, InteractionFeedback};
 
 use alloc::vec::Vec;
@@ -53,6 +53,8 @@ use crate::types::Fixed;
 use crate::ui::layout::LayoutStyle;
 
 pub struct Widget;
+
+impl crate::ecs::Component for Widget {}
 
 /// Applies the surface safe area as minimum layout padding for this entity.
 #[crate::component]
@@ -221,7 +223,11 @@ mod style_tests {
 
 pub struct Children(pub Vec<crate::ecs::Entity>);
 
+impl crate::ecs::Component for Children {}
+
 pub struct Parent(pub crate::ecs::Entity);
+
+impl crate::ecs::Component for Parent {}
 
 /// Holds the world's only `&mut` for a [`spawn_children`] closure, so child
 /// spawns are sequential — two child handles can never be live at once.
@@ -369,6 +375,8 @@ mod child_spawner_tests {
 
 /// Resolved post-layout rect (cf. `Style.layout` declarations).
 pub struct ComputedRect(pub crate::types::Rect);
+
+impl crate::ecs::Component for ComputedRect {}
 
 /// Marks the entity dirty alongside writing the new position.
 pub fn set_position(

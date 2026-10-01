@@ -46,7 +46,10 @@ impl<'w> UiScope<'w> {
     ///
     /// The reference is limited to this scope borrow. Use a bound model or an
     /// explicit reactive binding when later changes must update the UI.
-    pub fn component<T: 'static>(&self, entity: impl core::borrow::Borrow<Entity>) -> Option<&T> {
+    pub fn component<T: crate::ecs::Component>(
+        &self,
+        entity: impl core::borrow::Borrow<Entity>,
+    ) -> Option<&T> {
         self.world.get::<T>(*entity.borrow())
     }
 

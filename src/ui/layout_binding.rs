@@ -86,6 +86,8 @@ pub struct LayoutBinding {
     apply: LayoutApplyFn,
 }
 
+impl crate::ecs::Component for LayoutBinding {}
+
 impl LayoutBinding {
     pub fn new(dependencies: &'static [LayoutDependency], apply: LayoutApplyFn) -> Self {
         assert!(
@@ -120,6 +122,8 @@ pub struct SharedLayoutBinding {
     initialized: bool,
     apply: SharedLayoutApply,
 }
+
+impl crate::ecs::Component for SharedLayoutBinding {}
 
 impl SharedLayoutBinding {
     pub fn new(
