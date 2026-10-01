@@ -1,9 +1,10 @@
 use super::composition::build_widgets;
 use super::state::FpsReadout;
 use super::systems::{UPDATE_EVERY, fps_readout_system};
-use crate::ecs::FrameTimings;
+use crate::ecs::{FrameTimings, SystemScheduler};
 use crate::prelude::*;
 use crate::types::Viewport;
+use crate::ui::dirty::{Dirty, VisualDirty};
 use crate::ui::render_system::update_layout;
 use crate::ui::widgets::Text;
 use crate::ui::{Children, ComputedRect, IdMap, UiScope};
@@ -64,9 +65,35 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     let state = world.get_mut::<FpsReadout>(readout).unwrap();
     state.counter = UPDATE_EVERY - 1;
     state.accum_render_ns = 123_000 * (UPDATE_EVERY - 1) as u64;
-    fps_readout_system(&mut world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(fps_readout_system::system());
+    scheduler.run_all(&mut world);
 
     let text = world.get::<Text>(readout).unwrap();
     assert!(text.resolve(&world).contains("render avg 123us"));
     assert_eq!(text.paragraph(), &paragraph);
+}
+
+#[test]
+fn readout_stays_clean_between_sample_windows() {
+    let mut world = World::new();
+    world.insert_resource(IdMap::new());
+    world.insert_resource(FrameTimings {
+        render_nanos: 123_000,
+        ..FrameTimings::default()
+    });
+    let parent = WidgetBuilder::new(&mut world).id();
+    let mut cx = UiScope::new(&mut world, parent);
+    build_widgets(&mut cx);
+    drop(cx);
+
+    let readout = world.find_by_id("offscreen_readout").unwrap();
+    world.remove::<Dirty>(readout);
+    world.remove::<VisualDirty>(readout);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(fps_readout_system::system());
+    scheduler.run_all(&mut world);
+
+    assert!(!world.has::<Dirty>(readout));
+    assert!(!world.has::<VisualDirty>(readout));
 }

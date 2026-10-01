@@ -10,6 +10,7 @@
 use mirui::prelude::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform};
+use mirui::ui::dirty::Dirty;
 use mirui::ui::theme::ColorToken;
 use mirui::ui::widgets::WidgetTransform;
 use mirui::ui::{Children, OffscreenRender, Theme};
@@ -36,28 +37,25 @@ const TILE_PAD: i32 = 8;
 
 const FRAMES: i32 = 30;
 
+#[mirui::component]
 struct Anim {
     t: Fixed,
 }
 
-#[mirui::system(order = ANIMATION)]
-fn slide(world: &mut World) {
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<Anim>().collect_into(&mut entities);
-    for e in entities {
-        let next_t = if let Some(a) = world.get_mut::<Anim>(e) {
-            a.t += Fixed::ONE / Fixed::from_int(FRAMES);
-            if a.t > Fixed::ONE {
-                a.t = Fixed::ZERO;
-            }
-            a.t
-        } else {
-            continue;
-        };
+#[mirui::system(order = Animation)]
+fn slide(animations: query!(Entity, mut Anim), commands: commands!()) {
+    for (entity, animation) in animations {
+        animation.t += Fixed::ONE / Fixed::from_int(FRAMES);
+        if animation.t > Fixed::ONE {
+            animation.t = Fixed::ZERO;
+        }
         let off_screen = Fixed::from_int(-MODAL_LEFT_FINAL - MODAL_W);
-        let tx = off_screen * (Fixed::ONE - next_t);
-        world.insert(e, WidgetTransform(Transform::translate(tx, Fixed::ZERO)));
-        world.invalidate(e);
+        let tx = off_screen * (Fixed::ONE - animation.t);
+        commands.insert(
+            entity,
+            WidgetTransform(Transform::translate(tx, Fixed::ZERO)),
+        );
+        commands.insert(entity, Dirty);
     }
 }
 
@@ -112,35 +110,33 @@ fn run(out_dir: &str, offscreen: bool) {
         })
         .id();
 
-    let modal = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: ColorToken::Surface,
-            border_radius: Fixed::from_int(12),
-            position: Position::Absolute,
-            left: MODAL_LEFT_FINAL,
-            top: 30,
-            width: MODAL_W,
-            height: MODAL_H
-        ) [
-            Anim { t: Fixed::ZERO },
-        ] {
-            walk 0..(GRID_COLS * GRID_ROWS) with i {
-                View (
-                    bg_color: tile_color(i),
-                    border_color: ColorToken::OnSurface,
-                    border_width: Fixed::ONE,
-                    border_radius: Fixed::from_int(6),
-                    position: Position::Absolute,
-                    left: TILE_PAD + (i % GRID_COLS) * (TILE_W + TILE_GAP),
-                    top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
-                    width: TILE_W,
-                    height: TILE_H
-                )
+    let modal = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: ColorToken::Surface,
+                border_radius: Fixed::from_int(12),
+                position: Position::Absolute,
+                left: MODAL_LEFT_FINAL,
+                top: 30,
+                width: MODAL_W,
+                height: MODAL_H
+            ) [
+                Anim { t: Fixed::ZERO },
+            ] {
+                walk 0..(GRID_COLS * GRID_ROWS) with i {
+                    View (
+                        bg_color: tile_color(i),
+                        border_color: ColorToken::OnSurface,
+                        border_width: Fixed::ONE,
+                        border_radius: Fixed::from_int(6),
+                        position: Position::Absolute,
+                        left: TILE_PAD + (i % GRID_COLS) * (TILE_W + TILE_GAP),
+                        top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
+                        width: TILE_W,
+                        height: TILE_H
+                    )
+                }
             }
         }
     };

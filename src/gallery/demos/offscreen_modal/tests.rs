@@ -1,7 +1,7 @@
 use super::animation::{fps_readout_system, modal_slide_system};
 use super::composition::build_widgets;
 use super::state::{FpsReadout, MODAL_H, MODAL_W, ModalAnim, UPDATE_EVERY};
-use crate::ecs::FrameTimings;
+use crate::ecs::{FrameTimings, SystemScheduler};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::render_system::update_layout;
@@ -61,7 +61,9 @@ fn slide_origin_uses_the_live_layout_position() {
         }),
     );
 
-    modal_slide_system(&mut world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(modal_slide_system::system());
+    scheduler.run_all(&mut world);
 
     let bounce = (Fixed::ONE / 90) * Fixed::from_int(2);
     let expected = Fixed::from_int(-(412 + MODAL_W)) * (Fixed::ONE - bounce);
@@ -86,7 +88,9 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     let state = world.get_mut::<FpsReadout>(readout).unwrap();
     state.counter = UPDATE_EVERY - 1;
     state.accum_render_ns = 77_000 * (UPDATE_EVERY - 1) as u64;
-    fps_readout_system(&mut world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(fps_readout_system::system());
+    scheduler.run_all(&mut world);
 
     let text = world.get::<Text>(readout).unwrap();
     assert!(text.resolve(&world).contains("render avg 77us"));

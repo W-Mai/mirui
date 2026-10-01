@@ -1,65 +1,60 @@
 use super::state::{ForceDirty, FpsReadout, ModeToggle, PanelTarget};
-use crate::ecs::{FrameTimings, World};
+use crate::ecs::{Entity, FrameTimings};
 use crate::ui::OffscreenRender;
-use crate::ui::widgets::Text;
+use crate::ui::dirty::Dirty;
+use crate::ui::property::prop;
 
 const TOGGLE_NS: u64 = 5_000_000_000;
 pub(super) const UPDATE_EVERY: u32 = 30;
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn mode_toggle_system(world: &mut World) {
-    let frame_ns = world
-        .resource::<FrameTimings>()
-        .map(|t| t.frame_nanos)
-        .unwrap_or(0);
+#[mirui_macros::system(order = Animation)]
+pub fn mode_toggle_system(
+    timings: res!(optional FrameTimings),
+    toggle: res!(mut ModeToggle),
+    panels: query!(Entity; with PanelTarget;),
+    commands: commands!(),
+) {
+    let frame_ns = timings.map_or(0, |timings| timings.frame_nanos);
 
-    let flip = if let Some(t) = world.resource_mut::<ModeToggle>() {
-        t.elapsed_ns += frame_ns;
-        if t.elapsed_ns - t.last_flip_ns >= TOGGLE_NS {
-            t.last_flip_ns = t.elapsed_ns;
-            t.offscreen = !t.offscreen;
-            Some(t.offscreen)
-        } else {
-            None
-        }
+    toggle.elapsed_ns += frame_ns;
+    let flip = if toggle.elapsed_ns - toggle.last_flip_ns >= TOGGLE_NS {
+        toggle.last_flip_ns = toggle.elapsed_ns;
+        toggle.offscreen = !toggle.offscreen;
+        Some(toggle.offscreen)
     } else {
         None
     };
 
     if let Some(now_offscreen) = flip {
-        world.for_each_stable::<PanelTarget>(|world, e| {
+        for entity in panels {
+            let entity: Entity = entity;
             if now_offscreen {
-                world.insert(e, OffscreenRender::default());
+                commands.insert(entity, OffscreenRender::default());
             } else {
-                world.remove::<OffscreenRender>(e);
+                commands.remove::<OffscreenRender>(entity);
             }
-        });
+        }
     }
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn fps_readout_system(world: &mut World) {
-    let render_ns = world
-        .resource::<FrameTimings>()
-        .map(|t| t.render_nanos)
-        .unwrap_or(0);
-    let offscreen = world
-        .resource::<ModeToggle>()
-        .map(|t| t.offscreen)
-        .unwrap_or(false);
+#[mirui_macros::system(order = Animation)]
+pub fn fps_readout_system(
+    timings: res!(optional FrameTimings),
+    toggle: res!(optional ModeToggle),
+    readouts: query!(Entity, mut FpsReadout),
+    commands: commands!(),
+) {
+    let render_ns = timings.map_or(0, |timings| timings.render_nanos);
+    let offscreen = toggle.is_some_and(|toggle| toggle.offscreen);
 
-    world.for_each_stable::<FpsReadout>(|world, e| {
-        let snapshot = if let Some(r) = world.get_mut::<FpsReadout>(e) {
-            r.accum_render_ns += render_ns;
-            r.counter += 1;
-            if r.counter >= UPDATE_EVERY {
-                let avg_ns = r.accum_render_ns / r.counter as u64;
-                r.counter = 0;
-                r.accum_render_ns = 0;
-                Some(avg_ns)
-            } else {
-                None
-            }
+    for (entity, readout) in readouts {
+        readout.accum_render_ns += render_ns;
+        readout.counter += 1;
+        let snapshot = if readout.counter >= UPDATE_EVERY {
+            let avg_ns = readout.accum_render_ns / readout.counter as u64;
+            readout.counter = 0;
+            readout.accum_render_ns = 0;
+            Some(avg_ns)
         } else {
             None
         };
@@ -67,17 +62,14 @@ pub fn fps_readout_system(world: &mut World) {
             let avg_us = avg_ns / 1000;
             let mode = if offscreen { "offscreen" } else { "inline   " };
             let label = alloc::format!("MODE={mode}  render avg {avg_us}us");
-            if let Some(text) = world.get_mut::<Text>(e) {
-                text.set_content(label);
-                world.invalidate_visual(e);
-            }
+            commands.set::<prop::TextContent>(entity, label);
         }
-    });
+    }
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn force_dirty_system(world: &mut World) {
-    world.for_each_stable::<ForceDirty>(|world, e| {
-        world.invalidate(e);
-    });
+#[mirui_macros::system(order = Animation)]
+pub fn force_dirty_system(targets: query!(Entity; with ForceDirty;), commands: commands!()) {
+    for entity in targets {
+        commands.insert(entity, Dirty);
+    }
 }
