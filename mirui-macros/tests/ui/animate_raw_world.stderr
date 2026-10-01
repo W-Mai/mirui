@@ -1,0 +1,5 @@
+error: animate parameters must use `entity!()`, `motion!()`, `component!(...)`, `model!(T)`, or `commands!()`
+ --> tests/ui/animate_raw_world.rs:4:21
+  |
+4 | fn raw_world(world: &mut mirui::ecs::World) {
+  |                     ^^^^^^^^^^^^^^^^^^^^^^

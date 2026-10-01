@@ -1,0 +1,5 @@
+error: `u8` is a primitive type and cannot be used as an animated component
+ --> tests/ui/animate_non_component.rs:4:36
+  |
+4 | fn non_component(value: component!(u8)) {
+  |                                    ^^
