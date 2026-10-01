@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use super::simulation::BODY_SIZE;
 use super::state::LayoutOrigin;
 use super::*;
+use crate::ecs::SystemScheduler;
 use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::Children;
@@ -46,7 +47,10 @@ fn animation_systems_reuse_body_entities() {
     let entities_ptr = scratch.entities.as_ptr();
     world.resource_mut::<KickPhase>().unwrap().0 = 39;
 
-    kick_system(&mut world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(kick_system::system());
+    scheduler.add(sync_layout_system::system());
+    scheduler.run_all(&mut world);
     assert_ne!(
         world.get::<Velocity>(selected).unwrap().vx,
         initial_velocity
@@ -54,7 +58,7 @@ fn animation_systems_reuse_body_entities() {
     let body = world.get_mut::<PhysicsBody>(selected).unwrap();
     body.x = Fixed::from_int(40);
     body.y = Fixed::from_int(50);
-    sync_layout_system(&mut world);
+    scheduler.run_all(&mut world);
 
     let origin = *world.get::<LayoutOrigin>(selected).unwrap();
     let transform = world
@@ -85,28 +89,43 @@ fn animation_systems_reuse_body_entities() {
 
 #[test]
 fn viewport_resize_recenters_bodies_and_orbit_guides() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, 480, 320, 3, Fixed::from_int(70));
-    drop(cx);
+    use crate::types::Viewport;
+    use crate::ui::render_system::update_layout;
 
-    let body = world.query::<PhysicsBody>().iter().next().unwrap().0;
-    let before = world.get::<PhysicsBody>(body).unwrap();
+    fn stopped_clock() -> u64 {
+        0
+    }
+
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        build_widgets(cx, 480, 320, 3, Fixed::from_int(70))
+    });
+    app.set_root(root);
+    app.world.insert_resource(MonoClock::new(stopped_clock));
+
+    let body = app.world.query::<PhysicsBody>().iter().next().unwrap().0;
+    let before = app.world.get::<PhysicsBody>(body).unwrap();
     let before = (before.x, before.y);
-    WorldBounds::sync(&mut world, 320, 480);
-    let after = world.get::<PhysicsBody>(body).unwrap();
+    update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE));
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(physics_tick_system::system());
+    scheduler.add(sync_layout_system::system());
+    scheduler.run_all(&mut app.world);
+
+    let after = app.world.get::<PhysicsBody>(body).unwrap();
     assert_eq!(after.x, before.0 - Fixed::from_int(80));
     assert_eq!(after.y, before.1 + Fixed::from_int(80));
 
-    let outer = world
+    let outer = app
+        .world
         .query::<OrbitRing>()
         .iter()
         .find(|(_, ring)| ring.diameter_percent == 72)
         .unwrap()
         .0;
-    let layout = &world.get::<Style>(outer).unwrap().layout;
+    let layout = &app.world.get::<Style>(outer).unwrap().layout;
     assert_eq!(layout.width, Dimension::px(230));
     assert_eq!(layout.height, Dimension::px(230));
     assert_eq!(layout.left, Dimension::px(45));

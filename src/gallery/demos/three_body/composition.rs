@@ -37,6 +37,7 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
     cx.world_mut().insert_resource(PhysicsScratch {
         entities: Vec::with_capacity(n),
         positions: Vec::with_capacity(n),
+        velocities: Vec::with_capacity(n),
         ax: Vec::with_capacity(n),
         ay: Vec::with_capacity(n),
     });

@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::prelude::{Entity, Fixed, World};
+use crate::prelude::{Entity, Fixed};
 
 #[crate::component]
 pub struct Velocity {
@@ -37,21 +37,9 @@ pub struct SpringLength(pub Fixed);
 pub struct PhysicsScratch {
     pub entities: Vec<Entity>,
     pub positions: Vec<(Fixed, Fixed)>,
+    pub velocities: Vec<(Fixed, Fixed)>,
     pub ax: Vec<Fixed>,
     pub ay: Vec<Fixed>,
-}
-
-impl PhysicsScratch {
-    pub(super) fn with_entities(world: &mut World, f: impl FnOnce(&mut World, &[Entity])) {
-        let Some(scratch) = world.resource_mut::<Self>() else {
-            return;
-        };
-        let scratch = core::mem::take(scratch);
-        f(world, &scratch.entities);
-        if let Some(slot) = world.resource_mut::<Self>() {
-            *slot = scratch;
-        }
-    }
 }
 
 pub struct KickPhase(pub u32);
