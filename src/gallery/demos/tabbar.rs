@@ -63,8 +63,8 @@ pub fn build_widgets() {
             ) on SelectionChanged {
                 selection_action
                     .update(|state| {
-                        state.current = *new;
-                        state.previous = *old;
+                        state.current = new;
+                        state.previous = old;
                         state.changes = state.changes.saturating_add(1);
                     });
             }

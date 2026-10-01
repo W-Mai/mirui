@@ -1,9 +1,9 @@
 use crate::prelude::*;
 use crate::types::{Fixed64, Transform};
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct PinchTarget {
-    pub(super) model: PinchModel,
+    pub(super) model: model!(PinchModel),
 }
 
 #[crate::model]

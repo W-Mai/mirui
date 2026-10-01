@@ -9,8 +9,8 @@ use crate::prelude::*;
 use crate::ui::UserState;
 use crate::ui::widgets::{Button, Checkbox, ParagraphStyle, Placeholder, Switch, Text, TextInput};
 
-#[compose(bind(model))]
-fn compose_header(model: InteractionModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(InteractionModel)) -> Entity {
     ui! {
         Column (
             id: "interaction_lab_header",
@@ -64,8 +64,8 @@ fn compose_header(model: InteractionModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_gesture_card(model: InteractionModel) -> Entity {
+#[compose]
+fn compose_gesture_card(model: model!(InteractionModel)) -> Entity {
     ui! {
         Column (
             id: "interaction_gestures",
@@ -244,8 +244,8 @@ fn compose_gesture_card(model: InteractionModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_state_card(model: InteractionModel) -> Entity {
+#[compose]
+fn compose_state_card(model: model!(InteractionModel)) -> Entity {
     ui! {
         Column (
             id: "interaction_states",
@@ -385,8 +385,8 @@ fn compose_state_card(model: InteractionModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_motion_card(model: InteractionModel) -> Entity {
+#[compose]
+fn compose_motion_card(model: model!(InteractionModel)) -> Entity {
     ui! {
         Column (
             id: "interaction_motion",
@@ -432,7 +432,7 @@ fn compose_motion_card(model: InteractionModel) -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: ColorToken::OnTertiary
-                ) [TouchAction::None] on DragMove { model.set_drag(*dx, *dy); } on DragEnd { model.reset_drag(); }
+                ) [TouchAction::None] on DragMove { model.set_drag(dx, dy); } on DragEnd { model.reset_drag(); }
             }
             Row (height: 58, column_gap: 8) {
                 Row (
@@ -494,8 +494,8 @@ fn compose_motion_card(model: InteractionModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_controls_card(model: InteractionModel) -> Entity {
+#[compose]
+fn compose_controls_card(model: model!(InteractionModel)) -> Entity {
     ui! {
         Column (
             id: "interaction_controls",
@@ -527,7 +527,7 @@ fn compose_controls_card(model: InteractionModel) -> Entity {
                     width: 64,
                     height: 34,
                     on: ${ model.switch_on() }
-                ) on Toggled { model.set_switch(*now); }
+                ) on Toggled { model.set_switch(now); }
                 Text (
                     "Switch publishes its new value",
                     grow: 1.0,
@@ -542,7 +542,7 @@ fn compose_controls_card(model: InteractionModel) -> Entity {
                     width: 34,
                     height: 34,
                     checked: ${ model.checkbox_on() }
-                ) on Toggled { model.set_checkbox(*now); }
+                ) on Toggled { model.set_checkbox(now); }
                 Text (
                     "Checkbox shares the same state",
                     grow: 1.0,
@@ -606,8 +606,8 @@ fn compose_controls_card(model: InteractionModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: InteractionModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(InteractionModel)) {
     //~focus-start
     ui! {
         Scroll (

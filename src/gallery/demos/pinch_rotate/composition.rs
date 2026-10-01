@@ -3,8 +3,8 @@ use super::state::PinchModel;
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text};
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: PinchModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(PinchModel)) {
     ui! {
         Column (
             grow: 1.0,

@@ -7,8 +7,8 @@ use crate::ui::widgets::icon::Icon;
 const BASE_W: i32 = 160;
 const BASE_H: i32 = 120;
 
-#[compose(bind(model))]
-pub(super) fn pinch_target(model: PinchModel) -> Entity {
+#[compose]
+pub(super) fn pinch_target(model: model!(PinchModel)) -> Entity {
     //~focus-start
     ui! {
         View (
@@ -24,7 +24,7 @@ pub(super) fn pinch_target(model: PinchModel) -> Entity {
             PinchTarget {
                 model: model.clone(),
             },
-        ] on Pinch { model.apply_pinch(*scale_delta); } on Rotate { model.apply_rotation(*angle); }
+        ] on Pinch { model.apply_pinch(scale_delta); } on Rotate { model.apply_rotation(angle); }
         {
             Icon (
                 path: ICON_PLUS,
