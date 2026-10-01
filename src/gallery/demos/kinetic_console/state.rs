@@ -110,6 +110,7 @@ const fn changed() -> ChangeSet {
     ChangeSet::MODEL.union(ChangeSet::VISUAL)
 }
 
+#[crate::model]
 #[derive(Clone, Copy, Default)]
 pub(super) struct ConsoleMotion {
     pub(super) phase: super::super::motion::BrakedPhase,
@@ -117,6 +118,7 @@ pub(super) struct ConsoleMotion {
     wave_elapsed_ms: u16,
 }
 
+#[crate::model]
 impl ConsoleMotion {
     const MAX_STEP_MS: u16 = 50;
     const RATE_RAMP_MS: u16 = 450;
@@ -128,10 +130,10 @@ impl ConsoleMotion {
         intensity: Fixed,
         paused: bool,
         delta_ms: u16,
-    ) -> bool {
+    ) {
         let dt = delta_ms.min(Self::MAX_STEP_MS);
         if dt == 0 {
-            return false;
+            return;
         }
         let previous_phase = self.phase.phase();
         let speed = Fixed::from_int(mode.speed()) + intensity * Fixed::from_ratio(3, 5);
@@ -150,14 +152,15 @@ impl ConsoleMotion {
                 self.wave_phase = phase;
             }
         }
-        phase != previous_phase
     }
 
-    pub(super) fn orbit_render_key(self) -> u64 {
+    #[observe]
+    pub(super) fn orbit_render_key(&self) -> u64 {
         phase_key(self.phase.phase())
     }
 
-    pub(super) fn wave_render_key(self) -> u64 {
+    #[observe]
+    pub(super) fn wave_render_key(&self) -> u64 {
         phase_key(self.wave_phase)
     }
 }

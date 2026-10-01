@@ -1,22 +1,21 @@
 use super::state::{ConsoleModel, ConsoleMotion};
 use super::style::{BORDER, MUTED, PANEL, TEXT};
-use crate::core::reactive::Signal;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::ui::Theme;
 use crate::ui::view::ViewCtx;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct KineticOrbit {
-    pub(super) model: ConsoleModel,
-    pub(super) motion: Signal<ConsoleMotion>,
+    pub(super) model: model!(ConsoleModel),
+    pub(super) motion: model!(ConsoleMotion),
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct KineticWave {
-    pub(super) model: ConsoleModel,
-    pub(super) motion: Signal<ConsoleMotion>,
+    pub(super) model: model!(ConsoleModel),
+    pub(super) motion: model!(ConsoleMotion),
 }
 
 struct InstrumentPainter<'a, 'ctx> {
@@ -42,22 +41,17 @@ impl InstrumentPainter<'_, '_> {
     }
 }
 
-#[crate::view(
-    component = KineticOrbit,
-    read(model),
-    watch(model.visual_revision()),
-    name = "KineticOrbit",
-    priority = 60
-)]
+#[crate::view(name = "KineticOrbit", priority = 60)]
 pub(super) fn orbit_render(
-    renderer: &mut dyn Renderer,
-    component: &KineticOrbit,
-    model: &ConsoleModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    orbit: component!(KineticOrbit),
+    model: model!(orbit.model, watch(visual_revision)),
+    motion: model!(orbit.motion, watch(orbit_render_key)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
-    let phase = component.motion.get_untracked().phase.phase();
+    let phase = motion.phase.phase();
     let panel = theme.resolve(PANEL);
     let border = theme.resolve(BORDER);
     let text = theme.resolve(TEXT);
@@ -177,22 +171,17 @@ pub(super) fn orbit_render(
     }
 }
 
-#[crate::view(
-    component = KineticWave,
-    read(model),
-    watch(model.visual_revision()),
-    name = "KineticWave",
-    priority = 61
-)]
+#[crate::view(name = "KineticWave", priority = 61)]
 pub(super) fn wave_render(
-    renderer: &mut dyn Renderer,
-    component: &KineticWave,
-    model: &ConsoleModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    wave: component!(KineticWave),
+    model: model!(wave.model, watch(visual_revision)),
+    motion: model!(wave.motion, watch(wave_render_key)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
-    let phase = component.motion.get_untracked().phase.phase();
+    let phase = motion.phase.phase();
     let panel = theme.resolve(PANEL);
     let muted = theme.resolve(MUTED);
     let accent = theme.resolve(model.mode.accent());

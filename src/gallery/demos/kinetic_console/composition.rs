@@ -1,17 +1,12 @@
 use super::render::{KineticOrbit, KineticWave};
 use super::state::{ConsoleMode, ConsoleModel, ConsoleMotion};
 use super::style::{AMBER, BACKGROUND, BORDER, CYAN, MUTED, PANEL, TEXT, VIOLET, header_label};
-use crate::core::reactive::Signal;
 use crate::prelude::*;
 use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ParagraphStyle, Slider, Text};
 
-#[compose(bind(model, motion))]
-pub(super) fn build_widgets(model: ConsoleModel, motion: Signal<ConsoleMotion>) {
-    let orbit_motion_key = motion.clone();
-    let orbit_motion = motion.clone();
-    let wave_motion_key = motion.clone();
-    let wave_motion = motion;
+#[compose]
+pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleMotion)) {
     ui! {
         Column (
             id: "kinetic_console_shell",
@@ -81,24 +76,22 @@ pub(super) fn build_widgets(model: ConsoleModel, motion: Signal<ConsoleMotion>) 
                     View (
                         id: "kinetic_console_orbit_layer",
                         width: 52,
-                        height: Dimension::percent(100),
-                        render_key: ${ orbit_motion_key.get().orbit_render_key() }
+                        height: Dimension::percent(100)
                     ) [
                         KineticOrbit {
                             model: model.clone(),
-                            motion: orbit_motion,
+                            motion: motion.clone(),
                         },
                     ] on Tap { model.cycle_focus(); }
                 }
                 View (
                     id: "kinetic_console_wave_layer",
                     width: Dimension::percent(100),
-                    height: 14,
-                    render_key: ${ wave_motion_key.get().wave_render_key() }
+                    height: 14
                 ) [
                     KineticWave {
                         model: model.clone(),
-                        motion: wave_motion,
+                        motion,
                     },
                     IgnoreHitTest,
                 ]
@@ -191,7 +184,7 @@ pub(super) fn build_widgets(model: ConsoleModel, motion: Signal<ConsoleMotion>) 
                 thumb_color: TEXT
             ) on ValueChanged {
                 let _ = old;
-                model.set_intensity(*new);
+                model.set_intensity(new);
             }
         }
     };

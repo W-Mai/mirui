@@ -4,9 +4,11 @@ use super::state::{ConsoleMode, ConsoleModel, ConsoleMotion};
 use super::style::BACKGROUND;
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::change::ChangeSet;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
+use crate::test_support::tracked_allocations;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::ViewRegistry;
 
@@ -40,38 +42,42 @@ fn motion_uses_delta_throttles_wave_and_settles_when_paused() {
     let orbit_key = motion.orbit_render_key();
     let wave_key = motion.wave_render_key();
 
-    assert!(motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), false, 100,));
+    motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), false, 100);
     assert!(motion.orbit_render_key() > orbit_key);
     assert_eq!(motion.wave_render_key(), wave_key);
 
-    assert!(motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), false, 100,));
+    motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), false, 100);
     assert!(motion.wave_render_key() > wave_key);
 
     for _ in 0..10 {
-        assert!(motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), true, 50,));
+        motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), true, 50);
     }
     let stopped = motion.phase.phase();
     assert_eq!(motion.phase.rate(), Fixed::ZERO);
-    assert!(!motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), true, 5_000,));
+    motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), true, 5_000);
     assert_eq!(motion.phase.phase(), stopped);
 
-    assert!(motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), false, 50,));
+    motion.advance(ConsoleMode::Orbit, Fixed::from_int(68), false, 50);
     assert!(motion.phase.rate() > Fixed::ZERO && motion.phase.rate() < Fixed::ONE);
     assert!(motion.phase.phase() > stopped);
 }
 
 #[test]
-fn animation_adapter_captures_technical_motion_without_a_world_model() {
+fn animation_system_advances_registered_motion_model() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
     let model = app.add_model(ConsoleModel::default());
-    let motion = crate::core::reactive::Signal::new(ConsoleMotion::default());
-    let system = kinetic_animation_system(model, motion.clone());
-    app.world.insert_resource(crate::ecs::DeltaTimeMs(50));
+    let motion = app.add_model(ConsoleMotion::default());
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(kinetic_animation_system::system(model, motion.clone()));
+    app.world.insert_resource(DeltaTimeMs(50));
 
-    (system.run)(&mut app.world);
+    scheduler.run_all(&mut app.world);
 
-    assert!(motion.get_untracked().orbit_render_key() > 0);
+    assert!(motion.orbit_render_key() > 0);
     assert!(app.world.resource::<ConsoleModel>().is_none());
+    assert!(app.world.resource::<ConsoleMotion>().is_none());
+    let allocations = tracked_allocations(|| scheduler.run_all(&mut app.world));
+    assert_eq!(allocations, 0);
 }
 
 #[test]
@@ -93,17 +99,13 @@ fn model_and_motion_dirty_bound_views_without_node_sync() {
     world.remove::<VisualDirty>(orbit);
     world.remove::<VisualDirty>(wave);
 
-    let mut next = motion.get_untracked();
-    assert!(next.advance(model.mode(), model.intensity(), model.paused(), 50));
-    motion.set(next);
+    motion.advance(model.mode(), model.intensity(), model.paused(), 50);
     flush_signal_dirty(&mut world);
     assert!(world.has::<VisualDirty>(orbit));
     assert!(!world.has::<VisualDirty>(wave));
     world.remove::<VisualDirty>(orbit);
 
-    let mut next = motion.get_untracked();
-    assert!(next.advance(model.mode(), model.intensity(), model.paused(), 50));
-    motion.set(next);
+    motion.advance(model.mode(), model.intensity(), model.paused(), 50);
     flush_signal_dirty(&mut world);
     assert!(world.has::<VisualDirty>(orbit));
     assert!(world.has::<VisualDirty>(wave));

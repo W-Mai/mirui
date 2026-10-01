@@ -5,43 +5,18 @@ use super::render::{orbit_render, wave_render};
 use super::state::{ConsoleModel, ConsoleMotion};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::core::reactive::Signal;
-use crate::ecs::run_order::ANIMATION;
-use crate::ecs::{DeltaTimeMs, System};
+use crate::ecs::DeltaTimeMs;
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 use crate::types::DimPoint;
 
-type ConsoleHandle = <ConsoleModel as crate::core::model::Model>::Handle;
-
-pub(super) fn advance_motion(
-    model: &ConsoleHandle,
-    motion: &Signal<ConsoleMotion>,
-    delta: DeltaTimeMs,
-) {
-    let mut next = motion.get_untracked();
-    if next.advance(model.mode(), model.intensity(), model.paused(), delta.0) {
-        motion.set(next);
-    }
-}
-
+#[crate::system(order = Animation)]
 pub(super) fn kinetic_animation_system(
-    model: ConsoleHandle,
-    motion: Signal<ConsoleMotion>,
-) -> System {
-    let bound_model = model.clone();
-    System::bound(
-        "kinetic_animation_system",
-        ANIMATION,
-        &model,
-        move |world| {
-            let delta = world
-                .resource::<DeltaTimeMs>()
-                .copied()
-                .expect("Kinetic Console requires DeltaTimeMs");
-            advance_motion(&bound_model, &motion, delta);
-        },
-    )
+    model: model!(ConsoleModel),
+    motion: model!(ConsoleMotion),
+    delta: res!(DeltaTimeMs),
+) {
+    motion.advance(model.mode(), model.intensity(), model.paused(), delta.0);
 }
 
 pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
@@ -99,8 +74,11 @@ where
     app.with_widget(orbit_render::view())
         .with_widget(wave_render::view());
     let model = app.add_model(ConsoleModel::default());
-    let motion = Signal::new(ConsoleMotion::default());
-    app.add_system(kinetic_animation_system(model.clone(), motion.clone()));
+    let motion = app.add_model(ConsoleMotion::default());
+    app.add_system(kinetic_animation_system::system(
+        model.clone(),
+        motion.clone(),
+    ));
     app.compose(parent, |cx| build_widgets(cx, model, motion));
 
     if autoplay && let Some(timeline) = build_sim_timeline(&app.world) {
