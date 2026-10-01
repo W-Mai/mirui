@@ -1,0 +1,5 @@
+error: optional mutable model bindings are not supported
+ --> tests/ui/compose_invalid_model_role.rs:6:32
+  |
+6 | fn panel(game: model!(optional mut Game)) {
+  |                                ^^^

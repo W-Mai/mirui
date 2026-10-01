@@ -1,0 +1,5 @@
+error: `#[compose]` does not accept arguments; declare Model parameters as `name: model!(T)`
+ --> tests/ui/compose_attribute_arguments.rs:3:11
+  |
+3 | #[compose(unexpected)]
+  |           ^^^^^^^^^^

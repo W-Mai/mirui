@@ -1,0 +1,5 @@
+error: binding role `res!` is not available in `#[compose]`; only `model!(T)` and `model!(optional T)` are supported
+ --> tests/ui/compose_unsupported_role.rs:6:16
+  |
+6 | fn panel(time: res!(Time)) {
+  |                ^^^^^^^^^^

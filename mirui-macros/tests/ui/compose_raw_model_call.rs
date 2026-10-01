@@ -6,15 +6,11 @@ struct Counter {
 }
 
 #[model]
-impl Counter {
-    fn increment(&mut self) {
-        self.value += 1;
-    }
-}
+impl Counter {}
 
-#[compose(bind(counter))]
-fn panel(counter: Counter) {
-    counter.increment();
+#[compose]
+fn panel(counter: model!(Counter)) {
+    let _ = counter;
 }
 
 fn main() {

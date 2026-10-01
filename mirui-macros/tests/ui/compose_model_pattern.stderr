@@ -1,0 +1,5 @@
+error: Compose Model parameters must use a plain identifier
+ --> tests/ui/compose_model_pattern.rs:6:10
+  |
+6 | fn panel((game,): model!(Game)) {
+  |          ^^^^^^^
