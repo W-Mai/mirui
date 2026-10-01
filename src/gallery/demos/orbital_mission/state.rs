@@ -1,11 +1,11 @@
 use crate::gallery::play::orbit::OrbitModel;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct OrbitSurface {
-    pub(super) model: OrbitModel,
+    pub(super) model: model!(OrbitModel),
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct OrbitModalSurface {
-    pub(super) model: OrbitModel,
+    pub(super) model: model!(OrbitModel),
 }

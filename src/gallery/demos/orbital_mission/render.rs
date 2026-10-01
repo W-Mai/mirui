@@ -4,8 +4,6 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::orbit::{OrbitModal, OrbitModel, OrbitPage, OrbitPoint};
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn map_point(point: OrbitPoint) -> Point {
     Point {
@@ -181,18 +179,13 @@ fn paint_record(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     painter.border(Rect::new(313, 65, 156, 188), LINE, Fixed::ONE, Fixed::ZERO);
 }
 
-#[crate::view(
-    component = OrbitSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "OrbitSurface",
-    priority = 60
-)]
+#[crate::view(name = "OrbitSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &OrbitModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(OrbitSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -205,18 +198,13 @@ pub(super) fn surface_render(
     }
 }
 
-#[crate::view(
-    component = OrbitModalSurface,
-    read(model),
-    watch(model.modal()),
-    name = "OrbitModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "OrbitModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &OrbitModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(OrbitModalSurface),
+    model: model!(surface.model, watch(modal)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == OrbitModal::None {
         return;

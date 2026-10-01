@@ -123,8 +123,8 @@ fn modal_button(modal: OrbitModal, index: usize, mission: u8) -> (&'static str, 
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: OrbitModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(OrbitModel)) -> Entity {
     ui! {
         Text (
             "轨道任务台",
@@ -240,8 +240,8 @@ fn compose_header(model: OrbitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_map_page(model: OrbitModel) -> Entity {
+#[compose]
+fn compose_map_page(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_map_page",
@@ -436,8 +436,8 @@ fn compose_map_page(model: OrbitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_plan_page(model: OrbitModel) -> Entity {
+#[compose]
+fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_plan_page",
@@ -602,8 +602,8 @@ fn compose_plan_page(model: OrbitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_record_page(model: OrbitModel) -> Entity {
+#[compose]
+fn compose_record_page(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_record_page",
@@ -696,8 +696,8 @@ fn compose_record_page(model: OrbitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: OrbitModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.status() == OrbitStatus::Running { "Ⅱ 暂停" } else { "▶ 滑行" } },
@@ -803,8 +803,8 @@ fn compose_footer(model: OrbitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: OrbitModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(OrbitModel)) -> Entity {
     ui! {
         View (
             id: "orbit_modal",
@@ -931,8 +931,8 @@ fn compose_modal(model: OrbitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn build_widgets(model: OrbitModel) {
+#[compose]
+fn build_widgets(model: model!(OrbitModel)) {
     ui! {
         View (id: "orbit_surface", width: 480, height: 320, clip_children: true) [
             OrbitSurface {
