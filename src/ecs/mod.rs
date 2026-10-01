@@ -1,4 +1,5 @@
 pub mod bundle;
+pub(crate) mod commands;
 pub mod entity;
 pub mod query;
 pub mod sparse_set;
@@ -10,6 +11,6 @@ pub use bundle::{Component, IntoBundle};
 pub use entity::Entity;
 pub use query::QueryBuilder;
 pub use sparse_set::SparseSet;
-pub use system::{System, SystemScheduler, SystemSlot, run_order};
+pub use system::{System, SystemScheduler, SystemSlot};
 pub use time::{DeltaTimeMs, FrameStats, FrameTimings, MonoClock};
 pub use world::World;

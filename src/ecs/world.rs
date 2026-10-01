@@ -1,11 +1,128 @@
 use alloc::boxed::Box;
 use alloc::rc::{Rc, Weak};
 use core::any::{Any, TypeId};
+use core::marker::PhantomData;
+use core::ptr::NonNull;
 use hashbrown::HashMap;
 use rustc_hash::FxBuildHasher;
 
+use super::bundle::Component;
 use super::entity::{Entity, EntityAllocator};
-use super::sparse_set::SparseSet;
+use super::sparse_set::{SparseSet, SparseSetParts};
+
+/// Exclusive World capability used while building typed system parameters.
+///
+/// The type is an opaque, doc-hidden macro support seam. Construction and raw
+/// component access stay crate-private. Snapshots obtained from this cell are
+/// only sound when the complete parameter set has already been checked for
+/// conflicting access and cannot structurally mutate the World.
+#[cfg_attr(not(test), allow(dead_code))]
+#[doc(hidden)]
+pub struct SystemWorldCell<'world> {
+    storages: NonNull<HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>>,
+    resources: NonNull<HashMap<TypeId, Box<dyn Any>, FxBuildHasher>>,
+    watched_component_types: NonNull<alloc::vec::Vec<TypeId>>,
+    component_changes: NonNull<alloc::vec::Vec<ComponentChange>>,
+    _marker: PhantomData<&'world mut World>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl<'world> SystemWorldCell<'world> {
+    pub(crate) fn new(world: &'world mut World) -> Self {
+        Self {
+            storages: NonNull::from(&mut world.storages),
+            resources: NonNull::from(&mut world.resources),
+            watched_component_types: NonNull::from(&mut world.watched_component_types),
+            component_changes: NonNull::from(&mut world.component_changes),
+            _marker: PhantomData,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// The caller must reject incompatible accesses to `T` before calling,
+    /// and no component storage may change structure for `'world`.
+    pub(crate) unsafe fn component_parts<T: Component>(&self) -> Option<SparseSetParts<'world, T>> {
+        // SAFETY: SystemWorldCell originates from a unique World borrow. The
+        // storage map is disjoint from resource and change-queue fields, and
+        // caller prevents structural storage changes. Shared lookup is
+        // deliberate: one query may snapshot the same SparseSet as its driver,
+        // filter, and row data without creating overlapping `&mut SparseSet`
+        // references. SparseSet's value cells provide the controlled interior
+        // mutability needed by validated Write<T> elements.
+        let storages = unsafe { &*self.storages.as_ptr() };
+        storages.get(&TypeId::of::<T>()).map(|storage| {
+            let storage = storage
+                .as_any()
+                .downcast_ref::<SparseSet<T>>()
+                .expect("component storage type");
+            // SAFETY: delegated from SystemWorldCell::component_parts.
+            unsafe { SparseSet::parts(storage) }
+        })
+    }
+
+    /// # Safety
+    ///
+    /// The complete system parameter set must not contain a mutable access to
+    /// `T`. Resource structure must remain unchanged for `'world`.
+    pub(crate) unsafe fn resource<T: 'static>(&self) -> Option<&'world T> {
+        // SAFETY: the caller validated the complete resource access plan. The
+        // pointer is branded by the unique World borrow held by this cell.
+        let resources = unsafe { &*self.resources.as_ptr() };
+        let value = resources.get(&TypeId::of::<T>())?.downcast_ref::<T>()? as *const T;
+        Some(unsafe { &*value })
+    }
+
+    /// # Safety
+    ///
+    /// The complete system parameter set must make this the only access to
+    /// `T`. Resource structure must remain unchanged for `'world`.
+    pub(crate) unsafe fn resource_mut<T: 'static>(&self) -> Option<&'world mut T> {
+        // SAFETY: the caller validated exclusive access to T. The pointer is
+        // branded by the unique World borrow held by this cell.
+        let resources = unsafe { &mut *self.resources.as_ptr() };
+        let value = resources.get_mut(&TypeId::of::<T>())?.downcast_mut::<T>()? as *mut T;
+        Some(unsafe { &mut *value })
+    }
+
+    /// # Safety
+    ///
+    /// The returned sink may only be used by query states built from this
+    /// cell. No other path may mutate the change queue during that window.
+    pub(crate) unsafe fn component_change_sink(&self) -> ComponentChangeSink<'world> {
+        ComponentChangeSink {
+            watched_component_types: self.watched_component_types,
+            component_changes: self.component_changes,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Whether mutable access to `T` needs to enqueue View invalidation.
+    ///
+    /// # Safety
+    ///
+    /// The cell must own the active system World window. No other path may
+    /// mutate the watched-type registry during this call.
+    pub(crate) unsafe fn watches_component<T: Component>(&self) -> bool {
+        // SAFETY: this pointer targets a field disjoint from component storage.
+        unsafe { self.watched_component_types.as_ref() }.contains(&TypeId::of::<T>())
+    }
+
+    /// Reserve the complete system's change-record budget before any mutable
+    /// row is yielded.
+    ///
+    /// # Safety
+    ///
+    /// The cell must own the active system World window. No other path may
+    /// mutate the change queue during this call.
+    pub(crate) unsafe fn reserve_component_change_records(&self, additional: usize) {
+        // SAFETY: this pointer targets a field disjoint from component storage.
+        let changes = unsafe { &mut *self.component_changes.as_ptr() };
+        changes
+            .try_reserve(additional)
+            .expect("component change queue capacity exhausted");
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct WorldId(u64);
@@ -58,9 +175,54 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 /// A component type on one entity changed since the last drain.
 /// Repeated replacements are coalesced; consumers read the final state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ComponentChange {
+pub(crate) struct ComponentChange {
     pub entity: Entity,
     pub type_id: TypeId,
+}
+
+/// Disjoint access to the component-change queue while generated queries hold
+/// references into component storage.
+pub(crate) struct ComponentChangeSink<'world> {
+    watched_component_types: NonNull<alloc::vec::Vec<TypeId>>,
+    component_changes: NonNull<alloc::vec::Vec<ComponentChange>>,
+    _marker: PhantomData<&'world mut World>,
+}
+
+impl ComponentChangeSink<'_> {
+    /// Record the conservative write represented by one yielded `mut T` row.
+    ///
+    /// # Safety
+    ///
+    /// The sink must originate from the same live `SystemWorldCell` as the
+    /// yielded component reference, and callers must not access either queue
+    /// through another path while this method runs.
+    pub(crate) unsafe fn record<T: Component>(&self, entity: Entity) {
+        // SAFETY: the pointers target distinct World fields and the caller
+        // holds the system's exclusive World window.
+        let watched = unsafe { self.watched_component_types.as_ref() };
+        let changes = unsafe { &mut *self.component_changes.as_ptr() };
+        record_component_change(watched, changes, entity, TypeId::of::<T>());
+    }
+}
+
+fn record_component_change(
+    watched_component_types: &[TypeId],
+    component_changes: &mut alloc::vec::Vec<ComponentChange>,
+    entity: Entity,
+    type_id: TypeId,
+) {
+    if !watched_component_types.contains(&type_id) {
+        return;
+    }
+    let change = ComponentChange { entity, type_id };
+    if !component_changes.contains(&change) {
+        if component_changes.len() == component_changes.capacity() {
+            component_changes
+                .try_reserve(1)
+                .expect("component change queue capacity exhausted");
+        }
+        component_changes.push(change);
+    }
 }
 
 pub struct World {
@@ -164,7 +326,7 @@ impl World {
 
     /// Begin recording structural changes for a component type. Existing
     /// components are queued so a newly registered View can attach them.
-    pub fn watch_component_type(&mut self, type_id: TypeId) {
+    pub(crate) fn watch_component_type(&mut self, type_id: TypeId) {
         if !self.watched_component_types.contains(&type_id) {
             self.watched_component_types.push(type_id);
         }
@@ -182,11 +344,6 @@ impl World {
         }
     }
 
-    /// Reserve the change queue before a batch of component replacements.
-    pub fn reserve_component_changes(&mut self, additional: usize) {
-        self.component_changes.reserve(additional);
-    }
-
     pub(crate) fn reserve_component_storage<T: 'static>(
         &mut self,
         max_entity_id: u32,
@@ -197,23 +354,20 @@ impl World {
     }
 
     fn record_component_change(&mut self, entity: Entity, type_id: TypeId) {
-        if !self.watched_component_types.contains(&type_id) {
-            return;
-        }
-        let change = ComponentChange { entity, type_id };
-        if !self.component_changes.contains(&change) {
-            if self.component_changes.len() == self.component_changes.capacity() {
-                self.component_changes
-                    .try_reserve(1)
-                    .expect("component change queue capacity exhausted");
-            }
-            self.component_changes.push(change);
-        }
+        record_component_change(
+            &self.watched_component_types,
+            &mut self.component_changes,
+            entity,
+            type_id,
+        );
     }
 
     /// Visit queued changes outside component storage borrows. New structural
     /// changes made by the callback are visited in this same pass.
-    pub fn drain_component_changes(&mut self, mut visit: impl FnMut(&mut Self, ComponentChange)) {
+    pub(crate) fn drain_component_changes(
+        &mut self,
+        mut visit: impl FnMut(&mut Self, ComponentChange),
+    ) {
         let mut index = 0;
         while let Some(change) = self.component_changes.get(index).copied() {
             index += 1;
@@ -459,7 +613,7 @@ mod tests {
         let entity = world.spawn_empty();
         world.insert(entity, 1u16);
         world.watch_component_type(TypeId::of::<u16>());
-        world.reserve_component_changes(2);
+        world.component_changes.reserve(2);
         let capacity = world.component_changes.capacity();
 
         world.insert(entity, 2u16);
@@ -489,7 +643,7 @@ mod tests {
         world.insert(entity, 1u16);
         world.insert(entity, 2u32);
         world.watch_component_type(TypeId::of::<u16>());
-        world.reserve_component_changes(1);
+        world.component_changes.reserve(1);
         assert!(world.despawn(entity));
         assert!(!world.despawn(entity));
         let mut count = 0;

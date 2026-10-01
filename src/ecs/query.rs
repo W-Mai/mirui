@@ -5,6 +5,9 @@ use core::marker::PhantomData;
 use super::entity::Entity;
 use super::world::World;
 
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod system;
+
 pub struct QueryBuilder<'w, T: 'static> {
     world: &'w World,
     and_filters: Vec<TypeId>,
