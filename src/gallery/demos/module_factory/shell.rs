@@ -1,4 +1,4 @@
-use super::input::{factory_tick_system, surface_gesture};
+use super::input::{factory_tick_system, surface_tap};
 use super::render::{modal_render, surface_render};
 use super::state::{FactoryModalSurface, FactorySurface};
 use super::style::{ACCENT, BACKGROUND, INK, LINE, MUTED};
@@ -11,6 +11,7 @@ use crate::gallery::play::factory::{
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
@@ -152,8 +153,8 @@ fn modal_button_active(modal: FactoryModal, tool: FactoryTool, index: usize) -> 
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: FactoryModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(FactoryModel)) -> Entity {
     ui! {
         Text (
             "模块工厂",
@@ -286,8 +287,8 @@ fn compose_header(model: FactoryModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_line_page(model: FactoryModel) -> Entity {
+#[compose]
+fn compose_line_page(model: model!(FactoryModel)) -> Entity {
     ui! {
         View (
             id: "factory_line_page",
@@ -438,8 +439,8 @@ fn compose_line_page(model: FactoryModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_orders_page(model: FactoryModel) -> Entity {
+#[compose]
+fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
     ui! {
         View (
             id: "factory_orders_page",
@@ -579,8 +580,8 @@ fn compose_orders_page(model: FactoryModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_telemetry_page(model: FactoryModel) -> Entity {
+#[compose]
+fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
     ui! {
         View (
             id: "factory_telemetry_page",
@@ -748,8 +749,8 @@ fn compose_telemetry_page(model: FactoryModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: FactoryModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(FactoryModel)) -> Entity {
     ui! {
         Button (
             "＋ 建造",
@@ -858,8 +859,8 @@ fn compose_footer(model: FactoryModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: FactoryModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(FactoryModel)) -> Entity {
     ui! {
         View (
             id: "factory_modal",
@@ -1021,15 +1022,23 @@ fn compose_modal(model: FactoryModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: FactoryModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(FactoryModel)) {
     ui! {
         View (id: "factory_surface", width: 480, height: 320, clip_children: true) [
             FactorySurface {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, FactorySurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        }
         {
             compose_header (model)
             compose_line_page (model)

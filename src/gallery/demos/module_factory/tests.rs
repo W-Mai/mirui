@@ -69,7 +69,9 @@ fn surface_places_selected_tool_through_the_bound_model() {
     let model = model_handle(&world);
     model.set_tool(FactoryTool::Build(ModuleKind::Belt));
     assert_eq!(
-        with_model(&world, |model| local_cell(model, Point::new(183, 142))),
+        with_model(&world, |model| {
+            local_cell(model.page(), model.modal(), Point::new(183, 142))
+        }),
         Some(23)
     );
     assert_eq!(

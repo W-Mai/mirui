@@ -7,8 +7,6 @@ use crate::gallery::play::factory::{
 };
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_shell(painter: &mut PlayPainter<'_, '_>) {
     painter.fill(Rect::new(0, 0, 480, 320), BACKGROUND, Fixed::ZERO);
@@ -261,18 +259,13 @@ fn paint_factory_surface(painter: &mut PlayPainter<'_, '_>, model: &FactoryModel
     }
 }
 
-#[crate::view(
-    component = FactorySurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "FactorySurface",
-    priority = 60
-)]
+#[crate::view(name = "FactorySurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &FactoryModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(FactorySurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -280,18 +273,13 @@ pub(super) fn surface_render(
     paint_factory_surface(&mut painter, model);
 }
 
-#[crate::view(
-    component = FactoryModalSurface,
-    read(model),
-    watch(model.modal()),
-    name = "FactoryModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "FactoryModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &FactoryModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(FactoryModalSurface),
+    model: model!(surface.model, watch(modal)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == FactoryModal::None {
         return;
