@@ -1,26 +1,38 @@
 #[cfg(feature = "std")]
 use super::render::life_render;
 use super::state::{LifeBoard, MAX_GRID_EDGE};
+#[cfg(feature = "std")]
 use crate::prelude::*;
 
 const PX_PER_CELL: i32 = 1;
 const MIN_GRID_EDGE: i32 = 48;
 
-#[mirui_macros::system]
-pub fn life_step_system(world: &mut World) {
-    world.for_each_stable::<LifeBoard>(|world, e| {
-        // re-grid to the laid-out size: cell count tracks the canvas, no stretch
-        if let Some(rect) = world.get::<crate::ui::ComputedRect>(e).map(|c| c.0) {
+#[crate::component]
+pub(super) struct LifeStepDue;
+
+#[crate::system]
+pub fn life_step_system(
+    ticks: query!(Entity; with LifeStepDue;),
+    boards: query!(mut LifeBoard, optional crate::ui::ComputedRect),
+    commands: commands!(),
+) {
+    let mut due = false;
+    for timer in ticks {
+        commands.remove::<LifeStepDue>(timer);
+        due = true;
+    }
+    if !due {
+        return;
+    }
+
+    for (board, computed) in boards {
+        // Re-grid to the laid-out size: cell count tracks the canvas, no stretch.
+        if let Some(rect) = computed.map(|computed| computed.0) {
             let (cols, rows) = dims_from_px(rect.w.to_int(), rect.h.to_int());
-            if let Some(b) = world.get_mut::<LifeBoard>(e) {
-                b.resize(cols, rows);
-            }
+            board.resize(cols, rows);
         }
-        if let Some(b) = world.get_mut::<LifeBoard>(e) {
-            b.advance();
-        }
-        world.invalidate(e);
-    });
+        board.advance();
+    }
 }
 
 pub(in crate::gallery::demos) fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
@@ -31,9 +43,10 @@ pub(in crate::gallery::demos) fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
     (cols, rows)
 }
 
-mirui_macros::timer!(LifeTick, every: 90, |world, _entity| {
-    life_step_system(world);
-});
+#[mirui_macros::timer(every = 90)]
+fn life_tick(timer: entity!(), commands: commands!()) {
+    commands.insert(timer, LifeStepDue);
+}
 
 #[cfg(feature = "std")]
 pub(in crate::gallery::demos) fn install_runtime<B, F>(app: &mut App<B, F>)
@@ -46,5 +59,6 @@ where
     app.with_widget(life_render::view())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    LifeTick::install(&mut app.world);
+    app.add_system(life_step_system::system());
+    app.add_timer(life_tick::timer());
 }

@@ -2,12 +2,34 @@ use core::any::TypeId;
 
 use super::composition::build_widgets;
 use super::render::life_render;
-use super::runtime::dims_from_px;
+use super::runtime::{LifeStepDue, dims_from_px, life_step_system};
 use super::state::{GLIDER, GOSPER_GUN, LifeBoard, MAX_GRID_EDGE};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::ComputedRect;
 use crate::ui::render_system::update_layout;
+
+#[test]
+fn authored_step_system_runs_only_for_a_timer_tick() {
+    let mut world = World::new();
+    let board_entity = world.spawn_empty();
+    let mut board = LifeBoard::new(32, 32);
+    board.seed((10, 5), &[(0, 0), (0, 1), (0, 2)]);
+    let initial = board.cell.clone();
+    world.insert(board_entity, board);
+
+    let mut scheduler = crate::ecs::SystemScheduler::new();
+    scheduler.add(life_step_system::system());
+    scheduler.run_all(&mut world);
+    assert_eq!(world.get::<LifeBoard>(board_entity).unwrap().cell, initial);
+
+    let timer = world.spawn_empty();
+    world.insert(timer, LifeStepDue);
+    scheduler.run_all(&mut world);
+
+    assert_ne!(world.get::<LifeBoard>(board_entity).unwrap().cell, initial);
+    assert!(!world.has::<LifeStepDue>(timer));
+}
 
 #[test]
 fn life_view_keeps_its_dispatch_contract() {

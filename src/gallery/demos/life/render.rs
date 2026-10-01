@@ -1,16 +1,14 @@
 use super::state::LifeBoard;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
-#[crate::view(component = LifeBoard, name = "LifeBoard", priority = 60)]
+#[crate::view(name = "LifeBoard", priority = 60)]
 pub fn life_render(
-    renderer: &mut dyn Renderer,
-    component: &LifeBoard,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    component: component!(LifeBoard),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
     if component.cols == 0 || component.rows == 0 {
         return;
