@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
+use mirui::ecs::SystemScheduler;
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
@@ -87,40 +88,38 @@ fn main() {
         })
         .id();
 
-    let list = ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (
-            bg_color: Color::rgb(28, 28, 40),
-            width: W as i32,
-            height: H as i32
-        ) [
-            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
-            LazyListBinder { bind: row_binder },
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::from_int(scroll_y_int),
-            },
-            ScrollConfig {
-                direction: ScrollAxis::Vertical,
-                elastic: false,
-                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-                content_width: Fixed::ZERO,
-            },
-        ] {
-            walk 0..POOL_SIZE with _i {
-                Row (
-                    bg_color: Color::rgb(40, 40, 56),
-                    text_color: Color::rgb(220, 220, 230),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: W as i32,
-                    height: ROW_H
-                )
+    let list = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (
+                bg_color: Color::rgb(28, 28, 40),
+                width: W as i32,
+                height: H as i32
+            ) [
+                LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+                LazyListBinder { bind: row_binder },
+                ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: Fixed::from_int(scroll_y_int),
+                },
+                ScrollConfig {
+                    direction: ScrollAxis::Vertical,
+                    elastic: false,
+                    content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
+                    content_width: Fixed::ZERO,
+                },
+            ] {
+                walk 0..POOL_SIZE with _i {
+                    Row (
+                        bg_color: Color::rgb(40, 40, 56),
+                        text_color: Color::rgb(220, 220, 230),
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 0,
+                        width: W as i32,
+                        height: ROW_H
+                    )
+                }
             }
         }
     };
@@ -148,7 +147,9 @@ fn main() {
     use mirui::types::Viewport;
     use mirui::ui::render_system;
 
-    lazy_list_system(&mut app.world);
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lazy_list_system::system());
+    scheduler.run_all(&mut app.world);
 
     let viewport = Viewport::new(W, H, Fixed::ONE);
     render_system::update_layout(&mut app.world, root, &viewport);

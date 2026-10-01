@@ -131,7 +131,7 @@ split_demo_sources! {
     },
     THREE_BODY => {
         demo: "three_body",
-        marker: "fn three_body_step",
+        marker: "fn physics_tick_system",
         parts: [
             "state.rs",
             "orbit.rs",
@@ -215,12 +215,12 @@ split_demo_sources! {
     },
     ANIMATION => {
         demo: "animation",
-        marker: "mirui_macros::animate!(AnimateColor",
+        marker: "fn apply_color",
         parts: ["motion.rs", "composition.rs", "runtime.rs", "tests.rs"]
     },
     EFFECT_GLASS => {
         demo: "effect_glass",
-        marker: "mirui_macros::animate!(GaussRadius",
+        marker: "fn apply_gauss_radius",
         parts: ["motion.rs", "composition.rs", "runtime.rs", "tests.rs"]
     },
     SUBPIXEL => {

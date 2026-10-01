@@ -73,6 +73,7 @@ impl<B: mirui::surface::FramebufferAccess> RendererFactory<B> for HybridFactory 
     }
 }
 
+#[mirui::component]
 struct Drift {
     t: f32,
     start_x: Fixed,
@@ -82,21 +83,15 @@ struct Drift {
 }
 
 #[mirui::system]
-fn drift_system(world: &mut World) {
-    let mut buf = Vec::new();
-    world.query::<Drift>().collect_into(&mut buf);
-    for e in buf {
-        let (new_x, new_y) = {
-            let Some(d) = world.get_mut::<Drift>(e) else {
-                continue;
-            };
-            d.t += 0.016;
-            let ox = Fixed::from_f32((d.t * d.speed).sin()) * d.amplitude;
-            let oy =
-                Fixed::from_f32((d.t * d.speed * 0.7).cos()) * d.amplitude * Fixed::from_f32(0.5);
-            (d.start_x + ox, d.start_y + oy)
-        };
-        mirui::ui::set_position(world, e, new_x, new_y);
+fn drift_system(drifters: query!(mut Drift, mut Style)) {
+    for (drift, style) in drifters {
+        drift.t += 0.016;
+        let ox = Fixed::from_f32((drift.t * drift.speed).sin()) * drift.amplitude;
+        let oy = Fixed::from_f32((drift.t * drift.speed * 0.7).cos())
+            * drift.amplitude
+            * Fixed::from_f32(0.5);
+        style.layout.left = Dimension::Px(drift.start_x + ox);
+        style.layout.top = Dimension::Px(drift.start_y + oy);
     }
 }
 
@@ -108,11 +103,7 @@ fn main() {
 
     let mut app = App::with_factory(backend, factory);
     app.with_default_widgets();
-    app.add_system(mirui::ecs::System::new(
-        "drift",
-        mirui::ecs::run_order::NORMAL,
-        drift_system,
-    ));
+    app.add_system(drift_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
@@ -137,37 +128,35 @@ fn main() {
         (340, 180, 2.55),
     ];
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        View (grow: 1.0) {
-            View (
-                bg_color: Color::rgb(88, 166, 255),
-                height: 40,
-                border_radius: 6
-            ) {
-                Text ("compose_backend DSL demo", paragraph: ParagraphStyle::label())
-            }
-            walk drifters.iter() with d {
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            View (grow: 1.0) {
                 View (
-                    position: Position::Absolute,
-                    left: d.0,
-                    top: d.1,
-                    width: iw,
-                    height: ih,
-                    image: Image::new("thumbs_up")
-                ) [
-                    Drift {
-                        t: 0.0,
-                        start_x: Fixed::from_int(d.0),
-                        start_y: Fixed::from_int(d.1),
-                        speed: d.2,
-                        amplitude: Fixed::from_int(60),
-                    },
-                ]
+                    bg_color: Color::rgb(88, 166, 255),
+                    height: 40,
+                    border_radius: 6
+                ) {
+                    Text ("compose_backend DSL demo", paragraph: ParagraphStyle::label())
+                }
+                walk drifters.iter() with d {
+                    View (
+                        position: Position::Absolute,
+                        left: d.0,
+                        top: d.1,
+                        width: iw,
+                        height: ih,
+                        image: Image::new("thumbs_up")
+                    ) [
+                        Drift {
+                            t: 0.0,
+                            start_x: Fixed::from_int(d.0),
+                            start_y: Fixed::from_int(d.1),
+                            speed: d.2,
+                            amplitude: Fixed::from_int(60),
+                        },
+                    ]
+                }
             }
         }
     };
