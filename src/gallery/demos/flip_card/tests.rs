@@ -1,10 +1,16 @@
 use super::animation::flip_system;
 use super::composition::build_widgets;
 use super::state::FlipCard;
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::prelude::*;
 use crate::ui::widgets::WidgetTransform3D;
 use crate::ui::{Children, IdMap, UiScope};
+
+fn run_flip(world: &mut World) {
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(flip_system::system());
+    scheduler.run_all(world);
+}
 
 #[test]
 fn build_widgets_smoke() {
@@ -40,7 +46,7 @@ fn card_rotation_uses_frame_delta() {
     );
     world.insert(card, Style::default());
 
-    flip_system(&mut world);
+    run_flip(&mut world);
     assert_eq!(
         world.get::<FlipCard>(card).unwrap().angle_deg,
         Fixed::from_int(60) * Fixed::from_ratio(20, 1_000)
@@ -49,7 +55,7 @@ fn card_rotation_uses_frame_delta() {
 }
 
 #[test]
-#[should_panic(expected = "Flip Card animation requires DeltaTimeMs")]
+#[should_panic(expected = "requires resource")]
 fn card_rotation_requires_frame_delta() {
-    flip_system(&mut World::new());
+    run_flip(&mut World::new());
 }

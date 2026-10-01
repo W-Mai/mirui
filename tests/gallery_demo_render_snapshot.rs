@@ -240,7 +240,9 @@ fn themed_demos_render_in_light_palette() {
         mirui::gallery::demos::flip_card::build_widgets(&mut cx);
         drop(cx);
         world.insert_resource(mirui::ecs::DeltaTimeMs(16));
-        mirui::gallery::demos::flip_card::flip_system(world);
+        let mut systems = mirui::ecs::SystemScheduler::new();
+        systems.add(mirui::gallery::demos::flip_card::flip_system::system());
+        systems.run_all(world);
     });
     assert_renders("flip_card_light", card);
 

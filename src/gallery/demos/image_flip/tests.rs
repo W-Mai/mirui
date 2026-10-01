@@ -1,9 +1,15 @@
 use super::composition::build_widgets;
 use super::motion::{Spinner, spin_system};
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::prelude::*;
 use crate::ui::widgets::WidgetTransform3D;
 use crate::ui::{Children, IdMap, UiScope};
+
+fn run_spin(world: &mut World) {
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(spin_system::system());
+    scheduler.run_all(world);
+}
 
 #[test]
 fn build_widgets_smoke() {
@@ -34,7 +40,7 @@ fn image_motion_uses_frame_delta() {
         },
     );
 
-    spin_system(&mut world);
+    run_spin(&mut world);
     let spinner = world.get::<Spinner>(image).unwrap();
     let expected = Fixed::from_int(180) * Fixed::from_ratio(20, 1_000);
     assert_eq!(spinner.angle, expected);
@@ -43,7 +49,7 @@ fn image_motion_uses_frame_delta() {
 }
 
 #[test]
-#[should_panic(expected = "Image Flip animation requires DeltaTimeMs")]
+#[should_panic(expected = "requires resource")]
 fn image_motion_requires_frame_delta() {
-    spin_system(&mut World::new());
+    run_spin(&mut World::new());
 }
