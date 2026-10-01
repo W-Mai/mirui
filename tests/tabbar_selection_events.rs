@@ -42,19 +42,15 @@ mod tests {
     }
 
     fn build_tabbar(world: &mut World, root: Entity) -> Entity {
-        let bar = ui! {
-            :(
-                parent: root
-                world: world
-            :)
-
-            TabBar (width: 300, height: 40)
-                on SelectionChanged {
-                    LAST_NEW.store(*new, Ordering::SeqCst);
-                    LAST_OLD.store(*old, Ordering::SeqCst);
+        let bar = {
+            let mut cx = ::mirui::ui::UiScope::new(world, root);
+            ui! {
+                TabBar (width: 300, height: 40) on SelectionChanged {
+                    LAST_NEW.store(new, Ordering::SeqCst);
+                    LAST_OLD.store(old, Ordering::SeqCst);
                     FIRES.fetch_add(1, Ordering::SeqCst);
                 }
-                {}
+            }
         };
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.count = 3;

@@ -52,13 +52,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {} on Tap { fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { fire(); }
+            }
         };
 
         let layouts: Vec<_> = world.query::<GestureHandler>().collect();
@@ -74,13 +72,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap { fire(); } {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { fire(); }
+            }
         };
 
         let layouts: Vec<_> = world.query::<GestureHandler>().collect();
@@ -96,13 +92,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {} on Tap { fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { fire(); }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -118,15 +112,14 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {}
-                on Tap { fire(); }
-                on LongPress { fire(); fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { fire(); } on LongPress {
+                    fire();
+                    fire();
+                }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -153,13 +146,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on DragCancel { fire(); } {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on DragCancel { fire(); }
+            }
         };
 
         let target = world
@@ -186,16 +177,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {}
-                on Tap {
-                    SUM_X.fetch_add(x.to_int() as i64, Ordering::SeqCst);
-                }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { SUM_X.fetch_add(x.to_int() as i64, Ordering::SeqCst); }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -215,14 +201,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Button (normal_color: Color::rgb(100, 100, 100)) {}
-                on Tap { fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Button (normal_color: Color::rgb(100, 100, 100)) on Tap { fire(); }
+            }
         };
 
         let buttons: Vec<Entity> = world.query::<Button>().collect();
@@ -231,8 +214,7 @@ mod tests {
         assert_eq!(
             fired(),
             1,
-            "Component widget on Tap fires user body once \
-             (v0.27.1: user dispatch overrides internal handler)"
+            "Component widget on Tap fires the user body once"
         );
     }
 
@@ -242,13 +224,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap(2) { fire(); } {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap(2) { fire(); }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -265,13 +245,11 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {} on Tap(2) { fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap(2) { fire(); }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -287,15 +265,14 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {}
-                on Tap { fire(); }
-                on Tap(2) { fire(); fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { fire(); } on Tap(2) {
+                    fire();
+                    fire();
+                }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -316,16 +293,14 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View ()
-                on Tap { fire(); }
-                {}
-                on LongPress { fire(); fire(); }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { fire(); } on LongPress {
+                    fire();
+                    fire();
+                }
+            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();

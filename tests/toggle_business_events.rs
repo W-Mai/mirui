@@ -52,18 +52,14 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
-        let switch = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Switch (width: 60, height: 32)
-                on Toggled {
-                    SWITCH_LAST_NOW.store(*now, Ordering::SeqCst);
+        let switch = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Switch (width: 60, height: 32) on Toggled {
+                    SWITCH_LAST_NOW.store(now, Ordering::SeqCst);
                     SWITCH_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
-                {}
+            }
         };
         world.insert(
             switch,
@@ -88,18 +84,14 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
-        let checkbox = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Checkbox (width: 32, height: 32)
-                on Toggled {
-                    CHECKBOX_LAST_NOW.store(*now, Ordering::SeqCst);
+        let checkbox = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Checkbox (width: 32, height: 32) on Toggled {
+                    CHECKBOX_LAST_NOW.store(now, Ordering::SeqCst);
                     CHECKBOX_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
-                {}
+            }
         };
         world.insert(
             checkbox,
@@ -120,19 +112,15 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
-        let pb = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            ProgressBar (width: 100, height: 16)
-                on ValueChanged {
+        let pb = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                ProgressBar (width: 100, height: 16) on ValueChanged {
                     let _ = old;
-                    PROGRESS_LAST_NEW.store((*new * 100.0) as i64, Ordering::SeqCst);
+                    PROGRESS_LAST_NEW.store((new * 100.0) as i64, Ordering::SeqCst);
                     PROGRESS_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
-                {}
+            }
         };
         world.insert(
             pb,
