@@ -1,0 +1,48 @@
+use mirui::{component, model, view};
+
+const ROOT_OFFSET: u8 = 2;
+
+#[model]
+struct State {
+    #[observe]
+    value: u8,
+}
+
+#[model]
+impl State {}
+
+#[component]
+struct Tile {
+    state: model!(State),
+    optional: model!(optional State),
+}
+
+mod nested {
+    use super::*;
+
+    fn local_offset() -> u8 {
+        3
+    }
+
+    #[view(invalidation = Layout)]
+    #[allow(clippy::let_and_return)]
+    #[cfg_attr(all(), inline)]
+    pub fn paint(
+        tile: component!(Tile),
+        state: model!(tile.state, watch(value)),
+        optional: model!(optional tile.optional, watch(value)),
+        theme: res!(mirui::ui::Theme),
+        entity: entity!(),
+        renderer: draw!(),
+        rect: rect!(),
+        ctx: view!(),
+    ) {
+        let value = state.value + super::ROOT_OFFSET + self::local_offset();
+        let optional_value = optional.map(|state| state.value);
+        let _ = (value, optional_value, theme, entity, renderer, rect, ctx);
+    }
+}
+
+fn main() {
+    let _ = nested::paint::view();
+}

@@ -1,0 +1,23 @@
+error[E0277]: the trait bound `u8: mirui::ecs::Component` is not satisfied
+ --> tests/ui/view_non_component_filter.rs:4:28
+  |
+3 | #[view]
+  | ------- required by a bound introduced by this call
+4 | fn paint(value: component!(u8)) {
+  |                            ^^ the trait `mirui::ecs::Component` is not implemented for `u8`
+  |
+  = help: the following other types implement trait `mirui::ecs::Component`:
+            BackgroundBlur
+            Button
+            Checkbox
+            Children
+            ComputedRect
+            Dirty
+            DropGlow
+            DropShadow
+          and $N others
+note: required by a bound in `View::with_filter`
+ --> $WORKSPACE/src/ui/view.rs
+  |
+  |     pub const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
+  |                                 ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `View::with_filter`

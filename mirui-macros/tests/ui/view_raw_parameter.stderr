@@ -1,0 +1,5 @@
+error: View parameters must use `component!(T)`, `model!(component.field, ...)`, `res!(T)`, `entity!()`, `draw!()`, `rect!()`, or `view!()`
+ --> tests/ui/view_raw_parameter.rs:7:16
+  |
+7 | fn paint(tile: &Tile) {
+  |                ^^^^^
