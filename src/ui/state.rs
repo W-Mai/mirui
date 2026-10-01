@@ -51,7 +51,8 @@ pub enum InteractionState {
     Pressed,
 }
 
-#[crate::system(order = INTERACTION_STATE)]
+impl crate::ecs::Component for InteractionState {}
+
 pub fn hover_system(world: &mut World) {
     let snap = cursor_snapshot(world);
     let last = world
@@ -75,7 +76,8 @@ pub fn hover_system(world: &mut World) {
     );
 }
 
-#[crate::system(order = INTERACTION_STATE)]
+crate::ecs::system::framework_system!(pub hover_system, InteractionState);
+
 pub fn press_system(world: &mut World) {
     let snap = cursor_snapshot(world);
     let last = world
@@ -123,6 +125,8 @@ pub fn press_system(world: &mut World) {
         InteractionState::Pressed,
     );
 }
+
+crate::ecs::system::framework_system!(pub press_system, InteractionState);
 
 pub(crate) fn clear_hidden_interaction_states(world: &mut World) {
     loop {
@@ -288,13 +292,11 @@ mod hover_press_e2e {
         world.insert_resource(crate::ui::IdMap::new());
         let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
 
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View (width: 32, height: 24) on Tap {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                View (width: 32, height: 24) on Tap { }
+            }
         };
 
         let target = world.get::<Children>(root).unwrap().0[0];
@@ -309,15 +311,13 @@ mod hover_press_e2e {
         world.insert_resource(crate::ui::IdMap::new());
         let root = crate::ui::builder::WidgetBuilder::new(&mut world).id();
 
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () {
-                Row (width: 32, height: 24) on Tap {}
-                Column (width: 32, height: 24) on Tap {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            crate::ui! {
+                View () {
+                    Row (width: 32, height: 24) on Tap { }
+                    Column (width: 32, height: 24) on Tap { }
+                }
             }
         };
 

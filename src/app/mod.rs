@@ -613,12 +613,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Register one widget kind (built-in or user-defined).
     pub fn with_widget(&mut self, view: View) -> &mut Self {
-        if view.observation().is_some() {
-            let type_id = view
-                .component_filter()
-                .expect("observed View requires a component filter");
-            self.world.watch_component_type(type_id);
-        }
         let systems = &mut self.systems;
         view.install(&mut self.world, |s| systems.add(s));
         if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
@@ -655,6 +649,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         system.assert_owner(&self.world);
         self.systems.add(system);
         self
+    }
+
+    /// Install a generated timer and return its callback entity.
+    pub fn add_timer(&mut self, timer: crate::core::timer::Timer) -> Entity {
+        crate::core::timer::install(&mut self.world, timer)
     }
 
     /// Register a plugin. Runs `plugin.build(self)` immediately, then stores
@@ -1227,7 +1226,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             snap.entries
                 .push(crate::app::plugins::perf_report::SystemStat {
                     name: s.name,
-                    priority: s.priority,
+                    priority: s.priority(),
                     last_us: s.last_us,
                     avg_us: avg,
                     call_count: s.call_count,
@@ -1733,19 +1732,17 @@ mod app_invariant_tests {
             },
         );
         let root = app.spawn_root().id();
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Text ("A", id: "scratch_a", text_capacity: 1)
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Text ("A", id: "scratch_a", text_capacity: 1)
+            }
         };
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Text ("B", id: "scratch_b", text_capacity: 1)
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Text ("B", id: "scratch_b", text_capacity: 1)
+            }
         };
         app.prefer_text_raster_scratch(8, 8).unwrap();
 
@@ -1808,14 +1805,17 @@ mod app_invariant_tests {
         );
 
         let root = app.spawn_root().id();
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Column {
-                Column (id: "left_tree") { Text ("LEFT", id: "left_label") }
-                Column (id: "right_tree") { Text ("RIGHT", id: "right_label") }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Column () {
+                    Column (id: "left_tree") {
+                        Text ("LEFT", id: "left_label")
+                    }
+                    Column (id: "right_tree") {
+                        Text ("RIGHT", id: "right_label")
+                    }
+                }
             }
         };
         assert_ne!(
@@ -1866,12 +1866,11 @@ mod app_invariant_tests {
             TextLayoutReservation::Pending(first)
         );
         let root = app.spawn_root().id();
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Text ("STORAGE", id: "storage_label")
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Text ("STORAGE", id: "storage_label")
+            }
         };
         let error = app.prepare_text_layout().err().unwrap();
         assert!(matches!(
@@ -1991,12 +1990,11 @@ mod app_invariant_tests {
         let capacity = text_capacity(4, 24);
         app.require_text_layout_capacity(capacity).unwrap();
         let root = app.spawn_root().id();
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Text ("LOW LEVEL", id: "low_level")
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Text ("LOW LEVEL", id: "low_level")
+            }
         };
         crate::ui::render_system::try_update_layout(&mut app.world, root, &app.backend.viewport())
             .unwrap();
@@ -2026,12 +2024,11 @@ mod app_invariant_tests {
         app.require_text_layout_capacity(text_capacity(4, 24))
             .unwrap();
         let root = app.spawn_root().id();
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Text ("READY", id: "auto_prepared")
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Text ("READY", id: "auto_prepared")
+            }
         };
         app.render().unwrap();
         assert_eq!(app.text_layout_reservation, TextLayoutReservation::Prepared);
@@ -2046,12 +2043,11 @@ mod app_invariant_tests {
         let capacity = crate::text::TextLayoutCapacity::default();
         app.require_text_layout_capacity(capacity).unwrap();
         let root = app.spawn_root().id();
-        crate::ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-            Text ("LATE", id: "late_text")
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            crate::ui! {
+                Text ("LATE", id: "late_text")
+            }
         };
         assert_eq!(app.render(), Err(crate::render::RenderError::TextLayout));
         assert_eq!(app.last_text_layout_preparation_error(), None);

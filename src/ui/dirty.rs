@@ -10,8 +10,12 @@ use alloc::vec::Vec;
 /// Dirty flag component — marks an entity as needing redraw.
 pub struct Dirty;
 
+impl crate::ecs::Component for Dirty {}
+
 /// Marks paint geometry dirty while preserving the existing layout snapshot.
 pub(crate) struct VisualDirty;
+
+impl crate::ecs::Component for VisualDirty {}
 
 struct DirtyTraversalStack(Option<Vec<Entity>>);
 

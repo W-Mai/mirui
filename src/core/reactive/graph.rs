@@ -6,7 +6,6 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use crate::ecs::Entity;
 use crate::ecs::world::WorldId;
 
 use super::Subscriber;
@@ -704,6 +703,39 @@ impl ReactiveGraph {
         self.reserve(next)
     }
 
+    /// Keep shared headroom in every owner while reserving one additional
+    /// consumer only for `partition`.
+    pub fn reserve_owner_consumer_for(
+        &mut self,
+        partition: PartitionKey,
+        shared_headroom: usize,
+    ) -> Result<(), GraphError> {
+        if !matches!(partition, PartitionKey::Owner { .. })
+            || self.owner_by_key(partition).is_none()
+        {
+            return Err(GraphError::StaleConsumer);
+        }
+        let deficit = self
+            .owners
+            .iter()
+            .map(|owner| {
+                let required = shared_headroom + usize::from(owner.key == partition);
+                required.saturating_sub(owner.graph.available_consumer_slots())
+            })
+            .max()
+            .unwrap_or(0)
+            .max(shared_headroom.saturating_sub(self.capacity.owner_consumers));
+        if deficit == 0 {
+            return Ok(());
+        }
+        let mut next = self.capacity;
+        next.owner_consumers = next
+            .owner_consumers
+            .checked_add(deficit)
+            .ok_or(GraphError::CapacityOverflow)?;
+        self.reserve(next)
+    }
+
     /// Prepare one more owner, including proxies for existing shared sources.
     pub fn reserve_for_owner(&mut self) -> Result<(), GraphError> {
         let mut next = self.capacity;
@@ -884,12 +916,12 @@ impl ReactiveGraph {
         self.register_consumer_with_mode(partition, target, true)
     }
 
-    pub fn register_explicit_visual_consumer(
+    pub fn register_explicit_consumer(
         &mut self,
         partition: PartitionKey,
-        entity: Entity,
+        target: Subscriber,
     ) -> Result<ConsumerKey, GraphError> {
-        self.register_consumer_with_mode(partition, Subscriber::VisualWidget(entity), false)
+        self.register_consumer_with_mode(partition, target, false)
     }
 
     fn register_consumer_with_mode(
@@ -1210,60 +1242,7 @@ pub(super) mod tests {
 
     use super::*;
     use crate::ecs::{Entity, World};
-    use std::alloc::{GlobalAlloc, Layout, System};
-    use std::cell::Cell;
-
-    struct CountingAllocator;
-
-    std::thread_local! {
-        static TRACK: Cell<bool> = const { Cell::new(false) };
-        static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
-    }
-
-    unsafe impl GlobalAlloc for CountingAllocator {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            let _ = TRACK.try_with(|track| {
-                if track.get() {
-                    let _ = ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
-                }
-            });
-            // SAFETY: Forward the unchanged layout to the system allocator.
-            unsafe { System.alloc(layout) }
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            // SAFETY: The pointer and layout came from the system allocator.
-            unsafe { System.dealloc(ptr, layout) }
-        }
-
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-            let _ = TRACK.try_with(|track| {
-                if track.get() {
-                    let _ = ALLOCATIONS.try_with(|count| count.set(count.get() + 1));
-                }
-            });
-            // SAFETY: Forward the owned allocation and new size unchanged.
-            unsafe { System.realloc(ptr, layout, size) }
-        }
-    }
-
-    #[global_allocator]
-    static ALLOCATOR: CountingAllocator = CountingAllocator;
-
-    pub(in crate::core::reactive) fn tracked_allocations(run: impl FnOnce()) -> usize {
-        ALLOCATIONS.with(|count| count.set(0));
-        TRACK.with(|track| track.set(true));
-        struct StopTracking;
-        impl Drop for StopTracking {
-            fn drop(&mut self) {
-                TRACK.with(|track| track.set(false));
-            }
-        }
-        let stop = StopTracking;
-        run();
-        drop(stop);
-        ALLOCATIONS.with(Cell::get)
-    }
+    pub(in crate::core::reactive) use crate::test_support::tracked_allocations;
 
     fn entity(index: u32) -> Entity {
         let mut world = World::new();
@@ -1401,6 +1380,54 @@ pub(super) mod tests {
             graph.count_consumers_matching(|target| matches!(target, Subscriber::Widget(_))),
             2
         );
+    }
+
+    #[test]
+    fn owner_specific_consumer_reserve_does_not_grow_for_another_full_owner() {
+        let mut graph = ReactiveGraph::new();
+        let first = World::new();
+        let second = World::new();
+        graph.reserve_for_owner().unwrap();
+        let first_partition = graph.add_owner(first.id()).unwrap();
+        graph.reserve_for_owner().unwrap();
+        let second_partition = graph.add_owner(second.id()).unwrap();
+
+        graph
+            .reserve_owner_consumer_for(first_partition, 0)
+            .unwrap();
+        graph
+            .register_explicit_consumer(first_partition, Subscriber::Widget(entity(1)))
+            .unwrap();
+        graph
+            .reserve_owner_consumer_for(second_partition, 0)
+            .unwrap();
+        let second_consumer = graph
+            .register_explicit_consumer(second_partition, Subscriber::Widget(entity(2)))
+            .unwrap();
+        graph
+            .reserve_owner_consumer_for(first_partition, 0)
+            .unwrap();
+        graph
+            .register_explicit_consumer(first_partition, Subscriber::Widget(entity(3)))
+            .unwrap();
+
+        graph.remove_consumer(second_consumer).unwrap();
+        let reserved = graph.reserved_bytes();
+        let replacement_target = Subscriber::Widget(entity(4));
+        let reserve_allocations = tracked_allocations(|| {
+            graph
+                .reserve_owner_consumer_for(second_partition, 0)
+                .unwrap();
+        });
+        let register_allocations = tracked_allocations(|| {
+            graph
+                .register_explicit_consumer(second_partition, replacement_target)
+                .unwrap();
+        });
+
+        assert_eq!(reserve_allocations, 0);
+        assert_eq!(register_allocations, 0);
+        assert_eq!(graph.reserved_bytes(), reserved);
     }
 
     #[test]

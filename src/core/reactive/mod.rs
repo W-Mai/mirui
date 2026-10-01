@@ -98,15 +98,16 @@ impl Reactive {
             .count()
     }
 
-    fn reserve_owned_consumer_slot(&mut self) {
-        let needed = self
-            .unbound_effect_count()
-            .checked_add(1)
-            .expect("reactive owner consumer headroom overflow");
+    fn reserve_owned_consumer_slot(&mut self, partition: PartitionKey) {
+        let headroom = self.unbound_effect_count();
         self.graph
-            .reserve_owner_consumer_headroom(needed)
+            .reserve_owner_consumer_for(partition, headroom)
             .expect("reactive owner consumer capacity exhausted");
     }
+}
+
+fn reserve_queue_total<T>(queue: &mut VecDeque<T>, total: usize) {
+    queue.reserve(total.saturating_sub(queue.len()));
 }
 
 // Ambient runtime: `Signal::get()` is parameterless, so it finds the current
@@ -232,20 +233,22 @@ pub(crate) fn with_scope<R>(scope: Subscriber, f: impl FnOnce() -> R) -> R {
                         .expect("live Widget graph consumer missing before evaluation");
                     Some(consumer)
                 } else {
-                    r.reserve_owned_consumer_slot();
+                    r.reserve_owned_consumer_slot(partition);
                     match scope {
                         Subscriber::Widget(_) => {
                             let count = r.graph.count_consumers_matching(|target| {
                                 matches!(target, Subscriber::Widget(_))
                             });
-                            r.dirty_widgets.reserve(count + 1);
+                            reserve_queue_total(&mut r.dirty_widgets, count + 1);
                         }
                         Subscriber::VisualWidget(_) => {
                             let count = r.graph.count_consumers_matching(|target| {
                                 matches!(target, Subscriber::VisualWidget(_))
                             });
-                            r.dirty_visual_widgets
-                                .reserve(count + r.model_visual_subscriptions + 1);
+                            reserve_queue_total(
+                                &mut r.dirty_visual_widgets,
+                                count + r.model_visual_subscriptions + 1,
+                            );
                         }
                         _ => unreachable!("only Widget scopes enter this branch"),
                     }
@@ -943,11 +946,11 @@ pub struct ModelSource {
 }
 
 /// One graph consumer owned by a View observation binding.
-pub(crate) struct ModelVisualSubscription {
+pub(crate) struct ModelViewSubscription {
     consumer: ConsumerKey,
 }
 
-impl Drop for ModelVisualSubscription {
+impl Drop for ModelViewSubscription {
     fn drop(&mut self) {
         try_with_reactive(|r| {
             let _ = r.graph.remove_consumer(self.consumer);
@@ -1010,7 +1013,7 @@ impl ModelSource {
                     let graph_visuals = r.graph.count_consumers_matching(|target| {
                         matches!(target, Subscriber::VisualWidget(_))
                     });
-                    r.dirty_visual_widgets.reserve(next + graph_visuals);
+                    reserve_queue_total(&mut r.dirty_visual_widgets, next + graph_visuals);
                     r.model_visual_subscriptions = next;
                 });
             }
@@ -1018,15 +1021,11 @@ impl ModelSource {
         }
     }
 
-    pub(crate) fn subscribe_visual_widget(
-        &self,
-        world: WorldId,
-        entity: Entity,
-    ) -> ModelVisualSubscription {
+    fn subscribe_view(&self, world: WorldId, target: Subscriber) -> ModelViewSubscription {
         let source = self
             .graph_source
             .get()
-            .expect("visual model source must be registered");
+            .expect("View model source must be registered");
         let consumer = with_reactive(|r| {
             let partition = r
                 .graph
@@ -1036,15 +1035,30 @@ impl ModelSource {
                 source.partition, partition,
                 "model belongs to a different App"
             );
-            r.reserve_owned_consumer_slot();
-            let graph_visuals = r
-                .graph
-                .count_consumers_matching(|target| matches!(target, Subscriber::VisualWidget(_)));
-            r.dirty_visual_widgets
-                .reserve(r.model_visual_subscriptions + graph_visuals + 1);
+            r.reserve_owned_consumer_slot(partition);
+            match target {
+                Subscriber::Widget(_) => {
+                    let graph_widgets = r
+                        .graph
+                        .count_consumers_matching(|target| matches!(target, Subscriber::Widget(_)));
+                    reserve_queue_total(&mut r.dirty_widgets, graph_widgets + 1);
+                }
+                Subscriber::VisualWidget(_) => {
+                    let graph_visuals = r.graph.count_consumers_matching(|target| {
+                        matches!(target, Subscriber::VisualWidget(_))
+                    });
+                    reserve_queue_total(
+                        &mut r.dirty_visual_widgets,
+                        r.model_visual_subscriptions + graph_visuals + 1,
+                    );
+                }
+                Subscriber::Effect(_) | Subscriber::Computed(_) => {
+                    unreachable!("model View subscriptions target widgets")
+                }
+            }
             let consumer = r
                 .graph
-                .register_explicit_visual_consumer(partition, entity)
+                .register_explicit_consumer(partition, target)
                 .expect("reactive View consumer registration failed");
             if let Err(error) = r.graph.subscribe(source, consumer) {
                 let _ = r.graph.remove_consumer(consumer);
@@ -1052,7 +1066,19 @@ impl ModelSource {
             }
             consumer
         });
-        ModelVisualSubscription { consumer }
+        ModelViewSubscription { consumer }
+    }
+
+    pub(crate) fn subscribe_widget(&self, world: WorldId, entity: Entity) -> ModelViewSubscription {
+        self.subscribe_view(world, Subscriber::Widget(entity))
+    }
+
+    pub(crate) fn subscribe_visual_widget(
+        &self,
+        world: WorldId,
+        entity: Entity,
+    ) -> ModelViewSubscription {
+        self.subscribe_view(world, Subscriber::VisualWidget(entity))
     }
 
     pub fn notify(&self) {
@@ -1225,7 +1251,7 @@ impl Effect {
                 None => PartitionKey::Shared,
             };
             if owner_world.is_some() {
-                r.reserve_owned_consumer_slot();
+                r.reserve_owned_consumer_slot(partition);
             } else {
                 let needed = r
                     .unbound_effect_count()
@@ -1251,7 +1277,8 @@ impl Effect {
                 model_consumer: None,
             }));
             r.effects.insert(id, inner);
-            r.dirty_effects.reserve(r.effects.len());
+            let effect_count = r.effects.len();
+            reserve_queue_total(&mut r.dirty_effects, effect_count);
             id
         });
         let mut init = EffectInitGuard {
@@ -1402,7 +1429,7 @@ impl<T: 'static> Computed<T> {
                     .expect("reactive shared Computed source capacity exhausted"),
             }
             if owner_world.is_some() {
-                r.reserve_owned_consumer_slot();
+                r.reserve_owned_consumer_slot(partition);
             } else {
                 r.graph
                     .reserve_for_consumer(partition)
@@ -1570,7 +1597,7 @@ mod tests {
         assert_eq!(second.consumer.slot.slot, stale_key.slot.slot);
         assert_ne!(second.consumer.slot.generation, stale_key.slot.generation);
 
-        drop(ModelVisualSubscription {
+        drop(ModelViewSubscription {
             consumer: stale_key,
         });
         source.notify();

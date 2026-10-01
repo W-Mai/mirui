@@ -160,10 +160,26 @@ pub struct ModelWatch {
     source: crate::core::reactive::ModelSource,
 }
 
-/// One explicit visual subscription to a registered model source.
+/// One explicit View subscription to a registered model source.
 #[doc(hidden)]
 pub struct ModelSubscription {
-    _consumer: crate::core::reactive::ModelVisualSubscription,
+    _consumer: Option<crate::core::reactive::ModelViewSubscription>,
+}
+
+impl ModelSubscription {
+    /// Fill one statically declared View observation slot without subscribing.
+    #[doc(hidden)]
+    pub const fn inert() -> Self {
+        Self { _consumer: None }
+    }
+}
+
+/// Dirty scope selected by the View that owns a model subscription.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelInvalidation {
+    Visual,
+    Layout,
 }
 
 impl Default for ModelWatch {
@@ -198,12 +214,16 @@ impl ModelWatch {
         self.source.invalidate_computeds();
     }
 
-    fn subscribe_visual_widget(
+    fn subscribe_view(
         &self,
         owner: WorldId,
         entity: crate::ecs::Entity,
-    ) -> crate::core::reactive::ModelVisualSubscription {
-        self.source.subscribe_visual_widget(owner, entity)
+        invalidation: ModelInvalidation,
+    ) -> crate::core::reactive::ModelViewSubscription {
+        match invalidation {
+            ModelInvalidation::Visual => self.source.subscribe_visual_widget(owner, entity),
+            ModelInvalidation::Layout => self.source.subscribe_widget(owner, entity),
+        }
     }
 }
 
@@ -366,8 +386,16 @@ pub trait ModelHandle: Clone {
         index: usize,
         world: &crate::ecs::World,
         entity: crate::ecs::Entity,
+        invalidation: ModelInvalidation,
     ) -> ModelSubscription {
-        subscribe_visual(self, index, world, entity, SourceKind::Observed)
+        subscribe_view(
+            self,
+            index,
+            world,
+            entity,
+            SourceKind::Observed,
+            invalidation,
+        )
     }
 
     #[doc(hidden)]
@@ -376,8 +404,16 @@ pub trait ModelHandle: Clone {
         index: usize,
         world: &crate::ecs::World,
         entity: crate::ecs::Entity,
+        invalidation: ModelInvalidation,
     ) -> ModelSubscription {
-        subscribe_visual(self, index, world, entity, SourceKind::Derived)
+        subscribe_view(
+            self,
+            index,
+            world,
+            entity,
+            SourceKind::Derived,
+            invalidation,
+        )
     }
 
     #[doc(hidden)]
@@ -386,8 +422,9 @@ pub trait ModelHandle: Clone {
         index: usize,
         world: &crate::ecs::World,
         entity: crate::ecs::Entity,
+        invalidation: ModelInvalidation,
     ) -> ModelSubscription {
-        subscribe_visual(self, index, world, entity, SourceKind::Watch)
+        subscribe_view(self, index, world, entity, SourceKind::Watch, invalidation)
     }
 
     #[doc(hidden)]
@@ -461,6 +498,26 @@ pub trait ModelHandle: Clone {
     }
 }
 
+/// Read a component field that may hold one registered model facade.
+#[doc(hidden)]
+pub trait OptionalModelHandle {
+    type Data: Model;
+
+    #[doc(hidden)]
+    fn read_optional<R>(&self, read: impl FnOnce(Option<&Self::Data>) -> R) -> R;
+}
+
+impl<H: ModelHandle> OptionalModelHandle for Option<H> {
+    type Data = H::Data;
+
+    fn read_optional<R>(&self, read: impl FnOnce(Option<&Self::Data>) -> R) -> R {
+        match self {
+            Some(handle) => handle.read(|value| read(Some(value))),
+            None => read(None),
+        }
+    }
+}
+
 /// Run a generated View callback without permitting model writes.
 #[doc(hidden)]
 pub fn with_model_read_only<R>(run: impl FnOnce() -> R) -> R {
@@ -475,12 +532,25 @@ enum SourceKind {
     Watch,
 }
 
-fn subscribe_visual<H: ModelHandle>(
+fn subscribe_source(
+    source: &crate::core::reactive::ModelSource,
+    owner: WorldId,
+    entity: crate::ecs::Entity,
+    invalidation: ModelInvalidation,
+) -> crate::core::reactive::ModelViewSubscription {
+    match invalidation {
+        ModelInvalidation::Visual => source.subscribe_visual_widget(owner, entity),
+        ModelInvalidation::Layout => source.subscribe_widget(owner, entity),
+    }
+}
+
+fn subscribe_view<H: ModelHandle>(
     handle: &H,
     index: usize,
     world: &crate::ecs::World,
     entity: crate::ecs::Entity,
     kind: SourceKind,
+    invalidation: ModelInvalidation,
 ) -> ModelSubscription {
     assert!(
         world.is_alive(entity),
@@ -493,18 +563,24 @@ fn subscribe_visual<H: ModelHandle>(
     cell.assert_active();
     assert_eq!(cell.owner(), world.id(), "model belongs to a different App");
     let consumer = match kind {
-        SourceKind::Observed => {
-            cell.sources.as_ref()[index].subscribe_visual_widget(world.id(), entity)
-        }
-        SourceKind::Derived => {
-            cell.derived_sources.as_ref()[index].subscribe_visual_widget(world.id(), entity)
-        }
+        SourceKind::Observed => subscribe_source(
+            &cell.sources.as_ref()[index],
+            world.id(),
+            entity,
+            invalidation,
+        ),
+        SourceKind::Derived => subscribe_source(
+            &cell.derived_sources.as_ref()[index],
+            world.id(),
+            entity,
+            invalidation,
+        ),
         SourceKind::Watch => {
-            cell.watches.as_ref()[index].subscribe_visual_widget(world.id(), entity)
+            cell.watches.as_ref()[index].subscribe_view(world.id(), entity, invalidation)
         }
     };
     ModelSubscription {
-        _consumer: consumer,
+        _consumer: Some(consumer),
     }
 }
 
@@ -547,7 +623,7 @@ where
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use super::{Model, ModelCell, ModelHandle, ModelMethods};
+    use super::{Model, ModelCell, ModelHandle, ModelInvalidation, ModelMethods};
     use crate::core::reactive::{Computed, Effect, flush_signal_dirty, with_world_scope};
     use crate::ui::dirty::VisualDirty;
     use alloc::rc::{Rc, Weak};
@@ -761,8 +837,8 @@ mod tests {
         let mut app = crate::app::App::headless(32, 32);
         let handle = app.add_model(Counter(0));
         let entity = app.world.spawn_empty();
-        let first = handle.subscribe_observed(0, &app.world, entity);
-        let second = handle.subscribe_observed(0, &app.world, entity);
+        let first = handle.subscribe_observed(0, &app.world, entity, ModelInvalidation::Visual);
+        let second = handle.subscribe_observed(0, &app.world, entity, ModelInvalidation::Visual);
 
         handle.increment();
         flush_signal_dirty(&mut app.world);
@@ -784,7 +860,7 @@ mod tests {
         let mut app = crate::app::App::headless(32, 32);
         let handle = app.add_model(Counter(0));
         let entity = app.world.spawn_empty();
-        let explicit = handle.subscribe_observed(0, &app.world, entity);
+        let explicit = handle.subscribe_observed(0, &app.world, entity, ModelInvalidation::Visual);
 
         crate::core::reactive::with_world_scope(&mut app.world, || {
             crate::core::reactive::with_scope(
