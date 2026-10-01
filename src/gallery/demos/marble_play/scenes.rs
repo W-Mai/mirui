@@ -4,8 +4,6 @@ use crate::gallery::play::marble::{MarbleModel, THEMES};
 use crate::gallery::play::paint::PlayPainter;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 const SCENE_CARD_LEFT: i32 = 18;
@@ -27,9 +25,9 @@ fn scene_card_rect(index: usize) -> Rect {
     )
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 struct MarbleSceneBoard {
-    model: MarbleModel,
+    model: model!(MarbleModel),
 }
 
 fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
@@ -77,18 +75,13 @@ fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
     }
 }
 
-#[crate::view(
-    component = MarbleSceneBoard,
-    read(model),
-    watch(model.scene()),
-    name = "MarbleSceneBoard",
-    priority = 60
-)]
+#[crate::view(name = "MarbleSceneBoard", priority = 60)]
 pub(super) fn scene_board_render(
-    renderer: &mut dyn Renderer,
-    model: &MarbleModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    board: component!(MarbleSceneBoard),
+    model: model!(board.model, watch(scene)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
@@ -96,8 +89,8 @@ pub(super) fn scene_board_render(
     paint_scene_cards(&mut painter, model.scene);
 }
 
-#[compose(bind(model))]
-pub(super) fn marble_scenes_page(model: MarbleModel) -> Entity {
+#[compose]
+pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
     ui! {
         View (
             id: "marble_scene_board",

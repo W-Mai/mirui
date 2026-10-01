@@ -1,6 +1,6 @@
 #[cfg(feature = "audio")]
 use super::audio::audio_bank;
-use super::board::{MarbleBoard, board_gesture, board_render, event_point};
+use super::board::{MarbleBoard, board_render, event_point, paint_play_board};
 use super::scenes::scene_board_render;
 use super::settings::settings_panel_render;
 use super::shell::build_widgets;
@@ -13,16 +13,14 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::marble::{MarbleModel, MarbleModelHandle, Page, THEMES};
 use crate::gallery::play::paint::PlayPainter;
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
+use crate::input::event::{GestureHandler, gesture::GestureEvent};
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed64, Transform};
 use crate::ui::ComputedRect;
 #[cfg(feature = "audio")]
 use crate::ui::Hidden;
 use crate::ui::branch::is_hidden_in_tree;
-use crate::ui::view::{ViewCtx, ViewRegistry};
+use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::{Button, Slider, Switch, Text};
 use crate::ui::{Children, IdMap, UiScope};
 
@@ -39,29 +37,25 @@ impl BoardSelection {
     }
 }
 
-#[crate::component(bind(game, selection))]
+#[crate::component]
 struct MultiSourceMarbleBoard {
-    game: MarbleModel,
-    selection: BoardSelection,
+    game: model!(MarbleModel),
+    selection: model!(BoardSelection),
 }
 
-#[crate::view(
-    component = MultiSourceMarbleBoard,
-    read(game, selection),
-    watch(game.visual_revision(), selection.marker()),
-    name = "MultiSourceMarbleBoard",
-    priority = 60
-)]
+#[crate::view(name = "MultiSourceMarbleBoard", priority = 60)]
 fn multi_source_board_render(
-    renderer: &mut dyn Renderer,
-    game: &MarbleModel,
-    selection: &BoardSelection,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    board: component!(MultiSourceMarbleBoard),
+    game: model!(board.game, watch(visual_revision)),
+    selection: model!(board.selection, watch(marker)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
-    board_render(renderer, game, rect, ctx);
+    ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 199);
     let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint_play_board(&mut painter, game, game.theme());
     painter.fill(
         Rect::new(16, 16, 24, 24),
         if selection.marker == 0 {
@@ -105,12 +99,8 @@ fn fixture() -> World {
     world
 }
 
-fn test_board_gesture(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    board_gesture(&HandlerCtx {
-        world,
-        entity,
-        event,
-    })
+fn trigger_board_event(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    GestureHandler::trigger(world, entity, event).unwrap_or(false)
 }
 
 #[test]
@@ -845,7 +835,7 @@ fn drag_cancel_reaches_transactional_model_path() {
         .resource::<MarbleModelHandle>()
         .unwrap()
         .set_page(Page::Edit);
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::DragStart {
@@ -854,7 +844,7 @@ fn drag_cancel_reaches_transactional_model_path() {
             target: board,
         }
     ));
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::DragMove {
@@ -866,7 +856,7 @@ fn drag_cancel_reaches_transactional_model_path() {
         }
     ));
     world.remove::<ComputedRect>(board);
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::DragCancel {
@@ -897,7 +887,7 @@ fn drag_end_commits_after_layout_component_is_removed() {
         .resource::<MarbleModelHandle>()
         .unwrap()
         .set_page(Page::Edit);
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::DragStart {
@@ -906,7 +896,7 @@ fn drag_end_commits_after_layout_component_is_removed() {
             target: board,
         }
     ));
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::DragMove {
@@ -918,7 +908,7 @@ fn drag_end_commits_after_layout_component_is_removed() {
         }
     ));
     world.remove::<ComputedRect>(board);
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::DragEnd {
@@ -958,7 +948,7 @@ fn tap_selects_a_pad_without_crossing_drag_threshold() {
         world.resource::<MarbleModelHandle>().unwrap(),
         |model| model.pads[1].expect("second pad").pos,
     );
-    assert!(test_board_gesture(
+    assert!(trigger_board_event(
         &mut world,
         board,
         &GestureEvent::Tap {

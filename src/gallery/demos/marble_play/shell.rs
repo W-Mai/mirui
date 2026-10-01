@@ -119,8 +119,8 @@ type MarbleAudio = Option<AudioHandle>;
 #[cfg(not(feature = "audio"))]
 type MarbleAudio = ();
 
-#[compose(bind(model))]
-fn compose_header(model: MarbleModel, audio: MarbleAudio) -> Entity {
+#[compose]
+fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
     #[cfg(feature = "audio")]
     let audio_state = audio.as_ref().and_then(AudioHandle::state_signal);
     #[cfg(not(feature = "audio"))]
@@ -224,8 +224,8 @@ fn compose_header(model: MarbleModel, audio: MarbleAudio) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_status(model: MarbleModel) -> Entity {
+#[compose]
+fn compose_status(model: model!(MarbleModel)) -> Entity {
     ui! {
         Row (
             height: 23,
@@ -267,8 +267,8 @@ fn compose_status(model: MarbleModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_readout(model: MarbleModel) -> Entity {
+#[compose]
+fn compose_readout(model: model!(MarbleModel)) -> Entity {
     ui! {
         Row (
             height: 35,
@@ -337,8 +337,8 @@ fn compose_readout(model: MarbleModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_navigation(model: MarbleModel) -> Entity {
+#[compose]
+fn compose_navigation(model: model!(MarbleModel)) -> Entity {
     ui! {
         Row (
             height: 34,
@@ -398,9 +398,9 @@ fn compose_navigation(model: MarbleModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
+#[compose]
 pub(super) fn build_widgets(
-    model: MarbleModel,
+    model: model!(MarbleModel),
     #[cfg(feature = "audio")] audio: Option<AudioHandle>,
 ) {
     #[cfg(not(feature = "audio"))]

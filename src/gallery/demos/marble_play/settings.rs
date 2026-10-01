@@ -3,14 +3,12 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::marble::{MarbleModel, Theme};
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
 use crate::types::Fixed64;
-use crate::ui::view::ViewCtx;
 use crate::ui::widgets::{ParagraphStyle, Slider, Switch, Text, TextAlign};
 
-#[crate::component(bind(model))]
+#[crate::component]
 struct MarbleSettingsPanel {
-    model: MarbleModel,
+    model: model!(MarbleModel),
 }
 
 fn paint_settings(painter: &mut PlayPainter<'_, '_>, theme: Theme) {
@@ -34,18 +32,13 @@ fn paint_settings(painter: &mut PlayPainter<'_, '_>, theme: Theme) {
     }
 }
 
-#[crate::view(
-    component = MarbleSettingsPanel,
-    read(model),
-    watch(model.scene()),
-    name = "MarbleSettingsPanel",
-    priority = 60
-)]
+#[crate::view(name = "MarbleSettingsPanel", priority = 60)]
 pub(super) fn settings_panel_render(
-    renderer: &mut dyn Renderer,
-    model: &MarbleModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    panel: component!(MarbleSettingsPanel),
+    model: model!(panel.model, watch(scene)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
@@ -53,8 +46,8 @@ pub(super) fn settings_panel_render(
     paint_settings(&mut painter, model.theme());
 }
 
-#[compose(bind(model))]
-pub(super) fn marble_settings_page(model: MarbleModel) -> Entity {
+#[compose]
+pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
     ui! {
         View (
             id: "marble_settings_panel",
@@ -128,7 +121,7 @@ pub(super) fn marble_settings_page(model: MarbleModel) -> Entity {
                 track_color: Color::rgb(69, 87, 70),
                 fill_color: Color::rgb(217, 248, 138),
                 thumb_color: Color::rgb(225, 233, 214)
-            ) on ValueChanged { model.set_gravity(Fixed64::from_fixed(*new)); }
+            ) on ValueChanged { model.set_gravity(Fixed64::from_fixed(new)); }
             Slider (
                 id: "marble_setting_bpm_control",
                 position: Position::Absolute,
@@ -142,7 +135,7 @@ pub(super) fn marble_settings_page(model: MarbleModel) -> Entity {
                 track_color: Color::rgb(69, 87, 70),
                 fill_color: Color::rgb(198, 176, 239),
                 thumb_color: Color::rgb(225, 233, 214)
-            ) on ValueChanged { model.set_bpm(Fixed64::from_fixed(*new)); }
+            ) on ValueChanged { model.set_bpm(Fixed64::from_fixed(new)); }
             Switch (
                 id: "marble_setting_trails_control",
                 position: Position::Absolute,
@@ -155,7 +148,7 @@ pub(super) fn marble_settings_page(model: MarbleModel) -> Entity {
                 off_color: Color::rgb(69, 87, 70),
                 thumb_color: Color::rgb(23, 34, 28)
             ) on Toggled {
-                if model.trails() != *now {
+                if model.trails() != now {
                     model.toggle_trails();
                 }
             }
@@ -171,7 +164,7 @@ pub(super) fn marble_settings_page(model: MarbleModel) -> Entity {
                 off_color: Color::rgb(69, 87, 70),
                 thumb_color: Color::rgb(23, 34, 28)
             ) on Toggled {
-                if model.feedback() != *now {
+                if model.feedback() != now {
                     model.toggle_feedback();
                 }
             }

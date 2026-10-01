@@ -14,8 +14,8 @@ fn pitch_label(pitch: u8) -> &'static str {
         .unwrap_or("NOTE")
 }
 
-#[compose(bind(model))]
-pub(super) fn marble_inspector(model: MarbleModel) -> Entity {
+#[compose]
+pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
     ui! {
         View (
             id: "marble_inspector",
@@ -202,7 +202,7 @@ pub(super) fn marble_inspector(model: MarbleModel) -> Entity {
                     track_color: Color::rgb(69, 87, 70),
                     fill_color: Color::rgb(217, 248, 138),
                     thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(*new)); }
+                ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(new)); }
                 Text (
                     "RADIUS",
                     height: 12,
@@ -219,7 +219,7 @@ pub(super) fn marble_inspector(model: MarbleModel) -> Entity {
                     track_color: Color::rgb(69, 87, 70),
                     fill_color: Color::rgb(217, 248, 138),
                     thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { model.set_radius(Fixed64::from_fixed(*new)); }
+                ) on ValueChanged { model.set_radius(Fixed64::from_fixed(new)); }
             }
         }
     }

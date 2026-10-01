@@ -2,20 +2,16 @@ use super::style::{BOARD_HEIGHT, BOARD_WIDTH, color, mix};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::marble::{MarbleModel, Page, Theme, Vec2};
 use crate::gallery::play::paint::PlayPainter;
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed64, Transform};
 use crate::ui::ComputedRect;
-use crate::ui::view::ViewCtx;
 
 const BOARD_MODEL_Y_ORIGIN: i32 = 52;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct MarbleBoard {
-    pub(super) model: MarbleModel,
+    pub(super) model: model!(MarbleModel),
 }
 
 fn point(value: Vec2, y_offset: i32) -> Point {
@@ -25,7 +21,11 @@ fn point(value: Vec2, y_offset: i32) -> Point {
     }
 }
 
-fn paint_play_board(painter: &mut PlayPainter<'_, '_>, model: &MarbleModel, theme: Theme) {
+pub(super) fn paint_play_board(
+    painter: &mut PlayPainter<'_, '_>,
+    model: &MarbleModel,
+    theme: Theme,
+) {
     let board = Rect::new(10, 0, 460, 199);
     painter.fill(board, color(theme.bg), Fixed::from_int(10));
     painter.border(
@@ -333,18 +333,13 @@ fn paint_gravity_arrow(
     }
 }
 
-#[crate::view(
-    component = MarbleBoard,
-    read(model),
-    watch(model.visual_revision()),
-    name = "MarbleBoard",
-    priority = 60
-)]
+#[crate::view(name = "MarbleBoard", priority = 60)]
 pub(super) fn board_render(
-    renderer: &mut dyn Renderer,
-    model: &MarbleModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    board: component!(MarbleBoard),
+    model: model!(board.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
@@ -365,53 +360,37 @@ pub(super) fn event_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Vec2> {
     })
 }
 
-pub(super) fn board_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let Some(model) = ctx
-        .component::<MarbleBoard>(ctx.entity)
-        .map(|board| board.model.clone())
-    else {
-        return false;
-    };
-    match ctx.event {
-        GestureEvent::DragEnd { .. } => {
-            model.end_board_drag(false);
-            return true;
-        }
-        GestureEvent::DragCancel { .. } => {
-            model.end_board_drag(true);
-            return true;
-        }
-        _ => {}
-    }
-    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
-        return false;
-    };
-    let (x, y) = match ctx.event {
-        GestureEvent::Tap { x, y, .. }
-        | GestureEvent::DragStart { x, y, .. }
-        | GestureEvent::DragMove { x, y, .. } => (*x, *y),
-        _ => return false,
-    };
+pub(super) fn board_tap(board: &MarbleBoard, rect: Rect, x: Fixed, y: Fixed) -> bool {
     let Some(point) = event_point(rect, x, y) else {
         return false;
     };
-    match ctx.event {
-        GestureEvent::DragStart { .. } => {
-            model.begin_board_drag(point);
-        }
-        GestureEvent::DragMove { .. } => {
-            model.move_board_drag(point);
-        }
-        GestureEvent::Tap { .. } => {
-            model.tap_board(point);
-        }
-        _ => return false,
-    };
+    board.model.tap_board(point);
     true
 }
 
-#[compose(bind(model))]
-pub(super) fn marble_play_page(model: MarbleModel) -> Entity {
+pub(super) fn board_drag_start(board: &MarbleBoard, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let Some(point) = event_point(rect, x, y) else {
+        return false;
+    };
+    board.model.begin_board_drag(point);
+    true
+}
+
+pub(super) fn board_drag_move(board: &MarbleBoard, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let Some(point) = event_point(rect, x, y) else {
+        return false;
+    };
+    board.model.move_board_drag(point);
+    true
+}
+
+pub(super) fn board_drag_end(board: &MarbleBoard, cancelled: bool) -> bool {
+    board.model.end_board_drag(cancelled);
+    true
+}
+
+#[compose]
+pub(super) fn marble_play_page(model: model!(MarbleModel)) -> Entity {
     ui! {
         View (
             id: "marble_play_board",
@@ -423,6 +402,40 @@ pub(super) fn marble_play_page(model: MarbleModel) -> Entity {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { board_gesture(&ctx); } on DragStart { board_gesture(&ctx); } on DragMove { board_gesture(&ctx); } on DragEnd { board_gesture(&ctx); } on DragCancel { board_gesture(&ctx); }
+        ] on Tap {
+            let Some(board) = com!(target, MarbleBoard) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            board_tap(board, rect, x, y)
+        } on DragStart {
+            let Some(board) = com!(target, MarbleBoard) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            board_drag_start(board, rect, x, y)
+        } on DragMove {
+            let Some(board) = com!(target, MarbleBoard) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            board_drag_move(board, rect, x, y)
+        } on DragEnd {
+            let Some(board) = com!(target, MarbleBoard) else {
+                return false;
+            };
+            board_drag_end(board, false)
+        } on DragCancel {
+            let Some(board) = com!(target, MarbleBoard) else {
+                return false;
+            };
+            board_drag_end(board, true)
+        }
     }
 }

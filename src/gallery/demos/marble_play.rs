@@ -34,8 +34,8 @@ const TEXT_LAYOUT_CAPACITY: TextLayoutCapacity = TextLayoutCapacity {
     },
 };
 
-#[mirui_macros::system(order = ANIMATION, bind(model))]
-fn marble_tick_system(model: &MarbleModel, delta: DeltaTimeMs) {
+#[mirui_macros::system(order = Animation)]
+fn marble_tick_system(model: model!(MarbleModel), delta: res!(DeltaTimeMs)) {
     model.advance_ms(delta.0);
 }
 
