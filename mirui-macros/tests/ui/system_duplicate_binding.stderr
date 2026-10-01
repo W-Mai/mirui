@@ -1,0 +1,5 @@
+error: system binding `value` is declared more than once
+ --> tests/ui/system_duplicate_binding.rs:7:34
+  |
+7 | fn duplicate(value: res!(Clock), value: res!(Settings)) {
+  |                                  ^^^^^

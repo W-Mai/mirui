@@ -1,0 +1,5 @@
+error[E0616]: field `priority` of struct `mirui::ecs::System` is private
+ --> tests/ui/system_priority_mutation.rs:4:12
+  |
+4 |     system.priority = 7;
+  |            ^^^^^^^^ private field

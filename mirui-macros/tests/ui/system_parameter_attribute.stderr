@@ -1,0 +1,5 @@
+error: system binding parameters do not accept attributes
+ --> tests/ui/system_parameter_attribute.rs:6:15
+  |
+6 | fn attributed(#[allow(unused)] clock: res!(Clock)) {
+  |               ^^^^^^^^^^^^^^^^
