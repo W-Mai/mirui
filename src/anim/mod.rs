@@ -1,6 +1,6 @@
 pub mod ease;
 
-use crate::ecs::{DeltaTimeMs, MonoClock, World};
+use crate::ecs::{Component, DeltaTimeMs, MonoClock};
 use crate::types::{Fixed, Fixed64};
 
 pub use ease::EaseFn;
@@ -303,45 +303,49 @@ impl From<Spring> for Motion {
     }
 }
 
-#[crate::system(order = DELTA_TIME)]
-pub fn sync_delta_time_ms(world: &mut World) {
-    let ms = match world.resource_mut::<MonoClock>() {
-        Some(fc) => {
-            let now = (fc.clock)();
-            let dt_ns = now.saturating_sub(fc.last_ns);
-            fc.last_ns = now;
+#[crate::system(order = DeltaTime)]
+pub fn sync_delta_time_ms(clock: res!(optional MonoClock), commands: commands!()) {
+    let ms = match clock {
+        Some(clock) => {
+            let now = (clock.clock)();
+            let dt_ns = now.saturating_sub(clock.last_ns);
+            commands.insert_resource(MonoClock {
+                clock: clock.clock,
+                last_ns: now,
+            });
             (dt_ns / 1_000_000).clamp(1, MAX_FRAME_DT_MS as u64) as u16
         }
         None => 16,
     };
-    world.insert_resource(DeltaTimeMs(ms));
+    commands.insert_resource(DeltaTimeMs(ms));
 }
 
-pub trait MotionComponent {
+/// Accesses the [`Motion`] stored by a generated or custom animation component.
+pub trait MotionComponent: Component {
+    /// Returns the motion state.
     fn motion(&self) -> &Motion;
+
+    /// Returns the motion state for in-place advancement.
     fn motion_mut(&mut self) -> &mut Motion;
 }
 
-pub fn run_motion<T: MotionComponent + 'static>(
-    world: &mut World,
-    apply: fn(&mut World, crate::ecs::Entity, Fixed),
-) {
-    let dt = world.resource::<DeltaTimeMs>().map_or(16, |r| r.0);
+pub(crate) mod generated {
+    use super::{Fixed, MotionComponent};
 
-    let mut entities = alloc::vec::Vec::new();
-    world.query::<T>().collect_into(&mut entities);
+    /// One typed animation step consumed by generated `#[animate]` systems.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct MotionFrame {
+        pub value: Fixed,
+        pub done: bool,
+    }
 
-    for e in entities {
-        let (val, done) = {
-            let Some(comp) = world.get_mut::<T>(e) else {
-                continue;
-            };
-            comp.motion_mut().tick(dt);
-            (comp.motion().value(), comp.motion().is_done())
-        };
-        apply(world, e, val);
-        if done {
-            world.remove::<T>(e);
+    /// Advance one motion component without exposing or borrowing the ECS World.
+    pub fn advance_motion<T: MotionComponent>(component: &mut T, delta_ms: u16) -> MotionFrame {
+        component.motion_mut().tick(delta_ms);
+        let motion = component.motion();
+        MotionFrame {
+            value: motion.value(),
+            done: motion.is_done(),
         }
     }
 }
@@ -349,6 +353,103 @@ pub fn run_motion<T: MotionComponent + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tracked_allocations;
+
+    struct TestMotion(Motion);
+
+    impl Component for TestMotion {}
+
+    impl MotionComponent for TestMotion {
+        fn motion(&self) -> &Motion {
+            &self.0
+        }
+
+        fn motion_mut(&mut self) -> &mut Motion {
+            &mut self.0
+        }
+    }
+
+    struct AnimatedValue(Fixed);
+
+    impl Component for AnimatedValue {}
+
+    #[crate::animate(component = GeneratedMotion)]
+    fn apply_generated_motion(value: motion!(), target: component!(mut AnimatedValue)) {
+        target.0 = value;
+    }
+
+    #[test]
+    fn typed_motion_step_is_allocation_free() {
+        let mut motion = TestMotion(
+            Tween::new(
+                Fixed::ZERO,
+                Fixed::from_int(10),
+                100,
+                ease::linear,
+                PlayMode::Loop,
+            )
+            .into(),
+        );
+        let allocations = tracked_allocations(|| {
+            for _ in 0..16 {
+                let frame = generated::advance_motion(&mut motion, 16);
+                assert!(!frame.done);
+            }
+        });
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn generated_motion_system_is_allocation_free_after_warmup() {
+        let mut world = crate::ecs::World::new();
+        world.insert_resource(DeltaTimeMs(16));
+        let entity = world.spawn_empty();
+        world.insert(entity, AnimatedValue(Fixed::ZERO));
+        world.insert(
+            entity,
+            GeneratedMotion(
+                Tween::new(
+                    Fixed::ZERO,
+                    Fixed::from_int(10),
+                    100,
+                    ease::linear,
+                    PlayMode::Loop,
+                )
+                .into(),
+            ),
+        );
+        let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(GeneratedMotion::system());
+        scheduler.run_all(&mut world);
+
+        let allocations = tracked_allocations(|| {
+            for _ in 0..8 {
+                scheduler.run_all(&mut world);
+            }
+        });
+
+        assert_eq!(allocations, 0);
+        assert_ne!(world.get::<AnimatedValue>(entity).unwrap().0, Fixed::ZERO);
+    }
+
+    #[test]
+    fn generated_motion_system_removes_completed_motion() {
+        let mut world = crate::ecs::World::new();
+        world.insert_resource(DeltaTimeMs(16));
+        let entity = world.spawn_empty();
+        world.insert(entity, AnimatedValue(Fixed::ZERO));
+        world.insert(
+            entity,
+            GeneratedMotion(Tween::ease_to(Fixed::ZERO, Fixed::ONE, 1).into()),
+        );
+        let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(GeneratedMotion::system());
+
+        scheduler.run_all(&mut world);
+
+        assert_eq!(world.get::<AnimatedValue>(entity).unwrap().0, Fixed::ONE);
+        assert!(world.get::<GeneratedMotion>(entity).is_none());
+    }
 
     #[test]
     fn tween_linear_progresses() {
@@ -662,11 +763,13 @@ mod settle_threshold_check {
             T_NS.load(Ordering::Relaxed)
         }
 
-        let mut world = World::new();
+        let mut world = crate::ecs::World::new();
         T_NS.store(0, Ordering::Relaxed);
         world.insert_resource(MonoClock::new(clock));
         T_NS.store(30_000_000_000, Ordering::Relaxed);
-        sync_delta_time_ms(&mut world);
+        let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(sync_delta_time_ms::system());
+        scheduler.run_all(&mut world);
         let dt = world.resource::<DeltaTimeMs>().map(|d| d.0).unwrap();
         assert!(dt <= MAX_FRAME_DT_MS, "spike dt {dt} must be clamped");
     }

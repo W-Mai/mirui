@@ -1,378 +1,556 @@
-//! Declarative timers — `Timer` component fires a callback at scheduled
-//! `MonoClock` instants. Reset drift mode (no catch-up). Lifecycle
-//! variants cover one-shot, periodic, bounded counts, and bounded wall
-//! deadlines. See `.local/specs/timer/design.md` for the full surface.
+//! Typed declarative timers driven by [`MonoClock`].
+//!
+//! Timer callbacks receive only the capabilities declared by `#[timer]`.
+//! Model handles are captured when a timer is installed, structural changes
+//! are deferred, and the runtime reuses its entity and command buffers.
 
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+
+use crate::core::model::ModelHandle;
+use crate::ecs::commands::{CommandQueue, DeferredCommands};
+use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, MonoClock, World};
 
+/// Lifecycle mode of an installed [`Timer`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TimerMode {
+    /// Fire once after the configured delay.
     After,
+    /// Fire at every configured interval.
     Every,
+    /// Fire until the remaining invocation count reaches zero.
     Repeat { remaining: u32 },
+    /// Fire at each interval before the absolute deadline.
     Until { deadline_ms: u32 },
 }
 
-/// `wrapping_sub` makes the schedule wrap-safe across MonoClock's
-/// 49.7-day u32 epoch wrap as long as `period_ms < 2^31`.
+type StaticTimerCallback = for<'commands> fn(Entity, DeferredCommands<'commands>);
+type BoundTimerCallback = dyn for<'commands> Fn(Entity, DeferredCommands<'commands>);
+
 #[derive(Clone)]
+enum TimerCallback {
+    Static(StaticTimerCallback),
+    Bound(Rc<BoundTimerCallback>),
+}
+
+impl TimerCallback {
+    fn invoke(&self, entity: Entity, commands: DeferredCommands<'_>) {
+        match self {
+            Self::Static(run) => run(entity, commands),
+            Self::Bound(run) => run(entity, commands),
+        }
+    }
+}
+
+/// Runtime timer installed by the module generated from `#[timer]`.
+///
+/// `next_at_ms` uses wrapping `u32` clock arithmetic. Periods must remain
+/// below half the clock range for ordering across the wrap boundary.
 pub struct Timer {
     period_ms: u32,
     next_at_ms: u32,
     mode: TimerMode,
-    /// Some(now_ms_at_pause); resume() consumes it to push next_at_ms forward.
     paused_at_ms: Option<u32>,
-    callback: fn(&mut World, Entity),
+    armed: bool,
+    callback: TimerCallback,
+    owner: Option<WorldId>,
 }
 
+impl crate::ecs::Component for Timer {}
+
 impl Timer {
-    pub fn after(period_ms: u32, cb: fn(&mut World, Entity)) -> Self {
+    fn new(
+        schedule: generated::TimerSchedule,
+        callback: TimerCallback,
+        owner: Option<WorldId>,
+    ) -> Self {
         Self {
-            period_ms,
-            next_at_ms: 0, // patched on first system tick.
-            mode: TimerMode::After,
-            paused_at_ms: None,
-            callback: cb,
-        }
-    }
-
-    pub fn every(period_ms: u32, cb: fn(&mut World, Entity)) -> Self {
-        Self {
-            period_ms,
+            period_ms: schedule.period_ms(),
             next_at_ms: 0,
-            mode: TimerMode::Every,
+            mode: schedule.mode(),
             paused_at_ms: None,
-            callback: cb,
+            armed: false,
+            callback,
+            owner,
         }
     }
 
-    /// Panics on `times == 0` — silent self-remove would be a bug.
-    pub fn repeat(times: u32, period_ms: u32, cb: fn(&mut World, Entity)) -> Self {
-        assert!(times > 0, "Timer::repeat needs times > 0");
-        Self {
-            period_ms,
-            next_at_ms: 0,
-            mode: TimerMode::Repeat { remaining: times },
-            paused_at_ms: None,
-            callback: cb,
-        }
-    }
-
-    /// `deadline_ms` is absolute on the MonoClock timeline (typically `now + N`).
-    pub fn until(deadline_ms: u32, period_ms: u32, cb: fn(&mut World, Entity)) -> Self {
-        Self {
-            period_ms,
-            next_at_ms: 0,
-            mode: TimerMode::Until { deadline_ms },
-            paused_at_ms: None,
-            callback: cb,
-        }
-    }
-
-    pub fn is_paused(&self) -> bool {
+    /// Returns whether this timer is currently paused.
+    pub const fn is_paused(&self) -> bool {
         self.paused_at_ms.is_some()
     }
 
-    pub fn mode(&self) -> TimerMode {
+    /// Returns the timer's current lifecycle mode.
+    pub const fn mode(&self) -> TimerMode {
         self.mode
     }
 
-    /// Idempotent.
+    /// Pause the timer at `now_ms`. Repeated calls are no-ops.
     pub fn pause(&mut self, now_ms: u32) {
         if self.paused_at_ms.is_none() {
             self.paused_at_ms = Some(now_ms);
         }
     }
 
-    /// Idempotent. Pushes next_at_ms back by the paused duration so the timer effectively slept.
+    /// Resume the timer and preserve the remaining duration.
     pub fn resume(&mut self, now_ms: u32) {
         if let Some(paused_at) = self.paused_at_ms.take() {
             let slept = now_ms.wrapping_sub(paused_at);
             self.next_at_ms = self.next_at_ms.wrapping_add(slept);
         }
     }
-}
 
-/// No-op when MonoClock is missing.
-#[crate::system(order = TIMER)]
-pub fn timer_system(world: &mut World) {
-    let Some(now) = world.resource::<MonoClock>().map(|c| c.now_ms()) else {
-        return;
-    };
+    fn assert_owner(&self, world: &World) {
+        self.assert_owner_id(world.id());
+    }
 
-    let entities: alloc::vec::Vec<Entity> = world.query::<Timer>().collect();
-    for entity in entities {
-        let Some(t) = world.get::<Timer>(entity).cloned() else {
-            continue;
-        };
-        if t.paused_at_ms.is_some() {
-            continue;
+    fn assert_owner_id(&self, world: WorldId) {
+        if let Some(owner) = self.owner {
+            assert_eq!(owner, world, "bound timer belongs to a different App");
         }
+    }
 
-        // next_at_ms == 0 = uninitialised; ctor couldn't read MonoClock.
-        if t.next_at_ms == 0 {
-            let mut t2 = t.clone();
-            t2.next_at_ms = now.wrapping_add(t2.period_ms);
-            world.insert(entity, t2);
-            continue;
-        }
-
-        let due = (now.wrapping_sub(t.next_at_ms) as i32) >= 0;
-        if !due {
-            continue;
-        }
-
-        // Callback first so user can cancel via remove::<Timer>; we re-read after.
-        (t.callback)(world, entity);
-
-        let Some(after_cb) = world.get::<Timer>(entity).cloned() else {
-            continue;
-        };
-        let mut next = after_cb;
-        match next.mode {
-            TimerMode::After => {
-                world.remove::<Timer>(entity);
-                continue;
-            }
-            TimerMode::Every => {
-                next.next_at_ms = now.wrapping_add(next.period_ms);
-            }
-            TimerMode::Repeat { remaining } => {
-                let left = remaining - 1;
-                if left == 0 {
-                    world.remove::<Timer>(entity);
-                    continue;
-                }
-                next.mode = TimerMode::Repeat { remaining: left };
-                next.next_at_ms = now.wrapping_add(next.period_ms);
-            }
-            TimerMode::Until { deadline_ms } => {
-                let candidate = now.wrapping_add(next.period_ms);
-                let past = (candidate.wrapping_sub(deadline_ms) as i32) > 0;
-                if past {
-                    world.remove::<Timer>(entity);
-                    continue;
-                }
-                next.next_at_ms = candidate;
-            }
-        }
-        world.insert(entity, next);
+    fn require_model<H: ModelHandle>(self, model: &H) -> Self {
+        assert_eq!(
+            self.owner,
+            Some(crate::core::model::registered_owner(model)),
+            "bound timer models belong to different Apps"
+        );
+        self
     }
 }
+
+pub(crate) mod generated {
+    use super::{DeferredCommands, Entity, ModelHandle, Rc, Timer, TimerCallback, TimerMode};
+
+    /// Schedule descriptor emitted by `#[timer]`.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TimerSchedule {
+        After { period_ms: u32 },
+        Every { period_ms: u32 },
+        Repeat { count: u32, period_ms: u32 },
+        Until { deadline_ms: u32, period_ms: u32 },
+    }
+
+    impl TimerSchedule {
+        pub const fn after(period_ms: u32) -> Self {
+            Self::After { period_ms }
+        }
+
+        pub const fn every(period_ms: u32) -> Self {
+            Self::Every { period_ms }
+        }
+
+        pub fn repeat(count: u32, period_ms: u32) -> Self {
+            assert!(count > 0, "timer repeat count must be greater than zero");
+            Self::Repeat { count, period_ms }
+        }
+
+        pub const fn until(deadline_ms: u32, period_ms: u32) -> Self {
+            Self::Until {
+                deadline_ms,
+                period_ms,
+            }
+        }
+
+        pub(super) const fn period_ms(self) -> u32 {
+            match self {
+                Self::After { period_ms }
+                | Self::Every { period_ms }
+                | Self::Repeat { period_ms, .. }
+                | Self::Until { period_ms, .. } => period_ms,
+            }
+        }
+
+        pub(super) const fn mode(self) -> TimerMode {
+            match self {
+                Self::After { .. } => TimerMode::After,
+                Self::Every { .. } => TimerMode::Every,
+                Self::Repeat { count, .. } => TimerMode::Repeat { remaining: count },
+                Self::Until { deadline_ms, .. } => TimerMode::Until { deadline_ms },
+            }
+        }
+    }
+
+    /// Constructor seam used by generated timer modules without Model captures.
+    pub fn static_timer(
+        schedule: TimerSchedule,
+        run: for<'commands> fn(Entity, DeferredCommands<'commands>),
+    ) -> Timer {
+        Timer::new(schedule, TimerCallback::Static(run), None)
+    }
+
+    /// Constructor seam used by generated timer modules with Model captures.
+    pub fn bound_timer<H: ModelHandle>(
+        schedule: TimerSchedule,
+        model: &H,
+        run: impl for<'commands> Fn(Entity, DeferredCommands<'commands>) + 'static,
+    ) -> Timer {
+        Timer::new(
+            schedule,
+            TimerCallback::Bound(Rc::new(run)),
+            Some(crate::core::model::registered_owner(model)),
+        )
+    }
+
+    /// Require an additional captured Model to belong to the timer's App.
+    pub fn require_timer_model<H: ModelHandle>(timer: Timer, model: &H) -> Timer {
+        timer.require_model(model)
+    }
+}
+
+#[derive(Default)]
+struct TimerRuntime {
+    entities: Vec<Entity>,
+    commands: CommandQueue,
+}
+
+impl TimerRuntime {
+    fn reserve_timers(&mut self, required: usize) {
+        self.entities
+            .try_reserve(required.saturating_sub(self.entities.len()))
+            .expect("timer entity buffer capacity exhausted");
+    }
+
+    fn tick(&mut self, world: &mut World, now_ms: u32) {
+        world.query::<Timer>().collect_into(&mut self.entities);
+        let owner = world.id();
+
+        for index in 0..self.entities.len() {
+            let entity = self.entities[index];
+            let callback = {
+                let Some(timer) = world.get_mut::<Timer>(entity) else {
+                    continue;
+                };
+                timer.assert_owner_id(owner);
+                if timer.paused_at_ms.is_some() {
+                    continue;
+                }
+                if !timer.armed {
+                    timer.next_at_ms = now_ms.wrapping_add(timer.period_ms);
+                    timer.armed = true;
+                    continue;
+                }
+                if (now_ms.wrapping_sub(timer.next_at_ms) as i32) < 0 {
+                    continue;
+                }
+                timer.callback.clone()
+            };
+
+            let mut batch = self.commands.begin();
+            callback.invoke(entity, batch.commands());
+            batch.finish(world);
+
+            let remove = {
+                let Some(timer) = world.get_mut::<Timer>(entity) else {
+                    continue;
+                };
+                match timer.mode {
+                    TimerMode::After => true,
+                    TimerMode::Every => {
+                        timer.next_at_ms = now_ms.wrapping_add(timer.period_ms);
+                        false
+                    }
+                    TimerMode::Repeat { remaining } => {
+                        if remaining <= 1 {
+                            true
+                        } else {
+                            timer.mode = TimerMode::Repeat {
+                                remaining: remaining - 1,
+                            };
+                            timer.next_at_ms = now_ms.wrapping_add(timer.period_ms);
+                            false
+                        }
+                    }
+                    TimerMode::Until { deadline_ms } => {
+                        let candidate = now_ms.wrapping_add(timer.period_ms);
+                        if (candidate.wrapping_sub(deadline_ms) as i32) > 0 {
+                            true
+                        } else {
+                            timer.next_at_ms = candidate;
+                            false
+                        }
+                    }
+                }
+            };
+            if remove {
+                let _ = world.remove::<Timer>(entity);
+            }
+        }
+    }
+}
+
+/// Install a timer and return the entity used by its `entity!()` capability.
+pub(crate) fn install(world: &mut World, timer: Timer) -> Entity {
+    timer.assert_owner(world);
+    let required = world.query::<Timer>().iter().count().saturating_add(1);
+    if world.resource::<TimerRuntime>().is_none() {
+        world.insert_resource(TimerRuntime::default());
+    }
+    world
+        .resource_mut::<TimerRuntime>()
+        .expect("TimerRuntime was just inserted")
+        .reserve_timers(required);
+    let entity = world.spawn_empty();
+    world.insert(entity, timer);
+    entity
+}
+
+/// Advance every installed timer. Missing [`MonoClock`] or runtime state is a
+/// no-op.
+pub fn timer_system(world: &mut World) {
+    let Some(now_ms) = world.resource::<MonoClock>().map(MonoClock::now_ms) else {
+        return;
+    };
+    let _ = world.with_resource_box::<TimerRuntime, _>(|runtime, world| {
+        runtime.tick(world, now_ms);
+    });
+}
+
+crate::ecs::system::framework_system!(pub timer_system, Timer);
 
 #[cfg(test)]
 mod tests {
+    use super::generated::{TimerSchedule, static_timer};
     use super::*;
     use crate::core::time::mock;
-    use crate::ecs::{MonoClock, World};
+    use crate::test_support::tracked_allocations;
     use core::sync::atomic::{AtomicU32, Ordering};
 
     static FIRE_COUNT: AtomicU32 = AtomicU32::new(0);
-    fn count_cb(_world: &mut World, _entity: Entity) {
+
+    fn count_cb(_entity: Entity, _commands: DeferredCommands<'_>) {
         FIRE_COUNT.fetch_add(1, Ordering::SeqCst);
     }
+
+    fn cancel_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
+        FIRE_COUNT.fetch_add(1, Ordering::SeqCst);
+        commands.remove::<Timer>(entity);
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Fired(u32);
+
+    impl crate::ecs::Component for Fired {}
+
+    fn mark_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
+        let next = FIRE_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+        commands.insert(entity, Fired(next));
+    }
+
+    fn ordered_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
+        commands.insert(entity, Fired(1));
+        commands.insert(entity, Fired(2));
+    }
+
+    fn panic_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
+        commands.insert(entity, Fired(99));
+        panic!("timer callback failed");
+    }
+
     fn reset_count() {
         FIRE_COUNT.store(0, Ordering::SeqCst);
     }
 
     fn fresh_world() -> World {
-        let mut w = World::new();
-        w.insert_resource(MonoClock::from_time_source());
-        w
+        let mut world = World::new();
+        world.insert_resource(MonoClock::from_time_source());
+        world
     }
 
-    fn anchor(world: &mut World, now_ms_init: u32) {
-        mock::set_ms(now_ms_init as u64);
+    fn add(world: &mut World, schedule: TimerSchedule, callback: StaticTimerCallback) -> Entity {
+        install(world, static_timer(schedule, callback))
+    }
+
+    fn tick(world: &mut World, now_ms: u32) {
+        mock::set_ms(now_ms as u64);
         timer_system(world);
     }
 
     #[test]
     fn pause_freezes_then_resume_restores_remaining_period() {
-        let _g = mock::install();
-        mock::set_ms(0);
+        let _guard = mock::install();
         reset_count();
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        w.insert(e, Timer::every(100, count_cb));
+        let mut world = fresh_world();
+        let entity = add(&mut world, TimerSchedule::every(100), count_cb);
+        tick(&mut world, 0);
 
-        anchor(&mut w, 0);
-
-        // Pause halfway between anchor (next_at=100) and the first fire.
-        mock::set_ms(60);
-        let now = w.resource::<MonoClock>().unwrap().now_ms();
-        w.get_mut::<Timer>(e).unwrap().pause(now);
-
-        // Time keeps moving but the system must skip the timer.
+        world.get_mut::<Timer>(entity).unwrap().pause(60);
         for step in [100, 200, 300] {
-            mock::set_ms(step);
-            timer_system(&mut w);
+            tick(&mut world, step);
         }
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
 
-        // Resume at 300: the timer was paused for 240 ms, so the next
-        // fire is original next_at (100) + 240 = 340.
-        let now = w.resource::<MonoClock>().unwrap().now_ms();
-        w.get_mut::<Timer>(e).unwrap().resume(now);
-        assert!(!w.get::<Timer>(e).unwrap().is_paused());
-
-        mock::set_ms(339);
-        timer_system(&mut w);
+        world.get_mut::<Timer>(entity).unwrap().resume(300);
+        tick(&mut world, 339);
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
-
-        mock::set_ms(340);
-        timer_system(&mut w);
+        tick(&mut world, 340);
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn pause_and_resume_are_idempotent() {
-        let _g = mock::install();
-        mock::set_ms(0);
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        w.insert(e, Timer::every(100, count_cb));
-        anchor(&mut w, 0);
+        let _guard = mock::install();
+        let mut world = fresh_world();
+        let entity = add(&mut world, TimerSchedule::every(100), count_cb);
+        tick(&mut world, 0);
 
-        let t = w.get_mut::<Timer>(e).unwrap();
-        t.pause(50);
-        t.pause(70); // second pause must not overwrite paused_at_ms.
-        // Resume sees the original 50 anchor — slept = 200 - 50 = 150.
-        t.resume(200);
-        assert_eq!(t.next_at_ms, 100u32.wrapping_add(150));
+        let timer = world.get_mut::<Timer>(entity).unwrap();
+        timer.pause(50);
+        timer.pause(70);
+        timer.resume(200);
+        assert_eq!(timer.next_at_ms, 250);
 
-        // Double resume is a no-op (already running).
-        t.resume(300);
-        assert_eq!(t.next_at_ms, 100u32.wrapping_add(150));
+        timer.resume(300);
+        assert_eq!(timer.next_at_ms, 250);
     }
 
     #[test]
     fn wrap_boundary_does_not_lose_a_fire() {
-        // 49.7-day boundary: u32 ms rolls from u32::MAX to 0 mid-period.
-        // The wrapping_sub due-check must still see the timer as due
-        // when next_at is just past the wrap and now is just before.
-        let _g = mock::install();
+        let _guard = mock::install();
+        reset_count();
+        let mut world = fresh_world();
         let pre_wrap = u32::MAX - 50;
-        mock::set_ms(pre_wrap as u64);
-        reset_count();
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        w.insert(e, Timer::every(100, count_cb));
+        let entity = add(&mut world, TimerSchedule::every(100), count_cb);
 
-        // Anchor at u32::MAX-50: next_at = (u32::MAX-50) + 100 wraps to 49.
-        timer_system(&mut w);
-        let stored = w.get::<Timer>(e).unwrap().next_at_ms;
-        assert_eq!(stored, 49u32);
-
-        mock::set_ms(48);
-        timer_system(&mut w);
+        tick(&mut world, pre_wrap);
+        assert_eq!(world.get::<Timer>(entity).unwrap().next_at_ms, 49);
+        tick(&mut world, 48);
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
-
-        mock::set_ms(49);
-        timer_system(&mut w);
+        tick(&mut world, 49);
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn after_fires_once_then_self_removes() {
-        let _g = mock::install();
-        mock::set_ms(0);
+    fn schedules_fire_with_reset_drift_and_remove_at_their_bounds() {
+        let _guard = mock::install();
         reset_count();
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        w.insert(e, Timer::after(50, count_cb));
+        let mut world = fresh_world();
 
-        anchor(&mut w, 0);
-        mock::set_ms(50);
-        timer_system(&mut w);
+        let after = add(&mut world, TimerSchedule::after(50), count_cb);
+        tick(&mut world, 0);
+        tick(&mut world, 50);
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
-        assert!(w.get::<Timer>(e).is_none(), "after-mode self-removes");
+        assert!(world.get::<Timer>(after).is_none());
 
-        mock::set_ms(200);
-        timer_system(&mut w);
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn repeat_fires_n_times_then_self_removes() {
-        let _g = mock::install();
-        mock::set_ms(0);
         reset_count();
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        w.insert(e, Timer::repeat(3, 100, count_cb));
-
-        anchor(&mut w, 0);
+        let repeat = add(&mut world, TimerSchedule::repeat(3, 100), count_cb);
+        tick(&mut world, 0);
         for step in [100, 200, 300] {
-            mock::set_ms(step);
-            timer_system(&mut w);
+            tick(&mut world, step);
         }
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 3);
-        assert!(w.get::<Timer>(e).is_none());
+        assert!(world.get::<Timer>(repeat).is_none());
 
-        mock::set_ms(400);
-        timer_system(&mut w);
+        reset_count();
+        let until = add(&mut world, TimerSchedule::until(250, 100), count_cb);
+        tick(&mut world, 0);
+        for step in [100, 200, 300] {
+            tick(&mut world, step);
+        }
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 2);
+        assert!(world.get::<Timer>(until).is_none());
+
+        reset_count();
+        let every = add(&mut world, TimerSchedule::every(100), count_cb);
+        tick(&mut world, 0);
+        tick(&mut world, 100);
+        tick(&mut world, 250);
+        tick(&mut world, 349);
+        tick(&mut world, 350);
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 3);
+        assert!(world.get::<Timer>(every).is_some());
     }
 
     #[test]
-    #[should_panic(expected = "Timer::repeat needs times > 0")]
+    fn callback_commands_apply_before_lifecycle_update() {
+        let _guard = mock::install();
+        reset_count();
+        let mut world = fresh_world();
+        let entity = add(&mut world, TimerSchedule::every(10), cancel_cb);
+
+        tick(&mut world, 0);
+        tick(&mut world, 10);
+
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
+        assert!(world.get::<Timer>(entity).is_none());
+    }
+
+    #[test]
+    fn callback_commands_apply_in_source_order() {
+        let _guard = mock::install();
+        let mut world = fresh_world();
+        let entity = add(&mut world, TimerSchedule::after(10), ordered_cb);
+
+        tick(&mut world, 0);
+        tick(&mut world, 10);
+
+        assert_eq!(world.get::<Fired>(entity), Some(&Fired(2)));
+    }
+
+    #[test]
+    fn callback_panic_discards_commands_and_restores_runtime() {
+        let _guard = mock::install();
+        reset_count();
+        let mut world = fresh_world();
+        let panicking = add(&mut world, TimerSchedule::every(10), panic_cb);
+        tick(&mut world, 0);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tick(&mut world, 10);
+        }));
+        assert!(result.is_err());
+        assert!(world.get::<Fired>(panicking).is_none());
+
+        let _ = world.remove::<Timer>(panicking);
+        let healthy = add(&mut world, TimerSchedule::after(1), mark_cb);
+        tick(&mut world, 10);
+        tick(&mut world, 11);
+        assert_eq!(world.get::<Fired>(healthy), Some(&Fired(1)));
+    }
+
+    #[test]
+    fn bound_timer_cannot_move_between_worlds_after_installation() {
+        let _guard = mock::install();
+        let first = fresh_world();
+        let timer = Timer::new(
+            TimerSchedule::every(10),
+            TimerCallback::Static(count_cb),
+            Some(first.id()),
+        );
+
+        let mut second = fresh_world();
+        let seed = add(&mut second, TimerSchedule::after(1), count_cb);
+        let _ = second.remove::<Timer>(seed);
+        let entity = second.spawn_empty();
+        second.insert(entity, timer);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tick(&mut second, 0);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn warmed_tick_reuses_entity_and_command_buffers() {
+        let _guard = mock::install();
+        reset_count();
+        let mut world = fresh_world();
+        let entity = add(&mut world, TimerSchedule::every(1), mark_cb);
+        world.insert(entity, Fired(0));
+
+        tick(&mut world, 0);
+        tick(&mut world, 1);
+        let allocations = tracked_allocations(|| tick(&mut world, 2));
+
+        assert_eq!(allocations, 0);
+        assert_eq!(world.get::<Fired>(entity), Some(&Fired(2)));
+    }
+
+    #[test]
+    #[should_panic(expected = "timer repeat count must be greater than zero")]
     fn repeat_zero_panics() {
-        let _ = Timer::repeat(0, 100, count_cb);
-    }
-
-    #[test]
-    fn until_stops_once_next_step_would_pass_deadline() {
-        let _g = mock::install();
-        mock::set_ms(0);
-        reset_count();
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        // deadline 250: fires at 100 and 200; the 300 step would cross
-        // 250 so the system removes the component instead.
-        w.insert(e, Timer::until(250, 100, count_cb));
-
-        anchor(&mut w, 0);
-        for step in [100, 200, 300] {
-            mock::set_ms(step);
-            timer_system(&mut w);
-        }
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 2);
-        assert!(w.get::<Timer>(e).is_none(), "until-mode self-removes");
-    }
-
-    #[test]
-    fn every_fires_at_each_period_boundary() {
-        let _g = mock::install();
-        mock::set_ms(0);
-        reset_count();
-        let mut w = fresh_world();
-        let e = w.spawn_empty();
-        w.insert(e, Timer::every(100, count_cb));
-
-        // First tick anchors next_at = 0 + 100. No fire yet.
-        timer_system(&mut w);
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
-
-        mock::set_ms(99);
-        timer_system(&mut w);
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
-
-        mock::set_ms(100);
-        timer_system(&mut w);
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
-
-        mock::set_ms(250);
-        timer_system(&mut w);
-        // Reset drift: fire once at 250, next_at <- 250+100 = 350.
-        // No catch-up — even though 200 was skipped.
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 2);
-
-        mock::set_ms(349);
-        timer_system(&mut w);
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 2);
-
-        mock::set_ms(350);
-        timer_system(&mut w);
-        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 3);
+        let _ = TimerSchedule::repeat(0, 100);
     }
 }

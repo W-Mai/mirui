@@ -10,6 +10,7 @@ pub mod widget_input;
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::ui::{Parent, UserState};
+use core::cell::RefCell;
 
 use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
@@ -213,43 +214,82 @@ impl<E> From<BusinessFn<E>> for BusinessCallback<E> {
     }
 }
 
-/// Aggregated context handed to user `on EventKind` bodies and callback-form fns.
-pub struct HandlerCtx<'a, E> {
-    pub world: &'a mut World,
-    pub entity: Entity,
-    pub event: &'a E,
+/// Reusable deferred-command storage owned by one generated event handler.
+///
+/// This type is public only so `ui!` expansions can cross the crate boundary.
+#[doc(hidden)]
+pub struct EventCommandQueue {
+    owner: crate::ecs::world::WorldId,
+    queue: RefCell<crate::ecs::commands::CommandQueue>,
 }
 
-impl<'a, E> HandlerCtx<'a, E> {
-    /// Read a component for the duration of this handler without subscribing.
-    pub fn component<T: 'static>(&self, entity: impl core::borrow::Borrow<Entity>) -> Option<&T> {
+impl EventCommandQueue {
+    #[doc(hidden)]
+    pub fn new(world: &World) -> Self {
+        Self {
+            owner: world.id(),
+            queue: RefCell::new(crate::ecs::commands::CommandQueue::default()),
+        }
+    }
+
+    /// Run one handler body and apply its structural changes after every
+    /// short-lived event parameter has been released.
+    #[doc(hidden)]
+    pub fn run<R>(
+        &self,
+        world: &mut World,
+        entity: Entity,
+        body: impl FnOnce(&mut EventHandlerScope<'_, '_>) -> R,
+    ) -> R {
+        assert_eq!(
+            self.owner,
+            world.id(),
+            "generated event handler belongs to a different App"
+        );
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+        let mut queue = self.queue.borrow_mut();
+        let mut batch = queue.begin();
+        let result = {
+            let commands = batch.commands();
+            let mut scope = EventHandlerScope {
+                world,
+                entity,
+                commands,
+            };
+            body(&mut scope)
+        };
+        batch.finish(world);
+        result
+    }
+}
+
+/// Short-lived capabilities available while a generated event body runs.
+///
+/// This type is public only so `ui!` expansions can cross the crate boundary.
+#[doc(hidden)]
+pub struct EventHandlerScope<'world, 'commands> {
+    world: &'world mut World,
+    entity: Entity,
+    commands: crate::ecs::commands::DeferredCommands<'commands>,
+}
+
+impl<'world, 'commands> EventHandlerScope<'world, 'commands> {
+    #[doc(hidden)]
+    pub fn component<T: crate::ecs::Component>(
+        &self,
+        entity: impl core::borrow::Borrow<Entity>,
+    ) -> Option<&T> {
         self.world.get::<T>(*entity.borrow())
     }
 
-    pub fn paths(&mut self) -> crate::text::PathAccess<'_> {
-        crate::text::PathAccess::new(self.world)
+    #[doc(hidden)]
+    pub fn commands(&mut self) -> &mut crate::ecs::commands::DeferredCommands<'commands> {
+        &mut self.commands
     }
 
-    /// Run a UI composition rooted at this handler's widget entity.
-    ///
-    /// Builds a fresh [`UiScope`](crate::ui::UiScope) from the handler's
-    /// world and entity and hands it to the closure — the same shape
-    /// [`App::compose`](crate::app::App::compose) uses at startup. Inside
-    /// the closure the `ui!` macro reads its `cx` binding implicitly, so
-    /// `on Tap` bodies can spawn widgets without threading world/parent
-    /// through:
-    ///
-    /// ```ignore
-    /// on Tap {
-    ///     ctx.compose(|cx| ui!(build_widgets()));
-    /// }
-    /// ```
-    pub fn compose<F>(&mut self, f: F)
-    where
-        F: FnOnce(&mut crate::ui::UiScope<'_>),
-    {
-        let mut cx = crate::ui::UiScope::new(&mut *self.world, self.entity);
-        f(&mut cx);
+    #[doc(hidden)]
+    pub fn tap_count(&self) -> u8 {
+        multi_tap::current_count(self.world, self.entity)
     }
 }
 
@@ -262,7 +302,7 @@ pub enum BubbleControl {
 
 /// Bridges user `on EventKind` body return types into the dispatch fn's bubble-control bit.
 ///
-/// - `()` → `Prevent` (default; mirrors web's "stopPropagation by default" idiom)
+/// - `()` → `Prevent` (default)
 /// - `bool` → `true = Prevent, false = Allow`
 /// - `BubbleControl` → pass through
 pub trait HandlerReturn {
@@ -367,6 +407,7 @@ mod tests {
     #[test]
     fn internal_handlers_keep_registration_order_and_snapshot_filter_matches() {
         struct Marker;
+        impl crate::ecs::Component for Marker {}
         #[derive(Default)]
         struct Calls {
             first: u8,
@@ -610,6 +651,7 @@ mod tests {
         use std::sync::Mutex;
 
         struct ChannelMarker;
+        impl crate::ecs::Component for ChannelMarker {}
 
         static INTERNAL_FIRES: AtomicU8 = AtomicU8::new(0);
         static USER_FIRES: AtomicU8 = AtomicU8::new(0);
