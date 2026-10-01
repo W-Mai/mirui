@@ -1,0 +1,5 @@
+error: `model!(...)` fields require a component struct with named fields
+ --> tests/ui/component_tuple_model.rs:6:14
+  |
+6 | struct Board(model!(Game));
+  |              ^^^^^

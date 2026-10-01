@@ -1,0 +1,53 @@
+error: binding role `res!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+ --> tests/ui/component_unsupported_roles.rs:5:12
+  |
+5 |     value: res!(u8),
+  |            ^^^
+
+error: binding role `query!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:10:12
+   |
+10 |     value: query!(u8),
+   |            ^^^^^
+
+error: binding role `commands!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:15:12
+   |
+15 |     value: commands!(),
+   |            ^^^^^^^^
+
+error: binding role `component!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:20:12
+   |
+20 |     value: component!(u8),
+   |            ^^^^^^^^^
+
+error: binding role `entity!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:25:12
+   |
+25 |     value: entity!(),
+   |            ^^^^^^
+
+error: binding role `draw!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:30:12
+   |
+30 |     value: draw!(),
+   |            ^^^^
+
+error: binding role `rect!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:35:12
+   |
+35 |     value: rect!(),
+   |            ^^^^
+
+error: binding role `view!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:40:12
+   |
+40 |     value: view!(),
+   |            ^^^^
+
+error: binding role `motion!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`
+  --> tests/ui/component_unsupported_roles.rs:45:12
+   |
+45 |     value: motion!(),
+   |            ^^^^^^

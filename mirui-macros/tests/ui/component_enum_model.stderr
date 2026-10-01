@@ -1,0 +1,5 @@
+error: `model!(...)` fields are not supported in component enums; use a named-field struct
+ --> tests/ui/component_enum_model.rs:8:21
+  |
+8 |     Running { game: model!(Game) },
+  |                     ^^^^^

@@ -1,0 +1,5 @@
+error: optional mutable model bindings are not supported
+ --> tests/ui/component_optional_mut.rs:7:27
+  |
+7 |     game: model!(optional mut Game),
+  |                           ^^^

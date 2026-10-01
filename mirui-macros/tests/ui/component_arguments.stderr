@@ -1,0 +1,5 @@
+error: `#[component]` does not accept arguments; declare Model fields with `model!(T)`
+ --> tests/ui/component_arguments.rs:5:13
+  |
+5 | #[component(unexpected)]
+  |             ^^^^^^^^^^
