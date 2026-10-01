@@ -1,12 +1,12 @@
 error: slot operations directly inside a cached `if` branch need a widget parent
-  --> tests/ui/cached_if_uncontained_slot.rs:16:5
+  --> tests/ui/cached_if_uncontained_slot.rs:18:9
    |
-16 | /     ui! {
-17 | |         :(
-18 | |             parent: root
-19 | |             world: &mut world
+18 | /         ui! {
+19 | |             Card () {
+20 | |                 if $condition {
+21 | |                     @body { View () }
 ...  |
-29 | |     };
-   | |_____^
+26 | |         }
+   | |_________^
    |
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,12 +1,12 @@
 error: slot operations directly inside a reactive `match` arm need a widget parent
-  --> tests/ui/cached_match_uncontained_slot.rs:16:5
+  --> tests/ui/cached_match_uncontained_slot.rs:18:9
    |
-16 | /     ui! {
-17 | |         :(
-18 | |             parent: root
-19 | |             world: &mut world
+18 | /         ui! {
+19 | |             Card () {
+20 | |                 match $selection {
+21 | |                     true => {
 ...  |
-32 | |     };
-   | |_____^
+29 | |         }
+   | |_________^
    |
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

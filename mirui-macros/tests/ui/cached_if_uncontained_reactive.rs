@@ -10,16 +10,14 @@ fn main() {
     let condition = signal.clone();
     let inner = signal.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        View () {
-            if $condition {
-                if $inner {
-                    View ()
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            View () {
+                if $condition {
+                    if $inner {
+                        View ()
+                    }
                 }
             }
         }

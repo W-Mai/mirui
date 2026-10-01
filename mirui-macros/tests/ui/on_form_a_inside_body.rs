@@ -8,14 +8,12 @@ fn main() {
     world.insert_resource(IdMap::new());
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        View () {
-            on Tap { todo!() }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            View () {
+                on Tap { todo!() }
+            }
         }
     };
 }

@@ -1,5 +1,5 @@
 error: unknown event `Wiggle` for widget `View`; expected a GestureEvent variant (Tap, LongPress, DragStart, DragMove, DragEnd, DragCancel, Pinch, Rotate) or a business event
-  --> tests/ui/on_unknown_event.rs:17:23
+  --> tests/ui/on_unknown_event.rs:14:27
    |
-17 |         View () {} on Wiggle { todo!() }
-   |                       ^^^^^^
+14 |             View () {} on Wiggle { todo!() }
+   |                           ^^^^^^

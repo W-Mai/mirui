@@ -18,17 +18,23 @@ fn main() {
     let signal = Signal::new(true);
     let condition = signal.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        View () {
-            if $condition {
-                Card () { @body { View () } }
-            } else {
-                Card () { @body { View () } }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            View () {
+                if $condition {
+                    Card () {
+                        @body {
+                            View ()
+                        }
+                    }
+                } else {
+                    Card () {
+                        @body {
+                            View ()
+                        }
+                    }
+                }
             }
         }
     };

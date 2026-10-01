@@ -10,15 +10,13 @@ fn main() {
     let left = Signal::new(12_i32);
     let top = Signal::new(Dimension::percent(25));
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        View(
-            left: ${ left.get() },
-            top: ${ top.get() },
-        )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            View (
+                left: ${ left.get() },
+                top: ${ top.get() }
+            )
+        }
     };
 }

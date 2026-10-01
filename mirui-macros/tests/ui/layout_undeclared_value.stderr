@@ -1,5 +1,5 @@
 error: layout value `height` is not declared in the `@` dependency list
-  --> tests/ui/layout_undeclared_value.rs:16:41
+  --> tests/ui/layout_undeclared_value.rs:14:45
    |
-16 |         View (width: @width { width.min(height) })
-   |                                         ^^^^^^
+14 |             View (width: @width { width.min(height) })
+   |                                             ^^^^^^

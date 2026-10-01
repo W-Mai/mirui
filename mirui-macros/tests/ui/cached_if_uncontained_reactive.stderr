@@ -1,12 +1,12 @@
 error: reactive control flow directly inside a cached `if` branch needs a widget parent
-  --> tests/ui/cached_if_uncontained_reactive.rs:13:5
+  --> tests/ui/cached_if_uncontained_reactive.rs:15:9
    |
-13 | /     ui! {
-14 | |         :(
-15 | |             parent: root
-16 | |             world: &mut world
+15 | /         ui! {
+16 | |             View () {
+17 | |                 if $condition {
+18 | |                     if $inner {
 ...  |
-26 | |     };
-   | |_____^
+23 | |         }
+   | |_________^
    |
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

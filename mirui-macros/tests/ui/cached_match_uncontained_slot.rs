@@ -13,19 +13,21 @@ fn main() {
     let signal = Signal::new(true);
     let selection = signal.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Card () {
-            match $selection {
-                true => {
-                    @body { View () }
-                }
-                false => {
-                    @body { View () }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Card () {
+                match $selection {
+                    true => {
+                        @body {
+                            View ()
+                        }
+                    }
+                    false => {
+                        @body {
+                            View ()
+                        }
+                    }
                 }
             }
         }
