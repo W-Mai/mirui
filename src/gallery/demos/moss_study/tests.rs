@@ -229,7 +229,7 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
 }
 
 #[test]
-#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+#[should_panic(expected = "requires resource")]
 fn bound_tick_requires_the_frame_delta_resource() {
     let mut world = fixture();
     let surface = world.find_by_id("moss_surface").unwrap();

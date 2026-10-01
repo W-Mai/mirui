@@ -4,8 +4,6 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::moss::{GRID_HEIGHT, GRID_WIDTH, MossCells, MossModal, MossModel};
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_cells(painter: &mut PlayPainter<'_, '_>, cells: &MossCells, previous: &MossCells) {
     for y in 0..GRID_HEIGHT {
@@ -122,18 +120,13 @@ fn paint_moss_surface(painter: &mut PlayPainter<'_, '_>, model: &MossModel) {
     );
 }
 
-#[crate::view(
-    component = MossSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "MossSurface",
-    priority = 60
-)]
+#[crate::view(name = "MossSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &MossModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(MossSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -165,18 +158,13 @@ fn paint_seed_preview(
     }
 }
 
-#[crate::view(
-    component = MossModalSurface,
-    read(model),
-    watch(model.modal(), model.seed_id()),
-    name = "MossModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "MossModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &MossModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(MossModalSurface),
+    model: model!(surface.model, watch(modal, seed_id)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == MossModal::None {
         return;

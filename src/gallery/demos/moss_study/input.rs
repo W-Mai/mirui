@@ -1,10 +1,7 @@
 use super::state::MossSurface;
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::play::moss::MossModel;
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::prelude::{Fixed, Rect};
-use crate::ui::ComputedRect;
 
 pub(super) fn local_cell(rect: Rect, x: Fixed, y: Fixed) -> Option<(u8, u8)> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -25,52 +22,35 @@ pub(super) fn local_cell(rect: Rect, x: Fixed, y: Fixed) -> Option<(u8, u8)> {
     ))
 }
 
-pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let Some(model) = ctx
-        .component::<MossSurface>(ctx.entity)
-        .map(|surface| surface.model.clone())
-    else {
+pub(super) fn surface_tap(surface: &MossSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let Some((cell_x, cell_y)) = local_cell(rect, x, y) else {
         return false;
     };
-    match ctx.event {
-        GestureEvent::DragEnd { .. } => {
-            model.end_stroke(false);
-            return true;
-        }
-        GestureEvent::DragCancel { .. } => {
-            model.end_stroke(true);
-            return true;
-        }
-        _ => {}
-    }
-    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
+    surface.model.paint_cell(cell_x, cell_y);
+    true
+}
+
+pub(super) fn surface_drag_start(surface: &MossSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let Some((cell_x, cell_y)) = local_cell(rect, x, y) else {
         return false;
     };
-    match ctx.event {
-        GestureEvent::Tap { x, y, .. } => {
-            let Some((cell_x, cell_y)) = local_cell(rect, *x, *y) else {
-                return false;
-            };
-            model.paint_cell(cell_x, cell_y);
-        }
-        GestureEvent::DragStart { x, y, .. } => {
-            let Some((cell_x, cell_y)) = local_cell(rect, *x, *y) else {
-                return false;
-            };
-            model.begin_stroke(cell_x, cell_y);
-        }
-        GestureEvent::DragMove { x, y, .. } => {
-            let Some((cell_x, cell_y)) = local_cell(rect, *x, *y) else {
-                return true;
-            };
-            model.continue_stroke(cell_x, cell_y);
-        }
-        _ => return false,
+    surface.model.begin_stroke(cell_x, cell_y);
+    true
+}
+
+pub(super) fn surface_drag_move(surface: &MossSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    if let Some((cell_x, cell_y)) = local_cell(rect, x, y) {
+        surface.model.continue_stroke(cell_x, cell_y);
     }
     true
 }
 
-#[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn moss_tick_system(model: &MossModel, delta: DeltaTimeMs) {
+pub(super) fn surface_drag_end(surface: &MossSurface, cancelled: bool) -> bool {
+    surface.model.end_stroke(cancelled);
+    true
+}
+
+#[mirui_macros::system(order = Animation)]
+pub(super) fn moss_tick_system(model: model!(MossModel), delta: res!(DeltaTimeMs)) {
     model.advance_ms(delta.0);
 }

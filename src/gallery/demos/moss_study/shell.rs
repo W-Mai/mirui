@@ -1,4 +1,6 @@
-use super::input::{moss_tick_system, surface_gesture};
+use super::input::{
+    moss_tick_system, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
+};
 use super::render::{modal_render, surface_render};
 use super::state::{MossModalSurface, MossSurface};
 use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, TEXT};
@@ -8,6 +10,7 @@ use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::moss::{MossModal, MossModel, MossTool};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
@@ -47,8 +50,8 @@ fn control_text_color(active: bool, enabled: bool) -> Color {
     }
 }
 
-#[compose(bind(model))]
-fn compose_header_tools(model: MossModel) -> Entity {
+#[compose]
+fn compose_header_tools(model: model!(MossModel)) -> Entity {
     ui! {
         Text (
             "MOSS STUDY",
@@ -148,8 +151,8 @@ fn compose_header_tools(model: MossModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_metrics(model: MossModel) -> Entity {
+#[compose]
+fn compose_metrics(model: model!(MossModel)) -> Entity {
     ui! {
         Text (
             "GENERATION",
@@ -269,8 +272,8 @@ fn compose_metrics(model: MossModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: MossModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(MossModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.running() { "暂停" } else { "运行" } },
@@ -339,8 +342,8 @@ fn compose_footer(model: MossModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: MossModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(MossModel)) -> Entity {
     ui! {
         View (
             id: "moss_modal",
@@ -520,15 +523,49 @@ fn compose_modal(model: MossModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: MossModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(MossModel)) {
     ui! {
         View (id: "moss_surface", width: 480, height: 320, clip_children: true) [
             MossSurface {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, MossSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        } on DragStart {
+            let Some(surface) = com!(target, MossSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_start(surface, rect, x, y)
+        } on DragMove {
+            let Some(surface) = com!(target, MossSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_move(surface, rect, x, y)
+        } on DragEnd {
+            let Some(surface) = com!(target, MossSurface) else {
+                return false;
+            };
+            surface_drag_end(surface, false)
+        } on DragCancel {
+            let Some(surface) = com!(target, MossSurface) else {
+                return false;
+            };
+            surface_drag_end(surface, true)
+        }
         {
             compose_header_tools (model)
             compose_metrics (model)
