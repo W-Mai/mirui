@@ -10,6 +10,8 @@ pub struct BackgroundBlur {
     pub spread: Fixed,
 }
 
+impl crate::ecs::Component for BackgroundBlur {}
+
 impl BackgroundBlur {
     pub fn new(radius: impl Into<Fixed>) -> Self {
         Self {

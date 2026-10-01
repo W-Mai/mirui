@@ -6,7 +6,7 @@ use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{View, ViewCtx};
 
 /// `scale` is a unitless multiplier orthogonal to `size`. Animate
-/// `scale` (e.g. through `mirui_macros::animate!`) so hover bounces
+/// `scale` (e.g. through `#[mirui::animate]`) so hover bounces
 /// don't replace the `Dimension::Percent` / `Auto` variant on `size`.
 #[crate::component]
 #[derive(Clone, Debug)]
@@ -96,11 +96,10 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::anim::{Motion, MotionComponent, Spring, run_motion};
-    use crate::ecs::{DeltaTimeMs, MonoClock};
+    use crate::anim::Spring;
+    use crate::ecs::DeltaTimeMs;
     use crate::render::path::PathCmd;
     use crate::types::{Color, Point};
-    use crate::ui::dirty::Dirty;
     use alloc::borrow::Cow;
 
     static CLOSED_PATH: &[PathCmd] = &[PathCmd::Close];
@@ -183,38 +182,14 @@ mod tests {
         assert_eq!(transform.m11, Fixed::from_ratio(3, 2));
     }
 
-    // Stand-in for an `animate!`-generated component so this invariant
-    // test doesn't need a public type just for itself.
-    struct IconScale(Motion);
-
-    impl crate::ecs::Component for IconScale {}
-
-    impl MotionComponent for IconScale {
-        fn motion(&self) -> &Motion {
-            &self.0
-        }
-        fn motion_mut(&mut self) -> &mut Motion {
-            &mut self.0
-        }
-    }
-
-    fn tick(world: &mut World) {
-        run_motion::<IconScale>(world, |world, entity, value| {
-            if let Some(icon) = world.get_mut::<Icon>(entity) {
-                icon.scale = value;
-            }
-            world.insert(entity, Dirty);
-        });
+    #[crate::animate(component = IconScale)]
+    fn apply_icon_scale(value: motion!(), icon: component!(mut Icon)) {
+        icon.scale = value;
     }
 
     #[test]
     fn animating_scale_leaves_size_dimension_untouched() {
-        fn clock() -> u64 {
-            0
-        }
-
         let mut world = World::new();
-        world.insert_resource(MonoClock::new(clock));
         world.insert_resource(DeltaTimeMs(16));
 
         let icon = Icon::new(Path::from_static(CLOSED_PATH))
@@ -227,8 +202,9 @@ mod tests {
             IconScale(Spring::new(Fixed::ONE, Fixed::from_int(2), 100, Fixed::ZERO).into()),
         );
 
+        let system = IconScale::system();
         for _ in 0..20 {
-            tick(&mut world);
+            system.run_once(&mut world);
         }
 
         let after = world.get::<Icon>(entity).expect("icon survives");

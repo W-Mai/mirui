@@ -4,6 +4,8 @@ use crate::types::Transform;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WidgetTransform(pub Transform);
 
+impl crate::ecs::Component for WidgetTransform {}
+
 impl From<Transform> for WidgetTransform {
     fn from(t: Transform) -> Self {
         Self(t)

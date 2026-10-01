@@ -430,29 +430,26 @@ fn text_input_render(
 }
 
 /// Flip `CursorBlinkPhase` every 500 ms and Dirty every focused TextInput.
-#[crate::system(order = ANIMATION, expect = TextInput)]
-pub fn cursor_blink_system(world: &mut World) {
-    let now_ms = match world.resource::<crate::ecs::MonoClock>() {
-        Some(c) => (c.clock)() / 1_000_000,
+#[crate::system(order = Animation, expect = TextInput)]
+pub fn cursor_blink_system(
+    clock: res!(optional crate::ecs::MonoClock),
+    phase: res!(optional CursorBlinkPhase),
+    inputs: query!(Entity, TextInput),
+    commands: commands!(),
+) {
+    let now_ms = match clock {
+        Some(clock) => (clock.clock)() / 1_000_000,
         None => return,
     };
     let new_phase = (now_ms / 500) % 2 == 0;
-    let prev_phase = world
-        .resource::<CursorBlinkPhase>()
-        .map(|p| p.0)
-        .unwrap_or(!new_phase);
+    let prev_phase = phase.map(|phase| phase.0).unwrap_or(!new_phase);
     if new_phase == prev_phase {
         return;
     }
-    world.insert_resource(CursorBlinkPhase(new_phase));
-    let entities: alloc::vec::Vec<_> = world.query::<TextInput>().collect();
-    for e in entities {
-        if world
-            .get::<TextInput>(e)
-            .map(|t| t.focused)
-            .unwrap_or(false)
-        {
-            world.insert(e, Dirty);
+    commands.insert_resource(CursorBlinkPhase(new_phase));
+    for (entity, input) in inputs {
+        if input.focused {
+            commands.insert(entity, Dirty);
         }
     }
 }

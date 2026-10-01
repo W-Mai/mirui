@@ -55,6 +55,8 @@ pub struct LazyListPool {
     pub bound_indices: Vec<u32>,
 }
 
+impl crate::ecs::Component for LazyListPool {}
+
 impl LazyListPool {
     pub fn new(items: Vec<Entity>) -> Self {
         let n = items.len();
@@ -73,6 +75,8 @@ pub type ItemBinder = fn(&mut crate::ecs::World, Entity, u32);
 pub struct LazyListBinder {
     pub bind: ItemBinder,
 }
+
+impl crate::ecs::Component for LazyListBinder {}
 
 /// Walk every list each frame, decide which row index each pool slot
 /// should display, call the binder for slots whose binding changed,
@@ -187,7 +191,6 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
     any_changed
 }
 
-#[crate::system(order = LAZY_LIST, expect = LazyList)]
 pub fn lazy_list_system(world: &mut World) {
     let lists: Vec<Entity> = world.query::<LazyList>().collect();
     for entity in lists {
@@ -233,6 +236,8 @@ pub fn lazy_list_system(world: &mut World) {
         }
     }
 }
+
+crate::ecs::system::framework_system!(pub lazy_list_system, LazyList, expect = [LazyList]);
 
 /// Returns true if any slot was newly hidden, so the caller marks Dirty.
 fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bool {

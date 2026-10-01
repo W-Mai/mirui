@@ -5,6 +5,8 @@ use crate::types::{Fixed, Transform3D};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WidgetTransform3D(pub Transform3D);
 
+impl crate::ecs::Component for WidgetTransform3D {}
+
 impl From<Transform3D> for WidgetTransform3D {
     fn from(t: Transform3D) -> Self {
         Self(t)

@@ -1,10 +1,9 @@
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
-use crate::types::{Dimension, Rect};
+use crate::types::Dimension;
 use crate::ui::layout::{AlignItems, JustifyContent, Padding};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::View;
 use crate::ui::{HitTarget, InteractionFeedback, Style};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -135,13 +134,13 @@ impl crate::ecs::IntoBundle for ButtonBuilder {
     }
 }
 
-#[crate::view(component = Button, name = "Button", priority = 40, attach = button_attach)]
+#[crate::view(name = "Button", priority = 40, attach = button_attach)]
 fn button_render(
-    renderer: &mut dyn Renderer,
-    component: &Button,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &crate::ui::Theme,
+    component: component!(Button),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(crate::ui::Theme),
 ) {
     let color = if matches!(ctx.state, crate::ui::theme::WidgetState::Pressed) {
         component.pressed_color.resolve_in(theme, ctx.state)

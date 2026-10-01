@@ -27,6 +27,8 @@ pub struct TemporalMix {
     pub mix: u8,
 }
 
+impl crate::ecs::Component for TemporalMix {}
+
 impl TemporalMix {
     pub fn new(source: Entity) -> Self {
         Self { source, mix: 128 }

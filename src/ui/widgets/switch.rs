@@ -1,4 +1,4 @@
-use crate::anim::{Motion, MotionComponent, Spring, run_motion};
+use crate::anim::Spring;
 use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
@@ -127,54 +127,34 @@ impl crate::ecs::IntoBundle for SwitchBuilder {
 // read by switch_render.
 pub(crate) struct SwitchBgT(pub(crate) Fixed);
 
+impl crate::ecs::Component for SwitchBgT {}
+
 // Current thumb x (entity-local). Updated by AnimateThumbX, read by
 // switch_render. Seeded by switch_init_system once layout has run.
 pub(crate) struct AnimatedThumbX(pub(crate) Fixed);
 
-pub(crate) struct AnimateSwitchBgT(pub(crate) Motion);
+impl crate::ecs::Component for AnimatedThumbX {}
 
-impl MotionComponent for AnimateSwitchBgT {
-    fn motion(&self) -> &Motion {
-        &self.0
-    }
-    fn motion_mut(&mut self) -> &mut Motion {
-        &mut self.0
-    }
+#[crate::animate(component = AnimateSwitchBgT)]
+pub(crate) fn apply_switch_bg_t(
+    entity: entity!(),
+    value: motion!(),
+    track: component!(mut SwitchBgT),
+    commands: commands!(),
+) {
+    track.0 = value;
+    commands.insert(entity, Dirty);
 }
 
-#[crate::system(order = ANIMATION, expect = AnimateSwitchBgT)]
-pub(crate) fn animate_switch_bg_t_system(world: &mut World) {
-    run_motion::<AnimateSwitchBgT>(world, |world, entity, value| {
-        if let Some(t) = world.get_mut::<SwitchBgT>(entity) {
-            t.0 = value;
-        } else {
-            world.insert(entity, SwitchBgT(value));
-        }
-        world.insert(entity, Dirty);
-    });
-}
-
-pub(crate) struct AnimateThumbX(pub(crate) Motion);
-
-impl MotionComponent for AnimateThumbX {
-    fn motion(&self) -> &Motion {
-        &self.0
-    }
-    fn motion_mut(&mut self) -> &mut Motion {
-        &mut self.0
-    }
-}
-
-#[crate::system(order = ANIMATION, expect = AnimateThumbX)]
-pub(crate) fn animate_thumb_x_system(world: &mut World) {
-    run_motion::<AnimateThumbX>(world, |world, entity, value| {
-        if let Some(x) = world.get_mut::<AnimatedThumbX>(entity) {
-            x.0 = value;
-        } else {
-            world.insert(entity, AnimatedThumbX(value));
-        }
-        world.insert(entity, Dirty);
-    });
+#[crate::animate(component = AnimateThumbX)]
+pub(crate) fn apply_thumb_x(
+    entity: entity!(),
+    value: motion!(),
+    thumb: component!(mut AnimatedThumbX),
+    commands: commands!(),
+) {
+    thumb.0 = value;
+    commands.insert(entity, Dirty);
 }
 
 const SWITCH_THUMB_MARGIN: Fixed = Fixed::from_int(3);
@@ -191,23 +171,19 @@ fn on_thumb_x(rect: &Rect) -> Fixed {
 
 // Seed AnimatedThumbX once ComputedRect is available (post-layout).
 // Pre-layout we don't know rect yet, so attach can't compute it.
-#[crate::system(order = ANIMATION, expect = Switch)]
-pub(crate) fn switch_init_system(world: &mut World) {
-    world.for_each_stable::<Switch>(|world, e| {
-        if world.get::<AnimatedThumbX>(e).is_some() {
-            return;
-        }
-        let Some(rect) = world.get::<ComputedRect>(e).map(|r| r.0) else {
-            return;
-        };
-        let on = world.get::<Switch>(e).map(|s| s.on).unwrap_or(false);
-        let x = if on {
-            on_thumb_x(&rect)
+#[crate::system(order = Animation, expect = Switch)]
+pub(crate) fn switch_init_system(
+    switches: query!(Entity, Switch, ComputedRect; without AnimatedThumbX;),
+    commands: commands!(),
+) {
+    for (entity, switch, rect) in switches {
+        let x = if switch.on {
+            on_thumb_x(&rect.0)
         } else {
-            off_thumb_x(&rect)
+            off_thumb_x(&rect.0)
         };
-        world.insert(e, AnimatedThumbX(x));
-    });
+        commands.insert(entity, AnimatedThumbX(x));
+    }
 }
 
 fn switch_render(
@@ -385,8 +361,8 @@ pub fn view() -> View {
             const {
                 &[
                     switch_init_system::system(),
-                    animate_switch_bg_t_system::system(),
-                    animate_thumb_x_system::system(),
+                    AnimateSwitchBgT::system(),
+                    AnimateThumbX::system(),
                 ]
             },
         )
@@ -502,12 +478,14 @@ mod tests {
         world.insert(waiting, Switch::new());
         world.insert(ready, ComputedRect(Rect::new(0, 0, 54, 24)));
 
-        switch_init_system(&mut world);
+        let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(switch_init_system::system());
+        scheduler.run_all(&mut world);
         let first = world.get::<AnimatedThumbX>(ready).unwrap().0;
         assert!(world.get::<AnimatedThumbX>(waiting).is_none());
 
         world.insert(waiting, ComputedRect(Rect::new(0, 0, 72, 24)));
-        switch_init_system(&mut world);
+        scheduler.run_all(&mut world);
         assert_eq!(world.get::<AnimatedThumbX>(ready).unwrap().0, first);
         assert_eq!(world.get::<AnimatedThumbX>(waiting).unwrap().0, first);
     }

@@ -1528,11 +1528,15 @@ fn static_glyph_run_render(
 }
 
 pub fn view() -> View {
-    View::new("Text", 80, text_render).with_filter::<Text>()
+    View::new("Text", 80, text_render)
+        .with_filter::<Text>()
+        .with_invalidation(crate::ui::ViewInvalidation::Layout)
 }
 
 pub fn static_glyph_run_view() -> View {
-    View::new("StaticGlyphRun", 80, static_glyph_run_render).with_filter::<StaticGlyphRun>()
+    View::new("StaticGlyphRun", 80, static_glyph_run_render)
+        .with_filter::<StaticGlyphRun>()
+        .with_invalidation(crate::ui::ViewInvalidation::Layout)
 }
 
 #[cfg(test)]

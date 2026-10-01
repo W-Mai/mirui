@@ -25,9 +25,13 @@ pub(crate) struct TabIndicatorTween {
     pub(crate) tween: Tween,
 }
 
+impl crate::ecs::Component for TabIndicatorTween {}
+
 pub(crate) struct TabBarPrev {
     pub(crate) selected: u8,
 }
+
+impl crate::ecs::Component for TabBarPrev {}
 
 /// Horizontal tab bar with N children laid out flex-row.
 /// `selected` is the discrete tab index; `indicator_offset` is the

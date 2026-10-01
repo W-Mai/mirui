@@ -18,6 +18,8 @@ pub struct MirrorOf {
     pub fade: u8,
 }
 
+impl crate::ecs::Component for MirrorOf {}
+
 impl MirrorOf {
     pub fn new(source: Entity) -> Self {
         Self { source, fade: 0 }

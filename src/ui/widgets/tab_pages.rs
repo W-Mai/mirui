@@ -14,12 +14,15 @@ pub struct TabContent {
     pub index: u8,
 }
 
-#[crate::system(order = TAB_PAGES, expect = TabBar)]
+impl crate::ecs::Component for TabContent {}
+
 pub fn tab_pages_system(world: &mut World) {
     drive_indicator_tweens(world);
     detect_programmatic_selection_changes(world);
     apply_visibility(world);
 }
+
+crate::ecs::system::framework_system!(pub tab_pages_system, TabPages, expect = [TabBar]);
 
 fn drive_indicator_tweens(world: &mut World) {
     let dt = world

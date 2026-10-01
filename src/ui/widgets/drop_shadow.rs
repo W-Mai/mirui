@@ -18,6 +18,8 @@ pub struct DropShadow {
     pub opacity: u8,
 }
 
+impl crate::ecs::Component for DropShadow {}
+
 impl DropShadow {
     pub fn new(source: Entity) -> Self {
         Self {
@@ -216,6 +218,8 @@ pub struct DropGlow {
     pub color: ThemedColor,
     pub opacity: u8,
 }
+
+impl crate::ecs::Component for DropGlow {}
 
 impl DropGlow {
     pub fn new(source: Entity) -> Self {

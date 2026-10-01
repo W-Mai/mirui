@@ -2,12 +2,11 @@ use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::View;
 
 #[derive(Clone, Debug)]
 pub enum SliderEvent {
@@ -168,18 +167,17 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
 }
 
 #[crate::view(
-    component = Slider,
     name = "Slider",
     priority = 60,
     attach = slider_attach,
     gesture = slider_handler
 )]
 fn slider_render(
-    renderer: &mut dyn Renderer,
-    component: &Slider,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &crate::ui::Theme,
+    component: component!(Slider),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(crate::ui::Theme),
 ) {
     let track_color = component.track_color.resolve_in(theme, ctx.state);
     let fill_color = component.fill_color.resolve_in(theme, ctx.state);
