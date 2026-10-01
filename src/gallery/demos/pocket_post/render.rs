@@ -6,8 +6,6 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::post::{PostModal, PostModel, PostParcel};
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_track(painter: &mut PlayPainter<'_, '_>, from: Point, to: Point, active: bool) {
     painter.line(from, to, Color::rgb(12, 22, 26), Fixed::from_int(12));
@@ -351,18 +349,13 @@ fn paint_post_surface(painter: &mut PlayPainter<'_, '_>, model: &PostModel) {
     );
 }
 
-#[crate::view(
-    component = PostSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "PostSurface",
-    priority = 60
-)]
+#[crate::view(name = "PostSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &PostModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(PostSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -370,18 +363,13 @@ pub(super) fn surface_render(
     paint_post_surface(&mut painter, model);
 }
 
-#[crate::view(
-    component = PostModalSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "PostModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "PostModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &PostModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(PostModalSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == PostModal::None {
         return;

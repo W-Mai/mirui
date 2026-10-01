@@ -111,7 +111,7 @@ fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
 }
 
 #[test]
-#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+#[should_panic(expected = "requires resource")]
 fn tick_system_rejects_a_missing_delta_resource() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
     let model = app.add_model(PostModel::default());

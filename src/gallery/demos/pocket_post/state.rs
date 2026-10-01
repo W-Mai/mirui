@@ -1,11 +1,11 @@
 use crate::gallery::play::post::PostModel;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct PostSurface {
-    pub(super) model: PostModel,
+    pub(super) model: model!(PostModel),
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct PostModalSurface {
-    pub(super) model: PostModel,
+    pub(super) model: model!(PostModel),
 }

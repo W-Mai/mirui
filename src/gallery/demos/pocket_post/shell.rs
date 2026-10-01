@@ -1,4 +1,4 @@
-use super::input::{PostKeyboardPlugin, post_tick_system, surface_gesture};
+use super::input::{PostKeyboardPlugin, post_tick_system, surface_tap};
 use super::render::{modal_render, surface_render};
 use super::state::{PostModalSurface, PostSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT};
@@ -8,6 +8,7 @@ use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::post::{PostModal, PostModel};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 
 fn status_label(finished: bool, running: bool, started: bool) -> &'static str {
@@ -95,8 +96,8 @@ fn modal_subtitle(modal: PostModal) -> &'static str {
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: PostModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             "POCKET POST",
@@ -157,8 +158,8 @@ fn compose_header(model: PostModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_route_summary(model: PostModel) -> Entity {
+#[compose]
+fn compose_route_summary(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             "IN",
@@ -323,8 +324,8 @@ fn compose_route_summary(model: PostModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_dispatch_queue(model: PostModel) -> Entity {
+#[compose]
+fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             "待发",
@@ -451,8 +452,8 @@ fn compose_dispatch_queue(model: PostModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: PostModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(PostModel)) -> Entity {
     ui! {
         Button (
             text: ${ run_label(model.finished(), model.running(), model.started()) },
@@ -529,15 +530,23 @@ fn compose_footer(model: PostModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: PostModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(PostModel)) {
     ui! {
         View (id: "post_surface", width: 480, height: 320, clip_children: true) [
             PostSurface {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, PostSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        }
         {
             compose_header (model)
             compose_route_summary (model)
@@ -548,8 +557,8 @@ pub(super) fn build_widgets(model: PostModel) {
     };
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: PostModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(PostModel)) -> Entity {
     ui! {
         View (
             id: "post_modal",

@@ -2,12 +2,9 @@ use super::state::PostSurface;
 use crate::core::model::Model;
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::play::post::PostModel;
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
 use crate::surface::InputEvent;
-use crate::ui::ComputedRect;
 
 fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -19,35 +16,23 @@ fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
     })
 }
 
-pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let GestureEvent::Tap { x, y, .. } = ctx.event else {
-        return false;
-    };
-    let Some(model) = ctx
-        .component::<PostSurface>(ctx.entity)
-        .map(|surface| surface.model.clone())
-    else {
-        return false;
-    };
-    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
-        return false;
-    };
-    let Some(point) = local_point(rect, *x, *y) else {
+pub(super) fn surface_tap(surface: &PostSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let Some(point) = local_point(rect, x, y) else {
         return false;
     };
     for (index, center_x) in [151, 265].into_iter().enumerate() {
         let dx = point.x - Fixed::from_int(center_x);
         let dy = point.y - Fixed::from_int(157);
         if dx * dx + dy * dy <= Fixed::from_int(23) * Fixed::from_int(23) {
-            model.toggle_switch(index);
+            surface.model.toggle_switch(index);
             return true;
         }
     }
     false
 }
 
-#[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn post_tick_system(model: &PostModel, delta: DeltaTimeMs) {
+#[mirui_macros::system(order = Animation)]
+pub(super) fn post_tick_system(model: model!(PostModel), delta: res!(DeltaTimeMs)) {
     model.advance_ms(delta.0);
 }
 
