@@ -1,11 +1,11 @@
 use crate::gallery::play::circuit::CircuitModel;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct CircuitSurface {
-    pub(super) model: CircuitModel,
+    pub(super) model: model!(CircuitModel),
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct CircuitModalSurface {
-    pub(super) model: CircuitModel,
+    pub(super) model: model!(CircuitModel),
 }

@@ -4,29 +4,46 @@ use super::style::{
 };
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::circuit::{
-    CircuitModal, CircuitModel, CircuitPage, GateKind, SignalSource,
+    CircuitGate, CircuitModal, CircuitModel, CircuitPage, GateKind, SignalSource,
 };
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
-pub(super) fn signal_position(model: &CircuitModel, source: SignalSource) -> Option<Point> {
+fn gate_with_position(
+    gates: &[Option<CircuitGate>],
+    positions: &[Option<(i16, i16)>],
+    id: u8,
+) -> Option<(CircuitGate, (i16, i16))> {
+    gates.iter().zip(positions).find_map(|(gate, position)| {
+        let gate = (*gate)?;
+        (gate.id == id).then_some((gate, (*position)?))
+    })
+}
+
+pub(super) fn signal_position(
+    input_count: u8,
+    gates: &[Option<CircuitGate>],
+    positions: &[Option<(i16, i16)>],
+    source: SignalSource,
+) -> Option<Point> {
     match source {
         SignalSource::None => None,
-        SignalSource::Input(index) if index < model.input_count() => {
+        SignalSource::Input(index) if index < input_count => {
             Some(Point::new(54, 100 + i32::from(index) * 54))
         }
-        SignalSource::Gate(id) => model
-            .visual_gate_position(id)
-            .map(|(x, y)| Point::new(i32::from(x) + 31, i32::from(y))),
+        SignalSource::Gate(id) => gate_with_position(gates, positions, id)
+            .map(|(_, (x, y))| Point::new(i32::from(x) + 31, i32::from(y))),
         _ => None,
     }
 }
 
-pub(super) fn gate_input_position(model: &CircuitModel, gate_id: u8, pin: u8) -> Option<Point> {
-    let gate = model.gate_by_id(gate_id)?;
-    let (x, y) = model.visual_gate_position(gate_id)?;
+pub(super) fn gate_input_position(
+    gates: &[Option<CircuitGate>],
+    positions: &[Option<(i16, i16)>],
+    gate_id: u8,
+    pin: u8,
+) -> Option<Point> {
+    let (gate, (x, y)) = gate_with_position(gates, positions, gate_id)?;
     let dy = if gate.kind == GateKind::Not {
         0
     } else if pin == 0 {
@@ -82,6 +99,9 @@ fn paint_shell(painter: &mut PlayPainter<'_, '_>) {
 }
 
 fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
+    let input_count = model.input_count();
+    let gates = model.gates();
+    let positions = model.gate_positions();
     for x in (20..313).step_by(12) {
         for y in (74..252).step_by(12) {
             painter.circle(
@@ -91,23 +111,20 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
             );
         }
     }
-    for index in 0..usize::from(model.gate_len()) {
-        let Some(gate) = model.gate(index) else {
-            continue;
-        };
-        if let Some(to) = gate_input_position(model, gate.id, 0)
-            && let Some(from) = signal_position(model, gate.a)
+    for gate in gates.iter().flatten().copied() {
+        if let Some(to) = gate_input_position(&gates, &positions, gate.id, 0)
+            && let Some(from) = signal_position(input_count, &gates, &positions, gate.a)
         {
             draw_wire(painter, from, to, model.source_value(gate.a));
         }
         if gate.kind != GateKind::Not
-            && let Some(to) = gate_input_position(model, gate.id, 1)
-            && let Some(from) = signal_position(model, gate.b)
+            && let Some(to) = gate_input_position(&gates, &positions, gate.id, 1)
+            && let Some(from) = signal_position(input_count, &gates, &positions, gate.b)
         {
             draw_wire(painter, from, to, model.source_value(gate.b));
         }
     }
-    if let Some(from) = signal_position(model, model.output_source()) {
+    if let Some(from) = signal_position(input_count, &gates, &positions, model.output_source()) {
         draw_wire(
             painter,
             from,
@@ -138,11 +155,8 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
             Fixed::from_int(3),
         );
     }
-    for index in 0..usize::from(model.gate_len()) {
-        let Some(gate) = model.gate(index) else {
-            continue;
-        };
-        let Some((x, y)) = model.visual_gate_position(gate.id) else {
+    for (gate, position) in gates.iter().zip(&positions) {
+        let (Some(gate), Some((x, y))) = (*gate, *position) else {
             continue;
         };
         let selected = gate.id == model.selected();
@@ -167,7 +181,7 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
             Fixed::ZERO,
         );
         for pin in 0..if gate.kind == GateKind::Not { 1 } else { 2 } {
-            if let Some(point) = gate_input_position(model, gate.id, pin) {
+            if let Some(point) = gate_input_position(&gates, &positions, gate.id, pin) {
                 painter.circle(point, Fixed::from_int(3), PANEL);
                 painter.border(
                     Rect {
@@ -182,7 +196,9 @@ fn paint_wire_page(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel) {
                 );
             }
         }
-        if let Some(point) = signal_position(model, SignalSource::gate(gate.id)) {
+        if let Some(point) =
+            signal_position(input_count, &gates, &positions, SignalSource::gate(gate.id))
+        {
             painter.circle(
                 point,
                 Fixed::from_int(3),
@@ -312,18 +328,13 @@ fn paint_circuit_surface(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel
     }
 }
 
-#[crate::view(
-    component = CircuitSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "CircuitSurface",
-    priority = 60
-)]
+#[crate::view(name = "CircuitSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &CircuitModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(CircuitSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -331,18 +342,13 @@ pub(super) fn surface_render(
     paint_circuit_surface(&mut painter, model);
 }
 
-#[crate::view(
-    component = CircuitModalSurface,
-    read(model),
-    watch(model.modal()),
-    name = "CircuitModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "CircuitModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &CircuitModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(CircuitModalSurface),
+    model: model!(surface.model, watch(modal)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == CircuitModal::None {
         return;

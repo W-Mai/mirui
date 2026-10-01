@@ -1,4 +1,6 @@
-use super::input::{circuit_tick_system, surface_gesture};
+use super::input::{
+    circuit_tick_system, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
+};
 use super::render::{modal_render, surface_render};
 use super::state::{CircuitModalSurface, CircuitSurface};
 use super::style::{ACCENT, BACKGROUND, GREEN, INK, LINE, MUTED, PANEL};
@@ -11,6 +13,7 @@ use crate::gallery::play::circuit::{
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 
 fn label_style() -> ParagraphStyle {
@@ -342,8 +345,8 @@ fn modal_button_active(modal: CircuitModal, index: usize, task: u8) -> bool {
         || matches!(modal, CircuitModal::Help) && index == 0
 }
 
-#[compose(bind(model))]
-fn compose_header(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             "逻辑工作台",
@@ -459,8 +462,8 @@ fn compose_header(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_wire_inputs(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_wire_inputs(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${
@@ -533,8 +536,8 @@ fn compose_wire_inputs(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_wire_gates(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[0]) },
@@ -655,8 +658,8 @@ fn compose_wire_gates(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_wire_live_truth(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             "LIVE TRUTH TABLE",
@@ -868,8 +871,8 @@ fn compose_wire_live_truth(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_wire_status(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_wire_status(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${
@@ -893,8 +896,8 @@ fn compose_wire_status(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_wire_page(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_wire_page(model: model!(CircuitModel)) -> Entity {
     ui! {
         View (
             id: "circuit_wire_page",
@@ -913,8 +916,8 @@ fn compose_wire_page(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_truth_page(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
     ui! {
         View (
             id: "circuit_truth_page",
@@ -1151,8 +1154,8 @@ fn compose_truth_page(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_trace_page(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
     ui! {
         View (
             id: "circuit_trace_page",
@@ -1275,8 +1278,8 @@ fn compose_trace_page(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ footer_label(model.page(), 0, model.scanning(), model.disconnecting()) },
@@ -1525,8 +1528,8 @@ fn compose_footer(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: CircuitModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(CircuitModel)) -> Entity {
     ui! {
         View (
             id: "circuit_modal",
@@ -1720,15 +1723,55 @@ fn compose_modal(model: CircuitModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: CircuitModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(CircuitModel)) {
     ui! {
         View (id: "circuit_surface", width: 480, height: 320, clip_children: true) [
             CircuitSurface {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, CircuitSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        } on DragStart {
+            let Some(surface) = com!(target, CircuitSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_start(surface, rect, x, y)
+        } on DragMove {
+            let Some(surface) = com!(target, CircuitSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_move(surface, rect, x, y)
+        } on DragEnd {
+            let Some(surface) = com!(target, CircuitSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_end(surface, rect, x, y, false)
+        } on DragCancel {
+            let Some(surface) = com!(target, CircuitSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_end(surface, rect, x, y, true)
+        }
         {
             compose_header (model)
             compose_wire_page (model)

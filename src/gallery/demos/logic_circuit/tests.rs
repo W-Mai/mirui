@@ -112,6 +112,60 @@ fn gate_drag_cancel_uses_the_bound_model() {
 }
 
 #[test]
+fn gate_drag_end_waits_for_a_valid_surface_rect() {
+    let mut world = fixture();
+    let surface = world.find_by_id("circuit_surface").unwrap();
+    let rect = Rect::new(0, 0, 480, 320);
+    world.insert(surface, ComputedRect(rect));
+    let before = with_model(&world, |model| model.gate_by_id(1).unwrap());
+
+    for event in [
+        GestureEvent::DragStart {
+            x: Fixed::from_int(145),
+            y: Fixed::from_int(150),
+            target: surface,
+        },
+        GestureEvent::DragMove {
+            x: Fixed::from_int(180),
+            y: Fixed::from_int(210),
+            dx: Fixed::from_int(35),
+            dy: Fixed::from_int(60),
+            target: surface,
+        },
+    ] {
+        assert_eq!(
+            GestureHandler::trigger(&mut world, surface, &event),
+            Some(true)
+        );
+    }
+
+    world.insert(surface, ComputedRect(Rect::new(0, 0, 0, 0)));
+    let cancel = GestureEvent::DragCancel {
+        x: Fixed::from_int(180),
+        y: Fixed::from_int(210),
+        target: surface,
+    };
+    assert_eq!(
+        GestureHandler::trigger(&mut world, surface, &cancel),
+        Some(false)
+    );
+    assert_ne!(
+        with_model(&world, |model| model.visual_gate_position(1).unwrap()),
+        (before.x, before.y)
+    );
+
+    world.insert(surface, ComputedRect(rect));
+    assert_eq!(
+        GestureHandler::trigger(&mut world, surface, &cancel),
+        Some(true)
+    );
+    assert_eq!(
+        with_model(&world, |model| model.gate_by_id(1).unwrap()),
+        before
+    );
+}
+
+#[test]
 fn rejected_drag_is_an_uncommitted_model_transaction() {
     let mut world = fixture();
     let surface = world.find_by_id("circuit_surface").unwrap();
