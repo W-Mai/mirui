@@ -4,6 +4,8 @@ use super::layout::layout_system;
 use super::state::CoverFlowBounds;
 #[cfg(feature = "std")]
 use super::state::{Carousel, CarouselCard};
+#[cfg(feature = "std")]
+use crate::ecs::SystemScheduler;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::types::Dimension;
@@ -42,7 +44,9 @@ fn layout_system_tracks_live_viewport() {
     let widths_at = |app: &mut crate::app::App<_, _>, w: u16, h: u16| -> (i32, i32) {
         let vp = Viewport::new(w, h, Fixed::ONE);
         update_layout(&mut app.world, root, &vp);
-        layout_system(&mut app.world);
+        let mut scheduler = SystemScheduler::new();
+        scheduler.add(layout_system::system());
+        scheduler.run_all(&mut app.world);
         let carousel_width = match app.world.get::<Style>(carousel).map(|s| s.layout.width) {
             Some(Dimension::Px(px)) => px.to_int(),
             _ => -1,

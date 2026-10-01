@@ -10,6 +10,9 @@ pub struct CarouselCard {
 #[crate::component]
 pub struct Carousel;
 
+#[crate::component]
+pub(super) struct CoverFlowLayoutItem;
+
 pub struct CoverFlowBounds {
     pub view_w: i32,
     pub view_h: i32,

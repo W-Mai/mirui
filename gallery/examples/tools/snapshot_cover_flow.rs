@@ -13,6 +13,7 @@ use std::rc::Rc;
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
+use mirui::ui::dirty::Dirty;
 use mirui::ui::widgets::{Image, WidgetTransform3D};
 
 extern crate alloc;
@@ -25,56 +26,47 @@ const CARD_GAP: i32 = 80;
 const PERSPECTIVE: i32 = 500;
 const CARD_COUNT: i32 = 5;
 
+#[mirui::component]
 struct CarouselCard {
     index: usize,
 }
 
+#[mirui::component]
 struct Carousel;
 
 #[mirui::system]
-fn layout_system(world: &mut World) {
-    let mut carousels = alloc::vec::Vec::new();
-    world.query::<Carousel>().collect_into(&mut carousels);
-    let offset = match carousels
-        .first()
-        .and_then(|&e| world.get::<ScrollOffset>(e))
-    {
-        Some(s) => s.x,
-        None => return,
-    };
-
-    let carousel = carousels[0];
-
-    let mut cards = alloc::vec::Vec::new();
-    world.query::<CarouselCard>().collect_into(&mut cards);
-    if cards.is_empty() {
+fn layout_system(
+    offsets: query!(Entity, ScrollOffset; with Carousel;),
+    cards: query!(Entity, CarouselCard, mut Style),
+    commands: commands!(),
+) {
+    let Some((carousel, offset)) = offsets.into_iter().next() else {
         return;
-    }
+    };
+    let offset = offset.x;
     let slot_stride = Fixed::from_int(CARD_W + CARD_GAP);
     let container_center = Fixed::from_int(WINDOW_W / 2);
 
-    for e in cards {
-        let idx = match world.get::<CarouselCard>(e) {
-            Some(c) => c.index as i32,
-            None => continue,
-        };
+    for (entity, card, style) in cards {
+        let idx = card.index as i32;
         let tx =
             container_center + Fixed::from_int(idx) * slot_stride - Fixed::from_int(CARD_W / 2);
         let ty = Fixed::from_int((WINDOW_H - CARD_H) / 2);
-        mirui::ui::set_position(world, e, tx, ty);
+        style.layout.left = Dimension::Px(tx);
+        style.layout.top = Dimension::Px(ty);
 
         let relative = Fixed::from_int(idx) - offset / slot_stride;
         let tilt = Fixed::ZERO - relative * Fixed::from_int(22);
-        world.insert(
-            e,
+        commands.insert(
+            entity,
             WidgetTransform3D(Transform3D::rotate_y_perspective(
                 tilt,
                 Fixed::from_int(PERSPECTIVE),
             )),
         );
-        world.invalidate(e);
+        commands.insert(entity, Dirty);
     }
-    world.invalidate(carousel);
+    commands.insert(carousel, Dirty);
 }
 
 fn write_ppm(path: &str, buf: &[u8], w: u32, h: u32) -> std::io::Result<()> {
@@ -124,56 +116,54 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
 
     let world = &mut app.world;
     let card_colors_ref = &card_colors;
-    mirui_macros::ui! {
-        :(
-            parent: root
-            world: world
-        :)
-
-        View (
-            position: Position::Absolute,
-            left: 0,
-            top: 0,
-            width: WINDOW_W,
-            height: WINDOW_H
-        ) [
-            Carousel,
-            ScrollOffset {
-                x: Fixed::from_ratio(scroll_x_raw, 256),
-                y: Fixed::ZERO,
-            },
-            ScrollConfig {
-                direction: ScrollAxis::Horizontal,
-                elastic: true,
-                content_width: Fixed::from_int(
-                    WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
-                ),
-                content_height: Fixed::ZERO,
-            },
-        ] {
-            walk card_colors_ref.iter().enumerate() with item {
-                View (
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: CARD_W,
-                    height: CARD_H,
-                    bg_color: *item.1,
-                    border_radius: 8,
-                    border_color: Color::rgb(0, 0, 0),
-                    border_width: 5
-                ) [
-                    CarouselCard { index: item.0 },
-                ] {
-                    if item.0 % 2 == 1 {
-                        View (
-                            position: Position::Absolute,
-                            left: (CARD_W - 64) / 2,
-                            top: (CARD_H - 64) / 2,
-                            width: 64,
-                            height: 64,
-                            image: Image::new("thumbs_up")
-                        )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(world, root);
+        mirui_macros::ui! {
+            View (
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: WINDOW_W,
+                height: WINDOW_H
+            ) [
+                Carousel,
+                ScrollOffset {
+                    x: Fixed::from_ratio(scroll_x_raw, 256),
+                    y: Fixed::ZERO,
+                },
+                ScrollConfig {
+                    direction: ScrollAxis::Horizontal,
+                    elastic: true,
+                    content_width: Fixed::from_int(
+                        WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
+                    ),
+                    content_height: Fixed::ZERO,
+                },
+            ] {
+                walk card_colors_ref.iter().enumerate() with item {
+                    View (
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 0,
+                        width: CARD_W,
+                        height: CARD_H,
+                        bg_color: *item.1,
+                        border_radius: 8,
+                        border_color: Color::rgb(0, 0, 0),
+                        border_width: 5
+                    ) [
+                        CarouselCard { index: item.0 },
+                    ] {
+                        if item.0 % 2 == 1 {
+                            View (
+                                position: Position::Absolute,
+                                left: (CARD_W - 64) / 2,
+                                top: (CARD_H - 64) / 2,
+                                width: 64,
+                                height: 64,
+                                image: Image::new("thumbs_up")
+                            )
+                        }
                     }
                 }
             }

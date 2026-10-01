@@ -1,4 +1,4 @@
-use super::state::{Carousel, CarouselCard, CoverFlowBounds};
+use super::state::{Carousel, CarouselCard, CoverFlowBounds, CoverFlowLayoutItem};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::Image;
@@ -34,6 +34,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
             bg_color: ColorToken::Surface
         ) [
             Carousel,
+            CoverFlowLayoutItem,
             ScrollOffset {
                 x: Fixed::from_int(initial_offset),
                 y: Fixed::ZERO,
@@ -60,6 +61,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
                     justify: JustifyContent::Center
                 ) [
                     CarouselCard { index: item.0 },
+                    CoverFlowLayoutItem,
                 ] {
                     if item.0 % 2 == 1 {
                         View (

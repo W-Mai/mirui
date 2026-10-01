@@ -1,3 +1,4 @@
+use mirui::ecs::SystemScheduler;
 use mirui::gallery::demos::{book_flip, cover_flow, flip_card, image_flip};
 use mirui::prelude::*;
 use mirui::ui::render_system;
@@ -39,21 +40,31 @@ where
     render_system::update_layout(&mut app.world, root, &viewport);
     match demo {
         Demo::FlipCard => {
+            let mut scheduler = SystemScheduler::new();
+            scheduler.add(flip_card::flip_system::system());
             for _ in 0..frames {
-                flip_card::flip_system(&mut app.world);
+                scheduler.run_all(&mut app.world);
             }
         }
         Demo::ImageFlip => {
+            let mut scheduler = SystemScheduler::new();
+            scheduler.add(image_flip::spin_system::system());
             for _ in 0..frames {
-                image_flip::spin_system(&mut app.world);
+                scheduler.run_all(&mut app.world);
             }
         }
         Demo::BookFlip => {
+            let mut scheduler = SystemScheduler::new();
+            scheduler.add(book_flip::flip_system::system());
             for _ in 0..frames {
-                book_flip::flip_system(&mut app.world);
+                scheduler.run_all(&mut app.world);
             }
         }
-        Demo::CoverFlow => cover_flow::layout_system(&mut app.world),
+        Demo::CoverFlow => {
+            let mut scheduler = SystemScheduler::new();
+            scheduler.add(cover_flow::layout_system::system());
+            scheduler.run_all(&mut app.world);
+        }
     }
     root
 }
