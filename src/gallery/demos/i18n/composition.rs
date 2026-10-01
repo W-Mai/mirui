@@ -7,8 +7,9 @@ use crate::ui::widgets::{Button, ParagraphStyle, Text};
 #[compose]
 pub fn build_widgets() {
     register_font(cx.world_mut());
-    cx.world_mut()
-        .insert_resource(I18n::new(Locale::EnUs).with_translations(TRANSLATIONS));
+    let i18n = I18n::new(Locale::EnUs).with_translations(TRANSLATIONS);
+    let locale = i18n.locale_signal();
+    cx.world_mut().insert_resource(i18n);
 
     //~focus-start
     ui! {
@@ -59,15 +60,12 @@ pub fn build_widgets() {
             ) [
                 Text::label(t!("toggle")),
             ] on Tap {
-                if let Some(i18n) = ctx.world.resource::<I18n>() {
-                    let next = if i18n.locale() == Locale::EnUs {
-                        Locale::ZhCn
-                    } else {
-                        Locale::EnUs
-                    };
-                    i18n.set_locale(next);
-                }
-                ctx.world.invalidate(ctx.entity);
+                let next = if locale.get_untracked() == Locale::EnUs {
+                    Locale::ZhCn
+                } else {
+                    Locale::EnUs
+                };
+                locale.set(next);
             }
         }
     };

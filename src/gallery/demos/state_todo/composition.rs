@@ -2,12 +2,12 @@ use super::model::{TodoItem, TodoModel};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-#[compose(bind(todo))]
+#[compose]
 fn todo_row(
     label: &'static str,
     completed_label: &'static str,
     item: TodoItem,
-    todo: TodoModel,
+    todo: model!(TodoModel),
 ) -> Entity {
     ui! {
         Button (
@@ -36,8 +36,8 @@ fn todo_row(
     }
 }
 
-#[compose(bind(todo))]
-pub fn build_widgets(todo: TodoModel) {
+#[compose]
+pub fn build_widgets(todo: model!(TodoModel)) {
     let milk = TodoItem::Milk;
     let docs = TodoItem::Docs;
     let release = TodoItem::Release;

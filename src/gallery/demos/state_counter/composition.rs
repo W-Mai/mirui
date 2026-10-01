@@ -2,8 +2,8 @@ use super::model::CounterModel;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-#[compose(bind(counter))]
-pub fn build_widgets(counter: CounterModel) {
+#[compose]
+pub fn build_widgets(counter: model!(CounterModel)) {
     //~focus-start
     ui! {
         Column (

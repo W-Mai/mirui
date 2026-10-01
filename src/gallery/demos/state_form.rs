@@ -45,7 +45,7 @@ pub fn build_widgets() {
                 border_radius: 10
             ) [
                 Placeholder("Your name"),
-            ] on Changed { name_changed.set(*len > 0); }
+            ] on Changed { name_changed.set(len > 0); }
             Row (
                 width: Dimension::percent(100),
                 max_width: 280,
@@ -53,7 +53,7 @@ pub fn build_widgets() {
                 align: AlignItems::Center,
                 column_gap: 10
             ) {
-                Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(*now); }
+                Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(now); }
                 Text ("I agree to continue", grow: 1.0, text_color: ColorToken::OnSurface)
             }
             if $submit_bg {

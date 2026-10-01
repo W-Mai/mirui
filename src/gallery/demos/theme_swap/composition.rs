@@ -1,6 +1,5 @@
 use super::state::{ACCENT, ThemeChoice};
 use crate::prelude::*;
-use crate::ui::theme;
 use crate::ui::widgets::{
     Button, Checkbox, ParagraphStyle, Placeholder, ProgressBar, Slider, Switch, TabBar, Text,
     TextAlign, TextInput,
@@ -42,8 +41,9 @@ pub fn build_widgets() {
                     ThemeChoice(ThemeId::new("midnight-amber")),
                     Text::label("Dark"),
                 ] on Tap {
-                    if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
-                        let _ = theme::set_theme(ctx.world, id);
+                    let theme = com!(target, ThemeChoice).map(|choice| choice.0);
+                    if let Some(theme) = theme {
+                        commands!().set_theme(theme);
                     }
                 }
                 Button (
@@ -57,8 +57,9 @@ pub fn build_widgets() {
                     ThemeChoice(ThemeId::new("paper-rose")),
                     Text::label("Light"),
                 ] on Tap {
-                    if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
-                        let _ = theme::set_theme(ctx.world, id);
+                    let theme = com!(target, ThemeChoice).map(|choice| choice.0);
+                    if let Some(theme) = theme {
+                        commands!().set_theme(theme);
                     }
                 }
                 Button (
@@ -73,8 +74,9 @@ pub fn build_widgets() {
                     ThemeChoice(ThemeId::new("plum")),
                     Text::label("Custom"),
                 ] on Tap {
-                    if let Some(id) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|choice| choice.0) {
-                        let _ = theme::set_theme(ctx.world, id);
+                    let theme = com!(target, ThemeChoice).map(|choice| choice.0);
+                    if let Some(theme) = theme {
+                        commands!().set_theme(theme);
                     }
                 }
             }

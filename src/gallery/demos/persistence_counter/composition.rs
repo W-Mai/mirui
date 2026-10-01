@@ -1,8 +1,8 @@
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
-#[compose(bind(count))]
-pub fn build_widgets(count: Signal<i32>) {
+#[compose]
+pub fn build_widgets(count: model!(Signal<i32>)) {
     //~focus-start
     ui! {
         Column (
