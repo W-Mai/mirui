@@ -57,8 +57,8 @@ fn compose_header() -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_orbit_stage(model: ConsoleState) -> Entity {
+#[compose]
+fn compose_orbit_stage(model: model!(ConsoleState)) -> Entity {
     ui! {
         Column (
             id: "orbit_console_stage",
@@ -117,8 +117,8 @@ fn compose_orbit_stage(model: ConsoleState) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_signal_card(model: ConsoleState) -> Entity {
+#[compose]
+fn compose_signal_card(model: model!(ConsoleState)) -> Entity {
     ui! {
         Row (
             id: "orbit_console_signal",
@@ -154,8 +154,8 @@ fn compose_signal_card(model: ConsoleState) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_activity_card(model: ConsoleState) -> Entity {
+#[compose]
+fn compose_activity_card(model: model!(ConsoleState)) -> Entity {
     ui! {
         Column (
             id: "orbit_console_activity",
@@ -190,8 +190,8 @@ fn compose_activity_card(model: ConsoleState) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_controls(model: ConsoleState) -> Entity {
+#[compose]
+fn compose_controls(model: model!(ConsoleState)) -> Entity {
     ui! {
         Column (
             id: "orbit_console_controls",
@@ -284,7 +284,7 @@ fn compose_controls(model: ConsoleState) -> Entity {
                     thumb_color: TEXT
                 ) on ValueChanged {
                     let _ = old;
-                    model.set_intensity(*new);
+                    model.set_intensity(new);
                 }
                 Button (
                     id: "orbit_console_pause",
@@ -306,8 +306,8 @@ fn compose_controls(model: ConsoleState) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_inspector(model: ConsoleState) -> Entity {
+#[compose]
+fn compose_inspector(model: model!(ConsoleState)) -> Entity {
     ui! {
         Column (
             id: "orbit_console_inspector",
@@ -323,8 +323,8 @@ fn compose_inspector(model: ConsoleState) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_workspace(model: ConsoleState) -> Entity {
+#[compose]
+fn compose_workspace(model: model!(ConsoleState)) -> Entity {
     ui! {
         Row (
             id: "orbit_console_workspace",
@@ -368,8 +368,8 @@ fn compose_status_strip() -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: ConsoleState) {
+#[compose]
+pub(super) fn build_widgets(model: model!(ConsoleState)) {
     ui! {
         Column (
             id: "orbit_console_shell",

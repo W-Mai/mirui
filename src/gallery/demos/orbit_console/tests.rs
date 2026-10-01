@@ -27,6 +27,7 @@ use super::style::VIOLET;
 use super::visuals::{ActivityPlot, OrbitInstrument, SignalMeter, UNIT_CIRCLE};
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
+use crate::ecs::SystemScheduler;
 use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
@@ -40,6 +41,13 @@ use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
 use crate::ui::widgets::{Button, Slider, Text};
 
 type ConsoleHandle = <ConsoleState as crate::core::model::Model>::Handle;
+
+fn run_console_animation(world: &mut World, model: &ConsoleHandle, delta_ms: u16) {
+    world.insert_resource(crate::ecs::DeltaTimeMs(delta_ms));
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(console_animation_system::system(model.clone()));
+    scheduler.run_all(world);
+}
 
 fn fixture() -> (World, Entity) {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
@@ -101,12 +109,14 @@ fn animation_uses_elapsed_time_and_honors_pause() {
 
 #[test]
 fn animation_system_consumes_framework_delta_time() {
-    let (world, _) = fixture();
+    let (mut world, _) = fixture();
     let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
-    let instrument = world
+    let model = world
         .get::<OrbitInstrument>(stage)
-        .expect("orbit instrument");
-    console_animation_system(&instrument.model, crate::ecs::DeltaTimeMs(50));
+        .expect("orbit instrument")
+        .model
+        .clone();
+    run_console_animation(&mut world, &model, 50);
 
     assert_eq!(state(&world).phase(), Fixed::from_int(35));
 }
@@ -126,7 +136,7 @@ fn phase_updates_only_invalidate_phase_consumers() {
         .expect("orbit instrument")
         .model
         .clone();
-    console_animation_system(&model, crate::ecs::DeltaTimeMs(50));
+    run_console_animation(&mut world, &model, 50);
     flush_signal_dirty(&mut world);
 
     assert!(world.has::<crate::ui::dirty::VisualDirty>(stage));

@@ -40,8 +40,8 @@ pub(super) fn register_fonts(world: &mut World) {
     manager.add_static(FontToken::Mono.cache_key(), mono);
 }
 
-#[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn console_animation_system(model: &ConsoleState, delta: DeltaTimeMs) {
+#[mirui_macros::system(order = Animation)]
+pub(super) fn console_animation_system(model: model!(ConsoleState), delta: res!(DeltaTimeMs)) {
     model.advance(delta.0);
 }
 

@@ -10,7 +10,6 @@ use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
 use crate::ui::Theme;
-use crate::ui::view::ViewCtx;
 
 struct DemoPainter<'a> {
     renderer: &'a mut dyn Renderer,
@@ -176,9 +175,9 @@ impl Default for ConsoleBackdrop {
     }
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct OrbitInstrument {
-    pub(super) model: ConsoleState,
+    pub(super) model: model!(ConsoleState),
     core_paints: [Paint; 3],
 }
 
@@ -408,9 +407,9 @@ impl OrbitInstrument {
     }
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct SignalMeter {
-    pub(super) model: ConsoleState,
+    pub(super) model: model!(ConsoleState),
 }
 
 impl SignalMeter {
@@ -466,9 +465,9 @@ impl SignalMeter {
     }
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct ActivityPlot {
-    pub(super) model: ConsoleState,
+    pub(super) model: model!(ConsoleState),
 }
 
 impl ActivityPlot {
@@ -528,82 +527,55 @@ impl ActivityPlot {
     }
 }
 
-#[crate::view(
-    component = ConsoleBackdrop,
-    name = "ConsoleBackdrop",
-    priority = 10
-)]
+#[crate::view(name = "ConsoleBackdrop", priority = 10)]
 pub(super) fn backdrop_render(
-    renderer: &mut dyn Renderer,
-    component: &ConsoleBackdrop,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    component: component!(ConsoleBackdrop),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     component.render(&mut painter, rect, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
-#[crate::view(
-    component = OrbitInstrument,
-    read(model),
-    watch(
-        model.mode(),
-        model.intensity(),
-        model.focused_node(),
-        model.phase()
-    ),
-    name = "OrbitInstrument",
-    priority = 60
-)]
+#[crate::view(name = "OrbitInstrument", priority = 60)]
 pub(super) fn orbit_render(
-    renderer: &mut dyn Renderer,
-    component: &OrbitInstrument,
-    model: &ConsoleState,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    component: component!(OrbitInstrument),
+    model: model!(component.model, watch(mode, intensity, focused_node, phase)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     component.render(&mut painter, rect, model, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
-#[crate::view(
-    component = SignalMeter,
-    read(model),
-    watch(model.mode(), model.intensity()),
-    name = "SignalMeter",
-    priority = 60
-)]
+#[crate::view(name = "SignalMeter", priority = 60)]
 pub(super) fn signal_render(
-    renderer: &mut dyn Renderer,
-    component: &SignalMeter,
-    model: &ConsoleState,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    component: component!(SignalMeter),
+    model: model!(component.model, watch(mode, intensity)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     component.render(&mut painter, rect, model, theme);
     ctx.record(painter.error.map_or(Ok(()), Err));
 }
 
-#[crate::view(
-    component = ActivityPlot,
-    read(model),
-    watch(model.mode(), model.phase()),
-    name = "ActivityPlot",
-    priority = 60
-)]
+#[crate::view(name = "ActivityPlot", priority = 60)]
 pub(super) fn activity_render(
-    renderer: &mut dyn Renderer,
-    component: &ActivityPlot,
-    model: &ConsoleState,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-    theme: &Theme,
+    component: component!(ActivityPlot),
+    model: model!(component.model, watch(mode, phase)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+    theme: res!(Theme),
 ) {
     let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
     component.render(&mut painter, rect, model, theme);
