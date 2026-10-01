@@ -44,54 +44,54 @@ impl LocalModel {
     }
 }
 
-#[component(bind(model, optional))]
+#[component]
 #[derive(Clone)]
 struct BoundDisplay {
-    model: LocalModel,
-    optional: Option<LocalModel>,
+    model: model!(LocalModel),
+    optional: model!(optional LocalModel),
     label: u8,
 }
 
-#[component(bind(model))]
+#[component]
 #[derive(Clone)]
 struct GenericBoundDisplay<M> {
-    model: M,
+    model: model!(M),
 }
 
 type ModelAlias = LocalModel;
 
-#[component(bind(model, optional))]
+#[component]
 #[derive(::core::clone::Clone)]
 struct AliasBoundDisplay {
-    model: ModelAlias,
-    optional: Option<Option<crate::LocalModel>>,
+    model: model!(ModelAlias),
+    optional: model!(optional Option<crate::LocalModel>),
 }
 
-#[component(bind(model))]
+#[component]
 #[derive(Clone)]
 struct ConditionalBoundDisplay {
     #[cfg(any())]
-    model: MissingWhenDisabled,
+    model: model!(MissingWhenDisabled),
     label: u8,
 }
 
 #[cfg(unix)]
-#[component(bind(model))]
+#[component]
 #[derive(Clone)]
 struct EnabledBoundDisplay {
     #[cfg(unix)]
-    model: LocalModel,
+    model: model!(LocalModel),
 }
 
 #[cfg(unix)]
-#[component(bind(model))]
+#[component]
 #[derive(Clone)]
 struct ConditionalGenericDisplay<M>
 where
     M: BindType + 'static,
 {
     #[cfg(unix)]
-    model: M,
+    model: model!(M),
     marker: core::marker::PhantomData<M>,
 }
 

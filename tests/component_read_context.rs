@@ -22,7 +22,10 @@ fn marker_panel(source: Entity, seen: Rc<Cell<u32>>) {
     ui! {
         Button(text: "READ") on Tap {
             let marker = mirui::com!(target, Marker).expect("target marker should exist");
-            assert_eq!(ctx.component::<Marker>(target).map(|item| item.value), Some(11));
+            assert_eq!(
+                mirui::com!(target, Marker).map(|item| item.value),
+                Some(11)
+            );
             seen.set(marker.value);
         }
     };

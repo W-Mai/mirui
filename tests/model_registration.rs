@@ -26,20 +26,33 @@ impl Counter {
     }
 }
 
-#[system(order = 120, bind(model))]
-fn count_tick(model: &Counter, delta: mirui::ecs::DeltaTimeMs) {
+#[system(order = DeltaTime)]
+fn count_tick(model: model!(Counter), delta: res!(mirui::ecs::DeltaTimeMs)) {
     model.add(u32::from(delta.0));
 }
 
-#[system(order = 130, bind(first, second))]
-fn transfer_tick(first: &Counter, second: &Counter, delta: Option<mirui::ecs::DeltaTimeMs>) {
+#[system(order = Animation)]
+fn transfer_tick(
+    first: model!(Counter),
+    second: model!(Counter),
+    delta: res!(optional mirui::ecs::DeltaTimeMs),
+) {
     let amount = delta.map_or(1, |value| u32::from(value.0));
     first.add(amount);
     second.add(amount);
 }
 
-#[system(order = ANIMATION, bind(second, first))]
-fn reversed_bind_tick(first: &Counter, second: &Counter) {
+struct CounterMarker;
+
+impl mirui::ecs::Component for CounterMarker {}
+
+#[system(order = DeltaTime, expect = CounterMarker)]
+fn gated_count_tick(model: model!(Counter), delta: res!(mirui::ecs::DeltaTimeMs)) {
+    model.add(u32::from(delta.0));
+}
+
+#[system(order = Animation)]
+fn reversed_bind_tick(first: model!(Counter), second: model!(Counter)) {
     first.add(1);
     second.add(10);
 }
@@ -444,13 +457,21 @@ fn repeated_visual_subscription_binding_reuses_its_storage() {
         untouched: 0,
     });
     let entity = app.world.spawn_empty();
-    let first = model.__mirui_subscribe_count(&app.world, entity);
+    let first = model.__mirui_subscribe_count(
+        &app.world,
+        entity,
+        mirui::core::model::ModelInvalidation::Visual,
+    );
     drop(first);
 
     assert_eq!(
         tracked_allocations(|| {
             for _ in 0..128 {
-                let subscription = model.__mirui_subscribe_count(&app.world, entity);
+                let subscription = model.__mirui_subscribe_count(
+                    &app.world,
+                    entity,
+                    mirui::core::model::ModelInvalidation::Visual,
+                );
                 drop(subscription);
             }
         }),
@@ -473,7 +494,11 @@ fn alternating_view_sources_rebind_and_notify_without_allocating() {
     });
     let entity = app.world.spawn_empty();
     for model in [&first, &second] {
-        let subscription = model.__mirui_subscribe_count(&app.world, entity);
+        let subscription = model.__mirui_subscribe_count(
+            &app.world,
+            entity,
+            mirui::core::model::ModelInvalidation::Visual,
+        );
         model.set_count(1);
         flush_signal_dirty(&mut app.world);
         drop(subscription);
@@ -483,7 +508,11 @@ fn alternating_view_sources_rebind_and_notify_without_allocating() {
         tracked_allocations(|| {
             for count in 2..130 {
                 let model = if count % 2 == 0 { &first } else { &second };
-                let subscription = model.__mirui_subscribe_count(&app.world, entity);
+                let subscription = model.__mirui_subscribe_count(
+                    &app.world,
+                    entity,
+                    mirui::core::model::ModelInvalidation::Visual,
+                );
                 model.set_count(count);
                 flush_signal_dirty(&mut app.world);
                 drop(subscription);
@@ -502,7 +531,11 @@ fn explicit_visual_model_subscription_notifies_without_allocating() {
         untouched: 0,
     });
     let entity = app.world.spawn_empty();
-    let subscription = model.__mirui_subscribe_count(&app.world, entity);
+    let subscription = model.__mirui_subscribe_count(
+        &app.world,
+        entity,
+        mirui::core::model::ModelInvalidation::Visual,
+    );
 
     assert_eq!(tracked_allocations(|| model.set_count(1)), 0);
     drop(subscription);
@@ -1041,8 +1074,12 @@ fn bound_systems_keep_instance_identity_and_do_not_allocate_per_tick() {
         0
     );
     assert_eq!((first.value(), second.value()), (8, 18));
-    let systems: Vec<_> = app.systems.iter().map(|system| system.priority).collect();
-    assert_eq!(systems, [120, 120, 130]);
+    let systems: Vec<_> = app
+        .systems
+        .iter()
+        .map(mirui::ecs::System::priority)
+        .collect();
+    assert_eq!(systems, [60, 60, 150]);
     assert!(
         app.systems
             .iter()
@@ -1052,17 +1089,14 @@ fn bound_systems_keep_instance_identity_and_do_not_allocate_per_tick() {
 
 #[test]
 fn bound_system_expect_skips_until_component_exists() {
-    struct Marker;
     let mut app = App::headless(32, 32);
     let model = app.add_model(Counter { value: 0 });
     app.world.insert_resource(mirui::ecs::DeltaTimeMs(3));
-    app.add_system(
-        count_tick::system(model.clone()).with_expect(&[std::any::TypeId::of::<Marker>]),
-    );
+    app.add_system(gated_count_tick::system(model.clone()));
     app.systems.run_all(&mut app.world);
     assert_eq!(model.value(), 0);
     let entity = app.world.spawn_empty();
-    app.world.insert(entity, Marker);
+    app.world.insert(entity, CounterMarker);
     app.systems.run_all(&mut app.world);
     assert_eq!(model.value(), 3);
 }
@@ -1098,11 +1132,11 @@ fn bound_system_rejects_models_from_two_apps() {
 }
 
 #[test]
-fn bound_constructor_arguments_follow_bind_order() {
+fn bound_constructor_arguments_follow_parameter_order() {
     let mut app = App::headless(32, 32);
     let first = app.add_model(Counter { value: 0 });
     let second = app.add_model(Counter { value: 0 });
-    app.add_system(reversed_bind_tick::system(second.clone(), first.clone()));
+    app.add_system(reversed_bind_tick::system(first.clone(), second.clone()));
     app.systems.run_all(&mut app.world);
     assert_eq!((first.value(), second.value()), (1, 10));
 }
@@ -1122,8 +1156,18 @@ fn explicit_model_subscription_notification_reuses_storage() {
     });
     let entity = app.world.spawn_empty();
     let other_entity = app.world.spawn_empty();
-    let subscription = model.subscribe_observed(0, &app.world, entity);
-    let other_subscription = other.subscribe_observed(0, &app.world, other_entity);
+    let subscription = model.subscribe_observed(
+        0,
+        &app.world,
+        entity,
+        mirui::core::model::ModelInvalidation::Visual,
+    );
+    let other_subscription = other.subscribe_observed(
+        0,
+        &app.world,
+        other_entity,
+        mirui::core::model::ModelInvalidation::Visual,
+    );
     assert_eq!(
         tracked_allocations(|| {
             model.set_count(1);

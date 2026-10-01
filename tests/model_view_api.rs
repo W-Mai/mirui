@@ -1,9 +1,9 @@
 use mirui::app::App;
 use mirui::core::model::SharedValue;
 use mirui::core::reactive::flush_signal_dirty;
-use mirui::render::{DrawCommand, Renderer};
+use mirui::render::DrawCommand;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::{Color, Dimension, Fixed, Rect};
+use mirui::types::{Color, Dimension, Fixed};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::{FlexDirection, LayoutStyle};
 use mirui::ui::view::View;
@@ -44,19 +44,19 @@ impl Level {
     }
 }
 
-#[component(bind(left, right))]
+#[component]
 struct Pair {
-    left: Level,
-    right: Level,
+    left: model!(Level),
+    right: model!(Level),
 }
 
-#[view(
-    component = Pair,
-    read(left, right),
-    watch(left.value(), right.value()),
-    priority = 64,
-)]
-fn paint_pair(left: &Level, right: &Level, ctx: &mut ViewCtx<'_>) {
+#[view(priority = 64)]
+fn paint_pair(
+    _pair: component!(Pair),
+    left: model!(_pair.left, watch(value)),
+    right: model!(_pair.right, watch(value)),
+    ctx: view!(),
+) {
     ctx.bg_handled = left.value < right.value;
 }
 
@@ -73,45 +73,49 @@ impl PaintModel {
     }
 }
 
-#[component(bind(model))]
+#[component]
 struct PaintTile {
-    model: PaintModel,
+    model: model!(PaintModel),
 }
 
-#[view(component = PaintTile, read(model), watch(model.value()))]
-fn paint_tile(model: &PaintModel) {
+#[view]
+fn paint_tile(_tile: component!(PaintTile), model: model!(_tile.model, watch(value))) {
     PAINT_VALUE.store(usize::from(model.value), Ordering::Relaxed);
     PAINT_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
-#[component(bind(model))]
+#[component]
 struct SharedTile {
-    model: PaintModel,
+    model: model!(PaintModel),
     slot: usize,
 }
 
-#[view(component = SharedTile, read(model), watch(model.value()))]
-fn paint_shared_tile(model: &PaintModel, component: &SharedTile) {
+#[view]
+fn paint_shared_tile(
+    component: component!(SharedTile),
+    model: model!(component.model, watch(value)),
+) {
     TILE_VALUES[component.slot].store(usize::from(model.value), Ordering::Relaxed);
     TILE_COUNTS[component.slot].fetch_add(1, Ordering::Relaxed);
 }
 
-#[view(component = PaintTile, read(model), watch(model.value()))]
-fn paint_drop(model: &PaintModel) {
+#[view]
+fn paint_drop(_tile: component!(PaintTile), model: model!(_tile.model, watch(value))) {
     let _ = model.value;
 }
 
-#[component(bind(model))]
+#[component]
 struct PixelTile {
-    model: PaintModel,
+    model: model!(PaintModel),
 }
 
-#[view(component = PixelTile, read(model), watch(model.value()))]
+#[view]
 fn paint_pixel_tile(
-    renderer: &mut dyn Renderer,
-    model: &PaintModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx<'_>,
+    _tile: component!(PixelTile),
+    model: model!(_tile.model, watch(value)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.draw(
         renderer,

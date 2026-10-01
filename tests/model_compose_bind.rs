@@ -36,22 +36,26 @@ impl core::fmt::Display for CounterHandle {
     }
 }
 
-#[compose(bind(counter))]
-fn increment_panel(counter: Counter, unbound: u32) {
+#[compose]
+fn increment_panel(counter: model!(Counter), unbound: u32) {
     for _ in 0..unbound {
         counter.increment();
     }
 }
 
-#[compose(bind(counter))]
-fn optional_panel(counter: Option<Counter>) {
+#[compose]
+fn optional_panel(counter: model!(optional Counter)) {
     if let Some(counter) = counter {
         counter.increment();
     }
 }
 
-#[compose(bind(counter, optional))]
-fn alias_panel(counter: CounterAlias, optional: Option<Option<crate::Counter>>, raw: Counter) {
+#[compose]
+fn alias_panel(
+    counter: model!(CounterAlias),
+    optional: model!(optional Option<crate::Counter>),
+    raw: Counter,
+) {
     assert_eq!(raw.count, 17);
     counter.increment();
     if let Some(Some(optional)) = optional {
@@ -59,8 +63,8 @@ fn alias_panel(counter: CounterAlias, optional: Option<Option<crate::Counter>>, 
     }
 }
 
-#[compose(bind(counter))]
-fn two_button_panel(counter: Counter) {
+#[compose]
+fn two_button_panel(counter: model!(Counter)) {
     ui! {
         Row {
             Button(text: "FIRST") on Tap { counter.increment(); }
@@ -70,8 +74,8 @@ fn two_button_panel(counter: Counter) {
     };
 }
 
-#[compose(bind(counter))]
-fn mixed_capture_panel(counter: Counter) {
+#[compose]
+fn mixed_capture_panel(counter: model!(Counter)) {
     ui! {
         Row {
             Button(text: "STATIC") on Tap { let _ = 1; }
@@ -80,8 +84,8 @@ fn mixed_capture_panel(counter: Counter) {
     };
 }
 
-#[compose(bind(counter))]
-fn scoped_capture_panel(counter: Counter) {
+#[compose]
+fn scoped_capture_panel(counter: model!(Counter)) {
     assert_eq!(counter.count(), 13);
     ui! {
         Row {
@@ -126,8 +130,8 @@ fn scoped_capture_panel(counter: Counter) {
     };
 }
 
-#[compose(bind(counter))]
-fn implicit_format_capture_panel(counter: Counter) {
+#[compose]
+fn implicit_format_capture_panel(counter: model!(Counter)) {
     ui! {
         Row {
             Button(text: "IMPLICIT") on Tap { let _ = format!("{counter}"); }
@@ -147,8 +151,8 @@ fn implicit_format_capture_panel(counter: Counter) {
     };
 }
 
-#[compose(bind(counter))]
-fn child_counter_button(counter: Counter) -> mirui::ecs::Entity {
+#[compose]
+fn child_counter_button(counter: model!(Counter)) -> mirui::ecs::Entity {
     ui! { Button(text: "CHILD") on Tap { counter.increment(); } }
 }
 
@@ -157,24 +161,24 @@ fn consume_plain_child(value: MoveOnly) {
     assert_eq!(value.0, 7);
 }
 
-#[compose(bind(counter))]
-fn parent_with_bound_children(counter: Counter, plain: MoveOnly) {
+#[compose]
+fn parent_with_bound_children(counter: model!(Counter), plain: MoveOnly) {
     ui!(consume_plain_child(plain));
     ui!(child_counter_button(counter));
     ui!(child_counter_button(counter));
     ui! { Button(text: "PARENT") on Tap { counter.increment(); } };
 }
 
-#[compose(bind(counter))]
-fn qualified_ui_panel(counter: Counter) {
+#[compose]
+fn qualified_ui_panel(counter: model!(Counter)) {
     mirui::ui! { Button(text: "MIRUI") on Tap { counter.increment(); } };
     crate::ui! { Button(text: "CRATE") on Tap { counter.increment(); } };
     ::mirui::ui!(child_counter_button(counter));
     mirui::ui!(child_counter_button(counter));
 }
 
-#[compose(bind(counter))]
-fn tree_with_bound_children(counter: Counter) -> mirui::ecs::Entity {
+#[compose]
+fn tree_with_bound_children(counter: model!(Counter)) -> mirui::ecs::Entity {
     ui! {
         Column {
             child_counter_button(counter)
@@ -184,8 +188,8 @@ fn tree_with_bound_children(counter: Counter) -> mirui::ecs::Entity {
     }
 }
 
-#[compose(bind(counter))]
-fn optional_counter_button(counter: Option<Counter>) -> mirui::ecs::Entity {
+#[compose]
+fn optional_counter_button(counter: model!(optional Counter)) -> mirui::ecs::Entity {
     ui! {
         Button(text: "OPTIONAL") on Tap {
             if let Some(counter) = counter.as_ref() {
@@ -195,8 +199,8 @@ fn optional_counter_button(counter: Option<Counter>) -> mirui::ecs::Entity {
     }
 }
 
-#[compose(bind(counter))]
-fn tree_with_optional_children(counter: Option<Counter>) -> mirui::ecs::Entity {
+#[compose]
+fn tree_with_optional_children(counter: model!(optional Counter)) -> mirui::ecs::Entity {
     ui! {
         Column {
             optional_counter_button(counter)

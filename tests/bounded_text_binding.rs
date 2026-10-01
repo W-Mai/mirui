@@ -26,12 +26,16 @@ impl Reading {
     }
 }
 
-#[compose(bind(reading))]
-fn bounded_panel(reading: Reading) {
+#[compose]
+fn bounded_panel(reading: model!(Reading)) {
     ui! {
-        Row {
-            Text(text: ${ format_args!("{:03}", reading.value()) }, text_capacity: 4, id: "composed")
-            Button(text: "SET", text_capacity: 3) on Tap { reading.set(12); }
+        Row () {
+            Text (
+                text: ${ format_args!("{:03}", reading.value()) },
+                text_capacity: 4,
+                id: "composed"
+            )
+            Button (text: "SET", text_capacity: 3) on Tap { reading.set(12); }
         }
     };
 }
@@ -45,17 +49,27 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
     let bound = reading.share();
     let bound_button = reading.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column {
-            Text(text: ${ format_args!("{:03}", bound.value()) }, text_capacity: 4, id: "reading")
-            Button(text_capacity: 4, text: ${ (::core::format_args!("{:03}", bound_button.value())) }, id: "button")
-            Text("ready", text_capacity: 5, id: "static")
-            Text(text: (::core::format_args!("n={}", 7)), text_capacity: 3, id: "static_format")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column () {
+                Text (
+                    text: ${ format_args!("{:03}", bound.value()) },
+                    text_capacity: 4,
+                    id: "reading"
+                )
+                Button (
+                    text_capacity: 4,
+                    text: ${ (::core::format_args!("{:03}", bound_button.value())) },
+                    id: "button"
+                )
+                Text ("ready", text_capacity: 5, id: "static")
+                Text (
+                    text: (::core::format_args!("n={}", 7)),
+                    text_capacity: 3,
+                    id: "static_format"
+                )
+            }
         }
     };
 
@@ -154,23 +168,27 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
     let reading = app.add_model(Reading { value: 7 });
     let bound = reading.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column {
-            Text(
-                text: ${ let value = bound.value(); format_args!("{value:03}") },
-                text_capacity: 3,
-                id: "reactive_block"
-            )
-            Text(
-                text: { let value = 12; format_args!("{value:03}") },
-                text_capacity: 3,
-                id: "static_block"
-            )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column () {
+                Text (
+                    text: ${
+                        let value = bound.value();
+                        format_args!("{value:03}")
+                    },
+                    text_capacity: 3,
+                    id: "reactive_block"
+                )
+                Text (
+                    text: {
+                        let value = 12;
+                        format_args!("{value:03}")
+                    },
+                    text_capacity: 3,
+                    id: "static_block"
+                )
+            }
         }
     };
 
@@ -213,13 +231,11 @@ fn custom_component_keeps_its_own_text_capacity_field() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        CustomCard(text_capacity: 8usize, id: "custom")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            CustomCard (text_capacity: 8usize, id: "custom")
+        }
     };
 
     let entity = app.world.find_by_id("custom").unwrap();
@@ -265,13 +281,11 @@ fn first_bounded_value_overflow_has_no_valid_content_until_recovery() {
     app.with_default_widgets();
     let root = app.spawn_root().id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Text("OVER", text_capacity: 3, id: "label")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text ("OVER", text_capacity: 3, id: "label")
+        }
     };
 
     let entity = app.world.find_by_id("label").unwrap();
@@ -330,13 +344,11 @@ fn property_binding_preserves_bounded_content_after_overflow() {
     app.with_default_widgets();
     let root = app.spawn_root().id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Text("OK", text_capacity: 3, id: "bounded")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text ("OK", text_capacity: 3, id: "bounded")
+        }
     };
 
     let entity = app.world.find_by_id("bounded").unwrap();
@@ -364,13 +376,15 @@ fn reactive_initial_overflow_recovers_without_rebuilding_widgets() {
     let reading = app.add_model(Reading { value: 10000 });
     let bound = reading.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Text(text: ${ format_args!("{:03}", bound.value()) }, text_capacity: 4, id: "reading")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text (
+                text: ${ format_args!("{:03}", bound.value()) },
+                text_capacity: 4,
+                id: "reading"
+            )
+        }
     };
 
     let entity = app.world.find_by_id("reading").unwrap();
