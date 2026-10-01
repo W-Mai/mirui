@@ -1,0 +1,5 @@
+error: `#[timer]` accepts at most one `entity!()` parameter
+ --> tests/ui/timer_duplicate_capability.rs:4:35
+  |
+4 | fn tick(first: entity!(), second: entity!()) {
+  |                                   ^^^^^^

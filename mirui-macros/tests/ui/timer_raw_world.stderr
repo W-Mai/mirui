@@ -1,0 +1,5 @@
+error: timer parameters must use `model!(T)`, `entity!()`, or `commands!()`
+ --> tests/ui/timer_raw_world.rs:4:16
+  |
+4 | fn tick(world: &mut mirui::ecs::World) {
+  |                ^^^^^^^^^^^^^^^^^^^^^^

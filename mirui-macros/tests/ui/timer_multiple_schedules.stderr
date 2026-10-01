@@ -1,0 +1,5 @@
+error: timer schedule forms are mutually exclusive; choose exactly one of `after`, `every`, `repeat`, or `until`
+ --> tests/ui/timer_multiple_schedules.rs:3:21
+  |
+3 | #[timer(after = 10, every = 20)]
+  |                     ^^^^^

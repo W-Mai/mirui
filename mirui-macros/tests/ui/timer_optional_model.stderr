@@ -1,0 +1,5 @@
+error: timer Model bindings are required registered instances; use `model!(T)`
+ --> tests/ui/timer_optional_model.rs:6:18
+  |
+6 | fn tick(counter: model!(optional Counter)) {
+  |                  ^^^^^
