@@ -64,12 +64,7 @@ fn board_hit_testing_maps_the_player_cell() {
     let (x, y) = cell_origin(position, map);
     let screen_x = rect.x + Fixed::from_int(x + map.size / 2) * rect.w / Fixed::from_int(480);
     let screen_y = rect.y + Fixed::from_int(y + map.size / 2) * rect.h / Fixed::from_int(320);
-    assert_eq!(
-        crate::core::model::ModelHandle::read(&model, |model| {
-            local_cell(model, rect, screen_x, screen_y)
-        }),
-        Some(position)
-    );
+    assert_eq!(local_cell(map, rect, screen_x, screen_y), Some(position));
 }
 
 #[test]

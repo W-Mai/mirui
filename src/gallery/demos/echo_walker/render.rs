@@ -6,8 +6,6 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::echo::{BEAT_LIMIT, BOARD_HEIGHT, BOARD_WIDTH, EchoModal, EchoModel};
 use crate::gallery::play::paint::PlayPainter;
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 #[derive(Clone, Copy)]
 pub(super) struct MapBox {
@@ -18,19 +16,7 @@ pub(super) struct MapBox {
     pub(super) y: i32,
 }
 
-pub(super) fn map_box(model: &EchoModel) -> MapBox {
-    let room = model.room();
-    let mut min = BOARD_WIDTH - 1;
-    let mut max = 0;
-    for cell in 0..BOARD_WIDTH * BOARD_HEIGHT {
-        if !room.is_wall(cell) {
-            let x = cell % BOARD_WIDTH;
-            min = min.min(x);
-            max = max.max(x);
-        }
-    }
-    min = min.saturating_sub(1);
-    max = (max + 1).min(BOARD_WIDTH - 1);
+pub(super) fn map_box_from_columns(min: usize, max: usize) -> MapBox {
     let columns = max - min + 1;
     let size = (278 / columns as i32).min(29);
     MapBox {
@@ -40,6 +26,11 @@ pub(super) fn map_box(model: &EchoModel) -> MapBox {
         x: 13 + (278 - columns as i32 * size) / 2,
         y: 64,
     }
+}
+
+pub(super) fn map_box(model: &EchoModel) -> MapBox {
+    let (min, max) = model.room_column_span();
+    map_box_from_columns(min, max)
 }
 
 pub(super) fn cell_origin(cell: u8, map: MapBox) -> (i32, i32) {
@@ -209,18 +200,13 @@ fn paint_surface(painter: &mut PlayPainter<'_, '_>, model: &EchoModel) {
     painter.line(Point::new(14, 298), Point::new(466, 298), LINE, Fixed::ONE);
 }
 
-#[crate::view(
-    component = EchoSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "EchoSurface",
-    priority = 60
-)]
+#[crate::view(name = "EchoSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &EchoModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(EchoSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -228,18 +214,13 @@ pub(super) fn surface_render(
     paint_surface(&mut painter, model);
 }
 
-#[crate::view(
-    component = EchoModalSurface,
-    read(model),
-    watch(model.modal()),
-    name = "EchoModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "EchoModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &EchoModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(EchoModalSurface),
+    model: model!(surface.model, watch(modal)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == EchoModal::None {
         return;

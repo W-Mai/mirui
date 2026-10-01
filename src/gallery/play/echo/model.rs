@@ -367,9 +367,21 @@ impl EchoModel {
         self.state.tick
     }
 
-    #[model(local)]
     pub(crate) fn position(&self) -> u8 {
         self.state.pos
+    }
+
+    pub(crate) fn room_column_span(&self) -> (usize, usize) {
+        let mut min = BOARD_WIDTH - 1;
+        let mut max = 0;
+        for cell in 0..BOARD_WIDTH * BOARD_HEIGHT {
+            if !self.room.is_wall(cell) {
+                let x = cell % BOARD_WIDTH;
+                min = min.min(x);
+                max = max.max(x);
+            }
+        }
+        (min.saturating_sub(1), (max + 1).min(BOARD_WIDTH - 1))
     }
 
     #[observe]

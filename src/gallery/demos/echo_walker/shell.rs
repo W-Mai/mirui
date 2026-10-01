@@ -1,4 +1,4 @@
-use super::input::{EchoKeyboardPlugin, surface_gesture};
+use super::input::{EchoKeyboardPlugin, surface_tap};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::{modal_render, surface_render};
@@ -8,6 +8,7 @@ use crate::gallery::play::echo::{Direction, EchoMessage, EchoModal, EchoModel};
 use crate::gallery::play::font::PlayFontPlugin;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 
 fn label() -> ParagraphStyle {
@@ -128,8 +129,8 @@ impl core::fmt::Display for TapeLabel {
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: EchoModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             "ECHO WALKER",
@@ -203,8 +204,8 @@ fn compose_header(model: EchoModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_controls(model: EchoModel) -> Entity {
+#[compose]
+fn compose_controls(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             "THE PRESENT",
@@ -409,8 +410,8 @@ fn compose_controls(model: EchoModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_route_status(model: EchoModel) -> Entity {
+#[compose]
+fn compose_route_status(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             "CURRENT ROUTE",
@@ -456,8 +457,8 @@ fn compose_route_status(model: EchoModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: EchoModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(EchoModel)) -> Entity {
     ui! {
         View (
             id: "echo_modal",
@@ -643,15 +644,23 @@ fn compose_modal(model: EchoModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn build_widgets(model: EchoModel) {
+#[compose]
+fn build_widgets(model: model!(EchoModel)) {
     ui! {
         View (id: "echo_surface", width: 480, height: 320, clip_children: true) [
             EchoSurface {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, EchoSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        }
         {
             compose_header (model)
             compose_controls (model)

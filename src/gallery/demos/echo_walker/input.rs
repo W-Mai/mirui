@@ -1,21 +1,17 @@
-use super::render::map_box;
+use super::render::{MapBox, map_box_from_columns};
 use super::state::EchoSurface;
-use crate::core::model::{Model, ModelHandle};
+use crate::core::model::Model;
 use crate::gallery::play::echo::{BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoModel};
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
 use crate::surface::InputEvent;
-use crate::ui::ComputedRect;
 
-pub(super) fn local_cell(model: &EchoModel, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
+pub(super) fn local_cell(map: MapBox, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
     let local_x = ((x - rect.x) * Fixed::from_int(480) / rect.w).to_int();
     let local_y = ((y - rect.y) * Fixed::from_int(320) / rect.h).to_int();
-    let map = map_box(model);
     if local_x < map.x || local_y < map.y {
         return None;
     }
@@ -31,24 +27,12 @@ pub(super) fn local_cell(model: &EchoModel, rect: Rect, x: Fixed, y: Fixed) -> O
     Some((row as usize * BOARD_WIDTH + board_x as usize) as u8)
 }
 
-pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let GestureEvent::Tap { x, y, .. } = ctx.event else {
+pub(super) fn surface_tap(surface: &EchoSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let (min, max) = surface.model.room_column_span();
+    let Some(cell) = local_cell(map_box_from_columns(min, max), rect, x, y) else {
         return false;
     };
-    let Some(model) = ctx
-        .component::<EchoSurface>(ctx.entity)
-        .map(|surface| surface.model.clone())
-    else {
-        return false;
-    };
-    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
-        return false;
-    };
-    let Some((cell, position)) = ModelHandle::read(&model, |model| {
-        local_cell(model, rect, *x, *y).map(|cell| (cell, model.position()))
-    }) else {
-        return false;
-    };
+    let position = surface.model.position();
     let dx = i16::from(cell % BOARD_WIDTH as u8) - i16::from(position % BOARD_WIDTH as u8);
     let dy = i16::from(cell / BOARD_WIDTH as u8) - i16::from(position / BOARD_WIDTH as u8);
     let direction = match (dx, dy) {
@@ -59,7 +43,7 @@ pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
         _ => None,
     };
     if let Some(direction) = direction {
-        model.step(direction);
+        surface.model.step(direction);
     }
     true
 }
@@ -115,7 +99,7 @@ mod tests {
         drop(model);
 
         assert!(handle_key(&plugin.model, ' '));
-        ModelHandle::read(&plugin.model, |model| {
+        crate::core::model::ModelHandle::read(&plugin.model, |model| {
             assert_eq!(model.tick(), 1);
         });
         assert!(!handle_key(&plugin.model, 'x'));
