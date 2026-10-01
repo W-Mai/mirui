@@ -6,8 +6,8 @@ use super::style::{
 use crate::gallery::play::lumen::{LEVELS, LumenModel};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
-use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use crate::ui::{ComputedRect, IgnoreHitTest};
 
 fn hint_label(hint: Option<usize>) -> &'static str {
     match hint {
@@ -64,8 +64,8 @@ fn level_completed(mask: u8, level: usize) -> bool {
     mask & (1 << level) != 0
 }
 
-#[compose(bind(model))]
-fn mirror_labels(model: LumenModel) -> Entity {
+#[compose]
+fn mirror_labels(model: model!(LumenModel)) -> Entity {
     ui! {
         View (
             position: Position::Absolute,
@@ -164,8 +164,8 @@ fn mirror_labels(model: LumenModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: LumenModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(LumenModel)) -> Entity {
     ui! {
         Row (
             height: 35,
@@ -197,8 +197,8 @@ fn compose_header(model: LumenModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_level_intro(model: LumenModel) -> Entity {
+#[compose]
+fn compose_level_intro(model: model!(LumenModel)) -> Entity {
     ui! {
         Row (
             height: 28,
@@ -230,8 +230,8 @@ fn compose_level_intro(model: LumenModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_playfield(model: LumenModel) -> Entity {
+#[compose]
+fn compose_playfield(model: model!(LumenModel)) -> Entity {
     ui! {
         Row (height: 204, padding: padding(0, 12), column_gap: 11) {
             View (
@@ -242,7 +242,15 @@ fn compose_playfield(model: LumenModel) -> Entity {
             ) [
                 LumenBoard { model: model.clone() },
                 TouchAction::None,
-            ] on Tap { board_tap(&ctx); }
+            ] on Tap {
+                let Some(board) = com!(target, LumenBoard) else {
+                    return false;
+                };
+                let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                    return false;
+                };
+                board_tap(board, rect, x, y)
+            }
             {
                 mirror_labels (model)
             }
@@ -350,8 +358,8 @@ fn compose_playfield(model: LumenModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: LumenModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(LumenModel)) -> Entity {
     ui! {
         View (height: 15)
     };
@@ -414,8 +422,8 @@ fn compose_footer(model: LumenModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_level_modal(model: LumenModel) -> Entity {
+#[compose]
+fn compose_level_modal(model: model!(LumenModel)) -> Entity {
     ui! {
         View (
             id: "lumen_levels_modal",
@@ -596,8 +604,8 @@ fn compose_level_modal(model: LumenModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: LumenModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(LumenModel)) {
     ui! {
         Column (width: 480, height: 320, bg_color: BACKGROUND) {
             compose_header (model)

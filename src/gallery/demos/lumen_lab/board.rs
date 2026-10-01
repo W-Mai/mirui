@@ -2,16 +2,11 @@ use super::style::{ACCENT, BACKGROUND, BOARD, LIGHT, SUCCESS, TILE};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::lumen::{LumenModel, MirrorOrientation, Trace};
 use crate::gallery::play::paint::PlayPainter;
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
-use crate::render::renderer::Renderer;
-use crate::ui::ComputedRect;
-use crate::ui::view::ViewCtx;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct LumenBoard {
-    pub(super) model: LumenModel,
+    pub(super) model: model!(LumenModel),
 }
 
 pub(super) fn cell_center(point: crate::gallery::play::lumen::GridPoint) -> Point {
@@ -215,18 +210,13 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &LumenModel) {
     );
 }
 
-#[crate::view(
-    component = LumenBoard,
-    read(model),
-    watch(model.visual_revision()),
-    name = "LumenBoard",
-    priority = 60
-)]
+#[crate::view(name = "LumenBoard", priority = 60)]
 pub(super) fn board_render(
-    renderer: &mut dyn Renderer,
-    model: &LumenModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    board: component!(LumenBoard),
+    model: model!(board.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 282, 204);
@@ -234,29 +224,17 @@ pub(super) fn board_render(
     paint_board(&mut painter, model);
 }
 
-pub(super) fn board_tap(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let GestureEvent::Tap { x, y, .. } = ctx.event else {
-        return false;
-    };
-    let Some(model) = ctx
-        .component::<LumenBoard>(ctx.entity)
-        .map(|board| board.model.clone())
-    else {
-        return false;
-    };
-    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
-        return false;
-    };
+pub(super) fn board_tap(board: &LumenBoard, rect: Rect, x: Fixed, y: Fixed) -> bool {
     if rect.w.is_zero() || rect.h.is_zero() {
         return false;
     }
-    let local_x = (*x - rect.x) * Fixed::from_int(282) / rect.w;
-    let local_y = (*y - rect.y) * Fixed::from_int(204) / rect.h;
+    let local_x = (x - rect.x) * Fixed::from_int(282) / rect.w;
+    let local_y = (y - rect.y) * Fixed::from_int(204) / rect.h;
     let column = ((local_x.to_int() - 8) / 38) as i8;
     let row = ((local_y.to_int() - 7) / 38) as i8;
     if !(0..7).contains(&column) || !(0..5).contains(&row) {
         return false;
     }
-    model.rotate_cell(column, row);
+    board.model.rotate_cell(column, row);
     true
 }

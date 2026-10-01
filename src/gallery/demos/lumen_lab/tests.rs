@@ -120,7 +120,7 @@ fn bound_tick_uses_the_frame_delta_and_zero_does_not_advance() {
 }
 
 #[test]
-#[should_panic(expected = "missing system resource `DeltaTimeMs`")]
+#[should_panic(expected = "requires resource")]
 fn bound_tick_requires_the_frame_delta_resource() {
     let mut world = fixture();
     let model = model(&world);
