@@ -6,8 +6,6 @@ use crate::gallery::play::pixel::{
     FRAME_COUNT, GRID_HEIGHT, GRID_WIDTH, PixelFrames, PixelModal, PixelModel,
 };
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_sprite(
     painter: &mut PlayPainter<'_, '_>,
@@ -142,18 +140,13 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
     );
 }
 
-#[crate::view(
-    component = PixelSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "PixelSurface",
-    priority = 60
-)]
+#[crate::view(name = "PixelSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &PixelModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(PixelSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -161,18 +154,13 @@ pub(super) fn surface_render(
     paint_pixel_surface(&mut painter, model);
 }
 
-#[crate::view(
-    component = PixelModalSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "PixelModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "PixelModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &PixelModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(PixelModalSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == PixelModal::None {
         return;

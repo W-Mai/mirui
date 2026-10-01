@@ -1,4 +1,6 @@
-use super::input::{pixel_tick_system, surface_gesture};
+use super::input::{
+    pixel_tick_system, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
+};
 use super::render::{modal_render, surface_render};
 use super::state::{PixelModalSurface, PixelSurface};
 use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, TEXT};
@@ -8,6 +10,7 @@ use crate::gallery::play::font::PlayFontPlugin;
 use crate::gallery::play::pixel::{PixelModal, PixelModel, PixelTool};
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
@@ -73,8 +76,8 @@ fn palette_border(active: bool) -> Color {
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: PixelModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(PixelModel)) -> Entity {
     ui! {
         Text (
             "PIXEL LOOM",
@@ -198,8 +201,8 @@ fn compose_header(model: PixelModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_frame_selector(model: PixelModel) -> Entity {
+#[compose]
+fn compose_frame_selector(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             "01",
@@ -270,8 +273,8 @@ fn compose_frame_selector(model: PixelModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_tool_controls(model: PixelModel) -> Entity {
+#[compose]
+fn compose_tool_controls(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             "画笔",
@@ -342,8 +345,8 @@ fn compose_tool_controls(model: PixelModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_edit_actions(model: PixelModel) -> Entity {
+#[compose]
+fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             "",
@@ -480,8 +483,8 @@ fn compose_edit_actions(model: PixelModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: PixelModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             "模板",
@@ -535,8 +538,8 @@ fn compose_footer(model: PixelModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: PixelModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(PixelModel)) -> Entity {
     ui! {
         View (
             id: "pixel_modal",
@@ -703,8 +706,8 @@ fn compose_modal(model: PixelModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: PixelModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(PixelModel)) {
     ui! {
         View (
             id: "pixel_surface",
@@ -716,7 +719,41 @@ pub(super) fn build_widgets(model: PixelModel) {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, PixelSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        } on DragStart {
+            let Some(surface) = com!(target, PixelSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_start(surface, rect, x, y)
+        } on DragMove {
+            let Some(surface) = com!(target, PixelSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_drag_move(surface, rect, x, y)
+        } on DragEnd {
+            let Some(surface) = com!(target, PixelSurface) else {
+                return false;
+            };
+            surface_drag_end(surface, false)
+        } on DragCancel {
+            let Some(surface) = com!(target, PixelSurface) else {
+                return false;
+            };
+            surface_drag_end(surface, true)
+        }
         {
             compose_header (model)
             compose_frame_selector (model)
