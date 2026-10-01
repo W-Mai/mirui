@@ -1,0 +1,16 @@
+error[E0425]: cannot find value `__mirui_event_world` in this scope
+  --> tests/ui/event_world_escape.rs:15:37
+   |
+15 |                 let _: &mut World = __mirui_event_world;
+   |                                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+   |
+help: an identifier with the same name is defined here, but is not accessible due to macro hygiene
+  --> tests/ui/event_world_escape.rs:13:9
+   |
+13 | /         ui! {
+14 | |             View () on Tap {
+15 | |                 let _: &mut World = __mirui_event_world;
+16 | |             }
+17 | |         }
+   | |_________^
+   = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

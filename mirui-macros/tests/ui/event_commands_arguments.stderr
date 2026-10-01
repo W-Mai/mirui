@@ -1,0 +1,5 @@
+error: `commands!` does not accept arguments; use `commands!()`
+  --> tests/ui/event_commands_arguments.rs:15:34
+   |
+15 |                 let _ = commands!(World);
+   |                                  ^^^^^^^
