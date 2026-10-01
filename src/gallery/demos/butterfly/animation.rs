@@ -1,9 +1,6 @@
 use super::state::Butterfly;
-use crate::prelude::World;
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn butterfly_anim_system(world: &mut World) {
-    world.for_each_stable::<Butterfly>(|world, e| {
-        world.invalidate(e);
-    });
+#[mirui_macros::system(order = Animation)]
+pub fn butterfly_anim_system(butterflies: query!(mut Butterfly)) {
+    for _ in butterflies {}
 }

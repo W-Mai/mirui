@@ -89,7 +89,7 @@ fn blur_motion_updates_only_the_visual_transform() {
     let overlay = app.world.find_by_id("effect_blur_overlay").unwrap();
     let left_before = app.world.get::<Style>(overlay).unwrap().layout.left;
     app.world.insert_resource(DeltaTimeMs(1_100));
-    (BlurPan::system().run)(&mut app.world);
+    BlurPan::system().run_once(&mut app.world);
 
     assert!(
         app.world.get::<WidgetTransform>(overlay).unwrap().0.tx > Fixed::ZERO,

@@ -1,4 +1,4 @@
-use super::animation::{BlurPan, ColorFlash, GlowPulse, ShadowOffset};
+use super::animation::{BLUR_OVERLAY_WIDTH_PERCENT, BlurPan, ColorFlash, GlowPulse, ShadowOffset};
 use super::style::tile_color;
 use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
@@ -153,7 +153,7 @@ pub fn build_widgets() {
                             position: Position::Absolute,
                             left: 0,
                             top: 8,
-                            width: Dimension::percent(58),
+                            width: Dimension::percent(BLUR_OVERLAY_WIDTH_PERCENT),
                             height: Dimension::percent(64),
                             bg_color: Color::rgba(255, 255, 255, 50),
                             border_radius: 8

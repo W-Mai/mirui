@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::types::Transform;
+use crate::ui::dirty::Dirty;
 use crate::ui::widgets::WidgetTransform;
 
 #[crate::component]
@@ -9,17 +10,15 @@ pub struct Spinner {
 }
 
 //~focus-start
-#[mirui_macros::system(order = ANIMATION)]
-pub fn spin_system(world: &mut World) {
-    world.for_each_stable::<Spinner>(|world, e| {
-        let next = if let Some(s) = world.get_mut::<Spinner>(e) {
-            s.angle += s.speed;
-            s.angle
-        } else {
-            return;
-        };
-        world.insert(e, WidgetTransform(Transform::rotate_deg(next)));
-        world.invalidate(e);
-    });
+#[mirui_macros::system(order = Animation)]
+pub fn spin_system(spinners: query!(Entity, mut Spinner), commands: commands!()) {
+    for (entity, spinner) in spinners {
+        spinner.angle += spinner.speed;
+        commands.insert(
+            entity,
+            WidgetTransform(Transform::rotate_deg(spinner.angle)),
+        );
+        commands.insert(entity, Dirty);
+    }
 }
 //~focus-end

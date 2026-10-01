@@ -2,12 +2,10 @@ use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 use crate::prelude::*;
 use crate::ui::widgets::icon::Icon;
 
-mirui_macros::animate!(IconScale, |world, entity, value| {
-    if let Some(icon) = world.get_mut::<Icon>(entity) {
-        icon.scale = value;
-    }
-    world.invalidate(entity);
-});
+#[mirui_macros::animate(component = IconScale)]
+pub fn apply_icon_scale(value: motion!(), icon: component!(mut Icon)) {
+    icon.scale = value;
+}
 
 pub(super) fn beat() -> IconScale {
     IconScale(

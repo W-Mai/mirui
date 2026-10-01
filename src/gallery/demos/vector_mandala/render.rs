@@ -48,9 +48,7 @@ pub fn vector_mandala_view() -> View {
     View::new("VectorMandala", 60, vector_mandala_render).with_filter::<VectorMandala>()
 }
 
-#[mirui_macros::system(order = ANIMATION)]
-pub fn vector_mandala_anim_system(world: &mut World) {
-    world.for_each_stable::<VectorMandala>(|world, e| {
-        world.invalidate(e);
-    });
+#[mirui_macros::system(order = Animation)]
+pub fn vector_mandala_anim_system(states: query!(mut VectorMandala)) {
+    for _state in states {}
 }
