@@ -1,5 +1,6 @@
 use super::composition::build_widgets;
 use super::motion::spring_system;
+use crate::ecs::SystemScheduler;
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::Children;
@@ -7,6 +8,12 @@ use crate::ui::ComputedRect;
 use crate::ui::IdMap;
 use crate::ui::UiScope;
 use crate::ui::render_system::update_layout;
+
+fn run_spring_motion(world: &mut World) {
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(spring_system::system());
+    scheduler.run_all(world);
+}
 
 #[test]
 fn build_widgets_smoke() {
@@ -46,7 +53,7 @@ fn labels_stay_inside_phone_stage() {
 }
 
 #[test]
-#[should_panic(expected = "Spatial Animation requires DeltaTimeMs")]
+#[should_panic(expected = "requires resource")]
 fn spring_motion_requires_frame_delta() {
-    spring_system(&mut World::new());
+    run_spring_motion(&mut World::new());
 }

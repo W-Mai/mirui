@@ -2,10 +2,18 @@ use super::composition::build_widgets;
 use super::motion::bar_move_system;
 use super::runtime::setup_app;
 use super::state::{BAR_MARGIN, BAR_W, BarState, START_Y};
+use crate::ecs::SystemScheduler;
 use crate::prelude::*;
 use crate::types::Viewport;
+use crate::ui::dirty::{Dirty, VisualDirty};
 use crate::ui::render_system::update_layout;
 use crate::ui::{Children, ComputedRect, IdMap, Style, UiScope};
+
+fn run_bar_motion(world: &mut World) {
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(bar_move_system::system());
+    scheduler.run_all(world);
+}
 
 #[test]
 fn build_widgets_smoke() {
@@ -68,7 +76,7 @@ fn bars_follow_theme_and_live_arena_bounds() {
     );
 
     app.world.insert_resource(crate::ecs::DeltaTimeMs(250));
-    bar_move_system(&mut app.world);
+    run_bar_motion(&mut app.world);
     let arena_width = app
         .world
         .get::<ComputedRect>(app.world.find_by_id("subpixel_arena").unwrap())
@@ -85,7 +93,27 @@ fn bars_follow_theme_and_live_arena_bounds() {
 }
 
 #[test]
-#[should_panic(expected = "Subpixel animation requires DeltaTimeMs")]
+fn snapped_bar_stays_clean_until_its_pixel_position_changes() {
+    let mut app = App::headless(320, 568);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.set_root(root);
+    update_layout(&mut app.world, root, &Viewport::new(320, 568, Fixed::ONE));
+
+    let snapped = app.world.find_by_id("subpixel_snapped_bar").unwrap();
+    app.world.remove::<Dirty>(snapped);
+    app.world.remove::<VisualDirty>(snapped);
+    app.world.insert_resource(crate::ecs::DeltaTimeMs(1));
+
+    run_bar_motion(&mut app.world);
+
+    assert!(!app.world.has::<Dirty>(snapped));
+    assert!(!app.world.has::<VisualDirty>(snapped));
+}
+
+#[test]
+#[should_panic(expected = "requires resource")]
 fn bar_motion_requires_frame_delta() {
-    bar_move_system(&mut World::new());
+    run_bar_motion(&mut World::new());
 }

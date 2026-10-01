@@ -1,11 +1,13 @@
 use crate::anim::Spring;
-use crate::ecs::{DeltaTimeMs, World};
-use crate::prelude::Fixed;
-use crate::ui;
+use crate::ecs::DeltaTimeMs;
+use crate::prelude::{Dimension, Fixed};
+use crate::ui::Style;
 
-mirui_macros::animate!(AnimateTweenY, |world, entity, value| {
-    ui::set_position(world, entity, Fixed::from_int(48), value);
-});
+#[mirui_macros::animate(component = AnimateTweenY)]
+pub fn apply_tween_y(value: motion!(), style: component!(mut Style)) {
+    style.layout.left = Dimension::Px(Fixed::from_int(48));
+    style.layout.top = Dimension::Px(value);
+}
 
 #[crate::component]
 pub struct SpringBall {
@@ -14,34 +16,23 @@ pub struct SpringBall {
 }
 
 //~focus-start
-#[mirui_macros::system(order = ANIMATION)]
-pub fn spring_system(world: &mut World) {
-    let dt = world
-        .resource::<DeltaTimeMs>()
-        .expect("Spatial Animation requires DeltaTimeMs")
-        .0;
-    world.for_each_stable::<SpringBall>(|world, e| {
-        let (pos, settled, target, x) = {
-            let Some(sb) = world.get_mut::<SpringBall>(e) else {
-                return;
-            };
-            sb.spring.tick(dt);
-            (
-                sb.spring.value(),
-                sb.spring.is_settled(),
-                sb.spring.target,
-                sb.x,
-            )
-        };
-        ui::set_position(world, e, x, pos);
-        if settled && let Some(sb) = world.get_mut::<SpringBall>(e) {
+#[mirui_macros::system(order = Animation)]
+pub fn spring_system(delta: res!(DeltaTimeMs), balls: query!(mut SpringBall, mut Style)) {
+    for (ball, style) in balls {
+        ball.spring.tick(delta.0);
+        let pos = ball.spring.value();
+        let settled = ball.spring.is_settled();
+        let target = ball.spring.target;
+        style.layout.left = Dimension::Px(ball.x);
+        style.layout.top = Dimension::Px(pos);
+        if settled {
             let new_target = if target.to_int() > 150 {
                 Fixed::from_int(48)
             } else {
                 Fixed::from_int(220)
             };
-            sb.spring.retarget(new_target, None);
+            ball.spring.retarget(new_target, None);
         }
-    });
+    }
 }
 //~focus-end
