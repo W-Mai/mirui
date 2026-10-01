@@ -1,6 +1,7 @@
 use crate::ui::Theme;
 use crate::ui::widgets::{ParagraphStyle, TextAlign, TextVerticalAlign, TextWrap};
 
+#[crate::component]
 pub(super) struct CompactTheme(pub(super) Theme);
 
 pub(super) fn bitmap_label(align: TextAlign) -> ParagraphStyle {

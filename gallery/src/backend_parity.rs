@@ -22,6 +22,7 @@ const RGB565_SWAPPED: [u8; 14] = [
     0xf8, 0x00, 0x07, 0xe0, 0x00, 0x1f, 0xaa, 0xbb, 0xff, 0xe0, 0x07, 0xff, 0xf8, 0x1f,
 ];
 
+#[component]
 #[derive(Default)]
 struct TextureParity;
 
@@ -98,41 +99,39 @@ where
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column (grow: 1.0, row_gap: 10) {
-            Text (
-                "14 px coverage · Ag AVATAR 0123",
-                height: 30,
-                font: FONT,
-                font_size: 14,
-                text_color: Color::rgb(146, 204, 255)
-            )
-            Text (
-                "48 px SDF · Ag AVATAR",
-                height: 68,
-                font: FONT,
-                font_size: 48,
-                text_color: Color::rgb(255, 220, 140)
-            )
-            Text (
-                id: "text_backend_affine",
-                "36 px affine · mirui",
-                height: 58,
-                font: FONT,
-                font_size: 36,
-                text_color: Color::rgb(174, 246, 214)
-            )
-            Row (height: 30, column_gap: 20) {
-                Text ("RGBA reference", width: 180, height: 30, font: FONT, font_size: 14)
-                Text ("RGB565 · stride 8", width: 180, height: 30, font: FONT, font_size: 14)
-                Text ("RGB565 swapped", width: 180, height: 30, font: FONT, font_size: 14)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column (grow: 1.0, row_gap: 10) {
+                Text (
+                    "14 px coverage · Ag AVATAR 0123",
+                    height: 30,
+                    font: FONT,
+                    font_size: 14,
+                    text_color: Color::rgb(146, 204, 255)
+                )
+                Text (
+                    "48 px SDF · Ag AVATAR",
+                    height: 68,
+                    font: FONT,
+                    font_size: 48,
+                    text_color: Color::rgb(255, 220, 140)
+                )
+                Text (
+                    id: "text_backend_affine",
+                    "36 px affine · mirui",
+                    height: 58,
+                    font: FONT,
+                    font_size: 36,
+                    text_color: Color::rgb(174, 246, 214)
+                )
+                Row (height: 30, column_gap: 20) {
+                    Text ("RGBA reference", width: 180, height: 30, font: FONT, font_size: 14)
+                    Text ("RGB565 · stride 8", width: 180, height: 30, font: FONT, font_size: 14)
+                    Text ("RGB565 swapped", width: 180, height: 30, font: FONT, font_size: 14)
+                }
+                TextureParity (height: 80)
             }
-            TextureParity (height: 80)
         }
     };
 

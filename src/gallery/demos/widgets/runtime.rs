@@ -6,7 +6,7 @@ use super::binding::slider_to_progress_system;
 #[cfg(feature = "std")]
 use super::composition::build_widgets;
 #[cfg(feature = "std")]
-use super::state::{Cycle, ThemeCycleIndex, dark_with_accent};
+use super::state::{ThemeCycle, cycle, dark_with_accent};
 use crate::anim::ease;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
@@ -34,8 +34,8 @@ where
     app.add_system(slider_to_progress_system::system());
 
     app.world.insert_resource(dark_with_accent());
-    let cycle_e = Cycle::install(&mut app.world);
-    app.world.insert(cycle_e, ThemeCycleIndex(0));
+    let theme_cycle = app.add_model(ThemeCycle::default());
+    app.add_timer(cycle::timer(theme_cycle));
 
     app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
 

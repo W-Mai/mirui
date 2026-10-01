@@ -3,7 +3,6 @@ use super::style::{CompactTheme, bitmap_label};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::render::font::FontToken;
-use crate::ui::theme;
 use crate::ui::widgets::{
     Button, ButtonSize, LazyList, LazyListBinder, LazyListPool, ProgressBar, Slider, Switch,
     TabBar, TabContent, Text, TextAlign,
@@ -251,7 +250,7 @@ pub fn build_widgets() {
                             max: Fixed::from_int(100),
                             value: Fixed::from_int(62)
                         ) on ValueChanged {
-                            progress_from_slider.set(*new / Fixed::from_int(100));
+                            progress_from_slider.set(new / Fixed::from_int(100));
                         }
                         ProgressBar (
                             id: "compact_widgets_progress",
@@ -343,12 +342,10 @@ pub fn build_widgets() {
                             ) [
                                 CompactTheme(Theme::light()),
                             ] on Tap {
-                                if let Some(theme) = ctx
-                                    .world
-                                    .get::<CompactTheme>(ctx.entity)
-                                    .map(|choice| choice.0.clone())
-                                {
-                                    theme::set_theme(ctx.world, theme).unwrap();
+                                let theme = com!(target, CompactTheme)
+                                    .map(|choice| choice.0.clone());
+                                if let Some(theme) = theme {
+                                    commands!().set_theme(theme);
                                 }
                             }
                             {
@@ -374,12 +371,10 @@ pub fn build_widgets() {
                             ) [
                                 CompactTheme(Theme::dark()),
                             ] on Tap {
-                                if let Some(theme) = ctx
-                                    .world
-                                    .get::<CompactTheme>(ctx.entity)
-                                    .map(|choice| choice.0.clone())
-                                {
-                                    theme::set_theme(ctx.world, theme).unwrap();
+                                let theme = com!(target, CompactTheme)
+                                    .map(|choice| choice.0.clone());
+                                if let Some(theme) = theme {
+                                    commands!().set_theme(theme);
                                 }
                             }
                             {

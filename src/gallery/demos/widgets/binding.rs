@@ -3,6 +3,7 @@ use alloc::format;
 use super::state::{FormProgress, FormSlider};
 use crate::prelude::{Entity, World};
 use crate::ui::Children;
+use crate::ui::property::prop;
 use crate::ui::widgets::{ProgressBar, Slider, Text};
 
 pub(super) fn row_binder(world: &mut World, entity: Entity, index: u32) {
@@ -20,19 +21,19 @@ pub(super) fn row_binder(world: &mut World, entity: Entity, index: u32) {
 }
 
 #[mirui_macros::system]
-pub fn slider_to_progress_system(world: &mut World) {
-    let value = world
-        .query::<FormSlider>()
-        .iter()
-        .find_map(|(entity, _)| world.get::<Slider>(entity))
-        .map(|slider| slider.value.to_f32() / 100.0);
+pub fn slider_to_progress_system(
+    sliders: query!(FormSlider, Slider),
+    progress_bars: query!(Entity, ProgressBar; with FormProgress;),
+    commands: commands!(),
+) {
+    let value = sliders
+        .into_iter()
+        .next()
+        .map(|(_, slider)| slider.value.to_f32() / 100.0);
     let Some(v) = value else { return };
-    world.for_each_stable::<FormProgress>(|world, entity| {
-        if let Some(pb) = world.get_mut::<ProgressBar>(entity)
-            && (pb.value - v).abs() > 0.001
-        {
-            pb.value = v;
-            world.invalidate(entity);
+    for (entity, pb) in progress_bars {
+        if (pb.value - v).abs() > 0.001 {
+            commands.set::<prop::ProgressValue>(entity, v);
         }
-    });
+    }
 }
