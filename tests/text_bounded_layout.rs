@@ -58,21 +58,19 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
     let mode = app.add_model(Mode { selected: 0 });
     let selection = mode.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column (width: Dimension::px(64), height: Dimension::px(64)) {
-            Text ("HEADER", id: "header")
-            match ${ selection.selected() } {
-                0 => {
-                    Text ("ONE", id: "first")
-                }
-                _ => {
-                    Text ("TWO", id: "second")
-                    Text ("THREE", id: "second_extra")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column (width: Dimension::px(64), height: Dimension::px(64)) {
+                Text ("HEADER", id: "header")
+                match ${ selection.selected() } {
+                    0 => {
+                        Text ("ONE", id: "first")
+                    }
+                    _ => {
+                        Text ("TWO", id: "second")
+                        Text ("THREE", id: "second_extra")
+                    }
                 }
             }
         }
@@ -162,12 +160,11 @@ fn failed_bounded_reservation_preserves_existing_app_cache() {
         Err(TextLayoutError::CacheBudget { .. })
     ));
     let root = app.spawn_root().id();
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-        Text ("PRESERVED")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text ("PRESERVED")
+        }
     };
     app.render().unwrap();
     assert_eq!(

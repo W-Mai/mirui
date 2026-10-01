@@ -29,15 +29,17 @@ fn mold_generates_niche_map_via_attach() {
 
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        MoldCard () {
-            @body { Text("body content") {} }
-            @footer { Text("footer text") {} }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            MoldCard () {
+                @body {
+                    Text ("body content")
+                }
+                @footer {
+                    Text ("footer text")
+                }
+            }
         }
     };
 
@@ -87,15 +89,17 @@ fn mold_body_expands_nested_widget_tree() {
 
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        NestedCard () {
-            @header { Text("title") {} }
-            @body { Text("content") {} }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            NestedCard () {
+                @header {
+                    Text ("title")
+                }
+                @body {
+                    Text ("content")
+                }
+            }
         }
     };
 
@@ -181,13 +185,10 @@ fn mold_unfilled_slot_keeps_fallback() {
 
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        FallbackCard () {
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            FallbackCard ()
         }
     };
 
@@ -221,14 +222,14 @@ fn mold_filled_slot_despawns_fallback() {
 
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        FallbackCard () {
-            @body { Text ("Custom body") {} }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            FallbackCard () {
+                @body {
+                    Text ("Custom body")
+                }
+            }
         }
     };
 
@@ -292,17 +293,17 @@ fn mold_param_values_flow_into_body_attrs() {
 
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        SizedCard (
-            pad: Fixed::from_int(8),
-            radius: Fixed::from_int(12)
-        ) {
-            @body { Text ("bordered") {} }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            SizedCard (
+                pad: Fixed::from_int(8),
+                radius: Fixed::from_int(12)
+            ) {
+                @body {
+                    Text ("bordered")
+                }
+            }
         }
     };
 

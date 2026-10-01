@@ -98,24 +98,3 @@ fn compose_functions_are_tree_nodes() {
     );
     assert_eq!(world.get::<Text>(last).unwrap().resolve(&world), "beta");
 }
-
-#[test]
-fn ui_bang_still_accepts_explicit_header() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::default());
-    let root = WidgetBuilder::new(&mut world).id();
-
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-        Text("legacy header") {}
-    };
-
-    let texts: Vec<Entity> = world.query::<Text>().collect();
-    assert_eq!(texts.len(), 1);
-    let bytes = world.get::<Text>(texts[0]).unwrap().resolve(&world);
-    assert_eq!(&*bytes, "legacy header");
-}

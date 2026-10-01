@@ -7,7 +7,9 @@ use mirui::ui::{Children, IdMap, NicheMap, ViewRegistry};
 
 #[compose]
 fn composed_middle() -> mirui::ecs::Entity {
-    ui! { View (id: "composed") }
+    ui! {
+        View (id: "composed")
+    }
 }
 
 ui!(compose OrderedCard {
@@ -35,12 +37,11 @@ fn compose_roots_attach_in_declaration_order() {
     world.insert_resource(registry);
     let root = WidgetBuilder::new(&mut world).id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-        OrderedCard ()
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            OrderedCard ()
+        }
     };
 
     let card = world.get::<Children>(root).unwrap().0[0];

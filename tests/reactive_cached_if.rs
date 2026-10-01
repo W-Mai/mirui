@@ -75,24 +75,22 @@ fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
     let true_counter = Rc::clone(&built_true);
     let false_counter = Rc::clone(&built_false);
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Column () {
-            Text ("before", id: "before")
-            if $condition {
-                ${ true_counter.set(true_counter.get() + 1); }
-                View (id: "true-a", width: 30, height: 10)
-                View (id: "true-b", width: 30, height: 10)
-            } else {
-                ${ false_counter.set(false_counter.get() + 1); }
-                View (id: "false-a", width: 30, height: 10)
-                View (id: "false-b", width: 30, height: 10)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Column () {
+                Text ("before", id: "before")
+                if $condition {
+                    ${ true_counter.set(true_counter.get() + 1); }
+                    View (id: "true-a", width: 30, height: 10)
+                    View (id: "true-b", width: 30, height: 10)
+                } else {
+                    ${ false_counter.set(false_counter.get() + 1); }
+                    View (id: "false-a", width: 30, height: 10)
+                    View (id: "false-b", width: 30, height: 10)
+                }
+                Text ("after", id: "after")
             }
-            Text ("after", id: "after")
         }
     };
 
@@ -151,17 +149,15 @@ fn hidden_if_branches_leave_layout_and_hit_testing() {
     let selected = Signal::new(false);
     let condition = selected.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Column (width: Dimension::px(80), height: Dimension::px(80)) {
-            if $condition {
-                View (id: "enabled", width: 40, height: 30, bg_color: Color::rgb(255, 0, 0)) on Tap {}
-            } else {
-                View (id: "disabled", width: 40, height: 30, bg_color: Color::rgb(0, 0, 255)) on Tap {}
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Column (width: Dimension::px(80), height: Dimension::px(80)) {
+                if $condition {
+                    View (id: "enabled", width: 40, height: 30, bg_color: Color::rgb(255, 0, 0)) on Tap { }
+                } else {
+                    View (id: "disabled", width: 40, height: 30, bg_color: Color::rgb(0, 0, 255)) on Tap { }
+                }
             }
         }
     };
@@ -206,17 +202,15 @@ fn reactive_if_without_else_can_hide_every_arm() {
     let mode = Signal::new(0u8);
     let condition = mode.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Column () {
-            if ${ condition.get() == 1 } {
-                View (id: "one", width: 20, height: 20)
-            } elif ${ condition.get() == 2 } {
-                View (id: "two", width: 20, height: 20)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Column () {
+                if ${ condition.get() == 1 } {
+                    View (id: "one", width: 20, height: 20)
+                } elif ${ condition.get() == 2 } {
+                    View (id: "two", width: 20, height: 20)
+                }
             }
         }
     };
@@ -250,17 +244,15 @@ fn branch_visibility_does_not_override_a_roots_own_visible_binding() {
     let condition = selected.clone();
     let own_binding = own_visible.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Column () {
-            if $condition {
-                View (id: "gated", visible: $own_binding, width: 20, height: 20)
-            } else {
-                View (id: "fallback", width: 20, height: 20)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Column () {
+                if $condition {
+                    View (id: "gated", visible: $own_binding, width: 20, height: 20)
+                } else {
+                    View (id: "fallback", width: 20, height: 20)
+                }
             }
         }
     };
@@ -310,17 +302,15 @@ fn model_observation_switches_a_cached_branch_without_allocating() {
     let model = app.add_model(VisibilityModel { enabled: false });
     let condition = model.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column () {
-            if ${ condition.enabled() } {
-                View (id: "enabled", width: 20, height: 20)
-            } else {
-                View (id: "disabled", width: 20, height: 20)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column () {
+                if ${ condition.enabled() } {
+                    View (id: "enabled", width: 20, height: 20)
+                } else {
+                    View (id: "disabled", width: 20, height: 20)
+                }
             }
         }
     };

@@ -12,15 +12,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Button (
-                normal_color: mirui::ui::ColorToken::Surface,
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Button (normal_color: mirui::ui::ColorToken::Surface)
+            }
         };
 
         let entities = world.query::<Button>().collect();
@@ -40,15 +36,13 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Row () {
-                Button("Save") {}
-                Button (text: "Cancel") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Row () {
+                    Button ("Save")
+                    Button (text: "Cancel")
+                }
             }
         };
 
@@ -66,13 +60,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Checkbox () {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Checkbox ()
+            }
         };
 
         let entities = world.query::<Checkbox>().collect();
@@ -89,13 +81,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Text (text: "Hello") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Text (text: "Hello")
+            }
         };
 
         let entities = world.query::<Text>().collect();
@@ -113,18 +103,16 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Text (
-                "Hello",
-                width: mirui::types::Dimension::Content,
-                height: mirui::types::Dimension::Auto,
-                font_size: 18
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Text (
+                    "Hello",
+                    width: mirui::types::Dimension::Content,
+                    height: mirui::types::Dimension::Auto,
+                    font_size: 18
+                )
+            }
         };
 
         let entity = world.query::<Text>().collect()[0];
@@ -157,17 +145,15 @@ mod tests {
         };
         let expected_paragraph = paragraph.clone();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Text (
-                "مرحبا",
-                font_stack: FontStack::new(PRIMARY).with_fallbacks(&FALLBACKS[..]),
-                paragraph: paragraph
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Text (
+                    "مرحبا",
+                    font_stack: FontStack::new(PRIMARY).with_fallbacks(&FALLBACKS[..]),
+                    paragraph: paragraph
+                )
+            }
         };
 
         let entity = world.query::<Text>().collect()[0];
@@ -189,16 +175,14 @@ mod tests {
         let paragraph = Signal::new(ParagraphStyle::default());
         let paragraph_view = paragraph.clone();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Text (
-                "responsive text",
-                paragraph: ${ paragraph_view.get() }
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Text (
+                    "responsive text",
+                    paragraph: ${ paragraph_view.get() }
+                )
+            }
         };
 
         let entity = world.query::<Text>().collect()[0];
@@ -226,15 +210,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            TextInput (
-                text_color: mirui::ui::ColorToken::Primary,
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                TextInput (text_color: mirui::ui::ColorToken::Primary)
+            }
         };
 
         let entities = world.query::<TextInput>().collect();
@@ -254,13 +234,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Text("Positional") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Text ("Positional")
+            }
         };
 
         let entities = world.query::<Text>().collect();
@@ -288,13 +266,11 @@ mod tests {
         let root = WidgetBuilder::new(&mut world).id();
         let icon = Path::from_static(ICON);
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Image (icon) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Image (icon)
+            }
         };
 
         let entity = world.query::<Image>().collect()[0];
@@ -313,15 +289,13 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Column {
-                Image (ICON_HOME) {}
-                Icon (path: ICON_HOME) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Column () {
+                    Image (ICON_HOME)
+                    Icon (path: ICON_HOME)
+                }
             }
         };
 
@@ -354,13 +328,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Row (width: 100) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Row (width: 100)
+            }
         };
 
         let entities = world.query::<Style>().collect();
@@ -388,13 +360,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Column (width: 100) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Column (width: 100)
+            }
         };
 
         let entities = world.query::<Style>().collect();
@@ -422,13 +392,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Column (gap: 12) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Column (gap: 12)
+            }
         };
 
         let entity = world
@@ -451,18 +419,16 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View (
-                min_width: 120,
-                max_width: 320,
-                min_height: 80,
-                max_height: 240
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View (
+                    min_width: 120,
+                    max_width: 320,
+                    min_height: 80,
+                    max_height: 240
+                )
+            }
         };
 
         let entity = world
@@ -487,13 +453,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View (shrink: 0.5) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View (shrink: 0.5)
+            }
         };
 
         let entity = world
@@ -515,13 +479,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Row (wrap: FlexWrap::Wrap) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Row (wrap: FlexWrap::Wrap)
+            }
         };
 
         let entity = world
@@ -540,16 +502,14 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            row (
-                direction: mirui::ui::layout::FlexDirection::Row,
-                width: 100
-            ) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                row (
+                    direction: mirui::ui::layout::FlexDirection::Row,
+                    width: 100
+                )
+            }
         };
 
         let buttons = world.query::<Button>().collect();

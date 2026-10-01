@@ -27,13 +27,11 @@ fn dsl_and_builder_install_the_same_text_path_component() {
         .insert(Path::new())
         .unwrap();
 
-    let dsl = ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Text("dsl", path: path)
+    let dsl = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Text ("dsl", path: path)
+        }
     };
     let builder = Text::build("builder").path(path).spawn(&mut world);
 
@@ -50,19 +48,17 @@ fn configured_dsl_preserves_path_options() {
         .insert(Path::new())
         .unwrap();
 
-    let text = ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Text(
-            "configured",
-            path: TextPath::new(path)
-                .with_subpath(2)
-                .with_range(Fixed::from_int(8)..Fixed::from_int(72))
-                .with_offset(Fixed::from_int(6)),
-        )
+    let text = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Text (
+                "configured",
+                path: TextPath::new(path)
+                    .with_subpath(2)
+                    .with_range(Fixed::from_int(8)..Fixed::from_int(72))
+                    .with_offset(Fixed::from_int(6))
+            )
+        }
     };
 
     let text_path = world.get::<TextPath>(text).unwrap();
@@ -90,13 +86,11 @@ fn reactive_dsl_replaces_the_path_subscription() {
     let selected = Signal::new(first);
     let selected_for_dsl = selected.clone();
 
-    let text = ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Text("reactive", path: $selected_for_dsl)
+    let text = {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Text ("reactive", path: $selected_for_dsl)
+        }
     };
     assert_eq!(world.get::<TextPath>(text).unwrap().path(), first);
 

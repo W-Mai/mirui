@@ -49,14 +49,10 @@ mod tests {
         let (mut world, root) = fresh();
         world.insert(root, GestureHandler::from_fn(parent_handler));
 
-        let child = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap {
-                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+        let child = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap { CHILD_FIRES.fetch_add(1, Ordering::SeqCst); }
             }
         };
 
@@ -76,15 +72,13 @@ mod tests {
         let (mut world, root) = fresh();
         world.insert(root, GestureHandler::from_fn(parent_handler));
 
-        let child = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap {
-                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
-                false
+        let child = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap {
+                    CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+                    false
+                }
             }
         };
 
@@ -104,15 +98,13 @@ mod tests {
         let (mut world, root) = fresh();
         world.insert(root, GestureHandler::from_fn(parent_handler));
 
-        let child = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap {
-                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
-                true
+        let child = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap {
+                    CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+                    true
+                }
             }
         };
 
@@ -128,15 +120,13 @@ mod tests {
         let (mut world, root) = fresh();
         world.insert(root, GestureHandler::from_fn(parent_handler));
 
-        let child = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap {
-                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
-                ::mirui::input::event::BubbleControl::Prevent
+        let child = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap {
+                    CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+                    ::mirui::input::event::BubbleControl::Prevent
+                }
             }
         };
 
@@ -156,15 +146,13 @@ mod tests {
         let (mut world, root) = fresh();
         world.insert(root, GestureHandler::from_fn(parent_handler));
 
-        let child = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            View () on Tap {
-                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
-                ::mirui::input::event::BubbleControl::Allow
+        let child = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap {
+                    CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+                    ::mirui::input::event::BubbleControl::Allow
+                }
             }
         };
 

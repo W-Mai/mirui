@@ -49,39 +49,49 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
     let mode = app.add_model(Mode { deep: false });
     let branch = mode.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-        Column (width: 128, height: 80) {
-            match ${ branch.deep() } {
-                false => {
-                    Text (
-                        "SHALLOW TEXT", id: "shallow_hit", width: 128, height: 16,
-                        font_size: 8, text_color: Color::rgb(255, 240, 180),
-                        bg_color: Color::rgb(30, 70, 100)
-                    ) on Tap {}
-                }
-                _ => {
-                    Column (width: 128, height: 32) {
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column (width: 128, height: 80) {
+                match ${ branch.deep() } {
+                    false => {
+                        Text (
+                            "SHALLOW TEXT",
+                            id: "shallow_hit",
+                            width: 128,
+                            height: 16,
+                            font_size: 8,
+                            text_color: Color::rgb(255, 240, 180),
+                            bg_color: Color::rgb(30, 70, 100)
+                        ) on Tap { }
+                    }
+                    _ => {
                         Column (width: 128, height: 32) {
-                            Text (
-                                "DEEP TEXT", id: "deep_hit", width: 128, height: 16,
-                                font_size: 8, text_color: Color::rgb(255, 240, 180),
-                                bg_color: Color::rgb(85, 30, 80)
-                            ) on Tap {}
-                            Text (
-                                "SECOND LINE", width: 128, height: 16,
-                                font_size: 8, text_color: Color::rgb(255, 240, 180)
-                            )
+                            Column (width: 128, height: 32) {
+                                Text (
+                                    "DEEP TEXT",
+                                    id: "deep_hit",
+                                    width: 128,
+                                    height: 16,
+                                    font_size: 8,
+                                    text_color: Color::rgb(255, 240, 180),
+                                    bg_color: Color::rgb(85, 30, 80)
+                                ) on Tap { }
+                                Text (
+                                    "SECOND LINE",
+                                    width: 128,
+                                    height: 16,
+                                    font_size: 8,
+                                    text_color: Color::rgb(255, 240, 180)
+                                )
+                            }
                         }
                     }
                 }
+                Text ("TAIL MARKER", width: 128, height: 16, font_size: 8)
+                Text ("007", width: 128, height: 16, font_size: 8)
+                Button (text: "007", width: 128, height: 16, font_size: 8) on Tap { }
             }
-            Text ("TAIL MARKER", width: 128, height: 16, font_size: 8)
-            Text ("007", width: 128, height: 16, font_size: 8)
-            Button (text: "007", width: 128, height: 16, font_size: 8) on Tap {}
         }
     };
 

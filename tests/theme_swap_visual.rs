@@ -43,84 +43,98 @@ mod tests {
             })
             .id();
 
-        let _chooser = ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-
-            Row (height: 44) {
-                Button (
-                    grow: 1.0, height: 36, border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(40, 50, 70),
-                    pressed_color: Color::rgb(20, 25, 35)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
-                    Text("Dark") {}
-                }
-                Button (
-                    grow: 1.0, height: 36, border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(0, 100, 200),
-                    pressed_color: Color::rgb(0, 70, 150)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
-                    Text("Light") {}
-                }
-                Button (
-                    grow: 1.0, height: 36, border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(255, 105, 180),
-                    pressed_color: Color::rgb(200, 70, 140)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
-                    Text("Custom") {}
+        let _chooser = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            ui! {
+                Row (height: 44) {
+                    Button (
+                        grow: 1.0,
+                        height: 36,
+                        border_radius: 6,
+                        text_color: ColorToken::OnPrimary,
+                        normal_color: Color::rgb(40, 50, 70),
+                        pressed_color: Color::rgb(20, 25, 35)
+                    ) [
+                        GestureHandler::from_fn(dummy_handler),
+                    ] {
+                        Text ("Dark")
+                    }
+                    Button (
+                        grow: 1.0,
+                        height: 36,
+                        border_radius: 6,
+                        text_color: ColorToken::OnPrimary,
+                        normal_color: Color::rgb(0, 100, 200),
+                        pressed_color: Color::rgb(0, 70, 150)
+                    ) [
+                        GestureHandler::from_fn(dummy_handler),
+                    ] {
+                        Text ("Light")
+                    }
+                    Button (
+                        grow: 1.0,
+                        height: 36,
+                        border_radius: 6,
+                        text_color: ColorToken::OnPrimary,
+                        normal_color: Color::rgb(255, 105, 180),
+                        pressed_color: Color::rgb(200, 70, 140)
+                    ) [
+                        GestureHandler::from_fn(dummy_handler),
+                    ] {
+                        Text ("Custom")
+                    }
                 }
             }
         };
 
-        ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-
-            Column (grow: 1.0) {
-                Row (height: 28, align: AlignItems::Center) {
-                    View (width: 90) { Text("Slider") {} }
-                    Slider (
-                        min: Fixed::ZERO,
-                        max: Fixed::from_int(100),
-                        grow: 1.0,
-                        height: 20
-                    ) {}
-                }
-                Row (height: 36, align: AlignItems::Center) {
-                    View (width: 90) { Text("Switch") {} }
-                    Switch (width: 56, height: 28) {}
-                }
-                Row (height: 36, align: AlignItems::Center) {
-                    View (width: 90) { Text("Checkbox") {} }
-                    Checkbox (width: 24, height: 24, border_radius: 4) {}
-                }
-                Row (height: 28, align: AlignItems::Center) {
-                    View (width: 90) { Text("Progress") {} }
-                    ProgressBar (grow: 1.0, height: 12, border_radius: 6) {}
-                }
-                Row (height: 36, align: AlignItems::Center) {
-                    View (width: 90) { Text("Input") {} }
-                    TextInput (grow: 1.0, height: 28) {}
-                }
-                Row (height: 24, align: AlignItems::Center) {
-                    View (width: 90) { Text("Tabs") {} }
-                    TabBar (count: 3, grow: 1.0, height: 24) {
-                        View (grow: 1.0) {}
-                        View (grow: 1.0) {}
-                        View (grow: 1.0) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            ui! {
+                Column (grow: 1.0) {
+                    Row (height: 28, align: AlignItems::Center) {
+                        View (width: 90) {
+                            Text ("Slider")
+                        }
+                        Slider (
+                            min: Fixed::ZERO,
+                            max: Fixed::from_int(100),
+                            grow: 1.0,
+                            height: 20
+                        )
+                    }
+                    Row (height: 36, align: AlignItems::Center) {
+                        View (width: 90) {
+                            Text ("Switch")
+                        }
+                        Switch (width: 56, height: 28)
+                    }
+                    Row (height: 36, align: AlignItems::Center) {
+                        View (width: 90) {
+                            Text ("Checkbox")
+                        }
+                        Checkbox (width: 24, height: 24, border_radius: 4)
+                    }
+                    Row (height: 28, align: AlignItems::Center) {
+                        View (width: 90) {
+                            Text ("Progress")
+                        }
+                        ProgressBar (grow: 1.0, height: 12, border_radius: 6)
+                    }
+                    Row (height: 36, align: AlignItems::Center) {
+                        View (width: 90) {
+                            Text ("Input")
+                        }
+                        TextInput (grow: 1.0, height: 28)
+                    }
+                    Row (height: 24, align: AlignItems::Center) {
+                        View (width: 90) {
+                            Text ("Tabs")
+                        }
+                        TabBar (count: 3, grow: 1.0, height: 24) {
+                            View (grow: 1.0)
+                            View (grow: 1.0)
+                            View (grow: 1.0)
+                        }
                     }
                 }
             }

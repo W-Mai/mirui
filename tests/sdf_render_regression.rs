@@ -55,17 +55,15 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Text (
-            text,
-            font: font_token.clone(),
-            text_color: Color::rgb(255, 220, 140)
-        )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text (
+                text,
+                font: font_token.clone(),
+                text_color: Color::rgb(255, 220, 140)
+            )
+        }
     };
 
     app.set_root(root);

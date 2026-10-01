@@ -1,8 +1,8 @@
-use mirui::ui::widgets::Button;
 use mirui::ecs::World;
 use mirui::ui;
 use mirui::ui::IdMap;
 use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::widgets::Button;
 
 fn main() {
     let mut world = World::new();
@@ -10,12 +10,11 @@ fn main() {
     let root = WidgetBuilder::new(&mut world).id();
     let world_ref = &mut world;
 
-    ui! {
-        :(
-            parent: root
-            world: world_ref
-        :)
-        Button(42) {}
+    {
+        let mut cx = ::mirui::ui::UiScope::new(world_ref, root);
+        ui! {
+            Button (42)
+        }
     };
 
     let _ = Button::default();

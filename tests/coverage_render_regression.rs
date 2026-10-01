@@ -59,17 +59,15 @@ fn render_coverage_text(text: &str) -> Vec<u8> {
         })
         .id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Text (
-            text,
-            font: FontToken::Heading,
-            text_color: Color::rgb(255, 220, 140)
-        )
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Text (
+                text,
+                font: FontToken::Heading,
+                text_color: Color::rgb(255, 220, 140)
+            )
+        }
     };
 
     app.set_root(root);

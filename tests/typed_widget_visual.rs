@@ -59,24 +59,22 @@ mod tests {
             })
             .id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-
-            Row (height: 44) {
-                Button (
-                    grow: 1.0,
-                    height: 36,
-                    border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(40, 50, 70),
-                    pressed_color: Color::rgb(20, 25, 35)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
-                    Text("Dark") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            ui! {
+                Row (height: 44) {
+                    Button (
+                        grow: 1.0,
+                        height: 36,
+                        border_radius: 6,
+                        text_color: ColorToken::OnPrimary,
+                        normal_color: Color::rgb(40, 50, 70),
+                        pressed_color: Color::rgb(20, 25, 35)
+                    ) [
+                        GestureHandler::from_fn(dummy_handler),
+                    ] {
+                        Text ("Dark")
+                    }
                 }
             }
         };
@@ -144,15 +142,13 @@ mod tests {
             })
             .id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-
-            Row (width: 200, height: 40) {
-                View (grow: 1.0, bg_color: Color::rgb(255, 0, 0)) {}
-                View (grow: 1.0, bg_color: Color::rgb(0, 255, 0)) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            ui! {
+                Row (width: 200, height: 40) {
+                    View (grow: 1.0, bg_color: Color::rgb(255, 0, 0))
+                    View (grow: 1.0, bg_color: Color::rgb(0, 255, 0))
+                }
             }
         };
 
@@ -211,15 +207,13 @@ mod tests {
             })
             .id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut app.world
-            :)
-
-            Column (width: 40, height: 200) {
-                View (grow: 1.0, bg_color: Color::rgb(255, 0, 0)) {}
-                View (grow: 1.0, bg_color: Color::rgb(0, 255, 0)) {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+            ui! {
+                Column (width: 40, height: 200) {
+                    View (grow: 1.0, bg_color: Color::rgb(255, 0, 0))
+                    View (grow: 1.0, bg_color: Color::rgb(0, 255, 0))
+                }
             }
         };
 

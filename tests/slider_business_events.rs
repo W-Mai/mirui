@@ -44,21 +44,15 @@ mod tests {
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(ViewRegistry::with_builtins());
         let root = WidgetBuilder::new(&mut world).id();
-        let slider = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Slider (width: 100, height: 20)
-                on ValueChanged {
+        let slider = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Slider (width: 100, height: 20) on ValueChanged {
                     let _ = old;
                     log_event("ValueChanged");
                     LAST_NEW.store(new.to_int() as i64, std::sync::atomic::Ordering::SeqCst);
-                }
-                on DragStarted { log_event("DragStarted"); }
-                on DragEnded { log_event("DragEnded"); }
-                {}
+                } on DragStarted { log_event("DragStarted"); } on DragEnded { log_event("DragEnded"); }
+            }
         };
         world.insert(
             slider,
@@ -190,19 +184,15 @@ mod tests {
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(ViewRegistry::with_builtins());
         let root = WidgetBuilder::new(&mut world).id();
-        let slider = ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Slider (width: 100, height: 20)
-                on Slider::ValueChanged {
+        let slider = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Slider (width: 100, height: 20) on Slider::ValueChanged {
                     let _ = old;
                     LAST_NEW.store(new.to_int() as i64, std::sync::atomic::Ordering::SeqCst);
                     log_event("Q-ValueChanged");
                 }
-                {}
+            }
         };
         world.insert(
             slider,

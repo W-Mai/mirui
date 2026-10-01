@@ -1,15 +1,11 @@
 error[E0277]: the trait bound `mirui::ui::widgets::TextContent: From<{integer}>` is not satisfied
-  --> tests/ui_diagnostics_fail/positional_on_unsupported.rs:18:16
+  --> tests/ui_diagnostics_fail/positional_on_unsupported.rs:16:20
    |
-13 | /     ui! {
-14 | |         :(
-15 | |             parent: root
-16 | |             world: world_ref
-17 | |         :)
-18 | |         Button(42) {}
-   | |                ^^ the trait `From<{integer}>` is not implemented for `mirui::ui::widgets::TextContent`
-19 | |     };
-   | |_____- required by a bound introduced by this call
+15 | /         ui! {
+16 | |             Button(42) {}
+   | |                    ^^ the trait `From<{integer}>` is not implemented for `mirui::ui::widgets::TextContent`
+17 | |         }
+   | |_________- required by a bound introduced by this call
    |
 help: `mirui::ui::widgets::TextContent` implements trait `From<T>`
   --> src/ui/widgets/text.rs

@@ -20,21 +20,19 @@ mod tests {
 
         let state = LoadState::Ready("hello");
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            match state {
-                LoadState::Loading => {
-                    Text("loading...") {}
-                }
-                LoadState::Ready(s) => {
-                    Text(s) {}
-                }
-                LoadState::Error => {
-                    Text("error") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                match state {
+                    LoadState :: Loading => {
+                        Text ("loading...")
+                    }
+                    LoadState :: Ready (s) => {
+                        Text (s)
+                    }
+                    LoadState :: Error => {
+                        Text ("error")
+                    }
                 }
             }
         };
@@ -53,17 +51,16 @@ mod tests {
 
         let state = LoadState::Loading;
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            match state {
-                LoadState::Ready(_) => {
-                    Text("ready") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                match state {
+                    LoadState :: Ready (_) => {
+                        Text ("ready")
+                    }
+                    _ => {
+                    }
                 }
-                _ => {}
             }
         };
 
@@ -79,21 +76,19 @@ mod tests {
 
         let state = LoadState::Error;
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            match state {
-                LoadState::Loading => {
-                    Text("loading...") {}
-                }
-                LoadState::Ready(s) => {
-                    Text(s) {}
-                }
-                LoadState::Error => {
-                    Text("error") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                match state {
+                    LoadState :: Loading => {
+                        Text ("loading...")
+                    }
+                    LoadState :: Ready (s) => {
+                        Text (s)
+                    }
+                    LoadState :: Error => {
+                        Text ("error")
+                    }
                 }
             }
         };

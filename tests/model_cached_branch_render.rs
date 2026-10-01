@@ -135,35 +135,33 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
     let mode = app.add_model(Mode { selected: 0 });
     let selection = mode.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column (width: Dimension::px(64), height: Dimension::px(64)) {
-            match ${ selection.selected() } {
-                0 => {
-                    View (
-                        id: "first",
-                        width: 32,
-                        height: 32,
-                        bg_color: FIRST_COLOR
-                    ) on Tap {}
-                }
-                _ => {
-                    View (
-                        id: "second",
-                        width: 32,
-                        height: 32,
-                        bg_color: SECOND_COLOR
-                    ) on Tap {}
-                    View (
-                        id: "second_extra",
-                        width: 32,
-                        height: 32,
-                        bg_color: SECOND_COLOR
-                    ) on Tap {}
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column (width: Dimension::px(64), height: Dimension::px(64)) {
+                match ${ selection.selected() } {
+                    0 => {
+                        View (
+                            id: "first",
+                            width: 32,
+                            height: 32,
+                            bg_color: FIRST_COLOR
+                        ) on Tap { }
+                    }
+                    _ => {
+                        View (
+                            id: "second",
+                            width: 32,
+                            height: 32,
+                            bg_color: SECOND_COLOR
+                        ) on Tap { }
+                        View (
+                            id: "second_extra",
+                            width: 32,
+                            height: 32,
+                            bg_color: SECOND_COLOR
+                        ) on Tap { }
+                    }
                 }
             }
         }
@@ -253,39 +251,47 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
     let selection = mode.share();
     let deep_label = mode.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column (width: 128, height: 96) {
-            match ${ selection.selected() } {
-                0 => {
-                    Text (
-                        "SHALLOW", id: "shallow_text", text_capacity: 8,
-                        width: 128, height: 16, font_size: 8,
-                        bg_color: FIRST_COLOR
-                    ) on Tap {}
-                }
-                _ => {
-                    Column (width: 128, height: 32) {
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column (width: 128, height: 96) {
+                match ${ selection.selected() } {
+                    0 => {
+                        Text (
+                            "SHALLOW",
+                            id: "shallow_text",
+                            text_capacity: 8,
+                            width: 128,
+                            height: 16,
+                            font_size: 8,
+                            bg_color: FIRST_COLOR
+                        ) on Tap { }
+                    }
+                    _ => {
                         Column (width: 128, height: 32) {
-                            Text (
-                                text: ${ format_args!("DEEP {:03}", deep_label.selected()) },
-                                id: "deep_text", text_capacity: 8,
-                                width: 128, height: 16, font_size: 8,
-                                bg_color: SECOND_COLOR
-                            ) on Tap {}
-                            Text (
-                                "SECOND", text_capacity: 8,
-                                width: 128, height: 16, font_size: 8
-                            )
+                            Column (width: 128, height: 32) {
+                                Text (
+                                    text: ${ format_args!("DEEP {:03}", deep_label.selected()) },
+                                    id: "deep_text",
+                                    text_capacity: 8,
+                                    width: 128,
+                                    height: 16,
+                                    font_size: 8,
+                                    bg_color: SECOND_COLOR
+                                ) on Tap { }
+                                Text (
+                                    "SECOND",
+                                    text_capacity: 8,
+                                    width: 128,
+                                    height: 16,
+                                    font_size: 8
+                                )
+                            }
                         }
                     }
                 }
+                Text ("TAIL", id: "tail_text", width: 128, height: 16, font_size: 8)
             }
-            Text ("TAIL", id: "tail_text", width: 128, height: 16, font_size: 8)
         }
     };
 
@@ -394,28 +400,33 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
     let first_action = state.share();
     let second_action = state.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column (width: 128, height: 96) {
-            match ${ selection.selected() } {
-                false => {
-                    Text (
-                        "FIRST", id: "branch_first", text_capacity: 10,
-                        width: 128, height: 16, font_size: 8,
-                        bg_color: FIRST_COLOR
-                    ) on Tap { first_action.tap_first(); }
-                }
-                true => {
-                    Text (
-                        text: ${ format_args!("SECOND {:03}", label.label()) },
-                        id: "branch_second", text_capacity: 10,
-                        width: 128, height: 16, font_size: 8,
-                        bg_color: SECOND_COLOR
-                    ) on Tap { second_action.tap_second(); }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column (width: 128, height: 96) {
+                match ${ selection.selected() } {
+                    false => {
+                        Text (
+                            "FIRST",
+                            id: "branch_first",
+                            text_capacity: 10,
+                            width: 128,
+                            height: 16,
+                            font_size: 8,
+                            bg_color: FIRST_COLOR
+                        ) on Tap { first_action.tap_first(); }
+                    }
+                    true => {
+                        Text (
+                            text: ${ format_args!("SECOND {:03}", label.label()) },
+                            id: "branch_second",
+                            text_capacity: 10,
+                            width: 128,
+                            height: 16,
+                            font_size: 8,
+                            bg_color: SECOND_COLOR
+                        ) on Tap { second_action.tap_second(); }
+                    }
                 }
             }
         }

@@ -12,13 +12,11 @@ mod tests {
 
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            slot (id: "src") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                slot (id: "src")
+            }
         };
 
         let found = world.find_by_id("src").expect("id 'src' must register");
@@ -34,13 +32,11 @@ mod tests {
 
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            slot (id: "hero") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                slot (id: "hero")
+            }
         };
 
         let entity = world.find_by_id("hero").expect("registered");
@@ -56,15 +52,15 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            container (direction: mirui::ui::layout::FlexDirection::Row) {
-                src (id: "anchor") {}
-                consumer () [LinkTo(id(anchor))] {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                container (direction: mirui::ui::layout::FlexDirection::Row) {
+                    src (id: "anchor")
+                    consumer () [
+                        LinkTo(id(anchor)),
+                    ]
+                }
             }
         };
 
@@ -82,15 +78,15 @@ mod tests {
         world.insert_resource(IdMap::new());
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            container (direction: mirui::ui::layout::FlexDirection::Row) {
-                src (id: "anchor") {}
-                consumer () [LinkTo(id("anchor"))] {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                container (direction: mirui::ui::layout::FlexDirection::Row) {
+                    src (id: "anchor")
+                    consumer () [
+                        LinkTo(id("anchor")),
+                    ]
+                }
             }
         };
 
@@ -113,15 +109,13 @@ mod tests {
 
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            row (direction: mirui::ui::layout::FlexDirection::Row) {
-                first (id: "shared") {}
-                second (id: "shared") {}
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                row (direction: mirui::ui::layout::FlexDirection::Row) {
+                    first (id: "shared")
+                    second (id: "shared")
+                }
             }
         };
     }

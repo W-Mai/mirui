@@ -9,11 +9,10 @@ fn main() {
     let root = WidgetBuilder::new(&mut world).id();
     let world_ref = &mut world;
 
-    ui! {
-        :(
-            parent: root
-            world: world_ref
-        :)
-        slot (id: 42) {}
+    {
+        let mut cx = ::mirui::ui::UiScope::new(world_ref, root);
+        ui! {
+            slot (id: 42)
+        }
     };
 }

@@ -54,28 +54,27 @@ fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
     let count_zero = Rc::clone(&built_zero);
     let count_other = Rc::clone(&built_other);
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Column () {
-            Text ("before", id: "before")
-            match $selection {
-                Some(0) => {
-                    ${ count_zero.set(count_zero.get() + 1); }
-                    View (id: "zero-a", width: 20, height: 10)
-                    View (id: "zero-b", width: 20, height: 10)
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Column () {
+                Text ("before", id: "before")
+                match $selection {
+                    Some (0) => {
+                        ${ count_zero.set(count_zero.get() + 1); }
+                        View (id: "zero-a", width: 20, height: 10)
+                        View (id: "zero-b", width: 20, height: 10)
+                    }
+                    Some (_) => {
+                        ${ count_other.set(count_other.get() + 1); }
+                        View (id: "other-a", width: 20, height: 10)
+                        View (id: "other-b", width: 20, height: 10)
+                    }
+                    None => {
+                    }
                 }
-                Some(_) => {
-                    ${ count_other.set(count_other.get() + 1); }
-                    View (id: "other-a", width: 20, height: 10)
-                    View (id: "other-b", width: 20, height: 10)
-                }
-                None => {}
+                Text ("after", id: "after")
             }
-            Text ("after", id: "after")
         }
     };
 
@@ -155,22 +154,21 @@ fn payload_binding_match_still_rebuilds_the_selected_arm() {
     let payload = Signal::new(None::<&'static str>);
     let selection = payload.clone();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        Column () {
-            Text ("before")
-            match $selection {
-                Some(value) => {
-                    Text (value)
-                    Text ("suffix")
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            Column () {
+                Text ("before")
+                match $selection {
+                    Some (value) => {
+                        Text (value)
+                        Text ("suffix")
+                    }
+                    None => {
+                    }
                 }
-                None => {}
+                Text ("after")
             }
-            Text ("after")
         }
     };
 
@@ -228,16 +226,18 @@ fn model_observation_switches_a_cached_match_without_allocating() {
     let model = app.add_model(ModeModel { mode: 0 });
     let selection = model.share();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        Column () {
-            match ${ selection.mode() } {
-                0 => { View (id: "zero", width: 20, height: 20) }
-                _ => { View (id: "other", width: 20, height: 20) }
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        ui! {
+            Column () {
+                match ${ selection.mode() } {
+                    0 => {
+                        View (id: "zero", width: 20, height: 20)
+                    }
+                    _ => {
+                        View (id: "other", width: 20, height: 20)
+                    }
+                }
             }
         }
     };

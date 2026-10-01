@@ -14,19 +14,17 @@ fn ui_macro_splices_code_block() {
     let mut side_effect = 0u32;
     let label = "middle";
 
-    ui! {
-        :(
-            parent: root
-            world: &mut world
-        :)
-
-        View () {
-            Text ("before") {}
-            ${
-                side_effect += 42;
-                let _ = label.len();
+    {
+        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        ui! {
+            View () {
+                Text ("before")
+                ${
+                    side_effect += 42;
+                    let _ = label.len();
+                }
+                Text ("after")
             }
-            Text ("after") {}
         }
     };
 

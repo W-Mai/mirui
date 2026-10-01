@@ -24,15 +24,17 @@ mod tests {
 
         let root = WidgetBuilder::new(&mut world).id();
 
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Card () {
-                @body { Text("body content") {} }
-                @footer { Text("footer text") {} }
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                Card () {
+                    @body {
+                        Text ("body content")
+                    }
+                    @footer {
+                        Text ("footer text")
+                    }
+                }
             }
         };
 
