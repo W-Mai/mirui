@@ -83,7 +83,6 @@ fn world_has_layout_motion(world: &World) -> bool {
     shifted || pending_scroll
 }
 
-#[crate::system(order = NORMAL)]
 pub fn cursor_feedback_system(world: &mut World) {
     let Some(mut feedback) = world.resource::<InputFeedback>().copied() else {
         return;
@@ -141,6 +140,8 @@ pub fn cursor_feedback_system(world: &mut World) {
     world.insert_resource(feedback);
     world.insert(entity, Dirty);
 }
+
+crate::ecs::system::framework_system!(pub cursor_feedback_system, Normal);
 
 fn cursor_render(
     renderer: &mut dyn Renderer,

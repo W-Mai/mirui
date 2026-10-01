@@ -122,8 +122,12 @@ pub struct InputFeedbackInput {
 /// Marker component on the cursor overlay entity.
 pub struct OverlayCursor;
 
+impl crate::ecs::Component for OverlayCursor {}
+
 /// Marker component on the rotary overlay entity.
 pub struct OverlayRotary;
+
+impl crate::ecs::Component for OverlayRotary {}
 
 /// Update an overlay entity's absolute layout to track a logical-pixel rect.
 /// The flex pass picks this up next frame and writes the corresponding

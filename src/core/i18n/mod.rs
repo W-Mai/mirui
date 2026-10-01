@@ -2,10 +2,8 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-
 use crate::core::reactive::Signal;
-use crate::ecs::{Entity, World};
+use crate::ecs::World;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Locale {
@@ -87,35 +85,28 @@ struct LocaleWatch {
 // First tick (`last_locale = None`) marks every Localized Text Dirty so
 // the layout pass picks up the resolved string before the first render.
 #[mirui_macros::system]
-pub fn i18n_dirty_system(world: &mut World) {
-    let current = match world.resource::<I18n>() {
-        Some(i) => i.locale(),
+pub fn i18n_dirty_system(
+    i18n: res!(optional I18n),
+    watch: res!(optional LocaleWatch),
+    texts: query!(Entity, crate::ui::widgets::text::Text),
+    commands: commands!(),
+) {
+    let current = match i18n {
+        Some(i18n) => i18n.locale(),
         None => return,
     };
-    let force_refresh = {
-        let watch = world.resource::<LocaleWatch>();
-        !matches!(watch, Some(w) if w.last_locale == Some(current))
-    };
+    let force_refresh = !matches!(watch, Some(watch) if watch.last_locale == Some(current));
     if !force_refresh {
         return;
     }
 
-    let mut entities: Vec<Entity> = Vec::new();
-    world
-        .query::<crate::ui::widgets::text::Text>()
-        .collect_into(&mut entities);
-
-    for entity in entities {
-        let is_localized = world
-            .get::<crate::ui::widgets::text::Text>(entity)
-            .map(|t| t.is_localized())
-            .unwrap_or(false);
-        if is_localized {
-            world.insert(entity, crate::ui::dirty::Dirty);
+    for (entity, text) in texts {
+        if text.is_localized() {
+            commands.insert(entity, crate::ui::dirty::Dirty);
         }
     }
 
-    world.insert_resource(LocaleWatch {
+    commands.insert_resource(LocaleWatch {
         last_locale: Some(current),
     });
 }
@@ -260,7 +251,7 @@ mod tests {
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
         let sys = i18n_dirty_system::system();
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
 
         assert!(world.has::<crate::ui::dirty::Dirty>(e));
     }
@@ -284,11 +275,11 @@ mod tests {
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
         let sys = i18n_dirty_system::system();
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
         world.remove::<crate::ui::dirty::Dirty>(e);
 
         world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
 
         assert!(world.has::<crate::ui::dirty::Dirty>(e));
     }
@@ -301,9 +292,9 @@ mod tests {
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
         let sys = i18n_dirty_system::system();
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
         world.remove::<crate::ui::dirty::Dirty>(e);
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
 
         assert!(
             !world.has::<crate::ui::dirty::Dirty>(e),
@@ -318,7 +309,7 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, crate::ui::widgets::text::Text::from("static"));
         let sys = i18n_dirty_system::system();
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
         assert!(
             !world.has::<crate::ui::dirty::Dirty>(e),
             "static Text shouldn't be touched"
@@ -331,7 +322,7 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
         let sys = i18n_dirty_system::system();
-        (sys.run)(&mut world);
+        sys.run_once(&mut world);
         assert!(!world.has::<crate::ui::dirty::Dirty>(e));
     }
 }

@@ -211,7 +211,6 @@ fn resolve_timings(commands: &[SimCommand]) -> Vec<u32> {
     resolved
 }
 
-#[crate::system(order = SIM_INPUT)]
 pub fn sim_input_system(world: &mut World) {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
@@ -291,6 +290,8 @@ pub fn sim_input_system(world: &mut World) {
         super::bubble_dispatch(world, gesture);
     }
 }
+
+crate::ecs::system::framework_system!(pub sim_input_system, SimInput);
 
 struct SimRootFallback(Entity);
 
@@ -560,7 +561,6 @@ impl SimTimeline {
     }
 }
 
-#[crate::system(order = SIM_INPUT)]
 pub fn sim_timeline_system(world: &mut World) {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
@@ -1121,6 +1121,8 @@ pub fn sim_timeline_system(world: &mut World) {
         super::bubble_dispatch(world, gesture);
     }
 }
+
+crate::ecs::system::framework_system!(pub sim_timeline_system, SimInput);
 
 #[cfg(test)]
 mod tests {
@@ -2248,14 +2250,16 @@ mod tests {
         let mut cycle1_toggles = 0u32;
         let mut cycle2_toggles = 0u32;
         let mut last_on = false;
+        let mut switch_systems = crate::ecs::SystemScheduler::new();
+        switch_systems.add(crate::ui::widgets::switch::switch_init_system::system());
+        switch_systems.add(crate::ui::widgets::switch::AnimateSwitchBgT::system());
+        switch_systems.add(crate::ui::widgets::switch::AnimateThumbX::system());
 
         for frame in 0..total_frames {
             sim_timeline_system(&mut world);
             crate::input::event::scroll::scroll_inertia_system(&mut world);
             tab_pages_system(&mut world);
-            crate::ui::widgets::switch::switch_init_system(&mut world);
-            crate::ui::widgets::switch::animate_switch_bg_t_system(&mut world);
-            crate::ui::widgets::switch::animate_thumb_x_system(&mut world);
+            switch_systems.run_all(&mut world);
             crate::ui::render_system::update_layout(&mut world, _root, &viewport);
 
             let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);

@@ -44,6 +44,8 @@ pub struct ScrollOffset {
     pub y: Fixed,
 }
 
+impl crate::ecs::Component for ScrollOffset {}
+
 /// Per-frame `ScrollOffset` increment. Input / inertia systems write
 /// it; the dirty walker reads it to plan a framebuffer self-blit and
 /// subtracts the integer pixels it consumed, leaving any sub-pixel
@@ -53,6 +55,8 @@ pub struct ScrollDelta {
     pub dx: Fixed,
     pub dy: Fixed,
 }
+
+impl crate::ecs::Component for ScrollDelta {}
 
 /// Scroll configuration.
 ///
@@ -64,6 +68,8 @@ pub struct ScrollConfig {
     pub content_height: Fixed,
     pub content_width: Fixed,
 }
+
+impl crate::ecs::Component for ScrollConfig {}
 
 impl Default for ScrollConfig {
     fn default() -> Self {

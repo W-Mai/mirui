@@ -544,7 +544,6 @@ pub(crate) fn scroll_system_with_target(
 }
 
 /// Inertia system — call every frame to decelerate scroll after release
-#[crate::system(order = SCROLL_INERTIA)]
 pub fn scroll_inertia_system(world: &mut World) {
     let active = {
         let Some(state) = world.resource::<ScrollDragState>() else {
@@ -672,6 +671,8 @@ pub fn scroll_inertia_system(world: &mut World) {
         }
     }
 }
+
+crate::ecs::system::framework_system!(pub scroll_inertia_system, ScrollInertia);
 
 fn pointer_scroll_allowed(world: &World, start: Entity, gesture_dir: ScrollAxis) -> bool {
     let mut current = start;

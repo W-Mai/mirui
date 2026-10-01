@@ -1,7 +1,5 @@
 use crate::ecs::{Entity, World};
-use crate::input::feedback::{
-    InputFeedback, InputFeedbackInput, OverlayRotary, write_overlay_layout,
-};
+use crate::input::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary};
 use crate::render::canvas::Paint;
 use crate::render::command::DrawCommand;
 use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
@@ -64,9 +62,16 @@ pub(crate) fn spawn_overlay_rotary(world: &mut World, root: Entity) -> Entity {
     entity
 }
 
-#[crate::system(order = NORMAL)]
-pub fn rotary_feedback_system(world: &mut World) {
-    let Some(mut feedback) = world.resource::<InputFeedback>().copied() else {
+#[crate::system(order = Normal)]
+pub fn rotary_feedback_system(
+    feedback: res!(optional InputFeedback),
+    input: res!(optional InputFeedbackInput),
+    delta: res!(optional crate::ecs::DeltaTimeMs),
+    display: res!(optional crate::surface::DisplayInfo),
+    overlays: query!(Entity, mut Style; with OverlayRotary;),
+    commands: commands!(),
+) {
+    let Some(mut feedback) = feedback.copied() else {
         return;
     };
     if !feedback.rotary.enabled {
@@ -75,10 +80,7 @@ pub fn rotary_feedback_system(world: &mut World) {
     let before = feedback.rotary;
     let max_pull = MagneticMembrane::default().max_pull();
 
-    let input = world
-        .resource::<InputFeedbackInput>()
-        .copied()
-        .unwrap_or_default();
+    let input = input.copied().unwrap_or_default();
     if input.event_seq != feedback.rotary.last_input_seq {
         let impulse = Fixed::from_int(input.rotary_delta as i32) - input.wheel_delta_y;
         if impulse != Fixed::ZERO {
@@ -94,16 +96,13 @@ pub fn rotary_feedback_system(world: &mut World) {
             feedback.rotary.opacity = Fixed::ONE;
         }
         feedback.rotary.last_input_seq = input.event_seq;
-        world.insert_resource(InputFeedbackInput {
+        commands.insert_resource(InputFeedbackInput {
             event_seq: input.event_seq,
             ..InputFeedbackInput::default()
         });
     }
 
-    let dt = world
-        .resource::<crate::ecs::DeltaTimeMs>()
-        .map(|d| d.0.max(1))
-        .unwrap_or(16);
+    let dt = delta.map(|delta| delta.0.max(1)).unwrap_or(16);
     let dt_fixed = Fixed::from_int(dt as i32) / Fixed::from_int(16);
     let spring =
         (feedback.rotary.target - feedback.rotary.progress) * dt_fixed / Fixed::from_int(3);
@@ -128,21 +127,28 @@ pub fn rotary_feedback_system(world: &mut World) {
     if feedback.rotary == before {
         return;
     }
-    world.insert_resource(feedback);
+    commands.insert_resource(feedback);
 
     let Some(entity) = feedback.rotary.entity else {
         return;
     };
 
-    let viewport = world
-        .resource::<crate::surface::DisplayInfo>()
-        .map(|info| info.viewport());
+    let viewport = display.map(|info| info.viewport());
     let target_rect = match viewport {
         Some(vp) if rotary_active(&feedback.rotary) => rotary_track_rect(&vp),
         _ => Rect::ZERO,
     };
-    write_overlay_layout(world, entity, target_rect);
-    world.insert(entity, Dirty);
+    for (overlay, style) in overlays {
+        if overlay != entity {
+            continue;
+        }
+        style.layout.left = crate::types::Dimension::Px(target_rect.x);
+        style.layout.top = crate::types::Dimension::Px(target_rect.y);
+        style.layout.width = crate::types::Dimension::Px(target_rect.w);
+        style.layout.height = crate::types::Dimension::Px(target_rect.h);
+        commands.insert(overlay, Dirty);
+        break;
+    }
 }
 
 fn rotary_render(
@@ -224,6 +230,12 @@ mod tests {
         world
     }
 
+    fn run_rotary_feedback(world: &mut World) {
+        let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(rotary_feedback_system::system());
+        scheduler.run_all(world);
+    }
+
     #[test]
     fn rotary_draw_failure_reaches_view_context() {
         struct RejectRenderer;
@@ -271,7 +283,7 @@ mod tests {
             event_seq: 1,
         });
 
-        rotary_feedback_system(&mut world);
+        run_rotary_feedback(&mut world);
 
         let feedback = world.resource::<InputFeedback>().unwrap();
         assert!(feedback.rotary.progress != Fixed::ZERO || feedback.rotary.velocity != Fixed::ZERO);
@@ -290,9 +302,9 @@ mod tests {
             event_seq: 1,
         });
 
-        rotary_feedback_system(&mut world);
+        run_rotary_feedback(&mut world);
         let first_target = world.resource::<InputFeedback>().unwrap().rotary.target;
-        rotary_feedback_system(&mut world);
+        run_rotary_feedback(&mut world);
         let second_target = world.resource::<InputFeedback>().unwrap().rotary.target;
 
         // target decays *7/8 per frame; double-consume would re-add the +10 impulse.
@@ -314,7 +326,7 @@ mod tests {
             event_seq: 1,
         });
 
-        rotary_feedback_system(&mut world);
+        run_rotary_feedback(&mut world);
         let feedback = world.resource::<InputFeedback>().unwrap();
         let max = MagneticMembrane::default().max_pull();
         assert!(feedback.rotary.target.abs() <= max);
@@ -322,7 +334,7 @@ mod tests {
         assert!(feedback.rotary.progress < Fixed::ZERO);
 
         for _ in 0..19 {
-            rotary_feedback_system(&mut world);
+            run_rotary_feedback(&mut world);
         }
         let feedback = world.resource::<InputFeedback>().unwrap();
         assert!(feedback.rotary.progress.abs() <= max);
@@ -372,7 +384,7 @@ mod tests {
             event_seq: 1,
         });
 
-        rotary_feedback_system(&mut world);
+        run_rotary_feedback(&mut world);
         assert!(world.get::<Dirty>(entity).is_some());
     }
 }
