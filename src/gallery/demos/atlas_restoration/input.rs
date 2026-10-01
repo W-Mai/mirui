@@ -1,25 +1,22 @@
-use super::geometry::board_geometry;
+use super::geometry::board_geometry_for_level;
 use super::state::PictureSurface;
-use crate::core::model::{Model, ModelHandle};
+use crate::core::model::Model;
 use crate::gallery::play::expeditions::{
-    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel,
+    Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
 };
 use crate::gallery::play::picture::{PictureModel, PictureTool};
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::prelude::plugin::Plugin;
 use crate::prelude::{App, Fixed, Rect, RendererFactory, Surface, World};
 use crate::surface::InputEvent;
-use crate::ui::ComputedRect;
 
-fn local_cell(model: &PictureModel, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
+fn local_cell(level_index: u8, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
         return None;
     }
     let local_x = (x - rect.x) * Fixed::from_int(480) / rect.w;
     let local_y = (y - rect.y) * Fixed::from_int(320) / rect.h;
-    let size = model.level().size();
-    let geometry = board_geometry(model);
+    let size = picture_level(level_index)?.size();
+    let geometry = board_geometry_for_level(level_index);
     if local_x < Fixed::from_int(geometry.x)
         || local_y < Fixed::from_int(geometry.y)
         || local_x >= Fixed::from_int(geometry.x + geometry.size)
@@ -36,66 +33,69 @@ fn local_cell(model: &PictureModel, rect: Rect, x: Fixed, y: Fixed) -> Option<u8
     }
 }
 
-fn event_cell(
-    ctx: &HandlerCtx<'_, GestureEvent>,
-    model: &<PictureModel as Model>::Handle,
-    x: Fixed,
-    y: Fixed,
-) -> Option<u8> {
-    let rect = ctx.component::<ComputedRect>(ctx.entity)?.0;
-    ModelHandle::read(model, |model| local_cell(model, rect, x, y))
+fn surface_blocked(surface: &PictureSurface) -> bool {
+    surface.expedition.panel() != ExpeditionPanel::None
+        || surface.model.modal() != ExpeditionModal::None
 }
 
-pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let Some((model, expedition)) = ctx
-        .component::<PictureSurface>(ctx.entity)
-        .map(|surface| (surface.model.clone(), surface.expedition.clone()))
-    else {
+pub(super) fn surface_tap(
+    surface: &PictureSurface,
+    rect: Option<Rect>,
+    x: Fixed,
+    y: Fixed,
+) -> bool {
+    if surface_blocked(surface) {
+        return true;
+    }
+    let Some(rect) = rect else {
         return false;
     };
+    let Some(cell) = local_cell(surface.model.level_index(), rect, x, y) else {
+        return false;
+    };
+    surface.model.apply_cell(cell);
+    true
+}
 
-    match ctx.event {
-        GestureEvent::DragEnd { .. } => {
-            model.end_stroke(false);
-            return true;
-        }
-        GestureEvent::DragCancel { .. } => {
-            model.end_stroke(true);
-            return true;
-        }
-        _ => {}
+pub(super) fn surface_drag_start(
+    surface: &PictureSurface,
+    rect: Option<Rect>,
+    x: Fixed,
+    y: Fixed,
+) -> bool {
+    if surface_blocked(surface) {
+        return true;
     }
+    let Some(rect) = rect else {
+        return false;
+    };
+    let Some(cell) = local_cell(surface.model.level_index(), rect, x, y) else {
+        return false;
+    };
+    surface.model.begin_stroke(cell);
+    true
+}
 
-    if expedition.panel() != ExpeditionPanel::None || model.modal() != ExpeditionModal::None {
-        return matches!(
-            ctx.event,
-            GestureEvent::Tap { .. }
-                | GestureEvent::DragStart { .. }
-                | GestureEvent::DragMove { .. }
-        );
+pub(super) fn surface_drag_move(
+    surface: &PictureSurface,
+    rect: Option<Rect>,
+    x: Fixed,
+    y: Fixed,
+) -> bool {
+    if surface_blocked(surface) {
+        return true;
     }
+    let Some(rect) = rect else {
+        return true;
+    };
+    if let Some(cell) = local_cell(surface.model.level_index(), rect, x, y) {
+        surface.model.continue_stroke(cell);
+    }
+    true
+}
 
-    match ctx.event {
-        GestureEvent::Tap { x, y, .. } => {
-            let Some(cell) = event_cell(ctx, &model, *x, *y) else {
-                return false;
-            };
-            model.apply_cell(cell);
-        }
-        GestureEvent::DragStart { x, y, .. } => {
-            let Some(cell) = event_cell(ctx, &model, *x, *y) else {
-                return false;
-            };
-            model.begin_stroke(cell);
-        }
-        GestureEvent::DragMove { x, y, .. } => {
-            let Some(cell) = event_cell(ctx, &model, *x, *y) else {
-                return true;
-            };
-            model.continue_stroke(cell);
-        }
-        _ => return false,
-    }
+pub(super) fn surface_drag_end(surface: &PictureSurface, cancelled: bool) -> bool {
+    surface.model.end_stroke(cancelled);
     true
 }
 

@@ -1,5 +1,7 @@
 use super::geometry::{board_geometry_for_level, clues_for_level};
-use super::input::{PictureKeyboardPlugin, surface_gesture};
+use super::input::{
+    PictureKeyboardPlugin, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
+};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::surface_render;
@@ -14,8 +16,8 @@ use crate::gallery::play::picture::{
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
-use crate::ui::IgnoreHitTest;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
+use crate::ui::{ComputedRect, IgnoreHitTest};
 use core::fmt;
 
 struct ClueLabel {
@@ -153,8 +155,12 @@ fn column_clue_left(level: u8, line: u8) -> i32 {
     geometry.x + i32::from(line) * geometry.cell
 }
 
-#[compose(bind(model, expedition))]
-fn map_level_button(model: PictureModel, expedition: ExpeditionUiModel, slot: u8) -> Entity {
+#[compose]
+fn map_level_button(
+    model: model!(PictureModel),
+    expedition: model!(ExpeditionUiModel),
+    slot: u8,
+) -> Entity {
     ui! {
         View (grow: 1.0, height: 57) {
             if ${ expedition.chapter() * 6 + slot > model.unlocked() } {
@@ -214,8 +220,8 @@ fn map_level_button(model: PictureModel, expedition: ExpeditionUiModel, slot: u8
     }
 }
 
-#[compose(bind(model))]
-fn compose_header(model: PictureModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(PictureModel)) -> Entity {
     ui! {
         Text (
             "ATLAS RESTORATION",
@@ -261,8 +267,8 @@ fn compose_header(model: PictureModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_row_clues(model: PictureModel) -> Entity {
+#[compose]
+fn compose_row_clues(model: model!(PictureModel)) -> Entity {
     ui! {
         Text (
             text: ${
@@ -475,8 +481,8 @@ fn compose_row_clues(model: PictureModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_column_clues(model: PictureModel) -> Entity {
+#[compose]
+fn compose_column_clues(model: model!(PictureModel)) -> Entity {
     ui! {
         Text (
             text: ${
@@ -689,14 +695,14 @@ fn compose_column_clues(model: PictureModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_clues(model: PictureModel) -> Entity {
+#[compose]
+fn compose_clues(model: model!(PictureModel)) -> Entity {
     ui!(compose_row_clues(model));
     ui!(compose_column_clues(model))
 }
 
-#[compose(bind(model))]
-fn compose_tools(model: PictureModel) -> Entity {
+#[compose]
+fn compose_tools(model: model!(PictureModel)) -> Entity {
     ui! {
         Text (
             "OBSERVATION TOOLS",
@@ -814,8 +820,8 @@ fn compose_tools(model: PictureModel) -> Entity {
     }
 }
 
-#[compose(bind(model, expedition))]
-fn compose_footer(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         Text (
             text: ${ StatusLabel(model.message()) },
@@ -914,8 +920,11 @@ fn compose_footer(model: PictureModel, expedition: ExpeditionUiModel) -> Entity 
     }
 }
 
-#[compose(bind(model, expedition))]
-fn compose_result_modal(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_result_modal(
+    model: model!(PictureModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "picture_result",
@@ -1037,8 +1046,8 @@ fn compose_result_modal(model: PictureModel, expedition: ExpeditionUiModel) -> E
     }
 }
 
-#[compose(bind(model, expedition))]
-fn compose_map_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_map_panel(model: model!(PictureModel), expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         View (
             id: "picture_map",
@@ -1225,8 +1234,8 @@ fn compose_map_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Enti
     }
 }
 
-#[compose(bind(expedition))]
-fn compose_rules_panel(expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_rules_panel(expedition: model!(ExpeditionUiModel)) -> Entity {
     ui! {
         View (
             id: "picture_rules",
@@ -1315,8 +1324,11 @@ fn compose_rules_panel(expedition: ExpeditionUiModel) -> Entity {
     }
 }
 
-#[compose(bind(model, expedition))]
-fn compose_briefing_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_briefing_panel(
+    model: model!(PictureModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "picture_briefing",
@@ -1404,8 +1416,11 @@ fn compose_briefing_panel(model: PictureModel, expedition: ExpeditionUiModel) ->
     }
 }
 
-#[compose(bind(model, expedition))]
-fn compose_summary_panel(model: PictureModel, expedition: ExpeditionUiModel) -> Entity {
+#[compose]
+fn compose_summary_panel(
+    model: model!(PictureModel),
+    expedition: model!(ExpeditionUiModel),
+) -> Entity {
     ui! {
         View (
             id: "picture_summary",
@@ -1574,8 +1589,8 @@ fn compose_summary_panel(model: PictureModel, expedition: ExpeditionUiModel) -> 
     }
 }
 
-#[compose(bind(model, expedition))]
-fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
+#[compose]
+fn build_widgets(model: model!(PictureModel), expedition: model!(ExpeditionUiModel)) {
     ui! {
         View (id: "picture_surface", width: 480, height: 320, clip_children: true) [
             PictureSurface {
@@ -1583,7 +1598,35 @@ fn build_widgets(model: PictureModel, expedition: ExpeditionUiModel) {
                 expedition: expedition.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); } on DragStart { surface_gesture(&ctx); } on DragMove { surface_gesture(&ctx); } on DragEnd { surface_gesture(&ctx); } on DragCancel { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, PictureSurface) else {
+                return false;
+            };
+            let rect = com!(target, ComputedRect).map(|rect| rect.0);
+            surface_tap(surface, rect, x, y)
+        } on DragStart {
+            let Some(surface) = com!(target, PictureSurface) else {
+                return false;
+            };
+            let rect = com!(target, ComputedRect).map(|rect| rect.0);
+            surface_drag_start(surface, rect, x, y)
+        } on DragMove {
+            let Some(surface) = com!(target, PictureSurface) else {
+                return false;
+            };
+            let rect = com!(target, ComputedRect).map(|rect| rect.0);
+            surface_drag_move(surface, rect, x, y)
+        } on DragEnd {
+            let Some(surface) = com!(target, PictureSurface) else {
+                return false;
+            };
+            surface_drag_end(surface, false)
+        } on DragCancel {
+            let Some(surface) = com!(target, PictureSurface) else {
+                return false;
+            };
+            surface_drag_end(surface, true)
+        }
         {
             compose_header (model)
             compose_clues (model)

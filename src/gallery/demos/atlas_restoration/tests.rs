@@ -93,7 +93,7 @@ fn composition_binds_game_and_expedition_models() {
 }
 
 #[test]
-fn surface_gesture_uses_the_bound_picture_model() {
+fn surface_event_uses_the_bound_picture_model() {
     let mut world = fixture();
     let surface = world.find_by_id("picture_surface").unwrap();
     world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
@@ -112,6 +112,41 @@ fn surface_gesture_uses_the_bound_picture_model() {
     ));
     assert_ne!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(model.history_len(), 1);
+}
+
+#[test]
+fn surface_preserves_consumption_when_layout_is_unavailable() {
+    let mut world = fixture();
+    let surface = world.find_by_id("picture_surface").unwrap();
+    world.remove::<ComputedRect>(surface);
+    let (model, expedition) = handles(&world);
+    let (_, x, y) = editable_cell(&model);
+    let tap = GestureEvent::Tap {
+        x: Fixed::from_int(x),
+        y: Fixed::from_int(y),
+        target: surface,
+    };
+    let drag_start = GestureEvent::DragStart {
+        x: Fixed::from_int(x),
+        y: Fixed::from_int(y),
+        target: surface,
+    };
+    let drag_move = GestureEvent::DragMove {
+        x: Fixed::from_int(x + 10),
+        y: Fixed::from_int(y),
+        dx: Fixed::from_int(10),
+        dy: Fixed::ZERO,
+        target: surface,
+    };
+
+    assert!(!trigger(&mut world, surface, &tap));
+    assert!(!trigger(&mut world, surface, &drag_start));
+    assert!(trigger(&mut world, surface, &drag_move));
+
+    expedition.open_rules();
+    assert!(trigger(&mut world, surface, &tap));
+    assert!(trigger(&mut world, surface, &drag_start));
+    assert!(trigger(&mut world, surface, &drag_move));
 }
 
 #[test]

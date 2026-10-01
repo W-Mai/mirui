@@ -5,8 +5,6 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::picture::{PictureCell, PictureModel};
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &PictureModel) {
     let level = model.level();
@@ -85,18 +83,13 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &PictureModel) {
     }
 }
 
-#[crate::view(
-    component = PictureSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "PictureSurface",
-    priority = 60
-)]
+#[crate::view(name = "PictureSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &PictureModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(PictureSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
