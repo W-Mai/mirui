@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Typed authoring roles.** `model!`, `res!`, `query!`, `component!`, and capability roles give generated callbacks typed access without exposing `World`, generated handles, or explicit lifetimes.
+- **Deferred authoring commands.** `commands!()` records component, resource, entity, and UI property changes for ordered application after callback borrows end, while retaining command storage across runs.
+
+### Changed
+
+- **Unified authoring callbacks.** Components, compositions, views, systems, events, timers, and animations share one role model with compile-time diagnostics for unsupported access and alias conflicts.
+- **Automatic view invalidation.** Mutable component queries and observed model sources drive visual or layout invalidation through declared view dependencies.
+- **Gallery authoring examples.** Built-in demos and games use typed roles, bound model instances, attribute timers, and typed animation components.
+
 ## [0.47.0] - 2026-09-29
 
 ### Added

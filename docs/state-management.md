@@ -98,54 +98,63 @@ Events are drained even when no consumer is installed; delivery runs after
 the model borrow is released. Consumers can read committed model state, but
 cannot start another model write transaction during delivery.
 
-Bound declarations retain the model type in source while storing its shared
-handle:
+Model roles keep generated handle types out of application code. A
+`model!(T)` field in a `#[component]` stores one registered instance, while a
+`model!(T)` parameter in a `#[compose]` function receives one:
 
 ```rust
-#[component(bind(counter))]
+#[component]
 #[derive(Clone)]
-struct CounterTile { counter: Counter }
+struct CounterTile {
+    counter: model!(Counter),
+}
 
-#[compose(bind(counter))]
-fn counter_controls(counter: Counter) {
+#[compose]
+fn counter_value(counter: model!(Counter), label: &'static str) -> Entity {
+    ui! {
+        Text(text: ${ format!("{label}: {}", counter.count()) })
+    }
+}
+
+#[compose]
+fn counter_controls(counter: model!(Counter)) {
     ui! {
         Row {
             Button(text: "−") on Tap { counter.decrement(); }
             Button(text: "+") on Tap { counter.increment(); }
-            Text(text: ${ counter.count().to_string() })
+            counter_value(counter, "count")
         }
     };
 }
 ```
 
-`CounterTile` can be cloned even though `Counter` is not `Clone`. Only names
-listed in `bind(...)` are converted; other fields and parameters keep their
-declared types. Generated `ui!` callbacks share a bound handle when they read
-it. Child composition calls, including children inside a widget tree, share a
-bound handle when its name is passed directly. Multiple callbacks or children
-can therefore use one model without manually cloning it. Nested argument
-expressions retain Rust move semantics; use `counter.clone()` inside them when
-the handle is needed again.
+`CounterTile` can be cloned even though `Counter` is not `Clone`. Ordinary
+fields and parameters retain their declared Rust types. Generated `ui!`
+callbacks share a model role when they read it. Direct child compose calls,
+including calls inside niches, also share a model role when its name is passed
+directly. Multiple callbacks or children can therefore use one instance
+without spelling a generated handle type or manually cloning it. Nested
+argument expressions retain Rust move semantics; use `counter.clone()` inside
+them when the value is needed again.
 Implicit named references in standard `format!` and `format_args!` calls are
 shared inside generated callbacks too. This applies to the bare standard macro
 names and absolute `::std::` / `::alloc::` / `::core::` paths; aliases are not
 analyzed. Use an explicit argument such as `format!("{}", counter.count())` in
 other formatting macros. If a local macro uses one of the bare standard names,
 call it through its own module path. An escaped `{counter}` or a named argument
-such as `counter = 7` does not by itself read the bound handle; an argument
-expression that uses the handle still does.
+such as `counter = 7` does not by itself read the model role; an argument
+expression that uses the model still does.
 This also applies when `ui!` is called as `mirui::ui!`, `::mirui::ui!`, or a
 local `crate::ui!` re-export. Other arguments keep their normal move semantics.
 
-Use `cx.component::<T>(entity)` during composition or
-`ctx.component::<T>(entity)` in an event handler to inspect an attached
-component. `com!(entity, T)` is the short form in either context. These reads
-return `Option<&T>` and do not subscribe to changes; use `bind(...)` or
-`watch(...)` when changes must update a widget or View.
+Use `com!(entity, T)` during composition or in an event body to inspect an
+attached component. The read returns `Option<&T>`, remains valid only for its
+short lexical borrow, and does not subscribe to changes. A typed `#[view]`
+model role with `watch(...)` is the rendering path when model changes must
+invalidate a View.
 
-Register the instance before building controls. `#[compose(bind(counter))]`
-accepts the handle returned by `App::add_model`; the source parameter remains
-spelled `Counter`:
+Register the instance before building controls. A `model!(Counter)` compose
+parameter accepts the value returned by `App::add_model`:
 
 ```rust
 let root = app.spawn_root().id();
@@ -153,19 +162,22 @@ let counter = app.add_model(Counter { count: 0 });
 app.compose(root, |cx| counter_controls(cx, counter.clone()));
 ```
 
-The model owns business state; `#[component(bind(...))]` stores references to
-specific model instances on entities. A component may bind several models,
-and several components may share one model. Neither pattern creates a second
-copy of the model data. Marble Play binds its board and controls to one model;
-the Counter demo uses the same API without a canvas, audio output, or change
-mask.
+The model owns business state; `#[component]` model fields attach specific
+instances to entities. A component may contain several model fields, including
+optional fields, and several components may share one model. Neither pattern
+creates a second copy of the model data. Marble Play attaches its board and
+controls to one model; the Counter demo uses the same API without a canvas,
+audio output, or change mask.
 
-Systems can bind a registered model instance and read small `Copy` resources
-without exposing `World` to the system function:
+Systems declare model, resource, query, and deferred-command roles explicitly.
+The authored function does not receive `World`:
 
 ```rust
-#[system(order = ANIMATION, bind(counter))]
-fn advance(counter: &Counter, delta: mirui::ecs::DeltaTimeMs) {
+#[system(order = Animation)]
+fn advance(
+    counter: model!(Counter),
+    delta: res!(mirui::ecs::DeltaTimeMs),
+) {
     for _ in 0..delta.0 {
         counter.increment();
     }
@@ -174,13 +186,100 @@ fn advance(counter: &Counter, delta: mirui::ecs::DeltaTimeMs) {
 app.add_system(advance::system(counter.clone()));
 ```
 
-Each registration keeps its own instance. Other model parameters may be listed
-in `bind(...)`; they are passed to the generated `system(...)` constructor in
-the same order. An unbound `T` parameter is read as a required `Copy` resource;
-`Option<T>` reads an optional one. Missing required resources and cross-App
-model bindings fail explicitly. The callback is allocated at registration,
-with no allocation per invocation. Existing `fn(&mut World)` systems and
-`const fn` system descriptors remain available.
+Each registration keeps its own model instance. Multiple `model!(T)` parameters
+are passed to the generated `system(...)` constructor in source order.
+`res!(T)` and `res!(mut T)` request required resources; `res!(optional T)`
+requests an optional shared resource. `query!(...)` declares component access
+and filters, while `commands!()` records structural changes that are applied
+after the callback releases its borrows. Missing required resources and
+cross-App model bindings fail explicitly. Parameter preparation and invocation
+reuse scheduler-owned storage after warm-up.
+
+Event bodies receive event fields directly and use capability macros for ECS
+access. `com!(entity, T)` performs a short read. `commands!()` returns the
+handler's reusable deferred-command facade; structural changes are applied in
+source order after all short reads and the event body have ended:
+
+```rust
+use mirui::input::event::BubbleControl;
+
+#[component]
+struct Selected;
+
+#[compose]
+fn selectable() -> Entity {
+    ui! {
+        View () on Tap {
+            if com!(target, Selected).is_some() {
+                commands!().remove::<Selected>(target);
+            } else {
+                commands!().insert(target, Selected);
+            }
+            BubbleControl::Allow
+        }
+    }
+}
+```
+
+Returning `()` or `true` consumes the event. Returning `false` or
+`BubbleControl::Allow` continues bubbling. Gesture bodies expose the fields of
+their event variant, such as `target`, `x`, `y`, `dx`, and `dy`; widget
+business events expose their named payload fields. A panic discards that
+invocation's pending commands. The command buffer retains its capacity for the
+next event.
+
+`#[timer]` declares one schedule and typed callback roles. Model instances are
+provided when the generated timer is registered; entity and deferred-command
+roles are supplied for each firing:
+
+```rust
+#[timer(every = 1_000)]
+fn tick(
+    counter: model!(Counter),
+    timer: entity!(),
+    commands: commands!(),
+) {
+    counter.increment();
+    commands.insert(timer, Selected);
+}
+
+app.add_timer(tick::timer(counter));
+```
+
+The schedule forms are `after = ms`, `every = ms`,
+`repeat = (count, ms)`, and `until = (deadline, ms)`.
+
+`#[animate]` declares how a scalar `Motion` is applied. It generates the named
+motion component and a system constructor; the callback can receive model,
+component, entity, motion, and deferred-command roles:
+
+```rust
+use mirui::anim::{Motion, Tween};
+
+#[component]
+struct Opacity(Fixed);
+
+#[animate(component = AnimateOpacity)]
+fn apply_opacity(value: motion!(), opacity: component!(mut Opacity)) {
+    opacity.0 = value;
+}
+
+app.add_system(AnimateOpacity::system());
+
+#[compose]
+fn animated_opacity() -> Entity {
+    ui! {
+        View () [
+            Opacity(Fixed::ZERO),
+            AnimateOpacity(Motion::from(Tween::ease_to(
+                Fixed::ZERO,
+                Fixed::ONE,
+                240,
+            ))),
+        ]
+    }
+}
+```
 
 `World::watch_component_type` records insertions, replacements, removals, and
 despawns for selected component types. Repeated changes to one entity and type
@@ -189,39 +288,38 @@ can be reserved ahead of a batch. Direct field writes through `World::get_mut`
 do not create a structural change record; replace the complete component when
 its model binding changes.
 
-An observed `View` can use `with_filter::<Component>()` and
-`with_observation(...)` to hold model-source subscriptions for each matching
-entity. After a complete component replacement, the previous subscriptions
-are released and the new instance is attached before painting; removal and
-despawn release them as well. Registering a View after its components exist
-also attaches those existing entities. The View retains its usual render
-priority, attach callback, internal gesture, and static systems.
-
-`#[view]` generates the filtered View and its observation callback from a
-typed paint function:
+`#[view]` generates a filtered View and its model subscriptions from typed
+parameter roles:
 
 ```rust
-#[view(
-    component = CounterTile,
-    read(counter),
-    watch(counter.count()),
-    priority = 60,
-)]
-fn paint_counter(counter: &Counter, ctx: &mut ViewCtx<'_>) {
-    // Read model data and set paint context state.
+#[view(priority = 60, invalidation = Visual)]
+fn paint_counter(
+    tile: component!(CounterTile),
+    counter: model!(tile.counter, watch(count)),
+    entity: entity!(),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+) {
+    let _ = (tile, counter.count, entity, renderer, rect, ctx);
 }
 
 app.with_widget(paint_counter::view());
 ```
 
-`read` borrows the current component's model only during paint; it does not
-create a subscription by itself. `watch` accepts marked observed getters and
-named revision getters. The generated adapter holds no model borrow after
-paint and rejects model writes inside that callback. Multiple model fields,
-including two handles to the same instance, can be read together. `attach`,
-`gesture`, and static `systems` can be forwarded to the existing View builder.
-An optional `name = "..."` keeps a stable registration name when the paint
-function name differs from the widget name.
+Exactly one `component!(T)` role selects the entities painted by the View.
+`model!(tile.field)` borrows that component's model only during paint;
+`watch(selector)` adds an exact subscription to an `#[observe]` field, an
+observed getter, or a named revision. An optional model field uses
+`model!(optional tile.field, watch(selector))`. `res!(T)`, `entity!()`,
+`draw!()`, `rect!()`, and `view!()` expose the remaining paint capabilities.
+The generated adapter holds no model borrow after paint and rejects model
+writes inside the callback. Multiple model fields, including two fields that
+refer to the same instance, can be read together. `invalidation = Layout`
+promotes watched changes from visual to layout invalidation; visual
+invalidation is the default. `attach`, `gesture`, and static `systems` can be
+forwarded to the View builder. An optional `name = "..."` keeps a stable
+registration name when the paint function name differs from the widget name.
 Subscriptions reserve visual notification queue capacity when attached; model
 updates and notifications reuse that capacity. Component replacement and
 removal update bindings before the next paint.
@@ -232,13 +330,16 @@ removal update bindings before the next paint.
 | --- | --- | --- |
 | `#[model]` | Registered business state, including multiple instances of one type | Generated handle methods compare `#[observe]` values, publish named revisions, and deliver typed effects |
 | `Signal<T>` | A standalone reactive value or a value published by another owner | `set` / `update` notify reactive readers |
-| `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `bind(...)` stores shared model handles |
-| `#[compose]` | Build a widget subtree | `bind(...)` shares named model handles among generated bindings, callbacks, and direct child calls |
+| `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `model!(T)` fields retain registered model identity |
+| `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances among generated bindings, callbacks, and direct child calls |
 | `com!(entity, T)` | Read a component in composition or an event | Returns a short-lived `Option<&T>` without subscribing |
-| `#[view]` | Render a component | `read(...)` borrows model state only while painting; `watch(...)` selects repaint dependencies |
-| `#[system]` | Scheduled updates | `bind(...)` targets a registered model instance; small unbound parameters read World resources |
+| `#[view]` | Render a component | Typed roles declare the component, model projections, watched selectors, resources, and paint capabilities |
+| `#[system]` | Scheduled updates | `model!(T)` captures a registered instance; `res!`, `query!`, and `commands!` declare all other runtime access |
+| `on Event { ... }` | Handle gesture and widget business events | Event fields are local bindings; `com!` reads and `commands!()` defers structural changes |
+| `#[timer]` | Run a callback on a time schedule | `model!`, `entity!`, and `commands!` declare callback access |
+| `#[animate]` | Apply a scalar motion to component state | `motion!`, `component!`, `model!`, `entity!`, and `commands!` declare frame access |
 | `AudioHandle` | Shared output controls when the `audio` feature is enabled | Host UI and demo controls read one output state and submit to one bounded bus |
-| `World` | Low-level entity, component, and resource access | Available for integration code; ordinary bound model methods and UI callbacks do not need it |
+| `World` | Low-level entity, component, and resource access | Available for integration code; ordinary model methods and UI callbacks do not need it |
 
 `#[model]` does not replace components: a model has application-level identity,
 while components attach behavior and model bindings to individual entities.
@@ -296,13 +397,11 @@ bare path reads the signal; a `${ … }` block runs an expression:
 ```rust
 let label = Signal::new(0i32);
 
-ui! {
-    :(
-        parent: root
-        world: &mut world
-    :)
-
-    Text (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
+#[compose]
+fn counter_label(label: Signal<i32>) {
+    ui! {
+        Text (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
+    };
 }
 ```
 
@@ -380,31 +479,29 @@ change. A `match` with patterns that do not bind values also caches its arms;
 ```rust
 let show = Signal::new(true);
 let other = Signal::new(false);
-let state = Signal::new(Load::Loading);   // your own enum
+let state = Signal::new(Load::Loading);   // an application enum
 
-ui! {
-    :(
-        parent: root
-        world: &mut world
-    :)
-
-    Column (grow: 1.0) {
-        if ${ show.get() } {
-            Text ("visible")
-        } elif ${ other.get() } {
-            Text ("alt")
-        } else {
-            Text ("hidden")
-        }
-        match ${ state.get() } {
-            Load::Loading => {
-                Text ("loading")
+#[compose]
+fn status_panel(show: Signal<bool>, other: Signal<bool>, state: Signal<Load>) {
+    ui! {
+        Column (grow: 1.0) {
+            if ${ show.get() } {
+                Text ("visible")
+            } elif ${ other.get() } {
+                Text ("alt")
+            } else {
+                Text ("hidden")
             }
-            Load::Ready(s) => {
-                Text (s)
+            match ${ state.get() } {
+                Load::Loading => {
+                    Text ("loading")
+                }
+                Load::Ready(s) => {
+                    Text (s)
+                }
             }
         }
-    }
+    };
 }
 ```
 
@@ -468,7 +565,7 @@ A reactive binding's first run applies its initial value at construction
 state.
 
 Registered model methods, observed notifications, fixed-array effect delivery,
-attached `watch(...)` View subscriptions, and registered
+typed `#[view]` subscriptions, and registered
 model/signal-to-computed-to-effect propagation reuse their storage during
 updates. Each View binding owns an independent dependency-graph consumer;
 removing one View does not detach another View on the same entity. Initial
@@ -485,9 +582,9 @@ separately when targeting a bounded-memory device.
 - **Observed values**: `#[observe]` fields and derived getters require small
   `Copy + Eq` results. Keep large mutable data in the model and publish an
   explicit named revision when a View must repaint for it.
-- **View dependencies**: `read(...)` alone does not subscribe a View. List
-  the observed getters or named revisions in `watch(...)`; rebinding a
-  component replaces its subscriptions.
+- **View dependencies**: `model!(component.field)` alone does not subscribe a
+  View. Add observed fields, getters, or named revisions with `watch(...)`;
+  replacing the component replaces its subscriptions.
 - **View rendering**: both generated and manually registered View renderers
   may read models but cannot update them while painting. Use an input callback
   or system to change model state before rendering.

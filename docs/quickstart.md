@@ -39,7 +39,7 @@ Rust; browser and mobile targets need their respective toolchains.
 ## Desktop SDL
 
 The SDL backend is the fastest way to see mirui render anything. SDL2 is
-linked dynamically; install it from your package manager:
+linked dynamically; install it with the platform package manager:
 
 ```bash
 brew install sdl2          # macOS
@@ -72,19 +72,9 @@ use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::ui::widgets::{ParagraphStyle, Text};
 
-fn main() {
-    let backend = SdlSurface::new("hello mirui", 480, 320);
-    let mut app = App::new(backend);
-    app.with_default_widgets().with_default_systems();
-
-    let root = app.spawn_root().id();
-
+#[compose]
+fn build_ui() {
     ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
         Column (grow: 1.0) {
             View (
                 bg_color: ColorToken::Primary,
@@ -99,6 +89,15 @@ fn main() {
             Text ("ECS + DSL", height: 30, paragraph: ParagraphStyle::label())
         }
     };
+}
+
+fn main() {
+    let backend = SdlSurface::new("hello mirui", 480, 320);
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
+
+    let root = app.spawn_root().id();
+    app.compose(root, build_ui);
 
     app.run();
 }
@@ -165,8 +164,8 @@ cargo build --release --no-default-features --features=demo-threebody
 The `esp32c3-animation` crate's `src/board.rs` carries the SPI + ST7735
 driver, `src/main.rs` ties it into `App::new(FramebufSurface::…)`, and
 `Cargo.toml` pins compatible esp-hal / esp-alloc / esp-bootloader-esp-idf
-versions. Copy the project, point `board.rs` at your own panel's
-pinout, and replace the demo widgets with your own `ui!` tree.
+versions. Copy that repository, point `board.rs` at the target panel's
+pinout, and replace the demo widgets with an application `ui!` tree.
 
 Once it builds, flash with:
 
@@ -181,7 +180,7 @@ let backend = FramebufSurface::with_format(
     W, H,
     mirui::render::texture::ColorFormat::RGB565Swapped,  // or RGB565
     |bytes: &[u8], area: mirui::types::PhysicalRect| {
-        // Push `bytes` to your LCD over SPI for the window described by `area`.
+        // Push `bytes` to the LCD over SPI for the window described by `area`.
     },
 );
 
@@ -191,7 +190,7 @@ app.with_default_widgets().with_default_systems();
 ```
 
 `ColorFormat::RGB565Swapped` is the byte order most ST7735/ST7789 panels
-expect when the host MCU is little-endian; use `RGB565` if your panel
+expect when the host MCU is little-endian; use `RGB565` if the panel
 takes the bytes the other way around. mirui's
 [Surface trait docs](../src/surface/mod.rs) cover the rest of the
 contract — `display_info`, `flush`, `poll_event`, persistence — and
@@ -262,15 +261,11 @@ mirui = { version = "0.47", default-features = false, features = ["quad-aa"] }
 extern crate alloc;
 
 use mirui::prelude::*;
-use mirui::ecs::{Entity, World};
+use mirui::ui::widgets::Text;
 
-pub fn build_ui(world: &mut World, parent: Entity) -> Entity {
+#[compose]
+pub fn build_ui() -> Entity {
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (bg_color: ColorToken::Surface) {
             Text ("Hello mirui!", text_color: ColorToken::OnSurface)
         }
@@ -281,7 +276,8 @@ pub fn build_ui(world: &mut World, parent: Entity) -> Entity {
 `targets/desktop/Cargo.toml` enables `sdl` on mirui and `std` on `app`;
 `targets/esp32c3/Cargo.toml` keeps both at `default-features = false`
 and adds the esp-hal stack. Each target's `main.rs` opens a Surface,
-constructs `App`, and calls `app::build_ui` to populate the tree.
+constructs `App`, then registers the shared composition with
+`app.compose(root, app::build_ui)`.
 
 ### Adding a new target
 
@@ -355,9 +351,9 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios 
 
 You have a running mirui app. The next steps depend on what you want to build:
 
-- **Add your own widget** — inspect the built-in widgets and Gallery compositions for rendering, theme integration, typed properties, and animation contracts.
-- **Drive your own LCD or touch IC** — implement the `Surface` boundary and use the ESP32-C3 board integration in [`mirui-examples`](https://github.com/W-Mai/mirui-examples) as a complete framebuffer and input reference.
-- **React to state changes declaratively** — [`state-management.md`](state-management.md) covers registered models, bound components and Views, `Signal<T>`, `Computed<T>`, `Effect`, and DSL bindings.
+- **Add a custom widget** — inspect the built-in widgets and Gallery compositions for rendering, theme integration, typed properties, and animation contracts.
+- **Drive an LCD or touch IC** — implement the `Surface` boundary and use the ESP32-C3 board integration in [`mirui-examples`](https://github.com/W-Mai/mirui-examples) as a complete framebuffer and input reference.
+- **React to state changes declaratively** — [`state-management.md`](state-management.md) covers registered models, model-backed components, typed Views, `Signal<T>`, `Computed<T>`, `Effect`, and DSL bindings.
 - **Persist user state across runs** — the `persistence_counter` Gallery demo connects `PersistencePlugin` to lifecycle pause and resume hooks.
 
 The working examples in [`gallery/examples/`](../gallery/examples/) and [`mirui-examples`](https://github.com/W-Mai/mirui-examples) exercise the same public APIs across desktop, browser, and embedded targets.

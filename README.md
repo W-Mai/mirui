@@ -18,7 +18,7 @@ A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and We
 - **Vector drawing** — `Canvas` exposes `fill_path` / `stroke_path` / `draw_line` / `draw_arc`; `DrawCommand::FillPath` puts path fills inside the same View pipeline as built-in widgets
 - **Typography** — shaped text supports bounded layout, fallback fonts, bidirectional scripts, path placement, oriented carets, selection geometry, and path-aware hit testing
 - **Layout** — Flexbox, absolute positioning, padding, justify / align; `Dimension::{Px, Percent, Auto, Content}`
-- **Animation** — Tween, Spring with critical damping, retargetable; declarative `animate!` and `timer!` macros
+- **Animation** — Tween, Spring with critical damping, retargetable; typed `#[animate]` motion applicators and `#[timer]` callbacks
 - **Theme** — `ColorToken` / `ThemedColor`; built-in dark / light + custom tokens; per-`WidgetState` (Hovered / Pressed / Error / Disabled) overlay routing
 - **Interaction states** — hover, press, error, disabled propagated through ECS markers; system-level dispatch
 - **Multi-touch** — pinch / rotate gesture recognition from raw pointer streams; `SimAction` for scripted multi-touch in tests
@@ -40,7 +40,6 @@ mirui = { version = "0.47", features = ["sdl"] }
 ```rust
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::ui::UiScope;
 use mirui::ui::widgets::{ParagraphStyle, Text};
 
 fn main() {
@@ -51,9 +50,7 @@ fn main() {
     // Root fills the viewport with a Surface bg + Column layout by default.
     let root = app.spawn_root().id();
 
-    let mut cx = UiScope::new(&mut app.world, root);
-    build_root(&mut cx);
-    drop(cx);
+    app.compose(root, build_root);
 
     app.run();
 }
@@ -78,9 +75,9 @@ fn build_root() {
 }
 ```
 
-`mirui::prelude` brings `App`, layout types, `Color` / `Dimension` / `Fixed`, `Entity` / `World`, `WidgetBuilder`, theme tokens, and the `ui!` / `compose` macros. Surface backends, plugins, and individual widget kinds stay on their canonical paths so the prelude doesn't pin a platform or feature choice.
+`mirui::prelude` brings `App`, layout types, `Color` / `Dimension` / `Fixed`, ECS roles, theme tokens, and the `ui!` / authoring macros. Surface backends, plugins, and individual widget kinds stay on their canonical paths so the prelude doesn't pin a platform or feature choice.
 
-`#[compose]` supplies a `cx: &mut UiScope` first parameter to the function; every `ui!` invocation inside the body reads that `cx` to spawn widgets. Compose helper functions with `ui!(helper_fn(args))` — the macro threads `cx` through automatically.
+`#[compose]` supplies the composition scope to generated code; authored parameters only describe application data. Call another compose function directly inside a widget tree, such as `status_row(model, "ready")`. Use `ui!(status_row(model, "ready"))` when invoking the same compose function from ordinary Rust code that already has a composition scope. `ui!(compose Name { ... })` defines a reusable niche-based View kind; it does not invoke a compose function.
 
 ### Other targets
 
@@ -129,33 +126,31 @@ let texture = Texture::from_mirx_with(
 ## DSL Syntax
 
 ```rust
-ui! {
-    :(
-        parent: root
-        world: &mut world
-    :)
+#[compose]
+fn dashboard(items: &[Item], show_footer: bool) {
+    ui! {
+        // Widget with attributes
+        Column (grow: 1.0) {
+            Text ("Header", height: 40)
+            View (grow: 1.0)
+        }
 
-    // Widget with attributes
-    Column (grow: 1.0) {
-        Text ("Header", height: 40)
-        View (grow: 1.0)
-    }
+        // Enchants — attach extra ECS components to the spawned entity
+        View (width: 16, height: 16) [
+            PhysicsBody { x: Fixed::ZERO, y: Fixed::ZERO },
+            Velocity { vx: Fixed::from_int(1), vy: Fixed::ZERO },
+        ]
 
-    // Enchants — attach extra ECS components to the spawned entity
-    img (width: 16, height: 16, image: Image::new(&IMG_THUMBS_UP)) [
-        PhysicsBody { x: Fixed::ZERO, y: Fixed::ZERO },
-        Velocity { vx: Fixed::from_int(1), vy: Fixed::ZERO },
-    ] {}
+        // Iteration
+        walk items.iter() with item {
+            Text (item.name, bg_color: item.color)
+        }
 
-    // Iteration
-    walk items.iter() with item {
-        Text (item.name, bg_color: item.color)
-    }
-
-    // Conditional
-    if show_footer {
-        Text ("visible")
-    }
+        // Conditional
+        if show_footer {
+            Text ("visible")
+        }
+    };
 }
 ```
 
@@ -181,11 +176,12 @@ ui! {
 
 Use an alias when the expression should not expose an ID-shaped field: `@id(stage).width as stage_width { stage_width / 2 }`. `$` remains the signal-driven state binding syntax; `@` runs after layout geometry changes.
 
-### Bound models
+### Model roles
 
 `#[model]` keeps business state in a registered instance. `#[observe]` marks
-small values used by reactive attributes, and `#[compose(bind(...))]` shares
-the instance across generated callbacks:
+small values used by reactive attributes. `model!(T)` parameters and fields
+carry a specific registered instance without exposing its generated handle
+type:
 
 ```rust
 use mirui::prelude::*;
@@ -202,12 +198,23 @@ impl Counter {
     fn increment(&mut self) { self.value += 1; }
 }
 
-#[compose(bind(counter))]
-fn counter_panel(counter: Counter) {
+#[component]
+#[derive(Clone)]
+struct CounterTile {
+    counter: model!(Counter),
+}
+
+#[compose]
+fn counter_label(counter: model!(Counter), prefix: &'static str) -> Entity {
+    ui! { Text(text: ${ format!("{prefix}: {}", counter.value()) }) }
+}
+
+#[compose]
+fn counter_panel(counter: model!(Counter)) {
     ui! {
         Row {
             Button(text: "+") on Tap { counter.increment(); }
-            Text(text: ${ counter.value().to_string() })
+            counter_label(counter, "count")
         }
     };
 }
@@ -218,25 +225,25 @@ where
     F: RendererFactory<B>,
 {
     let counter = app.add_model(Counter { value: 0 });
-    app.compose(root, |cx| counter_panel(cx, counter.clone()));
+    app.compose(root, |cx| counter_panel(cx, counter));
 }
 ```
 
-Use `#[component(bind(...))]` to attach a model handle to an entity and
-`#[view(component = ..., read(...), watch(...))]` to paint it. One model can
-serve several Views; several instances of the same model type stay
-independent. Mark implementation-only helpers with `#[model(local)]`; the
-method keeps its ordinary Rust signature on the model and is not forwarded to
-the handle. A mutable model method may return `Result<Change, E>`; an error is
-returned without publishing reactive updates or effects. The
-[state guide](docs/state-management.md) covers effects, systems, ownership, and
-the limits of the update-path allocation guarantee.
+Use `#[component]` with `model!(T)` fields to attach registered model instances
+to entities. A typed `#[view]` function reads the component through
+`component!(T)`, projects model fields through `model!(component.field)`, and
+subscribes only to selectors listed in `watch(...)`. One model can serve
+several Views; several instances of the same model type stay independent. A
+mutable model method may return `Result<Change, E>`; an error is returned
+without publishing reactive updates or effects. The
+[state guide](docs/state-management.md) covers Views, events, effects, systems,
+timers, ownership, and the update-path allocation boundary.
 
 ### Common attributes
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `bg_color` / `text_color` / `border_color` | `Color` or `ColorToken` | Solid colour or theme token |
+| `bg_color` / `text_color` / `border_color` | `Color` or `ColorToken` | Solid color or theme token |
 | `text` | `&str` | Content of text-bearing widgets |
 | `border_radius` / `border_width` | `Fixed` | Subpixel-accurate |
 | `width` / `height` | `Dimension` | `Px / Percent / Auto / Content` |
@@ -287,7 +294,33 @@ spring.target(Fixed::from_int(100));
 // driven each frame by the animation system
 ```
 
-`#[mirui::animate!(...)]` and `mirui::core::timer!(...)` macros declare motion components that the framework's animation / timer systems tick automatically.
+`#[animate]` generates a motion component and its system from typed roles. The
+callback receives the current scalar through `motion!()` and may request
+components, a model instance, the entity, or deferred commands:
+
+```rust
+#[component]
+struct Opacity(Fixed);
+
+#[animate(component = AnimateOpacity)]
+fn apply_opacity(value: motion!(), opacity: component!(mut Opacity)) {
+    opacity.0 = value;
+}
+
+app.add_system(AnimateOpacity::system());
+```
+
+`#[timer]` generates a reusable timer registration. Exactly one schedule is
+declared with `after`, `every`, `repeat`, or `until`:
+
+```rust
+#[timer(every = 1_000)]
+fn advance(counter: model!(Counter)) {
+    counter.increment();
+}
+
+app.add_timer(advance::timer(counter));
+```
 
 ## Plugins
 
@@ -301,51 +334,24 @@ Plugins package cross-cutting behaviour. Each plugin's docstring lists what it i
 | `InputFeedbackPlugin` | resources: `InputFeedback`, `InputFeedbackInput`; systems: cursor + rotary feedback; views: cursor (pri 90), rotary (pri 91); entities: `OverlayCursor` (lazy), `OverlayRotary` (eager); hooks: `on_event`, `pre_render` |
 | `AudioPlugin` (`audio` feature) | resources: `AudioHandle`, `AudioStateSignal`; hooks: `on_event`, `pre_render`, suspend, resume, quit |
 
-Custom plugin:
-
-```rust
-use mirui::prelude::*;
-use mirui::app::plugin::Plugin;
-
-/// MyHotkeysPlugin — Esc quits.
-///
-/// **Inserts**
-/// - resource: none
-/// - system:   none
-/// - view:     none
-/// - entity:   none
-/// - hooks:    on_event
-struct MyHotkeysPlugin;
-
-impl<B, F> Plugin<B, F> for MyHotkeysPlugin
-where B: mirui::surface::Surface, F: mirui::app::RendererFactory<B>
-{
-    fn build(&mut self, _app: &mut App<B, F>) {}
-    fn on_event(&mut self, _world: &mut World, event: &mirui::input::event::input::InputEvent) -> bool {
-        matches!(event, mirui::input::event::input::InputEvent::Key {
-            code: mirui::input::event::input::KEY_ESCAPE, pressed: true,
-        })
-    }
-}
-
-app.add_plugin(MyHotkeysPlugin);
-```
+Custom plugins implement `mirui::app::plugin::Plugin` and declare inserted
+resources, systems, Views, entities, and lifecycle hooks in their rustdoc.
+Plugin hooks are the low-level integration boundary; application events use
+`on Event { ... }` bodies instead.
 
 ## ScrollView
 
 ```rust
-ui! {
-    :(
-        parent: root
-        world: &mut world
-    :)
-
-    Scroll (grow: 1.0) {
-        walk items.iter() with item {
-            Text (item.label, height: 60, bg_color: item.color)
+#[compose]
+fn item_list(items: &[Item]) {
+    ui! {
+        Scroll (grow: 1.0) {
+            walk items.iter() with item {
+                Text (item.label, height: 60, bg_color: item.color)
+            }
         }
-    }
-};
+    };
+}
 ```
 
 `Scroll` clips its children and derives the retained content extent without a synchronization system. Virtualized or externally measured content can still provide explicit `ScrollConfig` dimensions. Drag scrolling, inertia, elastic bounce, nested scroll chaining, and per-axis content clamping share the same bounds calculation.
@@ -389,13 +395,24 @@ world.insert_resource(GameSeed(42));
 let seed = world.resource::<GameSeed>().unwrap().0;
 
 // Systems
-#[mirui::system(order = SystemSlot::Animation)]
-fn physics_system(world: &mut World) { /* ... */ }
+#[mirui::system(order = Animation)]
+fn physics_system(
+    seed: res!(GameSeed),
+    bodies: query!(mut PhysicsBody, optional Velocity),
+) {
+    for (body, velocity) in bodies {
+        // Update `body` from `seed` and the optional `velocity`.
+    }
+}
 
 app.add_system(physics_system::system());
 ```
 
-`SystemSlot` enum names the standard scheduling positions (`SimInput / DeltaTime / InteractionState / Animation / Timer / ScrollInertia / LazyList / TabPages / Normal`). Lower values run earlier; user systems default to `Normal`.
+System parameters declare their role with `model!`, `res!`, `query!`, or
+`commands!`; application systems do not receive `World`. `SystemSlot` names
+the standard scheduling positions (`SimInput / DeltaTime / InteractionState /
+Animation / Timer / ScrollInertia / LazyList / TabPages / Normal / PreRender`).
+Lower values run earlier; user systems default to `Normal`.
 
 ## Performance
 
