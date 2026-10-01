@@ -1,4 +1,4 @@
-use super::input::surface_gesture;
+use super::input::surface_tap;
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::{modal_render, surface_render};
@@ -10,6 +10,7 @@ use crate::gallery::play::tidal::{
 };
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
+use crate::ui::ComputedRect;
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
@@ -139,8 +140,8 @@ fn island_name(index: usize) -> &'static str {
     ["浅湾", "外海", "浮岬", "远境"][index]
 }
 
-#[compose(bind(model))]
-fn compose_header(model: TideModel) -> Entity {
+#[compose]
+fn compose_header(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             "潮汐群岛",
@@ -214,8 +215,8 @@ fn compose_header(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_forecast(model: TideModel) -> Entity {
+#[compose]
+fn compose_forecast(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             "NEXT HARVEST",
@@ -287,8 +288,8 @@ fn compose_forecast(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_offers(model: TideModel) -> Entity {
+#[compose]
+fn compose_offers(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             "选择地块",
@@ -373,8 +374,8 @@ fn compose_offers(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_tile_info(model: TideModel) -> Entity {
+#[compose]
+fn compose_tile_info(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${
@@ -442,8 +443,8 @@ fn compose_tile_info(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_actions(model: TideModel) -> Entity {
+#[compose]
+fn compose_actions(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             "换牌",
@@ -560,8 +561,8 @@ fn compose_actions(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_footer(model: TideModel) -> Entity {
+#[compose]
+fn compose_footer(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ model.goal().name },
@@ -609,8 +610,8 @@ fn compose_footer(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal_header(model: TideModel) -> Entity {
+#[compose]
+fn compose_modal_header(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${
@@ -673,8 +674,8 @@ fn compose_modal_header(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal_result(model: TideModel) -> Entity {
+#[compose]
+fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{}", model.score()) },
@@ -801,8 +802,8 @@ fn compose_modal_result(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal_voyage(model: TideModel) -> Entity {
+#[compose]
+fn compose_modal_voyage(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${
@@ -893,8 +894,8 @@ fn compose_modal_voyage(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-fn compose_modal(model: TideModel) -> Entity {
+#[compose]
+fn compose_modal(model: model!(TideModel)) -> Entity {
     ui! {
         View (
             id: "tide_modal",
@@ -919,15 +920,23 @@ fn compose_modal(model: TideModel) -> Entity {
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: TideModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(TideModel)) {
     ui! {
         View (id: "tide_surface", width: 480, height: 320, clip_children: true) [
             TideSurface {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { surface_gesture(&ctx); }
+        ] on Tap {
+            let Some(surface) = com!(target, TideSurface) else {
+                return false;
+            };
+            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+                return false;
+            };
+            surface_tap(surface, rect, x, y)
+        }
         {
             compose_header (model)
             compose_forecast (model)

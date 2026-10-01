@@ -4,8 +4,6 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::paint::PlayPainter;
 use crate::gallery::play::tidal::{BOARD_SIZE, TideModal, TideModel, Tile};
 use crate::prelude::{Color, Fixed, Point, Rect};
-use crate::render::renderer::Renderer;
-use crate::ui::view::ViewCtx;
 
 fn tile_color(tile: Tile) -> Color {
     match tile {
@@ -234,18 +232,13 @@ fn paint_surface(painter: &mut PlayPainter<'_, '_>, model: &TideModel) {
     painter.line(Point::new(14, 296), Point::new(466, 296), LINE, Fixed::ONE);
 }
 
-#[crate::view(
-    component = TideSurface,
-    read(model),
-    watch(model.visual_revision()),
-    name = "TideSurface",
-    priority = 60
-)]
+#[crate::view(name = "TideSurface", priority = 60)]
 pub(super) fn surface_render(
-    renderer: &mut dyn Renderer,
-    model: &TideModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(TideSurface),
+    model: model!(surface.model, watch(visual_revision)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     ctx.bg_handled = true;
     let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
@@ -253,18 +246,13 @@ pub(super) fn surface_render(
     paint_surface(&mut painter, model);
 }
 
-#[crate::view(
-    component = TideModalSurface,
-    read(model),
-    watch(model.modal()),
-    name = "TideModalSurface",
-    priority = 70
-)]
+#[crate::view(name = "TideModalSurface", priority = 70)]
 pub(super) fn modal_render(
-    renderer: &mut dyn Renderer,
-    model: &TideModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    surface: component!(TideModalSurface),
+    model: model!(surface.model, watch(modal)),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
 ) {
     if model.modal() == TideModal::None {
         return;

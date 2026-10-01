@@ -1,8 +1,5 @@
 use super::state::TideSurface;
-use crate::input::event::HandlerCtx;
-use crate::input::event::gesture::GestureEvent;
 use crate::prelude::{Fixed, Rect};
-use crate::ui::ComputedRect;
 
 pub(super) fn local_cell(rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -25,22 +22,10 @@ pub(super) fn local_cell(rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     Some((row * 6 + column) as u8)
 }
 
-pub(super) fn surface_gesture(ctx: &HandlerCtx<'_, GestureEvent>) -> bool {
-    let GestureEvent::Tap { x, y, .. } = ctx.event else {
+pub(super) fn surface_tap(surface: &TideSurface, rect: Rect, x: Fixed, y: Fixed) -> bool {
+    let Some(cell) = local_cell(rect, x, y) else {
         return false;
     };
-    let Some(model) = ctx
-        .component::<TideSurface>(ctx.entity)
-        .map(|surface| surface.model.clone())
-    else {
-        return false;
-    };
-    let Some(rect) = ctx.component::<ComputedRect>(ctx.entity).map(|rect| rect.0) else {
-        return false;
-    };
-    let Some(cell) = local_cell(rect, *x, *y) else {
-        return false;
-    };
-    model.select_cell(cell);
+    surface.model.select_cell(cell);
     true
 }

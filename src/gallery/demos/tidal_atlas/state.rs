@@ -1,11 +1,11 @@
 use crate::gallery::play::tidal::TideModel;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct TideSurface {
-    pub(super) model: TideModel,
+    pub(super) model: model!(TideModel),
 }
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct TideModalSurface {
-    pub(super) model: TideModel,
+    pub(super) model: model!(TideModel),
 }
