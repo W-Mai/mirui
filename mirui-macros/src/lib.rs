@@ -1,5 +1,7 @@
 extern crate proc_macro;
 
+mod animate_attr;
+mod binding;
 mod component_attr;
 mod compose;
 mod compose_attr;
@@ -16,6 +18,8 @@ use syn::parse_macro_input;
 use syn::visit_mut::VisitMut;
 
 mod model_attr;
+mod system_attr_v2;
+mod timer_attr;
 
 #[proc_macro_attribute]
 pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -57,31 +61,130 @@ impl Parse for ComponentRead {
     }
 }
 
-struct EventComponentReads;
-
-impl VisitMut for EventComponentReads {
-    fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
-        if let syn::Expr::Macro(mac) = expr
-            && mac
-                .mac
-                .path
-                .segments
-                .last()
-                .is_some_and(|segment| segment.ident == "com")
-            && let Ok(ComponentRead { entity, component }) =
-                syn::parse2::<ComponentRead>(mac.mac.tokens.clone())
-        {
-            *expr = syn::parse_quote!(ctx.component::<#component>(#entity));
-            return;
+fn event_role_invocation(
+    tokens: &[proc_macro2::TokenTree],
+    start: usize,
+) -> Option<(usize, &syn::Ident, &proc_macro2::Group)> {
+    if start > 0 {
+        match &tokens[start - 1] {
+            proc_macro2::TokenTree::Ident(_) => return None,
+            proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':' => return None,
+            _ => {}
         }
-        syn::visit_mut::visit_expr_mut(self, expr);
     }
+
+    let mut cursor = start;
+    if matches!(&tokens[cursor], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':') {
+        if !matches!(tokens.get(cursor + 1), Some(proc_macro2::TokenTree::Punct(punct)) if punct.as_char() == ':')
+        {
+            return None;
+        }
+        cursor += 2;
+    }
+    let proc_macro2::TokenTree::Ident(first) = tokens.get(cursor)? else {
+        return None;
+    };
+    let mut segments = vec![first];
+    cursor += 1;
+    while cursor + 2 < tokens.len()
+        && matches!(&tokens[cursor], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':')
+        && matches!(&tokens[cursor + 1], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':')
+        && matches!(&tokens[cursor + 2], proc_macro2::TokenTree::Ident(_))
+    {
+        let proc_macro2::TokenTree::Ident(next) = &tokens[cursor + 2] else {
+            unreachable!();
+        };
+        segments.push(next);
+        cursor += 3;
+    }
+    if cursor + 1 >= tokens.len()
+        || !matches!(&tokens[cursor], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == '!')
+    {
+        return None;
+    }
+    let proc_macro2::TokenTree::Group(arguments) = &tokens[cursor + 1] else {
+        return None;
+    };
+    let name = *segments.last()?;
+    let role = name == "com" || name == "commands";
+    let reserved_path = match segments.as_slice() {
+        [_] => role,
+        [root, _] => role && (*root == "mirui" || *root == "crate"),
+        _ => false,
+    };
+    if !reserved_path {
+        return None;
+    }
+    Some((cursor + 2, name, arguments))
 }
 
-fn event_component_reads(body: &syn::Block) -> syn::Block {
-    let mut body = body.clone();
-    EventComponentReads.visit_block_mut(&mut body);
-    body
+fn rewrite_event_role_tokens(
+    input: proc_macro2::TokenStream,
+    scope: &syn::Ident,
+) -> proc_macro2::TokenStream {
+    let tokens: Vec<_> = input.into_iter().collect();
+    let mut output = proc_macro2::TokenStream::new();
+    let mut cursor = 0;
+    while cursor < tokens.len() {
+        if let Some((end, name, arguments)) = event_role_invocation(&tokens, cursor) {
+            if name == "com" {
+                let replacement = if arguments.delimiter() != proc_macro2::Delimiter::Parenthesis {
+                    let error = syn::Error::new_spanned(arguments, "use `com!(entity, Component)`")
+                        .to_compile_error();
+                    quote!(#error)
+                } else {
+                    match syn::parse2::<ComponentRead>(arguments.stream()) {
+                        Ok(ComponentRead { entity, component }) => quote! {
+                            #scope.component::<#component>(#entity)
+                        },
+                        Err(error) => {
+                            let error = error.to_compile_error();
+                            quote!(#error)
+                        }
+                    }
+                };
+                output.extend(replacement);
+                cursor = end;
+                continue;
+            }
+            if name == "commands" {
+                let replacement = if arguments.delimiter() == proc_macro2::Delimiter::Parenthesis
+                    && arguments.stream().is_empty()
+                {
+                    quote! { #scope.commands() }
+                } else {
+                    let error = syn::Error::new_spanned(
+                        arguments,
+                        "`commands!` does not accept arguments; use `commands!()`",
+                    )
+                    .to_compile_error();
+                    quote!(#error)
+                };
+                output.extend(replacement);
+                cursor = end;
+                continue;
+            }
+        }
+
+        match &tokens[cursor] {
+            proc_macro2::TokenTree::Group(group) => {
+                let mut rewritten = proc_macro2::Group::new(
+                    group.delimiter(),
+                    rewrite_event_role_tokens(group.stream(), scope),
+                );
+                rewritten.set_span(group.span());
+                output.extend([proc_macro2::TokenTree::Group(rewritten)]);
+            }
+            token => output.extend([token.clone()]),
+        }
+        cursor += 1;
+    }
+    output
+}
+
+fn event_body_roles(body: &syn::Block, scope: &syn::Ident) -> syn::Block {
+    syn::parse2(rewrite_event_role_tokens(quote! { #body }, scope))
+        .expect("event role rewriting must preserve the Rust block grammar")
 }
 
 /// Read one component from the active `#[compose]` or `on Event` context.
@@ -93,7 +196,7 @@ pub fn com(input: TokenStream) -> TokenStream {
 }
 
 use xrune::ds_node::ds_attr::DsAttr;
-use xrune::ds_node::{DsRoot, DsTreeRef};
+use xrune::ds_node::{DsTree, DsTreeRef};
 use xrune::ds_rune::DsRune;
 use xrune::ds_rune::decipher::decipher;
 
@@ -284,10 +387,16 @@ fn emit_business_handler(
     world: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let handler_path: syn::Path = syn::parse_str(handler_component).unwrap();
+    let hidden_span = proc_macro2::Span::mixed_site();
+    let handler_world = syn::Ident::new("__mirui_event_world", hidden_span);
+    let handler_entity = syn::Ident::new("__mirui_event_entity", hidden_span);
+    let handler_event = syn::Ident::new("__mirui_event_value", hidden_span);
+    let handler_scope = syn::Ident::new("__mirui_event_scope", hidden_span);
+    let handler_queue = syn::Ident::new("__mirui_event_commands", hidden_span);
 
     let mut arms = proc_macro2::TokenStream::new();
     for (entry, on_cmd) in group {
-        let body = event_component_reads(&on_cmd.body);
+        let body = event_body_roles(&on_cmd.body, &handler_scope);
         let event_path: syn::Path = syn::parse_str(entry.event_path).unwrap();
         let field_idents: Vec<syn::Ident> = entry
             .fields
@@ -302,17 +411,14 @@ fn emit_business_handler(
         let bindings = if field_idents.is_empty() {
             quote! {}
         } else {
-            quote! { let _ = ( #(#field_idents),* ); }
+            quote! {
+                #(let #field_idents = *#field_idents;)*
+                let _ = ( #(#field_idents),* );
+            }
         };
         arms.extend(quote! {
             #pattern => {
                 #bindings
-                #[allow(unused_mut, unused_variables)]
-                let mut ctx = ::mirui::input::event::HandlerCtx {
-                    world: __world,
-                    entity: __entity,
-                    event: __event,
-                };
                 let __consumed: bool =
                     ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                 __consumed
@@ -329,28 +435,37 @@ fn emit_business_handler(
         ty
     };
 
-    quote! {
+    quote! {{
+        let #handler_queue = ::mirui::input::event::EventCommandQueue::new(#world);
         (#world).insert(
             #widget_var,
             #handler_path {
-                on_event: ::mirui::input::event::BusinessCallback::Closure(::mirui::__Rc::new(
-                    move |__world: &mut ::mirui::ecs::World,
-                          __entity: ::mirui::ecs::Entity,
-                          __event: &#event_ty|
+                on_event: ::mirui::input::event::BusinessCallback::Closure(::mirui::__macro_support::__Rc::new(
+                    move |#handler_world: &mut ::mirui::ecs::World,
+                          #handler_entity: ::mirui::ecs::Entity,
+                          #handler_event: &#event_ty|
                           -> bool {
-                        match __event {
-                            #arms
-                            #[allow(unreachable_patterns)]
-                            _ => false,
-                        }
+                        #handler_queue.run(
+                            #handler_world,
+                            #handler_entity,
+                            |#handler_scope| match #handler_event {
+                                #arms
+                                #[allow(unreachable_patterns)]
+                                _ => false,
+                            },
+                        )
                     },
                 )),
             },
         );
-    }
+    }}
 }
 
-fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStream {
+fn emit_event_arm(
+    event_name: &str,
+    group: &[&OnCmd],
+    handler_scope: &syn::Ident,
+) -> proc_macro2::TokenStream {
     let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
     let fields = gesture_event_fields(event_name);
     let field_idents: Vec<syn::Ident> = fields
@@ -359,23 +474,20 @@ fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStrea
         .collect();
 
     if event_name == "Tap" && group.iter().any(|h| !h.args.is_empty()) {
-        return emit_tap_with_count(group, &field_idents);
+        return emit_tap_with_count(group, &field_idents, handler_scope);
     }
 
-    let bodies = group.iter().map(|h| event_component_reads(&h.body));
+    let bodies = group
+        .iter()
+        .map(|h| event_body_roles(&h.body, handler_scope));
     let used_idents: Vec<&syn::Ident> = field_idents.iter().collect();
 
     quote! {
         ::mirui::input::event::gesture::GestureEvent::#event_ident { #(#field_idents),* } => {
+            #(let #field_idents = *#field_idents;)*
             let _ = ( #( #used_idents ),* );
             #(
                 {
-                    #[allow(unused_mut, unused_variables)]
-                    let mut ctx = ::mirui::input::event::HandlerCtx {
-                        world: __world,
-                        entity: __entity,
-                        event: __event,
-                    };
                     let __consumed: bool =
                         ::mirui::input::event::HandlerReturn::into_consumed({ #bodies });
                     if __consumed { return true; }
@@ -386,20 +498,18 @@ fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStrea
     }
 }
 
-fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_macro2::TokenStream {
+fn emit_tap_with_count(
+    group: &[&OnCmd],
+    field_idents: &[syn::Ident],
+    handler_scope: &syn::Ident,
+) -> proc_macro2::TokenStream {
     let mut count_arms = proc_macro2::TokenStream::new();
     let mut default_arm: Option<proc_macro2::TokenStream> = None;
     for h in group {
-        let body = event_component_reads(&h.body);
+        let body = event_body_roles(&h.body, handler_scope);
         if h.args.is_empty() {
             default_arm = Some(quote! {
                 _ => {
-                    #[allow(unused_mut, unused_variables)]
-                    let mut ctx = ::mirui::input::event::HandlerCtx {
-                        world: __world,
-                        entity: __entity,
-                        event: __event,
-                    };
                     let __consumed: bool =
                         ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
@@ -409,12 +519,6 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
             let arg = &h.args[0];
             count_arms.extend(quote! {
                 __c if __c == (#arg as u8) => {
-                    #[allow(unused_mut, unused_variables)]
-                    let mut ctx = ::mirui::input::event::HandlerCtx {
-                        world: __world,
-                        entity: __entity,
-                        event: __event,
-                    };
                     let __consumed: bool =
                         ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
@@ -426,8 +530,9 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
 
     quote! {
         ::mirui::input::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
+            #(let #field_idents = *#field_idents;)*
             let _ = ( #(#field_idents),* );
-            let __count = ::mirui::input::event::multi_tap::current_count(__world, __entity);
+            let __count = #handler_scope.tap_count();
             match __count {
                 #count_arms
                 #default
@@ -460,16 +565,6 @@ struct OnCmd {
     name: syn::Ident,
     args: Vec<syn::Expr>,
     body: syn::Block,
-}
-
-impl OnCmd {
-    fn synthesised_body_from_callback(callback: &syn::Expr) -> syn::Block {
-        syn::parse_quote! {
-            {
-                (#callback)(&mut ctx)
-            }
-        }
-    }
 }
 
 struct NicheCmd {
@@ -1150,9 +1245,19 @@ impl MiruiRune {
                     syn::Error::new(
                         h.name.span(),
                         format!(
-                            "parameters on `on {event_name}(...)` are reserved for a \
-                             later release; only `on Tap(n)` is parameterised in v0.27.x"
+                            "`on {event_name}` does not take arguments; only `on Tap(n)` accepts \
+                             one tap-count argument"
                         ),
+                    )
+                    .to_compile_error(),
+                );
+                continue;
+            }
+            if event_name == "Tap" && h.args.len() > 1 {
+                errors.extend(
+                    syn::Error::new(
+                        h.name.span(),
+                        "`on Tap` accepts at most one tap-count argument",
                     )
                     .to_compile_error(),
                 );
@@ -1165,30 +1270,46 @@ impl MiruiRune {
         tokens.extend(errors);
 
         if !gesture_arms.is_empty() {
+            let hidden_span = proc_macro2::Span::mixed_site();
+            let handler_world = syn::Ident::new("__mirui_event_world", hidden_span);
+            let handler_entity = syn::Ident::new("__mirui_event_entity", hidden_span);
+            let handler_event = syn::Ident::new("__mirui_event_value", hidden_span);
+            let handler_scope = syn::Ident::new("__mirui_event_scope", hidden_span);
+            let handler_queue = syn::Ident::new("__mirui_event_commands", hidden_span);
             let mut arms = proc_macro2::TokenStream::new();
             for (event_name, group) in &gesture_arms {
-                arms.extend(emit_event_arm(event_name, group));
+                arms.extend(emit_event_arm(event_name, group, &handler_scope));
             }
             // A closure (not a fn item) so the body can capture handles like a
             // Signal from the surrounding scope.
             tokens.extend(quote! {
-                (#world).insert(#widget_var, ::mirui::ui::HitTarget);
-                (#world).insert(
-                    #widget_var,
-                    ::mirui::input::event::GestureHandler {
-                        on_gesture: ::mirui::input::event::GestureCallback::Closure(::mirui::__Rc::new(
-                            move |__world: &mut ::mirui::ecs::World,
-                                  __entity: ::mirui::ecs::Entity,
-                                  __event: &::mirui::input::event::gesture::GestureEvent|
-                                  -> bool {
-                                match __event {
-                                    #arms
-                                    _ => false,
-                                }
-                            },
-                        )),
-                    },
-                );
+                {
+                    let #handler_queue =
+                        ::mirui::input::event::EventCommandQueue::new(#world);
+                    (#world).insert(#widget_var, ::mirui::ui::HitTarget);
+                    (#world).insert(
+                        #widget_var,
+                        ::mirui::input::event::GestureHandler {
+                            on_gesture: ::mirui::input::event::GestureCallback::Closure(
+                                ::mirui::__macro_support::__Rc::new(
+                                    move |#handler_world: &mut ::mirui::ecs::World,
+                                          #handler_entity: ::mirui::ecs::Entity,
+                                          #handler_event: &::mirui::input::event::gesture::GestureEvent|
+                                          -> bool {
+                                        #handler_queue.run(
+                                            #handler_world,
+                                            #handler_entity,
+                                            |#handler_scope| match #handler_event {
+                                                #arms
+                                                _ => false,
+                                            },
+                                        )
+                                    },
+                                ),
+                            ),
+                        },
+                    );
+                }
             });
         }
 
@@ -1593,7 +1714,7 @@ impl MiruiRune {
                     #body
                     (#world)
                         .get::<mirui::ui::Children>(__parent_e)
-                        .map_or_else(mirui::__Vec::new, |children| children.0[__start..].to_vec())
+                        .map_or_else(mirui::__macro_support::__Vec::new, |children| children.0[__start..].to_vec())
                 }
             }
         });
@@ -1607,7 +1728,7 @@ impl MiruiRune {
                 let __parent_e = #parent_var;
                 let __branches = [#(#build_branches),*];
                 mirui::ui::branch::prepare(#world, __parent_e, &__branches);
-                let __selected = mirui::__Cell::new(None::<usize>);
+                let __selected = mirui::__macro_support::__Cell::new(None::<usize>);
                 mirui::core::reactive::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __next = Some(match #read {
@@ -1642,7 +1763,7 @@ impl MiruiRune {
         });
         quote! {
             {
-                let __mounted = mirui::__RefCell::new(mirui::__Vec::<mirui::ecs::Entity>::new());
+                let __mounted = mirui::__macro_support::__RefCell::new(mirui::__macro_support::__Vec::<mirui::ecs::Entity>::new());
                 let __parent_e = #parent_var;
                 let __mount_index = (#world)
                     .get::<mirui::ui::Children>(__parent_e)
@@ -1745,14 +1866,14 @@ impl MiruiRune {
                     if let Some(children) = (#world).get_mut::<::mirui::ui::Children>(__slot_parent) {
                         children.0.push(#slot_var);
                     } else {
-                        (#world).insert(__slot_parent, ::mirui::ui::Children(::mirui::__Vec::from([#slot_var])));
+                        (#world).insert(__slot_parent, ::mirui::ui::Children(::mirui::__macro_support::__Vec::from([#slot_var])));
                     }
                     __mold_niche_map.insert(#slot_name, #slot_var);
                     #fallback
                 };
             }
             let msg = format!(
-                "ui!: `@@{}` is a slot declaration; use it inside `mold!` bodies, not `ui!` — call sites fill slots with the single-`@` form `@{}` {{ ... }}",
+                "ui!: `@@{}` is a slot declaration; use it inside `ui!(compose ...)` declarations — call sites fill slots with the single-`@` form `@{}` {{ ... }}",
                 cmd.name, cmd.name,
             );
             return quote! {
@@ -1811,7 +1932,7 @@ impl MiruiRune {
                 ),
             };
             {
-                let __existing: ::mirui::__Vec<::mirui::ecs::Entity> = (#world)
+                let __existing: ::mirui::__macro_support::__Vec<::mirui::ecs::Entity> = (#world)
                     .get::<::mirui::ui::Children>(#niche_var_ts)
                     .map(|c| c.0.clone())
                     .unwrap_or_default();
@@ -2053,7 +2174,7 @@ impl MiruiRune {
                     #body
                     (#world)
                         .get::<mirui::ui::Children>(__parent_e)
-                        .map_or_else(mirui::__Vec::new, |children| children.0[__start..].to_vec())
+                        .map_or_else(mirui::__macro_support::__Vec::new, |children| children.0[__start..].to_vec())
                 }
             }
         });
@@ -2084,7 +2205,7 @@ impl MiruiRune {
                 let __parent_e = #parent_var;
                 let __branches = [#(#build_branches),*];
                 mirui::ui::branch::prepare(#world, __parent_e, &__branches);
-                let __selected = mirui::__Cell::new(None::<usize>);
+                let __selected = mirui::__macro_support::__Cell::new(None::<usize>);
                 mirui::core::reactive::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __next: ::core::option::Option<usize> = #cascade;
@@ -2124,13 +2245,13 @@ impl MiruiRune {
 
         quote! {
             {
-                let __rows = mirui::__Rc::new(mirui::__RefCell::new(
-                    mirui::__Vec::<mirui::ecs::Entity>::new(),
+                let __rows = mirui::__macro_support::__Rc::new(mirui::__macro_support::__RefCell::new(
+                    mirui::__macro_support::__Vec::<mirui::ecs::Entity>::new(),
                 ));
                 let __parent_e = #parent_var;
                 mirui::core::reactive::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
-                        let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
+                        let __items: mirui::__macro_support::__Vec<_> = (#iterable).into_iter().collect();
                         mirui::core::reactive::with_world(|__w| {
                             let __n_new = __items.len();
                             let __n_old = __rows.borrow().len();
@@ -2181,15 +2302,15 @@ impl MiruiRune {
 
         quote! {
             {
-                let __rows = mirui::__Rc::new(mirui::__RefCell::new(mirui::__Vec::new()));
+                let __rows = mirui::__macro_support::__Rc::new(mirui::__macro_support::__RefCell::new(mirui::__macro_support::__Vec::new()));
                 let __parent_e = #parent_var;
                 mirui::core::reactive::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
-                        let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
+                        let __items: mirui::__macro_support::__Vec<_> = (#iterable).into_iter().collect();
                         mirui::core::reactive::with_world(|__w| {
-                            let mut __old: mirui::__Vec<_> = __rows.borrow_mut().drain(..).collect();
-                            let mut __new = mirui::__Vec::new();
-                            let mut __kept: mirui::__Vec<mirui::ecs::Entity> = mirui::__Vec::new();
+                            let mut __old: mirui::__macro_support::__Vec<_> = __rows.borrow_mut().drain(..).collect();
+                            let mut __new = mirui::__macro_support::__Vec::new();
+                            let mut __kept: mirui::__macro_support::__Vec<mirui::ecs::Entity> = mirui::__macro_support::__Vec::new();
                             for #variable in __items {
                                 let __k = #key_expr;
                                 if let Some(__i) = __old.iter().position(|(__ok, _)| *__ok == __k) {
@@ -2323,27 +2444,25 @@ impl DsRune for MiruiRune {
             enchant_tokens.push(quote! { #rewritten });
         }
 
-        let collected_on_handlers: Vec<OnCmd> = on_handlers
-            .iter()
-            .map(|h| {
-                let mut args = h.get_args().to_vec();
-                let body = match h.get_body() {
-                    Some(b) => b.clone(),
-                    None => {
-                        let callback = args
-                            .pop()
-                            .expect("DsOn parser already rejects empty args+no-body forms");
-                        OnCmd::synthesised_body_from_callback(&callback)
-                    }
-                };
-                OnCmd {
-                    qualifier: h.get_qualifier().cloned(),
-                    name: h.get_name().clone(),
-                    args,
-                    body,
-                }
-            })
-            .collect();
+        let mut collected_on_handlers = Vec::with_capacity(on_handlers.len());
+        for handler in on_handlers {
+            let Some(body) = handler.get_body() else {
+                enchant_tokens.push(
+                    syn::Error::new(
+                        handler.get_name().span(),
+                        "event handlers require a block body",
+                    )
+                    .to_compile_error(),
+                );
+                continue;
+            };
+            collected_on_handlers.push(OnCmd {
+                qualifier: handler.get_qualifier().cloned(),
+                name: handler.get_name().clone(),
+                args: handler.get_args().to_vec(),
+                body: body.clone(),
+            });
+        }
 
         self.stack.push(Vec::new());
         let pushed_widget_kind = kind == WidgetKind::Component;
@@ -2562,7 +2681,7 @@ impl DsRune for MiruiRune {
 ///
 /// The attribute rejects three shapes at expansion time:
 ///
-/// - non-function items — annotate a fn, or reach for `mold!(Name { ... })`
+/// - non-function items — annotate a fn, or use `ui!(compose Name { ... })`
 ///   when you want a full widget class.
 /// - `async fn` — cross-await UI state is a separate topic (v0.41+).
 /// - generic fn — parameter monomorphisation is deferred to a later release.
@@ -2604,11 +2723,7 @@ pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///   };
 ///   ```
 ///
-///   `world` and `parent` come from `cx.world_mut()` / `cx.parent()` by
-///   default. The legacy header form `ui! { :( parent world :) X }` still
-///   parses and takes precedence over the implicit `cx` lookup — useful
-///   for tests, one-off snapshots, or any code path that isn't inside an
-///   `#[compose]` fn.
+///   `world` and `parent` come from `cx.world_mut()` / `cx.parent()`.
 ///
 /// - **Fn-call form** (`ui!(func(args))`) rewrites a free-fn call to
 ///   `func(cx, args)`, threading the enclosing scope's `cx` into the callee
@@ -2646,41 +2761,20 @@ pub fn ui(input: TokenStream) -> TokenStream {
         Ok(input) => input,
         Err(error) => return error.to_compile_error().into(),
     };
-    let root = match syn::parse2::<DsRoot>(input2) {
-        Ok(r) => r,
+    let tree = match syn::parse2::<DsTree>(input2) {
+        Ok(tree) => tree.into_ref(),
         Err(e) => return e.to_compile_error().into(),
     };
     let mut rune = MiruiRune::new();
 
-    let context_attrs = root.get_context_attrs();
-    let world_override = context_attrs
-        .iter()
-        .find(|a| a.name.as_ref().is_some_and(|n| n == "world"))
-        .map(|a| {
-            let v = &a.value;
-            quote! { #v }
-        });
-    let parent_override = context_attrs
-        .iter()
-        .find(|a| a.name.as_ref().is_some_and(|n| n == "parent"))
-        .map(|a| {
-            let v = &a.value;
-            quote! { #v }
-        });
-
-    rune.world_expr = world_override
-        .clone()
-        .unwrap_or_else(|| quote! { cx.world_mut() });
+    rune.world_expr = quote! { cx.world_mut() };
     rune.parent_expr = quote! { __mirui_parent };
 
-    rune.inscribe_root(&root.get_parent());
-    let content = root.get_content();
-    decipher(&content, &mut rune);
+    decipher(&tree, &mut rune);
     let body = rune.seal();
 
-    let parent_bind = match parent_override {
-        Some(expr) => quote! { let __mirui_parent: ::mirui::ecs::Entity = #expr; },
-        None => quote! { let __mirui_parent: ::mirui::ecs::Entity = cx.parent(); },
+    let parent_bind = quote! {
+        let __mirui_parent: ::mirui::ecs::Entity = cx.parent();
     };
 
     let output = quote! {
@@ -3082,7 +3176,8 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
             let generated_event = closure.capture.is_some()
                 && closure.inputs.first().is_some_and(|input| {
                     matches!(input, syn::Pat::Type(typed)
-                        if matches!(&*typed.pat, syn::Pat::Ident(ident) if ident.ident == "__world"))
+                        if matches!(&*typed.pat, syn::Pat::Ident(ident)
+                            if ident.ident == "__mirui_event_world"))
                 });
             if generated_event {
                 self.wrap(expr);
@@ -3181,209 +3276,39 @@ pub fn scene(input: TokenStream) -> TokenStream {
     vector::expand_scene(input.into()).into()
 }
 
-/// ```rust,ignore
-/// timer!(Cycle, every: 3_000, |world, entity| { /* ... */ });
-/// // schedule: after: ms | every: ms | repeat: N every: ms | until: D every: ms
-/// ```
-///
-/// Sugar over `Timer::after / every / repeat / until`; all four share
-/// the generic `timer_system`, so N invocations don't grow the binary.
-#[proc_macro]
-pub fn timer(input: TokenStream) -> TokenStream {
-    timer_impl::expand(input.into()).into()
-}
-
-mod timer_impl {
-    use proc_macro2::TokenStream;
-    use quote::quote;
-    use syn::parse::{Parse, ParseStream};
-    use syn::{ExprClosure, Ident, LitInt, Token, parse2};
-
-    enum Schedule {
-        After(LitInt),
-        Every(LitInt),
-        Repeat { times: LitInt, period: LitInt },
-        Until { deadline: LitInt, period: LitInt },
-    }
-
-    struct TimerInput {
-        name: Ident,
-        schedule: Schedule,
-        closure: ExprClosure,
-    }
-
-    impl Parse for Schedule {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
-            let kind: Ident = input.parse()?;
-            input.parse::<Token![:]>()?;
-            let first: LitInt = input.parse()?;
-            match kind.to_string().as_str() {
-                "after" => Ok(Schedule::After(first)),
-                "every" => Ok(Schedule::Every(first)),
-                "repeat" => {
-                    // `repeat: N every: M`
-                    let kw: Ident = input.parse()?;
-                    if kw != "every" {
-                        return Err(syn::Error::new(
-                            kw.span(),
-                            "expected `every` after `repeat: N`",
-                        ));
-                    }
-                    input.parse::<Token![:]>()?;
-                    let period: LitInt = input.parse()?;
-                    Ok(Schedule::Repeat {
-                        times: first,
-                        period,
-                    })
-                }
-                "until" => {
-                    // `until: deadline every: period`
-                    let kw: Ident = input.parse()?;
-                    if kw != "every" {
-                        return Err(syn::Error::new(
-                            kw.span(),
-                            "expected `every` after `until: D`",
-                        ));
-                    }
-                    input.parse::<Token![:]>()?;
-                    let period: LitInt = input.parse()?;
-                    Ok(Schedule::Until {
-                        deadline: first,
-                        period,
-                    })
-                }
-                other => Err(syn::Error::new(
-                    kind.span(),
-                    format!(
-                        "unknown schedule keyword `{other}`; expected after / every / repeat / until"
-                    ),
-                )),
-            }
-        }
-    }
-
-    impl Parse for TimerInput {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
-            let name: Ident = input.parse()?;
-            input.parse::<Token![,]>()?;
-            let schedule: Schedule = input.parse()?;
-            input.parse::<Token![,]>()?;
-            let closure: ExprClosure = input.parse()?;
-            Ok(Self {
-                name,
-                schedule,
-                closure,
-            })
-        }
-    }
-
-    pub fn expand(input: TokenStream) -> TokenStream {
-        let parsed = match parse2::<TimerInput>(input) {
-            Ok(v) => v,
-            Err(e) => return e.to_compile_error(),
-        };
-
-        let name = &parsed.name;
-        let closure = &parsed.closure;
-
-        let ctor = match &parsed.schedule {
-            Schedule::After(p) => quote! { mirui::core::timer::Timer::after(#p, __cb) },
-            Schedule::Every(p) => quote! { mirui::core::timer::Timer::every(#p, __cb) },
-            Schedule::Repeat { times, period } => {
-                quote! { mirui::core::timer::Timer::repeat(#times, #period, __cb) }
-            }
-            Schedule::Until { deadline, period } => {
-                quote! { mirui::core::timer::Timer::until(#deadline, #period, __cb) }
-            }
-        };
-
-        quote! {
-            pub struct #name;
-            impl #name {
-                pub fn install(world: &mut mirui::ecs::World) -> mirui::ecs::Entity {
-                    let __cb: fn(&mut mirui::ecs::World, mirui::ecs::Entity) = #closure;
-                    let e = world.spawn_empty();
-                    world.insert(e, #ctor);
-                    e
-                }
-            }
-        }
-    }
-}
-
-/// Define a motion component (Tween or Spring) + its tick/apply system.
+/// Declares a timer body and its schedule.
 ///
 /// ```rust,ignore
-/// animate!(AnimateX, |world, entity, value| {
-///     mirui::ui::set_position(world, entity, value, Fixed::from_int(2));
-/// });
+/// #[timer(every = 3_000)]
+/// fn cycle(model: model!(CycleModel), timer: entity!(), commands: commands!()) {
+///     model.advance();
+///     commands.insert(timer, CycleMarker);
+/// }
 ///
-/// // Generated:
-/// // - struct AnimateX(pub mirui::anim::Motion)
-/// // - impl MotionComponent for AnimateX
-/// // - AnimateX::system() -> fn(&mut World)
-/// //
-/// // Usage:
-/// //   app.add_system(AnimateX::system());
-/// //   world.insert(e, AnimateX(Tween::ease_to(from, to, 250).into()));
-/// //   world.insert(e, AnimateX(Spring::preset(from, to, SMOOTH).into()));
+/// app.add_timer(cycle::timer(model));
 /// ```
-#[proc_macro]
-pub fn animate(input: TokenStream) -> TokenStream {
-    animate_impl::expand(input.into()).into()
+#[proc_macro_attribute]
+pub fn timer(args: TokenStream, item: TokenStream) -> TokenStream {
+    timer_attr::expand(args.into(), item.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
-mod animate_impl {
-    use proc_macro2::TokenStream;
-    use quote::quote;
-    use syn::parse::{Parse, ParseStream};
-    use syn::{ExprClosure, Ident, Token, parse2};
-
-    struct AnimateInput {
-        name: Ident,
-        closure: ExprClosure,
-    }
-
-    impl Parse for AnimateInput {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
-            let name: Ident = input.parse()?;
-            input.parse::<Token![,]>()?;
-            let closure: ExprClosure = input.parse()?;
-            Ok(Self { name, closure })
-        }
-    }
-
-    pub fn expand(input: TokenStream) -> TokenStream {
-        let parsed = match parse2::<AnimateInput>(input) {
-            Ok(v) => v,
-            Err(e) => return e.to_compile_error(),
-        };
-
-        let name = &parsed.name;
-        let closure = &parsed.closure;
-
-        quote! {
-            pub struct #name(pub mirui::anim::Motion);
-
-            impl mirui::anim::MotionComponent for #name {
-                fn motion(&self) -> &mirui::anim::Motion { &self.0 }
-                fn motion_mut(&mut self) -> &mut mirui::anim::Motion { &mut self.0 }
-            }
-
-            impl #name {
-                pub fn system() -> mirui::ecs::System {
-                    fn __sys(world: &mut mirui::ecs::World) {
-                        mirui::anim::run_motion::<#name>(world, #closure);
-                    }
-                    mirui::ecs::System::new(
-                        stringify!(#name),
-                        mirui::ecs::run_order::ANIMATION,
-                        __sys,
-                    )
-                }
-            }
-        }
-    }
+/// Declares the typed update body for a motion component.
+///
+/// ```rust,ignore
+/// #[animate(component = AnimateX)]
+/// fn apply_x(value: motion!(), style: component!(mut Style)) {
+///     style.layout.left = Dimension::Px(value);
+/// }
+///
+/// app.add_system(AnimateX::system());
+/// ```
+#[proc_macro_attribute]
+pub fn animate(args: TokenStream, item: TokenStream) -> TokenStream {
+    animate_attr::expand(args.into(), item.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
 
 /// Mints unique guard idents for `trace_span!` so multiple calls in
@@ -3465,300 +3390,20 @@ pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
     quote::quote! { #func }.into()
 }
 
-mod system_attr {
-    use syn::parse::{Parse, ParseStream};
-    use syn::{Expr, Ident, LitStr, Token, Type, bracketed, parenthesized, punctuated::Punctuated};
-
-    pub struct SystemArgs {
-        pub name: Option<LitStr>,
-        pub order: Option<Expr>,
-        /// Component type(s) gating this system. Empty = always runs.
-        /// Multiple entries are OR-combined (any present triggers run).
-        pub expect: Vec<Type>,
-        pub bind: Vec<Ident>,
-    }
-
-    impl Parse for SystemArgs {
-        fn parse(input: ParseStream) -> syn::Result<Self> {
-            let mut name: Option<LitStr> = None;
-            let mut order: Option<Expr> = None;
-            let mut expect: Vec<Type> = Vec::new();
-            let mut bind: Vec<Ident> = Vec::new();
-            while !input.is_empty() {
-                let key: Ident = input.parse()?;
-                if key == "bind" {
-                    let content;
-                    parenthesized!(content in input);
-                    let names: Punctuated<Ident, Token![,]> =
-                        content.parse_terminated(Ident::parse, Token![,])?;
-                    if names.is_empty() {
-                        return Err(syn::Error::new(
-                            key.span(),
-                            "bind requires a parameter name",
-                        ));
-                    }
-                    for name in names {
-                        if bind.contains(&name) {
-                            return Err(syn::Error::new(name.span(), "duplicate bound parameter"));
-                        }
-                        bind.push(name);
-                    }
-                    if !input.is_empty() {
-                        input.parse::<Token![,]>()?;
-                    }
-                    continue;
-                }
-                input.parse::<Token![=]>()?;
-                match key.to_string().as_str() {
-                    "name" => name = Some(input.parse()?),
-                    "order" => order = Some(input.parse()?),
-                    "expect" => {
-                        if input.peek(syn::token::Bracket) {
-                            let content;
-                            bracketed!(content in input);
-                            let types: Punctuated<Type, Token![,]> =
-                                content.parse_terminated(Type::parse, Token![,])?;
-                            expect.extend(types);
-                        } else {
-                            expect.push(input.parse()?);
-                        }
-                    }
-                    other => {
-                        return Err(syn::Error::new(
-                            key.span(),
-                            format!(
-                                "unknown #[system] arg `{other}`; expected `name`, `order`, `expect`, or `bind(...)`",
-                            ),
-                        ));
-                    }
-                }
-                if input.is_empty() {
-                    break;
-                }
-                input.parse::<Token![,]>()?;
-            }
-            Ok(Self {
-                name,
-                order,
-                expect,
-                bind,
-            })
-        }
-    }
-}
-
-/// Attach perf-aware metadata to a system function.
+/// Declare a scheduled system using explicit model, resource, query, and
+/// deferred-command roles.
 ///
-/// Generates a sibling module sharing the fn's ident exposing
-/// `system()` returning a [`mirui::ecs::System`] with the configured
-/// name + run_order slot. The fn itself is left intact so direct
-/// calls (tests, manual invocation) still work.
-///
-/// ```ignore
-/// #[mirui::system(order = ANIMATION)]
-/// fn spin_system(world: &mut World) { /* ... */ }
-///
-/// spin_system(world);                     // direct call
-/// app.add_system(spin_system::system());  // scheduled
-/// ```
-///
-/// Defaults: `name` derives from the fn ident; `order` defaults to
-/// `run_order::NORMAL`. `order` accepts either a `run_order::*`
-/// constant or a literal `i32`. With `bind(model)`, a `&Model` parameter
-/// receives the registered handle and other parameters read `Copy` resources.
+/// The generated module shares the function name and exposes `system()` for
+/// registration. Use `model!(T)` for registered model instances, `res!(...)`
+/// for resources, `query!(...)` for component access, and `commands!()` for
+/// deferred structural changes. `order` accepts a bare `SystemSlot` variant
+/// such as `Animation`; omitting it selects `Normal`. The authored
+/// function body cannot access `World` directly.
 #[proc_macro_attribute]
 pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as system_attr::SystemArgs);
-    let func = parse_macro_input!(item as syn::ItemFn);
-    let fn_ident = &func.sig.ident;
-    let fn_vis = &func.vis;
-    let name_lit = args
-        .name
-        .unwrap_or_else(|| syn::LitStr::new(&fn_ident.to_string(), fn_ident.span()));
-    let order_expr: syn::Expr = match args.order {
-        Some(e) => e,
-        None => syn::parse_quote!(mirui::ecs::run_order::NORMAL),
-    };
-    let expect_const_ident =
-        quote::format_ident!("__MIRUI_EXPECT_{}", fn_ident.to_string().to_uppercase());
-    let expect_outer = if args.expect.is_empty() {
-        quote::quote! {}
-    } else {
-        let entries = args.expect.iter().map(|ty| {
-            quote::quote! { (::core::any::TypeId::of::<#ty>) as fn() -> ::core::any::TypeId }
-        });
-        quote::quote! {
-            #[doc(hidden)]
-            #[allow(non_upper_case_globals)]
-            const #expect_const_ident: &[fn() -> ::core::any::TypeId] = &[ #(#entries),* ];
-        }
-    };
-    let with_expect_call = if args.expect.is_empty() {
-        quote::quote! {}
-    } else {
-        quote::quote! { .with_expect(super::#expect_const_ident) }
-    };
-    if !args.bind.is_empty() {
-        return expand_bound_system(
-            func,
-            args.bind,
-            name_lit,
-            order_expr,
-            expect_outer,
-            with_expect_call,
-        )
+    system_attr_v2::expand(args.into(), item.into())
         .unwrap_or_else(syn::Error::into_compile_error)
-        .into();
-    }
-    quote::quote! {
-        #func
-        #expect_outer
-
-        #[allow(non_snake_case, non_camel_case_types)]
-        #fn_vis mod #fn_ident {
-            #[allow(unused_imports)]
-            use mirui::ecs::run_order::*;
-            pub const fn system() -> mirui::ecs::System {
-                mirui::ecs::System::new(#name_lit, #order_expr, super::#fn_ident) #with_expect_call
-            }
-        }
-    }
-    .into()
-}
-
-fn expand_bound_system(
-    mut func: syn::ItemFn,
-    bind: Vec<syn::Ident>,
-    name: syn::LitStr,
-    order: syn::Expr,
-    expect_outer: proc_macro2::TokenStream,
-    with_expect: proc_macro2::TokenStream,
-) -> syn::Result<proc_macro2::TokenStream> {
-    let fn_ident = &func.sig.ident;
-    let visibility = &func.vis;
-    let mut bound = Vec::new();
-    let mut resources = Vec::new();
-    let mut call_args = Vec::new();
-    for input in &mut func.sig.inputs {
-        let syn::FnArg::Typed(param) = input else {
-            return Err(syn::Error::new_spanned(
-                input,
-                "systems cannot have a receiver",
-            ));
-        };
-        let syn::Pat::Ident(pattern) = &*param.pat else {
-            return Err(syn::Error::new_spanned(
-                &param.pat,
-                "system parameters must be named",
-            ));
-        };
-        let ident = pattern.ident.clone();
-        if bind.contains(&ident) {
-            let syn::Type::Reference(reference) = &*param.ty else {
-                return Err(syn::Error::new_spanned(
-                    &param.ty,
-                    "bound models use `&Model`",
-                ));
-            };
-            if reference.mutability.is_some() {
-                return Err(syn::Error::new_spanned(
-                    &param.ty,
-                    "bound models cannot be mutably borrowed",
-                ));
-            }
-            let model_type = (*reference.elem).clone();
-            *param.ty = syn::parse_quote!(
-                &<#model_type as ::mirui::core::model::BindType>::Shared
-            );
-            bound.push((ident.clone(), model_type));
-            call_args.push(quote::quote!(&#ident));
-        } else {
-            let resource_type = &param.ty;
-            if matches!(&**resource_type, syn::Type::Reference(_)) {
-                return Err(syn::Error::new_spanned(
-                    resource_type,
-                    "system resources must be Copy values",
-                ));
-            }
-            let optional = match &**resource_type {
-                syn::Type::Path(path) => path.path.segments.last().and_then(|segment| {
-                    if segment.ident != "Option" {
-                        return None;
-                    }
-                    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-                        return None;
-                    };
-                    match arguments.args.first() {
-                        Some(syn::GenericArgument::Type(inner)) => Some(inner.clone()),
-                        _ => None,
-                    }
-                }),
-                _ => None,
-            };
-            if let Some(inner) = optional {
-                resources.push(quote::quote! {
-                    let #ident = world.resource::<#inner>().copied();
-                });
-            } else {
-                resources.push(quote::quote! {
-                    let #ident = world.resource::<#resource_type>().copied()
-                        .expect(concat!("missing system resource `", stringify!(#resource_type), "`"));
-                });
-            }
-            call_args.push(quote::quote!(#ident));
-        }
-    }
-    let ordered: Vec<_> = bind
-        .iter()
-        .map(|name| {
-            bound
-                .iter()
-                .find(|(ident, _)| ident == name)
-                .ok_or_else(|| syn::Error::new(name.span(), "bound name is not a system parameter"))
-        })
-        .collect::<syn::Result<_>>()?;
-    let (first_name, _) = ordered
-        .first()
-        .expect("non-empty bind list was checked by parser");
-    let inputs = ordered.iter().map(|(ident, model_type)| {
-        quote::quote!(#ident: <#model_type as ::mirui::core::model::BindType>::Shared)
-    });
-    let captures = ordered.iter().map(
-        |(ident, _)| quote::quote!(let #ident = ::mirui::core::model::SharedValue::share(&#ident);),
-    );
-    let other_models = ordered
-        .iter()
-        .skip(1)
-        .map(|(ident, _)| quote::quote!(.with_model(&#ident)));
-    Ok(quote::quote! {
-        #func
-        #expect_outer
-
-        #[allow(non_snake_case, non_camel_case_types)]
-        #visibility mod #fn_ident {
-            #[allow(unused_imports)]
-            use super::*;
-            #[allow(unused_imports)]
-            use ::mirui::ecs::run_order::*;
-            pub fn system(#(#inputs),*) -> ::mirui::ecs::System {
-                let callback = {
-                    #(#captures)*
-                    move |world: &mut ::mirui::ecs::World| {
-                        #(#resources)*
-                        super::#fn_ident(#(#call_args),*);
-                    }
-                };
-                ::mirui::ecs::System::bound(#name, #order, &#first_name, callback)
-                    #(#other_models)* #with_expect
-            }
-        }
-    })
-}
-
-#[proc_macro_derive(Component)]
-pub fn derive_component(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::DeriveInput);
-    component_attr::marker_impl(&input.ident, &input.generics).into()
+        .into()
 }
 
 #[cfg(test)]

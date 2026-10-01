@@ -424,8 +424,15 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
                 &self,
                 world: &::mirui::ecs::World,
                 entity: ::mirui::ecs::Entity,
+                invalidation: ::mirui::core::model::ModelInvalidation,
             ) -> ::mirui::core::model::ModelSubscription {
-                ::mirui::core::model::ModelHandle::subscribe_observed(self, #index, world, entity)
+                ::mirui::core::model::ModelHandle::subscribe_observed(
+                    self,
+                    #index,
+                    world,
+                    entity,
+                    invalidation,
+                )
             }
         }
     });
@@ -457,8 +464,15 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
                     &self,
                     world: &::mirui::ecs::World,
                     entity: ::mirui::ecs::Entity,
+                    invalidation: ::mirui::core::model::ModelInvalidation,
                 ) -> ::mirui::core::model::ModelSubscription {
-                    ::mirui::core::model::ModelHandle::subscribe_watch(self, #index, world, entity)
+                    ::mirui::core::model::ModelHandle::subscribe_watch(
+                        self,
+                        #index,
+                        world,
+                        entity,
+                        invalidation,
+                    )
                 }
             }
         });
@@ -485,7 +499,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         #snapshot_definition
 
         #visibility struct #handle #generics #where_clause {
-            cell: ::mirui::__Weak<::mirui::core::model::ModelCell<#name #type_generics>>,
+            cell: ::mirui::__macro_support::__Weak<::mirui::core::model::ModelCell<#name #type_generics>>,
         }
 
         impl #impl_generics ::core::clone::Clone for #handle #type_generics #where_clause {
@@ -502,7 +516,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             type Watches = [::mirui::core::model::ModelWatch; #watch_count];
 
             fn handle(
-                cell: ::mirui::__Weak<::mirui::core::model::ModelCell<Self>>,
+                cell: ::mirui::__macro_support::__Weak<::mirui::core::model::ModelCell<Self>>,
             ) -> Self::Handle {
                 #handle { cell }
             }
@@ -531,7 +545,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         impl #impl_generics ::mirui::core::model::ModelHandle for #handle #type_generics #model_where {
             type Data = #name #type_generics;
 
-            fn cell(&self) -> &::mirui::__Weak<::mirui::core::model::ModelCell<Self::Data>> {
+            fn cell(&self) -> &::mirui::__macro_support::__Weak<::mirui::core::model::ModelCell<Self::Data>> {
                 &self.cell
             }
         }
@@ -898,8 +912,15 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 &self,
                 world: &::mirui::ecs::World,
                 entity: ::mirui::ecs::Entity,
+                invalidation: ::mirui::core::model::ModelInvalidation,
             ) -> ::mirui::core::model::ModelSubscription {
-                ::mirui::core::model::ModelHandle::subscribe_derived(self, #index, world, entity)
+                ::mirui::core::model::ModelHandle::subscribe_derived(
+                    self,
+                    #index,
+                    world,
+                    entity,
+                    invalidation,
+                )
             }
         }
     });

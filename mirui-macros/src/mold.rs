@@ -62,7 +62,7 @@ impl Parse for MoldInput {
         if children.is_empty() {
             return Err(syn::Error::new_spanned(
                 &name,
-                "mold! body must declare at least one node (widget tree or `@@slot`)",
+                "`ui!(compose ...)` must declare at least one node (widget tree or `@@slot`)",
             ));
         }
         Ok(MoldInput::Decl {

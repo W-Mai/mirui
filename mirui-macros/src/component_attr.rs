@@ -1,94 +1,102 @@
+use crate::binding::{BindingCardinality, BindingSource, BindingSpec, ModelSource};
 use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{Fields, Item, Meta, Path, punctuated::Punctuated, spanned::Spanned};
+use quote::{ToTokens, quote};
+use syn::visit::Visit;
+use syn::{
+    Field, Fields, Generics, Item, Meta, Path, Type, punctuated::Punctuated, spanned::Spanned,
+};
 
 pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-    let bindings = parse_bindings(attr)?;
+    reject_attribute_arguments(attr)?;
     let mut item = syn::parse2::<Item>(item)?;
     let (name, generics, clone_impl) = match &mut item {
         Item::Struct(item) => {
-            reject_component_derive(&item.attrs)?;
-            let clone_impl = if bindings.is_empty() {
-                None
-            } else {
-                let Fields::Named(fields) = &mut item.fields else {
-                    return Err(syn::Error::new_spanned(
-                        &item.fields,
-                        "bound components require named fields",
-                    ));
-                };
-                for binding in &bindings {
-                    let Some(field) = fields
-                        .named
-                        .iter_mut()
-                        .find(|field| field.ident.as_ref() == Some(binding))
-                    else {
-                        return Err(syn::Error::new_spanned(
-                            binding,
-                            "bound name is not a component field",
-                        ));
-                    };
-                    let declared = field.ty.clone();
-                    // A cfg-gated field may name a type that does not exist in
-                    // the other configuration. Its bound must be supplied by
-                    // the declaration when the field is enabled.
-                    if !field.attrs.iter().any(|attr| may_remove_field(&attr.meta)) {
-                        item.generics
-                            .make_where_clause()
-                            .predicates
-                            .push(syn::parse_quote!(#declared: ::mirui::core::model::BindType));
+            let clone_impl = match &mut item.fields {
+                Fields::Named(fields) => {
+                    let mut model_fields = Vec::new();
+                    for field in &mut fields.named {
+                        if lower_model_field(field, &mut item.generics)? {
+                            model_fields.push(field.ident.clone().expect("named field"));
+                        }
                     }
-                    field.ty = syn::parse_quote!(
-                        <#declared as ::mirui::core::model::BindType>::Shared
-                    );
-                }
-                let clone_requested = take_clone_derive(&mut item.attrs)?;
-                clone_requested.then(|| {
-                    let clone_fields: Vec<_> = fields
-                        .named
-                        .iter()
-                        .map(|field| {
-                            let name = field.ident.as_ref().expect("named field");
-                            let conditional_attrs = field
-                                .attrs
+
+                    if model_fields.is_empty() {
+                        None
+                    } else {
+                        let clone_requested = take_clone_derive(&mut item.attrs)?;
+                        clone_requested.then(|| {
+                            let clone_fields: Vec<_> = fields
+                                .named
                                 .iter()
-                                .filter(|attr| may_remove_field(&attr.meta));
-                            quote!(#(#conditional_attrs)* #name: self.#name.clone())
-                        })
-                        .collect();
-                    let mut clone_generics = item.generics.clone();
-                    for field in &fields.named {
-                        if !field.attrs.iter().any(|attr| may_remove_field(&attr.meta)) {
-                            let field_type = &field.ty;
-                            clone_generics
-                                .make_where_clause()
-                                .predicates
-                                .push(syn::parse_quote!(#field_type: ::core::clone::Clone));
-                        }
-                    }
-                    let (impl_generics, type_generics, where_clause) =
-                        clone_generics.split_for_impl();
-                    let name = &item.ident;
-                    quote! {
-                        impl #impl_generics ::core::clone::Clone for #name #type_generics #where_clause {
-                            fn clone(&self) -> Self {
-                                Self { #(#clone_fields),* }
+                                .map(|field| {
+                                    let name = field.ident.as_ref().expect("named field");
+                                    let conditional_attrs = field
+                                        .attrs
+                                        .iter()
+                                        .filter(|attr| may_remove_field(&attr.meta));
+                                    quote!(#(#conditional_attrs)* #name: self.#name.clone())
+                                })
+                                .collect();
+                            let mut clone_generics = item.generics.clone();
+                            for field in &fields.named {
+                                let name = field.ident.as_ref().expect("named field");
+                                if model_fields.contains(name) {
+                                    continue;
+                                }
+                                if field
+                                    .attrs
+                                    .iter()
+                                    .any(|attr| may_remove_field(&attr.meta))
+                                {
+                                    for parameter in
+                                        referenced_type_parameters(&field.ty, &clone_generics)
+                                    {
+                                        push_where_predicate_once(
+                                            &mut clone_generics,
+                                            syn::parse_quote!(
+                                                #parameter: ::core::clone::Clone
+                                            ),
+                                        );
+                                    }
+                                } else {
+                                    let field_type = &field.ty;
+                                    push_where_predicate_once(
+                                        &mut clone_generics,
+                                        syn::parse_quote!(#field_type: ::core::clone::Clone),
+                                    );
+                                }
                             }
-                        }
+                            let (impl_generics, type_generics, where_clause) =
+                                clone_generics.split_for_impl();
+                            let name = &item.ident;
+                            quote! {
+                                impl #impl_generics ::core::clone::Clone for #name #type_generics #where_clause {
+                                    fn clone(&self) -> Self {
+                                        Self { #(#clone_fields),* }
+                                    }
+                                }
+                            }
+                        })
                     }
-                })
+                }
+                fields => {
+                    reject_model_roles(
+                        fields,
+                        "`model!(...)` fields require a component struct with named fields",
+                    )?;
+                    None
+                }
             };
             (item.ident.clone(), item.generics.clone(), clone_impl)
         }
-        Item::Enum(item) if bindings.is_empty() => {
-            reject_component_derive(&item.attrs)?;
-            (item.ident.clone(), item.generics.clone(), None)
-        }
         Item::Enum(item) => {
-            return Err(syn::Error::new_spanned(
-                item,
-                "bound components require a struct with named fields",
-            ));
+            for variant in &item.variants {
+                reject_model_roles(
+                    &variant.fields,
+                    "`model!(...)` fields are not supported in component enums; use a named-field struct",
+                )?;
+            }
+            (item.ident.clone(), item.generics.clone(), None)
         }
         other => {
             return Err(syn::Error::new_spanned(
@@ -97,12 +105,157 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             ));
         }
     };
-    let marker = marker_impl(&name, &generics);
-    Ok(quote! {
+    Ok(component_output(item, &name, &generics, clone_impl))
+}
+
+fn component_output(
+    item: impl quote::ToTokens,
+    name: &syn::Ident,
+    generics: &syn::Generics,
+    clone_impl: Option<TokenStream>,
+) -> TokenStream {
+    let marker = marker_impl(name, generics);
+    quote! {
         #item
         #marker
         #clone_impl
-    })
+    }
+}
+
+fn reject_attribute_arguments(attr: TokenStream) -> syn::Result<()> {
+    if attr.is_empty() {
+        return Ok(());
+    }
+    Err(syn::Error::new_spanned(
+        attr,
+        "`#[component]` does not accept arguments; declare Model fields with `model!(T)`",
+    ))
+}
+
+fn lower_model_field(field: &mut Field, generics: &mut syn::Generics) -> syn::Result<bool> {
+    reject_non_model_role(&field.ty)?;
+    let name = field.ident.clone().expect("named component field");
+    let Some(binding) = BindingSpec::parse_model_type_role(name, &field.ty)? else {
+        return Ok(false);
+    };
+    let BindingSource::Model(ModelSource::Registered { ty: declared }) = binding.source else {
+        return Err(syn::Error::new(
+            binding.syntax.span(),
+            "component Model fields must use `model!(T)` or `model!(optional T)`",
+        ));
+    };
+
+    if field.attrs.iter().any(|attr| may_remove_field(&attr.meta)) {
+        // Stable Rust cannot attach `cfg` to one where predicate. Existing
+        // generic parameters are always in scope, so constraining only those
+        // closes the enabled projection without leaking a cfg-only concrete
+        // type into the disabled configuration.
+        for parameter in referenced_type_parameters(&declared, generics) {
+            push_where_predicate_once(
+                generics,
+                syn::parse_quote!(#parameter: ::mirui::core::model::BindType),
+            );
+        }
+    } else {
+        push_where_predicate_once(
+            generics,
+            syn::parse_quote!(#declared: ::mirui::core::model::BindType),
+        );
+    }
+
+    field.ty = match binding.cardinality {
+        BindingCardinality::Required => syn::parse_quote!(
+            <#declared as ::mirui::core::model::BindType>::Shared
+        ),
+        BindingCardinality::Optional => syn::parse_quote!(
+            ::core::option::Option<<#declared as ::mirui::core::model::BindType>::Shared>
+        ),
+        BindingCardinality::Many => unreachable!("Model fields are never plural"),
+    };
+    Ok(true)
+}
+
+fn reject_model_roles(fields: &Fields, message: &str) -> syn::Result<()> {
+    for field in fields {
+        reject_non_model_role(&field.ty)?;
+        let name = field
+            .ident
+            .clone()
+            .unwrap_or_else(|| syn::Ident::new("__model", field.ty.span()));
+        if let Some(binding) = BindingSpec::parse_model_type_role(name, &field.ty)? {
+            return Err(syn::Error::new(binding.syntax.span(), message));
+        }
+    }
+    Ok(())
+}
+
+fn reject_non_model_role(ty: &Type) -> syn::Result<()> {
+    let Type::Macro(type_role) = ty else {
+        return Ok(());
+    };
+    let Some(role) = type_role.mac.path.get_ident() else {
+        return Ok(());
+    };
+    if !matches!(
+        role.to_string().as_str(),
+        "res" | "query" | "commands" | "component" | "entity" | "draw" | "rect" | "view" | "motion"
+    ) {
+        return Ok(());
+    }
+    Err(syn::Error::new(
+        type_role.mac.span(),
+        format!(
+            "binding role `{role}!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`"
+        ),
+    ))
+}
+
+fn referenced_type_parameters(ty: &Type, generics: &Generics) -> Vec<syn::Ident> {
+    struct TypeParameters<'a> {
+        candidates: &'a [syn::Ident],
+        found: Vec<syn::Ident>,
+    }
+
+    impl<'ast> Visit<'ast> for TypeParameters<'_> {
+        fn visit_type_path(&mut self, path: &'ast syn::TypePath) {
+            if path.qself.is_none()
+                && path.path.segments.len() == 1
+                && let Some(segment) = path.path.segments.first()
+                && let Some(parameter) = self
+                    .candidates
+                    .iter()
+                    .find(|candidate| **candidate == segment.ident)
+                && !self.found.contains(parameter)
+            {
+                self.found.push(parameter.clone());
+            }
+            syn::visit::visit_type_path(self, path);
+        }
+    }
+
+    let candidates: Vec<_> = generics
+        .type_params()
+        .map(|parameter| parameter.ident.clone())
+        .collect();
+    let mut visitor = TypeParameters {
+        candidates: &candidates,
+        found: Vec::new(),
+    };
+    visitor.visit_type(ty);
+    visitor.found
+}
+
+fn push_where_predicate_once(generics: &mut Generics, predicate: syn::WherePredicate) {
+    let rendered = predicate.to_token_stream().to_string();
+    if generics.where_clause.as_ref().is_some_and(|clause| {
+        clause
+            .predicates
+            .iter()
+            .any(|existing| existing.to_token_stream().to_string() == rendered)
+    }) {
+        return;
+    }
+    generics.make_where_clause().predicates.push(predicate);
 }
 
 pub(crate) fn marker_impl(name: &syn::Ident, generics: &syn::Generics) -> TokenStream {
@@ -131,55 +284,6 @@ fn may_remove_field(meta: &Meta) -> bool {
     list.parse_args_with(Punctuated::<Meta, syn::Token![,]>::parse_terminated)
         .map(|nested| nested.iter().skip(1).any(may_remove_field))
         .unwrap_or(true)
-}
-
-fn parse_bindings(attr: TokenStream) -> syn::Result<Vec<syn::Ident>> {
-    if attr.is_empty() {
-        return Ok(Vec::new());
-    }
-    let Meta::List(meta) = syn::parse2::<Meta>(attr)? else {
-        return Err(syn::Error::new(
-            proc_macro2::Span::call_site(),
-            "expected bind(name, ...)",
-        ));
-    };
-    if !meta.path.is_ident("bind") {
-        return Err(syn::Error::new_spanned(
-            meta.path,
-            "expected bind(name, ...)",
-        ));
-    }
-    let names = meta.parse_args_with(Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated)?;
-    if names.is_empty() {
-        return Err(syn::Error::new(
-            meta.span(),
-            "bind requires at least one field",
-        ));
-    }
-    let mut unique = Vec::new();
-    for name in names {
-        if unique.contains(&name) {
-            return Err(syn::Error::new_spanned(name, "duplicate bound field"));
-        }
-        unique.push(name);
-    }
-    Ok(unique)
-}
-
-fn reject_component_derive(attrs: &[syn::Attribute]) -> syn::Result<()> {
-    for attr in attrs {
-        if derive_paths(attr)?.iter().any(|path| {
-            path.segments
-                .last()
-                .is_some_and(|segment| segment.ident == "Component")
-        }) {
-            return Err(syn::Error::new_spanned(
-                attr,
-                "#[component] already implements Component; remove derive(Component)",
-            ));
-        }
-    }
-    Ok(())
 }
 
 fn take_clone_derive(attrs: &mut Vec<syn::Attribute>) -> syn::Result<bool> {
@@ -237,43 +341,17 @@ mod tests {
     use syn::parse_quote;
 
     #[test]
-    fn rejects_unknown_and_duplicate_bound_fields() {
-        assert!(
-            expand(
-                quote!(bind(missing)),
-                quote!(
-                    struct Board {
-                        model: Model,
-                    }
-                )
-            )
-            .is_err()
-        );
-        assert!(
-            expand(
-                quote!(bind(model, model)),
-                quote!(
-                    struct Board {
-                        model: Model,
-                    }
-                )
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn rejects_duplicate_component_marker() {
-        assert!(
-            expand(
-                quote!(),
-                quote!(
-                    #[derive(Component)]
-                    struct Board;
-                )
-            )
-            .is_err()
-        );
+    fn rejects_attribute_arguments() {
+        let error = expand(
+            quote!(unexpected),
+            quote!(
+                struct Board {
+                    model: model!(Model),
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("does not accept arguments"));
     }
 
     #[test]
@@ -281,35 +359,103 @@ mod tests {
         assert!(expand(quote!(), quote!(union Bits { value: u8 })).is_err());
         assert!(
             expand(
-                quote!(bind(model)),
+                quote!(),
                 quote!(
-                    struct Board(Model);
+                    struct PlainTuple(u8);
                 )
             )
-            .is_err()
+            .is_ok()
         );
         assert!(
             expand(
-                quote!(bind(model)),
+                quote!(),
                 quote!(
-                    enum Board {
-                        Empty,
+                    enum PlainEnum {
+                        Value(u8),
                     }
                 )
             )
-            .is_err()
+            .is_ok()
         );
+
+        let tuple = expand(
+            quote!(),
+            quote!(
+                struct Board(model!(Model));
+            ),
+        )
+        .unwrap_err();
+        assert!(tuple.to_string().contains("named fields"));
+        let enumeration = expand(
+            quote!(),
+            quote!(
+                enum Board {
+                    Value { model: model!(Model) },
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(enumeration.to_string().contains("component enums"));
+    }
+
+    #[test]
+    fn lowers_required_and_optional_model_fields() {
+        let output = expand(
+            quote!(),
+            quote! {
+                struct Board<T> {
+                    game: model!(T),
+                    selection: model!(optional Selection),
+                    label: u8,
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("game : < T as :: mirui :: core :: model :: BindType > :: Shared"));
+        assert!(output.contains(
+            "selection : :: core :: option :: Option < < Selection as :: mirui :: core :: model :: BindType > :: Shared >"
+        ));
+        assert!(output.contains("label : u8"));
+        assert!(output.contains("T : :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("Selection : :: mirui :: core :: model :: BindType"));
+    }
+
+    #[test]
+    fn rejects_projection_and_malformed_model_roles() {
+        let projection = expand(
+            quote!(),
+            quote!(
+                struct Board {
+                    game: model!(other.game),
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(projection.to_string().contains("must use `model!(T)`"));
+
+        let empty = expand(
+            quote!(),
+            quote!(
+                struct Board {
+                    game: model!(),
+                }
+            ),
+        )
+        .unwrap_err();
+        assert!(empty.to_string().contains("expects a model type"));
     }
 
     #[test]
     fn custom_clone_accepts_qualified_derive_and_preserves_conditional_fields() {
         let output = expand(
-            quote!(bind(model)),
+            quote!(),
             quote! {
                 #[derive(::core::clone::Clone)]
                 struct Board {
                     #[cfg(any())]
-                    model: Model,
+                    model: model!(Model),
                     label: u8,
                 }
             },
@@ -333,14 +479,14 @@ mod tests {
         assert!(!may_remove_field(&documentation_only.meta));
 
         let output = expand(
-            quote!(bind(model, stable)),
+            quote!(),
             quote! {
                 #[derive(Clone)]
                 struct Board {
                     #[cfg_attr(feature = "extra", cfg(feature = "other"))]
-                    model: ConditionalModel,
+                    model: model!(ConditionalModel),
                     #[cfg_attr(feature = "extra", doc = "note")]
-                    stable: StableShared,
+                    stable: model!(StableModel),
                 }
             },
         )
@@ -359,7 +505,62 @@ mod tests {
             1
         );
         assert!(!output.contains("ConditionalModel : :: mirui :: core :: model :: BindType"));
-        assert!(output.contains("StableShared : :: mirui :: core :: model :: BindType"));
-        assert!(output.contains("StableShared as :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("StableModel : :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("StableModel as :: mirui :: core :: model :: BindType"));
+    }
+
+    #[test]
+    fn conditional_generic_fields_receive_safe_unconditional_bounds() {
+        let output = expand(
+            quote!(),
+            quote! {
+                #[derive(Clone)]
+                struct Board<T, U> {
+                    stable: model!(StableModel),
+                    #[cfg(any())]
+                    model: model!(T),
+                    #[cfg_attr(feature = "extra", cfg(feature = "model"))]
+                    value: U,
+                    #[cfg(any())]
+                    unavailable: UnavailableType,
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("T : :: mirui :: core :: model :: BindType"));
+        assert!(output.contains("U : :: core :: clone :: Clone"));
+        assert!(!output.contains("UnavailableType : :: core :: clone :: Clone"));
+    }
+
+    #[test]
+    fn rejects_binding_roles_outside_the_component_model_field_grammar() {
+        for role in [
+            quote!(res!(Theme)),
+            quote!(query!(Style)),
+            quote!(commands!()),
+            quote!(component!(Board)),
+            quote!(entity!()),
+            quote!(draw!()),
+            quote!(rect!()),
+            quote!(view!()),
+            quote!(motion!()),
+        ] {
+            let error = expand(
+                quote!(),
+                quote! {
+                    struct Board {
+                        value: #role,
+                    }
+                },
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("is not available in `#[component]`")
+            );
+        }
     }
 }

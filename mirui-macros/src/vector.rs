@@ -1286,7 +1286,7 @@ fn paint_expr_tokens(p: &PaintExpr) -> TokenStream {
                     ::mirui::render::scene::LinearGradient {
                         start: ::mirx::types::Point { x: #sx, y: #sy },
                         end: ::mirx::types::Point { x: #ex, y: #ey },
-                        stops: ::mirui::__Cow::Borrowed(&[#(#stops_t),*]),
+                        stops: ::mirui::__macro_support::__Cow::Borrowed(&[#(#stops_t),*]),
                         spread: #spread_t,
                         units: #units_t,
                         transform: ::mirx::types::Transform::IDENTITY,
@@ -1321,7 +1321,7 @@ fn paint_expr_tokens(p: &PaintExpr) -> TokenStream {
                         radius: #r_t,
                         focal: ::mirx::types::Point { x: #fx_t, y: #fy_t },
                         focal_radius: #fr_t,
-                        stops: ::mirui::__Cow::Borrowed(&[#(#stops_t),*]),
+                        stops: ::mirui::__macro_support::__Cow::Borrowed(&[#(#stops_t),*]),
                         spread: #spread_t,
                         units: #units_t,
                         transform: ::mirx::types::Transform::IDENTITY,
@@ -1588,7 +1588,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                     line_cap: #cap_t,
                     line_join: #join_t,
                     miter_limit: #ml,
-                    dash: ::mirui::__Cow::Borrowed(&[#(#dash_t),*]),
+                    dash: ::mirui::__macro_support::__Cow::Borrowed(&[#(#dash_t),*]),
                 }
             }
         }
@@ -1623,7 +1623,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
             quote! {
                 ::mirui::render::scene::SceneOp::Blit {
                     texture: ::mirui::render::scene::ResourceRef::Token(
-                        ::mirui::__Cow::Borrowed(#token)
+                        ::mirui::__macro_support::__Cow::Borrowed(#token)
                     ),
                     pos: #pos,
                     size: #size,
@@ -1652,7 +1652,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
             let filter = match &opts.filter {
                 Some(lit) => quote! {
                     ::core::option::Option::Some(::mirui::render::scene::ResourceRef::Token(
-                        ::mirui::__Cow::Borrowed(#lit)
+                        ::mirui::__macro_support::__Cow::Borrowed(#lit)
                     ))
                 },
                 None => quote! { ::core::option::Option::None },
