@@ -64,11 +64,11 @@ const fn child_percent(px: i32, parent_px: i32) -> Dimension {
     Dimension::Percent(Fixed::from_ratio(px * 100, parent_px))
 }
 
-#[compose(bind(model))]
+#[compose]
 fn compose_button_control(
     spec: ButtonControlSpec,
     control: ScopeControl,
-    model: ScopeModel,
+    model: model!(ScopeModel),
 ) -> Entity {
     ui! {
         View (
@@ -98,11 +98,11 @@ fn compose_button_control(
     }
 }
 
-#[compose(bind(model))]
+#[compose]
 fn compose_channel_control(
     spec: ChannelControlSpec,
     control: ScopeControl,
-    model: ScopeModel,
+    model: model!(ScopeModel),
 ) -> Entity {
     ui! {
         View (
@@ -143,8 +143,12 @@ fn compose_channel_control(
     }
 }
 
-#[compose(bind(model))]
-fn compose_step_control(spec: StepControlSpec, control: ScopeControl, model: ScopeModel) -> Entity {
+#[compose]
+fn compose_step_control(
+    spec: StepControlSpec,
+    control: ScopeControl,
+    model: model!(ScopeModel),
+) -> Entity {
     ui! {
         View (
             position: Position::Absolute,
@@ -178,8 +182,8 @@ fn compose_step_control(spec: StepControlSpec, control: ScopeControl, model: Sco
     }
 }
 
-#[compose(bind(model))]
-pub(super) fn build_widgets(model: ScopeModel) {
+#[compose]
+pub(super) fn build_widgets(model: model!(ScopeModel)) {
     let acquire = ScopeControl::Acquire;
     let stop = ScopeControl::Stop;
     let channel_a = ScopeControl::ChannelA;

@@ -33,9 +33,9 @@ static TRIGGER_ARROW: Path = path!(M 0 0 L 8 4 L 0 8 Z);
 #[derive(Default)]
 pub(super) struct ScopeGrid;
 
-#[crate::component(bind(model))]
+#[crate::component]
 pub(super) struct ScopeCanvas {
-    pub(super) model: ScopeModel,
+    pub(super) model: model!(ScopeModel),
 }
 
 pub(super) struct ScopeWaveScratch {
@@ -64,8 +64,13 @@ fn canvas_geometry(rect: &Rect) -> (Fixed, Rect) {
     (scale, plot)
 }
 
-#[crate::view(component = ScopeGrid, name = "ScopeGrid", priority = 60)]
-pub(super) fn scope_grid_render(renderer: &mut dyn Renderer, rect: &Rect, ctx: &mut ViewCtx) {
+#[crate::view(name = "ScopeGrid", priority = 60)]
+pub(super) fn scope_grid_render(
+    _grid: component!(ScopeGrid),
+    renderer: draw!(),
+    rect: rect!(),
+    ctx: view!(),
+) {
     let mut painter = InstrumentPainter::new(renderer, *ctx.clip, ctx.transform);
     let (scale, plot) = canvas_geometry(rect);
     for column in 0..=12 {
@@ -437,15 +442,15 @@ fn scope_render(
 
 fn scope_observe(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
     let canvas = world.get::<ScopeCanvas>(entity).expect("scope canvas");
-    bindings.watch(
+    bindings.watch(|invalidation| {
         canvas
             .model
-            .__mirui_subscribe_visual_revision(world, entity),
-    );
+            .__mirui_subscribe_visual_revision(world, entity, invalidation)
+    });
 }
 
 pub(super) fn scope_view() -> View {
     View::new("ScopeCanvas", 61, scope_render)
         .with_filter::<ScopeCanvas>()
-        .with_observation(scope_observe)
+        .with_observation(scope_observe, 1)
 }

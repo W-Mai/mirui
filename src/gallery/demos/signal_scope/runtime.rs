@@ -13,8 +13,8 @@ pub(super) const fn housing_texture_options() -> MirxTextureOptions {
         .with_limits(mirx::reader::PayloadLimits::EMBEDDED.with_max_decoded_bytes(800 * 480 * 2))
 }
 
-#[mirui_macros::system(order = ANIMATION, bind(model))]
-pub(super) fn scope_animation_system(model: &ScopeModel, delta: DeltaTimeMs) {
+#[mirui_macros::system(order = Animation)]
+pub(super) fn scope_animation_system(model: model!(ScopeModel), delta: res!(DeltaTimeMs)) {
     model.advance_ms(delta.0);
 }
 
