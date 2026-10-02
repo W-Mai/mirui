@@ -1,10 +1,11 @@
 error[E0277]: the trait bound `u8: mirui::ecs::Component` is not satisfied
- --> tests/ui/view_non_component_filter.rs:4:28
+ --> tests/ui/view_non_component_filter.rs:3:20
   |
-3 | #[view]
-  | ------- required by a bound introduced by this call
-4 | fn paint(value: component!(u8)) {
-  |                            ^^ the trait `mirui::ecs::Component` is not implemented for `u8`
+3 | #[view(component = u8)]
+  | -------------------^^--
+  | |                  |
+  | |                  the trait `mirui::ecs::Component` is not implemented for `u8`
+  | required by a bound introduced by this call
   |
   = help: the following other types implement trait `mirui::ecs::Component`:
             BackgroundBlur

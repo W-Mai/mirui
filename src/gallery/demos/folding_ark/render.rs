@@ -68,10 +68,9 @@ fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &FoldModel) {
     }
 }
 
-#[crate::view(name = "FoldSurface", priority = 60)]
+#[crate::view(component = FoldSurface, name = "FoldSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(FoldSurface),
-    game: model!(surface.game, watch(visual_revision)),
+    game: model!(component.game, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);

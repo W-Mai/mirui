@@ -3,7 +3,7 @@ use mirui::{component, view};
 #[component]
 struct Tile;
 
-#[view]
+#[view(component = Tile)]
 fn paint(tile: &Tile) {
     let _ = tile;
 }

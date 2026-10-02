@@ -34,8 +34,8 @@ impl Default for Diamond {
     }
 }
 
-#[crate::view(name = "Diamond", priority = 60)]
-pub fn diamond_render(component: component!(Diamond), paint: paint!()) {
+#[crate::view(component = Diamond, name = "Diamond", priority = 60)]
+pub fn diamond_render(component: component!(), paint: paint!()) {
     let rect = paint.rect();
     let transform = paint
         .transform()

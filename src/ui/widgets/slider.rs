@@ -167,12 +167,13 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
 }
 
 #[crate::view(
+    component = Slider,
     name = "Slider",
     priority = 60,
     attach = slider_attach,
     gesture = slider_handler
 )]
-fn slider_render(component: component!(Slider), paint: paint!(), theme: res!(crate::ui::Theme)) {
+fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let rect = paint.rect();
     let state = paint.state();
     let track_color = component.track_color.resolve_in(theme, state);

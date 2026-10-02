@@ -140,10 +140,9 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
     );
 }
 
-#[crate::view(name = "PixelSurface", priority = 60)]
+#[crate::view(component = PixelSurface, name = "PixelSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(PixelSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -152,10 +151,13 @@ pub(super) fn surface_render(
     paint_pixel_surface(&mut painter, model);
 }
 
-#[crate::view(name = "PixelModalSurface", priority = 70)]
+#[crate::view(
+    component = PixelModalSurface,
+    name = "PixelModalSurface",
+    priority = 70
+)]
 pub(super) fn modal_render(
-    surface: component!(PixelModalSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     if model.modal() == PixelModal::None {

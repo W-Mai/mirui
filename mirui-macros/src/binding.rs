@@ -66,7 +66,7 @@ impl BindingSyntax {
 #[derive(Clone)]
 pub(crate) enum LogicalType {
     Explicit(Type),
-    InferredFrom { binding: Ident, field: Member },
+    InferredFromViewComponent { field: Member },
     Intrinsic(BindingCapability),
     QueryRow(QueryRowShape),
 }
@@ -85,7 +85,7 @@ pub(crate) enum BindingSource {
 #[derive(Clone)]
 pub(crate) enum ModelSource {
     Registered { ty: Type },
-    Projection { binding: Ident, field: Member },
+    ViewComponentField { field: Member },
 }
 
 #[derive(Clone)]
@@ -594,19 +594,17 @@ fn parse_model_binding(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Bi
             invalidation: None,
             ownership: BindingOwnership::CapturedShared,
         },
-        ModelRole::Projection {
-            binding,
+        ModelRole::ViewComponentField {
             field,
             cardinality,
             watch_selectors,
         } => BindingSpec {
             name,
             syntax,
-            logical_type: LogicalType::InferredFrom {
-                binding: binding.clone(),
+            logical_type: LogicalType::InferredFromViewComponent {
                 field: field.clone(),
             },
-            source: BindingSource::Model(ModelSource::Projection { binding, field }),
+            source: BindingSource::Model(ModelSource::ViewComponentField { field }),
             access: BindingAccess::Read,
             cardinality,
             watch_selectors,
@@ -823,8 +821,7 @@ enum ModelRole {
         ty: Type,
         cardinality: BindingCardinality,
     },
-    Projection {
-        binding: Ident,
+    ViewComponentField {
         field: Member,
         cardinality: BindingCardinality,
         watch_selectors: Vec<Ident>,
@@ -883,6 +880,12 @@ fn parse_model_projection(
     cardinality: BindingCardinality,
 ) -> syn::Result<ModelRole> {
     let binding = input.parse::<Ident>()?;
+    if binding != "component" {
+        return Err(syn::Error::new(
+            binding.span(),
+            "`model!` field projections use the reserved source `component.field`",
+        ));
+    }
     input.parse::<syn::Token![.]>()?;
     let field = Member::Named(input.parse::<Ident>()?);
     let mut watch_selectors = Vec::new();
@@ -911,8 +914,7 @@ fn parse_model_projection(
     if !input.is_empty() {
         return Err(input.error("unexpected tokens after model field projection"));
     }
-    Ok(ModelRole::Projection {
-        binding,
+    Ok(ModelRole::ViewComponentField {
         field,
         cardinality,
         watch_selectors,
@@ -1329,7 +1331,8 @@ mod tests {
 
     #[test]
     fn model_ir_preserves_projection_watches_and_invalidation_separately() {
-        let ty = syn::parse_str::<Type>("model!(board.game, watch(positions, selection))").unwrap();
+        let ty =
+            syn::parse_str::<Type>("model!(component.game, watch(positions, selection))").unwrap();
         let Type::Macro(type_role) = ty else {
             panic!("expected role macro");
         };
@@ -1339,17 +1342,15 @@ mod tests {
 
         assert!(matches!(
             &binding.logical_type,
-            LogicalType::InferredFrom {
-                binding,
+            LogicalType::InferredFromViewComponent {
                 field: Member::Named(field),
-            } if binding == "board" && field == "game"
+            } if field == "game"
         ));
         assert!(matches!(
             &binding.source,
-            BindingSource::Model(ModelSource::Projection {
-                binding,
+            BindingSource::Model(ModelSource::ViewComponentField {
                 field: Member::Named(field),
-            }) if binding == "board" && field == "game"
+            }) if field == "game"
         ));
         assert_eq!(
             binding

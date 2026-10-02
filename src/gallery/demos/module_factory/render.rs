@@ -259,10 +259,9 @@ fn paint_factory_surface(painter: &mut PlayPainter<'_, '_>, model: &FactoryModel
     }
 }
 
-#[crate::view(name = "FactorySurface", priority = 60)]
+#[crate::view(component = FactorySurface, name = "FactorySurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(FactorySurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -271,12 +270,12 @@ pub(super) fn surface_render(
     paint_factory_surface(&mut painter, model);
 }
 
-#[crate::view(name = "FactoryModalSurface", priority = 70)]
-pub(super) fn modal_render(
-    surface: component!(FactoryModalSurface),
-    model: model!(surface.model, watch(modal)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = FactoryModalSurface,
+    name = "FactoryModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(model: model!(component.model, watch(modal)), paint: paint!()) {
     if model.modal() == FactoryModal::None {
         return;
     }

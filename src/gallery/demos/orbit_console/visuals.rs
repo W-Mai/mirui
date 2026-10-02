@@ -515,21 +515,25 @@ impl ActivityPlot {
     }
 }
 
-#[crate::view(name = "ConsoleBackdrop", priority = 10)]
-pub(super) fn backdrop_render(
-    component: component!(ConsoleBackdrop),
-    paint: paint!(),
-    theme: res!(Theme),
-) {
+#[crate::view(
+    component = ConsoleBackdrop,
+    name = "ConsoleBackdrop",
+    priority = 10
+)]
+pub(super) fn backdrop_render(component: component!(), paint: paint!(), theme: res!(Theme)) {
     let rect = paint.rect();
     let transform = paint.transform();
     let mut painter = DemoPainter::new(paint, transform);
     component.render(&mut painter, &rect, theme);
 }
 
-#[crate::view(name = "OrbitInstrument", priority = 60)]
+#[crate::view(
+    component = OrbitInstrument,
+    name = "OrbitInstrument",
+    priority = 60
+)]
 pub(super) fn orbit_render(
-    component: component!(OrbitInstrument),
+    component: component!(),
     model: model!(component.model, watch(mode, intensity, focused_node, phase)),
     paint: paint!(),
     theme: res!(Theme),
@@ -540,9 +544,9 @@ pub(super) fn orbit_render(
     component.render(&mut painter, &rect, model, theme);
 }
 
-#[crate::view(name = "SignalMeter", priority = 60)]
+#[crate::view(component = SignalMeter, name = "SignalMeter", priority = 60)]
 pub(super) fn signal_render(
-    component: component!(SignalMeter),
+    component: component!(),
     model: model!(component.model, watch(mode, intensity)),
     paint: paint!(),
     theme: res!(Theme),
@@ -553,9 +557,9 @@ pub(super) fn signal_render(
     component.render(&mut painter, &rect, model, theme);
 }
 
-#[crate::view(name = "ActivityPlot", priority = 60)]
+#[crate::view(component = ActivityPlot, name = "ActivityPlot", priority = 60)]
 pub(super) fn activity_render(
-    component: component!(ActivityPlot),
+    component: component!(),
     model: model!(component.model, watch(mode, phase)),
     paint: paint!(),
     theme: res!(Theme),

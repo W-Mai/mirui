@@ -2,8 +2,8 @@ use super::state::LifeBoard;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 
-#[crate::view(name = "LifeBoard", priority = 60)]
-pub fn life_render(component: component!(LifeBoard), paint: paint!(), theme: res!(Theme)) {
+#[crate::view(component = LifeBoard, name = "LifeBoard", priority = 60)]
+pub fn life_render(component: component!(), paint: paint!(), theme: res!(Theme)) {
     if component.cols == 0 || component.rows == 0 {
         return;
     }

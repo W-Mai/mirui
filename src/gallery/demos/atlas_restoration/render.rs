@@ -83,10 +83,9 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &PictureModel) {
     }
 }
 
-#[crate::view(name = "PictureSurface", priority = 60)]
+#[crate::view(component = PictureSurface, name = "PictureSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(PictureSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);

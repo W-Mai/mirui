@@ -25,8 +25,8 @@ fn unit(v: f32) -> mirx::types::Fixed {
 #[derive(Default)]
 pub struct Gradient;
 
-#[crate::view(name = "Gradient", priority = 60)]
-pub fn gradient_render(_component: component!(Gradient), paint: paint!()) {
+#[crate::view(component = Gradient, name = "Gradient", priority = 60)]
+pub fn gradient_render(paint: paint!()) {
     let canvas = crate::gallery::fit_logical_canvas(
         paint.rect(),
         paint.transform(),

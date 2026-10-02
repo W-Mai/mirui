@@ -34,11 +34,10 @@ impl InstrumentPainter<'_, '_> {
     }
 }
 
-#[crate::view(name = "KineticOrbit", priority = 60)]
+#[crate::view(component = KineticOrbit, name = "KineticOrbit", priority = 60)]
 pub(super) fn orbit_render(
-    orbit: component!(KineticOrbit),
-    model: model!(orbit.model, watch(visual_revision)),
-    motion: model!(orbit.motion, watch(orbit_render_key)),
+    model: model!(component.model, watch(visual_revision)),
+    motion: model!(component.motion, watch(orbit_render_key)),
     paint: paint!(),
     theme: res!(Theme),
 ) {
@@ -158,11 +157,10 @@ pub(super) fn orbit_render(
     }
 }
 
-#[crate::view(name = "KineticWave", priority = 61)]
+#[crate::view(component = KineticWave, name = "KineticWave", priority = 61)]
 pub(super) fn wave_render(
-    wave: component!(KineticWave),
-    model: model!(wave.model, watch(visual_revision)),
-    motion: model!(wave.motion, watch(wave_render_key)),
+    model: model!(component.model, watch(visual_revision)),
+    motion: model!(component.motion, watch(wave_render_key)),
     paint: paint!(),
     theme: res!(Theme),
 ) {

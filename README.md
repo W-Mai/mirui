@@ -230,9 +230,11 @@ where
 ```
 
 Use `#[component]` with `model!(T)` fields to attach registered model instances
-to entities. A typed `#[view]` function reads the component through
-`component!(T)`, projects model fields through `model!(component.field)`, and
-subscribes only to selectors listed in `watch(...)`. One model can serve
+to entities. A typed `#[view(component = T)]` function declares its entity
+filter in the attribute, projects model fields through
+`model!(component.field)`, and subscribes only to selectors listed in
+`watch(...)`. `component!()` is only needed when the paint body also reads the
+component itself. One model can serve
 several Views; several instances of the same model type stay independent. A
 mutable model method may return `Result<Change, E>`; an error is returned
 without publishing reactive updates or effects. The

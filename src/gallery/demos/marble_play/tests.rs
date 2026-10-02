@@ -43,11 +43,14 @@ struct MultiSourceMarbleBoard {
     selection: model!(BoardSelection),
 }
 
-#[crate::view(name = "MultiSourceMarbleBoard", priority = 60)]
+#[crate::view(
+    component = MultiSourceMarbleBoard,
+    name = "MultiSourceMarbleBoard",
+    priority = 60
+)]
 fn multi_source_board_render(
-    board: component!(MultiSourceMarbleBoard),
-    game: model!(board.game, watch(visual_revision)),
-    selection: model!(board.selection, watch(marker)),
+    game: model!(component.game, watch(visual_revision)),
+    selection: model!(component.selection, watch(marker)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);

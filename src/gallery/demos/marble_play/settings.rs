@@ -32,12 +32,12 @@ fn paint_settings(painter: &mut PlayPainter<'_, '_>, theme: Theme) {
     }
 }
 
-#[crate::view(name = "MarbleSettingsPanel", priority = 60)]
-pub(super) fn settings_panel_render(
-    panel: component!(MarbleSettingsPanel),
-    model: model!(panel.model, watch(scene)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = MarbleSettingsPanel,
+    name = "MarbleSettingsPanel",
+    priority = 60
+)]
+pub(super) fn settings_panel_render(model: model!(component.model, watch(scene)), paint: paint!()) {
     paint.set_background_handled(true);
     let transform = fit_logical_canvas(paint.rect(), paint.transform(), BOARD_WIDTH, BOARD_HEIGHT);
     let mut painter = PlayPainter::new(paint, transform);

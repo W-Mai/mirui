@@ -106,7 +106,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 BindingSource::Model(ModelSource::Registered { .. }),
                 LogicalType::Explicit(model_type),
             ) => model_type.clone(),
-            (BindingSource::Model(ModelSource::Projection { .. }), _) => {
+            (BindingSource::Model(ModelSource::ViewComponentField { .. }), _) => {
                 return syn::Error::new(
                     binding.syntax.span(),
                     "`#[compose]` Model parameters select registered instances; use `model!(T)` or `model!(optional T)`",
@@ -341,7 +341,10 @@ mod tests {
 
     #[test]
     fn rejects_model_field_projections() {
-        let output = expand(quote! {}, quote! { fn build(game: model!(board.game)) {} });
+        let output = expand(
+            quote! {},
+            quote! { fn build(game: model!(component.game)) {} },
+        );
         assert!(contains_compile_error(&output));
         assert!(output.to_string().contains("registered instances"));
     }

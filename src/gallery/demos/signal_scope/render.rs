@@ -63,8 +63,8 @@ fn canvas_geometry(rect: &Rect) -> (Fixed, Rect) {
     (scale, plot)
 }
 
-#[crate::view(name = "ScopeGrid", priority = 60)]
-pub(super) fn scope_grid_render(_grid: component!(ScopeGrid), paint: paint!()) {
+#[crate::view(component = ScopeGrid, name = "ScopeGrid", priority = 60)]
+pub(super) fn scope_grid_render(paint: paint!()) {
     let rect = paint.rect();
     let transform = paint.transform();
     let mut painter = InstrumentPainter::new(paint, transform);

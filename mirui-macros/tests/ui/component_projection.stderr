@@ -1,5 +1,5 @@
 error: component Model fields must use `model!(T)` or `model!(optional T)`
  --> tests/ui/component_projection.rs:5:11
   |
-5 |     game: model!(other.game),
+5 |     game: model!(component.game),
   |           ^^^^^

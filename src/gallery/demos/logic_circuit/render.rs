@@ -328,10 +328,9 @@ fn paint_circuit_surface(painter: &mut PlayPainter<'_, '_>, model: &CircuitModel
     }
 }
 
-#[crate::view(name = "CircuitSurface", priority = 60)]
+#[crate::view(component = CircuitSurface, name = "CircuitSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(CircuitSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -340,12 +339,12 @@ pub(super) fn surface_render(
     paint_circuit_surface(&mut painter, model);
 }
 
-#[crate::view(name = "CircuitModalSurface", priority = 70)]
-pub(super) fn modal_render(
-    surface: component!(CircuitModalSurface),
-    model: model!(surface.model, watch(modal)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = CircuitModalSurface,
+    name = "CircuitModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(model: model!(component.model, watch(modal)), paint: paint!()) {
     if model.modal() == CircuitModal::None {
         return;
     }

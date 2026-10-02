@@ -65,10 +65,9 @@ fn paint_board(
     painter.circle(Point::new(x, y), Fixed::from_int(3), BG);
 }
 
-#[crate::view(name = "TwinSurface", priority = 60)]
+#[crate::view(component = TwinSurface, name = "TwinSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(TwinSurface),
-    game: model!(surface.game, watch(visual_revision)),
+    game: model!(component.game, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);

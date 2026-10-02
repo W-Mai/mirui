@@ -179,10 +179,9 @@ fn paint_record(painter: &mut PlayPainter<'_, '_>, model: &OrbitModel) {
     painter.border(Rect::new(313, 65, 156, 188), LINE, Fixed::ONE, Fixed::ZERO);
 }
 
-#[crate::view(name = "OrbitSurface", priority = 60)]
+#[crate::view(component = OrbitSurface, name = "OrbitSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(OrbitSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -196,12 +195,12 @@ pub(super) fn surface_render(
     }
 }
 
-#[crate::view(name = "OrbitModalSurface", priority = 70)]
-pub(super) fn modal_render(
-    surface: component!(OrbitModalSurface),
-    model: model!(surface.model, watch(modal)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = OrbitModalSurface,
+    name = "OrbitModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(model: model!(component.model, watch(modal)), paint: paint!()) {
     if model.modal() == OrbitModal::None {
         return;
     }

@@ -134,8 +134,13 @@ impl crate::ecs::IntoBundle for ButtonBuilder {
     }
 }
 
-#[crate::view(name = "Button", priority = 40, attach = button_attach)]
-fn button_render(component: component!(Button), paint: paint!(), theme: res!(crate::ui::Theme)) {
+#[crate::view(
+    component = Button,
+    name = "Button",
+    priority = 40,
+    attach = button_attach
+)]
+fn button_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let state = paint.state();
     let color = if matches!(state, crate::ui::theme::WidgetState::Pressed) {
         component.pressed_color.resolve_in(theme, state)

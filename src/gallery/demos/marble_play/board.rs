@@ -333,10 +333,9 @@ fn paint_gravity_arrow(
     }
 }
 
-#[crate::view(name = "MarbleBoard", priority = 60)]
+#[crate::view(component = MarbleBoard, name = "MarbleBoard", priority = 60)]
 pub(super) fn board_render(
-    board: component!(MarbleBoard),
-    model: model!(board.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);

@@ -75,12 +75,12 @@ fn paint_scene_cards(painter: &mut PlayPainter<'_, '_>, selected: usize) {
     }
 }
 
-#[crate::view(name = "MarbleSceneBoard", priority = 60)]
-pub(super) fn scene_board_render(
-    board: component!(MarbleSceneBoard),
-    model: model!(board.model, watch(scene)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = MarbleSceneBoard,
+    name = "MarbleSceneBoard",
+    priority = 60
+)]
+pub(super) fn scene_board_render(model: model!(component.model, watch(scene)), paint: paint!()) {
     paint.set_background_handled(true);
     let transform = fit_logical_canvas(paint.rect(), paint.transform(), BOARD_WIDTH, BOARD_HEIGHT);
     let mut painter = PlayPainter::new(paint, transform);

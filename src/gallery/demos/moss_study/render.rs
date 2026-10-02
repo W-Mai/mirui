@@ -120,10 +120,9 @@ fn paint_moss_surface(painter: &mut PlayPainter<'_, '_>, model: &MossModel) {
     );
 }
 
-#[crate::view(name = "MossSurface", priority = 60)]
+#[crate::view(component = MossSurface, name = "MossSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(MossSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -156,12 +155,12 @@ fn paint_seed_preview(
     }
 }
 
-#[crate::view(name = "MossModalSurface", priority = 70)]
-pub(super) fn modal_render(
-    surface: component!(MossModalSurface),
-    model: model!(surface.model, watch(modal, seed_id)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = MossModalSurface,
+    name = "MossModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(model: model!(component.model, watch(modal, seed_id)), paint: paint!()) {
     if model.modal() == MossModal::None {
         return;
     }

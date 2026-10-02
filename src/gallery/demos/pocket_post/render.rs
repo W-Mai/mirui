@@ -349,10 +349,9 @@ fn paint_post_surface(painter: &mut PlayPainter<'_, '_>, model: &PostModel) {
     );
 }
 
-#[crate::view(name = "PostSurface", priority = 60)]
+#[crate::view(component = PostSurface, name = "PostSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(PostSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -361,10 +360,13 @@ pub(super) fn surface_render(
     paint_post_surface(&mut painter, model);
 }
 
-#[crate::view(name = "PostModalSurface", priority = 70)]
+#[crate::view(
+    component = PostModalSurface,
+    name = "PostModalSurface",
+    priority = 70
+)]
 pub(super) fn modal_render(
-    surface: component!(PostModalSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     if model.modal() == PostModal::None {

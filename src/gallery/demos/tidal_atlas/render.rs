@@ -232,10 +232,9 @@ fn paint_surface(painter: &mut PlayPainter<'_, '_>, model: &TideModel) {
     painter.line(Point::new(14, 296), Point::new(466, 296), LINE, Fixed::ONE);
 }
 
-#[crate::view(name = "TideSurface", priority = 60)]
+#[crate::view(component = TideSurface, name = "TideSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(TideSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -244,12 +243,12 @@ pub(super) fn surface_render(
     paint_surface(&mut painter, model);
 }
 
-#[crate::view(name = "TideModalSurface", priority = 70)]
-pub(super) fn modal_render(
-    surface: component!(TideModalSurface),
-    model: model!(surface.model, watch(modal)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = TideModalSurface,
+    name = "TideModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(model: model!(component.model, watch(modal)), paint: paint!()) {
     if model.modal() == TideModal::None {
         return;
     }

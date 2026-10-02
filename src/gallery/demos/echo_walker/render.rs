@@ -200,10 +200,9 @@ fn paint_surface(painter: &mut PlayPainter<'_, '_>, model: &EchoModel) {
     painter.line(Point::new(14, 298), Point::new(466, 298), LINE, Fixed::ONE);
 }
 
-#[crate::view(name = "EchoSurface", priority = 60)]
+#[crate::view(component = EchoSurface, name = "EchoSurface", priority = 60)]
 pub(super) fn surface_render(
-    surface: component!(EchoSurface),
-    model: model!(surface.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);
@@ -212,12 +211,12 @@ pub(super) fn surface_render(
     paint_surface(&mut painter, model);
 }
 
-#[crate::view(name = "EchoModalSurface", priority = 70)]
-pub(super) fn modal_render(
-    surface: component!(EchoModalSurface),
-    model: model!(surface.model, watch(modal)),
-    paint: paint!(),
-) {
+#[crate::view(
+    component = EchoModalSurface,
+    name = "EchoModalSurface",
+    priority = 70
+)]
+pub(super) fn modal_render(model: model!(component.model, watch(modal)), paint: paint!()) {
     if model.modal() == EchoModal::None {
         return;
     }

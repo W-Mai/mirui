@@ -1,9 +1,7 @@
 use mirui::view;
 
-#[view]
-fn paint(value: component!(u8)) {
-    let _ = value;
-}
+#[view(component = u8)]
+fn paint() {}
 
 fn main() {
     let _ = paint::view();

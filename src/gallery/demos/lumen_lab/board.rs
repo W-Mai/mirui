@@ -210,10 +210,9 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &LumenModel) {
     );
 }
 
-#[crate::view(name = "LumenBoard", priority = 60)]
+#[crate::view(component = LumenBoard, name = "LumenBoard", priority = 60)]
 pub(super) fn board_render(
-    board: component!(LumenBoard),
-    model: model!(board.model, watch(visual_revision)),
+    model: model!(component.model, watch(visual_revision)),
     paint: paint!(),
 ) {
     paint.set_background_handled(true);

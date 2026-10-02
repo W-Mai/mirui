@@ -25,17 +25,16 @@ fn fill(paint: &mut PaintCtx<'_>, area: Rect, color: Color, radius: Fixed, opaci
 }
 
 #[crate::view(
+    component = CurveStage,
     name = "CurveStageBackdrop",
     priority = 60,
     invalidation = Visual
 )]
 pub(super) fn curve_stage_background_render(
-    component: component!(CurveStage),
     model: model!(component.model, watch(phase)),
     paint: paint!(),
     theme: res!(Theme),
 ) {
-    let _ = component;
     let panel = theme.resolve(PANEL);
     let border = theme.resolve(BORDER);
     let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));

@@ -1,7 +1,7 @@
 use mirui::compose;
 
 #[compose]
-fn panel(game: model!(board.game)) {
+fn panel(game: model!(component.game)) {
     let _ = game;
 }
 

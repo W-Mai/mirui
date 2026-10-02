@@ -49,11 +49,10 @@ struct Pair {
     right: model!(Level),
 }
 
-#[view(priority = 64)]
+#[view(component = Pair, priority = 64)]
 fn paint_pair(
-    _pair: component!(Pair),
-    left: model!(_pair.left, watch(value)),
-    right: model!(_pair.right, watch(value)),
+    left: model!(component.left, watch(value)),
+    right: model!(component.right, watch(value)),
     paint: paint!(),
 ) {
     paint.set_background_handled(left.value < right.value);
@@ -77,8 +76,8 @@ struct PaintTile {
     model: model!(PaintModel),
 }
 
-#[view]
-fn paint_tile(_tile: component!(PaintTile), model: model!(_tile.model, watch(value))) {
+#[view(component = PaintTile)]
+fn paint_tile(model: model!(component.model, watch(value))) {
     PAINT_VALUE.store(usize::from(model.value), Ordering::Relaxed);
     PAINT_COUNT.fetch_add(1, Ordering::Relaxed);
 }
@@ -89,17 +88,14 @@ struct SharedTile {
     slot: usize,
 }
 
-#[view]
-fn paint_shared_tile(
-    component: component!(SharedTile),
-    model: model!(component.model, watch(value)),
-) {
-    TILE_VALUES[component.slot].store(usize::from(model.value), Ordering::Relaxed);
-    TILE_COUNTS[component.slot].fetch_add(1, Ordering::Relaxed);
+#[view(component = SharedTile)]
+fn paint_shared_tile(tile: component!(), model: model!(component.model, watch(value))) {
+    TILE_VALUES[tile.slot].store(usize::from(model.value), Ordering::Relaxed);
+    TILE_COUNTS[tile.slot].fetch_add(1, Ordering::Relaxed);
 }
 
-#[view]
-fn paint_drop(_tile: component!(PaintTile), model: model!(_tile.model, watch(value))) {
+#[view(component = PaintTile)]
+fn paint_drop(model: model!(component.model, watch(value))) {
     let _ = model.value;
 }
 
@@ -108,12 +104,8 @@ struct PixelTile {
     model: model!(PaintModel),
 }
 
-#[view]
-fn paint_pixel_tile(
-    _tile: component!(PixelTile),
-    model: model!(_tile.model, watch(value)),
-    paint: paint!(),
-) {
+#[view(component = PixelTile)]
+fn paint_pixel_tile(model: model!(component.model, watch(value)), paint: paint!()) {
     paint.draw(&DrawCommand::Fill {
         area: paint.rect(),
         transform: paint.transform(),

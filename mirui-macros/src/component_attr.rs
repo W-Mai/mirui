@@ -415,7 +415,7 @@ mod tests {
             quote!(),
             quote!(
                 struct Board {
-                    game: model!(other.game),
+                    game: model!(component.game),
                 }
             ),
         )

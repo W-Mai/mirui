@@ -844,56 +844,47 @@ mod tests {
         });
     }
 
-    #[crate::view(priority = 62)]
-    fn paint_bound_tile(
-        _component: component!(BoundTile),
-        model: model!(_component.model, watch(value)),
-        paint: paint!(),
-    ) {
+    #[crate::view(component = BoundTile, priority = 62)]
+    fn paint_bound_tile(model: model!(component.model, watch(value)), paint: paint!()) {
         paint.set_background_handled(model.value > 0);
     }
 
-    #[crate::view]
+    #[crate::view(component = PairTile)]
     fn paint_pair_tile(
-        _component: component!(PairTile),
-        first: model!(_component.first, watch(value)),
-        second: model!(_component.second, watch(value)),
+        first: model!(component.first, watch(value)),
+        second: model!(component.second, watch(value)),
         paint: paint!(),
     ) {
         paint.set_background_handled(first.value < second.value);
     }
 
-    #[crate::view]
+    #[crate::view(component = OptionalBoundTile)]
     fn paint_optional_bound_tile(
-        component: component!(OptionalBoundTile),
+        component_data: component!(),
         model: model!(optional component.model, watch(value)),
         paint: paint!(),
     ) {
-        component.visits.set(component.visits.get() + 1);
-        component.seen.set(model.map(|model| model.value));
+        component_data.visits.set(component_data.visits.get() + 1);
+        component_data.seen.set(model.map(|model| model.value));
         paint.set_background_handled(model.is_some());
     }
 
-    #[crate::view]
+    #[crate::view(component = VisualTile)]
     fn paint_visual_tile(
-        component: component!(VisualTile),
         _visual: model!(component.visual, watch(visual_revision)),
         paint: paint!(),
     ) {
         paint.set_background_handled(true);
     }
 
-    #[crate::view]
-    fn paint_generic_tile<T: Copy + 'static>(
-        component: component!(GenericTile<T>),
-        paint: paint!(),
-    ) {
+    #[crate::view(component = GenericTile<T>)]
+    fn paint_generic_tile<T: Copy + 'static>(component: component!(), paint: paint!()) {
         let _ = component.value;
         paint.set_background_handled(true);
     }
 
-    #[crate::view]
-    fn invalid_writing_view(component: component!(BoundTile)) {
+    #[crate::view(component = BoundTile)]
+    fn invalid_writing_view(component: component!()) {
         component.model.set(7);
     }
 
@@ -906,12 +897,13 @@ mod tests {
     fn options_system(_: &mut World) {}
 
     #[crate::view(
+        component = GenericTile<u8>,
         priority = 42,
         attach = options_attach,
         gesture = options_gesture,
         systems = [crate::ecs::System::new("options", 100, options_system)]
     )]
-    fn paint_options(component: component!(GenericTile<u8>), theme: res!(crate::ui::Theme)) {
+    fn paint_options(component: component!(), theme: res!(crate::ui::Theme)) {
         let _ = (component.value, theme);
     }
 

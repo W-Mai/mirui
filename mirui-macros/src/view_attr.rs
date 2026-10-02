@@ -21,6 +21,7 @@ mod keyword {
 }
 
 struct ViewArgs {
+    component: Type,
     name: Option<LitStr>,
     priority: Expr,
     invalidation: BindingInvalidation,
@@ -31,6 +32,7 @@ struct ViewArgs {
 
 impl Parse for ViewArgs {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let mut component = None;
         let mut name = None;
         let mut priority = None;
         let mut invalidation = None;
@@ -41,6 +43,12 @@ impl Parse for ViewArgs {
         while !input.is_empty() {
             let key = input.parse::<Ident>()?;
             match key.to_string().as_str() {
+                "component" => {
+                    input.parse::<Token![=]>()?;
+                    if component.replace(input.parse()?).is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate `component`"));
+                    }
+                }
                 "name" => {
                     input.parse::<Token![=]>()?;
                     if name.replace(input.parse()?).is_some() {
@@ -107,7 +115,7 @@ impl Parse for ViewArgs {
                 _ => {
                     return Err(syn::Error::new(
                         key.span(),
-                        "unknown `#[view]` argument; expected `name`, `priority`, `invalidation`, `attach`, `gesture`, or `systems`",
+                        "unknown `#[view]` argument; expected `component`, `name`, `priority`, `invalidation`, `attach`, `gesture`, or `systems`",
                     ));
                 }
             }
@@ -117,6 +125,9 @@ impl Parse for ViewArgs {
         }
 
         Ok(Self {
+            component: component.ok_or_else(|| {
+                syn::Error::new(input.span(), "`#[view]` requires `component = T`")
+            })?,
             name,
             priority: priority.unwrap_or_else(|| syn::parse_quote!(60u8)),
             invalidation: invalidation.unwrap_or(BindingInvalidation::Visual),
@@ -131,7 +142,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     let args = syn::parse2::<ViewArgs>(attr)?;
     let function = syn::parse2::<ItemFn>(item)?;
     validate_function(&function)?;
-    let bindings = parse_parameters(&function.sig.inputs, args.invalidation)?;
+    let bindings = parse_parameters(&function.sig.inputs, &args.component, args.invalidation)?;
     lower(function, args, bindings)
 }
 
@@ -166,16 +177,17 @@ fn validate_function(function: &ItemFn) -> syn::Result<()> {
 
 fn parse_parameters(
     inputs: &Punctuated<FnArg, Token![,]>,
+    component_type: &Type,
     invalidation: BindingInvalidation,
 ) -> syn::Result<Vec<BindingSpec>> {
     let mut bindings = Vec::with_capacity(inputs.len());
     let mut names = HashSet::with_capacity(inputs.len());
     let mut watches = HashSet::new();
-    let mut component = None;
+    let mut component_binding = None;
     let mut capabilities = Vec::new();
 
     for input in inputs {
-        let binding = parse_parameter(input, invalidation)?;
+        let binding = parse_parameter(input, component_type, invalidation)?;
         if !names.insert(binding.name.to_string()) {
             return Err(syn::Error::new(
                 binding.name.span(),
@@ -184,10 +196,10 @@ fn parse_parameters(
         }
         match &binding.source {
             BindingSource::Component(_) => {
-                if component.replace(binding.name.clone()).is_some() {
+                if component_binding.replace(binding.name.clone()).is_some() {
                     return Err(syn::Error::new(
                         binding.syntax.span(),
-                        "`#[view]` requires exactly one `component!(T)` parameter",
+                        "`#[view]` accepts at most one `component!()` parameter",
                     ));
                 }
             }
@@ -205,7 +217,7 @@ fn parse_parameters(
             }
             _ => {}
         }
-        if let BindingSource::Model(ModelSource::Projection { field, .. }) = &binding.source {
+        if let BindingSource::Model(ModelSource::ViewComponentField { field }) = &binding.source {
             let field = field.to_token_stream().to_string();
             for selector in &binding.watch_selectors {
                 let key = (field.clone(), selector.to_string());
@@ -220,28 +232,14 @@ fn parse_parameters(
         bindings.push(binding);
     }
 
-    let Some(component) = component else {
-        return Err(syn::Error::new(
-            inputs.span(),
-            "`#[view]` requires exactly one `component!(T)` parameter",
-        ));
-    };
-    for binding in &bindings {
-        if let BindingSource::Model(ModelSource::Projection {
-            binding: source, ..
-        }) = &binding.source
-            && source != &component
-        {
-            return Err(syn::Error::new(
-                binding.syntax.span(),
-                format!("View Model binding must project from component binding `{component}`",),
-            ));
-        }
-    }
     Ok(bindings)
 }
 
-fn parse_parameter(input: &FnArg, invalidation: BindingInvalidation) -> syn::Result<BindingSpec> {
+fn parse_parameter(
+    input: &FnArg,
+    component_type: &Type,
+    invalidation: BindingInvalidation,
+) -> syn::Result<BindingSpec> {
     let FnArg::Typed(parameter) = input else {
         return Err(syn::Error::new_spanned(
             input,
@@ -271,18 +269,20 @@ fn parse_parameter(input: &FnArg, invalidation: BindingInvalidation) -> syn::Res
     let name = pattern.ident.clone();
 
     match role {
-        RoleKind::Component => parse_component(name, type_role, invalidation),
+        RoleKind::Component => {
+            parse_component(name, type_role, component_type.clone(), invalidation)
+        }
         RoleKind::Model => {
             let Some(mut binding) = BindingSpec::parse_model_type_role(name, &parameter.ty)? else {
                 unreachable!("the role path was checked above")
             };
             if !matches!(
                 binding.source,
-                BindingSource::Model(ModelSource::Projection { .. })
+                BindingSource::Model(ModelSource::ViewComponentField { .. })
             ) {
                 return Err(syn::Error::new(
                     binding.syntax.span(),
-                    "View Model bindings project from the component parameter; use `model!(component.field)`",
+                    "View Model bindings project from the View component; use `model!(component.field)`",
                 ));
             }
             binding.invalidation = Some(invalidation);
@@ -298,22 +298,20 @@ fn parse_parameter(input: &FnArg, invalidation: BindingInvalidation) -> syn::Res
 fn parse_component(
     name: Ident,
     type_role: syn::TypeMacro,
+    ty: Type,
     invalidation: BindingInvalidation,
 ) -> syn::Result<BindingSpec> {
-    let ty = type_role
-        .mac
-        .parse_body::<SingleTypeRole>()
-        .map_err(|error| {
-            syn::Error::new(
-                error.span(),
-                "`component!` expects exactly one read-only component type",
-            )
-        })?;
+    type_role.mac.parse_body::<EmptyRole>().map_err(|error| {
+        syn::Error::new(
+            error.span(),
+            "View `component!()` does not accept a type; declare `component = T` in `#[view(...)]`",
+        )
+    })?;
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Explicit(ty.0.clone()),
-        source: BindingSource::Component(ComponentSource { ty: ty.0 }),
+        logical_type: LogicalType::Explicit(ty.clone()),
+        source: BindingSource::Component(ComponentSource { ty }),
         access: BindingAccess::Read,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
@@ -358,21 +356,6 @@ fn parse_capability(
         invalidation: None,
         ownership: BindingOwnership::BorrowedForCall,
     })
-}
-
-struct SingleTypeRole(Type);
-
-impl Parse for SingleTypeRole {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        if input.is_empty() {
-            return Err(input.error("expected a type"));
-        }
-        let ty = input.parse::<Type>()?;
-        if !input.is_empty() {
-            return Err(input.error("expected exactly one type"));
-        }
-        Ok(Self(ty))
-    }
 }
 
 struct ViewResourceRole(Type);
@@ -432,6 +415,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         "__mirui_view_body_{function_name}",
         span = Span::mixed_site()
     );
+    let component_type = args.component;
     let view_name = args.name.map_or_else(
         || quote!(stringify!(#function_name)),
         |literal| quote!(#literal),
@@ -441,25 +425,40 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         BindingInvalidation::Visual => quote!(::mirui::ui::view::ViewInvalidation::Visual),
         BindingInvalidation::Layout => quote!(::mirui::ui::view::ViewInvalidation::Layout),
     };
-    let (component_name, component_type) = bindings
-        .iter()
-        .find_map(|binding| match &binding.source {
-            BindingSource::Component(component) => {
-                Some((binding.name.clone(), component.ty.clone()))
-            }
-            _ => None,
-        })
-        .expect("validated View component binding");
-
-    let helper_parameters = bindings
+    let component_local = format_ident!("__mirui_component", span = Span::mixed_site());
+    let has_model_projection = bindings.iter().any(|binding| {
+        matches!(
+            &binding.source,
+            BindingSource::Model(ModelSource::ViewComponentField { .. })
+        )
+    });
+    let mut helper_parameters = bindings
         .iter()
         .filter_map(lower_helper_parameter)
         .collect::<syn::Result<Vec<_>>>()?;
-    let helper_arguments = bindings
+    let mut helper_arguments = bindings
         .iter()
-        .filter_map(lower_helper_argument)
+        .filter_map(|binding| lower_helper_argument(binding, &component_local))
         .collect::<syn::Result<Vec<_>>>()?;
-    let helper_body = lower_model_reads(&bindings, &component_name, quote!(#body))?;
+    if has_model_projection {
+        helper_parameters.insert(0, quote!(#component_local: &#component_type));
+        helper_arguments.insert(0, quote!(#component_local));
+    }
+    let helper_body = lower_model_reads(&bindings, &component_local, quote!(#body))?;
+    let needs_component = bindings.iter().any(|binding| {
+        matches!(
+            &binding.source,
+            BindingSource::Component(_)
+                | BindingSource::Model(ModelSource::ViewComponentField { .. })
+        )
+    });
+    let render_component_fetch = needs_component.then(|| {
+        quote! {
+            let #component_local = __mirui_world
+                .get::<#component_type>(__mirui_entity)
+                .expect(concat!("View `", stringify!(#function_name), "` requires component `", stringify!(#component_type), "`"));
+        }
+    });
     let render_fetches = bindings
         .iter()
         .filter_map(|binding| lower_render_fetch(binding, &function_name))
@@ -519,6 +518,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
                 __mirui_paint: &mut ::mirui::ui::view::PaintCtx<'_>,
             ) #where_clause {
                 ::mirui::core::model::with_model_read_only(|| {
+                    #render_component_fetch
                     #(#render_fetches)*
                     super::#helper_name(#(#helper_arguments),*);
                 });
@@ -566,10 +566,13 @@ fn lower_helper_parameter(binding: &BindingSpec) -> Option<syn::Result<TokenStre
     }
 }
 
-fn lower_helper_argument(binding: &BindingSpec) -> Option<syn::Result<TokenStream>> {
+fn lower_helper_argument(
+    binding: &BindingSpec,
+    component_local: &Ident,
+) -> Option<syn::Result<TokenStream>> {
     match &binding.source {
         BindingSource::Model(_) => None,
-        BindingSource::Component(_) => Some(Ok(quote!(__mirui_component))),
+        BindingSource::Component(_) => Some(Ok(quote!(#component_local))),
         BindingSource::Resource(_) => {
             let local = fetched_name(&binding.name);
             Some(Ok(quote!(#local)))
@@ -596,14 +599,7 @@ fn lower_render_fetch(
     function_name: &Ident,
 ) -> Option<syn::Result<TokenStream>> {
     match &binding.source {
-        BindingSource::Component(component) => {
-            let ty = &component.ty;
-            Some(Ok(quote! {
-                let __mirui_component = __mirui_world
-                    .get::<#ty>(__mirui_entity)
-                    .expect(concat!("View `", stringify!(#function_name), "` requires component `", stringify!(#ty), "`"));
-            }))
-        }
+        BindingSource::Component(_) => None,
         BindingSource::Resource(resource) => {
             let ty = &resource.ty;
             let local = fetched_name(&binding.name);
@@ -623,33 +619,24 @@ fn lower_render_fetch(
 
 fn lower_model_reads(
     bindings: &[BindingSpec],
-    component_name: &Ident,
+    component_local: &Ident,
     mut body: TokenStream,
 ) -> syn::Result<TokenStream> {
     for binding in bindings.iter().rev() {
-        let BindingSource::Model(ModelSource::Projection {
-            binding: source,
-            field,
-        }) = &binding.source
+        let BindingSource::Model(ModelSource::ViewComponentField { field }) = &binding.source
         else {
             continue;
         };
-        if source != component_name {
-            return Err(syn::Error::new(
-                binding.syntax.span(),
-                format!("View Model binding must project from `{component_name}`"),
-            ));
-        }
         let name = &binding.name;
         body = match binding.cardinality {
             BindingCardinality::Required => quote! {
-                ::mirui::core::model::ModelHandle::read(&#component_name.#field, |#name| {
+                ::mirui::core::model::ModelHandle::read(&#component_local.#field, |#name| {
                     #body
                 })
             },
             BindingCardinality::Optional => quote! {
                 ::mirui::core::model::OptionalModelHandle::read_optional(
-                    &#component_name.#field,
+                    &#component_local.#field,
                     |#name| { #body },
                 )
             },
@@ -673,7 +660,7 @@ fn lower_observation(
         .iter()
         .flat_map(|binding| {
             let source = match &binding.source {
-                BindingSource::Model(ModelSource::Projection { field, .. }) => Some(field),
+                BindingSource::Model(ModelSource::ViewComponentField { field }) => Some(field),
                 _ => None,
             };
             binding.watch_selectors.iter().map(move |selector| {
@@ -815,6 +802,7 @@ mod tests {
     fn lowers_explicit_roles_without_repeating_the_raw_model_type() {
         let expanded = expand_ok(
             quote!(
+                component = Board,
                 name = "board",
                 priority = 61,
                 invalidation = Layout,
@@ -824,8 +812,8 @@ mod tests {
             ),
             quote! {
                 pub fn paint_board(
-                    board: component!(Board),
-                    game: model!(board.game, watch(positions, selection)),
+                    board: component!(),
+                    game: model!(component.game, watch(positions, selection)),
                     theme: res!(Theme),
                     entity: entity!(),
                     paint: paint!(),
@@ -836,7 +824,7 @@ mod tests {
         );
         assert!(expanded.contains("fn __mirui_view_body_paint_board"));
         assert!(expanded.contains("game |"));
-        assert!(expanded.contains("ModelHandle :: read (& board . game"));
+        assert!(expanded.contains("ModelHandle :: read (& __mirui_component . game"));
         assert!(expanded.contains("__mirui_subscribe_positions"));
         assert!(expanded.contains("__mirui_subscribe_selection"));
         assert!(expanded.contains("with_observation (observe , 2usize)"));
@@ -852,17 +840,18 @@ mod tests {
     #[test]
     fn lowers_optional_model_projection_to_one_static_observation_slot() {
         let expanded = expand_ok(
-            quote!(),
+            quote!(component = Board),
             quote! {
                 fn paint_board(
-                    board: component!(Board),
-                    game: model!(optional board.game, watch(value)),
+                    game: model!(optional component.game, watch(value)),
                 ) {
                     let _ = game.map(|game| game.value);
                 }
             },
         );
-        assert!(expanded.contains("OptionalModelHandle :: read_optional (& board . game"));
+        assert!(
+            expanded.contains("OptionalModelHandle :: read_optional (& __mirui_component . game")
+        );
         assert!(expanded.contains("ModelSubscription :: inert"));
         assert!(expanded.contains("with_observation (observe , 1usize)"));
     }
@@ -870,12 +859,11 @@ mod tests {
     #[test]
     fn rejects_duplicate_watch_across_projection_bindings() {
         let duplicate = expand(
-            quote!(),
+            quote!(component = Board),
             quote! {
                 fn paint_board(
-                    board: component!(Board),
-                    first: model!(board.game, watch(value)),
-                    second: model!(board.game, watch(value)),
+                    first: model!(component.game, watch(value)),
+                    second: model!(component.game, watch(value)),
                 ) {}
             },
         )
@@ -884,7 +872,7 @@ mod tests {
     }
 
     #[test]
-    fn view_requires_one_component_and_projection_from_that_binding() {
+    fn view_requires_component_metadata_and_projection_from_that_component() {
         let missing = expand(
             quote!(),
             quote! {
@@ -892,26 +880,70 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(missing.to_string().contains("exactly one `component!(T)`"));
+        assert!(missing.to_string().contains("requires `component = T`"));
 
         let wrong_projection = expand(
-            quote!(),
+            quote!(component = Board),
             quote! {
-                fn paint(board: component!(Board), game: model!(other.game)) {}
+                fn paint(game: model!(other.game)) {}
             },
         )
         .unwrap_err();
         assert!(
             wrong_projection
                 .to_string()
-                .contains("must project from component binding `board`")
+                .contains("use the reserved source `component.field`")
         );
+    }
+
+    #[test]
+    fn component_data_binding_is_optional_and_does_not_repeat_the_type() {
+        let marker = expand_ok(
+            quote!(component = Board),
+            quote! {
+                fn paint(paint: paint!()) {
+                    paint.set_background_handled(true);
+                }
+            },
+        );
+        assert!(marker.contains("with_filter :: < Board >"));
+        assert!(!marker.contains("get :: < Board >"));
+
+        let component = expand_ok(
+            quote!(component = Board),
+            quote! {
+                fn paint(board: component!()) {
+                    let _ = board;
+                }
+            },
+        );
+        assert!(component.contains("get :: < Board >"));
+
+        let typed = expand(
+            quote!(component = Board),
+            quote! {
+                fn paint(board: component!(Board)) {
+                    let _ = board;
+                }
+            },
+        )
+        .unwrap_err();
+        assert!(typed.to_string().contains("does not accept a type"));
+
+        let duplicate = expand(
+            quote!(component = Board, component = OtherBoard),
+            quote! {
+                fn paint() {}
+            },
+        )
+        .unwrap_err();
+        assert!(duplicate.to_string().contains("duplicate `component`"));
     }
 
     #[test]
     fn rejects_raw_parameters_and_mutable_resources() {
         let raw = expand(
-            quote!(),
+            quote!(component = Board),
             quote! {
                 fn paint(board: &Board) {}
             },
@@ -920,9 +952,9 @@ mod tests {
         assert!(raw.to_string().contains("View parameters must use"));
 
         let mutable = expand(
-            quote!(),
+            quote!(component = Board),
             quote! {
-                fn paint(board: component!(Board), theme: res!(mut Theme)) {}
+                fn paint(theme: res!(mut Theme)) {}
             },
         )
         .unwrap_err();
@@ -932,18 +964,18 @@ mod tests {
     #[test]
     fn rejects_duplicate_capabilities_and_parameter_attributes() {
         let duplicate = expand(
-            quote!(),
+            quote!(component = Board),
             quote! {
-                fn paint(board: component!(Board), first: paint!(), second: paint!()) {}
+                fn paint(first: paint!(), second: paint!()) {}
             },
         )
         .unwrap_err();
         assert!(duplicate.to_string().contains("at most one `paint!()`"));
 
         let attributed = expand(
-            quote!(),
+            quote!(component = Board),
             quote! {
-                fn paint(#[cfg(all())] board: component!(Board)) {}
+                fn paint(#[cfg(all())] board: component!()) {}
             },
         )
         .unwrap_err();

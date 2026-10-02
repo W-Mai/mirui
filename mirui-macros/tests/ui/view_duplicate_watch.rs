@@ -14,11 +14,10 @@ struct Tile {
     state: model!(State),
 }
 
-#[view]
+#[view(component = Tile)]
 fn paint(
-    tile: component!(Tile),
-    first: model!(tile.state, watch(value)),
-    second: model!(tile.state, watch(value)),
+    first: model!(component.state, watch(value)),
+    second: model!(component.state, watch(value)),
 ) {
     let _ = (first, second);
 }

@@ -2,7 +2,7 @@ use mirui::prelude::*;
 
 #[component]
 struct Board {
-    game: model!(other.game),
+    game: model!(component.game),
 }
 
 fn main() {}

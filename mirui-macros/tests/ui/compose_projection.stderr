@@ -1,5 +1,5 @@
 error: `#[compose]` Model parameters select registered instances; use `model!(T)` or `model!(optional T)`
  --> tests/ui/compose_projection.rs:4:16
   |
-4 | fn panel(game: model!(board.game)) {
+4 | fn panel(game: model!(component.game)) {
   |                ^^^^^

@@ -288,32 +288,32 @@ can be reserved ahead of a batch. Direct field writes through `World::get_mut`
 do not create a structural change record; replace the complete component when
 its model binding changes.
 
-`#[view]` generates a filtered View and its model subscriptions from typed
-parameter roles:
+`#[view]` generates a filtered View from its component attribute and builds
+model subscriptions from typed parameter roles:
 
 ```rust
-#[view(priority = 60, invalidation = Visual)]
+#[view(component = CounterTile, priority = 60, invalidation = Visual)]
 fn paint_counter(
-    tile: component!(CounterTile),
-    counter: model!(tile.counter, watch(count)),
+    counter: model!(component.counter, watch(count)),
     entity: entity!(),
     paint: paint!(),
 ) {
-    let _ = (tile, counter.count, entity, paint.rect());
+    let _ = (counter.count, entity, paint.rect());
 }
 
 app.with_widget(paint_counter::view());
 ```
 
-Exactly one `component!(T)` role selects the entities painted by the View.
-`model!(tile.field)` borrows that component's model only during paint;
+`component = T` selects the entities painted by the View.
+`model!(component.field)` borrows that component's model only during paint;
 `watch(selector)` adds an exact subscription to an `#[observe]` field, an
 observed getter, or a named revision. An optional model field uses
-`model!(optional tile.field, watch(selector))`. `res!(T)`, `entity!()`,
-and `paint!()` expose resources, entity identity, and one frame-scoped paint
-context. `PaintCtx` provides the current geometry, style, widget state,
-transform, clip, drawing, and scene replay operations without exposing the
-renderer as a separate callback parameter.
+`model!(optional component.field, watch(selector))`. Add a named
+`component!()` parameter only when the paint body also needs `&T`. `res!(T)`,
+`entity!()`, and `paint!()` expose resources, entity identity, and one
+frame-scoped paint context. `PaintCtx` provides the current geometry, style,
+widget state, transform, clip, drawing, and scene replay operations without
+exposing the renderer as a separate callback parameter.
 `with_clip_path` owns the matching clip push/pop pair, including cleanup after
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker
@@ -338,7 +338,7 @@ removal update bindings before the next paint.
 | `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `model!(T)` fields retain registered model identity |
 | `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances among generated bindings, callbacks, and direct child calls |
 | `com!(entity, T)` | Read a component in composition or an event | Returns a short-lived `Option<&T>` without subscribing |
-| `#[view]` | Render a component | Typed roles declare the component, model projections, watched selectors, resources, and paint capabilities |
+| `#[view]` | Render a component | The attribute declares the primary component; typed roles declare model projections, watched selectors, resources, and paint capabilities |
 | `#[system]` | Scheduled updates | `model!(T)` captures a registered instance; `res!`, `query!`, and `commands!` declare all other runtime access |
 | `on Event { ... }` | Handle gesture and widget business events | Event fields are local bindings; `com!` reads and `commands!()` defers structural changes |
 | `#[timer]` | Run a callback on a time schedule | `model!`, `entity!`, and `commands!` declare callback access |

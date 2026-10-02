@@ -24,20 +24,20 @@ mod nested {
         3
     }
 
-    #[view(invalidation = Layout)]
+    #[view(component = Tile, invalidation = Layout)]
     #[allow(clippy::let_and_return)]
     #[cfg_attr(all(), inline)]
     pub fn paint(
-        tile: component!(Tile),
-        state: model!(tile.state, watch(value)),
-        optional: model!(optional tile.optional, watch(value)),
+        tile: component!(),
+        state: model!(component.state, watch(value)),
+        optional: model!(optional component.optional, watch(value)),
         theme: res!(mirui::ui::Theme),
         entity: entity!(),
         paint: paint!(),
     ) {
         let value = state.value + super::ROOT_OFFSET + self::local_offset();
         let optional_value = optional.map(|state| state.value);
-        let _ = (value, optional_value, theme, entity, paint);
+        let _ = (tile, value, optional_value, theme, entity, paint);
     }
 }
 

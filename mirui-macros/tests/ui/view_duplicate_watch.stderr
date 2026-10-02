@@ -1,5 +1,5 @@
 error: View watch `state.value` is declared more than once
-  --> tests/ui/view_duplicate_watch.rs:21:38
+  --> tests/ui/view_duplicate_watch.rs:20:43
    |
-21 |     second: model!(tile.state, watch(value)),
-   |                                      ^^^^^
+20 |     second: model!(component.state, watch(value)),
+   |                                           ^^^^^
