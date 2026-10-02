@@ -18,7 +18,7 @@ use syn::parse_macro_input;
 use syn::visit_mut::VisitMut;
 
 mod model_attr;
-mod system_attr_v2;
+mod system_attr;
 mod timer_attr;
 
 #[proc_macro_attribute]
@@ -3401,7 +3401,7 @@ pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
 /// function body cannot access `World` directly.
 #[proc_macro_attribute]
 pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
-    system_attr_v2::expand(args.into(), item.into())
+    system_attr::expand(args.into(), item.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
