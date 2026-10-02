@@ -4,9 +4,9 @@ error: slot operations directly inside a cached `if` branch need a widget parent
 18 | /         ui! {
 19 | |             Card () {
 20 | |                 if $condition {
-21 | |                     @body { View () }
+21 | |                     @body {
 ...  |
-26 | |         }
+30 | |         }
    | |_________^
    |
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

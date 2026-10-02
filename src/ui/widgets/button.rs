@@ -135,31 +135,22 @@ impl crate::ecs::IntoBundle for ButtonBuilder {
 }
 
 #[crate::view(name = "Button", priority = 40, attach = button_attach)]
-fn button_render(
-    component: component!(Button),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
-    theme: res!(crate::ui::Theme),
-) {
-    let color = if matches!(ctx.state, crate::ui::theme::WidgetState::Pressed) {
-        component.pressed_color.resolve_in(theme, ctx.state)
+fn button_render(component: component!(Button), paint: paint!(), theme: res!(crate::ui::Theme)) {
+    let state = paint.state();
+    let color = if matches!(state, crate::ui::theme::WidgetState::Pressed) {
+        component.pressed_color.resolve_in(theme, state)
     } else {
-        component.normal_color.resolve_in(theme, ctx.state)
+        component.normal_color.resolve_in(theme, state)
     };
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color,
-            radius: ctx.style.border_radius,
-            opa: 255,
-        },
-        ctx.clip,
-    );
-    ctx.bg_handled = true;
+    paint.draw(&DrawCommand::Fill {
+        area: paint.rect(),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color,
+        radius: paint.style().border_radius,
+        opa: 255,
+    });
+    paint.set_background_handled(true);
 }
 
 fn button_attach(world: &mut World, entity: Entity) {

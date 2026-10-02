@@ -297,11 +297,9 @@ fn paint_counter(
     tile: component!(CounterTile),
     counter: model!(tile.counter, watch(count)),
     entity: entity!(),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    let _ = (tile, counter.count, entity, renderer, rect, ctx);
+    let _ = (tile, counter.count, entity, paint.rect());
 }
 
 app.with_widget(paint_counter::view());
@@ -312,7 +310,14 @@ Exactly one `component!(T)` role selects the entities painted by the View.
 `watch(selector)` adds an exact subscription to an `#[observe]` field, an
 observed getter, or a named revision. An optional model field uses
 `model!(optional tile.field, watch(selector))`. `res!(T)`, `entity!()`,
-`draw!()`, `rect!()`, and `view!()` expose the remaining paint capabilities.
+and `paint!()` expose resources, entity identity, and one frame-scoped paint
+context. `PaintCtx` provides the current geometry, style, widget state,
+transform, clip, drawing, and scene replay operations without exposing the
+renderer as a separate callback parameter.
+`with_clip_path` owns the matching clip push/pop pair, including cleanup after
+a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
+rejected. Paint operations retain the first render error for the frame walker
+instead of requiring callbacks to forward backend results themselves.
 The generated adapter holds no model borrow after paint and rejects model
 writes inside the callback. Multiple model fields, including two fields that
 refer to the same instance, can be read together. `invalidation = Layout`

@@ -13,7 +13,7 @@ use syn::{
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingOwnership,
     BindingSource, BindingSpec, BindingSyntax, ComponentSource, LogicalType, ModelSource,
-    ResourceSource,
+    ResourceSource, RoleKind, VIEW_ROLES,
 };
 
 mod keyword {
@@ -266,21 +266,13 @@ fn parse_parameter(input: &FnArg, invalidation: BindingInvalidation) -> syn::Res
             "View binding parameters must use a plain identifier",
         ));
     }
-    let Type::Macro(type_role) = &*parameter.ty else {
-        return Err(syn::Error::new_spanned(
-            &parameter.ty,
-            "View parameters must use `component!(T)`, `model!(component.field, ...)`, `res!(T)`, `entity!()`, `draw!()`, `rect!()`, or `view!()`",
-        ));
-    };
-    require_parentheses(&type_role.mac)?;
-    let Some(role) = type_role.mac.path.get_ident() else {
-        return Err(unknown_role_error(&type_role.mac));
-    };
+    let (role, type_role) =
+        VIEW_ROLES.parse_required(&parameter.ty, "#[view]", "View parameters")?;
     let name = pattern.ident.clone();
 
-    match role.to_string().as_str() {
-        "component" => parse_component(name, type_role.clone(), invalidation),
-        "model" => {
+    match role {
+        RoleKind::Component => parse_component(name, type_role, invalidation),
+        RoleKind::Model => {
             let Some(mut binding) = BindingSpec::parse_model_type_role(name, &parameter.ty)? else {
                 unreachable!("the role path was checked above")
             };
@@ -296,18 +288,10 @@ fn parse_parameter(input: &FnArg, invalidation: BindingInvalidation) -> syn::Res
             binding.invalidation = Some(invalidation);
             Ok(binding)
         }
-        "res" => parse_resource(name, type_role.clone()),
-        "entity" => parse_capability(name, type_role.clone(), BindingCapability::Entity),
-        "draw" => parse_capability(name, type_role.clone(), BindingCapability::Draw),
-        "rect" => parse_capability(name, type_role.clone(), BindingCapability::Rect),
-        "view" => parse_capability(name, type_role.clone(), BindingCapability::ViewContext),
-        "query" | "commands" | "motion" => Err(syn::Error::new_spanned(
-            &type_role.mac.path,
-            format!(
-                "binding role `{role}!` is not available in `#[view]`; expected `component!`, `model!`, `res!`, `entity!`, `draw!`, `rect!`, or `view!`",
-            ),
-        )),
-        _ => Err(unknown_role_error(&type_role.mac)),
+        RoleKind::Res => parse_resource(name, type_role),
+        RoleKind::Entity => parse_capability(name, type_role, BindingCapability::Entity),
+        RoleKind::Paint => parse_capability(name, type_role, BindingCapability::Paint),
+        _ => unreachable!("RoleSet admitted an unsupported View role"),
     }
 }
 
@@ -364,9 +348,7 @@ fn parse_capability(
         syntax: BindingSyntax::TypeRole(type_role),
         logical_type: LogicalType::Intrinsic(capability),
         source: BindingSource::Capability(capability),
-        access: if capability == BindingCapability::Draw
-            || capability == BindingCapability::ViewContext
-        {
+        access: if capability == BindingCapability::Paint {
             BindingAccess::Write
         } else {
             BindingAccess::Read
@@ -432,32 +414,10 @@ impl Parse for EmptyRole {
     }
 }
 
-fn require_parentheses(role: &syn::Macro) -> syn::Result<()> {
-    if matches!(role.delimiter, syn::MacroDelimiter::Paren(_)) {
-        return Ok(());
-    }
-    Err(syn::Error::new(
-        role.delimiter.span().open(),
-        "View binding roles use parentheses, for example `component!(Board)`",
-    ))
-}
-
-fn unknown_role_error(role: &syn::Macro) -> syn::Error {
-    let path = role.path.to_token_stream().to_string();
-    syn::Error::new_spanned(
-        &role.path,
-        format!(
-            "unknown View binding role `{path}!`; expected `component!`, `model!`, `res!`, `entity!`, `draw!`, `rect!`, or `view!`",
-        ),
-    )
-}
-
 fn capability_name(capability: BindingCapability) -> &'static str {
     match capability {
-        BindingCapability::Draw => "draw",
         BindingCapability::Entity => "entity",
-        BindingCapability::Rect => "rect",
-        BindingCapability::ViewContext => "view",
+        BindingCapability::Paint => "paint",
         BindingCapability::Commands => "commands",
         BindingCapability::Motion => "motion",
     }
@@ -554,11 +514,9 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
 
             #[allow(unused_variables)]
             fn render #impl_generics (
-                __mirui_renderer: &mut dyn ::mirui::render::renderer::Renderer,
                 __mirui_world: &::mirui::ecs::World,
                 __mirui_entity: ::mirui::ecs::Entity,
-                __mirui_rect: &::mirui::types::Rect,
-                __mirui_ctx: &mut ::mirui::ui::view::ViewCtx,
+                __mirui_paint: &mut ::mirui::ui::view::PaintCtx<'_>,
             ) #where_clause {
                 ::mirui::core::model::with_model_read_only(|| {
                     #(#render_fetches)*
@@ -595,13 +553,7 @@ fn lower_helper_parameter(binding: &BindingSpec) -> Option<syn::Result<TokenStre
         }
         BindingSource::Capability(capability) => Some(match capability {
             BindingCapability::Entity => Ok(quote!(#name: ::mirui::ecs::Entity)),
-            BindingCapability::Draw => {
-                Ok(quote!(#name: &mut dyn ::mirui::render::renderer::Renderer))
-            }
-            BindingCapability::Rect => Ok(quote!(#name: &::mirui::types::Rect)),
-            BindingCapability::ViewContext => {
-                Ok(quote!(#name: &mut ::mirui::ui::view::ViewCtx<'_>))
-            }
+            BindingCapability::Paint => Ok(quote!(#name: &mut ::mirui::ui::view::PaintCtx<'_>)),
             _ => Err(syn::Error::new(
                 binding.syntax.span(),
                 "unsupported View capability binding",
@@ -624,9 +576,7 @@ fn lower_helper_argument(binding: &BindingSpec) -> Option<syn::Result<TokenStrea
         }
         BindingSource::Capability(capability) => Some(Ok(match capability {
             BindingCapability::Entity => quote!(__mirui_entity),
-            BindingCapability::Draw => quote!(__mirui_renderer),
-            BindingCapability::Rect => quote!(__mirui_rect),
-            BindingCapability::ViewContext => quote!(__mirui_ctx),
+            BindingCapability::Paint => quote!(__mirui_paint),
             _ => {
                 return Some(Err(syn::Error::new(
                     binding.syntax.span(),
@@ -878,11 +828,9 @@ mod tests {
                     game: model!(board.game, watch(positions, selection)),
                     theme: res!(Theme),
                     entity: entity!(),
-                    renderer: draw!(),
-                    rect: rect!(),
-                    ctx: view!(),
+                    paint: paint!(),
                 ) {
-                    self::paint(game, theme, entity, renderer, rect, ctx);
+                    self::paint(game, theme, entity, paint);
                 }
             },
         );
@@ -895,6 +843,10 @@ mod tests {
         assert!(expanded.contains("ViewInvalidation :: Layout"));
         assert!(expanded.contains("with_filter :: < Board >"));
         assert!(expanded.contains("self :: paint"));
+        assert!(expanded.contains("& mut :: mirui :: ui :: view :: PaintCtx < '_ >"));
+        assert!(!expanded.contains("__mirui_renderer"));
+        assert!(!expanded.contains("__mirui_rect"));
+        assert!(!expanded.contains("__mirui_ctx"));
     }
 
     #[test]
@@ -936,7 +888,7 @@ mod tests {
         let missing = expand(
             quote!(),
             quote! {
-                fn paint(ctx: view!()) {}
+                fn paint(paint: paint!()) {}
             },
         )
         .unwrap_err();
@@ -982,11 +934,11 @@ mod tests {
         let duplicate = expand(
             quote!(),
             quote! {
-                fn paint(board: component!(Board), first: draw!(), second: draw!()) {}
+                fn paint(board: component!(Board), first: paint!(), second: paint!()) {}
             },
         )
         .unwrap_err();
-        assert!(duplicate.to_string().contains("at most one `draw!()`"));
+        assert!(duplicate.to_string().contains("at most one `paint!()`"));
 
         let attributed = expand(
             quote!(),

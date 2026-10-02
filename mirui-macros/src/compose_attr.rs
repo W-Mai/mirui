@@ -1,4 +1,7 @@
-use crate::binding::{BindingCardinality, BindingSource, BindingSpec, LogicalType, ModelSource};
+use crate::binding::{
+    BindingCardinality, BindingSource, BindingSpec, COMPOSE_ROLES, LogicalType, ModelSource,
+    RoleKind,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::spanned::Spanned;
@@ -55,19 +58,14 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             .to_compile_error();
         }
 
-        let is_model_role = is_bare_role(&parameter.ty, "model");
-        if !is_model_role {
-            if let Some(role) = reserved_binding_role(&parameter.ty) {
-                return syn::Error::new_spanned(
-                    &parameter.ty,
-                    format!(
-                        "binding role `{role}!` is not available in `#[compose]`; only `model!(T)` and `model!(optional T)` are supported",
-                    ),
-                )
-                .to_compile_error();
-            }
+        let role = match COMPOSE_ROLES.classify(&parameter.ty, "#[compose]") {
+            Ok(role) => role,
+            Err(error) => return error.to_compile_error(),
+        };
+        let Some((role, _)) = role else {
             continue;
-        }
+        };
+        debug_assert_eq!(role, RoleKind::Model);
 
         if let Some(attribute) = parameter.attrs.first() {
             return syn::Error::new_spanned(
@@ -154,30 +152,6 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     quote! { #function }
-}
-
-fn is_bare_role(ty: &syn::Type, expected: &str) -> bool {
-    let syn::Type::Macro(role) = ty else {
-        return false;
-    };
-    role.mac.path.leading_colon.is_none()
-        && role.mac.path.segments.len() == 1
-        && role.mac.path.is_ident(expected)
-}
-
-fn reserved_binding_role(ty: &syn::Type) -> Option<String> {
-    let syn::Type::Macro(role) = ty else {
-        return None;
-    };
-    if role.mac.path.leading_colon.is_some() || role.mac.path.segments.len() != 1 {
-        return None;
-    }
-    let name = role.mac.path.get_ident()?.to_string();
-    matches!(
-        name.as_str(),
-        "res" | "query" | "commands" | "component" | "entity" | "draw" | "rect" | "view" | "motion"
-    )
-    .then_some(name)
 }
 
 struct BoundUiCalls {

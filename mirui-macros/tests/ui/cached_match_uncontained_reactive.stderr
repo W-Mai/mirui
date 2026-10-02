@@ -6,7 +6,7 @@ error: reactive control flow directly inside a reactive `match` arm needs a widg
 17 | |                 match $selection {
 18 | |                     true => {
 ...  |
-26 | |         }
+27 | |         }
    | |_________^
    |
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -6,8 +6,7 @@ use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::{FlexDirection, LayoutStyle};
-use mirui::ui::view::View;
-use mirui::ui::view::ViewCtx;
+use mirui::ui::view::{PaintCtx, View};
 use mirui::{component, model, view};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -55,9 +54,9 @@ fn paint_pair(
     _pair: component!(Pair),
     left: model!(_pair.left, watch(value)),
     right: model!(_pair.right, watch(value)),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = left.value < right.value;
+    paint.set_background_handled(left.value < right.value);
 }
 
 #[model]
@@ -113,31 +112,23 @@ struct PixelTile {
 fn paint_pixel_tile(
     _tile: component!(PixelTile),
     model: model!(_tile.model, watch(value)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: Color::rgb(model.value, 0, 0),
-            radius: Fixed::ZERO,
-            opa: 255,
-        },
-        ctx.clip,
-    );
-    ctx.bg_handled = true;
+    paint.draw(&DrawCommand::Fill {
+        area: paint.rect(),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: Color::rgb(model.value, 0, 0),
+        radius: Fixed::ZERO,
+        opa: 255,
+    });
+    paint.set_background_handled(true);
 }
 
 fn attempt_raw_view_write(
-    _renderer: &mut dyn mirui::render::renderer::Renderer,
     world: &mirui::ecs::World,
     entity: mirui::ecs::Entity,
-    _rect: &mirui::types::Rect,
-    _ctx: &mut ViewCtx<'_>,
+    _paint: &mut PaintCtx<'_>,
 ) {
     world.get::<PaintTile>(entity).unwrap().model.set_value(99);
 }

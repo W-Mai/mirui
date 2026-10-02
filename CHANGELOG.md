@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Unified authoring callbacks.** Components, compositions, views, systems, events, timers, and animations share one role model with compile-time diagnostics for unsupported access and alias conflicts.
+- **Unified paint context.** View callbacks use one `paint!()` capability for geometry, style, drawing, scene replay, clipping, and render-error propagation.
 - **Automatic view invalidation.** Mutable component queries and observed model sources drive visual or layout invalidation through declared view dependencies.
 - **Gallery authoring examples.** Built-in demos and games use typed roles, bound model instances, attribute timers, and typed animation components.
 

@@ -1,9 +1,8 @@
 use crate::ecs::{Entity, World};
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
 use crate::types::{Dimension, Fixed, Rect, Transform};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 /// `scale` is a unitless multiplier orthogonal to `size`. Animate
 /// `scale` (e.g. through `#[mirui::animate]`) so hover bounces
@@ -70,23 +69,20 @@ fn icon_transform(icon: &Icon, rect: &Rect, parent: Transform) -> Option<Transfo
     super::image::vector_transform(rect, icon.viewbox, icon_size(icon, rect)?, parent)
 }
 
-fn icon_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn icon_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(icon) = world.get::<Icon>(entity) else {
         return;
     };
-    let theme = ctx.theme(world);
-    let color = icon.color.resolve_in(theme, ctx.state);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let color = icon.color.resolve_in(theme, paint.state());
+    let rect = paint.rect();
 
-    let Some(transform) = icon_transform(icon, rect, ctx.transform) else {
+    let Some(transform) = icon_transform(icon, &rect, paint.transform()) else {
         return;
     };
-    super::image::draw_vector_transformed(renderer, ctx, &icon.path, color, transform);
+    super::image::draw_vector_transformed(paint, &icon.path, color, transform);
 }
 
 pub fn view() -> View {

@@ -4,9 +4,8 @@ use super::state::{ScopeModel, TriggerEdge};
 use crate::gallery::demos::instruments::InstrumentPainter;
 use crate::prelude::*;
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
 use crate::types::Transform;
-use crate::ui::view::{View, ViewCtx, ViewObservationBindings};
+use crate::ui::view::{PaintCtx, View, ViewObservationBindings};
 
 pub(super) const BG: ColorToken = ColorToken::Surface;
 pub(super) const ICE: Color = Color::rgb(222, 231, 237);
@@ -65,14 +64,11 @@ fn canvas_geometry(rect: &Rect) -> (Fixed, Rect) {
 }
 
 #[crate::view(name = "ScopeGrid", priority = 60)]
-pub(super) fn scope_grid_render(
-    _grid: component!(ScopeGrid),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
-) {
-    let mut painter = InstrumentPainter::new(renderer, *ctx.clip, ctx.transform);
-    let (scale, plot) = canvas_geometry(rect);
+pub(super) fn scope_grid_render(_grid: component!(ScopeGrid), paint: paint!()) {
+    let rect = paint.rect();
+    let transform = paint.transform();
+    let mut painter = InstrumentPainter::new(paint, transform);
+    let (scale, plot) = canvas_geometry(&rect);
     for column in 0..=12 {
         let x = plot.x + plot.w * Fixed::from_ratio(column, 12);
         painter.line(
@@ -155,18 +151,13 @@ pub(super) fn scope_grid_render(
             145,
         );
     }
-    ctx.record(painter.finish());
 }
 
-fn paint_scope(
-    renderer: &mut dyn Renderer,
-    scratch: &ScopeWaveScratch,
-    state: &ScopeModel,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
-    let mut painter = InstrumentPainter::new(renderer, *ctx.clip, ctx.transform);
-    let (scale, plot) = canvas_geometry(rect);
+fn paint_scope(scratch: &ScopeWaveScratch, state: &ScopeModel, paint: &mut PaintCtx<'_>) {
+    let rect = paint.rect();
+    let transform = paint.transform();
+    let mut painter = InstrumentPainter::new(paint, transform);
+    let (scale, plot) = canvas_geometry(&rect);
     let samples = plot.w.to_int().clamp(128, MAX_WAVE_SAMPLES as i32) as usize;
     let mut paths = scratch.paths.borrow_mut();
     for channel in 0..=u8::from(state.channel_b) {
@@ -417,16 +408,9 @@ fn paint_scope(
         TRIGGER,
         220,
     );
-    ctx.record(painter.finish());
 }
 
-fn scope_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn scope_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(canvas) = world.get::<ScopeCanvas>(entity) else {
         return;
     };
@@ -435,7 +419,7 @@ fn scope_render(
     };
     crate::core::model::with_model_read_only(|| {
         crate::core::model::ModelHandle::read(&canvas.model, |model| {
-            paint_scope(renderer, scratch, model, rect, ctx);
+            paint_scope(scratch, model, paint);
         });
     });
 }

@@ -465,6 +465,8 @@ pub enum RenderError {
     TextLayout,
     /// App-wide text reservation failed before any text entity entered layout.
     TextPreparation,
+    /// A renderer scope command was submitted outside its structured API.
+    InvalidScope,
     InvalidGeometry,
     InvalidTexture,
     MissingWorkspace,

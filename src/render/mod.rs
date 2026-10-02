@@ -32,6 +32,7 @@ pub use engine::RenderEngine;
 pub use factory::{RendererFactory, SwRendererFactory};
 pub use glyph_run::PosedGlyphs;
 pub use projective_fallback::ProjectiveFallback;
+pub use raster::FillRule;
 pub use renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderResource,
     RenderRoute, Renderer, TextRunIdentity,

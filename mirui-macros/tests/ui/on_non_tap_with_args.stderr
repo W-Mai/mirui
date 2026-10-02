@@ -1,5 +1,5 @@
 error: `on LongPress` does not take arguments; only `on Tap(n)` accepts one tap-count argument
-  --> tests/ui/on_non_tap_with_args.rs:14:27
+  --> tests/ui/on_non_tap_with_args.rs:14:24
    |
-14 |             View () {} on LongPress(500) { todo!() }
-   |                           ^^^^^^^^^
+14 |             View () on LongPress(500) { todo!() }
+   |                        ^^^^^^^^^

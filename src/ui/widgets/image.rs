@@ -5,11 +5,10 @@ use crate::core::resource::{ResourceHandle, ResourceManager};
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::path::Path;
-use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[derive(Clone, Debug)]
 pub enum ImageSource {
@@ -170,24 +169,19 @@ fn resolve_image(
 }
 
 pub(crate) fn draw_vector_transformed(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx,
+    paint: &mut PaintCtx<'_>,
     path: &Path,
     color: Color,
     transform: Transform,
 ) {
-    let paint = crate::render::canvas::Paint::Color(color.into());
-    ctx.draw(
-        renderer,
-        &DrawCommand::FillPath {
-            path,
-            transform,
-            paint: &paint,
-            opa: 255,
-            fill_rule: crate::render::raster::FillRule::EvenOdd,
-        },
-        ctx.clip,
-    );
+    let fill = crate::render::canvas::Paint::Color(color.into());
+    paint.draw(&DrawCommand::FillPath {
+        path,
+        transform,
+        paint: &fill,
+        opa: 255,
+        fill_rule: crate::render::raster::FillRule::EvenOdd,
+    });
 }
 
 pub(crate) fn vector_transform(
@@ -242,26 +236,24 @@ impl crate::ecs::IntoBundle for ImageBuilder {
     }
 }
 
-fn image_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn image_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     crate::trace_span!("image.render", {
         let img = crate::trace_span!("image.world_get", { world.get::<Image>(entity) });
         let Some(img) = img else { return };
+        let rect = paint.rect();
         if let ImageSource::Vector(path) = &img.src {
             let size = rect.w.min(rect.h) * img.scale;
-            let Some(transform) = vector_transform(rect, img.viewbox, size, ctx.transform) else {
+            let Some(transform) = vector_transform(&rect, img.viewbox, size, paint.transform())
+            else {
                 return;
             };
+            let theme = world
+                .resource::<crate::ui::Theme>()
+                .expect("App::new must insert Theme; missing means a test fixture skipped App");
             draw_vector_transformed(
-                renderer,
-                ctx,
+                paint,
                 path,
-                img.color.resolve_in(ctx.theme(world), ctx.state),
+                img.color.resolve_in(theme, paint.state()),
                 transform,
             );
             return;
@@ -269,26 +261,22 @@ fn image_render(
         let rc = crate::trace_span!("image.resolve", { resolve_image(world, entity, img) });
         let Some(rc) = rc else { return };
         crate::trace_span!("image.blit", {
-            ctx.draw(
-                renderer,
-                &DrawCommand::Blit {
-                    pos: Point {
-                        x: rect.x,
-                        y: rect.y,
-                    },
-                    size: Point {
-                        x: rect.w,
-                        y: rect.h,
-                    },
-                    transform: ctx.transform,
-                    quad: ctx.quad,
-                    texture: &rc,
-                    opa: 255,
-                    radius: img.radius,
-                    composite: img.composite,
+            paint.draw(&DrawCommand::Blit {
+                pos: Point {
+                    x: rect.x,
+                    y: rect.y,
                 },
-                ctx.clip,
-            );
+                size: Point {
+                    x: rect.w,
+                    y: rect.h,
+                },
+                transform: paint.transform(),
+                quad: paint.quad(),
+                texture: &rc,
+                opa: 255,
+                radius: img.radius,
+                composite: img.composite,
+            });
         });
         crate::trace_span!("image.rc_drop", { drop(rc) });
     });

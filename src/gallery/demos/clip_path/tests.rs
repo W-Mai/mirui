@@ -42,19 +42,20 @@ fn failed_content_still_pops_clip() {
     let entity = world.spawn_empty();
     let style = Style::default();
     let clip = Rect::new(0, 0, 320, 320);
-    let mut ctx = ViewCtx {
-        style: &style,
-        transform: Transform::IDENTITY,
-        quad: None,
-        clip: &clip,
-        bg_handled: false,
-        state: WidgetState::Enabled,
-        error: None,
-    };
+    let mut paint = PaintCtx::new(
+        &mut renderer,
+        &style,
+        &clip,
+        &clip,
+        Transform::IDENTITY,
+        None,
+        WidgetState::Enabled,
+    );
 
-    clip_path_render(&mut renderer, &world, entity, &clip, &mut ctx);
+    clip_path_render(&world, entity, &mut paint);
 
-    assert_eq!(ctx.error, Some(RenderError::BackendFailure));
+    assert_eq!(paint.error(), Some(RenderError::BackendFailure));
+    drop(paint);
     assert!(!renderer.pushed);
     assert_eq!(renderer.pops, 1);
 }

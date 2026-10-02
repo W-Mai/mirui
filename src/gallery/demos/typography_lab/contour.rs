@@ -4,9 +4,8 @@ use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::font::FontManager;
 use crate::render::font::scalar::ScalarField;
-use crate::render::renderer::Renderer;
 use crate::ui::Theme;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[crate::component]
 pub(super) struct RasterContour {
@@ -39,13 +38,7 @@ fn contour_color(theme: &Theme, value: Fixed) -> Color {
     }
 }
 
-fn raster_contour_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn raster_contour_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let (Some(spec), Some(manager)) = (
         world.get::<RasterContour>(entity),
         world.resource::<FontManager>(),
@@ -75,6 +68,7 @@ fn raster_contour_render(
     ) else {
         return;
     };
+    let rect = paint.rect();
     let width = i32::try_from(field.width()).unwrap_or(i32::MAX).max(1);
     let height = i32::try_from(field.height()).unwrap_or(i32::MAX).max(1);
     let cell = (rect.w.to_int() / width)
@@ -91,23 +85,19 @@ fn raster_contour_render(
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     for y in 0..height {
         for x in 0..width {
-            ctx.draw(
-                renderer,
-                &DrawCommand::Fill {
-                    area: Rect {
-                        x: origin.x + Fixed::from_int(x * cell),
-                        y: origin.y + Fixed::from_int(y * cell),
-                        w: extent,
-                        h: extent,
-                    },
-                    transform: ctx.transform,
-                    quad: None,
-                    color: contour_color(theme, field.sample(x, y)),
-                    radius: Fixed::ZERO,
-                    opa: 255,
+            paint.draw(&DrawCommand::Fill {
+                area: Rect {
+                    x: origin.x + Fixed::from_int(x * cell),
+                    y: origin.y + Fixed::from_int(y * cell),
+                    w: extent,
+                    h: extent,
                 },
-                ctx.clip,
-            );
+                transform: paint.transform(),
+                quad: None,
+                color: contour_color(theme, field.sample(x, y)),
+                radius: Fixed::ZERO,
+                opa: 255,
+            });
         }
     }
 }

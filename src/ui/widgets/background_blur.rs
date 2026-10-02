@@ -1,9 +1,8 @@
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::renderer::Renderer;
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
-use crate::types::{Fixed, Point, Rect, Transform};
-use crate::ui::view::{View, ViewCtx};
+use crate::types::{Fixed, Point, Transform};
+use crate::ui::view::{PaintCtx, View};
 
 pub struct BackgroundBlur {
     pub radius: Fixed,
@@ -26,13 +25,7 @@ impl BackgroundBlur {
     }
 }
 
-fn background_blur_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn background_blur_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(bg) = world.get::<BackgroundBlur>(entity) else {
         return;
     };
@@ -40,7 +33,7 @@ fn background_blur_render(
         return;
     }
 
-    let base_rect = ctx.transform.apply_rect_bbox(*rect);
+    let base_rect = paint.transform().apply_rect_bbox(paint.rect());
     let alpha = alpha_for_radius(bg.radius);
 
     let padding = bg.radius + bg.spread;
@@ -50,18 +43,9 @@ fn background_blur_render(
         base_rect
     };
 
-    if let Err(error) = renderer.prepare_readback(&sample_rect) {
-        ctx.record(Err(error));
-        return;
-    }
-
-    let mut tmp = match renderer.sample_target_region(&sample_rect) {
-        Ok(Some(texture)) => texture,
-        Ok(None) => return,
-        Err(error) => {
-            ctx.record(Err(error));
-            return;
-        }
+    let mut tmp = match paint.sample_target_region(sample_rect) {
+        Some(texture) => texture,
+        None => return,
     };
     {
         let r = crate::types::Rect::new(
@@ -73,21 +57,17 @@ fn background_blur_render(
         iir_blur_inplace(&mut tmp, alpha, r);
     }
 
-    // sample_rect already has ctx.transform baked in; passing it again would double-translate.
-    ctx.draw(
-        renderer,
-        &DrawCommand::Blit {
-            pos: Point::new(sample_rect.x, sample_rect.y),
-            size: Point::new(sample_rect.w, sample_rect.h),
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &tmp,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        },
-        ctx.clip,
-    );
+    // sample_rect already has the paint transform baked in; applying it again would double-translate.
+    paint.draw(&DrawCommand::Blit {
+        pos: Point::new(sample_rect.x, sample_rect.y),
+        size: Point::new(sample_rect.w, sample_rect.h),
+        transform: Transform::IDENTITY,
+        quad: None,
+        texture: &tmp,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    });
 }
 
 pub fn view() -> View {
@@ -97,7 +77,8 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::renderer::{DrawRequest, RenderError};
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::types::Rect;
     use crate::ui::Style;
     use crate::ui::theme::WidgetState;
 
@@ -129,24 +110,20 @@ mod tests {
         world.insert(entity, BackgroundBlur::new(4));
         let style = Style::default();
         let clip = Rect::new(0, 0, 32, 32);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::IDENTITY,
-            quad: None,
-            clip: &clip,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
-
-        background_blur_render(
-            &mut FailingReadback,
-            &world,
-            entity,
-            &Rect::new(4, 4, 12, 12),
-            &mut ctx,
+        let rect = Rect::new(4, 4, 12, 12);
+        let mut renderer = FailingReadback;
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &clip,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
         );
 
-        assert_eq!(ctx.error, Some(RenderError::BackendFailure));
+        background_blur_render(&world, entity, &mut paint);
+
+        assert_eq!(paint.error(), Some(RenderError::BackendFailure));
     }
 }

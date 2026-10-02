@@ -4,36 +4,24 @@ use super::style::{BORDER, LANE_COLORS, PANEL};
 use crate::prelude::*;
 use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
 use crate::render::path::PathStore;
-use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::Theme;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[crate::component]
 pub(super) struct CurveStage {
     pub(super) model: model!(CurveModel),
 }
 
-fn fill(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx<'_>,
-    area: Rect,
-    color: Color,
-    radius: Fixed,
-    opacity: u8,
-) {
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area,
-            transform: ctx.transform,
-            quad: None,
-            color,
-            radius,
-            opa: opacity,
-        },
-        ctx.clip,
-    );
+fn fill(paint: &mut PaintCtx<'_>, area: Rect, color: Color, radius: Fixed, opacity: u8) {
+    paint.draw(&DrawCommand::Fill {
+        area,
+        transform: paint.transform(),
+        quad: None,
+        color,
+        radius,
+        opa: opacity,
+    });
 }
 
 #[crate::view(
@@ -44,22 +32,20 @@ fn fill(
 pub(super) fn curve_stage_background_render(
     component: component!(CurveStage),
     model: model!(component.model, watch(phase)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
     let _ = component;
     let panel = theme.resolve(PANEL);
     let border = theme.resolve(BORDER);
     let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
-    ctx.bg_handled = true;
-    fill(renderer, ctx, *rect, panel, Fixed::from_int(18), 255);
+    paint.set_background_handled(true);
+    let rect = paint.rect();
+    fill(paint, rect, panel, Fixed::from_int(18), 255);
     for index in 0..12 {
         let x = rect.x + rect.w * Fixed::from_ratio(index, 11);
         fill(
-            renderer,
-            ctx,
+            paint,
             Rect::new(x, rect.y, Fixed::ONE, rect.h),
             border,
             Fixed::ZERO,
@@ -69,8 +55,7 @@ pub(super) fn curve_stage_background_render(
     for index in 1..4 {
         let y = rect.y + rect.h * Fixed::from_ratio(index, 4);
         fill(
-            renderer,
-            ctx,
+            paint,
             Rect::new(rect.x, y, rect.w, Fixed::ONE),
             border,
             Fixed::ZERO,
@@ -85,8 +70,7 @@ pub(super) fn curve_stage_background_render(
         let y = rect.y + rect.h / 2 + Fixed::sin_deg(angle * 2) * Fixed::from_int(126);
         let radius = Fixed::from_int(10 + index % 3 * 4);
         fill(
-            renderer,
-            ctx,
+            paint,
             Rect::new(x - radius, y - radius, radius * 2, radius * 2),
             lane_colors[index as usize % lane_colors.len()],
             radius,
@@ -95,13 +79,7 @@ pub(super) fn curve_stage_background_render(
     }
 }
 
-fn curve_paths_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn curve_paths_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
     let default_theme = Theme::default();
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
@@ -111,42 +89,37 @@ fn curve_paths_render(
     ) else {
         return;
     };
-    let transform = ctx.transform.compose(&Transform::translate(rect.x, rect.y));
+    let rect = paint.rect();
+    let transform = paint
+        .transform()
+        .compose(&Transform::translate(rect.x, rect.y));
     for (index, id) in paths.ids.into_iter().enumerate() {
         let Ok(path) = store.get(id) else {
             continue;
         };
-        let paint = Paint::Color(lane_colors[index].into());
-        ctx.draw(
-            renderer,
-            &DrawCommand::StrokePath {
-                path,
-                transform,
-                paint: &paint,
-                width: Fixed::from_int(5),
-                opa: 16,
-                line_cap: LineCap::Round,
-                line_join: LineJoin::Round,
-                miter_limit: Fixed::from_int(4),
-                dash: &[],
-            },
-            ctx.clip,
-        );
-        ctx.draw(
-            renderer,
-            &DrawCommand::StrokePath {
-                path,
-                transform,
-                paint: &paint,
-                width: Fixed::ONE,
-                opa: 150,
-                line_cap: LineCap::Round,
-                line_join: LineJoin::Round,
-                miter_limit: Fixed::from_int(4),
-                dash: &[],
-            },
-            ctx.clip,
-        );
+        let stroke_paint = Paint::Color(lane_colors[index].into());
+        paint.draw(&DrawCommand::StrokePath {
+            path,
+            transform,
+            paint: &stroke_paint,
+            width: Fixed::from_int(5),
+            opa: 16,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            miter_limit: Fixed::from_int(4),
+            dash: &[],
+        });
+        paint.draw(&DrawCommand::StrokePath {
+            path,
+            transform,
+            paint: &stroke_paint,
+            width: Fixed::ONE,
+            opa: 150,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            miter_limit: Fixed::from_int(4),
+            dash: &[],
+        });
     }
 }
 

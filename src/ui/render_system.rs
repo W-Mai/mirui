@@ -12,7 +12,7 @@ use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 use super::dirty::{DirtyRegions, RegionShift};
 use super::state::{InteractionState, UserState};
 use super::theme::WidgetState;
-use super::view::{ViewCtx, ViewRegistry};
+use super::view::{PaintCtx, ViewRegistry};
 use super::{Children, Parent, Style, Widget};
 
 /// Stage at which a text widget failed to prepare its layout.
@@ -1357,28 +1357,32 @@ fn draw_tree_offset(
             } else {
                 *clip
             };
-            let mut ctx = ViewCtx {
-                style,
-                transform: tf,
-                quad,
-                clip: &view_clip,
-                bg_handled: false,
-                state,
-                error: None,
-            };
             if !tf_3d.is_identity() {
                 let mut scoped = ProjectiveRenderer {
                     inner: renderer,
                     transform: tf_3d,
                     error: None,
                 };
-                let result = render_views(&mut scoped, world, entity, &shifted_rect, &mut ctx);
+                let result = {
+                    let mut ctx = PaintCtx::new(
+                        &mut scoped,
+                        style,
+                        &shifted_rect,
+                        &view_clip,
+                        tf,
+                        quad,
+                        state,
+                    );
+                    render_views(world, entity, &mut ctx)
+                };
                 if let Some(error) = scoped.error {
                     return Err(error);
                 }
                 result?;
             } else {
-                render_views(renderer, world, entity, &shifted_rect, &mut ctx)?;
+                let mut ctx =
+                    PaintCtx::new(renderer, style, &shifted_rect, &view_clip, tf, quad, state);
+                render_views(world, entity, &mut ctx)?;
             }
         }
     }
@@ -1424,13 +1428,7 @@ fn draw_tree_offset(
     Ok(())
 }
 
-fn render_views(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx<'_>,
-) -> Result<(), RenderError> {
+fn render_views(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) -> Result<(), RenderError> {
     let Some(registry) = world.resource::<ViewRegistry>() else {
         return Ok(());
     };
@@ -1442,9 +1440,9 @@ fn render_views(
             continue;
         }
         crate::core::model::with_model_read_only(|| {
-            (view.render())(renderer, world, entity, rect, ctx);
+            (view.render())(world, entity, ctx);
         });
-        if let Some(error) = ctx.error {
+        if let Some(error) = ctx.error() {
             return Err(error);
         }
     }
@@ -1891,35 +1889,16 @@ fn try_draw_offscreen(
 
             if let Some(style) = world.get::<Style>(entity) {
                 let state = resolve_widget_state(world, entity);
-                let mut ctx = ViewCtx {
+                let mut ctx = PaintCtx::new(
+                    &mut inner,
                     style,
-                    transform: Transform::IDENTITY,
-                    quad: None,
-                    clip: &inner_clip,
-                    bg_handled: false,
+                    &entity_rect,
+                    &inner_clip,
+                    Transform::IDENTITY,
+                    None,
                     state,
-                    error: None,
-                };
-                if let Some(registry) = world.resource::<ViewRegistry>() {
-                    crate::trace_span!("draw.view_dispatch");
-                    for view in registry.iter() {
-                        if let Some(tid) = view.component_filter()
-                            && !world.has_type(entity, tid)
-                        {
-                            continue;
-                        }
-                        (view.render())(
-                            &mut inner as &mut dyn Renderer,
-                            world,
-                            entity,
-                            &entity_rect,
-                            &mut ctx,
-                        );
-                        if let Some(error) = ctx.error {
-                            return Err(error);
-                        }
-                    }
-                }
+                );
+                render_views(world, entity, &mut ctx)?;
             }
             *idx += 1;
 

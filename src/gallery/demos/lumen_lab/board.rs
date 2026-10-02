@@ -214,13 +214,11 @@ fn paint_board(painter: &mut PlayPainter<'_, '_>, model: &LumenModel) {
 pub(super) fn board_render(
     board: component!(LumenBoard),
     model: model!(board.model, watch(visual_revision)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, 282, 204);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), 282, 204);
+    let mut painter = PlayPainter::new(paint, transform);
     paint_board(&mut painter, model);
 }
 

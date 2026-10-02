@@ -11,37 +11,147 @@ use core::any::TypeId;
 use crate::ecs::{Entity, World};
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+use crate::render::path::Path;
+use crate::render::raster::FillRule;
+use crate::render::renderer::{DrawRequest, RenderError, Renderer, TextRunIdentity};
+use crate::render::texture::Texture;
 use crate::types::{Point, Rect, Transform};
 use crate::ui::Style;
 use crate::ui::theme::WidgetState;
 
-/// Boxed as a struct so adding fields later doesn't change the
-/// `ViewRender` fn-pointer signature (which would break user views).
-pub struct ViewCtx<'a> {
-    pub style: &'a Style,
-    pub transform: Transform,
-    pub quad: Option<[Point; 4]>,
-    pub clip: &'a Rect,
-    /// Set true by a view that emits its own background fill so the
-    /// generic Style stage skips its bg fill but still emits border.
-    pub bg_handled: bool,
-    pub state: WidgetState,
-    pub(crate) error: Option<RenderError>,
+/// Drawing context supplied to one [`ViewRender`] invocation.
+pub struct PaintCtx<'frame> {
+    renderer: &'frame mut dyn Renderer,
+    style: &'frame Style,
+    rect: &'frame Rect,
+    clip: &'frame Rect,
+    transform: Transform,
+    quad: Option<[Point; 4]>,
+    state: WidgetState,
+    background_handled: bool,
+    error: Option<RenderError>,
 }
 
-impl ViewCtx<'_> {
-    /// Submit a draw and retain its first failure for the render walker.
-    pub fn draw(&mut self, renderer: &mut dyn Renderer, command: &DrawCommand<'_>, clip: &Rect) {
-        if self.error.is_none() {
-            self.error = renderer.submit(&DrawRequest::new(command, *clip)).err();
+impl<'frame> PaintCtx<'frame> {
+    pub(crate) fn new(
+        renderer: &'frame mut dyn Renderer,
+        style: &'frame Style,
+        rect: &'frame Rect,
+        clip: &'frame Rect,
+        transform: Transform,
+        quad: Option<[Point; 4]>,
+        state: WidgetState,
+    ) -> Self {
+        Self {
+            renderer,
+            style,
+            rect,
+            clip,
+            transform,
+            quad,
+            state,
+            background_handled: false,
+            error: None,
         }
+    }
+
+    pub fn style(&self) -> &Style {
+        self.style
+    }
+
+    pub fn rect(&self) -> Rect {
+        *self.rect
+    }
+
+    pub fn clip(&self) -> Rect {
+        *self.clip
+    }
+
+    pub fn transform(&self) -> Transform {
+        self.transform
+    }
+
+    pub fn quad(&self) -> Option<[Point; 4]> {
+        self.quad
+    }
+
+    pub fn state(&self) -> WidgetState {
+        self.state
+    }
+
+    pub fn output_scale(&self) -> crate::types::Fixed {
+        self.renderer.output_scale()
+    }
+
+    pub fn background_handled(&self) -> bool {
+        self.background_handled
+    }
+
+    pub fn set_background_handled(&mut self, handled: bool) {
+        self.background_handled = handled;
+    }
+
+    /// Submit a draw and retain its first failure for the render walker.
+    /// Path clip commands must use [`Self::with_clip_path`] so cleanup cannot
+    /// be skipped after a body draw fails.
+    pub fn draw(&mut self, command: &DrawCommand<'_>) {
+        self.draw_clipped(command, *self.clip);
+    }
+
+    /// Submit a draw with an explicit clip and retain its first failure.
+    pub fn draw_clipped(&mut self, command: &DrawCommand<'_>, clip: Rect) {
+        if self.error.is_some() {
+            return;
+        }
+        if matches!(command, DrawCommand::PushClip { .. } | DrawCommand::PopClip) {
+            self.fail(RenderError::InvalidScope);
+            return;
+        }
+        if let Some(clip) = self.clip.intersect(&clip) {
+            let result = self.renderer.submit(&DrawRequest::new(command, clip));
+            self.retain_error(result);
+        }
+    }
+
+    /// Draw inside a path clip and restore the renderer clip stack after the
+    /// body returns.
+    ///
+    /// The body is skipped when entering the clip fails. If drawing the body
+    /// fails, the matching pop still runs and the first failure is retained.
+    pub fn with_clip_path(
+        &mut self,
+        path: &Path,
+        transform: Transform,
+        fill_rule: FillRule,
+        body: impl FnOnce(&mut Self),
+    ) {
+        if self.error.is_some() {
+            return;
+        }
+
+        let clip = *self.clip;
+        let push = DrawCommand::PushClip {
+            path,
+            transform,
+            fill_rule,
+        };
+        let result = self.renderer.submit(&DrawRequest::new(&push, clip));
+        self.retain_error(result);
+        if self.error.is_some() {
+            return;
+        }
+
+        body(self);
+
+        let result = self
+            .renderer
+            .submit(&DrawRequest::new(&DrawCommand::PopClip, clip));
+        self.retain_error(result);
     }
 
     /// Replay borrowed scene operations and retain the first failure.
     pub fn replay(
         &mut self,
-        renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
     ) {
@@ -49,7 +159,6 @@ impl ViewCtx<'_> {
         let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
         let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
         self.replay_with_scratch(
-            renderer,
             ops,
             resolver,
             crate::render::scene::replay::ReplayScratch::new(&mut frames, &mut routes, &mut scopes),
@@ -59,7 +168,6 @@ impl ViewCtx<'_> {
     /// Replay a scene using caller-owned group frames.
     pub fn replay_with_workspace(
         &mut self,
-        renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
         frames: &mut [crate::render::scene::replay::ReplayFrame],
@@ -68,7 +176,11 @@ impl ViewCtx<'_> {
             return;
         }
         self.error = crate::render::scene::replay::replay_scene_with_workspace(
-            ops, renderer, self.clip, resolver, frames,
+            ops,
+            self.renderer,
+            self.clip,
+            resolver,
+            frames,
         )
         .err()
         .map(Self::replay_error);
@@ -77,7 +189,6 @@ impl ViewCtx<'_> {
     /// Replay a scene with caller-owned storage for isolated groups.
     pub fn replay_with_rgba(
         &mut self,
-        renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
         rgba: &mut [u8],
@@ -86,7 +197,6 @@ impl ViewCtx<'_> {
         let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
         let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
         self.replay_with_scratch(
-            renderer,
             ops,
             resolver,
             crate::render::scene::replay::ReplayScratch::new(&mut frames, &mut routes, &mut scopes)
@@ -97,7 +207,6 @@ impl ViewCtx<'_> {
     /// Replay borrowed scene operations under one shared root transform.
     pub fn replay_transformed_with_rgba(
         &mut self,
-        renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
         transform: Transform,
@@ -107,7 +216,6 @@ impl ViewCtx<'_> {
         let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
         let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
         self.replay_transformed_with_scratch(
-            renderer,
             ops,
             resolver,
             transform,
@@ -119,19 +227,17 @@ impl ViewCtx<'_> {
     /// Replay a scene using caller-owned group, route, and scope storage.
     pub fn replay_with_scratch(
         &mut self,
-        renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
         scratch: crate::render::scene::replay::ReplayScratch<'_>,
     ) {
-        self.replay_transformed_with_scratch(renderer, ops, resolver, Transform::IDENTITY, scratch);
+        self.replay_transformed_with_scratch(ops, resolver, Transform::IDENTITY, scratch);
     }
 
     /// Replay borrowed scene operations under one shared root transform and
     /// caller-owned replay storage.
     pub fn replay_transformed_with_scratch(
         &mut self,
-        renderer: &mut dyn Renderer,
         ops: &[crate::render::scene::SceneOp],
         resolver: &dyn crate::render::scene::replay::SceneResolver,
         transform: Transform,
@@ -142,7 +248,7 @@ impl ViewCtx<'_> {
         }
         self.error = crate::render::scene::replay::replay_scene_with_root(
             ops,
-            renderer,
+            self.renderer,
             self.clip,
             resolver,
             scratch,
@@ -199,24 +305,62 @@ impl ViewCtx<'_> {
         }
     }
 
-    pub(crate) fn record(&mut self, result: Result<(), RenderError>) {
-        if self.error.is_none() {
-            self.error = result.err();
+    pub(crate) fn sample_target_region(&mut self, rect: Rect) -> Option<Texture<'static>> {
+        if self.error.is_some() {
+            return None;
+        }
+
+        let result = self.renderer.prepare_readback(&rect);
+        self.retain_error(result);
+        if self.error.is_some() {
+            return None;
+        }
+
+        match self.renderer.sample_target_region(&rect) {
+            Ok(texture) => texture,
+            Err(error) => {
+                self.fail(error);
+                None
+            }
         }
     }
 
-    /// Active [`crate::ui::Theme`]. Lazy lookup so render fns
-    /// that don't need fallback colors pay nothing. `App::new`
-    /// guarantees the resource is present.
-    pub fn theme<'w>(&self, world: &'w World) -> &'w crate::ui::Theme {
-        world
-            .resource::<crate::ui::Theme>()
-            .expect("App::new must insert Theme; missing means a test fixture skipped App")
+    pub(crate) fn draw_text_run(
+        &mut self,
+        command: &DrawCommand<'_>,
+        clip: Rect,
+        identity: TextRunIdentity,
+    ) {
+        if self.error.is_some() {
+            return;
+        }
+        let Some(clip) = self.clip.intersect(&clip) else {
+            return;
+        };
+        let result = self
+            .renderer
+            .submit_text_run(&DrawRequest::new(command, clip), identity);
+        self.retain_error(result);
+    }
+
+    pub(crate) fn fail(&mut self, error: RenderError) {
+        if self.error.is_none() {
+            self.error = Some(error);
+        }
+    }
+
+    pub(crate) fn error(&self) -> Option<RenderError> {
+        self.error
+    }
+
+    fn retain_error(&mut self, result: Result<(), RenderError>) {
+        if let Err(error) = result {
+            self.fail(error);
+        }
     }
 }
 
-pub type ViewRender =
-    fn(renderer: &mut dyn Renderer, world: &World, entity: Entity, rect: &Rect, ctx: &mut ViewCtx);
+pub type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>);
 
 pub type ViewAttach = fn(world: &mut World, entity: Entity);
 
@@ -383,14 +527,7 @@ impl View {
 
     /// Marker widget: only contributes systems, no rendering.
     pub const fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
-        fn noop_render(
-            _renderer: &mut dyn Renderer,
-            _world: &World,
-            _entity: Entity,
-            _rect: &Rect,
-            _ctx: &mut ViewCtx,
-        ) {
-        }
+        fn noop_render(_world: &World, _entity: Entity, _ctx: &mut PaintCtx<'_>) {}
         Self {
             name,
             priority: 100,
@@ -711,12 +848,9 @@ mod tests {
     fn paint_bound_tile(
         _component: component!(BoundTile),
         model: model!(_component.model, watch(value)),
-        renderer: draw!(),
-        rect: rect!(),
-        ctx: view!(),
+        paint: paint!(),
     ) {
-        let _ = (renderer, rect);
-        ctx.bg_handled = model.value > 0;
+        paint.set_background_handled(model.value > 0);
     }
 
     #[crate::view]
@@ -724,35 +858,38 @@ mod tests {
         _component: component!(PairTile),
         first: model!(_component.first, watch(value)),
         second: model!(_component.second, watch(value)),
-        ctx: view!(),
+        paint: paint!(),
     ) {
-        ctx.bg_handled = first.value < second.value;
+        paint.set_background_handled(first.value < second.value);
     }
 
     #[crate::view]
     fn paint_optional_bound_tile(
         component: component!(OptionalBoundTile),
         model: model!(optional component.model, watch(value)),
-        ctx: view!(),
+        paint: paint!(),
     ) {
         component.visits.set(component.visits.get() + 1);
         component.seen.set(model.map(|model| model.value));
-        ctx.bg_handled = model.is_some();
+        paint.set_background_handled(model.is_some());
     }
 
     #[crate::view]
     fn paint_visual_tile(
         component: component!(VisualTile),
         _visual: model!(component.visual, watch(visual_revision)),
-        ctx: view!(),
+        paint: paint!(),
     ) {
-        ctx.bg_handled = true;
+        paint.set_background_handled(true);
     }
 
     #[crate::view]
-    fn paint_generic_tile<T: Copy + 'static>(component: component!(GenericTile<T>), ctx: view!()) {
+    fn paint_generic_tile<T: Copy + 'static>(
+        component: component!(GenericTile<T>),
+        paint: paint!(),
+    ) {
         let _ = component.value;
-        ctx.bg_handled = true;
+        paint.set_background_handled(true);
     }
 
     #[crate::view]
@@ -781,21 +918,14 @@ mod tests {
     #[test]
     fn unresolved_text_ink_is_a_capability_error() {
         assert_eq!(
-            ViewCtx::replay_error(crate::render::scene::replay::ReplayError::Bounds(
+            PaintCtx::replay_error(crate::render::scene::replay::ReplayError::Bounds(
                 crate::render::scene::bbox::BoundsError::GlyphInk,
             )),
             RenderError::Unsupported(crate::render::renderer::RenderFeature::TextInkBounds)
         );
     }
 
-    fn dummy_render(
-        _renderer: &mut dyn Renderer,
-        _world: &World,
-        _entity: Entity,
-        _rect: &Rect,
-        _ctx: &mut ViewCtx,
-    ) {
-    }
+    fn dummy_render(_world: &World, _entity: Entity, _ctx: &mut PaintCtx<'_>) {}
 
     fn make_view(name: &'static str, priority: u8) -> View {
         View::new(name, priority, dummy_render)
@@ -1250,22 +1380,22 @@ mod tests {
         let view = paint_bound_tile::view();
         let style = Style::default();
         let rect = Rect::new(0, 0, 32, 32);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
         let mut renderer = StubRenderer;
-        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
-        assert!(!ctx.bg_handled);
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::default(),
+            None,
+            WidgetState::Enabled,
+        );
+        (view.render())(&app.world, entity, &mut ctx);
+        assert!(!ctx.background_handled());
 
         model.set(1);
-        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
-        assert!(ctx.bg_handled);
+        (view.render())(&app.world, entity, &mut ctx);
+        assert!(ctx.background_handled());
         model.set(2);
     }
 
@@ -1293,18 +1423,18 @@ mod tests {
         let view = paint_pair_tile::view();
         let style = Style::default();
         let rect = Rect::new(0, 0, 32, 32);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
         let mut renderer = StubRenderer;
-        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
-        assert!(ctx.bg_handled);
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::default(),
+            None,
+            WidgetState::Enabled,
+        );
+        (view.render())(&app.world, entity, &mut ctx);
+        assert!(ctx.background_handled());
 
         app.world.insert(
             entity,
@@ -1313,8 +1443,8 @@ mod tests {
                 second: first,
             },
         );
-        (view.render())(&mut renderer, &app.world, entity, &rect, &mut ctx);
-        assert!(!ctx.bg_handled);
+        (view.render())(&app.world, entity, &mut ctx);
+        assert!(!ctx.background_handled());
     }
 
     #[test]
@@ -1341,21 +1471,22 @@ mod tests {
         let view = paint_optional_bound_tile::view();
         let style = Style::default();
         let rect = Rect::new(0, 0, 32, 32);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
+        let mut renderer = StubRenderer;
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::default(),
+            None,
+            WidgetState::Enabled,
+        );
 
-        (view.render())(&mut StubRenderer, &app.world, entity, &rect, &mut ctx);
+        (view.render())(&app.world, entity, &mut ctx);
         let component = app.world.get::<OptionalBoundTile>(entity).unwrap();
         assert_eq!(component.visits.get(), 1);
         assert_eq!(component.seen.get(), None);
-        assert!(!ctx.bg_handled);
+        assert!(!ctx.background_handled());
 
         app.world.insert(
             entity,
@@ -1365,11 +1496,11 @@ mod tests {
                 seen: Cell::new(None),
             },
         );
-        (view.render())(&mut StubRenderer, &app.world, entity, &rect, &mut ctx);
+        (view.render())(&app.world, entity, &mut ctx);
         let component = app.world.get::<OptionalBoundTile>(entity).unwrap();
         assert_eq!(component.visits.get(), 2);
         assert_eq!(component.seen.get(), Some(7));
-        assert!(ctx.bg_handled);
+        assert!(ctx.background_handled());
     }
 
     #[test]
@@ -1487,17 +1618,18 @@ mod tests {
         let view = invalid_writing_view::view();
         let style = Style::default();
         let rect = Rect::new(0, 0, 32, 32);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
+        let mut renderer = StubRenderer;
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::default(),
+            None,
+            WidgetState::Enabled,
+        );
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (view.render())(&mut StubRenderer, &app.world, entity, &rect, &mut ctx);
+            (view.render())(&app.world, entity, &mut ctx);
         }));
         assert!(failure.is_err());
         model.set(2);
@@ -1556,7 +1688,7 @@ mod tests {
         assert_eq!(names, ["first-50", "second-50", "third-50"]);
     }
 
-    // A view fn must be able to mutate `ViewCtx` while concurrently
+    // A view fn must be able to mutate `PaintCtx` while concurrently
     // borrowing components from `&World`. Real renders read multiple
     // components alongside the ctx-mut path; the borrow pattern must
     // compose. Pinning that here so a regression breaks loudly.
@@ -1570,15 +1702,9 @@ mod tests {
             fn flush(&mut self) {}
         }
 
-        fn flip_bg_when_styled(
-            _renderer: &mut dyn Renderer,
-            world: &World,
-            entity: Entity,
-            _rect: &Rect,
-            ctx: &mut ViewCtx,
-        ) {
+        fn flip_bg_when_styled(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) {
             if world.get::<Style>(entity).is_some() {
-                ctx.bg_handled = true;
+                ctx.set_background_handled(true);
             }
         }
 
@@ -1588,20 +1714,20 @@ mod tests {
 
         let style = world.get::<Style>(e).expect("style present");
         let rect = Rect::new(0, 0, 0, 0);
-        let mut ctx = ViewCtx {
-            style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
         let mut renderer = StubRenderer;
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            style,
+            &rect,
+            &rect,
+            Transform::default(),
+            None,
+            WidgetState::Enabled,
+        );
 
-        flip_bg_when_styled(&mut renderer, &world, e, &rect, &mut ctx);
+        flip_bg_when_styled(&world, e, &mut ctx);
         assert!(
-            ctx.bg_handled,
+            ctx.background_handled(),
             "view fn must mutate ctx while reading world"
         );
 
@@ -1609,6 +1735,253 @@ mod tests {
         // breaks user-code views.
         let _: ViewRender = flip_bg_when_styled;
         let _ = Fixed::ZERO;
+    }
+
+    #[test]
+    fn clip_scope_restores_the_stack_and_retains_the_first_failure() {
+        #[derive(Default)]
+        struct ClipRenderer {
+            pushed: bool,
+            pops: usize,
+            fills: usize,
+        }
+
+        impl Renderer for ClipRenderer {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                match request.command {
+                    DrawCommand::PushClip { .. } => {
+                        self.pushed = true;
+                        Ok(())
+                    }
+                    DrawCommand::Fill { .. } => {
+                        self.fills += 1;
+                        Err(RenderError::BackendFailure)
+                    }
+                    DrawCommand::PopClip => {
+                        self.pushed = false;
+                        self.pops += 1;
+                        Err(RenderError::InvalidGeometry)
+                    }
+                    _ => Ok(()),
+                }
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 8, 8);
+        let path = Path::from_static(&[]);
+        let mut renderer = ClipRenderer::default();
+        let allocations = tracked_allocations(|| {
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            paint.with_clip_path(&path, Transform::IDENTITY, FillRule::EvenOdd, |paint| {
+                paint.draw(&DrawCommand::Fill {
+                    area: rect,
+                    transform: Transform::IDENTITY,
+                    quad: None,
+                    color: crate::types::Color::rgb(0, 0, 0),
+                    radius: Fixed::ZERO,
+                    opa: 255,
+                });
+            });
+            assert_eq!(paint.error(), Some(RenderError::BackendFailure));
+        });
+
+        assert_eq!(allocations, 0);
+        assert!(!renderer.pushed);
+        assert_eq!(renderer.pops, 1);
+        assert_eq!(renderer.fills, 1);
+    }
+
+    #[test]
+    fn raw_clip_commands_are_rejected_by_the_paint_context() {
+        #[derive(Default)]
+        struct CountingRenderer {
+            submissions: usize,
+        }
+
+        impl Renderer for CountingRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.submissions += 1;
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 8, 8);
+        let path = Path::from_static(&[]);
+        let push = DrawCommand::PushClip {
+            path: &path,
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::EvenOdd,
+        };
+        let pop = DrawCommand::PopClip;
+
+        for command in [&push, &pop] {
+            let mut renderer = CountingRenderer::default();
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            paint.draw(command);
+            assert_eq!(paint.error(), Some(RenderError::InvalidScope));
+            drop(paint);
+            assert_eq!(renderer.submissions, 0);
+        }
+    }
+
+    #[test]
+    fn readback_is_prepared_and_latches_failures() {
+        #[derive(Clone, Copy)]
+        enum Outcome {
+            PrepareFailure,
+            SampleFailure,
+            Empty,
+        }
+
+        struct ReadbackRenderer {
+            outcome: Outcome,
+            samples: Cell<usize>,
+        }
+
+        impl Renderer for ReadbackRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+
+            fn prepare_readback(&mut self, _: &Rect) -> Result<(), RenderError> {
+                match self.outcome {
+                    Outcome::PrepareFailure => Err(RenderError::BackendFailure),
+                    Outcome::SampleFailure | Outcome::Empty => Ok(()),
+                }
+            }
+
+            fn sample_target_region(
+                &self,
+                _: &Rect,
+            ) -> Result<Option<Texture<'static>>, RenderError> {
+                self.samples.set(self.samples.get() + 1);
+                match self.outcome {
+                    Outcome::PrepareFailure | Outcome::SampleFailure => {
+                        Err(RenderError::InvalidTexture)
+                    }
+                    Outcome::Empty => Ok(None),
+                }
+            }
+        }
+
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 8, 8);
+        for (outcome, error, samples) in [
+            (
+                Outcome::PrepareFailure,
+                Some(RenderError::BackendFailure),
+                0,
+            ),
+            (Outcome::SampleFailure, Some(RenderError::InvalidTexture), 1),
+            (Outcome::Empty, None, 1),
+        ] {
+            let mut renderer = ReadbackRenderer {
+                outcome,
+                samples: Cell::new(0),
+            };
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+
+            assert!(paint.sample_target_region(rect).is_none());
+            assert_eq!(paint.error(), error);
+            drop(paint);
+            assert_eq!(renderer.samples.get(), samples);
+        }
+    }
+
+    #[test]
+    fn identified_text_submission_latches_failure_and_honors_the_context_clip() {
+        #[derive(Default)]
+        struct TextRenderer {
+            draws: usize,
+            text_runs: usize,
+        }
+
+        impl Renderer for TextRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.draws += 1;
+                Ok(())
+            }
+
+            fn submit_text_run(
+                &mut self,
+                _: &DrawRequest<'_, '_>,
+                _: TextRunIdentity,
+            ) -> Result<(), RenderError> {
+                self.text_runs += 1;
+                Err(RenderError::TextLayout)
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 8, 8);
+        let command = DrawCommand::Fill {
+            area: rect,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: crate::types::Color::rgb(0, 0, 0),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let identity = TextRunIdentity {
+            entity: Entity {
+                id: 1,
+                generation: 0,
+            },
+            run_index: 0,
+        };
+        let mut renderer = TextRenderer::default();
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
+        );
+
+        paint.draw_text_run(&command, Rect::new(20, 20, 4, 4), identity);
+        assert_eq!(paint.error(), None);
+        paint.draw_text_run(&command, rect, identity);
+        paint.draw(&command);
+        assert_eq!(paint.error(), Some(RenderError::TextLayout));
+        drop(paint);
+        assert_eq!(renderer.text_runs, 1);
+        assert_eq!(renderer.draws, 0);
     }
 
     #[test]
@@ -1625,15 +1998,16 @@ mod tests {
 
         let style = Style::default();
         let clip = Rect::new(0, 0, 8, 8);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &clip,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
+        let mut renderer = RejectingRenderer;
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &clip,
+            &clip,
+            Transform::default(),
+            None,
+            WidgetState::Enabled,
+        );
         let ops = [crate::render::scene::SceneOp::FillRect {
             area: clip,
             transform: Transform::default(),
@@ -1643,12 +2017,11 @@ mod tests {
             opa: 255,
         }];
         ctx.replay(
-            &mut RejectingRenderer,
             &ops,
             &crate::render::scene::resolver::SliceResolver::new(&[], &[]),
         );
         assert_eq!(
-            ctx.error,
+            ctx.error(),
             Some(RenderError::Unsupported(
                 crate::render::renderer::RenderFeature::AffineGeometry
             ))
@@ -1680,15 +2053,6 @@ mod tests {
 
         let style = Style::default();
         let clip = Rect::new(0, 0, 64, 64);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::IDENTITY,
-            quad: None,
-            clip: &clip,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
         let ops = [crate::render::scene::SceneOp::FillRect {
             area: Rect::new(0, 0, 8, 8),
             transform: Transform::translate(Fixed::from_int(2), Fixed::from_int(3)),
@@ -1700,9 +2064,17 @@ mod tests {
         let root = Transform::scale(Fixed::from_int(2), Fixed::from_int(2));
         let mut renderer = CapturingRenderer::default();
         let mut rgba = [];
+        let mut ctx = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &clip,
+            &clip,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
+        );
 
         ctx.replay_transformed_with_rgba(
-            &mut renderer,
             &ops,
             &crate::render::scene::resolver::SliceResolver::new(&[], &[]),
             root,
@@ -1716,48 +2088,5 @@ mod tests {
                 Fixed::from_int(3),
             )))
         );
-    }
-
-    #[test]
-    fn theme_accessor_returns_world_resource() {
-        use crate::ui::Theme;
-        use crate::ui::theme::ColorToken;
-        let mut world = World::new();
-        world.insert_resource(Theme::light());
-        let style = Style::default();
-        let rect = Rect::new(0, 0, 0, 0);
-        let ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
-        let theme = ctx.theme(&world);
-        // Theme isn't PartialEq (BTreeMap of extras); compare via resolve.
-        assert_eq!(
-            theme.resolve(ColorToken::Surface),
-            Theme::light().resolve(ColorToken::Surface),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "App::new must insert Theme")]
-    fn theme_accessor_panics_when_resource_missing() {
-        let world = World::new();
-        let style = Style::default();
-        let rect = Rect::new(0, 0, 0, 0);
-        let ctx = ViewCtx {
-            style: &style,
-            transform: Transform::default(),
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
-        let _ = ctx.theme(&world);
     }
 }

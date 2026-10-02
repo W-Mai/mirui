@@ -1,13 +1,13 @@
 use proc_macro2::{Span, TokenStream};
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote};
 use std::collections::HashSet;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, FnArg, Ident, ItemFn, Meta, Pat, ReturnType, Token, Type};
+use syn::{Attribute, Expr, FnArg, Ident, ItemFn, Meta, Pat, ReturnType, Token};
 
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingOwnership, BindingSource,
-    BindingSpec, BindingSyntax, LogicalType, ModelSource,
+    BindingSpec, BindingSyntax, LogicalType, ModelSource, RoleKind, TIMER_ROLES,
 };
 
 enum Schedule {
@@ -216,20 +216,12 @@ fn parse_parameter(input: &FnArg) -> syn::Result<BindingSpec> {
             "timer binding parameters must use a plain identifier",
         ));
     }
-    let Type::Macro(type_role) = &*parameter.ty else {
-        return Err(syn::Error::new_spanned(
-            &parameter.ty,
-            "timer parameters must use `model!(T)`, `entity!()`, or `commands!()`",
-        ));
-    };
-    require_parentheses(&type_role.mac)?;
-    let Some(role) = type_role.mac.path.get_ident() else {
-        return Err(unknown_role_error(&type_role.mac));
-    };
+    let (role, type_role) =
+        TIMER_ROLES.parse_required(&parameter.ty, "#[timer]", "timer parameters")?;
     let name = pattern.ident.clone();
 
-    match role.to_string().as_str() {
-        "model" => {
+    match role {
+        RoleKind::Model => {
             let Some(binding) = BindingSpec::parse_model_type_role(name, &parameter.ty)? else {
                 unreachable!("the role path was checked above")
             };
@@ -245,17 +237,9 @@ fn parse_parameter(input: &FnArg) -> syn::Result<BindingSpec> {
             }
             Ok(binding)
         }
-        "entity" => parse_capability(name, type_role.clone(), BindingCapability::Entity),
-        "commands" => parse_capability(name, type_role.clone(), BindingCapability::Commands),
-        "res" | "query" | "component" | "draw" | "rect" | "view" | "motion" => {
-            Err(syn::Error::new_spanned(
-                &type_role.mac.path,
-                format!(
-                    "binding role `{role}!` is not available in `#[timer]`; expected `model!`, `entity!`, or `commands!`",
-                ),
-            ))
-        }
-        _ => Err(unknown_role_error(&type_role.mac)),
+        RoleKind::Entity => parse_capability(name, type_role, BindingCapability::Entity),
+        RoleKind::Commands => parse_capability(name, type_role, BindingCapability::Commands),
+        _ => unreachable!("RoleSet admitted an unsupported timer role"),
     }
 }
 
@@ -296,26 +280,6 @@ impl Parse for EmptyRole {
             Err(input.error("timer capability roles do not accept arguments"))
         }
     }
-}
-
-fn require_parentheses(role: &syn::Macro) -> syn::Result<()> {
-    if matches!(role.delimiter, syn::MacroDelimiter::Paren(_)) {
-        return Ok(());
-    }
-    Err(syn::Error::new(
-        role.delimiter.span().open(),
-        "timer binding roles use parentheses, for example `entity!()`",
-    ))
-}
-
-fn unknown_role_error(role: &syn::Macro) -> syn::Error {
-    let path = role.path.to_token_stream().to_string();
-    syn::Error::new_spanned(
-        &role.path,
-        format!(
-            "unknown timer binding role `{path}!`; expected `model!`, `entity!`, or `commands!`",
-        ),
-    )
 }
 
 fn lower(
@@ -635,7 +599,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        assert!(raw.contains("must use `model!(T)`, `entity!()`, or `commands!()`"));
+        assert!(raw.contains("must use `model!`, `entity!`, `commands!`"));
 
         let resource = expand(
             quote!(after = 1),

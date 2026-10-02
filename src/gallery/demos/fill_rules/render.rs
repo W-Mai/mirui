@@ -20,19 +20,17 @@ pub(super) static STAR: Path = path!(
 pub(super) const LOGICAL_WIDTH: i32 = 400;
 pub(super) const LOGICAL_HEIGHT: i32 = 240;
 
-fn fill_rules_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn fill_rules_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
     let default_theme = Theme::default();
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let fill = Paint::Color(theme.resolve(ColorToken::Secondary).into());
     let stroke = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
-    let canvas =
-        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+    let canvas = crate::gallery::fit_logical_canvas(
+        paint.rect(),
+        paint.transform(),
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+    );
 
     for (transform, rule) in [
         (
@@ -44,32 +42,24 @@ fn fill_rules_render(
             FillRule::NonZero,
         ),
     ] {
-        ctx.draw(
-            renderer,
-            &DrawCommand::FillPath {
-                path: &STAR,
-                transform: canvas.compose(&transform),
-                paint: &fill,
-                opa: 245,
-                fill_rule: rule,
-            },
-            ctx.clip,
-        );
-        ctx.draw(
-            renderer,
-            &DrawCommand::StrokePath {
-                path: &STAR,
-                transform: canvas.compose(&transform),
-                paint: &stroke,
-                width: Fixed::from_int(2),
-                opa: 235,
-                line_cap: LineCap::Round,
-                line_join: LineJoin::Round,
-                miter_limit: Fixed::from_int(4),
-                dash: &[],
-            },
-            ctx.clip,
-        );
+        paint.draw(&DrawCommand::FillPath {
+            path: &STAR,
+            transform: canvas.compose(&transform),
+            paint: &fill,
+            opa: 245,
+            fill_rule: rule,
+        });
+        paint.draw(&DrawCommand::StrokePath {
+            path: &STAR,
+            transform: canvas.compose(&transform),
+            paint: &stroke,
+            width: Fixed::from_int(2),
+            opa: 235,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            miter_limit: Fixed::from_int(4),
+            dash: &[],
+        });
     }
 }
 

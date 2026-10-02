@@ -172,32 +172,24 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
     attach = slider_attach,
     gesture = slider_handler
 )]
-fn slider_render(
-    component: component!(Slider),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
-    theme: res!(crate::ui::Theme),
-) {
-    let track_color = component.track_color.resolve_in(theme, ctx.state);
-    let fill_color = component.fill_color.resolve_in(theme, ctx.state);
-    let thumb_color = component.thumb_color.resolve_in(theme, ctx.state);
+fn slider_render(component: component!(Slider), paint: paint!(), theme: res!(crate::ui::Theme)) {
+    let rect = paint.rect();
+    let state = paint.state();
+    let track_color = component.track_color.resolve_in(theme, state);
+    let fill_color = component.fill_color.resolve_in(theme, state);
+    let thumb_color = component.thumb_color.resolve_in(theme, state);
     let ratio = component.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
     let thumb_size = rect.h;
 
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: track_color,
-            radius: cap_radius,
-            opa: 255,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::Fill {
+        area: rect,
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: track_color,
+        radius: cap_radius,
+        opa: 255,
+    });
 
     // Capsule clipped to ratio_w; the square right edge sits under the knob.
     let ratio_w = fill_width(ratio, rect.w, thumb_size);
@@ -208,41 +200,36 @@ fn slider_render(
             w: ratio_w,
             h: rect.h,
         };
-        if let Some(fill_clip) = ctx.clip.intersect(&ratio_box) {
-            ctx.draw(
-                renderer,
+        if let Some(fill_clip) = paint.clip().intersect(&ratio_box) {
+            paint.draw_clipped(
                 &DrawCommand::Fill {
-                    area: *rect,
-                    transform: ctx.transform,
-                    quad: ctx.quad,
+                    area: rect,
+                    transform: paint.transform(),
+                    quad: paint.quad(),
                     color: fill_color,
                     radius: cap_radius,
                     opa: 255,
                 },
-                &fill_clip,
+                fill_clip,
             );
         }
     }
 
     let thumb_x =
         rect.x + knob_center_offset(ratio, rect.w, thumb_size) - thumb_size / Fixed::from_int(2);
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: Rect {
-                x: thumb_x,
-                y: rect.y,
-                w: thumb_size,
-                h: thumb_size,
-            },
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: thumb_color,
-            radius: thumb_size / Fixed::from_int(2),
-            opa: 255,
+    paint.draw(&DrawCommand::Fill {
+        area: Rect {
+            x: thumb_x,
+            y: rect.y,
+            w: thumb_size,
+            h: thumb_size,
         },
-        ctx.clip,
-    );
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: thumb_color,
+        radius: thumb_size / Fixed::from_int(2),
+        opa: 255,
+    });
 }
 
 pub(crate) fn slider_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {

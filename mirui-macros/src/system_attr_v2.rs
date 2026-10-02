@@ -678,7 +678,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        assert!(raw.contains("must use `model!(T)`"));
+        assert!(raw.contains("must use `model!`, `res!`, `query!`, `commands!`"));
 
         let numeric = expand(
             quote!(order = 150),

@@ -2,12 +2,11 @@ use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[derive(Clone, Debug)]
 pub enum ProgressBarEvent {
@@ -113,50 +112,40 @@ impl crate::ecs::IntoBundle for ProgressBarBuilder {
     }
 }
 
-fn progress_bar_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn progress_bar_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(pb) = world.get::<ProgressBar>(entity) else {
         return;
     };
-    let theme = ctx.theme(world);
-    let track_color = pb.track_color.resolve_in(theme, ctx.state);
-    let fill_color = pb.fill_color.resolve_in(theme, ctx.state);
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: track_color,
-            radius: ctx.style.border_radius,
-            opa: 255,
-        },
-        ctx.clip,
-    );
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let state = paint.state();
+    let rect = paint.rect();
+    let track_color = pb.track_color.resolve_in(theme, state);
+    let fill_color = pb.fill_color.resolve_in(theme, state);
+    paint.draw(&DrawCommand::Fill {
+        area: rect,
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: track_color,
+        radius: paint.style().border_radius,
+        opa: 255,
+    });
     let fill_w = Fixed::from_f32(rect.w.to_f32() * pb.value.clamp(0.0, 1.0));
     if fill_w > Fixed::ZERO {
-        ctx.draw(
-            renderer,
-            &DrawCommand::Fill {
-                area: Rect {
-                    x: rect.x,
-                    y: rect.y,
-                    w: fill_w,
-                    h: rect.h,
-                },
-                transform: ctx.transform,
-                quad: ctx.quad,
-                color: fill_color,
-                radius: ctx.style.border_radius,
-                opa: 255,
+        paint.draw(&DrawCommand::Fill {
+            area: Rect {
+                x: rect.x,
+                y: rect.y,
+                w: fill_w,
+                h: rect.h,
             },
-            ctx.clip,
-        );
+            transform: paint.transform(),
+            quad: paint.quad(),
+            color: fill_color,
+            radius: paint.style().border_radius,
+            opa: 255,
+        });
     }
 }
 

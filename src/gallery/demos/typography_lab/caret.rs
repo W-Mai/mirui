@@ -3,10 +3,9 @@ use super::style::{BLUE, BORDER, CYAN, GOLD, VIOLET};
 use crate::prelude::*;
 use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
 use crate::render::font::ResolvedFontStack;
-use crate::render::renderer::Renderer;
 use crate::types::Transform;
 use crate::ui::Theme;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[crate::component]
 pub(super) struct CaretOverlay {
@@ -14,34 +13,18 @@ pub(super) struct CaretOverlay {
     pub(super) follows_probe: bool,
 }
 
-fn draw_line(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx<'_>,
-    p1: Point,
-    p2: Point,
-    color: Color,
-) {
-    ctx.draw(
-        renderer,
-        &DrawCommand::Line {
-            p1,
-            p2,
-            transform: ctx.transform,
-            color,
-            width: Fixed::ONE,
-            opa: 255,
-        },
-        ctx.clip,
-    );
+fn draw_line(paint: &mut PaintCtx<'_>, p1: Point, p2: Point, color: Color) {
+    paint.draw(&DrawCommand::Line {
+        p1,
+        p2,
+        transform: paint.transform(),
+        color,
+        width: Fixed::ONE,
+        opa: 255,
+    });
 }
 
-fn caret_overlay_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn caret_overlay_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(overlay) = world.get::<CaretOverlay>(entity) else {
         return;
     };
@@ -71,6 +54,7 @@ fn caret_overlay_render(
     let secondary = theme.resolve(BLUE);
     let tertiary = theme.resolve(VIOLET);
     let success = theme.resolve(GOLD);
+    let rect = paint.rect();
     if let Some(text_path) = world.get::<TextPath>(target).copied() {
         let Some(geometry) = crate::text::PathTextGeometry::for_widget(world, target) else {
             return;
@@ -88,30 +72,27 @@ fn caret_overlay_render(
             return;
         };
         if let Ok(path) = paths.get(text_path.path()) {
-            let paint = Paint::Color(secondary.into());
-            ctx.draw(
-                renderer,
-                &DrawCommand::StrokePath {
-                    path,
-                    transform: ctx.transform.compose(&Transform::translate(rect.x, rect.y)),
-                    paint: &paint,
-                    width: Fixed::ONE,
-                    opa: 120,
-                    line_cap: LineCap::Round,
-                    line_join: LineJoin::Round,
-                    miter_limit: Fixed::from_int(4),
-                    dash: &[],
-                },
-                ctx.clip,
-            );
+            let path_paint = Paint::Color(secondary.into());
+            paint.draw(&DrawCommand::StrokePath {
+                path,
+                transform: paint
+                    .transform()
+                    .compose(&Transform::translate(rect.x, rect.y)),
+                paint: &path_paint,
+                width: Fixed::ONE,
+                opa: 120,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+                miter_limit: Fixed::from_int(4),
+                dash: &[],
+            });
         }
         let mut caret_storage = [crate::text::PathCaretGeometry::default(); 128];
         if let Ok(carets) = geometry.carets_into(&mut caret_storage) {
             for caret in carets {
                 let [start, end] = caret.segment();
                 draw_line(
-                    renderer,
-                    ctx,
+                    paint,
                     start,
                     end,
                     if probe_hit.is_some_and(|hit| hit.index() == caret.index()) {
@@ -129,8 +110,7 @@ fn caret_overlay_render(
     for line in layout.lines() {
         let baseline = rect.y + crate::types::fixed::from_textflow(line.origin().y);
         draw_line(
-            renderer,
-            ctx,
+            paint,
             Point {
                 x: rect.x,
                 y: baseline,
@@ -149,8 +129,7 @@ fn caret_overlay_render(
         }
         let baseline = rect.y + crate::types::fixed::from_textflow(caret.position.y);
         draw_line(
-            renderer,
-            ctx,
+            paint,
             Point {
                 x,
                 y: baseline - metrics.ascender,

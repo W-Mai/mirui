@@ -3,10 +3,9 @@ use crate::input::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary};
 use crate::render::canvas::Paint;
 use crate::render::command::DrawCommand;
 use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
-use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect, Viewport};
 use crate::ui::dirty::Dirty;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 use crate::ui::{Children, IgnoreHitTest, Parent, Style, Widget};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
@@ -151,13 +150,7 @@ pub fn rotary_feedback_system(
     }
 }
 
-fn rotary_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn rotary_render(world: &World, entity: Entity, paint_ctx: &mut PaintCtx<'_>) {
     if world.get::<OverlayRotary>(entity).is_none() {
         return;
     }
@@ -167,7 +160,8 @@ fn rotary_render(
     if !feedback.rotary.enabled || !rotary_active(&feedback.rotary) {
         return;
     }
-    ctx.bg_handled = true;
+    paint_ctx.set_background_handled(true);
+    let rect = paint_ctx.rect();
 
     let mut membrane = MagneticMembrane::default();
     let max_span = rect.h / Fixed::from_int(2) - Fixed::from_int(18);
@@ -185,19 +179,14 @@ fn rotary_render(
         mid_y,
         rotary_membrane_state(&feedback.rotary, &membrane),
     );
-    let paint = Paint::Color(PRIMARY.into());
-    let clip = *ctx.clip;
-    ctx.draw(
-        renderer,
-        &DrawCommand::FillPath {
-            path: &path,
-            transform: ctx.transform,
-            paint: &paint,
-            opa,
-            fill_rule: crate::render::raster::FillRule::EvenOdd,
-        },
-        &clip,
-    );
+    let fill = Paint::Color(PRIMARY.into());
+    paint_ctx.draw(&DrawCommand::FillPath {
+        path: &path,
+        transform: paint_ctx.transform(),
+        paint: &fill,
+        opa,
+        fill_rule: crate::render::raster::FillRule::EvenOdd,
+    });
 }
 
 pub fn view() -> View {
@@ -208,7 +197,7 @@ pub fn view() -> View {
 mod tests {
     use super::*;
     use crate::ecs::DeltaTimeMs;
-    use crate::render::renderer::{RenderError, RenderFeature};
+    use crate::render::renderer::{RenderError, RenderFeature, Renderer};
     use crate::types::Transform;
     use crate::ui::WidgetRoot;
 
@@ -237,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn rotary_draw_failure_reaches_view_context() {
+    fn rotary_draw_failure_reaches_paint_context() {
         struct RejectRenderer;
         impl Renderer for RejectRenderer {
             fn submit(
@@ -257,18 +246,19 @@ mod tests {
         world.insert_resource(feedback);
         let style = Style::default();
         let rect = Rect::new(0, 0, 64, 64);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::IDENTITY,
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: crate::ui::theme::WidgetState::Enabled,
-            error: None,
-        };
-        rotary_render(&mut RejectRenderer, &world, entity, &rect, &mut ctx);
+        let mut renderer = RejectRenderer;
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            crate::ui::theme::WidgetState::Enabled,
+        );
+        rotary_render(&world, entity, &mut paint);
         assert_eq!(
-            ctx.error,
+            paint.error(),
             Some(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
     }

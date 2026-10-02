@@ -26,18 +26,8 @@ struct EntityField {
 }
 
 #[component]
-struct DrawField {
-    value: draw!(),
-}
-
-#[component]
-struct RectField {
-    value: rect!(),
-}
-
-#[component]
-struct ViewField {
-    value: view!(),
+struct PaintField {
+    value: paint!(),
 }
 
 #[component]

@@ -7,26 +7,16 @@ use crate::render::scene::resolver::SliceResolver;
 #[derive(Default)]
 pub struct BlurFilter;
 
-fn blur_filter_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn blur_filter_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
+    let rect = paint.rect();
     let transform =
-        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        crate::gallery::fit_logical_canvas(rect, paint.transform(), LOGICAL_WIDTH, LOGICAL_HEIGHT);
     let scratch = world
         .resource::<crate::gallery::SceneReplayWorkspace>()
         .expect("Blur Filter setup installs scene RGBA storage");
-    let _ = scratch.with_prepared_surface(*rect, renderer.output_scale(), |rgba| {
-        ctx.replay_transformed_with_rgba(
-            renderer,
-            SCENE,
-            &SliceResolver::new(&[], &[]),
-            transform,
-            rgba,
-        )
+    let output_scale = paint.output_scale();
+    let _ = scratch.with_prepared_surface(rect, output_scale, |rgba| {
+        paint.replay_transformed_with_rgba(SCENE, &SliceResolver::new(&[], &[]), transform, rgba);
     });
 }
 

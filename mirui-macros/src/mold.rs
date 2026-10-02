@@ -181,11 +181,9 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
 
             #[doc(hidden)]
             pub fn __render(
-                _: &mut dyn ::mirui::render::renderer::Renderer,
                 _: &::mirui::ecs::World,
                 _: ::mirui::ecs::Entity,
-                _: &::mirui::types::Rect,
-                _: &mut ::mirui::ui::view::ViewCtx,
+                _: &mut ::mirui::ui::view::PaintCtx<'_>,
             ) {}
 
             pub fn __view() -> ::mirui::ui::View {

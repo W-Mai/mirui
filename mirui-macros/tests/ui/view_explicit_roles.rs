@@ -33,13 +33,11 @@ mod nested {
         optional: model!(optional tile.optional, watch(value)),
         theme: res!(mirui::ui::Theme),
         entity: entity!(),
-        renderer: draw!(),
-        rect: rect!(),
-        ctx: view!(),
+        paint: paint!(),
     ) {
         let value = state.value + super::ROOT_OFFSET + self::local_offset();
         let optional_value = optional.map(|state| state.value);
-        let _ = (value, optional_value, theme, entity, renderer, rect, ctx);
+        let _ = (value, optional_value, theme, entity, paint);
     }
 }
 

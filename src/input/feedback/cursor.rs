@@ -6,11 +6,10 @@ use crate::input::feedback::{
     CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor, write_overlay_layout,
 };
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
 use crate::ui::dirty::Dirty;
 use crate::ui::render_system::LastDirtyRegions;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 use crate::ui::{Children, ComputedRect, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
@@ -143,13 +142,7 @@ pub fn cursor_feedback_system(world: &mut World) {
 
 crate::ecs::system::framework_system!(pub cursor_feedback_system, Normal);
 
-fn cursor_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn cursor_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     if world.get::<OverlayCursor>(entity).is_none() {
         return;
     }
@@ -159,61 +152,46 @@ fn cursor_render(
     if !feedback.cursor.enabled {
         return;
     }
-    ctx.bg_handled = true;
+    paint.set_background_handled(true);
+    let rect = paint.rect();
     let corner = rect.h / Fixed::from_int(2);
     match feedback.cursor.mode {
         CursorFeedbackMode::Dot => {
-            emit_fill(renderer, ctx, rect, corner, 220);
+            emit_fill(paint, rect, corner, 220);
         }
         CursorFeedbackMode::MagneticRect => {
             if feedback.cursor.current.target_rect.is_some() {
                 let rounded = Fixed::from_int(8);
-                emit_fill(renderer, ctx, rect, rounded, 48);
-                emit_border(renderer, ctx, rect, rounded, 160);
+                emit_fill(paint, rect, rounded, 48);
+                emit_border(paint, rect, rounded, 160);
             } else {
-                emit_fill(renderer, ctx, rect, corner, 220);
+                emit_fill(paint, rect, corner, 220);
             }
         }
     }
 }
 
-fn emit_fill(renderer: &mut dyn Renderer, ctx: &mut ViewCtx, rect: &Rect, radius: Fixed, opa: u8) {
-    let clip = *ctx.clip;
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: PRIMARY,
-            radius,
-            opa,
-        },
-        &clip,
-    );
+fn emit_fill(paint: &mut PaintCtx<'_>, rect: Rect, radius: Fixed, opa: u8) {
+    paint.draw(&DrawCommand::Fill {
+        area: rect,
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: PRIMARY,
+        radius,
+        opa,
+    });
 }
 
-fn emit_border(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx,
-    rect: &Rect,
-    radius: Fixed,
-    opa: u8,
-) {
-    let clip = *ctx.clip;
-    ctx.draw(
-        renderer,
-        &DrawCommand::Border {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: PRIMARY,
-            width: Fixed::ONE,
-            radius,
-            opa,
-        },
-        &clip,
-    );
+fn emit_border(paint: &mut PaintCtx<'_>, rect: Rect, radius: Fixed, opa: u8) {
+    paint.draw(&DrawCommand::Border {
+        area: rect,
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: PRIMARY,
+        width: Fixed::ONE,
+        radius,
+        opa,
+    });
 }
 
 pub fn view() -> View {
@@ -223,7 +201,7 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::renderer::{RenderError, RenderFeature};
+    use crate::render::renderer::{RenderError, RenderFeature, Renderer};
     use crate::render::texture::ColorFormat;
     use crate::surface::DisplayInfo;
     use crate::types::{Dimension, Transform};
@@ -237,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn cursor_draw_failure_reaches_view_context() {
+    fn cursor_draw_failure_reaches_paint_context() {
         struct RejectRenderer;
         impl Renderer for RejectRenderer {
             fn submit(
@@ -252,19 +230,20 @@ mod tests {
 
         let style = Style::default();
         let rect = Rect::new(0, 0, 16, 16);
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::IDENTITY,
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: crate::ui::theme::WidgetState::Enabled,
-            error: None,
-        };
-        emit_fill(&mut RejectRenderer, &mut ctx, &rect, Fixed::ZERO, 255);
-        emit_border(&mut RejectRenderer, &mut ctx, &rect, Fixed::ZERO, 255);
+        let mut renderer = RejectRenderer;
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            crate::ui::theme::WidgetState::Enabled,
+        );
+        emit_fill(&mut paint, rect, Fixed::ZERO, 255);
+        emit_border(&mut paint, rect, Fixed::ZERO, 255);
         assert_eq!(
-            ctx.error,
+            paint.error(),
             Some(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
     }

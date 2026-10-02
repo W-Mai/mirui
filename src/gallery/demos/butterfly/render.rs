@@ -15,8 +15,7 @@ pub(super) static WING: Path = path!(
 );
 
 fn fill_wing(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx,
+    paint: &mut PaintCtx<'_>,
     cx: Fixed,
     cy: Fixed,
     span: Fixed,
@@ -28,7 +27,7 @@ fn fill_wing(
 ) {
     let color = if inner { inner_color } else { outer_color };
     let opa = if inner { 210 } else { 240 };
-    let paint = Paint::Color(color.into());
+    let wing_paint = Paint::Color(color.into());
     let shrink = if inner {
         Fixed::from_f32(0.6)
     } else {
@@ -44,27 +43,17 @@ fn fill_wing(
         m11: shrink,
         ty: cy - shrink * local_y,
     };
-    ctx.draw(
-        renderer,
-        &DrawCommand::FillPath {
-            path: &WING,
-            transform: ctx.transform.compose(&wing_transform),
-            paint: &paint,
-            opa,
-            fill_rule: crate::render::raster::FillRule::EvenOdd,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::FillPath {
+        path: &WING,
+        transform: paint.transform().compose(&wing_transform),
+        paint: &wing_paint,
+        opa,
+        fill_rule: crate::render::raster::FillRule::EvenOdd,
+    });
 }
 
 //~focus-start
-fn butterfly_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn butterfly_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(state) = world.get::<Butterfly>(entity) else {
         return;
     };
@@ -80,6 +69,7 @@ fn butterfly_render(
         .unwrap_or(0);
     let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
 
+    let rect = paint.rect();
     let amp_x = rect.w / Fixed::from_int(4);
     let amp_y = rect.h / Fixed::from_int(5);
     let tx_deg = Fixed::from_int((elapsed_ms * 360 / 3100) % 360);
@@ -99,16 +89,16 @@ fn butterfly_render(
     let span_right = (span_base * (Fixed::ONE - yaw)).max(min_span);
 
     fill_wing(
-        renderer, ctx, cx, cy, span_left, tilt, -1, false, outer_wing, inner_wing,
+        paint, cx, cy, span_left, tilt, -1, false, outer_wing, inner_wing,
     );
     fill_wing(
-        renderer, ctx, cx, cy, span_right, tilt, 1, false, outer_wing, inner_wing,
+        paint, cx, cy, span_right, tilt, 1, false, outer_wing, inner_wing,
     );
     fill_wing(
-        renderer, ctx, cx, cy, span_left, tilt, -1, true, outer_wing, inner_wing,
+        paint, cx, cy, span_left, tilt, -1, true, outer_wing, inner_wing,
     );
     fill_wing(
-        renderer, ctx, cx, cy, span_right, tilt, 1, true, outer_wing, inner_wing,
+        paint, cx, cy, span_right, tilt, 1, true, outer_wing, inner_wing,
     );
 
     let body_head = Point {
@@ -119,48 +109,36 @@ fn butterfly_render(
         x: cx - tilt * Fixed::from_int(6),
         y: cy + Fixed::from_int(16),
     };
-    ctx.draw(
-        renderer,
-        &DrawCommand::Line {
-            p1: body_head,
-            p2: body_tail,
-            transform: ctx.transform,
-            color: body_color,
-            width: Fixed::from_int(2),
-            opa: 255,
+    paint.draw(&DrawCommand::Line {
+        p1: body_head,
+        p2: body_tail,
+        transform: paint.transform(),
+        color: body_color,
+        width: Fixed::from_int(2),
+        opa: 255,
+    });
+    paint.draw(&DrawCommand::Line {
+        p1: body_head,
+        p2: Point {
+            x: body_head.x - Fixed::from_int(5),
+            y: body_head.y - Fixed::from_int(10),
         },
-        ctx.clip,
-    );
-    ctx.draw(
-        renderer,
-        &DrawCommand::Line {
-            p1: body_head,
-            p2: Point {
-                x: body_head.x - Fixed::from_int(5),
-                y: body_head.y - Fixed::from_int(10),
-            },
-            transform: ctx.transform,
-            color: detail_color,
-            width: Fixed::ONE,
-            opa: 220,
+        transform: paint.transform(),
+        color: detail_color,
+        width: Fixed::ONE,
+        opa: 220,
+    });
+    paint.draw(&DrawCommand::Line {
+        p1: body_head,
+        p2: Point {
+            x: body_head.x + Fixed::from_int(5),
+            y: body_head.y - Fixed::from_int(10),
         },
-        ctx.clip,
-    );
-    ctx.draw(
-        renderer,
-        &DrawCommand::Line {
-            p1: body_head,
-            p2: Point {
-                x: body_head.x + Fixed::from_int(5),
-                y: body_head.y - Fixed::from_int(10),
-            },
-            transform: ctx.transform,
-            color: detail_color,
-            width: Fixed::ONE,
-            opa: 220,
-        },
-        ctx.clip,
-    );
+        transform: paint.transform(),
+        color: detail_color,
+        width: Fixed::ONE,
+        opa: 220,
+    });
 }
 //~focus-end
 

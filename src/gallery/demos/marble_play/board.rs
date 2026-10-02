@@ -337,13 +337,11 @@ fn paint_gravity_arrow(
 pub(super) fn board_render(
     board: component!(MarbleBoard),
     model: model!(board.model, watch(visual_revision)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), BOARD_WIDTH, BOARD_HEIGHT);
+    let mut painter = PlayPainter::new(paint, transform);
     paint_play_board(&mut painter, model, model.theme());
 }
 

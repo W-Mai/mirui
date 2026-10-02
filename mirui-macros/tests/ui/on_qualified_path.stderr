@@ -1,5 +1,5 @@
 error: qualified `on Slider::ValueChanged` does not match enclosing widget `View`; drop the qualifier or rename the widget
-  --> tests/ui/on_qualified_path.rs:14:27
+  --> tests/ui/on_qualified_path.rs:14:24
    |
-14 |             View () {} on Slider::ValueChanged { todo!() }
-   |                           ^^^^^^
+14 |             View () on Slider::ValueChanged { todo!() }
+   |                        ^^^^^^

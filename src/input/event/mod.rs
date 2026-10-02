@@ -678,14 +678,7 @@ mod tests {
         }
 
         fn registry_with(internal: fn(&mut World, Entity, &GestureEvent) -> bool) -> ViewRegistry {
-            fn dummy_render(
-                _r: &mut dyn crate::render::renderer::Renderer,
-                _w: &World,
-                _e: Entity,
-                _rect: &crate::types::Rect,
-                _ctx: &mut crate::ui::view::ViewCtx,
-            ) {
-            }
+            fn dummy_render(_w: &World, _e: Entity, _paint: &mut crate::ui::view::PaintCtx<'_>) {}
             let mut reg = ViewRegistry::default();
             reg.insert(
                 View::new("ChannelMarker", 60, dummy_render)

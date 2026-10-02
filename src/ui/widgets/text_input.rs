@@ -6,11 +6,10 @@ use crate::input::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
 };
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
@@ -288,13 +287,7 @@ impl crate::ecs::IntoBundle for TextInputBuilder {
 /// pay 32 extra bytes inside `TextInput`.
 pub struct Placeholder(pub &'static str);
 
-fn text_input_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn text_input_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(ti) = world.get::<TextInput>(entity) else {
         return;
     };
@@ -304,33 +297,33 @@ fn text_input_render(
     let face_limit = resource.borrow().limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
         world,
-        &ctx.style.font_stack,
-        ctx.style.font_size,
+        &paint.style().font_stack,
+        paint.style().font_size,
         face_limit,
     ) else {
         return;
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
-    let theme = ctx.theme(world);
-    let text_color = ti.text_color.resolve_in(theme, ctx.state);
-    let placeholder_color = ti.placeholder_color.resolve_in(theme, ctx.state);
-    let cursor_color = ti.cursor_color.resolve_in(theme, ctx.state);
-    let focus_border_color = ti.focus_border_color.resolve_in(theme, ctx.state);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let state = paint.state();
+    let rect = paint.rect();
+    let text_color = ti.text_color.resolve_in(theme, state);
+    let placeholder_color = ti.placeholder_color.resolve_in(theme, state);
+    let cursor_color = ti.cursor_color.resolve_in(theme, state);
+    let focus_border_color = ti.focus_border_color.resolve_in(theme, state);
 
     if ti.focused {
-        ctx.draw(
-            renderer,
-            &DrawCommand::Border {
-                area: *rect,
-                transform: ctx.transform,
-                quad: ctx.quad,
-                color: focus_border_color,
-                width: Fixed::ONE,
-                radius: Fixed::ZERO,
-                opa: 255,
-            },
-            ctx.clip,
-        );
+        paint.draw(&DrawCommand::Border {
+            area: rect,
+            transform: paint.transform(),
+            quad: paint.quad(),
+            color: focus_border_color,
+            width: Fixed::ONE,
+            radius: Fixed::ZERO,
+            opa: 255,
+        });
     }
 
     let inset = Fixed::from_int(2);
@@ -340,7 +333,7 @@ fn text_input_render(
         w: (rect.w - inset * Fixed::from_int(2)).max(Fixed::ZERO),
         h: (rect.h - inset * Fixed::from_int(2)).max(Fixed::ZERO),
     };
-    let Some(content_clip) = ctx.clip.intersect(&content_rect) else {
+    let Some(content_clip) = paint.clip().intersect(&content_rect) else {
         return;
     };
     let (content, color) = if ti.len == 0 {
@@ -387,8 +380,9 @@ fn text_input_render(
     };
     let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
     let scroll = (caret - visible_width).max(Fixed::ZERO);
-    ctx.record(super::text::draw_text_layout(
-        renderer,
+    let transform = paint.transform();
+    super::text::draw_text_layout(
+        paint,
         &layout,
         |font_id| fonts.font(font_id),
         super::text::TextPaint::new(
@@ -396,11 +390,11 @@ fn text_input_render(
                 x: content_rect.x - scroll,
                 y: content_rect.y,
             },
-            ctx.transform,
+            transform,
             &content_clip,
             color,
         ),
-    ));
+    );
 
     if ti.focused {
         let blink_on = world
@@ -408,8 +402,7 @@ fn text_input_render(
             .map(|p| p.0)
             .unwrap_or(true);
         if blink_on {
-            ctx.draw(
-                renderer,
+            paint.draw_clipped(
                 &DrawCommand::Fill {
                     area: Rect {
                         x: content_rect.x + caret - scroll,
@@ -417,13 +410,13 @@ fn text_input_render(
                         w: Fixed::ONE,
                         h: metrics.line_height.min(content_rect.h),
                     },
-                    transform: ctx.transform,
-                    quad: ctx.quad,
+                    transform: paint.transform(),
+                    quad: paint.quad(),
                     color: cursor_color,
                     radius: Fixed::ZERO,
                     opa: 255,
                 },
-                &content_clip,
+                content_clip,
             );
         }
     }
@@ -586,6 +579,7 @@ mod tests {
     use crate::render::font::{
         Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId, RasterGlyph,
     };
+    use crate::render::renderer::Renderer;
     use crate::types::Transform;
     use crate::ui::Style;
     use crate::ui::theme::{Theme, WidgetState};
@@ -703,18 +697,19 @@ mod tests {
             w: Fixed::from_int(width),
             h: Fixed::from_int(20),
         };
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::IDENTITY,
-            quad: None,
-            clip: &clip,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
         let mut renderer = RecordingRenderer::default();
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &clip,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
+        );
 
-        text_input_render(&mut renderer, &world, entity, &rect, &mut ctx);
+        text_input_render(&world, entity, &mut paint);
+        drop(paint);
         renderer
     }
 

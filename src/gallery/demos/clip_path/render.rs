@@ -1,8 +1,6 @@
 use super::scene::{CLIP_CIRCLE, LOGICAL_SIZE};
 use crate::prelude::draw::*;
 use crate::prelude::*;
-use crate::render::raster::FillRule;
-use crate::render::renderer::DrawRequest;
 use crate::render::scene::Paint;
 use crate::types::Transform;
 use crate::ui::Theme;
@@ -11,36 +9,24 @@ use crate::ui::Theme;
 #[derive(Default)]
 pub struct ClipPath;
 
-fn fill_rect(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx,
-    area: Rect,
-    color: Color,
-    transform: Transform,
-) {
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area,
-            transform,
-            quad: None,
-            color,
-            radius: Fixed::from_int(10),
-            opa: 255,
-        },
-        ctx.clip,
-    );
+fn fill_rect(paint: &mut PaintCtx<'_>, area: Rect, color: Color, transform: Transform) {
+    paint.draw(&DrawCommand::Fill {
+        area,
+        transform,
+        quad: None,
+        color,
+        radius: Fixed::from_int(10),
+        opa: 255,
+    });
 }
 
-pub(super) fn clip_path_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
-    let canvas =
-        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_SIZE, LOGICAL_SIZE);
+pub(super) fn clip_path_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
+    let canvas = crate::gallery::fit_logical_canvas(
+        paint.rect(),
+        paint.transform(),
+        LOGICAL_SIZE,
+        LOGICAL_SIZE,
+    );
     let default_theme = Theme::default();
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let surface = theme.resolve(ColorToken::SurfaceVariant);
@@ -60,60 +46,39 @@ pub(super) fn clip_path_render(
 
     for (i, color) in grays.into_iter().enumerate() {
         fill_rect(
-            renderer,
-            ctx,
+            paint,
             Rect::new(30, 42 + i as i32 * 56, 260, 42),
             color,
             canvas,
         );
     }
-    if ctx.error.is_some() {
-        return;
-    }
-
     let circle_transform = canvas.compose(&Transform::translate(
         Fixed::from_int(56),
         Fixed::from_int(56),
     ));
-    ctx.draw(
-        renderer,
-        &DrawCommand::PushClip {
-            path: &CLIP_CIRCLE,
-            transform: circle_transform,
-            fill_rule: FillRule::EvenOdd,
-        },
-        ctx.clip,
-    );
-    if ctx.error.is_some() {
-        return;
-    }
-    for (i, color) in colors.into_iter().enumerate() {
-        fill_rect(
-            renderer,
-            ctx,
-            Rect::new(30, 42 + i as i32 * 56, 260, 42),
-            color,
-            canvas,
-        );
-    }
-    ctx.record(renderer.submit(&DrawRequest::new(&DrawCommand::PopClip, *ctx.clip)));
+    paint.with_clip_path(&CLIP_CIRCLE, circle_transform, FillRule::EvenOdd, |paint| {
+        for (i, color) in colors.into_iter().enumerate() {
+            fill_rect(
+                paint,
+                Rect::new(30, 42 + i as i32 * 56, 260, 42),
+                color,
+                canvas,
+            );
+        }
+    });
 
     let outline = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
-    ctx.draw(
-        renderer,
-        &DrawCommand::StrokePath {
-            path: &CLIP_CIRCLE,
-            transform: circle_transform,
-            paint: &outline,
-            width: Fixed::from_int(2),
-            opa: 220,
-            line_cap: crate::render::scene::LineCap::Round,
-            line_join: crate::render::scene::LineJoin::Round,
-            miter_limit: Fixed::from_int(4),
-            dash: &[],
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::StrokePath {
+        path: &CLIP_CIRCLE,
+        transform: circle_transform,
+        paint: &outline,
+        width: Fixed::from_int(2),
+        opa: 220,
+        line_cap: crate::render::scene::LineCap::Round,
+        line_join: crate::render::scene::LineJoin::Round,
+        miter_limit: Fixed::from_int(4),
+        dash: &[],
+    });
 }
 
 pub fn clip_path_view() -> View {

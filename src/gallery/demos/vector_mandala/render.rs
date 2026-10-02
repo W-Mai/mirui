@@ -2,19 +2,12 @@ use super::scene::{decode_emblem, rebuild_frame};
 use super::state::VectorMandala;
 use crate::prelude::*;
 use crate::render::font::Font;
-use crate::render::renderer::Renderer;
 use crate::render::scene::resolver::SliceResolver;
 use crate::render::texture::Texture;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
-fn vector_mandala_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn vector_mandala_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(state) = world.get::<VectorMandala>(entity) else {
         return;
     };
@@ -25,6 +18,7 @@ fn vector_mandala_render(
     let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
     let spin_deg = Fixed::from_int((elapsed_ms * 360 / 16000) % 360);
 
+    let rect = paint.rect();
     let cx = rect.x + rect.w / Fixed::from_int(2);
     let cy = rect.y + rect.h / Fixed::from_int(2);
 
@@ -41,7 +35,7 @@ fn vector_mandala_render(
     let fonts: [(&str, &Font); 0] = [];
     let textures: [(&str, &Texture); 1] = [("thumbs_up", &IMG_THUMBS_UP)];
     let resolver = SliceResolver::new(&fonts, &textures);
-    ctx.replay(renderer, &scene.ops, &resolver);
+    paint.replay(&scene.ops, &resolver);
 }
 
 pub fn vector_mandala_view() -> View {

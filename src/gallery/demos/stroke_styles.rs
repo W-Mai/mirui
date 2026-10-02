@@ -18,8 +18,7 @@ const LOGICAL_HEIGHT: i32 = 360;
 
 #[allow(clippy::too_many_arguments)]
 fn stroke(
-    renderer: &mut dyn Renderer,
-    ctx: &mut ViewCtx,
+    paint_ctx: &mut PaintCtx<'_>,
     path: &Path,
     transform: Transform,
     paint: &Paint,
@@ -28,30 +27,20 @@ fn stroke(
     join: LineJoin,
     dash: &[Fixed],
 ) {
-    ctx.draw(
-        renderer,
-        &DrawCommand::StrokePath {
-            path,
-            transform,
-            paint,
-            width,
-            opa: 255,
-            line_cap: cap,
-            line_join: join,
-            miter_limit: Fixed::from_int(4),
-            dash,
-        },
-        ctx.clip,
-    );
+    paint_ctx.draw(&DrawCommand::StrokePath {
+        path,
+        transform,
+        paint,
+        width,
+        opa: 255,
+        line_cap: cap,
+        line_join: join,
+        miter_limit: Fixed::from_int(4),
+        dash,
+    });
 }
 
-fn stroke_styles_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn stroke_styles_render(world: &World, _entity: Entity, paint_ctx: &mut PaintCtx<'_>) {
     let default_theme = Theme::default();
     let theme = world.resource::<Theme>().unwrap_or(&default_theme);
     let paint = Paint::Color(theme.resolve(ColorToken::Primary).into());
@@ -59,8 +48,12 @@ fn stroke_styles_render(
     let green = Paint::Color(theme.resolve(ColorToken::Success).into());
     let violet = Paint::Color(theme.resolve(ColorToken::Tertiary).into());
     let empty: [Fixed; 0] = [];
-    let canvas =
-        crate::gallery::fit_logical_canvas(*rect, ctx.transform, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+    let canvas = crate::gallery::fit_logical_canvas(
+        paint_ctx.rect(),
+        paint_ctx.transform(),
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+    );
 
     for (i, cap) in [LineCap::Butt, LineCap::Round, LineCap::Square]
         .into_iter()
@@ -68,8 +61,7 @@ fn stroke_styles_render(
     {
         let x = 44 + i as i32 * 144;
         stroke(
-            renderer,
-            ctx,
+            paint_ctx,
             &LINE,
             canvas.compose(
                 &Transform::translate(Fixed::from_int(x), Fixed::from_int(54))
@@ -88,8 +80,7 @@ fn stroke_styles_render(
         .enumerate()
     {
         stroke(
-            renderer,
-            ctx,
+            paint_ctx,
             &ELBOW,
             canvas.compose(&Transform::translate(
                 Fixed::from_int(38 + i as i32 * 146),
@@ -117,8 +108,7 @@ fn stroke_styles_render(
     {
         let x = 42 + i as i32 * 146;
         stroke(
-            renderer,
-            ctx,
+            paint_ctx,
             &LINE,
             canvas.compose(&Transform::translate(
                 Fixed::from_int(x),
@@ -138,8 +128,7 @@ fn stroke_styles_render(
     {
         let x = 46 + i as i32 * 146;
         stroke(
-            renderer,
-            ctx,
+            paint_ctx,
             &LINE,
             canvas.compose(
                 &Transform::translate(Fixed::from_int(x), Fixed::from_int(304))
@@ -154,24 +143,20 @@ fn stroke_styles_render(
     }
 
     let guide_paint = Paint::Color(theme.resolve(ColorToken::Outline).into());
-    ctx.draw(
-        renderer,
-        &DrawCommand::StrokePath {
-            path: &GUIDE,
-            transform: canvas.compose(&Transform::translate(
-                Fixed::from_int(16),
-                Fixed::from_int(20),
-            )),
-            paint: &guide_paint,
-            width: Fixed::ONE,
-            opa: 180,
-            line_cap: LineCap::Butt,
-            line_join: LineJoin::Bevel,
-            miter_limit: Fixed::from_int(4),
-            dash: &empty,
-        },
-        ctx.clip,
-    );
+    paint_ctx.draw(&DrawCommand::StrokePath {
+        path: &GUIDE,
+        transform: canvas.compose(&Transform::translate(
+            Fixed::from_int(16),
+            Fixed::from_int(20),
+        )),
+        paint: &guide_paint,
+        width: Fixed::ONE,
+        opa: 180,
+        line_cap: LineCap::Butt,
+        line_join: LineJoin::Bevel,
+        miter_limit: Fixed::from_int(4),
+        dash: &empty,
+    });
 }
 
 pub fn stroke_styles_view() -> View {

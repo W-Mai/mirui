@@ -6,16 +6,14 @@ use super::style::{BG, BLUE, BORDER, DATA_AMBER, MINT, SURFACE, TEXT, TEXT_MUTED
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::path::Path;
-use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{GradientStop, GradientUnits, Paint, RadialGradient, SpreadMode};
 use crate::types::Transform;
 use crate::ui::Theme;
+use crate::ui::view::PaintCtx;
 
-struct DemoPainter<'a> {
-    renderer: &'a mut dyn Renderer,
-    clip: &'a Rect,
+struct DemoPainter<'paint, 'frame> {
+    paint: &'paint mut PaintCtx<'frame>,
     transform: Transform,
-    error: Option<RenderError>,
 }
 
 struct ArcStroke {
@@ -28,23 +26,13 @@ struct ArcStroke {
     opacity: u8,
 }
 
-impl<'a> DemoPainter<'a> {
-    fn new(renderer: &'a mut dyn Renderer, clip: &'a Rect, transform: Transform) -> Self {
-        Self {
-            renderer,
-            clip,
-            transform,
-            error: None,
-        }
+impl<'paint, 'frame> DemoPainter<'paint, 'frame> {
+    fn new(paint: &'paint mut PaintCtx<'frame>, transform: Transform) -> Self {
+        Self { paint, transform }
     }
 
     fn draw(&mut self, command: &DrawCommand<'_>) {
-        if self.error.is_none() {
-            self.error = self
-                .renderer
-                .submit(&DrawRequest::new(command, *self.clip))
-                .err();
-        }
+        self.paint.draw(command);
     }
 
     fn fill(&mut self, area: Rect, color: Color, radius: Fixed, opa: u8) {
@@ -147,7 +135,7 @@ impl ConsoleBackdrop {
         }
     }
 
-    fn render(&self, painter: &mut DemoPainter<'_>, rect: &Rect, theme: &Theme) {
+    fn render(&self, painter: &mut DemoPainter<'_, '_>, rect: &Rect, theme: &Theme) {
         painter.fill(*rect, theme.resolve(BG), Fixed::ZERO, 255);
         painter.fill_path(
             &UNIT_CIRCLE,
@@ -207,7 +195,7 @@ impl OrbitInstrument {
 
     fn render(
         &self,
-        painter: &mut DemoPainter<'_>,
+        painter: &mut DemoPainter<'_, '_>,
         rect: &Rect,
         state: &ConsoleState,
         theme: &Theme,
@@ -415,7 +403,7 @@ pub(super) struct SignalMeter {
 impl SignalMeter {
     fn render(
         &self,
-        painter: &mut DemoPainter<'_>,
+        painter: &mut DemoPainter<'_, '_>,
         rect: &Rect,
         state: &ConsoleState,
         theme: &Theme,
@@ -473,7 +461,7 @@ pub(super) struct ActivityPlot {
 impl ActivityPlot {
     fn render(
         &self,
-        painter: &mut DemoPainter<'_>,
+        painter: &mut DemoPainter<'_, '_>,
         rect: &Rect,
         state: &ConsoleState,
         theme: &Theme,
@@ -530,54 +518,50 @@ impl ActivityPlot {
 #[crate::view(name = "ConsoleBackdrop", priority = 10)]
 pub(super) fn backdrop_render(
     component: component!(ConsoleBackdrop),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
-    let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    component.render(&mut painter, rect, theme);
-    ctx.record(painter.error.map_or(Ok(()), Err));
+    let rect = paint.rect();
+    let transform = paint.transform();
+    let mut painter = DemoPainter::new(paint, transform);
+    component.render(&mut painter, &rect, theme);
 }
 
 #[crate::view(name = "OrbitInstrument", priority = 60)]
 pub(super) fn orbit_render(
     component: component!(OrbitInstrument),
     model: model!(component.model, watch(mode, intensity, focused_node, phase)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
-    let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    component.render(&mut painter, rect, model, theme);
-    ctx.record(painter.error.map_or(Ok(()), Err));
+    let rect = paint.rect();
+    let transform = paint.transform();
+    let mut painter = DemoPainter::new(paint, transform);
+    component.render(&mut painter, &rect, model, theme);
 }
 
 #[crate::view(name = "SignalMeter", priority = 60)]
 pub(super) fn signal_render(
     component: component!(SignalMeter),
     model: model!(component.model, watch(mode, intensity)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
-    let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    component.render(&mut painter, rect, model, theme);
-    ctx.record(painter.error.map_or(Ok(()), Err));
+    let rect = paint.rect();
+    let transform = paint.transform();
+    let mut painter = DemoPainter::new(paint, transform);
+    component.render(&mut painter, &rect, model, theme);
 }
 
 #[crate::view(name = "ActivityPlot", priority = 60)]
 pub(super) fn activity_render(
     component: component!(ActivityPlot),
     model: model!(component.model, watch(mode, phase)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
-    let mut painter = DemoPainter::new(renderer, ctx.clip, ctx.transform);
-    component.render(&mut painter, rect, model, theme);
-    ctx.record(painter.error.map_or(Ok(()), Err));
+    let rect = paint.rect();
+    let transform = paint.transform();
+    let mut painter = DemoPainter::new(paint, transform);
+    component.render(&mut painter, &rect, model, theme);
 }

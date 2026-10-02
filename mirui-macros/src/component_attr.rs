@@ -1,4 +1,6 @@
-use crate::binding::{BindingCardinality, BindingSource, BindingSpec, ModelSource};
+use crate::binding::{
+    BindingCardinality, BindingSource, BindingSpec, COMPONENT_FIELD_ROLES, ModelSource, RoleKind,
+};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::visit::Visit;
@@ -133,7 +135,10 @@ fn reject_attribute_arguments(attr: TokenStream) -> syn::Result<()> {
 }
 
 fn lower_model_field(field: &mut Field, generics: &mut syn::Generics) -> syn::Result<bool> {
-    reject_non_model_role(&field.ty)?;
+    let Some((role, _)) = COMPONENT_FIELD_ROLES.classify(&field.ty, "#[component]")? else {
+        return Ok(false);
+    };
+    debug_assert_eq!(role, RoleKind::Model);
     let name = field.ident.clone().expect("named component field");
     let Some(binding) = BindingSpec::parse_model_type_role(name, &field.ty)? else {
         return Ok(false);
@@ -177,7 +182,10 @@ fn lower_model_field(field: &mut Field, generics: &mut syn::Generics) -> syn::Re
 
 fn reject_model_roles(fields: &Fields, message: &str) -> syn::Result<()> {
     for field in fields {
-        reject_non_model_role(&field.ty)?;
+        let Some((role, _)) = COMPONENT_FIELD_ROLES.classify(&field.ty, "#[component]")? else {
+            continue;
+        };
+        debug_assert_eq!(role, RoleKind::Model);
         let name = field
             .ident
             .clone()
@@ -187,27 +195,6 @@ fn reject_model_roles(fields: &Fields, message: &str) -> syn::Result<()> {
         }
     }
     Ok(())
-}
-
-fn reject_non_model_role(ty: &Type) -> syn::Result<()> {
-    let Type::Macro(type_role) = ty else {
-        return Ok(());
-    };
-    let Some(role) = type_role.mac.path.get_ident() else {
-        return Ok(());
-    };
-    if !matches!(
-        role.to_string().as_str(),
-        "res" | "query" | "commands" | "component" | "entity" | "draw" | "rect" | "view" | "motion"
-    ) {
-        return Ok(());
-    }
-    Err(syn::Error::new(
-        type_role.mac.span(),
-        format!(
-            "binding role `{role}!` is not available in `#[component]` fields; component fields accept ordinary Rust types or `model!(T)`"
-        ),
-    ))
 }
 
 fn referenced_type_parameters(ty: &Type, generics: &Generics) -> Vec<syn::Ident> {
@@ -542,9 +529,7 @@ mod tests {
             quote!(commands!()),
             quote!(component!(Board)),
             quote!(entity!()),
-            quote!(draw!()),
-            quote!(rect!()),
-            quote!(view!()),
+            quote!(paint!()),
             quote!(motion!()),
         ] {
             let error = expand(

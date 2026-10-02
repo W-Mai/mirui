@@ -7,9 +7,8 @@ use core::ops::Range;
 use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Fixed64, Point, Rect, Transform, Transform3D};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 pub use textflow::shaping::FontFeature;
 
@@ -666,25 +665,22 @@ impl crate::ecs::IntoBundle for TextBuilder {
     }
 }
 
-fn text_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn text_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(text) = world.get::<Text>(entity) else {
         return;
     };
-    let color = ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let color = paint.style().text_color.resolve_in(theme, paint.state());
     let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
         return;
     };
     let face_limit = resource.borrow().limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
         world,
-        &ctx.style.font_stack,
-        ctx.style.font_size,
+        &paint.style().font_stack,
+        paint.style().font_size,
         face_limit,
     ) else {
         return;
@@ -704,6 +700,9 @@ fn text_render(
         else {
             return;
         };
+        let rect = paint.rect();
+        let transform = paint.transform();
+        let clip = paint.clip();
         let result = path_cache.with_glyph_frames(
             paths,
             path,
@@ -712,7 +711,7 @@ fn text_render(
             &layout,
             |frames| {
                 draw_posed_text_layout(
-                    renderer,
+                    paint,
                     &layout,
                     frames,
                     |font_id| fonts.font(font_id),
@@ -721,24 +720,28 @@ fn text_render(
                             x: rect.x,
                             y: rect.y,
                         },
-                        ctx.transform,
-                        ctx.clip,
+                        transform,
+                        &clip,
                         color,
                     ),
                 )
             },
         );
-        ctx.record(result.unwrap_or(Err(crate::render::RenderError::InvalidGeometry)));
+        if result.is_err() {
+            paint.fail(crate::render::RenderError::InvalidGeometry);
+        }
         return;
     }
-    let content_rect = linear_text_content_rect(ctx.style, *rect);
+    let content_rect = linear_text_content_rect(paint.style(), paint.rect());
     let offset_y = vertical_offset(
         text.paragraph().vertical_align,
         content_rect.h,
         crate::types::fixed::from_textflow(layout.measure().height),
     );
-    ctx.record(draw_text_layout_with_identity(
-        renderer,
+    let transform = paint.transform();
+    let clip = paint.clip();
+    draw_text_layout_with_identity(
+        paint,
         &layout,
         |font_id| fonts.font(font_id),
         TextPaint::new(
@@ -746,12 +749,12 @@ fn text_render(
                 x: content_rect.x,
                 y: content_rect.y + offset_y,
             },
-            ctx.transform,
-            ctx.clip,
+            transform,
+            &clip,
             color,
         ),
         text.text_capacity().map(|_| entity),
-    ));
+    );
 }
 
 pub(crate) fn linear_text_content_rect(style: &crate::ui::Style, rect: Rect) -> Rect {
@@ -807,30 +810,28 @@ fn padded_intrinsic_axis(
 }
 
 fn draw_posed_text_layout<'font>(
-    renderer: &mut dyn Renderer,
+    paint_ctx: &mut PaintCtx<'_>,
     layout: &crate::text::TextLayout<'_>,
     frames: &[textflow::placement::GlyphFrame],
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
-    paint: TextPaint<'_>,
-) -> Result<(), crate::render::RenderError> {
-    let mut result = Ok(());
+    text_paint: TextPaint<'_>,
+) {
     for_each_posed_run(layout, frames, font_for, |font, glyphs| {
-        if result.is_err() {
+        if paint_ctx.error().is_some() {
             return;
         }
-        result = renderer.submit(&crate::render::DrawRequest::new(
+        paint_ctx.draw_clipped(
             &DrawCommand::PosedGlyphRun {
-                pos: paint.origin,
-                transform: paint.transform,
+                pos: text_paint.origin,
+                transform: text_paint.transform,
                 glyphs,
                 font,
-                color: paint.color,
+                color: text_paint.color,
                 opa: 255,
             },
-            *paint.clip,
-        ));
+            *text_paint.clip,
+        );
     });
-    result
 }
 
 fn for_each_posed_run<'font>(
@@ -1388,26 +1389,29 @@ impl<'a> TextPaint<'a> {
 }
 
 pub(crate) fn draw_text_layout<'font>(
-    renderer: &mut dyn Renderer,
+    paint_ctx: &mut PaintCtx<'_>,
     layout: &crate::text::TextLayout<'_>,
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
-    paint: TextPaint<'_>,
-) -> Result<(), crate::render::RenderError> {
-    draw_text_layout_with_identity(renderer, layout, font_for, paint, None)
+    text_paint: TextPaint<'_>,
+) {
+    draw_text_layout_with_identity(paint_ctx, layout, font_for, text_paint, None)
 }
 
 fn draw_text_layout_with_identity<'font>(
-    renderer: &mut dyn Renderer,
+    paint_ctx: &mut PaintCtx<'_>,
     layout: &crate::text::TextLayout<'_>,
     font_for: impl Fn(crate::render::font::FontFaceId) -> Option<&'font crate::render::font::Font>,
-    paint: TextPaint<'_>,
+    text_paint: TextPaint<'_>,
     text_entity: Option<Entity>,
-) -> Result<(), crate::render::RenderError> {
+) {
     for line in layout.lines() {
         let Some(runs) = layout.runs_for(*line) else {
             continue;
         };
         for (offset, run) in runs.iter().enumerate() {
+            if paint_ctx.error().is_some() {
+                return;
+            }
             let Some(font) = font_for(run.font_id()) else {
                 continue;
             };
@@ -1421,31 +1425,30 @@ fn draw_text_layout_with_identity<'font>(
             let metrics = font.metrics(font.size);
             let command = DrawCommand::GlyphRun {
                 pos: Point {
-                    x: paint.origin.x + crate::types::fixed::from_textflow(glyph_origin.x),
-                    y: paint.origin.y + crate::types::fixed::from_textflow(glyph_origin.y)
+                    x: text_paint.origin.x + crate::types::fixed::from_textflow(glyph_origin.x),
+                    y: text_paint.origin.y + crate::types::fixed::from_textflow(glyph_origin.y)
                         - metrics.ascender,
                 },
-                transform: paint.transform,
+                transform: text_paint.transform,
                 glyphs: layout.glyphs_for(*run).unwrap_or_default(),
                 font,
-                color: paint.color,
+                color: text_paint.color,
                 opa: 255,
             };
-            let request = crate::render::DrawRequest::new(&command, *paint.clip);
             if let Some(entity) = text_entity {
-                renderer.submit_text_run(
-                    &request,
+                paint_ctx.draw_text_run(
+                    &command,
+                    *text_paint.clip,
                     crate::render::TextRunIdentity {
                         entity,
                         run_index: line.runs().start as usize + offset,
                     },
-                )?;
+                );
             } else {
-                renderer.submit(&request)?;
+                paint_ctx.draw_clipped(&command, *text_paint.clip);
             }
         }
     }
-    Ok(())
 }
 
 /// Borrowed positioned glyphs for rendering without runtime shaping or allocation.
@@ -1490,41 +1493,36 @@ impl StaticGlyphRun {
     }
 }
 
-fn static_glyph_run_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn static_glyph_run_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(run) = world.get::<StaticGlyphRun>(entity) else {
         return;
     };
     let Some(first) = run.glyphs.first() else {
         return;
     };
-    let Some(font) = crate::render::font::resolve_or_default(world, ctx.style.font_stack.primary())
+    let Some(font) =
+        crate::render::font::resolve_or_default(world, paint.style().font_stack.primary())
     else {
         return;
     };
     let mut font = font.as_ref().clone();
-    font.size = ctx.style.font_size.unwrap_or(font.size).max(1);
+    font.size = paint.style().font_size.unwrap_or(font.size).max(1);
     let metrics = font.metrics(font.size);
-    ctx.draw(
-        renderer,
-        &DrawCommand::GlyphRun {
-            pos: Point {
-                x: rect.x + crate::types::fixed::from_textflow(first.origin.x),
-                y: rect.y + crate::types::fixed::from_textflow(first.origin.y) - metrics.ascender,
-            },
-            transform: ctx.transform,
-            glyphs: run.glyphs,
-            font: &font,
-            color: ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state),
-            opa: 255,
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let rect = paint.rect();
+    paint.draw(&DrawCommand::GlyphRun {
+        pos: Point {
+            x: rect.x + crate::types::fixed::from_textflow(first.origin.x),
+            y: rect.y + crate::types::fixed::from_textflow(first.origin.y) - metrics.ascender,
         },
-        ctx.clip,
-    );
+        transform: paint.transform(),
+        glyphs: run.glyphs,
+        font: &font,
+        color: paint.style().text_color.resolve_in(theme, paint.state()),
+        opa: 255,
+    });
 }
 
 pub fn view() -> View {
@@ -1545,6 +1543,7 @@ mod tests {
 
     use super::*;
     use crate::render::font::{GlyphId, default_font_manager};
+    use crate::render::renderer::Renderer;
     use crate::types::Transform;
     use crate::ui::Style;
     use crate::ui::theme::{Theme, WidgetState};
@@ -1603,18 +1602,19 @@ mod tests {
             w: Fixed::from_int(20),
             h: Fixed::from_int(10),
         };
-        let mut ctx = ViewCtx {
-            style: &style,
-            transform: Transform::IDENTITY,
-            quad: None,
-            clip: &rect,
-            bg_handled: false,
-            state: WidgetState::Enabled,
-            error: None,
-        };
         let mut renderer = RecordingRenderer::default();
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
+        );
 
-        static_glyph_run_render(&mut renderer, &world, entity, &rect, &mut ctx);
+        static_glyph_run_render(&world, entity, &mut paint);
+        drop(paint);
 
         assert_eq!(renderer.glyph_runs, vec![(Point::new(3, 5), 2)]);
         assert_eq!(

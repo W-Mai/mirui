@@ -2,11 +2,9 @@ use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
-use crate::types::Rect;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[derive(Clone, Debug)]
 pub enum CheckboxEvent {
@@ -128,35 +126,28 @@ impl crate::ecs::IntoBundle for CheckboxBuilder {
     }
 }
 
-fn checkbox_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn checkbox_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(cb) = world.get::<Checkbox>(entity) else {
         return;
     };
-    let theme = ctx.theme(world);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let state = paint.state();
     let color = if cb.checked {
-        cb.checked_color.resolve_in(theme, ctx.state)
+        cb.checked_color.resolve_in(theme, state)
     } else {
-        cb.unchecked_color.resolve_in(theme, ctx.state)
+        cb.unchecked_color.resolve_in(theme, state)
     };
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color,
-            radius: ctx.style.border_radius,
-            opa: 255,
-        },
-        ctx.clip,
-    );
-    ctx.bg_handled = true;
+    paint.draw(&DrawCommand::Fill {
+        area: paint.rect(),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color,
+        radius: paint.style().border_radius,
+        opa: 255,
+    });
+    paint.set_background_handled(true);
 }
 
 pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {

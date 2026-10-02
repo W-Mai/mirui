@@ -3,9 +3,9 @@ use crate::render::command::DrawCommand;
 use crate::render::font::{Font, FontManager, FontToken};
 use crate::render::path::Path;
 use crate::render::raster::FillRule;
-use crate::render::renderer::{DrawRequest, RenderError, Renderer};
 use crate::render::scene::{LineCap, LineJoin, Paint};
 use crate::types::{Color, Fixed, Point, Rect, Transform};
+use crate::ui::view::PaintCtx;
 
 const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
@@ -25,30 +25,18 @@ pub(super) fn register_fonts(world: &mut World) {
     manager.add_static(FontToken::Mono.cache_key(), base);
 }
 
-pub(super) struct InstrumentPainter<'a> {
-    renderer: &'a mut dyn Renderer,
-    clip: Rect,
+pub(super) struct InstrumentPainter<'paint, 'frame> {
+    paint: &'paint mut PaintCtx<'frame>,
     transform: Transform,
-    error: Option<RenderError>,
 }
 
-impl<'a> InstrumentPainter<'a> {
-    pub(super) fn new(renderer: &'a mut dyn Renderer, clip: Rect, transform: Transform) -> Self {
-        Self {
-            renderer,
-            clip,
-            transform,
-            error: None,
-        }
+impl<'paint, 'frame> InstrumentPainter<'paint, 'frame> {
+    pub(super) fn new(paint: &'paint mut PaintCtx<'frame>, transform: Transform) -> Self {
+        Self { paint, transform }
     }
 
     fn draw(&mut self, command: &DrawCommand<'_>) {
-        if self.error.is_none() {
-            self.error = self
-                .renderer
-                .submit(&DrawRequest::new(command, self.clip))
-                .err();
-        }
+        self.paint.draw(command);
     }
 
     pub(super) fn fill(&mut self, area: Rect, color: Color, radius: Fixed, opacity: u8) {
@@ -146,9 +134,5 @@ impl<'a> InstrumentPainter<'a> {
             opa: opacity,
             fill_rule: FillRule::NonZero,
         });
-    }
-
-    pub(super) fn finish(self) -> Result<(), RenderError> {
-        self.error.map_or(Ok(()), Err)
     }
 }

@@ -35,35 +35,26 @@ fn sample_textures() -> [Texture<'static>; 3] {
     [rgba, rgb565, swapped]
 }
 
-fn texture_parity_render(
-    renderer: &mut dyn Renderer,
-    _world: &World,
-    _entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn texture_parity_render(_world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
+    let rect = paint.rect();
     let textures = sample_textures();
     for (index, texture) in textures.iter().enumerate() {
-        ctx.draw(
-            renderer,
-            &DrawCommand::Blit {
-                pos: Point {
-                    x: rect.x + Fixed::from_int(30 + index as i32 * 200),
-                    y: rect.y,
-                },
-                size: Point {
-                    x: Fixed::from_int(120),
-                    y: Fixed::from_int(80),
-                },
-                transform: ctx.transform,
-                quad: None,
-                texture,
-                opa: 255,
-                radius: Fixed::ZERO,
-                composite: CompositeMode::SourceOver,
+        paint.draw(&DrawCommand::Blit {
+            pos: Point {
+                x: rect.x + Fixed::from_int(30 + index as i32 * 200),
+                y: rect.y,
             },
-            ctx.clip,
-        );
+            size: Point {
+                x: Fixed::from_int(120),
+                y: Fixed::from_int(80),
+            },
+            transform: paint.transform(),
+            quad: None,
+            texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        });
     }
 }
 

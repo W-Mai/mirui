@@ -2,9 +2,8 @@ use super::state::{ConsoleModel, ConsoleMotion};
 use super::style::{BORDER, MUTED, PANEL, TEXT};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::ui::Theme;
-use crate::ui::view::ViewCtx;
+use crate::ui::view::PaintCtx;
 
 #[crate::component]
 pub(super) struct KineticOrbit {
@@ -18,26 +17,20 @@ pub(super) struct KineticWave {
     pub(super) motion: model!(ConsoleMotion),
 }
 
-struct InstrumentPainter<'a, 'ctx> {
-    renderer: &'a mut dyn Renderer,
-    ctx: &'a mut ViewCtx<'ctx>,
-    clip: Rect,
+struct InstrumentPainter<'paint, 'frame> {
+    paint: &'paint mut PaintCtx<'frame>,
 }
 
 impl InstrumentPainter<'_, '_> {
     fn fill(&mut self, area: Rect, color: Color, radius: Fixed, opacity: u8) {
-        self.ctx.draw(
-            self.renderer,
-            &DrawCommand::Fill {
-                area,
-                transform: self.ctx.transform,
-                quad: None,
-                color,
-                radius,
-                opa: opacity,
-            },
-            &self.clip,
-        );
+        self.paint.draw(&DrawCommand::Fill {
+            area,
+            transform: self.paint.transform(),
+            quad: None,
+            color,
+            radius,
+            opa: opacity,
+        });
     }
 }
 
@@ -46,9 +39,7 @@ pub(super) fn orbit_render(
     orbit: component!(KineticOrbit),
     model: model!(orbit.model, watch(visual_revision)),
     motion: model!(orbit.motion, watch(orbit_render_key)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
     let phase = motion.phase.phase();
@@ -58,14 +49,10 @@ pub(super) fn orbit_render(
     let accent = theme.resolve(model.mode.accent());
     let secondary = theme.resolve(model.mode.secondary());
 
-    ctx.bg_handled = true;
-    let clip = *ctx.clip;
-    let mut painter = InstrumentPainter {
-        renderer,
-        ctx,
-        clip,
-    };
-    painter.fill(*rect, panel, Fixed::ZERO, 255);
+    paint.set_background_handled(true);
+    let rect = paint.rect();
+    let mut painter = InstrumentPainter { paint };
+    painter.fill(rect, panel, Fixed::ZERO, 255);
 
     let grid = panel.blend_with(border, Fixed::from_ratio(1, 2));
     for step in 1..4 {
@@ -176,23 +163,17 @@ pub(super) fn wave_render(
     wave: component!(KineticWave),
     model: model!(wave.model, watch(visual_revision)),
     motion: model!(wave.motion, watch(wave_render_key)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
     theme: res!(Theme),
 ) {
     let phase = motion.phase.phase();
     let panel = theme.resolve(PANEL);
     let muted = theme.resolve(MUTED);
     let accent = theme.resolve(model.mode.accent());
-    ctx.bg_handled = true;
-    let clip = *ctx.clip;
-    let mut painter = InstrumentPainter {
-        renderer,
-        ctx,
-        clip,
-    };
-    painter.fill(*rect, panel, Fixed::ZERO, 255);
+    paint.set_background_handled(true);
+    let rect = paint.rect();
+    let mut painter = InstrumentPainter { paint };
+    painter.fill(rect, panel, Fixed::ZERO, 255);
 
     let plot_inset = Fixed::from_int(5);
     let bar_width = Fixed::from_int(2);

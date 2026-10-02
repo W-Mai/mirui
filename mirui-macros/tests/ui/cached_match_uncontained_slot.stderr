@@ -6,7 +6,7 @@ error: slot operations directly inside a reactive `match` arm need a widget pare
 20 | |                 match $selection {
 21 | |                     true => {
 ...  |
-29 | |         }
+33 | |         }
    | |_________^
    |
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

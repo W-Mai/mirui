@@ -1,8 +1,7 @@
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::ui::Theme;
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[crate::component]
 #[derive(Default)]
@@ -10,13 +9,7 @@ pub struct Shapes {
     pub start_ms: u32,
 }
 
-fn shapes_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn shapes_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(state) = world.get::<Shapes>(entity) else {
         return;
     };
@@ -31,6 +24,7 @@ fn shapes_render(
         .unwrap_or(0);
     let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
 
+    let rect = paint.rect();
     let header_height = Fixed::from_int(38);
     let content_height = (rect.h - header_height).max(Fixed::ZERO);
     let cx = rect.x + rect.w / Fixed::from_int(2);
@@ -38,20 +32,16 @@ fn shapes_render(
     let r = rect.w.min(content_height) / Fixed::from_int(2) - Fixed::from_int(8);
     let center = Point { x: cx, y: cy };
 
-    ctx.draw(
-        renderer,
-        &DrawCommand::Arc {
-            center,
-            transform: ctx.transform,
-            radius: r,
-            start_angle: Fixed::from_int(0),
-            end_angle: Fixed::from_int(360),
-            color: arc_color,
-            width: Fixed::from_int(2),
-            opa: 255,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::Arc {
+        center,
+        transform: paint.transform(),
+        radius: r,
+        start_angle: Fixed::from_int(0),
+        end_angle: Fixed::from_int(360),
+        color: arc_color,
+        width: Fixed::from_int(2),
+        opa: 255,
+    });
 
     let angle_deg_raw = ((elapsed_ms * 360) / 30_000) % 360;
     let angle_deg = Fixed::from_int(angle_deg_raw);
@@ -59,18 +49,14 @@ fn shapes_render(
         x: cx + Fixed::cos_deg(angle_deg) * r,
         y: cy + Fixed::sin_deg(angle_deg) * r,
     };
-    ctx.draw(
-        renderer,
-        &DrawCommand::Line {
-            p1: center,
-            p2: end,
-            transform: ctx.transform,
-            color: hand_color,
-            width: Fixed::from_int(2),
-            opa: 255,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::Line {
+        p1: center,
+        p2: end,
+        transform: paint.transform(),
+        color: hand_color,
+        width: Fixed::from_int(2),
+        opa: 255,
+    });
 
     for i in 0..12 {
         let a = Fixed::from_int(i * 30);
@@ -84,18 +70,14 @@ fn shapes_render(
             x: cx + Fixed::cos_deg(a) * outer,
             y: cy + Fixed::sin_deg(a) * outer,
         };
-        ctx.draw(
-            renderer,
-            &DrawCommand::Line {
-                p1,
-                p2,
-                transform: ctx.transform,
-                color: tick_color,
-                width: Fixed::ONE,
-                opa: 255,
-            },
-            ctx.clip,
-        );
+        paint.draw(&DrawCommand::Line {
+            p1,
+            p2,
+            transform: paint.transform(),
+            color: tick_color,
+            width: Fixed::ONE,
+            opa: 255,
+        });
     }
 }
 

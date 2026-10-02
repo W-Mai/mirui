@@ -100,12 +100,153 @@ pub(crate) struct ComponentSource {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BindingCapability {
-    Draw,
     Commands,
     Entity,
-    Rect,
-    ViewContext,
+    Paint,
     Motion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RoleKind {
+    Model,
+    Res,
+    Query,
+    Commands,
+    Component,
+    Entity,
+    Paint,
+    Motion,
+}
+
+impl RoleKind {
+    fn from_macro(role: &Macro) -> Option<Self> {
+        let name = role.path.get_ident()?;
+        Some(match name.to_string().as_str() {
+            "model" => Self::Model,
+            "res" => Self::Res,
+            "query" => Self::Query,
+            "commands" => Self::Commands,
+            "component" => Self::Component,
+            "entity" => Self::Entity,
+            "paint" => Self::Paint,
+            "motion" => Self::Motion,
+            _ => return None,
+        })
+    }
+
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Model => "model",
+            Self::Res => "res",
+            Self::Query => "query",
+            Self::Commands => "commands",
+            Self::Component => "component",
+            Self::Entity => "entity",
+            Self::Paint => "paint",
+            Self::Motion => "motion",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct RoleSet {
+    roles: &'static [RoleKind],
+}
+
+pub(crate) const COMPONENT_FIELD_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model]);
+pub(crate) const COMPOSE_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model]);
+pub(crate) const VIEW_ROLES: RoleSet = RoleSet::new(&[
+    RoleKind::Component,
+    RoleKind::Model,
+    RoleKind::Res,
+    RoleKind::Entity,
+    RoleKind::Paint,
+]);
+pub(crate) const SYSTEM_ROLES: RoleSet = RoleSet::new(&[
+    RoleKind::Model,
+    RoleKind::Res,
+    RoleKind::Query,
+    RoleKind::Commands,
+]);
+pub(crate) const TIMER_ROLES: RoleSet =
+    RoleSet::new(&[RoleKind::Model, RoleKind::Entity, RoleKind::Commands]);
+pub(crate) const ANIMATE_ROLES: RoleSet = RoleSet::new(&[
+    RoleKind::Model,
+    RoleKind::Entity,
+    RoleKind::Motion,
+    RoleKind::Component,
+    RoleKind::Commands,
+]);
+
+impl RoleSet {
+    const fn new(roles: &'static [RoleKind]) -> Self {
+        Self { roles }
+    }
+
+    pub(crate) fn classify(
+        self,
+        ty: &Type,
+        context: &str,
+    ) -> syn::Result<Option<(RoleKind, syn::TypeMacro)>> {
+        let Type::Macro(type_role) = ty else {
+            return Ok(None);
+        };
+        let Some(kind) = RoleKind::from_macro(&type_role.mac) else {
+            return Ok(None);
+        };
+        self.require(kind, &type_role.mac, context)?;
+        require_parentheses(&type_role.mac)?;
+        Ok(Some((kind, type_role.clone())))
+    }
+
+    pub(crate) fn parse_required(
+        self,
+        ty: &Type,
+        context: &str,
+        subject: &str,
+    ) -> syn::Result<(RoleKind, syn::TypeMacro)> {
+        let Type::Macro(type_role) = ty else {
+            return Err(syn::Error::new_spanned(
+                ty,
+                format!("{subject} must use {}", self.expected()),
+            ));
+        };
+        let Some(kind) = RoleKind::from_macro(&type_role.mac) else {
+            let path = type_role.mac.path.to_token_stream().to_string();
+            return Err(syn::Error::new_spanned(
+                &type_role.mac.path,
+                format!(
+                    "unknown binding role `{path}!` in `{context}`; expected {}",
+                    self.expected()
+                ),
+            ));
+        };
+        self.require(kind, &type_role.mac, context)?;
+        require_parentheses(&type_role.mac)?;
+        Ok((kind, type_role.clone()))
+    }
+
+    fn require(self, kind: RoleKind, role: &Macro, context: &str) -> syn::Result<()> {
+        if self.roles.contains(&kind) {
+            return Ok(());
+        }
+        Err(syn::Error::new_spanned(
+            &role.path,
+            format!(
+                "binding role `{}!` is not available in `{context}`; expected {}",
+                kind.name(),
+                self.expected()
+            ),
+        ))
+    }
+
+    fn expected(self) -> String {
+        self.roles
+            .iter()
+            .map(|kind| format!("`{}!`", kind.name()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -197,7 +338,7 @@ impl BindingSpec {
         let Type::Macro(type_role) = ty else {
             return Ok(None);
         };
-        if !type_role.mac.path.is_ident("model") {
+        if RoleKind::from_macro(&type_role.mac) != Some(RoleKind::Model) {
             return Ok(None);
         }
         require_parentheses(&type_role.mac)?;
@@ -297,26 +438,11 @@ impl BindingSpec {
                 "animate binding parameters must use a plain identifier",
             ));
         }
-        let type_role = match &*parameter.ty {
-            Type::Macro(type_role) => type_role.clone(),
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    &parameter.ty,
-                    "animate parameters must use `entity!()`, `motion!()`, `component!(...)`, `model!(T)`, or `commands!()`",
-                ));
-            }
-        };
-        let role_macro = &type_role.mac;
-        require_parentheses(role_macro)?;
-        let Some(role) = role_macro.path.get_ident() else {
-            return Err(syn::Error::new_spanned(
-                &role_macro.path,
-                "unknown animate binding role",
-            ));
-        };
+        let (role, type_role) =
+            ANIMATE_ROLES.parse_required(&parameter.ty, "#[animate]", "animate parameters")?;
         let name = pattern.ident.clone();
-        match role.to_string().as_str() {
-            "model" => {
+        match role {
+            RoleKind::Model => {
                 let binding = parse_model_binding(name, type_role)?;
                 if !matches!(
                     &binding.source,
@@ -330,16 +456,17 @@ impl BindingSpec {
                 }
                 Ok(binding)
             }
-            "component" => parse_animate_component(name, type_role),
-            "entity" => parse_animate_capability(name, type_role, BindingCapability::Entity),
-            "motion" => parse_animate_capability(name, type_role, BindingCapability::Motion),
-            "commands" => parse_animate_capability(name, type_role, BindingCapability::Commands),
-            _ => Err(syn::Error::new_spanned(
-                &role_macro.path,
-                format!(
-                    "binding role `{role}!` is not available in `#[animate]`; expected `entity!`, `motion!`, `component!`, `model!`, or `commands!`",
-                ),
-            )),
+            RoleKind::Component => parse_animate_component(name, type_role),
+            RoleKind::Entity => {
+                parse_animate_capability(name, type_role, BindingCapability::Entity)
+            }
+            RoleKind::Motion => {
+                parse_animate_capability(name, type_role, BindingCapability::Motion)
+            }
+            RoleKind::Commands => {
+                parse_animate_capability(name, type_role, BindingCapability::Commands)
+            }
+            _ => unreachable!("RoleSet admitted an unsupported animate role"),
         }
     }
 
@@ -423,36 +550,16 @@ impl BindingSpec {
             ));
         }
 
-        let type_role = match &*parameter.ty {
-            Type::Macro(type_role) => type_role.clone(),
-            _ => {
-                return Err(syn::Error::new_spanned(
-                    &parameter.ty,
-                    "system parameters must use `model!(T)`, `res!(T)`, `query!(...)`, or `commands!()`",
-                ));
-            }
-        };
-        let role_macro = &type_role.mac;
-        require_parentheses(role_macro)?;
-        let Some(role) = role_macro.path.get_ident() else {
-            return Err(unknown_role_error(role_macro));
-        };
+        let (role, type_role) =
+            SYSTEM_ROLES.parse_required(&parameter.ty, "#[system]", "system parameters")?;
 
         let name = pattern.ident.clone();
-        match role.to_string().as_str() {
-            "model" => parse_system_model(name, type_role),
-            "res" => parse_system_resource(name, type_role),
-            "query" => parse_system_query(name, type_role),
-            "commands" => parse_system_commands(name, type_role),
-            "component" | "entity" | "draw" | "rect" | "view" | "motion" => {
-                Err(syn::Error::new_spanned(
-                    &role_macro.path,
-                    format!(
-                        "binding role `{role}!` is not available in `#[system]`; expected `model!`, `res!`, `query!`, or `commands!`",
-                    ),
-                ))
-            }
-            _ => Err(unknown_role_error(role_macro)),
+        match role {
+            RoleKind::Model => parse_system_model(name, type_role),
+            RoleKind::Res => parse_system_resource(name, type_role),
+            RoleKind::Query => parse_system_query(name, type_role),
+            RoleKind::Commands => parse_system_commands(name, type_role),
+            _ => unreachable!("RoleSet admitted an unsupported system role"),
         }
     }
 }
@@ -635,11 +742,9 @@ fn parse_animate_capability(
 
 fn capability_name(capability: BindingCapability) -> &'static str {
     match capability {
-        BindingCapability::Draw => "draw",
         BindingCapability::Commands => "commands",
         BindingCapability::Entity => "entity",
-        BindingCapability::Rect => "rect",
-        BindingCapability::ViewContext => "view",
+        BindingCapability::Paint => "paint",
         BindingCapability::Motion => "motion",
     }
 }
@@ -711,16 +816,6 @@ fn require_parentheses(role: &Macro) -> syn::Result<()> {
         role.delimiter.span().open(),
         "binding roles use parentheses, for example `res!(Time)`",
     ))
-}
-
-fn unknown_role_error(role: &Macro) -> syn::Error {
-    let path = role.path.to_token_stream().to_string();
-    syn::Error::new_spanned(
-        &role.path,
-        format!(
-            "unknown system binding role `{path}!`; expected `model!`, `res!`, `query!`, or `commands!`",
-        ),
-    )
 }
 
 enum ModelRole {
@@ -1384,13 +1479,13 @@ mod tests {
     #[test]
     fn rejects_unknown_or_context_invalid_roles() {
         let unknown = error("value: mystery!(Value)");
-        assert!(unknown.contains("unknown system binding role `mystery!`"));
+        assert!(unknown.contains("unknown binding role `mystery!` in `#[system]`"));
 
         let context = error("value: component!(Value)");
         assert!(context.contains("binding role `component!` is not available in `#[system]`"));
 
         let qualified = error("value: crate::res!(Value)");
-        assert!(qualified.contains("unknown system binding role `crate :: res!`"));
+        assert!(qualified.contains("unknown binding role `crate :: res!` in `#[system]`"));
 
         let wrapped = error("value: Option<model!(Value)>");
         assert!(wrapped.contains("system parameters must use"));

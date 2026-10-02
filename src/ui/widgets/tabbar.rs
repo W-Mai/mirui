@@ -3,12 +3,11 @@ use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[derive(Clone, Debug)]
 pub enum TabBarEvent {
@@ -127,41 +126,35 @@ impl crate::ecs::IntoBundle for TabBarBuilder {
     }
 }
 
-fn tab_bar_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn tab_bar_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(tb) = world.get::<TabBar>(entity) else {
         return;
     };
     if tb.count == 0 {
         return;
     }
-    let theme = ctx.theme(world);
-    let indicator_color = tb.indicator_color.resolve_in(theme, ctx.state);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let state = paint.state();
+    let rect = paint.rect();
+    let indicator_color = tb.indicator_color.resolve_in(theme, state);
     let tab_w = rect.w / Fixed::from_int(tb.count as i32);
     let indicator_x = rect.x + tb.indicator_offset * tab_w;
     let indicator_y = rect.y + rect.h - tb.indicator_height;
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: Rect {
-                x: indicator_x,
-                y: indicator_y,
-                w: tab_w,
-                h: tb.indicator_height,
-            },
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: indicator_color,
-            radius: Fixed::ZERO,
-            opa: 255,
+    paint.draw(&DrawCommand::Fill {
+        area: Rect {
+            x: indicator_x,
+            y: indicator_y,
+            w: tab_w,
+            h: tb.indicator_height,
         },
-        ctx.clip,
-    );
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: indicator_color,
+        radius: Fixed::ZERO,
+        opa: 255,
+    });
 }
 
 /// Tap on a tab: clamp pointer x onto the tab grid, update `selected`,

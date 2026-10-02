@@ -11,7 +11,7 @@ use crate::ecs::{Entity, World};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::{WidgetTextureAccess, WidgetTextureRef};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 pub struct MirrorOf {
     pub source: Entity,
@@ -31,13 +31,7 @@ impl MirrorOf {
     }
 }
 
-fn mirror_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn mirror_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(mir) = world.get::<MirrorOf>(entity) else {
         return;
     };
@@ -45,27 +39,13 @@ fn mirror_render(
         return;
     };
     let src = snap.borrow();
-    ctx.record(flip_into(
-        &src,
-        ctx.transform,
-        rect,
-        ctx.clip,
-        mir.fade,
-        renderer,
-    ));
+    flip_into(&src, paint.rect(), mir.fade, paint);
 }
 
-/// Vertically flip `src` and blit it into `rect` on `renderer`. Fade
+/// Vertically flip `src` and blit it into `rect`. Fade
 /// linearly attenuates alpha along the y-axis: row 0 is fully opaque,
 /// row h-1 picks up `fade/255` of additional transparency.
-fn flip_into(
-    src: &Texture,
-    transform: crate::types::Transform,
-    rect: &Rect,
-    clip: &Rect,
-    fade: u8,
-    renderer: &mut dyn Renderer,
-) -> Result<(), crate::render::RenderError> {
+fn flip_into(src: &Texture, rect: Rect, fade: u8, paint: &mut PaintCtx<'_>) {
     use crate::render::command::{CompositeMode, DrawCommand};
 
     let w = src.width;
@@ -77,21 +57,21 @@ fn flip_into(
             ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
             ColorFormat::RGB565 => flip_rgb565(src, dst_buf, dst_stride, fade, false),
             ColorFormat::RGB565Swapped => flip_rgb565(src, dst_buf, dst_stride, fade, true),
-            ColorFormat::RGB888 | ColorFormat::BGRA8888 => return Ok(()),
+            ColorFormat::RGB888 | ColorFormat::BGRA8888 => return,
         }
     }
 
     let cmd = DrawCommand::Blit {
         pos: Point::new(rect.x, rect.y),
         size: Point::new(rect.w, rect.h),
-        transform,
+        transform: paint.transform(),
         quad: None,
         texture: &tmp,
         opa: 255,
         radius: Fixed::ZERO,
         composite: CompositeMode::SourceOver,
     };
-    renderer.submit(&crate::render::DrawRequest::new(&cmd, *clip))
+    paint.draw(&cmd);
 }
 
 fn flip_rgba8888(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8) {
@@ -176,5 +156,3 @@ pub fn view() -> View {
         .with_filter::<MirrorOf>()
         .with_attach(mirror_attach)
 }
-
-use crate::render::renderer::Renderer;

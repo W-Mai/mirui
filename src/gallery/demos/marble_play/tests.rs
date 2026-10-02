@@ -48,13 +48,11 @@ fn multi_source_board_render(
     board: component!(MultiSourceMarbleBoard),
     game: model!(board.game, watch(visual_revision)),
     selection: model!(board.selection, watch(marker)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, 480, 199);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 199);
+    let mut painter = PlayPainter::new(paint, transform);
     paint_play_board(&mut painter, game, game.theme());
     painter.fill(
         Rect::new(16, 16, 24, 24),

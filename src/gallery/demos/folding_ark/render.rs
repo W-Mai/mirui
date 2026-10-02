@@ -72,13 +72,11 @@ fn paint_map(painter: &mut PlayPainter<'_, '_>, model: &FoldModel) {
 pub(super) fn surface_render(
     surface: component!(FoldSurface),
     game: model!(surface.game, watch(visual_revision)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 320);
+    let mut painter = PlayPainter::new(paint, transform);
     painter.fill(Rect::new(0, 0, 480, 320), BG, Fixed::ZERO);
     painter.fill(Rect::new(0, 0, 480, 39), PANEL, Fixed::ZERO);
     painter.line(Point::new(14, 39), Point::new(466, 39), GRID, Fixed::ONE);

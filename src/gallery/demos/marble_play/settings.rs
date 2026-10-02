@@ -36,13 +36,11 @@ fn paint_settings(painter: &mut PlayPainter<'_, '_>, theme: Theme) {
 pub(super) fn settings_panel_render(
     panel: component!(MarbleSettingsPanel),
     model: model!(panel.model, watch(scene)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, BOARD_WIDTH, BOARD_HEIGHT);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), BOARD_WIDTH, BOARD_HEIGHT);
+    let mut painter = PlayPainter::new(paint, transform);
     paint_settings(&mut painter, model.theme());
 }
 

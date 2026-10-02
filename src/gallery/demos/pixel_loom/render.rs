@@ -144,13 +144,11 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
 pub(super) fn surface_render(
     surface: component!(PixelSurface),
     model: model!(surface.model, watch(visual_revision)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 320);
+    let mut painter = PlayPainter::new(paint, transform);
     paint_pixel_surface(&mut painter, model);
 }
 
@@ -158,16 +156,14 @@ pub(super) fn surface_render(
 pub(super) fn modal_render(
     surface: component!(PixelModalSurface),
     model: model!(surface.model, watch(visual_revision)),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
+    paint: paint!(),
 ) {
     if model.modal() == PixelModal::None {
         return;
     }
-    ctx.bg_handled = true;
-    let transform = fit_logical_canvas(*rect, ctx.transform, 480, 320);
-    let mut painter = PlayPainter::new(renderer, ctx, transform, *ctx.clip);
+    paint.set_background_handled(true);
+    let transform = fit_logical_canvas(paint.rect(), paint.transform(), 480, 320);
+    let mut painter = PlayPainter::new(paint, transform);
     painter.fill(
         Rect::new(0, 0, 480, 320),
         Color::rgba(8, 9, 14, 220),

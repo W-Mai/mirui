@@ -3,13 +3,12 @@ use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
-use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 #[derive(Clone, Debug)]
 pub enum SwitchEvent {
@@ -186,20 +185,18 @@ pub(crate) fn switch_init_system(
     }
 }
 
-fn switch_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn switch_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(s) = world.get::<Switch>(entity) else {
         return;
     };
-    let theme = ctx.theme(world);
-    let on_color = s.on_color.resolve_in(theme, ctx.state);
-    let off_color = s.off_color.resolve_in(theme, ctx.state);
-    let thumb_color = s.thumb_color.resolve_in(theme, ctx.state);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let state = paint.state();
+    let rect = paint.rect();
+    let on_color = s.on_color.resolve_in(theme, state);
+    let off_color = s.off_color.resolve_in(theme, state);
+    let thumb_color = s.thumb_color.resolve_in(theme, state);
     let cap_radius = rect.h / Fixed::from_int(2);
 
     let t = world
@@ -207,18 +204,14 @@ fn switch_render(
         .map(|x| x.0)
         .unwrap_or_else(|| if s.on { Fixed::ONE } else { Fixed::ZERO });
     let track_color = Color::lerp(off_color, on_color, t);
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: *rect,
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: track_color,
-            radius: cap_radius,
-            opa: 255,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::Fill {
+        area: rect,
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: track_color,
+        radius: cap_radius,
+        opa: 255,
+    });
 
     let thumb_size = (rect.h - SWITCH_THUMB_MARGIN * Fixed::from_int(2)).max(Fixed::ZERO);
     // Mid-animation the spring owns the position; at rest derive it from the
@@ -228,29 +221,25 @@ fn switch_render(
         world
             .get::<AnimatedThumbX>(entity)
             .map(|x| x.0)
-            .unwrap_or_else(|| off_thumb_x(rect))
+            .unwrap_or_else(|| off_thumb_x(&rect))
     } else if s.on {
-        on_thumb_x(rect)
+        on_thumb_x(&rect)
     } else {
-        off_thumb_x(rect)
+        off_thumb_x(&rect)
     };
-    ctx.draw(
-        renderer,
-        &DrawCommand::Fill {
-            area: Rect {
-                x: rect.x + thumb_local_x,
-                y: rect.y + SWITCH_THUMB_MARGIN,
-                w: thumb_size,
-                h: thumb_size,
-            },
-            transform: ctx.transform,
-            quad: ctx.quad,
-            color: thumb_color,
-            radius: thumb_size / Fixed::from_int(2),
-            opa: 255,
+    paint.draw(&DrawCommand::Fill {
+        area: Rect {
+            x: rect.x + thumb_local_x,
+            y: rect.y + SWITCH_THUMB_MARGIN,
+            w: thumb_size,
+            h: thumb_size,
         },
-        ctx.clip,
-    );
+        transform: paint.transform(),
+        quad: paint.quad(),
+        color: thumb_color,
+        radius: thumb_size / Fixed::from_int(2),
+        opa: 255,
+    });
 }
 
 pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {

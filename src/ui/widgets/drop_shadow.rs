@@ -1,14 +1,13 @@
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::renderer::Renderer;
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::render::texture::{ColorFormat, TexBuf, Texture};
-use crate::types::{Fixed, Point, Rect};
+use crate::types::{Fixed, Point};
 use crate::ui::offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, OffscreenRender, WidgetTextureAccess, WidgetTextureRef,
 };
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 pub struct DropShadow {
     pub source: Entity,
@@ -52,18 +51,11 @@ impl DropShadow {
     }
 }
 
-fn drop_shadow_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn drop_shadow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(shadow) = world.get::<DropShadow>(entity) else {
         return;
     };
     render_drop_effect(
-        renderer,
         world,
         shadow.source,
         shadow.blur_radius,
@@ -71,8 +63,7 @@ fn drop_shadow_render(
         shadow.color,
         shadow.opacity,
         CompositeMode::SourceOver,
-        rect,
-        ctx,
+        paint,
     );
 }
 
@@ -106,7 +97,6 @@ pub fn drop_effect_attach<T: 'static>(world: &mut World, entity: Entity) {
 
 #[allow(clippy::too_many_arguments)]
 fn render_drop_effect(
-    renderer: &mut dyn Renderer,
     world: &World,
     source: Entity,
     blur_radius: Fixed,
@@ -114,8 +104,7 @@ fn render_drop_effect(
     color: ThemedColor,
     opacity: u8,
     composite: CompositeMode,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
+    paint: &mut PaintCtx<'_>,
 ) {
     if blur_radius <= Fixed::ZERO {
         return;
@@ -125,7 +114,9 @@ fn render_drop_effect(
     };
     let src = snap.borrow();
 
-    let theme = ctx.theme(world);
+    let theme = world
+        .resource::<crate::ui::Theme>()
+        .expect("App::new must insert Theme; missing means a test fixture skipped App");
     let resolved = color.resolve(theme);
     let r = resolved.r;
     let g = resolved.g;
@@ -191,25 +182,21 @@ fn render_drop_effect(
     let src_rect = world
         .get::<crate::ui::ComputedRect>(source)
         .map(|c| c.0)
-        .unwrap_or_else(|| ctx.transform.apply_rect_bbox(*rect));
+        .unwrap_or_else(|| paint.transform().apply_rect_bbox(paint.rect()));
 
     let blit_x = src_rect.x + offset.0 - Fixed::from_int(pad_i as i32);
     let blit_y = src_rect.y + offset.1 - Fixed::from_int(pad_i as i32);
 
-    ctx.draw(
-        renderer,
-        &DrawCommand::Blit {
-            pos: Point::new(blit_x, blit_y),
-            size: Point::new(Fixed::from_int(dst_w as i32), Fixed::from_int(dst_h as i32)),
-            transform: ctx.transform,
-            quad: None,
-            texture: &work,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::Blit {
+        pos: Point::new(blit_x, blit_y),
+        size: Point::new(Fixed::from_int(dst_w as i32), Fixed::from_int(dst_h as i32)),
+        transform: paint.transform(),
+        quad: None,
+        texture: &work,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite,
+    });
 }
 
 pub struct DropGlow {
@@ -247,18 +234,11 @@ impl DropGlow {
     }
 }
 
-fn drop_glow_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn drop_glow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(glow) = world.get::<DropGlow>(entity) else {
         return;
     };
     render_drop_effect(
-        renderer,
         world,
         glow.source,
         glow.blur_radius,
@@ -266,8 +246,7 @@ fn drop_glow_render(
         glow.color,
         glow.opacity,
         CompositeMode::Screen,
-        rect,
-        ctx,
+        paint,
     );
 }
 

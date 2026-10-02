@@ -35,36 +35,28 @@ impl Default for Diamond {
 }
 
 #[crate::view(name = "Diamond", priority = 60)]
-pub fn diamond_render(
-    component: component!(Diamond),
-    renderer: draw!(),
-    rect: rect!(),
-    ctx: view!(),
-) {
-    let transform = ctx
-        .transform
+pub fn diamond_render(component: component!(Diamond), paint: paint!()) {
+    let rect = paint.rect();
+    let transform = paint
+        .transform()
         .compose(&Transform::translate(rect.x, rect.y))
         .compose(&Transform::scale(
             rect.w / Fixed::from_int(100),
             rect.h / Fixed::from_int(100),
         ));
-    let paint = Paint::Color(component.color.into());
+    let stroke_paint = Paint::Color(component.color.into());
     let dash: [Fixed; 0] = [];
-    ctx.draw(
-        renderer,
-        &DrawCommand::StrokePath {
-            path: &DIAMOND_PATH,
-            transform,
-            paint: &paint,
-            width: component.line_width,
-            opa: 255,
-            line_cap: LineCap::Round,
-            line_join: LineJoin::Round,
-            miter_limit: Fixed::from_int(4),
-            dash: &dash,
-        },
-        ctx.clip,
-    );
+    paint.draw(&DrawCommand::StrokePath {
+        path: &DIAMOND_PATH,
+        transform,
+        paint: &stroke_paint,
+        width: component.line_width,
+        opa: 255,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        miter_limit: Fixed::from_int(4),
+        dash: &dash,
+    });
 }
 
 pub const PALETTE: [Color; 3] = [

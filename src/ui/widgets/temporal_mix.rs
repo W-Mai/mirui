@@ -13,14 +13,13 @@
 
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::renderer::Renderer;
 use crate::render::sw::mix::mix_inplace;
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Fixed, Point, Rect};
+use crate::types::{Fixed, Point};
 use crate::ui::offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, WidgetTextureAccess, WidgetTextureRef,
 };
-use crate::ui::view::{View, ViewCtx};
+use crate::ui::view::{PaintCtx, View};
 
 pub struct TemporalMix {
     pub source: Entity,
@@ -40,13 +39,7 @@ impl TemporalMix {
     }
 }
 
-fn temporal_mix_render(
-    renderer: &mut dyn Renderer,
-    world: &World,
-    entity: Entity,
-    rect: &Rect,
-    ctx: &mut ViewCtx,
-) {
+fn temporal_mix_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(tm) = world.get::<TemporalMix>(entity) else {
         return;
     };
@@ -76,20 +69,17 @@ fn temporal_mix_render(
         }
     }
 
-    ctx.draw(
-        renderer,
-        &DrawCommand::Blit {
-            pos: Point::new(rect.x, rect.y),
-            size: Point::new(rect.w, rect.h),
-            transform: ctx.transform,
-            quad: ctx.quad,
-            texture: &tmp,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        },
-        ctx.clip,
-    );
+    let rect = paint.rect();
+    paint.draw(&DrawCommand::Blit {
+        pos: Point::new(rect.x, rect.y),
+        size: Point::new(rect.w, rect.h),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        texture: &tmp,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    });
 }
 
 fn temporal_mix_attach(world: &mut World, entity: Entity) {
