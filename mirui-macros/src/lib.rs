@@ -6,6 +6,7 @@ mod component_attr;
 mod compose;
 mod compose_attr;
 mod diag;
+mod event_attr;
 mod layout_reactive;
 mod vector;
 mod view_attr;
@@ -59,132 +60,6 @@ impl Parse for ComponentRead {
         let component = input.parse()?;
         Ok(Self { entity, component })
     }
-}
-
-fn event_role_invocation(
-    tokens: &[proc_macro2::TokenTree],
-    start: usize,
-) -> Option<(usize, &syn::Ident, &proc_macro2::Group)> {
-    if start > 0 {
-        match &tokens[start - 1] {
-            proc_macro2::TokenTree::Ident(_) => return None,
-            proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':' => return None,
-            _ => {}
-        }
-    }
-
-    let mut cursor = start;
-    if matches!(&tokens[cursor], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':') {
-        if !matches!(tokens.get(cursor + 1), Some(proc_macro2::TokenTree::Punct(punct)) if punct.as_char() == ':')
-        {
-            return None;
-        }
-        cursor += 2;
-    }
-    let proc_macro2::TokenTree::Ident(first) = tokens.get(cursor)? else {
-        return None;
-    };
-    let mut segments = vec![first];
-    cursor += 1;
-    while cursor + 2 < tokens.len()
-        && matches!(&tokens[cursor], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':')
-        && matches!(&tokens[cursor + 1], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ':')
-        && matches!(&tokens[cursor + 2], proc_macro2::TokenTree::Ident(_))
-    {
-        let proc_macro2::TokenTree::Ident(next) = &tokens[cursor + 2] else {
-            unreachable!();
-        };
-        segments.push(next);
-        cursor += 3;
-    }
-    if cursor + 1 >= tokens.len()
-        || !matches!(&tokens[cursor], proc_macro2::TokenTree::Punct(punct) if punct.as_char() == '!')
-    {
-        return None;
-    }
-    let proc_macro2::TokenTree::Group(arguments) = &tokens[cursor + 1] else {
-        return None;
-    };
-    let name = *segments.last()?;
-    let role = name == "com" || name == "commands";
-    let reserved_path = match segments.as_slice() {
-        [_] => role,
-        [root, _] => role && (*root == "mirui" || *root == "crate"),
-        _ => false,
-    };
-    if !reserved_path {
-        return None;
-    }
-    Some((cursor + 2, name, arguments))
-}
-
-fn rewrite_event_role_tokens(
-    input: proc_macro2::TokenStream,
-    scope: &syn::Ident,
-) -> proc_macro2::TokenStream {
-    let tokens: Vec<_> = input.into_iter().collect();
-    let mut output = proc_macro2::TokenStream::new();
-    let mut cursor = 0;
-    while cursor < tokens.len() {
-        if let Some((end, name, arguments)) = event_role_invocation(&tokens, cursor) {
-            if name == "com" {
-                let replacement = if arguments.delimiter() != proc_macro2::Delimiter::Parenthesis {
-                    let error = syn::Error::new_spanned(arguments, "use `com!(entity, Component)`")
-                        .to_compile_error();
-                    quote!(#error)
-                } else {
-                    match syn::parse2::<ComponentRead>(arguments.stream()) {
-                        Ok(ComponentRead { entity, component }) => quote! {
-                            #scope.component::<#component>(#entity)
-                        },
-                        Err(error) => {
-                            let error = error.to_compile_error();
-                            quote!(#error)
-                        }
-                    }
-                };
-                output.extend(replacement);
-                cursor = end;
-                continue;
-            }
-            if name == "commands" {
-                let replacement = if arguments.delimiter() == proc_macro2::Delimiter::Parenthesis
-                    && arguments.stream().is_empty()
-                {
-                    quote! { #scope.commands() }
-                } else {
-                    let error = syn::Error::new_spanned(
-                        arguments,
-                        "`commands!` does not accept arguments; use `commands!()`",
-                    )
-                    .to_compile_error();
-                    quote!(#error)
-                };
-                output.extend(replacement);
-                cursor = end;
-                continue;
-            }
-        }
-
-        match &tokens[cursor] {
-            proc_macro2::TokenTree::Group(group) => {
-                let mut rewritten = proc_macro2::Group::new(
-                    group.delimiter(),
-                    rewrite_event_role_tokens(group.stream(), scope),
-                );
-                rewritten.set_span(group.span());
-                output.extend([proc_macro2::TokenTree::Group(rewritten)]);
-            }
-            token => output.extend([token.clone()]),
-        }
-        cursor += 1;
-    }
-    output
-}
-
-fn event_body_roles(body: &syn::Block, scope: &syn::Ident) -> syn::Block {
-    syn::parse2(rewrite_event_role_tokens(quote! { #body }, scope))
-        .expect("event role rewriting must preserve the Rust block grammar")
 }
 
 /// Read one component from the active `#[compose]` or `on Event` context.
@@ -396,12 +271,12 @@ fn emit_business_handler(
 
     let mut arms = proc_macro2::TokenStream::new();
     for (entry, on_cmd) in group {
-        let body = event_body_roles(&on_cmd.body, &handler_scope);
+        let body = event_attr::lower_body(&on_cmd.body, &handler_scope);
         let event_path: syn::Path = syn::parse_str(entry.event_path).unwrap();
-        let field_idents: Vec<syn::Ident> = entry
-            .fields
+        let field_bindings = event_attr::fields(entry.fields);
+        let field_idents: Vec<_> = field_bindings
             .iter()
-            .map(|f| syn::Ident::new(f, proc_macro2::Span::call_site()))
+            .map(|binding| binding.name.clone())
             .collect();
         let pattern = if field_idents.is_empty() {
             quote! { #event_path }
@@ -467,10 +342,10 @@ fn emit_event_arm(
     handler_scope: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
-    let fields = gesture_event_fields(event_name);
-    let field_idents: Vec<syn::Ident> = fields
+    let field_bindings = event_attr::fields(gesture_event_fields(event_name));
+    let field_idents: Vec<syn::Ident> = field_bindings
         .iter()
-        .map(|f| syn::Ident::new(f, proc_macro2::Span::call_site()))
+        .map(|binding| binding.name.clone())
         .collect();
 
     if event_name == "Tap" && group.iter().any(|h| !h.args.is_empty()) {
@@ -479,7 +354,7 @@ fn emit_event_arm(
 
     let bodies = group
         .iter()
-        .map(|h| event_body_roles(&h.body, handler_scope));
+        .map(|h| event_attr::lower_body(&h.body, handler_scope));
     let used_idents: Vec<&syn::Ident> = field_idents.iter().collect();
 
     quote! {
@@ -506,7 +381,7 @@ fn emit_tap_with_count(
     let mut count_arms = proc_macro2::TokenStream::new();
     let mut default_arm: Option<proc_macro2::TokenStream> = None;
     for h in group {
-        let body = event_body_roles(&h.body, handler_scope);
+        let body = event_attr::lower_body(&h.body, handler_scope);
         if h.args.is_empty() {
             default_arm = Some(quote! {
                 _ => {

@@ -12,8 +12,8 @@ use syn::{
 
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
-    BindingSpec, BindingSyntax, ComponentSource, LogicalType, ModelSource, ResourceSource,
-    RoleKind, VIEW_ROLES,
+    BindingSpec, BindingSyntax, ComponentSource, ComponentTarget, LogicalType, ModelSource,
+    ResourceSource, RoleKind, VIEW_ROLES,
 };
 
 mod keyword {
@@ -310,8 +310,11 @@ fn parse_component(
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Explicit(ty.clone()),
-        source: BindingSource::Component(ComponentSource { ty }),
+        logical_type: LogicalType::Explicit(Box::new(ty.clone())),
+        source: BindingSource::Component(ComponentSource {
+            ty,
+            target: ComponentTarget::CurrentEntity,
+        }),
         access: BindingAccess::Read,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
@@ -324,7 +327,7 @@ fn parse_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Binding
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Explicit(ty.clone()),
+        logical_type: LogicalType::Explicit(Box::new(ty.clone())),
         source: BindingSource::Resource(ResourceSource { ty }),
         access: BindingAccess::Read,
         cardinality: BindingCardinality::Required,

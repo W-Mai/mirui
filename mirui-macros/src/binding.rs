@@ -3,15 +3,13 @@
 //! Role macros are syntax consumed by an enclosing attribute macro. They are
 //! never emitted as standalone macro invocations.
 
-#![allow(dead_code)]
-
 use proc_macro2::Span;
 use quote::ToTokens;
 use std::collections::HashSet;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{FnArg, Ident, Macro, Member, Pat, Type};
+use syn::{Expr, ExprMacro, FnArg, Ident, Macro, Member, Pat, Type};
 
 mod keyword {
     syn::custom_keyword!(optional);
@@ -64,8 +62,7 @@ impl BindingSyntax {
 /// type here.
 #[derive(Clone)]
 pub(crate) enum LogicalType {
-    Explicit(Type),
-    InferredFromViewComponent { field: Member },
+    Explicit(Box<Type>),
     SourceDefined,
 }
 
@@ -94,6 +91,13 @@ pub(crate) struct ResourceSource {
 #[derive(Clone)]
 pub(crate) struct ComponentSource {
     pub(crate) ty: Type,
+    pub(crate) target: ComponentTarget,
+}
+
+#[derive(Clone)]
+pub(crate) enum ComponentTarget {
+    CurrentEntity,
+    Expression(Expr),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -306,6 +310,67 @@ pub(crate) enum QueryDriver {
 }
 
 impl BindingSpec {
+    pub(crate) fn event_field(name: Ident) -> Self {
+        Self {
+            syntax: BindingSyntax::Generated(name.span()),
+            name,
+            logical_type: LogicalType::SourceDefined,
+            source: BindingSource::Event,
+            access: BindingAccess::Read,
+            cardinality: BindingCardinality::Required,
+            watch_selectors: Vec::new(),
+            invalidation: None,
+        }
+    }
+
+    pub(crate) fn parse_event_expression(expression: ExprMacro) -> syn::Result<Option<Self>> {
+        let Some(role) = event_role_kind(&expression.mac.path) else {
+            return Ok(None);
+        };
+        require_parentheses(&expression.mac)?;
+        let syntax = BindingSyntax::ExprRole(expression.clone());
+        let name = expression
+            .mac
+            .path
+            .segments
+            .last()
+            .expect("an event role path has a final segment")
+            .ident
+            .clone();
+
+        match role {
+            EventRoleKind::ComponentRead => {
+                let read = expression.mac.parse_body::<EventComponentRead>()?;
+                Ok(Some(Self {
+                    name,
+                    syntax,
+                    logical_type: LogicalType::Explicit(Box::new(read.component.clone())),
+                    source: BindingSource::Component(ComponentSource {
+                        ty: read.component,
+                        target: ComponentTarget::Expression(read.entity),
+                    }),
+                    access: BindingAccess::Read,
+                    cardinality: BindingCardinality::Optional,
+                    watch_selectors: Vec::new(),
+                    invalidation: None,
+                }))
+            }
+            EventRoleKind::Commands => {
+                expression.mac.parse_body::<EmptyCommandsRole>()?;
+                Ok(Some(Self {
+                    name,
+                    syntax,
+                    logical_type: LogicalType::SourceDefined,
+                    source: BindingSource::Capability(BindingCapability::Commands),
+                    access: BindingAccess::Command,
+                    cardinality: BindingCardinality::Required,
+                    watch_selectors: Vec::new(),
+                    invalidation: None,
+                }))
+            }
+        }
+    }
+
     /// Parse a direct `model!(...)` type role for authoring frontends that
     /// also accept ordinary Rust types.
     ///
@@ -542,6 +607,43 @@ impl BindingSpec {
     }
 }
 
+#[derive(Clone, Copy)]
+enum EventRoleKind {
+    ComponentRead,
+    Commands,
+}
+
+fn event_role_kind(path: &syn::Path) -> Option<EventRoleKind> {
+    let segments = path.segments.iter().collect::<Vec<_>>();
+    let name = match segments.as_slice() {
+        [name] => &name.ident,
+        [root, name] if root.ident == "mirui" || root.ident == "crate" => &name.ident,
+        _ => return None,
+    };
+    match name.to_string().as_str() {
+        "com" => Some(EventRoleKind::ComponentRead),
+        "commands" => Some(EventRoleKind::Commands),
+        _ => None,
+    }
+}
+
+struct EventComponentRead {
+    entity: Expr,
+    component: Type,
+}
+
+impl Parse for EventComponentRead {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let entity = input.parse()?;
+        input.parse::<syn::Token![,]>()?;
+        let component = input.parse()?;
+        if !input.is_empty() {
+            return Err(input.error("`com!` expects exactly an entity and component type"));
+        }
+        Ok(Self { entity, component })
+    }
+}
+
 fn parse_system_model(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
     let binding = parse_model_binding(name, type_role)?;
     if !matches!(
@@ -564,7 +666,7 @@ fn parse_model_binding(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Bi
         ModelRole::Declared { ty, cardinality } => BindingSpec {
             name,
             syntax,
-            logical_type: LogicalType::Explicit(ty.clone()),
+            logical_type: LogicalType::Explicit(Box::new(ty.clone())),
             source: BindingSource::Model(ModelSource::Registered { ty }),
             access: BindingAccess::Read,
             cardinality,
@@ -578,9 +680,7 @@ fn parse_model_binding(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Bi
         } => BindingSpec {
             name,
             syntax,
-            logical_type: LogicalType::InferredFromViewComponent {
-                field: field.clone(),
-            },
+            logical_type: LogicalType::SourceDefined,
             source: BindingSource::Model(ModelSource::ViewComponentField { field }),
             access: BindingAccess::Read,
             cardinality,
@@ -667,8 +767,11 @@ fn parse_animate_component(name: Ident, type_role: syn::TypeMacro) -> syn::Resul
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Explicit(parsed.ty.clone()),
-        source: BindingSource::Component(ComponentSource { ty: parsed.ty }),
+        logical_type: LogicalType::Explicit(Box::new(parsed.ty.clone())),
+        source: BindingSource::Component(ComponentSource {
+            ty: parsed.ty,
+            target: ComponentTarget::CurrentEntity,
+        }),
         access: parsed.access,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
@@ -721,7 +824,7 @@ fn parse_system_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Explicit(parsed.ty.clone()),
+        logical_type: LogicalType::Explicit(Box::new(parsed.ty.clone())),
         source: BindingSource::Resource(ResourceSource { ty: parsed.ty }),
         access: parsed.access,
         cardinality: parsed.cardinality,
@@ -1293,12 +1396,7 @@ mod tests {
             parse_model_binding(Ident::new("game", Span::call_site()), type_role).unwrap();
         binding.invalidation = Some(BindingInvalidation::Layout);
 
-        assert!(matches!(
-            &binding.logical_type,
-            LogicalType::InferredFromViewComponent {
-                field: Member::Named(field),
-            } if field == "game"
-        ));
+        assert!(matches!(binding.logical_type, LogicalType::SourceDefined));
         assert!(matches!(
             &binding.source,
             BindingSource::Model(ModelSource::ViewComponentField {
