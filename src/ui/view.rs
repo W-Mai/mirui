@@ -431,13 +431,18 @@ pub enum ViewInvalidation {
     Layout,
 }
 
-pub struct View {
-    name: &'static str,
+#[derive(Clone, Copy)]
+struct ViewPaint {
     /// Lower runs earlier. Slot reservation: 0..30 pre-bg,
     /// 30..50 explicit-bg widgets, 50 generic Style, 60..80 content
     /// widgets, 80..100 overlays.
     priority: u8,
     render: ViewRender,
+}
+
+pub struct View {
+    name: &'static str,
+    paint: Option<ViewPaint>,
     auto_attach: Option<ViewAttach>,
     systems: &'static [crate::ecs::System],
     /// When set, the walker only invokes `render` on entities that
@@ -460,8 +465,7 @@ impl View {
     pub const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
         Self {
             name,
-            priority,
-            render,
+            paint: Some(ViewPaint { priority, render }),
             auto_attach: None,
             systems: &[],
             component_filter: None,
@@ -527,11 +531,9 @@ impl View {
 
     /// Marker widget: only contributes systems, no rendering.
     pub const fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
-        fn noop_render(_world: &World, _entity: Entity, _ctx: &mut PaintCtx<'_>) {}
         Self {
             name,
-            priority: 100,
-            render: noop_render,
+            paint: None,
             auto_attach: None,
             systems,
             component_filter: None,
@@ -547,11 +549,11 @@ impl View {
     pub fn name(&self) -> &'static str {
         self.name
     }
-    pub(crate) fn priority(&self) -> u8 {
-        self.priority
+    pub(crate) fn priority(&self) -> Option<u8> {
+        self.paint.map(|paint| paint.priority)
     }
-    pub(crate) fn render(&self) -> ViewRender {
-        self.render
+    pub(crate) fn render(&self) -> Option<ViewRender> {
+        self.paint.map(|paint| paint.render)
     }
     pub(crate) fn auto_attach(&self) -> Option<ViewAttach> {
         self.auto_attach
@@ -579,6 +581,7 @@ impl View {
 #[derive(Default)]
 pub struct ViewRegistry {
     views: Vec<View>,
+    paint_order: Vec<usize>,
     next_registration: u64,
     bindings: Vec<ViewBinding>,
     owner: Option<crate::ecs::world::WorldId>,
@@ -690,8 +693,8 @@ impl ViewRegistry {
         reg
     }
 
-    /// Add a view, keeping the internal vec sorted by priority.
-    /// Stable on equal priority — insertion order breaks ties.
+    /// Add a View descriptor in registration order and index its optional
+    /// paint hook independently by paint priority.
     pub fn insert(&mut self, mut view: View) {
         if view.observe.is_some() {
             assert!(
@@ -705,16 +708,25 @@ impl ViewRegistry {
             .next_registration
             .checked_add(1)
             .expect("View registration identity exhausted");
-        let pos = self
-            .views
-            .iter()
-            .position(|v| v.priority() > view.priority())
-            .unwrap_or(self.views.len());
-        self.views.insert(pos, view);
+        let index = self.views.len();
+        let paint_priority = view.priority();
+        self.views.push(view);
+        if let Some(priority) = paint_priority {
+            let pos = self
+                .paint_order
+                .iter()
+                .position(|&index| self.views[index].priority().is_some_and(|p| p > priority))
+                .unwrap_or(self.paint_order.len());
+            self.paint_order.insert(pos, index);
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &View> {
         self.views.iter()
+    }
+
+    pub(crate) fn paint_iter(&self) -> impl Iterator<Item = &View> {
+        self.paint_order.iter().map(|&index| &self.views[index])
     }
 
     pub fn len(&self) -> usize {
@@ -978,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn observation_registration_identity_survives_priority_sorting() {
+    fn registration_order_is_independent_from_paint_priority() {
         fn observe(_: &World, _: Entity, _: &mut ViewObservationBindings) {}
         struct Marker;
         impl crate::ecs::Component for Marker {}
@@ -995,9 +1007,28 @@ mod tests {
                 .with_observation(observe, 0),
         );
         let views: Vec<_> = registry.iter().collect();
-        assert_eq!((views[0].name(), views[0].registration_id()), ("early", 1));
-        assert_eq!((views[1].name(), views[1].registration_id()), ("late", 0));
+        assert_eq!((views[0].name(), views[0].registration_id()), ("late", 0));
+        assert_eq!((views[1].name(), views[1].registration_id()), ("early", 1));
         assert!(views.iter().all(|view| view.observation().is_some()));
+
+        let paint: Vec<_> = registry.paint_iter().map(View::name).collect();
+        assert_eq!(paint, ["early", "late"]);
+    }
+
+    #[test]
+    fn systems_only_view_is_not_indexed_for_paint() {
+        let mut registry = ViewRegistry::default();
+        registry.insert(make_view("paint", 60));
+        registry.insert(View::systems_only("behavior", &[]));
+
+        assert_eq!(
+            registry.iter().map(View::name).collect::<Vec<_>>(),
+            ["paint", "behavior"]
+        );
+        assert_eq!(
+            registry.paint_iter().map(View::name).collect::<Vec<_>>(),
+            ["paint"]
+        );
     }
 
     #[test]
@@ -1382,11 +1413,11 @@ mod tests {
             None,
             WidgetState::Enabled,
         );
-        (view.render())(&app.world, entity, &mut ctx);
+        (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         assert!(!ctx.background_handled());
 
         model.set(1);
-        (view.render())(&app.world, entity, &mut ctx);
+        (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         assert!(ctx.background_handled());
         model.set(2);
     }
@@ -1425,7 +1456,7 @@ mod tests {
             None,
             WidgetState::Enabled,
         );
-        (view.render())(&app.world, entity, &mut ctx);
+        (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         assert!(ctx.background_handled());
 
         app.world.insert(
@@ -1435,7 +1466,7 @@ mod tests {
                 second: first,
             },
         );
-        (view.render())(&app.world, entity, &mut ctx);
+        (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         assert!(!ctx.background_handled());
     }
 
@@ -1474,7 +1505,7 @@ mod tests {
             WidgetState::Enabled,
         );
 
-        (view.render())(&app.world, entity, &mut ctx);
+        (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         let component = app.world.get::<OptionalBoundTile>(entity).unwrap();
         assert_eq!(component.visits.get(), 1);
         assert_eq!(component.seen.get(), None);
@@ -1488,7 +1519,7 @@ mod tests {
                 seen: Cell::new(None),
             },
         );
-        (view.render())(&app.world, entity, &mut ctx);
+        (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         let component = app.world.get::<OptionalBoundTile>(entity).unwrap();
         assert_eq!(component.visits.get(), 2);
         assert_eq!(component.seen.get(), Some(7));
@@ -1582,7 +1613,7 @@ mod tests {
     #[test]
     fn generated_view_preserves_existing_builder_options() {
         let view = paint_options::view();
-        assert_eq!(view.priority(), 42);
+        assert_eq!(view.priority(), Some(42));
         assert!(view.auto_attach().is_some());
         assert!(view.internal_gesture().is_some());
         assert_eq!(view.systems.len(), 1);
@@ -1621,7 +1652,7 @@ mod tests {
             WidgetState::Enabled,
         );
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (view.render())(&app.world, entity, &mut ctx);
+            (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
         }));
         assert!(failure.is_err());
         model.set(2);
@@ -1661,22 +1692,22 @@ mod tests {
     }
 
     #[test]
-    fn insert_keeps_priority_order() {
+    fn paint_index_keeps_priority_order() {
         let mut reg = ViewRegistry::default();
         reg.insert(make_view("c", 80));
         reg.insert(make_view("a", 40));
         reg.insert(make_view("b", 50));
-        let names: Vec<&str> = reg.iter().map(|v| v.name()).collect();
+        let names: Vec<&str> = reg.paint_iter().map(View::name).collect();
         assert_eq!(names, ["a", "b", "c"]);
     }
 
     #[test]
-    fn insert_is_stable_within_same_priority() {
+    fn paint_index_is_stable_within_same_priority() {
         let mut reg = ViewRegistry::default();
         reg.insert(make_view("first-50", 50));
         reg.insert(make_view("second-50", 50));
         reg.insert(make_view("third-50", 50));
-        let names: Vec<&str> = reg.iter().map(|v| v.name()).collect();
+        let names: Vec<&str> = reg.paint_iter().map(View::name).collect();
         assert_eq!(names, ["first-50", "second-50", "third-50"]);
     }
 

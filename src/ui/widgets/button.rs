@@ -224,7 +224,7 @@ mod tests {
     fn typed_view_keeps_button_registration_metadata() {
         let view = view();
         assert_eq!(view.name(), "Button");
-        assert_eq!(view.priority(), 40);
+        assert_eq!(view.priority(), Some(40));
         assert!(view.auto_attach().is_some());
     }
 

@@ -1433,15 +1433,16 @@ fn render_views(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) -> Result
         return Ok(());
     };
     crate::trace_span!("draw.view_dispatch");
-    for view in registry.iter() {
+    for view in registry.paint_iter() {
         if let Some(tid) = view.component_filter()
             && !world.has_type(entity, tid)
         {
             continue;
         }
-        crate::core::model::with_model_read_only(|| {
-            (view.render())(world, entity, ctx);
-        });
+        let render = view
+            .render()
+            .expect("paint order contains a non-paint View");
+        crate::core::model::with_model_read_only(|| render(world, entity, ctx));
         if let Some(error) = ctx.error() {
             return Err(error);
         }

@@ -11,7 +11,7 @@ use crate::types::Transform;
 fn gradient_view_keeps_its_dispatch_contract() {
     let view = gradient_render::view();
     assert_eq!(view.name(), "Gradient");
-    assert_eq!(view.priority(), 60);
+    assert_eq!(view.priority(), Some(60));
     assert_eq!(view.component_filter(), Some(TypeId::of::<Gradient>()));
 }
 

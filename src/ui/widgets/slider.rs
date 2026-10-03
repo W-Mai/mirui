@@ -543,7 +543,7 @@ mod tests {
     fn typed_view_keeps_slider_registration_metadata() {
         let view = view();
         assert_eq!(view.name(), "Slider");
-        assert_eq!(view.priority(), 60);
+        assert_eq!(view.priority(), Some(60));
         assert!(view.auto_attach().is_some());
         assert!(view.internal_gesture().is_some());
     }

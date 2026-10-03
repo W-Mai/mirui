@@ -35,7 +35,7 @@ fn authored_step_system_runs_only_for_a_timer_tick() {
 fn life_view_keeps_its_dispatch_contract() {
     let view = life_render::view();
     assert_eq!(view.name(), "LifeBoard");
-    assert_eq!(view.priority(), 60);
+    assert_eq!(view.priority(), Some(60));
     assert_eq!(view.component_filter(), Some(TypeId::of::<LifeBoard>()));
 }
 
