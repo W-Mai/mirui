@@ -11,9 +11,9 @@ use syn::{
 };
 
 use crate::binding::{
-    BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingOwnership,
-    BindingSource, BindingSpec, BindingSyntax, ComponentSource, LogicalType, ModelSource,
-    ResourceSource, RoleKind, VIEW_ROLES,
+    BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
+    BindingSpec, BindingSyntax, ComponentSource, LogicalType, ModelSource, ResourceSource,
+    RoleKind, VIEW_ROLES,
 };
 
 mod keyword {
@@ -316,7 +316,6 @@ fn parse_component(
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: Some(invalidation),
-        ownership: BindingOwnership::BorrowedForCall,
     })
 }
 
@@ -331,7 +330,6 @@ fn parse_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Binding
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: BindingOwnership::BorrowedForCall,
     })
 }
 
@@ -344,7 +342,7 @@ fn parse_capability(
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Intrinsic(capability),
+        logical_type: LogicalType::SourceDefined,
         source: BindingSource::Capability(capability),
         access: if capability == BindingCapability::Paint {
             BindingAccess::Write
@@ -354,7 +352,6 @@ fn parse_capability(
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: BindingOwnership::BorrowedForCall,
     })
 }
 

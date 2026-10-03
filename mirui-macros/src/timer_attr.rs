@@ -6,8 +6,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, FnArg, Ident, ItemFn, Meta, Pat, ReturnType, Token};
 
 use crate::binding::{
-    BindingAccess, BindingCapability, BindingCardinality, BindingOwnership, BindingSource,
-    BindingSpec, BindingSyntax, LogicalType, ModelSource, RoleKind, TIMER_ROLES,
+    BindingAccess, BindingCapability, BindingCardinality, BindingSource, BindingSpec,
+    BindingSyntax, LogicalType, ModelSource, RoleKind, TIMER_ROLES,
 };
 
 enum Schedule {
@@ -252,7 +252,7 @@ fn parse_capability(
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Intrinsic(capability),
+        logical_type: LogicalType::SourceDefined,
         source: BindingSource::Capability(capability),
         access: if capability == BindingCapability::Commands {
             BindingAccess::Command
@@ -262,11 +262,6 @@ fn parse_capability(
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: if capability == BindingCapability::Commands {
-            BindingOwnership::Deferred
-        } else {
-            BindingOwnership::BorrowedForCall
-        },
     })
 }
 

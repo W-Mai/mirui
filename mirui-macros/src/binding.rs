@@ -37,7 +37,6 @@ pub(crate) struct BindingSpec {
     pub(crate) watch_selectors: Vec<Ident>,
     /// Dirty policy applied when an observed value changes.
     pub(crate) invalidation: Option<BindingInvalidation>,
-    pub(crate) ownership: BindingOwnership,
 }
 
 /// Original syntax retained separately from normalized binding semantics.
@@ -67,8 +66,7 @@ impl BindingSyntax {
 pub(crate) enum LogicalType {
     Explicit(Type),
     InferredFromViewComponent { field: Member },
-    Intrinsic(BindingCapability),
-    QueryRow(QueryRowShape),
+    SourceDefined,
 }
 
 /// Runtime domain from which a binding obtains its value.
@@ -269,33 +267,13 @@ pub(crate) enum BindingInvalidation {
     Layout,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BindingOwnership {
-    BorrowedForCall,
-    CapturedShared,
-    Deferred,
-}
-
-/// Hierarchical query shape retained for typed-query lowering.
+/// Hierarchical query definition retained for typed-query lowering.
 #[derive(Clone)]
 pub(crate) struct QuerySpec {
     pub(crate) items: Vec<QueryItemSpec>,
     pub(crate) filters: Vec<QueryFilterSpec>,
     /// The first required component item, otherwise the first `with` filter.
     pub(crate) driver: QueryDriver,
-    pub(crate) row_shape: QueryRowShape,
-}
-
-impl QuerySpec {
-    pub(crate) fn arity(&self) -> usize {
-        self.items.len()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum QueryRowShape {
-    Scalar,
-    Tuple(usize),
 }
 
 #[derive(Clone)]
@@ -592,7 +570,6 @@ fn parse_model_binding(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Bi
             cardinality,
             watch_selectors: Vec::new(),
             invalidation: None,
-            ownership: BindingOwnership::CapturedShared,
         },
         ModelRole::ViewComponentField {
             field,
@@ -609,7 +586,6 @@ fn parse_model_binding(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Bi
             cardinality,
             watch_selectors,
             invalidation: None,
-            ownership: BindingOwnership::BorrowedForCall,
         },
     })
 }
@@ -697,7 +673,6 @@ fn parse_animate_component(name: Ident, type_role: syn::TypeMacro) -> syn::Resul
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: BindingOwnership::BorrowedForCall,
     })
 }
 
@@ -720,21 +695,15 @@ fn parse_animate_capability(
     } else {
         BindingAccess::Read
     };
-    let ownership = if capability == BindingCapability::Commands {
-        BindingOwnership::Deferred
-    } else {
-        BindingOwnership::BorrowedForCall
-    };
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Intrinsic(capability),
+        logical_type: LogicalType::SourceDefined,
         source: BindingSource::Capability(capability),
         access,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership,
     })
 }
 
@@ -758,7 +727,6 @@ fn parse_system_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<
         cardinality: parsed.cardinality,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: BindingOwnership::BorrowedForCall,
     })
 }
 
@@ -777,17 +745,15 @@ fn parse_system_query(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Bin
     } else {
         BindingAccess::Read
     };
-    let row_shape = query.row_shape;
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::QueryRow(row_shape),
+        logical_type: LogicalType::SourceDefined,
         source: BindingSource::Query(query),
         access,
         cardinality: BindingCardinality::Many,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: BindingOwnership::BorrowedForCall,
     })
 }
 
@@ -796,13 +762,12 @@ fn parse_system_commands(name: Ident, type_role: syn::TypeMacro) -> syn::Result<
     Ok(BindingSpec {
         name,
         syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Intrinsic(BindingCapability::Commands),
+        logical_type: LogicalType::SourceDefined,
         source: BindingSource::Capability(BindingCapability::Commands),
         access: BindingAccess::Command,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
         invalidation: None,
-        ownership: BindingOwnership::Deferred,
     })
 }
 
@@ -1073,17 +1038,10 @@ impl Parse for QuerySpec {
                     "`query!` needs a required component item or `with` filter to drive iteration; `Entity`, optional items, and `without` filters cannot drive a query",
                 )
             })?;
-        let row_shape = if items.len() == 1 {
-            QueryRowShape::Scalar
-        } else {
-            QueryRowShape::Tuple(items.len())
-        };
-
         Ok(Self {
             items,
             filters,
             driver,
-            row_shape,
         })
     }
 }
@@ -1250,7 +1208,6 @@ mod tests {
         ));
         assert_eq!(model.access, BindingAccess::Read);
         assert_eq!(model.cardinality, BindingCardinality::Required);
-        assert_eq!(model.ownership, BindingOwnership::CapturedShared);
         assert_eq!(syntax_tokens(&model.syntax), "model ! (GameModel)");
         assert!(model.watch_selectors.is_empty());
         assert_eq!(model.invalidation, None);
@@ -1276,12 +1233,8 @@ mod tests {
             commands.source,
             BindingSource::Capability(BindingCapability::Commands)
         ));
-        assert!(matches!(
-            commands.logical_type,
-            LogicalType::Intrinsic(BindingCapability::Commands)
-        ));
+        assert!(matches!(commands.logical_type, LogicalType::SourceDefined));
         assert_eq!(commands.access, BindingAccess::Command);
-        assert_eq!(commands.ownership, BindingOwnership::Deferred);
     }
 
     #[test]
@@ -1373,10 +1326,9 @@ mod tests {
         let BindingSource::Query(query) = binding.source else {
             panic!("expected query source");
         };
-        assert_eq!(query.arity(), 4);
+        assert_eq!(query.items.len(), 4);
         assert_eq!(query.filters.len(), 2);
         assert_eq!(query.driver, QueryDriver::Item(1));
-        assert_eq!(query.row_shape, QueryRowShape::Tuple(4));
         assert!(matches!(query.items[0], QueryItemSpec::Entity(_)));
         assert!(matches!(
             &query.items[1],
@@ -1415,16 +1367,24 @@ mod tests {
             panic!("expected query source");
         };
         assert_eq!(query.driver, QueryDriver::WithFilter(0));
-        assert_eq!(query.row_shape, QueryRowShape::Tuple(2));
+        assert_eq!(query.items.len(), 2);
     }
 
     #[test]
-    fn one_query_item_has_scalar_row_shape() {
+    fn preserves_a_single_query_item() {
         let binding = parse("positions: query!(Position)");
         let BindingSource::Query(query) = binding.source else {
             panic!("expected query source");
         };
-        assert_eq!(query.row_shape, QueryRowShape::Scalar);
+        assert_eq!(query.items.len(), 1);
+        assert!(matches!(
+            &query.items[0],
+            QueryItemSpec::Component {
+                ty,
+                access: BindingAccess::Read,
+                cardinality: BindingCardinality::Required,
+            } if tokens(ty) == "Position"
+        ));
     }
 
     #[test]
