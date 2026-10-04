@@ -553,6 +553,24 @@ A failed reservation does not raise either logical quota. The pool's ABI is
 confined to hidden macro support; the ordinary `on` and App installation APIs
 are not implemented by this layer.
 
+### Recognized gesture batches
+
+App input and both simulation routes share a retained gesture batch handoff.
+The installed `GestureSystem` prepares a write buffer and a separate read
+buffer. Dispatch swaps their storage and drains the selected read batch without
+borrowing the World resource during callbacks or collecting a temporary Vec.
+Events queued by a callback stay in the write buffer, outside that batch.
+
+Recursive draining of the same read buffer returns `Busy`. Unwinding clears its
+unread events while retaining capacity and any newly queued write events.
+Removing or replacing `GestureSystem` does not invalidate the selected batch
+or consume the replacement's events. Standalone `GestureEvents` retains only
+its ordinary output buffer.
+
+This handoff allocates no storage during dispatch. Recognizer writes retain
+their existing growth policy. The handoff does not impose a bounded input-burst
+quota or change callback selection.
+
 ### Named event callback declarations
 
 `#[event]` generates a module with `callback(...)`. The factory takes registered

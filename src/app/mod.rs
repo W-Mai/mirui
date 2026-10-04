@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use crate::app::plugin::Plugin;
 use crate::ecs::{Entity, System, SystemScheduler, World};
 use crate::input::event::focus::{FocusState, focus_on_tap};
-use crate::input::event::gesture::{GestureEvents, GestureSystem};
+use crate::input::event::gesture::GestureSystem;
 use crate::input::event::multi_tap::MultiTapTracker;
 use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
 use crate::input::event::{PointerCursor, bubble_dispatch_at};
@@ -206,10 +206,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollSpring::default());
         world.insert_resource(PointerCursor::default());
-        world.insert_resource(GestureSystem {
-            events: GestureEvents::new(),
-            ..GestureSystem::default()
-        });
+        world.insert_resource(GestureSystem::default());
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(FocusState::default());
         let info = backend.display_info();
@@ -1133,15 +1130,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
 
-            let pending: Vec<_> = self
-                .world
-                .resource_mut::<GestureSystem>()
-                .map(|gs| gs.events.drain().collect())
-                .unwrap_or_default();
             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-            for gesture in &pending {
-                focus_on_tap(&mut self.world, gesture);
-                bubble_dispatch_at(&mut self.world, gesture, now_ms);
+            if let Err(error) = crate::input::event::gesture::system::drain_gestures(
+                &mut self.world,
+                |world, gesture| {
+                    focus_on_tap(world, gesture);
+                    bubble_dispatch_at(world, gesture, now_ms);
+                },
+            ) {
+                crate::warn!("gesture batch dispatch failed: {:?}", error);
             }
 
             if quit {
@@ -2527,9 +2524,50 @@ mod fractional_scale_input_check {
                 y: Fixed::from_int(8),
             },
         ]);
+        let original = app
+            .world
+            .resource::<GestureSystem>()
+            .unwrap()
+            .events
+            .buffer
+            .as_ptr();
         app.tick();
 
         assert_eq!(app.world.resource::<TapCount>().unwrap().0, 1);
+        assert_ne!(
+            app.world
+                .resource::<GestureSystem>()
+                .unwrap()
+                .events
+                .buffer
+                .as_ptr(),
+            original
+        );
+        for _ in 0..3 {
+            app.backend.events.extend([
+                InputEvent::PointerDown {
+                    id: 0,
+                    x: Fixed::from_int(8),
+                    y: Fixed::from_int(8),
+                },
+                InputEvent::PointerUp {
+                    id: 0,
+                    x: Fixed::from_int(8),
+                    y: Fixed::from_int(8),
+                },
+            ]);
+        }
+        app.tick();
+        assert_eq!(app.world.resource::<TapCount>().unwrap().0, 4);
+        assert_eq!(
+            app.world
+                .resource::<GestureSystem>()
+                .unwrap()
+                .events
+                .buffer
+                .as_ptr(),
+            original
+        );
     }
 }
 

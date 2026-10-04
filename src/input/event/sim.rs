@@ -282,12 +282,8 @@ pub fn sim_input_system(world: &mut World) {
         }
     }
 
-    let pending: Vec<super::gesture::GestureEvent> = world
-        .resource_mut::<GestureSystem>()
-        .map(|gs| gs.events.drain().collect())
-        .unwrap_or_default();
-    for gesture in &pending {
-        super::bubble_dispatch(world, gesture);
+    if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
+        crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
 }
 
@@ -1114,12 +1110,8 @@ pub fn sim_timeline_system(world: &mut World) {
         }
     }
 
-    let pending: Vec<super::gesture::GestureEvent> = world
-        .resource_mut::<GestureSystem>()
-        .map(|gs| gs.events.drain().collect())
-        .unwrap_or_default();
-    for gesture in &pending {
-        super::bubble_dispatch(world, gesture);
+    if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
+        crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
 }
 
@@ -1151,6 +1143,65 @@ mod tests {
         mock::set_ns(0);
         world.insert_resource(MonoClock::from_time_source());
         world
+    }
+
+    #[test]
+    fn scheduled_input_and_timeline_share_retained_gesture_batch_storage() {
+        use crate::input::event::{GestureHandler, gesture::GestureEvent};
+
+        #[derive(Default)]
+        struct Trace {
+            values: [i32; 2],
+            len: usize,
+        }
+
+        fn record(world: &mut World, node: Entity, event: &GestureEvent) -> bool {
+            let GestureEvent::Tap { x, target, .. } = event else {
+                panic!("expected Tap");
+            };
+            assert_eq!(*target, node);
+            let trace = world.resource_mut::<Trace>().unwrap();
+            trace.values[trace.len] = x.to_int();
+            trace.len += 1;
+            true
+        }
+
+        let _guard = mock::install();
+        let mut world = setup_world();
+        let root = world.resource::<SimRootFallback>().unwrap().0;
+        world.insert(root, GestureHandler::from_fn(record));
+        world.insert_resource(Trace::default());
+        world.insert_resource(SimulatedInput::new(alloc::vec![SimCommand::at(
+            1000,
+            InputEvent::AppResume,
+        )]));
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
+        let original = world
+            .resource::<GestureSystem>()
+            .unwrap()
+            .events
+            .buffer
+            .as_ptr();
+        for (index, run) in [sim_input_system, sim_timeline_system]
+            .into_iter()
+            .enumerate()
+        {
+            world
+                .resource_mut::<GestureSystem>()
+                .unwrap()
+                .events
+                .push(GestureEvent::Tap {
+                    x: Fixed::from_int(index as i32 + 1),
+                    y: Fixed::ZERO,
+                    target: root,
+                });
+            run(&mut world);
+            let buffer = &world.resource::<GestureSystem>().unwrap().events.buffer;
+            assert!(buffer.is_empty());
+            assert_eq!(buffer.capacity(), 4);
+            assert_eq!(buffer.as_ptr() == original, index == 1);
+        }
+        assert_eq!(world.resource::<Trace>().unwrap().values, [1, 2]);
     }
 
     #[test]
@@ -2026,20 +2077,16 @@ mod tests {
             128,
         );
 
-        let pending: Vec<crate::input::event::gesture::GestureEvent> = world
-            .resource_mut::<GestureSystem>()
-            .map(|gs| gs.events.drain().collect())
-            .unwrap_or_default();
-        for g in &pending {
-            crate::input::event::bubble_dispatch(&mut world, g);
-        }
+        assert_eq!(
+            crate::input::event::gesture::system::drain_gestures(
+                &mut world,
+                crate::input::event::bubble_dispatch,
+            ),
+            Ok(1)
+        );
 
         let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
-        assert!(
-            on,
-            "Switch.on should flip true after Tap at its centre. \
-             pending events: {pending:?}",
-        );
+        assert!(on, "Switch.on should flip true after Tap at its centre.");
     }
 
     /// 100 sequential Tap events at the Switch's centre must flip
@@ -2105,13 +2152,11 @@ mod tests {
             );
             // Drain & bubble pending Tap events the same way
             // sim_timeline_system does at the end of each sim tick.
-            let pending: Vec<crate::input::event::gesture::GestureEvent> = world
-                .resource_mut::<GestureSystem>()
-                .map(|gs| gs.events.drain().collect())
-                .unwrap_or_default();
-            for g in &pending {
-                crate::input::event::bubble_dispatch(&mut world, g);
-            }
+            crate::input::event::gesture::system::drain_gestures(
+                &mut world,
+                crate::input::event::bubble_dispatch,
+            )
+            .unwrap();
             // Gap between taps so the recognizer fully resets.
             mock::advance_ms(150);
 

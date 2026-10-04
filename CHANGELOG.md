@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gesture batch storage.** App and simulated input reuse separate read and write buffers instead of collecting a temporary Vec for each dispatch batch. Callback-created events remain outside the current batch, and unwinding retains reusable storage.
 - **Disabled gesture routes.** Typed gesture selection rejects disabled nodes and ancestors before selecting internal or authored callbacks, without suppressing business notifications.
 - **Retired event listeners.** Installation and route selection release stale entity listeners and their bounded slots without changing frozen routes or allocating retirement storage.
 - **Event callback paths.** Generated callback factories preserve `self::` and `super::` paths in payloads, model and resource roles, queries, value parameters, return types, and const arguments.
