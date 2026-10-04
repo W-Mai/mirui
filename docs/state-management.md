@@ -439,6 +439,12 @@ Rejected writes return the original payload, and interrupted or feedback-limited
 flushes destroy pending values and restore reusable storage. Notification
 references are read-only and cannot escape their invocation.
 
+Drain callbacks return a result. Storage errors and listener errors remain
+distinct; listener errors are returned without cloning or replacing the error
+value. Failure discards unread and newly emitted notifications and leaves the
+buffers reusable. Model and resource updates already applied by a listener are
+not rolled back.
+
 This storage facility does not install listeners, resolve widget sources, or
 validate an application's owner and entity generations. Those checks belong to
 event installation and routing, not the payload arena.

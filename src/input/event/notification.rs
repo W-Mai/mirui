@@ -63,6 +63,19 @@ impl From<PayloadError> for NotificationError {
     }
 }
 
+/// Distinguishes storage failures from an error returned by a notification listener.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotificationFlushError<E> {
+    Storage(NotificationError),
+    Listener(E),
+}
+
+impl<E> From<NotificationError> for NotificationFlushError<E> {
+    fn from(error: NotificationError) -> Self {
+        Self::Storage(error)
+    }
+}
+
 #[derive(Clone, Copy)]
 struct NotificationRecord {
     kind: TypeId,
@@ -289,13 +302,13 @@ impl NotificationQueue {
 
     /// Drain in FIFO order; callback writes wait behind all older records.
     /// An interrupted flush drops both the remaining batch and callback writes.
-    pub fn flush(
+    pub fn flush<E>(
         &self,
         limit: usize,
-        mut run: impl FnMut(&Notification<'_>),
-    ) -> Result<usize, NotificationError> {
+        mut run: impl FnMut(&Notification<'_>) -> Result<(), E>,
+    ) -> Result<usize, NotificationFlushError<E>> {
         if self.phase.get() != QueuePhase::Idle {
-            return Err(NotificationError::Busy);
+            return Err(NotificationError::Busy.into());
         }
         self.phase.set(QueuePhase::Flushing);
         let read = mem::take(&mut self.state.borrow_mut().read);
@@ -311,10 +324,10 @@ impl NotificationQueue {
                 mem::swap(&mut guard.read, &mut state.write);
             }
             if dispatched == limit {
-                return Err(NotificationError::FlushLimit { limit });
+                return Err(NotificationError::FlushLimit { limit }.into());
             }
             let notification = guard.read.next().expect("non-empty notification batch");
-            run(&notification);
+            run(&notification).map_err(NotificationFlushError::Listener)?;
             dispatched += 1;
         }
     }

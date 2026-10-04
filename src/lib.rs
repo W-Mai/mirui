@@ -133,7 +133,8 @@ pub mod __macro_support {
         deferred_event_callback, event_callback,
     };
     pub use crate::input::event::notification::{
-        Notification, NotificationCapacity, NotificationError, NotificationQueue,
+        Notification, NotificationCapacity, NotificationError, NotificationFlushError,
+        NotificationQueue,
     };
     pub use ::core::cell::{Cell as __Cell, RefCell as __RefCell};
     pub use alloc::borrow::Cow as __Cow;

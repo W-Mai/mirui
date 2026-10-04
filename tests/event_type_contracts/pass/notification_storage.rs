@@ -39,6 +39,7 @@ fn main() {
         .flush(2, |notification| {
             assert_eq!(notification.entity(), Some(entity));
             seen.push(notification.payload::<Hit>().unwrap().0.clone());
+            Ok::<(), core::convert::Infallible>(())
         })
         .unwrap();
     assert_eq!(seen, ["first", "second"]);

@@ -5,6 +5,74 @@ use core::cell::Cell;
 use crate::input::event::contract::{AppSource, WidgetSource};
 use crate::test_support::tracked_allocations;
 
+fn flush(
+    queue: &NotificationQueue,
+    limit: usize,
+    mut run: impl FnMut(&Notification<'_>),
+) -> Result<usize, NotificationError> {
+    queue
+        .flush(limit, |notification| {
+            run(notification);
+            Ok::<(), core::convert::Infallible>(())
+        })
+        .map_err(|error| match error {
+            NotificationFlushError::Storage(error) => error,
+            NotificationFlushError::Listener(never) => match never {},
+        })
+}
+
+#[test]
+fn listener_error_preserves_the_error_and_drops_unread_and_generated_payloads() {
+    struct Failure(Rc<Cell<usize>>);
+    impl Drop for Failure {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+    let queue = NotificationQueue::default();
+    queue
+        .reserve(capacity(
+            3,
+            3 * size_of::<Owned>(),
+            core::mem::align_of::<Owned>(),
+        ))
+        .unwrap();
+    let drops = Rc::new(Cell::new(0));
+    let errors = Rc::new(Cell::new(0));
+    for value in 0..3 {
+        queue
+            .push_app(Owned {
+                value,
+                drops: drops.clone(),
+            })
+            .unwrap();
+    }
+    let allocations = tracked_allocations(|| {
+        let error = queue
+            .flush(4, |notification| {
+                let value = notification.payload::<Owned>().unwrap();
+                assert_eq!(value.value, 0);
+                queue
+                    .push_app(Owned {
+                        value: 9,
+                        drops: drops.clone(),
+                    })
+                    .unwrap();
+                Err(Failure(errors.clone()))
+            })
+            .err()
+            .unwrap();
+        assert!(matches!(error, NotificationFlushError::Listener(_)));
+        assert_eq!(drops.get(), 4);
+        assert_eq!(errors.get(), 0);
+        drop(error);
+        assert_eq!(errors.get(), 1);
+        queue.push_app(Empty).unwrap();
+        assert_eq!(queue.flush(1, |_| Ok::<(), Failure>(())).ok(), Some(1));
+    });
+    assert_eq!(allocations, 0);
+}
+
 struct Widget;
 impl crate::ecs::Component for Widget {}
 
@@ -83,29 +151,28 @@ fn double_buffer_preserves_fifo_and_payload_window_without_allocating() {
         queue.push_entity(entity(), Value(1)).unwrap();
         queue.push_entity(entity(), Value(2)).unwrap();
         queue.push_entity(entity(), Value(3)).unwrap();
-        let dispatched = queue
-            .flush(4, |notification| {
-                assert_eq!(notification.entity(), Some(entity()));
-                assert!(notification.payload::<Empty>().is_none());
-                let value = notification.payload::<Value>().unwrap();
-                let pointer = value as *const Value;
-                observed[count] = value.0;
-                count += 1;
-                if value.0 == 1 {
-                    queue.push_entity(entity(), Value(4)).unwrap();
-                    assert_eq!(
-                        notification.payload::<Value>().unwrap() as *const Value,
-                        pointer
-                    );
-                    assert_eq!(value.0, 1);
-                }
-            })
-            .unwrap();
+        let dispatched = flush(&queue, 4, |notification| {
+            assert_eq!(notification.entity(), Some(entity()));
+            assert!(notification.payload::<Empty>().is_none());
+            let value = notification.payload::<Value>().unwrap();
+            let pointer = value as *const Value;
+            observed[count] = value.0;
+            count += 1;
+            if value.0 == 1 {
+                queue.push_entity(entity(), Value(4)).unwrap();
+                assert_eq!(
+                    notification.payload::<Value>().unwrap() as *const Value,
+                    pointer
+                );
+                assert_eq!(value.0, 1);
+            }
+        })
+        .unwrap();
         assert_eq!(dispatched, 4);
     });
     assert_eq!(allocations, 0);
     assert_eq!(observed, [1, 2, 3, 4]);
-    assert_eq!(queue.flush(0, |_| unreachable!()), Ok(0));
+    assert_eq!(flush(&queue, 0, |_| unreachable!()), Ok(0));
 }
 
 #[test]
@@ -135,7 +202,10 @@ fn record_payload_and_alignment_limits_preserve_rejected_ownership() {
     let (error, _) = queue.push_app(Empty).unwrap_err();
     assert_eq!(error, NotificationError::RecordCapacity { available: 1 });
     assert_eq!(
-        queue.flush(1, |n| assert_eq!(n.payload::<Value>().unwrap().0, 11)),
+        flush(&queue, 1, |n| assert_eq!(
+            n.payload::<Value>().unwrap().0,
+            11
+        )),
         Ok(1)
     );
     let drops = Rc::new(Cell::new(0));
@@ -160,7 +230,7 @@ fn aligned_payloads_and_zero_byte_notifications_round_trip() {
     queue.reserve(capacity(2, 0, 1)).unwrap();
     queue.push_app(Empty).unwrap();
     assert_eq!(
-        queue.flush(1, |n| {
+        flush(&queue, 1, |n| {
             assert_eq!(n.entity(), None);
             assert!(n.payload::<Empty>().is_some());
         }),
@@ -170,7 +240,7 @@ fn aligned_payloads_and_zero_byte_notifications_round_trip() {
     queue.push_entity(entity(), Value(7)).unwrap();
     queue.push_app(Aligned([9; 128])).unwrap();
     assert_eq!(
-        queue.flush(2, |n| {
+        flush(&queue, 2, |n| {
             if let Some(value) = n.payload::<Aligned>() {
                 assert_eq!(value as *const Aligned as usize % 128, 0);
                 assert_eq!(value.0, [9; 128]);
@@ -185,19 +255,18 @@ fn callback_reentry_and_reconfiguration_are_explicitly_rejected() {
     let queue = NotificationQueue::default();
     queue.reserve(capacity(2, 0, 1)).unwrap();
     queue.push_app(Empty).unwrap();
-    queue
-        .flush(1, |_| {
-            assert_eq!(
-                queue.flush(1, |_| unreachable!()),
-                Err(NotificationError::Busy)
-            );
-            assert_eq!(queue.clear(), Err(NotificationError::Busy));
-            assert_eq!(
-                queue.reserve(capacity(3, 8, 8)),
-                Err(NotificationError::Busy)
-            );
-        })
-        .unwrap();
+    flush(&queue, 1, |_| {
+        assert_eq!(
+            flush(&queue, 1, |_| unreachable!()),
+            Err(NotificationError::Busy)
+        );
+        assert_eq!(queue.clear(), Err(NotificationError::Busy));
+        assert_eq!(
+            queue.reserve(capacity(3, 8, 8)),
+            Err(NotificationError::Busy)
+        );
+    })
+    .unwrap();
     assert_eq!(queue.reserve(capacity(3, 8, 8)), Ok(()));
 }
 
@@ -225,7 +294,7 @@ fn feedback_limit_drops_remaining_and_generated_payloads_once_and_reuses_storage
         })
         .unwrap();
     let allocations = tracked_allocations(|| {
-        let result = queue.flush(3, |n| {
+        let result = flush(&queue, 3, |n| {
             let value = n.payload::<Owned>().unwrap();
             queue
                 .push_app(Owned {
@@ -238,7 +307,7 @@ fn feedback_limit_drops_remaining_and_generated_payloads_once_and_reuses_storage
     });
     assert_eq!(allocations, 0);
     assert_eq!(drops.get(), 5);
-    assert_eq!(queue.flush(0, |_| unreachable!()), Ok(0));
+    assert_eq!(flush(&queue, 0, |_| unreachable!()), Ok(0));
     let allocations = tracked_allocations(|| {
         queue
             .push_app(Owned {
@@ -247,7 +316,10 @@ fn feedback_limit_drops_remaining_and_generated_payloads_once_and_reuses_storage
             })
             .unwrap();
         assert_eq!(
-            queue.flush(1, |n| assert_eq!(n.payload::<Owned>().unwrap().value, 7)),
+            flush(&queue, 1, |n| assert_eq!(
+                n.payload::<Owned>().unwrap().value,
+                7
+            )),
             Ok(1)
         );
     });
@@ -279,7 +351,7 @@ fn callback_unwind_drops_both_buffers_and_resets_the_runtime() {
         })
         .unwrap();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = queue.flush(2, |_| {
+        let _ = flush(&queue, 2, |_| {
             queue
                 .push_app(Owned {
                     value: 3,
@@ -293,7 +365,7 @@ fn callback_unwind_drops_both_buffers_and_resets_the_runtime() {
     assert_eq!(drops.get(), 3);
     let allocations = tracked_allocations(|| {
         queue.push_app(Empty).unwrap();
-        assert_eq!(queue.flush(1, |_| ()), Ok(1));
+        assert_eq!(flush(&queue, 1, |_| ()), Ok(1));
     });
     assert_eq!(allocations, 0);
 }
@@ -313,9 +385,10 @@ fn failed_reservation_keeps_pending_values_and_logical_limits() {
     );
     let (error, _) = queue.push_entity(entity(), Value(2)).unwrap_err();
     assert_eq!(error, NotificationError::RecordCapacity { available: 1 });
-    queue
-        .flush(1, |n| assert_eq!(n.payload::<Value>().unwrap().0, 1))
-        .unwrap();
+    flush(&queue, 1, |n| {
+        assert_eq!(n.payload::<Value>().unwrap().0, 1)
+    })
+    .unwrap();
 }
 
 #[test]
@@ -346,7 +419,7 @@ fn high_alignment_zero_sized_drop_records_need_no_payload_bytes() {
         queue.push_app(EmptyDrop).unwrap();
         queue.push_app(EmptyDrop).unwrap();
         assert_eq!(
-            queue.flush(1, |n| assert!(n.payload::<EmptyDrop>().is_some())),
+            flush(&queue, 1, |n| assert!(n.payload::<EmptyDrop>().is_some())),
             Err(NotificationError::FlushLimit { limit: 1 })
         );
     });
@@ -434,7 +507,7 @@ fn payload_destructor_cannot_reenter_storage_cleanup() {
         })
         .unwrap_or_else(|_| panic!("reserved queue"));
     assert_eq!(
-        queue.flush(0, |_| unreachable!()),
+        flush(&queue, 0, |_| unreachable!()),
         Err(NotificationError::FlushLimit { limit: 0 })
     );
     assert!(rejected.get());
@@ -452,7 +525,7 @@ fn bounded_capacity_survives_repeated_swaps_and_smaller_reservation_requests() {
             let mut observed = [0; 4];
             let mut count = 0;
             assert_eq!(
-                queue.flush(4, |n| {
+                flush(&queue, 4, |n| {
                     let value = n.payload::<Value>().unwrap().0;
                     observed[count] = value;
                     count += 1;
@@ -481,7 +554,7 @@ fn unreserved_queue_is_empty_and_never_allocates_implicitly() {
             queue.push_app(Empty),
             Err((NotificationError::RecordCapacity { available: 0 }, Empty))
         ));
-        assert_eq!(queue.flush(0, |_| unreachable!()), Ok(0));
+        assert_eq!(flush(&queue, 0, |_| unreachable!()), Ok(0));
         queue.clear().unwrap();
     });
     assert_eq!(allocations, 0);
@@ -526,7 +599,7 @@ fn payload_destructor_unwind_cleans_remaining_records_and_restores_buffers() {
             .unwrap();
     }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = queue.flush(2, |_| {
+        let _ = flush(&queue, 2, |_| {
             queue
                 .push_app(Owned {
                     value: 1,
@@ -539,7 +612,7 @@ fn payload_destructor_unwind_cleans_remaining_records_and_restores_buffers() {
     assert_eq!(drops.get(), 3);
     let allocations = tracked_allocations(|| {
         queue.push_app(Empty).unwrap();
-        assert_eq!(queue.flush(1, |_| ()), Ok(1));
+        assert_eq!(flush(&queue, 1, |_| ()), Ok(1));
     });
     assert_eq!(allocations, 0);
 }
