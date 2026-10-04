@@ -1,0 +1,20 @@
+error: lifetime may not live long enough
+  --> tests/query_borrow_contracts/escaping_fetch.rs:12:5
+   |
+11 | fn retain(target: res!(Target), rows: query!(Position), retained: res!(mut Retained)) {
+   |                                 ---- has type `<mirui::__macro_support::QueryParam<mirui::__macro_support::ComponentDriver<Position>, mirui::__macro_support::Read<Position>, ()> as mirui::__macro_support::SystemParam>::Item<'1>`
+12 |     retained.0 = rows.get(target.0);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ assignment requires that `'1` must outlive `'static`
+
+error[E0597]: `rows` does not live long enough
+  --> tests/query_borrow_contracts/escaping_fetch.rs:12:18
+   |
+10 | #[system]
+   |          - `rows` dropped here while still borrowed
+11 | fn retain(target: res!(Target), rows: query!(Position), retained: res!(mut Retained)) {
+   |                                 ---- binding `rows` declared here
+12 |     retained.0 = rows.get(target.0);
+   |     -------------^^^^--------------
+   |     |            |
+   |     |            borrowed value does not live long enough
+   |     assignment requires that `rows` is borrowed for `'static`

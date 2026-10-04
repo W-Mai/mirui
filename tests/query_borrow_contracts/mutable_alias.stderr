@@ -1,0 +1,9 @@
+error[E0499]: cannot borrow value as mutable more than once at a time
+  --> tests/query_borrow_contracts/mutable_alias.rs:11:18
+   |
+10 |     let first = rows.get(target.0).unwrap();
+   |                 ---- first mutable borrow occurs here
+11 |     let second = rows.get(target.0).unwrap();
+   |                  ^^^^ second mutable borrow occurs here
+12 |     first.0 += second.0;
+   |     ------------------- first borrow later used here

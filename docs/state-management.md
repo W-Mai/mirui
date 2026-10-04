@@ -195,6 +195,31 @@ after the callback releases its borrows. Missing required resources and
 cross-App model bindings fail explicitly. Parameter preparation and invocation
 reuse scheduler-owned storage after warm-up.
 
+Queries also support `rows.get(entity)`. A point fetch applies the same driver,
+required-component, generation, and filter checks as iteration; a missing row
+returns `None`. Read-only fetches can share references. A query containing
+`mut T` lends its row exclusively until the returned references are released,
+then permits another fetch or consuming iteration. Generated parameters supply
+the local mutable binding without requiring `mut rows` in the authored signature.
+
+```rust
+#[system]
+fn update_selected(
+    selected: res!(SelectedEntity),
+    rows: query!(mut Position, optional Velocity),
+) {
+    if let Some((position, velocity)) = rows.get(selected.0) {
+        if let Some(velocity) = velocity {
+            position.x += velocity.x;
+        }
+    }
+}
+```
+
+Mutable point fetches use the same component-change notification path as
+iteration. Repeated writes to one entity/component pair are coalesced; their
+records fit the query's reserved unique-row budget.
+
 Event bodies receive event fields directly and use capability macros for ECS
 access. `com!(entity, T)` performs a short read. `commands!()` returns the
 handler's reusable deferred-command facade; structural changes are applied in

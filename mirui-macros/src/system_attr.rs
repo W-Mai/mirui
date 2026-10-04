@@ -459,8 +459,22 @@ fn lower_helper_parameter(binding: &BindingSpec) -> syn::Result<TokenStream> {
         }
         BindingSource::Query(query) => {
             let marker = lower_query(query)?.0;
+            let mutable = query.items.iter().any(|item| {
+                matches!(
+                    item,
+                    QueryItemSpec::Component {
+                        access: BindingAccess::Write,
+                        ..
+                    }
+                )
+            });
+            let pattern = if mutable {
+                quote!(#[allow(unused_mut)] mut #name)
+            } else {
+                quote!(#name)
+            };
             Ok(quote!(
-                #name: <#marker as ::mirui::__macro_support::SystemParam>::Item<'_>
+                #pattern: <#marker as ::mirui::__macro_support::SystemParam>::Item<'_>
             ))
         }
         BindingSource::Capability(BindingCapability::Commands) => Ok(quote!(

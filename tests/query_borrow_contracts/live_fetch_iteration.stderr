@@ -1,0 +1,12 @@
+error[E0505]: cannot move out of value because it is borrowed
+  --> tests/query_borrow_contracts/live_fetch_iteration.rs:11:21
+   |
+ 8 | #[system]
+   | --------- binding `rows` declared here
+ 9 | fn update(target: res!(Target), rows: query!(mut Position)) {
+10 |     let first = rows.get(target.0).unwrap();
+   |                 ---- borrow of value occurs here
+11 |     for position in rows {
+   |                     ^^^^ move out of value occurs here
+12 |         first.0 += position.0;
+   |         --------------------- borrow later used here

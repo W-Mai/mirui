@@ -12,6 +12,25 @@ mod sealed {
     pub trait FilterElement {}
     pub trait QueryFilter {}
     pub trait QueryDriver {}
+    pub trait QueryMutability {}
+}
+
+pub struct ReadOnly;
+pub struct ReadWrite;
+
+pub trait QueryMutability: sealed::QueryMutability {
+    type Combine<Other: QueryMutability>: QueryMutability;
+}
+
+impl sealed::QueryMutability for ReadOnly {}
+impl sealed::QueryMutability for ReadWrite {}
+
+impl QueryMutability for ReadOnly {
+    type Combine<Other: QueryMutability> = Other;
+}
+
+impl QueryMutability for ReadWrite {
+    type Combine<Other: QueryMutability> = Self;
 }
 
 pub struct EntityItem;
@@ -71,11 +90,12 @@ impl QueryAccess {
 /// # Safety
 ///
 /// Implementations must only create references into their captured sparse-set
-/// parts. A write implementation must yield each slot at most once and must
-/// report that write through `visit_access` before any parts are captured.
+/// parts. Mutable items must remain exclusive for their returned lifetime,
+/// and every write must be reported before any parts are captured.
 pub unsafe trait QueryElement: sealed::QueryElement {
     type State<'world>;
     type Item<'w>;
+    type Mutability: QueryMutability;
 
     fn visit_access(visitor: &mut dyn FnMut(QueryAccess));
 
@@ -106,7 +126,12 @@ pub unsafe trait QueryElement: sealed::QueryElement {
     ///
     /// The row must have passed `matches`. All references previously yielded
     /// from the same query must remain compatible with this element's access.
-    unsafe fn fetch<'world>(state: &mut Self::State<'world>, entity: Entity) -> Self::Item<'world>;
+    unsafe fn fetch<'item, 'world>(
+        state: &Self::State<'world>,
+        entity: Entity,
+    ) -> Self::Item<'item>
+    where
+        'world: 'item;
 }
 
 impl sealed::QueryElement for EntityItem {}
@@ -114,6 +139,7 @@ impl sealed::QueryElement for EntityItem {}
 unsafe impl QueryElement for EntityItem {
     type State<'world> = ();
     type Item<'w> = Entity;
+    type Mutability = ReadOnly;
 
     fn visit_access(_visitor: &mut dyn FnMut(QueryAccess)) {}
 
@@ -123,10 +149,13 @@ unsafe impl QueryElement for EntityItem {
         true
     }
 
-    unsafe fn fetch<'world>(
-        _state: &mut Self::State<'world>,
+    unsafe fn fetch<'item, 'world>(
+        _state: &Self::State<'world>,
         entity: Entity,
-    ) -> Self::Item<'world> {
+    ) -> Self::Item<'item>
+    where
+        'world: 'item,
+    {
         entity
     }
 }
@@ -136,6 +165,7 @@ impl<T> sealed::QueryElement for Read<T> {}
 unsafe impl<T: Component> QueryElement for Read<T> {
     type State<'world> = ComponentState<'world, T>;
     type Item<'w> = &'w T;
+    type Mutability = ReadOnly;
 
     fn visit_access(visitor: &mut dyn FnMut(QueryAccess)) {
         visitor(QueryAccess::read::<T>());
@@ -150,7 +180,10 @@ unsafe impl<T: Component> QueryElement for Read<T> {
         state.0.is_some_and(|parts| parts.contains(entity))
     }
 
-    unsafe fn fetch<'world>(state: &mut Self::State<'world>, entity: Entity) -> Self::Item<'world> {
+    unsafe fn fetch<'item, 'world>(state: &Self::State<'world>, entity: Entity) -> Self::Item<'item>
+    where
+        'world: 'item,
+    {
         // SAFETY: the required component matched and query validation excludes
         // a simultaneous write to T.
         unsafe {
@@ -168,6 +201,7 @@ impl<T> sealed::QueryElement for Write<T> {}
 unsafe impl<T: Component> QueryElement for Write<T> {
     type State<'world> = WriteState<'world, T>;
     type Item<'w> = &'w mut T;
+    type Mutability = ReadWrite;
 
     fn visit_access(visitor: &mut dyn FnMut(QueryAccess)) {
         visitor(QueryAccess::write::<T>());
@@ -194,12 +228,15 @@ unsafe impl<T: Component> QueryElement for Write<T> {
         state.components.is_some_and(|parts| parts.contains(entity))
     }
 
-    unsafe fn fetch<'world>(state: &mut Self::State<'world>, entity: Entity) -> Self::Item<'world> {
+    unsafe fn fetch<'item, 'world>(state: &Self::State<'world>, entity: Entity) -> Self::Item<'item>
+    where
+        'world: 'item,
+    {
         // SAFETY: this state and component reference originate from the same
         // SystemWorldCell; the change queue is disjoint from component storage.
         unsafe { state.changes.record::<T>(entity) };
-        // SAFETY: the required component matched; the driver yields unique
-        // entities and query validation makes this T the only live access.
+        // SAFETY: the row matched and the caller guarantees exclusive access
+        // to this slot for the returned lifetime.
         unsafe {
             state
                 .components
@@ -215,6 +252,7 @@ impl<T> sealed::QueryElement for OptionalRead<T> {}
 unsafe impl<T: Component> QueryElement for OptionalRead<T> {
     type State<'world> = ComponentState<'world, T>;
     type Item<'w> = Option<&'w T>;
+    type Mutability = ReadOnly;
 
     fn visit_access(visitor: &mut dyn FnMut(QueryAccess)) {
         visitor(QueryAccess::read::<T>());
@@ -229,7 +267,10 @@ unsafe impl<T: Component> QueryElement for OptionalRead<T> {
         true
     }
 
-    unsafe fn fetch<'world>(state: &mut Self::State<'world>, entity: Entity) -> Self::Item<'world> {
+    unsafe fn fetch<'item, 'world>(state: &Self::State<'world>, entity: Entity) -> Self::Item<'item>
+    where
+        'world: 'item,
+    {
         // SAFETY: query validation excludes a simultaneous write to T.
         unsafe { state.0.and_then(|parts| parts.get(entity)) }
     }
@@ -244,6 +285,7 @@ unsafe impl<T: Component> QueryElement for OptionalRead<T> {
 pub unsafe trait QueryData: sealed::QueryData {
     type State<'world>;
     type Item<'w>;
+    type Mutability: QueryMutability;
 
     fn visit_access(visitor: &mut dyn FnMut(QueryAccess));
 
@@ -266,7 +308,12 @@ pub unsafe trait QueryData: sealed::QueryData {
     ///
     /// The row must match and all previously yielded references must remain
     /// compatible with the declared element accesses.
-    unsafe fn fetch<'world>(state: &mut Self::State<'world>, entity: Entity) -> Self::Item<'world>;
+    unsafe fn fetch<'item, 'world>(
+        state: &Self::State<'world>,
+        entity: Entity,
+    ) -> Self::Item<'item>
+    where
+        'world: 'item;
 }
 
 impl<E: QueryElement> sealed::QueryData for E {}
@@ -274,6 +321,7 @@ impl<E: QueryElement> sealed::QueryData for E {}
 unsafe impl<E: QueryElement> QueryData for E {
     type State<'world> = E::State<'world>;
     type Item<'w> = E::Item<'w>;
+    type Mutability = E::Mutability;
 
     fn visit_access(visitor: &mut dyn FnMut(QueryAccess)) {
         E::visit_access(visitor);
@@ -294,10 +342,20 @@ unsafe impl<E: QueryElement> QueryData for E {
         unsafe { E::matches(state, entity) }
     }
 
-    unsafe fn fetch<'world>(state: &mut Self::State<'world>, entity: Entity) -> Self::Item<'world> {
+    unsafe fn fetch<'item, 'world>(state: &Self::State<'world>, entity: Entity) -> Self::Item<'item>
+    where
+        'world: 'item,
+    {
         // SAFETY: delegated from QueryData::fetch to the single element.
         unsafe { E::fetch(state, entity) }
     }
+}
+
+macro_rules! query_mutability {
+    ($element:ident) => { $element::Mutability };
+    ($first:ident, $($rest:ident),+) => {
+        <$first::Mutability as QueryMutability>::Combine<query_mutability!($($rest),+)>
+    };
 }
 
 macro_rules! impl_query_data {
@@ -307,6 +365,7 @@ macro_rules! impl_query_data {
         unsafe impl<$($element: QueryElement),+> QueryData for ($($element,)+) {
             type State<'world> = ($($element::State<'world>,)+);
             type Item<'w> = ($($element::Item<'w>,)+);
+            type Mutability = query_mutability!($($element),+);
 
             fn visit_access(visitor: &mut dyn FnMut(QueryAccess)) {
                 $($element::visit_access(visitor);)+
@@ -342,13 +401,16 @@ macro_rules! impl_query_data {
                 true $(&& unsafe { $element::matches(&state.$index, entity) })+
             }
 
-            unsafe fn fetch<'world>(
-                state: &mut Self::State<'world>,
+            unsafe fn fetch<'item, 'world>(
+                state: &Self::State<'world>,
                 entity: Entity,
-            ) -> Self::Item<'world> {
+            ) -> Self::Item<'item>
+            where
+                'world: 'item,
+            {
                 // SAFETY: delegated from QueryData::fetch for every element;
                 // tuple fields are disjoint and access validation already ran.
-                ($(unsafe { $element::fetch(&mut state.$index, entity) },)+)
+                ($(unsafe { $element::fetch(&state.$index, entity) },)+)
             }
         }
     };
@@ -509,6 +571,7 @@ pub unsafe trait QueryDriver: sealed::QueryDriver {
     /// No World structure may change until the returned state is dropped.
     unsafe fn init<'world>(cell: &SystemWorldCell<'world>) -> Self::State<'world>;
     fn len(state: &Self::State<'_>) -> usize;
+    fn contains(state: &Self::State<'_>, entity: Entity) -> bool;
 
     /// # Safety
     ///
@@ -529,6 +592,10 @@ unsafe impl<T: Component> QueryDriver for ComponentDriver<T> {
 
     fn len(state: &Self::State<'_>) -> usize {
         state.0.map_or(0, SparseSetParts::len)
+    }
+
+    fn contains(state: &Self::State<'_>, entity: Entity) -> bool {
+        state.0.is_some_and(|parts| parts.contains(entity))
     }
 
     unsafe fn entity(state: &Self::State<'_>, index: usize) -> Entity {
@@ -561,11 +628,17 @@ fn assert_compatible_access<Q: QueryData>() {
 ///
 /// It owns the exclusive World borrow for `'world`; only pointer snapshots live in
 /// its state. Iteration cannot revisit World or structurally modify storage.
-pub struct SystemQuery<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> {
+pub struct SystemQuery<
+    'world,
+    D: QueryDriver,
+    Q: QueryData,
+    F: QueryFilter,
+    M: QueryMutability = <Q as QueryData>::Mutability,
+> {
     driver: D::State<'world>,
     data: Q::State<'world>,
     filters: F::State<'world>,
-    _world: PhantomData<&'world mut World>,
+    _world: PhantomData<(&'world mut World, M)>,
 }
 
 impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> SystemQuery<'world, D, Q, F> {
@@ -598,6 +671,44 @@ impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> SystemQuery<'world, D
             _world: PhantomData,
         }
     }
+
+    fn matches(&self, entity: Entity) -> bool {
+        // SAFETY: all captured states share the query's stable World window.
+        D::contains(&self.driver, entity)
+            && unsafe { F::matches(&self.filters, entity) && Q::matches(&self.data, entity) }
+    }
+}
+
+impl<'world, D, Q, F> SystemQuery<'world, D, Q, F, ReadOnly>
+where
+    D: QueryDriver,
+    Q: QueryData<Mutability = ReadOnly>,
+    F: QueryFilter,
+{
+    /// Read one matching row for the lifetime of this query borrow.
+    pub fn get(&self, entity: Entity) -> Option<Q::Item<'_>> {
+        if !self.matches(entity) {
+            return None;
+        }
+        // SAFETY: the row matches; sealed read-only data cannot yield writes.
+        Some(unsafe { Q::fetch(&self.data, entity) })
+    }
+}
+
+impl<'world, D, Q, F> SystemQuery<'world, D, Q, F, ReadWrite>
+where
+    D: QueryDriver,
+    Q: QueryData<Mutability = ReadWrite>,
+    F: QueryFilter,
+{
+    /// Borrow one matching row exclusively until the returned item is released.
+    pub fn get(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
+        if !self.matches(entity) {
+            return None;
+        }
+        // SAFETY: the exclusive query reborrow protects every returned write.
+        Some(unsafe { Q::fetch(&self.data, entity) })
+    }
 }
 
 pub struct SystemQueryIter<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> {
@@ -624,7 +735,7 @@ impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> Iterator
             if matches {
                 // SAFETY: the row matched every required element; driver
                 // uniqueness plus access validation protects yielded writes.
-                return Some(unsafe { Q::fetch(&mut self.query.data, entity) });
+                return Some(unsafe { Q::fetch(&self.query.data, entity) });
             }
         }
         None
@@ -755,6 +866,82 @@ mod tests {
         assert_eq!(seen, 2);
         assert_eq!(world.get::<Velocity>(first), Some(&Velocity(3)));
         assert_eq!(world.get::<Velocity>(second), Some(&Velocity(30)));
+    }
+
+    #[test]
+    fn get_uses_driver_required_components_filters_and_generation() {
+        let mut world = World::new();
+        let old = world.spawn_empty();
+        world.insert(old, Position(0));
+        assert!(world.despawn(old));
+        let selected = world.spawn_empty();
+        world.insert(selected, Position(1));
+        world.insert(selected, Velocity(2));
+        world.insert(selected, Active);
+        let missing_driver = world.spawn_empty();
+        world.insert(missing_driver, Velocity(3));
+        world.insert(missing_driver, Active);
+        let missing_required = world.spawn_empty();
+        world.insert(missing_required, Position(4));
+        world.insert(missing_required, Active);
+        let inactive = world.spawn_empty();
+        world.insert(inactive, Position(5));
+        world.insert(inactive, Velocity(6));
+        let hidden = world.spawn_empty();
+        world.insert(hidden, Position(7));
+        world.insert(hidden, Velocity(8));
+        world.insert(hidden, Active);
+        world.insert(hidden, Hidden);
+
+        type Rows<'w> = SystemQuery<
+            'w,
+            ComponentDriver<Position>,
+            (EntityItem, Read<Velocity>, OptionalRead<Label>),
+            (With<Active>, Without<Hidden>),
+        >;
+        let rows = Rows::new(&mut world);
+        let (entity, velocity, label) = rows.get(selected).expect("matching row");
+        let (_, same_velocity, _) = rows.get(selected).expect("shared read");
+        assert_eq!(entity, selected);
+        assert_eq!(velocity.0, 2);
+        assert!(core::ptr::eq(velocity, same_velocity));
+        assert!(label.is_none());
+        for excluded in [old, missing_driver, missing_required, inactive, hidden] {
+            assert!(rows.get(excluded).is_none());
+        }
+    }
+
+    #[test]
+    fn mutable_get_reborrows_and_coalesces_changes_without_allocating() {
+        let mut world = World::new();
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        for entity in [first, second] {
+            world.insert(entity, Position(1));
+            world.insert(entity, Velocity(2));
+        }
+        world.watch_component_type(TypeId::of::<Velocity>());
+        world.drain_component_changes(|_, _| {});
+
+        type Rows<'w> =
+            SystemQuery<'w, ComponentDriver<Position>, (Write<Velocity>, Read<Position>), ()>;
+        drop(Rows::new(&mut world));
+        let allocations = tracked_allocations(|| {
+            let mut rows = Rows::new(&mut world);
+            for _ in 0..64 {
+                let (velocity, position) = rows.get(first).expect("first row");
+                velocity.0 += position.0;
+            }
+            for (velocity, position) in rows {
+                velocity.0 += position.0;
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(world.get::<Velocity>(first), Some(&Velocity(67)));
+        assert_eq!(world.get::<Velocity>(second), Some(&Velocity(3)));
+        let mut changes = alloc::vec::Vec::new();
+        world.drain_component_changes(|_, change| changes.push(change.entity));
+        assert_eq!(changes, [first, second]);
     }
 
     #[test]

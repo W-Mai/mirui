@@ -408,6 +408,11 @@ the standard scheduling positions (`SimInput / DeltaTime / InteractionState /
 Animation / Timer / ScrollInertia / LazyList / TabPages / Normal / PreRender`).
 Lower values run earlier; user systems default to `Normal`.
 
+Typed queries support both iteration and `rows.get(entity)`. Point fetches
+return `None` for missing or filtered rows and validate entity generations.
+Mutable rows borrow the query exclusively until their references are released;
+component-change notifications are shared with iteration.
+
 ## Performance
 
 ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:

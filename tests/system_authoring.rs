@@ -109,3 +109,35 @@ fn generated_system_composes_all_roles_and_reuses_its_command_queue() {
     assert_eq!(counter.value(), 15);
     assert_eq!(app.world.resource::<Settings>().unwrap().ticks, 2);
 }
+
+struct Target(mirui::ecs::Entity);
+
+#[system]
+fn update_target(
+    target: res!(Target),
+    positions: query!(Position),
+    velocities: query!(mut Velocity),
+) {
+    let position = positions.get(target.0).expect("target position");
+    let same_position = positions.get(target.0).expect("shared target position");
+    assert!(core::ptr::eq(position, same_position));
+    velocities.get(target.0).expect("target velocity").0 += position.0;
+    velocities
+        .get(target.0)
+        .expect("released target reborrow")
+        .0 += position.0;
+}
+
+#[test]
+fn generated_system_supports_shared_and_exclusive_point_fetches() {
+    let mut app = App::headless(32, 32);
+    let target = app.world.spawn_empty();
+    app.world.insert(target, Position(3));
+    app.world.insert(target, Velocity(4));
+    app.world.insert_resource(Target(target));
+    app.add_system(update_target::system());
+
+    let allocations = tracked_allocations(|| app.systems.run_all(&mut app.world));
+    assert_eq!(allocations, 0);
+    assert_eq!(app.world.get::<Velocity>(target).unwrap().0, 10);
+}
