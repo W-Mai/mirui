@@ -226,6 +226,61 @@ macro_rules! notification_results {
 
 notification_results!(EntityNotification, AppNotification);
 
+macro_rules! widget_events {
+    (
+        $widget:ty;
+        $(#[$attribute:meta])*
+        pub enum $carrier:ident {
+            $($(#[$variant_attribute:meta])* $kind:ident
+                $({ $($(#[$field_attribute:meta])* $field:ident: $ty:ty),+ $(,)? })?
+            ),+ $(,)?
+        }
+    ) => {
+        $(#[$attribute])*
+        pub enum $carrier {
+            $($(#[$variant_attribute])* $kind
+                $({ $($(#[$field_attribute])* $field: $ty),+ })?
+            ),+
+        }
+
+        $(
+            $crate::input::event::contract::widget_events!(
+                @payload
+                $(#[$variant_attribute])*
+                $kind $({ $($(#[$field_attribute])* $field: $ty),+ })?
+            );
+
+            impl $crate::input::event::contract::Event for $kind {
+                type Route = $crate::input::event::contract::EntityNotification;
+                type Source = $crate::input::event::contract::WidgetSource<$widget>;
+                type Options = ();
+            }
+        )+
+
+        impl $widget {
+            $(
+                #[allow(non_upper_case_globals)]
+                pub const $kind: $crate::input::event::contract::EventKey<$kind> =
+                    <$kind as $crate::input::event::contract::Event>::EVENT;
+            )+
+        }
+    };
+    (@payload $(#[$attribute:meta])* $kind:ident { $($(#[$field_attribute:meta])* $field:ident: $ty:ty),+ }) => {
+        $(#[$attribute])*
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub struct $kind {
+            $($(#[$field_attribute])* pub $field: $ty),+
+        }
+    };
+    (@payload $(#[$attribute:meta])* $kind:ident) => {
+        $(#[$attribute])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct $kind;
+    };
+}
+
+pub(crate) use widget_events;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,11 +17,14 @@ pub struct CursorBlinkPhase(pub bool);
 
 pub const TEXT_INPUT_CAP: usize = 32;
 
-/// A semantic event emitted after text input content changes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TextInputEvent {
-    /// The input accepted an insertion or deletion and now contains `len` bytes.
-    Changed { len: u8 },
+crate::input::event::contract::widget_events! {
+    TextInput;
+    /// A semantic event emitted after text input content changes.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum TextInputEvent {
+        /// The input accepted an insertion or deletion and now contains `len` bytes.
+        Changed { len: u8 },
+    }
 }
 
 /// Business-event callback installed by [`TextInputBuilder::on_change`].

@@ -8,11 +8,14 @@ use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::View;
 
-#[derive(Clone, Debug)]
-pub enum SliderEvent {
-    ValueChanged { new: Fixed, old: Fixed },
-    DragStarted,
-    DragEnded,
+crate::input::event::contract::widget_events! {
+    Slider;
+    #[derive(Clone, Debug)]
+    pub enum SliderEvent {
+        ValueChanged { new: Fixed, old: Fixed },
+        DragStarted,
+        DragEnded,
+    }
 }
 
 pub struct SliderHandler {

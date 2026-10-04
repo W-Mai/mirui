@@ -10,9 +10,12 @@ use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
 
-#[derive(Clone, Debug)]
-pub enum SwitchEvent {
-    Toggled { now: bool },
+crate::input::event::contract::widget_events! {
+    Switch;
+    #[derive(Clone, Debug)]
+    pub enum SwitchEvent {
+        Toggled { now: bool },
+    }
 }
 
 pub struct SwitchHandler {

@@ -9,9 +9,12 @@ use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
 
-#[derive(Clone, Debug)]
-pub enum TabBarEvent {
-    SelectionChanged { new: u8, old: u8 },
+crate::input::event::contract::widget_events! {
+    TabBar;
+    #[derive(Clone, Debug)]
+    pub enum TabBarEvent {
+        SelectionChanged { new: u8, old: u8 },
+    }
 }
 
 pub struct TabBarHandler {

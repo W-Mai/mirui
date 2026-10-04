@@ -6,9 +6,12 @@ use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
 
-#[derive(Clone, Debug)]
-pub enum CheckboxEvent {
-    Toggled { now: bool },
+crate::input::event::contract::widget_events! {
+    Checkbox;
+    #[derive(Clone, Debug)]
+    pub enum CheckboxEvent {
+        Toggled { now: bool },
+    }
 }
 
 pub struct CheckboxHandler {

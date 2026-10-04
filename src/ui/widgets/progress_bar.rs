@@ -8,9 +8,12 @@ use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
 
-#[derive(Clone, Debug)]
-pub enum ProgressBarEvent {
-    ValueChanged { new: f32, old: f32 },
+crate::input::event::contract::widget_events! {
+    ProgressBar;
+    #[derive(Clone, Debug)]
+    pub enum ProgressBarEvent {
+        ValueChanged { new: f32, old: f32 },
+    }
 }
 
 pub struct ProgressBarHandler {

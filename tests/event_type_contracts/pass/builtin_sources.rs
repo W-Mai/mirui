@@ -6,6 +6,13 @@ use mirui::prelude::{
     LongPress, MemoryWarning, Pinch, Quit, Resumed, Rotary, Rotate, Started,
     Suspended, Tap, Wheel,
 };
+use mirui::ui::widgets::{Checkbox, ProgressBar, Slider, Switch, TabBar, TextInput};
+
+fn widget<W: mirui::ecs::Component, E>(_: EventKey<E>)
+where
+    E: Event<Route = EntityNotification, Source = WidgetSource<W>, Options = ()>,
+{
+}
 
 #[mirui::component]
 struct Node;
@@ -31,6 +38,22 @@ where
 }
 
 fn main() {
+    widget::<Slider, _>(Slider::ValueChanged);
+    widget::<Slider, _>(Slider::DragStarted);
+    widget::<Slider, _>(Slider::DragEnded);
+    widget::<Switch, _>(Switch::Toggled);
+    widget::<Checkbox, _>(Checkbox::Toggled);
+    widget::<ProgressBar, _>(ProgressBar::ValueChanged);
+    widget::<TabBar, _>(TabBar::SelectionChanged);
+    widget::<TextInput, _>(TextInput::Changed);
+    notice(Slider::ValueChanged);
+    notice(Slider::DragStarted);
+    notice(Slider::DragEnded);
+    notice(Switch::Toggled);
+    notice(Checkbox::Toggled);
+    notice(ProgressBar::ValueChanged);
+    notice(TabBar::SelectionChanged);
+    notice(TextInput::Changed);
     entity(Tap::EVENT);
     entity(LongPress::EVENT);
     entity(DragStart::EVENT);
