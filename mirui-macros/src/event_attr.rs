@@ -1,6 +1,7 @@
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 use quote::{format_ident, quote};
 use std::collections::HashSet;
+use syn::visit_mut::{self, VisitMut};
 use syn::{ExprMacro, FnArg, Ident, ItemFn, LitStr, Pat, ReturnType, Type};
 
 use crate::binding::{
@@ -150,6 +151,7 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
         match parameter {
             EventParameter::Value { name, ty } => {
                 helper_parameters.push(quote!(#name: #ty));
+                let ty = factory_type(ty);
                 inputs.push(quote!(#name: #ty));
                 checks.push(quote!(self::__require_copy(&#name);));
             }
@@ -162,6 +164,7 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
                         };
                         helper_parameters.push(quote!(#binding_name: &#ty));
                         aliases.push(quote!(let #binding_name = #payload_name;));
+                        let ty = factory_type(ty);
                         payload_type = Some(quote!(#ty));
                     }
                     BindingSource::Capability(BindingCapability::Entity) => {
@@ -171,6 +174,7 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
                     }
                     BindingSource::Model(ModelSource::Registered { ty }) => {
                         helper_parameters.push(lower_helper_parameter(binding, "#[event]")?);
+                        let ty = factory_type(ty);
                         inputs.push(
                             quote!(#binding_name: <#ty as ::mirui::core::model::BindType>::Shared),
                         );
@@ -186,8 +190,14 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
                         helper_parameters.push(lower_helper_parameter(binding, "#[event]")?);
                         let (marker, access) = lower_fetched_parameter(binding)?;
                         fetched_names.push(binding_name);
-                        fetched_types.push(marker);
-                        metadata.extend(access);
+                        let marker: Type = syn::parse2(marker)?;
+                        let marker = factory_type(&marker);
+                        fetched_types.push(quote!(#marker));
+                        for access in access {
+                            let mut expression: syn::Expr = syn::parse2(access)?;
+                            FactoryScope.visit_expr_mut(&mut expression);
+                            metadata.push(quote!(#expression));
+                        }
                     }
                     BindingSource::Capability(BindingCapability::Commands) => {
                         helper_parameters.push(lower_helper_parameter(binding, "#[event]")?);
@@ -208,7 +218,10 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
     let payload = payload_type.unwrap_or_else(|| quote!(#generic_event));
     let result = match &function.sig.output {
         ReturnType::Default => quote!(()),
-        ReturnType::Type(_, ty) => quote!(#ty),
+        ReturnType::Type(_, ty) => {
+            let ty = factory_type(ty);
+            quote!(#ty)
+        }
     };
     let entity_bound = has_entity.then(|| quote!(Target = ::mirui::ecs::Entity));
     let constructor = if has_commands {
@@ -274,6 +287,53 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
             }
         }
     })
+}
+
+fn factory_type(ty: &Type) -> Type {
+    let mut ty = ty.clone();
+    FactoryScope.visit_type_mut(&mut ty);
+    ty
+}
+
+struct FactoryScope;
+
+impl VisitMut for FactoryScope {
+    fn visit_type_path_mut(&mut self, ty: &mut syn::TypePath) {
+        let segments = ty.path.segments.len();
+        visit_mut::visit_type_path_mut(self, ty);
+        if let Some(qself) = &mut ty.qself
+            && qself.position != 0
+        {
+            qself.position += ty.path.segments.len() - segments;
+        }
+    }
+
+    fn visit_expr_path_mut(&mut self, expression: &mut syn::ExprPath) {
+        let segments = expression.path.segments.len();
+        visit_mut::visit_expr_path_mut(self, expression);
+        if let Some(qself) = &mut expression.qself
+            && qself.position != 0
+        {
+            qself.position += expression.path.segments.len() - segments;
+        }
+    }
+
+    fn visit_path_mut(&mut self, path: &mut syn::Path) {
+        visit_mut::visit_path_mut(self, path);
+        if path.leading_colon.is_some() {
+            return;
+        }
+        match path.segments.first_mut() {
+            Some(first) if first.ident == "self" => {
+                first.ident = Ident::new("super", first.ident.span());
+            }
+            Some(first) if first.ident == "super" => {
+                let parent: syn::PathSegment = syn::parse_quote!(super);
+                path.segments.insert(0, parent);
+            }
+            _ => {}
+        }
+    }
 }
 
 pub(crate) fn fields(names: &[&str]) -> Vec<BindingSpec> {
@@ -442,6 +502,31 @@ mod tests {
         assert!(output.contains("callback < __MiruiEvent , __MiruiContext >"));
         assert!(output.contains("pub fn callback < __MiruiEvent , __MiruiContext > ()"));
         assert!(output.contains("event_callback :: < __MiruiEvent"));
+    }
+
+    #[test]
+    fn factory_scope_rebases_relative_paths_without_changing_absolute_or_imported_types() {
+        let ty: Type = syn::parse_quote! {
+            (
+                [self::Value; super::WIDTH],
+                <self::Node as super::Project<crate::Value>>::Output,
+                [u8; <self::Node as super::Project<crate::Value>>::WIDTH],
+                ::core::option::Option<Imported>,
+            )
+        };
+        let expected: Type = syn::parse_quote! {
+            (
+                [super::Value; super::super::WIDTH],
+                <super::Node as super::super::Project<crate::Value>>::Output,
+                [u8; <super::Node as super::super::Project<crate::Value>>::WIDTH],
+                ::core::option::Option<Imported>,
+            )
+        };
+        assert_eq!(
+            factory_type(&ty).into_token_stream().to_string(),
+            expected.into_token_stream().to_string(),
+        );
+        assert!(ty.into_token_stream().to_string().contains("self :: Node"));
     }
 
     #[test]

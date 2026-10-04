@@ -15,7 +15,7 @@ use crate::ecs::{Component, Entity, World};
 use super::BubbleControl;
 use super::callback::{AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent};
 use super::contract::{
-    AppEventSource, AppRoute, EntityRoute, EntitySourceFor, Event, EventKey, EventRoute,
+    AppEventSource, AppRoute, AppSource, EntityRoute, EntitySourceFor, Event, EventKey, EventRoute,
     InputSource,
 };
 use super::focus::{FocusState, KeyHandler};
@@ -508,6 +508,34 @@ impl EventListeners {
         target: ListenerTarget,
     ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
         self.snapshot_borrowed(world, BorrowedEvent::new(event), target)
+    }
+
+    pub fn dispatch_scroll<E>(
+        &self,
+        world: &mut World,
+        root: Entity,
+        event: &E,
+        width: u16,
+        height: u16,
+    ) -> Result<BubbleControl, ListenerError>
+    where
+        E: InputPayload + Event<Source = AppSource> + Copy + Into<InputEvent>,
+    {
+        let mut snapshot =
+            self.empty_snapshot(world, BorrowedEvent::new(event), InternalEvent::None)?;
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+        if super::scroll::scroll_system_with_target(
+            world,
+            root,
+            &(*event).into(),
+            width,
+            height,
+            None,
+        ) {
+            return Ok(BubbleControl::Prevent);
+        }
+        snapshot.select_listeners(&self.entries, ListenerTarget::App)?;
+        snapshot.run(world)
     }
 
     pub fn flush_notifications(

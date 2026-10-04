@@ -753,6 +753,361 @@ fn selector<E: Event<Options = ()>>() -> ListenerSelector<E> {
     ListenerSelector::new(E::EVENT, |(), _| true)
 }
 
+struct ScrollTrace {
+    trace: RefCell<Trace>,
+    wheel: Cell<Option<super::super::input::Wheel>>,
+    rotary: Cell<Option<super::super::input::Rotary>>,
+}
+
+#[crate::event]
+fn wheel_fallback(
+    tag: u32,
+    consume: bool,
+    input: event!(super::super::input::Wheel),
+    trace: res!(ScrollTrace),
+) -> bool {
+    trace.trace.borrow_mut().record(tag);
+    trace.wheel.set(Some(*input));
+    consume
+}
+
+#[crate::event]
+fn rotary_fallback(input: event!(super::super::input::Rotary), trace: res!(ScrollTrace)) -> bool {
+    trace.trace.borrow_mut().record(900);
+    trace.rotary.set(Some(*input));
+    false
+}
+
+struct ScrollFixture {
+    world: World,
+    root: Entity,
+    pool: EventListeners,
+}
+
+impl ScrollFixture {
+    fn new(steps: usize) -> Self {
+        use crate::input::event::scroll::{
+            ScrollConfig, ScrollDragState, ScrollOffset, ScrollSpring,
+        };
+        use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::LayoutStyle;
+
+        let mut world = World::new();
+        let root = world.spawn(crate::ui::Widget);
+        world.insert(
+            root,
+            crate::ui::Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(100),
+                    height: Dimension::px(100),
+                    ..LayoutStyle::default()
+                },
+                ..crate::ui::Style::default()
+            },
+        );
+        world.insert(root, ScrollOffset::default());
+        world.insert(
+            root,
+            ScrollConfig {
+                content_height: Fixed::from_int(300),
+                elastic: false,
+                ..ScrollConfig::default()
+            },
+        );
+        world.insert_resource(ScrollDragState {
+            last_resolved_target: Some(root),
+            ..ScrollDragState::default()
+        });
+        world.insert_resource(ScrollSpring::default());
+        world.insert_resource(ScrollTrace {
+            trace: RefCell::new(Trace::default()),
+            wheel: Cell::new(None),
+            rotary: Cell::new(None),
+        });
+        crate::ui::render_system::update_layout(
+            &mut world,
+            root,
+            &Viewport::new(100, 100, Fixed::ONE),
+        );
+        let pool = EventListeners::new(&mut world);
+        pool.reserve(ListenerCapacity {
+            listeners: 4,
+            snapshot_steps: steps,
+        })
+        .unwrap();
+        for (tag, consume) in [(100, false), (200, true), (300, false)] {
+            pool.install_app(
+                &mut world,
+                selector(),
+                wheel_fallback::callback(tag, consume),
+                CommandCapacity::default(),
+            )
+            .unwrap();
+        }
+        pool.install_app(
+            &mut world,
+            selector(),
+            rotary_fallback::callback(),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+        Self { world, root, pool }
+    }
+
+    fn wheel(
+        &mut self,
+        input: &super::super::input::Wheel,
+    ) -> Result<BubbleControl, ListenerError> {
+        self.pool
+            .dispatch_scroll(&mut self.world, self.root, input, 100, 100)
+    }
+
+    fn rotary(
+        &mut self,
+        input: &super::super::input::Rotary,
+    ) -> Result<BubbleControl, ListenerError> {
+        self.pool
+            .dispatch_scroll(&mut self.world, self.root, input, 100, 100)
+    }
+}
+
+#[test]
+fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
+    use crate::input::event::input::{Rotary, Wheel};
+    use crate::input::event::scroll::{ScrollDelta, ScrollOffset, ScrollSpring};
+
+    let mut fixture = ScrollFixture::new(0);
+    fixture.world.insert(fixture.root, ScrollDelta::default());
+    fixture.world.insert(fixture.root, crate::ui::dirty::Dirty);
+    let wheel = Wheel {
+        dx: Fixed::ZERO,
+        dy: -Fixed::ONE,
+        x: 20.into(),
+        y: 20.into(),
+    };
+    let rotary = Rotary { id: 7, delta: -2 };
+    let owner = crate::core::reactive::current_world_id();
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(fixture.wheel(&wheel), Ok(BubbleControl::Prevent));
+            assert_eq!(fixture.rotary(&rotary), Ok(BubbleControl::Prevent));
+        }),
+        0
+    );
+    assert!(
+        fixture
+            .world
+            .resource::<ScrollTrace>()
+            .unwrap()
+            .trace
+            .borrow()
+            .values()
+            .is_empty()
+    );
+    assert_eq!(
+        fixture.world.get::<ScrollOffset>(fixture.root).unwrap().y,
+        40.into()
+    );
+    assert_eq!(crate::core::reactive::current_world_id(), owner);
+    fixture
+        .world
+        .get_mut::<ScrollOffset>(fixture.root)
+        .unwrap()
+        .y = 200.into();
+    fixture.world.insert_resource(ScrollSpring::default());
+    assert_eq!(fixture.wheel(&wheel), Ok(BubbleControl::Prevent));
+    assert!(
+        fixture
+            .world
+            .resource::<ScrollTrace>()
+            .unwrap()
+            .wheel
+            .get()
+            .is_none()
+    );
+}
+
+#[test]
+fn unaccepted_scroll_preserves_payload_and_consumes_in_app_installation_order() {
+    use crate::input::event::input::{Rotary, Wheel};
+    use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
+
+    let mut fixture = ScrollFixture::new(3);
+    fixture.world.remove_resource::<ScrollSpring>();
+    fixture
+        .world
+        .resource_mut::<ScrollDragState>()
+        .unwrap()
+        .last_resolved_target = None;
+    let wheel = Wheel {
+        dx: (-2).into(),
+        dy: 3.into(),
+        x: 42.into(),
+        y: 57.into(),
+    };
+    let rotary = Rotary { id: 9, delta: -3 };
+    for _ in 0..2 {
+        fixture
+            .world
+            .resource::<ScrollTrace>()
+            .unwrap()
+            .trace
+            .borrow_mut()
+            .len = 0;
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(fixture.wheel(&wheel), Ok(BubbleControl::Prevent));
+                assert_eq!(fixture.rotary(&rotary), Ok(BubbleControl::Allow));
+            }),
+            0
+        );
+        let trace = fixture.world.resource::<ScrollTrace>().unwrap();
+        assert_eq!(trace.trace.borrow().values(), &[100, 200, 900]);
+        assert_eq!(trace.wheel.get(), Some(wheel));
+        assert_eq!(trace.rotary.get(), Some(rotary));
+    }
+}
+
+#[test]
+fn scroll_fallback_capacity_failure_runs_no_partial_listener_and_reuses_scratch() {
+    use crate::input::event::input::Wheel;
+    let mut fixture = ScrollFixture::new(2);
+    let wheel = Wheel {
+        dx: Fixed::ONE,
+        dy: Fixed::ZERO,
+        x: 20.into(),
+        y: 20.into(),
+    };
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                fixture.wheel(&wheel),
+                Err(ListenerError::SnapshotCapacity { available: 2 })
+            );
+        }),
+        0
+    );
+    assert!(fixture.pool.scratch.borrow().steps.is_empty());
+    assert!(
+        fixture
+            .world
+            .resource::<ScrollTrace>()
+            .unwrap()
+            .trace
+            .borrow()
+            .values()
+            .is_empty()
+    );
+    fixture
+        .pool
+        .reserve(ListenerCapacity {
+            listeners: 4,
+            snapshot_steps: 3,
+        })
+        .unwrap();
+    assert_eq!(fixture.wheel(&wheel), Ok(BubbleControl::Prevent));
+    assert_eq!(
+        fixture
+            .world
+            .resource::<ScrollTrace>()
+            .unwrap()
+            .trace
+            .borrow()
+            .values(),
+        &[100, 200]
+    );
+}
+
+#[test]
+fn scroll_route_rejects_busy_or_foreign_owner_before_mutating_scroll() {
+    use crate::input::event::input::Wheel;
+    use crate::input::event::scroll::{ScrollOffset, ScrollSpring};
+    let mut fixture = ScrollFixture::new(3);
+    let wheel = Wheel {
+        dx: Fixed::ZERO,
+        dy: -Fixed::ONE,
+        x: 20.into(),
+        y: 20.into(),
+    };
+    let held = fixture
+        .pool
+        .snapshot(&fixture.world, &wheel, ListenerTarget::App)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .pool
+            .dispatch_scroll(&mut fixture.world, fixture.root, &wheel, 100, 100),
+        Err(ListenerError::Busy)
+    );
+    assert!(
+        fixture
+            .world
+            .resource::<ScrollSpring>()
+            .unwrap()
+            .target_entity
+            .is_none()
+    );
+    drop(held);
+    let mut foreign = ScrollFixture::new(3);
+    assert_eq!(
+        fixture
+            .pool
+            .dispatch_scroll(&mut foreign.world, foreign.root, &wheel, 100, 100),
+        Err(ListenerError::ForeignOwner)
+    );
+    assert!(
+        foreign
+            .world
+            .resource::<ScrollSpring>()
+            .unwrap()
+            .target_entity
+            .is_none()
+    );
+    assert_eq!(
+        foreign.world.get::<ScrollOffset>(foreign.root).unwrap().y,
+        Fixed::ZERO
+    );
+    assert_eq!(fixture.wheel(&wheel), Ok(BubbleControl::Prevent));
+}
+
+#[test]
+fn retired_rotary_target_reaches_app_without_dirtying_recycled_entity() {
+    use crate::input::event::input::Rotary;
+    use crate::input::event::scroll::{ScrollDragState, ScrollOffset};
+    let mut fixture = ScrollFixture::new(3);
+    let target = fixture.world.spawn(ScrollOffset::default());
+    fixture
+        .world
+        .resource_mut::<ScrollDragState>()
+        .unwrap()
+        .last_resolved_target = Some(target);
+    assert!(fixture.world.despawn(target));
+    let replacement = fixture.world.spawn(ScrollOffset::default());
+    assert_eq!(replacement.id, target.id);
+    assert_ne!(replacement.generation, target.generation);
+    let rotary = Rotary { id: 3, delta: -8 };
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(fixture.rotary(&rotary), Ok(BubbleControl::Allow));
+        }),
+        0
+    );
+    assert_eq!(
+        fixture
+            .world
+            .resource::<ScrollTrace>()
+            .unwrap()
+            .rotary
+            .get(),
+        Some(rotary)
+    );
+    assert_eq!(
+        fixture.world.get::<ScrollOffset>(replacement).unwrap().y,
+        Fixed::ZERO
+    );
+    assert!(!fixture.world.has::<crate::ui::dirty::Dirty>(replacement));
+}
+
 #[crate::model]
 struct Counter {
     #[observe]

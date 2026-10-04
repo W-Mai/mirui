@@ -211,3 +211,64 @@ fn generated_helpers_do_not_capture_authored_parameter_names() {
     handler.invoke(&mut app.world, &Started, ()).unwrap();
     assert_eq!(app.world.resource::<Settings>().unwrap().0, 7);
 }
+
+type CallbackResult = ();
+
+trait CallbackTypes {
+    type Clock;
+    const WIDTH: usize;
+}
+
+mod relative {
+    use super::*;
+
+    pub const WIDTH: usize = 2;
+    pub struct Clock(pub i32);
+
+    #[component]
+    pub struct Marker;
+
+    impl super::CallbackTypes for Marker {
+        type Clock = Clock;
+        const WIDTH: usize = self::WIDTH;
+    }
+
+    #[event]
+    pub fn update(
+        counter: model!(super::Counter),
+        amount: [u8; <self::Marker as super::CallbackTypes>::WIDTH],
+        changed: event!(super::Changed),
+        node: entity!(),
+        clock: res!(<self::Marker as super::CallbackTypes>::Clock),
+        settings: res!(mut super::Settings),
+        rows: query!(mut super::Position; with self::Marker;),
+    ) -> super::CallbackResult {
+        counter.add(i32::from(amount[0]));
+        rows.get(node).unwrap().0 += changed.0.len() as i32;
+        settings.0 += clock.0;
+    }
+}
+
+#[test]
+fn generated_factory_preserves_authored_relative_type_and_const_paths() {
+    let mut app = App::headless(32, 32);
+    let counter = app.add_model(Counter { value: 0 });
+    app.world.insert_resource(relative::Clock(3));
+    app.world.insert_resource(Settings(0));
+    let node = app.world.spawn(Pad);
+    app.world.insert(node, Position(0));
+    app.world.insert(node, relative::Marker);
+    let handler = relative::update::callback::<EntityContext<Pad>>(counter.clone(), [2, 0])
+        .prepare(&mut app.world, CommandCapacity::default())
+        .unwrap();
+    let changed = Changed(String::from("hi"));
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(handler.invoke(&mut app.world, &changed, node), Ok(Some(())));
+        }),
+        0
+    );
+    assert_eq!(counter.value(), 2);
+    assert_eq!(app.world.get::<Position>(node), Some(&Position(2)));
+    assert_eq!(app.world.resource::<Settings>().unwrap().0, 3);
+}

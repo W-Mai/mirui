@@ -531,7 +531,11 @@ The internal scroll handler reports wheel and rotary acceptance separately
 from offset changes. A wheel spring submitted on a matching axis is accepted
 even at a clamped boundary. Rotary input requires a live retained target with
 a scroll offset; retired targets and targets without that component are not
-marked dirty. This result is not yet connected to the typed App fallback route.
+marked dirty. The listener pool's scroll route runs that handler first and
+selects App listeners only when scrolling is not accepted. It retains wheel
+coordinates and rotary hardware fields, uses the same prepared callbacks and
+reserved step storage, and rejects foreign owners or busy scratch before
+scrolling. This is an internal route, not an ordinary App installation API.
 
 Internal hooks and listeners share the reserved step storage and cleanup guard.
 A failed reservation does not raise either logical quota. The pool's ABI is
@@ -543,7 +547,13 @@ are not implemented by this layer.
 `#[event]` generates a module with `callback(...)`. The factory takes registered
 Model instances and ordinary `Copy + 'static` values in declaration order.
 Resources, queries, the payload, the current entity, and deferred commands are
-invocation parameters, not factory arguments:
+invocation parameters, not factory arguments.
+
+Types and const arguments using `self::` or `super::` retain their authored
+module scope in the generated factory. Imported and absolute paths are
+unchanged.
+
+For example:
 
 ```rust,ignore
 #[event]
