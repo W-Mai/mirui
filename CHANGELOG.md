@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rotary target validation.** Retired scroll targets and targets without a scroll offset are ignored without marking recycled entities dirty.
 - **Native key release events.** SDL and WGPU forward both states of supported editing keys without repeating character input or quit requests on release.
 - **Lifecycle requests during simulation.** Active input simulation suppresses real interaction without discarding suspend, resume, or quit requests.
 - **Nested event component reads.** Component selectors containing another `com!` read use the current event context at every nesting level.

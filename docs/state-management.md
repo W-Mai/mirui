@@ -527,6 +527,12 @@ fallback. Key and character payloads share this route; wheel and rotary payloads
 cannot use it. The keyboard route reuses the same step storage, generation
 checks, owner scope, and error cleanup as gesture and notification delivery.
 
+The internal scroll handler reports wheel and rotary acceptance separately
+from offset changes. A wheel spring submitted on a matching axis is accepted
+even at a clamped boundary. Rotary input requires a live retained target with
+a scroll offset; retired targets and targets without that component are not
+marked dirty. This result is not yet connected to the typed App fallback route.
+
 Internal hooks and listeners share the reserved step storage and cleanup guard.
 A failed reservation does not raise either logical quota. The pool's ABI is
 confined to hidden macro support; the ordinary `on` and App installation APIs
