@@ -1,15 +1,12 @@
-use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::types::{Fixed, Point, Transform};
-use crate::ui::view::{PaintCtx, View};
 
+#[crate::component]
 pub struct BackgroundBlur {
     pub radius: Fixed,
     pub spread: Fixed,
 }
-
-impl crate::ecs::Component for BackgroundBlur {}
 
 impl BackgroundBlur {
     pub fn new(radius: impl Into<Fixed>) -> Self {
@@ -25,10 +22,8 @@ impl BackgroundBlur {
     }
 }
 
-fn background_blur_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(bg) = world.get::<BackgroundBlur>(entity) else {
-        return;
-    };
+#[crate::view(component = BackgroundBlur, name = "BackgroundBlur", priority = 60)]
+fn background_blur_render(bg: component!(), paint: paint!()) {
     if bg.radius <= Fixed::ZERO {
         return;
     }
@@ -70,17 +65,18 @@ fn background_blur_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_
     });
 }
 
-pub fn view() -> View {
-    View::new("BackgroundBlur", 60, background_blur_render).with_filter::<BackgroundBlur>()
-}
+pub use background_blur_render::view;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::World;
     use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::texture::{ColorFormat, Texture};
     use crate::types::Rect;
     use crate::ui::Style;
     use crate::ui::theme::WidgetState;
+    use crate::ui::view::PaintCtx;
 
     struct FailingReadback;
 
@@ -122,8 +118,104 @@ mod tests {
             WidgetState::Enabled,
         );
 
-        background_blur_render(&world, entity, &mut paint);
+        view().render().unwrap()(&world, entity, &mut paint);
 
         assert_eq!(paint.error(), Some(RenderError::BackendFailure));
+    }
+
+    #[test]
+    fn typed_view_samples_transformed_bounds_and_blits_without_double_transform() {
+        use crate::ui::view::ViewInvalidation;
+        use core::cell::{Cell, RefCell};
+
+        struct PreparedReadback {
+            bounds: Rect,
+            texture: RefCell<Option<Texture<'static>>>,
+            prepared: Cell<bool>,
+            draws: usize,
+        }
+
+        impl Renderer for PreparedReadback {
+            fn prepare_readback(&mut self, region: &Rect) -> Result<(), RenderError> {
+                assert_eq!(*region, self.bounds);
+                assert!(!self.prepared.replace(true));
+                Ok(())
+            }
+
+            fn sample_target_region(
+                &self,
+                region: &Rect,
+            ) -> Result<Option<Texture<'static>>, RenderError> {
+                assert!(self.prepared.get());
+                assert_eq!(*region, self.bounds);
+                Ok(self.texture.borrow_mut().take())
+            }
+
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                let DrawCommand::Blit {
+                    pos,
+                    size,
+                    transform,
+                    texture,
+                    ..
+                } = request.command
+                else {
+                    panic!("background blur submits one sampled texture");
+                };
+                assert_eq!(*pos, Point::new(self.bounds.x, self.bounds.y));
+                assert_eq!(*size, Point::new(self.bounds.w, self.bounds.h));
+                assert_eq!(*transform, Transform::IDENTITY);
+                assert_eq!(texture.width, 38);
+                assert_eq!(texture.height, 38);
+                assert_eq!(request.clip, Rect::new(0, 0, 100, 100));
+                self.draws += 1;
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        let descriptor = view();
+        assert_eq!(
+            descriptor.component_filter(),
+            Some(core::any::TypeId::of::<BackgroundBlur>())
+        );
+        assert_eq!(descriptor.priority(), Some(60));
+        assert_eq!(descriptor.invalidation(), ViewInvalidation::Visual);
+        assert!(descriptor.auto_attach().is_none());
+        assert!(descriptor.internal_gesture().is_none());
+        let render = descriptor.render().unwrap();
+        let mut world = World::new();
+        let entity = world.spawn(BackgroundBlur::new(4).with_spread(3));
+        let style = Style::default();
+        let rect = Rect::new(4, 4, 12, 12);
+        let clip = Rect::new(0, 0, 100, 100);
+        let transform = Transform::translate(Fixed::from_int(10), Fixed::from_int(20))
+            .compose(&Transform::scale(Fixed::from_int(2), Fixed::from_int(2)));
+
+        for _ in 0..2 {
+            let mut renderer = PreparedReadback {
+                bounds: Rect::new(11, 21, 38, 38),
+                texture: RefCell::new(Some(Texture::owned(38, 38, ColorFormat::RGBA8888))),
+                prepared: Cell::new(false),
+                draws: 0,
+            };
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &clip,
+                transform,
+                None,
+                WidgetState::Enabled,
+            );
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| render(&world, entity, &mut paint)),
+                0
+            );
+            assert_eq!(paint.error(), None);
+            assert_eq!(renderer.draws, 1);
+            assert!(renderer.texture.borrow().is_none());
+        }
     }
 }
