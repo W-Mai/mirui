@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Optional widget paint.** Behavior-only Views register systems and lifecycle hooks without a paint callback. Paint priority is independent of registration and gesture order.
 - **Automatic view invalidation.** Mutable component queries and observed model sources drive visual or layout invalidation through declared view dependencies.
 - **Gallery authoring examples.** Built-in demos and games use typed roles, bound model instances, attribute timers, and typed animation components.
+- **Text input cursor API.** `CursorBlinkPhase` and `cursor_blink_system` use `ui::widgets::text_input` as their sole public path.
 
 ### Fixed
 

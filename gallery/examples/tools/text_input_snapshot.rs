@@ -109,7 +109,7 @@ fn main() {
     // Deterministic cursor: pin the blink phase ON so the snapshot
     // doesn't flicker by wall-clock timing.
     app.world
-        .insert_resource(mirui::input::event::widget_input::CursorBlinkPhase(true));
+        .insert_resource(mirui::ui::widgets::text_input::CursorBlinkPhase(true));
 
     app.set_root(root);
 

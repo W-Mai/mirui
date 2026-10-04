@@ -1,8 +1,5 @@
 use crate::ecs::{Entity, World};
 
-// Backwards-compat re-export; canonical path is components::text_input.
-pub use crate::ui::widgets::text_input::{CursorBlinkPhase, cursor_blink_system};
-
 // Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
 // drops before each fn gets &mut World. The mut-borrow conflict
 // is the reason for the two-step copy instead of streaming.
