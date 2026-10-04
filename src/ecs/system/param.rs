@@ -60,7 +60,7 @@ unsafe impl<T: 'static> SystemParam for Res<T> {
         // SAFETY: delegated from SystemParam::fetch.
         unsafe { cell.resource::<T>() }.unwrap_or_else(|| {
             panic!(
-                "system `{system_name}` requires resource `{}`",
+                "callback `{system_name}` requires resource `{}`",
                 type_name::<T>()
             )
         })
@@ -79,7 +79,7 @@ unsafe impl<T: 'static> SystemParam for ResMut<T> {
         // SAFETY: delegated from SystemParam::fetch.
         unsafe { cell.resource_mut::<T>() }.unwrap_or_else(|| {
             panic!(
-                "system `{system_name}` requires resource `{}`",
+                "callback `{system_name}` requires resource `{}`",
                 type_name::<T>()
             )
         })
@@ -225,13 +225,29 @@ pub unsafe fn fetch_system_params<'world, P: SystemParamSet>(
     system_name: &'static str,
 ) -> P::Item<'world> {
     let cell = SystemWorldCell::new(world);
-    // SAFETY: delegated from this function's caller. All parameter budgets
-    // are aggregated before any mutable row can append to the queue.
-    let pending = unsafe { P::pending_changes(&cell) };
-    // SAFETY: the cell owns the active system World window.
-    unsafe { cell.reserve_component_change_records(pending) };
+    // SAFETY: delegated from this function's caller. No parameter has been
+    // fetched from this exclusive window yet.
+    unsafe { reserve_param_budget::<P>(&cell) };
     // SAFETY: delegated from this function's caller.
     unsafe { P::fetch(&cell, system_name) }
+}
+
+/// Reserve the aggregate component-change budget without borrowing parameters.
+///
+/// # Safety
+///
+/// `P` must match a validated, immutable callback access plan.
+pub(crate) unsafe fn reserve_system_params<P: SystemParamSet>(world: &mut World) {
+    let cell = SystemWorldCell::new(world);
+    // SAFETY: the caller validated the plan; no parameters have been fetched.
+    unsafe { reserve_param_budget::<P>(&cell) };
+}
+
+unsafe fn reserve_param_budget<P: SystemParamSet>(cell: &SystemWorldCell<'_>) {
+    // SAFETY: the caller validated the plan and has not fetched parameters.
+    let pending = unsafe { P::pending_changes(cell) };
+    // SAFETY: no parameter has been fetched from this exclusive window.
+    unsafe { cell.reserve_component_change_records(pending) };
 }
 
 #[cfg(test)]
@@ -302,8 +318,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "system `required` requires resource")]
-    fn required_resource_reports_system_and_type() {
+    #[should_panic(expected = "callback `required` requires resource")]
+    fn required_resource_reports_callback_and_type() {
         let mut world = World::new();
         // SAFETY: the sole read is conflict-free; the test verifies the
         // required-resource failure before any reference is returned.

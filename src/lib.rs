@@ -128,6 +128,9 @@ pub mod __macro_support {
     pub use crate::ecs::system::param::{
         OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
     };
+    pub use crate::input::event::callback::{
+        AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent, event_callback,
+    };
     pub use crate::input::event::notification::{
         Notification, NotificationCapacity, NotificationError, NotificationQueue,
     };

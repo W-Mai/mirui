@@ -443,6 +443,24 @@ This storage facility does not install listeners, resolve widget sources, or
 validate an application's owner and entity generations. Those checks belong to
 event installation and routing, not the payload arena.
 
+### Prepared callback execution
+
+Internal typed callbacks share the system parameter fetch and access validator.
+Preparation checks component/resource aliases and captured Model owners, binds
+the callback to one App, and reserves the current query change-record budget.
+The prepared callback and its access plan cannot be replaced independently.
+
+Invocation checks the App identity and entity generation before fetching
+parameters. Entity contexts receive an `Entity`; App contexts receive no entity.
+Payloads are read-only borrows, resources and query rows cannot escape the body,
+and callback results follow the payload's route contract. Snapshot copies share
+the installed callback allocation. Execution within reserved capacities does not
+allocate callback storage.
+
+This execution layer does not install or route listeners and has no
+deferred-command capability. Its ABI is confined to hidden macro support, not
+the ordinary authoring prelude.
+
 ## Choosing state and rendering roles
 
 | Role | Use | Update path |

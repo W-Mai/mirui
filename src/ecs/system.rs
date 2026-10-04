@@ -6,7 +6,6 @@ use super::World;
 use super::commands::{CommandQueue, DeferredCommands};
 use super::world::WorldId;
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) mod param;
 
 pub(crate) mod access {
@@ -107,9 +106,43 @@ pub(crate) mod access {
         Read,
         Write,
     }
+
+    pub(crate) fn validate(kind: &str, name: &str, metadata: &[SystemAccess]) {
+        let mut access_started = false;
+        for descriptor in metadata {
+            if descriptor.kind == SystemAccessKind::ExpectComponent {
+                assert!(
+                    !access_started,
+                    "{kind} `{name}` has expect metadata after access metadata"
+                );
+            } else {
+                access_started = true;
+            }
+        }
+
+        for (left_index, left) in metadata.iter().copied().enumerate() {
+            let Some((left_domain, left_mode)) = left.access() else {
+                continue;
+            };
+            let left_type = (left.resolve)();
+            for right in metadata[left_index + 1..].iter().copied() {
+                let Some((right_domain, right_mode)) = right.access() else {
+                    continue;
+                };
+                let right_type = (right.resolve)();
+                assert!(
+                    left_domain != right_domain
+                        || left_type.id != right_type.id
+                        || (left_mode == AccessMode::Read && right_mode == AccessMode::Read),
+                    "{kind} `{name}` has conflicting access to `{}`",
+                    left_type.name
+                );
+            }
+        }
+    }
 }
 
-use access::{AccessMode, SystemAccess, SystemAccessKind};
+use access::{SystemAccess, SystemAccessKind};
 
 type BoundCallback = dyn Fn(&mut World);
 type BoundDeferredCallback = dyn for<'commands> Fn(&mut World, DeferredCommands<'commands>);
@@ -313,40 +346,7 @@ impl System {
     }
 
     fn validate_metadata(&self) {
-        let mut access_started = false;
-        for descriptor in self.metadata {
-            if descriptor.kind == SystemAccessKind::ExpectComponent {
-                assert!(
-                    !access_started,
-                    "system `{}` has expect metadata after access metadata",
-                    self.name
-                );
-            } else {
-                access_started = true;
-            }
-        }
-
-        for (left_index, left) in self.metadata.iter().copied().enumerate() {
-            let Some((left_domain, left_mode)) = left.access() else {
-                continue;
-            };
-            let left_type = (left.resolve)();
-            for right in self.metadata[left_index + 1..].iter().copied() {
-                let Some((right_domain, right_mode)) = right.access() else {
-                    continue;
-                };
-                let right_type = (right.resolve)();
-                if left_domain == right_domain
-                    && left_type.id == right_type.id
-                    && (left_mode == AccessMode::Write || right_mode == AccessMode::Write)
-                {
-                    panic!(
-                        "system `{}` has conflicting access to `{}`",
-                        self.name, left_type.name
-                    );
-                }
-            }
-        }
+        access::validate("system", self.name, self.metadata);
     }
 
     fn should_run(&self, world: &World) -> bool {

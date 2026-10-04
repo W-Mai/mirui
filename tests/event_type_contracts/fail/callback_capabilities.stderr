@@ -1,0 +1,116 @@
+error[E0277]: the trait bound `EntityBubble: mirui::input::event::contract::AppRoute` is not satisfied
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:14:17
+   |
+14 |         let _ = event_callback::<Tap, AppContext, (), bool>("app-tap", &[], |(), _, ()| true);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::AppRoute` is not implemented for `EntityBubble`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppRoute`
+  --> src/input/event/contract.rs
+   |
+   | impl AppRoute for InputFallback {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputFallback`
+   | impl AppRoute for AppNotification {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppNotification`
+   = note: required for `mirui::__macro_support::AppContext` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Tap>`
+
+error[E0277]: the trait bound `EntitySource: mirui::input::event::contract::AppEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:14:17
+   |
+14 |         let _ = event_callback::<Tap, AppContext, (), bool>("app-tap", &[], |(), _, ()| true);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::AppEventSource` is not implemented for `EntitySource`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl AppEventSource for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl AppEventSource for AppSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppSource`
+   = note: required for `mirui::__macro_support::AppContext` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Tap>`
+
+error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntitySourceFor<Pad>` is not satisfied
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:15:17
+   |
+15 |           let _ = event_callback::<Wheel, EntityContext<Pad>, (), bool>(
+   |  _________________^
+16 | |             "entity-wheel",
+17 | |             &[],
+18 | |             |(), _, _: Entity| true,
+19 | |         );
+   | |_________^ the trait `mirui::input::event::contract::EntitySourceFor<Pad>` is not implemented for `AppSource`
+   |
+help: the following other types implement trait `mirui::input::event::contract::EntitySourceFor<W>`
+  --> src/input/event/contract.rs
+   |
+   | impl<W: Component> EntitySourceFor<W> for EntitySource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
+   | impl<W: Component> EntitySourceFor<W> for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
+   = note: required for `mirui::__macro_support::EntityContext<Pad>` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Wheel>`
+
+error[E0277]: the trait bound `WidgetSource<Slider>: mirui::input::event::contract::EntitySourceFor<Pad>` is not satisfied
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:20:17
+   |
+20 |           let _ = event_callback::<slider::ValueChanged, EntityContext<Pad>, (), ()>(
+   |  _________________^
+21 | |             "wrong-widget",
+22 | |             &[],
+23 | |             |(), _, _: Entity| (),
+24 | |         );
+   | |_________^ the trait `mirui::input::event::contract::EntitySourceFor<Pad>` is not implemented for `WidgetSource<Slider>`
+   |
+help: the trait `EntitySourceFor<Pad>` is not implemented for `WidgetSource<Slider>`
+      but trait `EntitySourceFor<Slider>` is implemented for it
+  --> src/input/event/contract.rs
+   |
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `Slider`, found `Pad`
+   = note: required for `mirui::__macro_support::EntityContext<Pad>` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::slider::ValueChanged>`
+
+error[E0277]: the trait bound `bool: EventResult<AppNotification>` is not satisfied
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:25:59
+   |
+25 |         let _ = event_callback::<Started, AppContext, (), bool>(
+   |                                                           ^^^^ the trait `EventResult<AppNotification>` is not implemented for `bool`
+   |
+help: `bool` implements trait `EventResult<R>`
+  --> src/input/event/contract.rs
+   |
+   |             impl EventResult<$route> for bool {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             `EventResult<EntityBubble>`
+   |             `EventResult<InputFallback>`
+...
+   | consumable_results!(EntityBubble, InputFallback);
+   | ------------------------------------------------ in this macro invocation
+note: required by a bound in `mirui::__macro_support::event_callback`
+  --> src/input/event/callback.rs
+   |
+   | pub unsafe fn event_callback<E, C, P, R>(
+   |               -------------- required by a bound in this function
+...
+   |     R: EventResult<E::Route>,
+   |        ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `event_callback`
+   = note: this error originates in the macro `consumable_results` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:36:13
+   |
+33 |           callback.invoke(
+   |                    ------ arguments to this method are incorrect
+...
+36 | /             Entity {
+37 | |                 id: 0,
+38 | |                 generation: 0,
+39 | |             },
+   | |_____________^ expected `()`, found `Entity`
+   |
+note: method defined here
+  --> src/input/event/callback.rs
+   |
+   |     pub fn invoke(&self, world: &mut World, payload: &E, target: C::Target) -> Option<Decision<E>> {
+   |            ^^^^^^
