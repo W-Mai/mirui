@@ -12,6 +12,7 @@ use crate::binding::{
     BindingSpec, BindingSyntax, ComponentSource, ComponentTarget, LogicalType, ModelSource,
     ResourceSource, RoleKind, VIEW_ROLES,
 };
+use crate::child_scope::ChildScope;
 use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 
 mod keyword {
@@ -418,7 +419,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         || quote!(stringify!(#function_name)),
         |literal| quote!(#literal),
     );
-    let priority = args.priority;
+    let priority = ChildScope::expression(&args.priority);
     let invalidation = match args.invalidation {
         BindingInvalidation::Visual => quote!(::mirui::ui::view::ViewInvalidation::Visual),
         BindingInvalidation::Layout => quote!(::mirui::ui::view::ViewInvalidation::Layout),
@@ -443,6 +444,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         helper_arguments.insert(0, quote!(#component_local));
     }
     let helper_body = lower_model_reads(&bindings, &component_local, quote!(#body))?;
+    let factory_component = ChildScope::ty(&component_type);
     let needs_component = bindings.iter().any(|binding| {
         matches!(
             &binding.source,
@@ -453,7 +455,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
     let render_component_fetch = needs_component.then(|| {
         quote! {
             let #component_local = __mirui_world
-                .get::<#component_type>(__mirui_entity)
+                .get::<#factory_component>(__mirui_entity)
                 .expect(concat!("View `", stringify!(#function_name), "` requires component `", stringify!(#component_type), "`"));
         }
     });
@@ -463,30 +465,43 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         .collect::<syn::Result<Vec<_>>>()?;
 
     let generics = function.sig.generics;
-    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
-    let render_fn = if generics.params.is_empty() {
-        quote!(render)
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
+    let factory_generics = ChildScope::generics(&generics);
+    let (factory_impl_generics, _, factory_where_clause) = factory_generics.split_for_impl();
+    let type_arguments = generics
+        .params
+        .iter()
+        .filter_map(|parameter| match parameter {
+            syn::GenericParam::Type(parameter) => Some(&parameter.ident),
+            syn::GenericParam::Const(parameter) => Some(&parameter.ident),
+            syn::GenericParam::Lifetime(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let call_generics = if type_arguments.is_empty() {
+        TokenStream::new()
     } else {
-        quote!(render::#type_generics)
+        quote!(::<#(#type_arguments),*>)
     };
+    let render_fn = quote!(render #call_generics);
+    let helper_fn = quote!(super::#helper_name #call_generics);
     let watch_count = bindings
         .iter()
         .map(|binding| binding.watch_selectors.len())
         .sum::<usize>();
-    let observation = lower_observation(&bindings, &component_type, &generics)?;
-    let observe_fn = if generics.params.is_empty() {
-        quote!(observe)
-    } else {
-        quote!(observe::#type_generics)
-    };
+    let observation = lower_observation(&bindings, &factory_component, &factory_generics)?;
+    let observe_fn = quote!(observe #call_generics);
     let with_observation =
         (watch_count != 0).then(|| quote!(.with_observation(#observe_fn, #watch_count)));
-    let with_attach = args.attach.map(|path| quote!(.with_attach(#path)));
-    let with_gesture = args
-        .gesture
-        .map(|path| quote!(.with_internal_gesture(#path)));
+    let with_attach = args.attach.map(|path| {
+        let path = ChildScope::path(&path);
+        quote!(.with_attach(#path))
+    });
+    let with_gesture = args.gesture.map(|path| {
+        let path = ChildScope::path(&path);
+        quote!(.with_internal_gesture(#path))
+    });
     let system_array = (!args.systems.is_empty()).then(|| {
-        let systems = &args.systems;
+        let systems = args.systems.iter().map(ChildScope::expression);
         quote!(const SYSTEMS: &[::mirui::ecs::System] = &[#(#systems),*];)
     });
     let with_systems = (!args.systems.is_empty()).then(|| quote!(.with_systems(SYSTEMS)));
@@ -515,23 +530,23 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
             #system_array
 
             #[allow(unused_variables)]
-            fn render #impl_generics (
+            fn render #factory_impl_generics (
                 __mirui_world: &::mirui::ecs::World,
                 __mirui_entity: ::mirui::ecs::Entity,
                 __mirui_paint: &mut ::mirui::ui::view::PaintCtx<'_>,
-            ) #where_clause {
+            ) #factory_where_clause {
                 ::mirui::core::model::with_model_read_only(|| {
                     #render_component_fetch
                     #(#render_fetches)*
-                    super::#helper_name(#(#helper_arguments),*);
+                    #helper_fn(#(#helper_arguments),*);
                 });
             }
 
             #observation
 
-            pub fn view #impl_generics () -> ::mirui::ui::view::View #where_clause {
+            pub fn view #factory_impl_generics () -> ::mirui::ui::view::View #factory_where_clause {
                 ::mirui::ui::view::View::new(#view_name, #priority, #render_fn)
-                    .with_filter::<#component_type>()
+                    .with_filter::<#factory_component>()
                     .with_invalidation(#invalidation)
                     #with_observation
                     #with_attach
@@ -604,7 +619,7 @@ fn lower_render_fetch(
     match &binding.source {
         BindingSource::Component(_) => None,
         BindingSource::Resource(resource) => {
-            let ty = &resource.ty;
+            let ty = ChildScope::ty(&resource.ty);
             let local = fetched_name(&binding.name);
             Some(Ok(quote! {
                 let #local = __mirui_world

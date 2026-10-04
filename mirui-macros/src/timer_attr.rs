@@ -1,3 +1,4 @@
+use crate::child_scope::ChildScope;
 use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -287,7 +288,8 @@ fn lower(
     let visibility = function.vis;
     let attributes = classify_function_attributes(function.attrs, "timers")?;
     let body = function.block;
-    let schedule = args.schedule.lower();
+    let schedule: Expr = syn::parse2(args.schedule.lower())?;
+    let schedule = ChildScope::expression(&schedule);
     let helper_name = format_ident!(
         "__mirui_timer_body_{function_name}",
         span = Span::mixed_site()
@@ -307,7 +309,7 @@ fn lower(
     for binding in &bindings {
         match &binding.source {
             BindingSource::Model(ModelSource::Registered { ty }) => {
-                models.push((binding.name.clone(), ty.clone()));
+                models.push((binding.name.clone(), ChildScope::ty(ty)));
             }
             BindingSource::Capability(BindingCapability::Entity) => {
                 entity = Some(binding.name.clone());

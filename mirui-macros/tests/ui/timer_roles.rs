@@ -31,6 +31,16 @@ fn periodic(counter: model!(Counter), timer: entity!(), commands: commands!()) {
     commands.remove::<Marker>(timer);
 }
 
+mod nested {
+    const PERIOD: u32 = 20;
+
+    #[mirui::timer(every = self::PERIOD)]
+    pub fn relative(counter: model!(super::Counter), timer: entity!()) {
+        counter.advance();
+        let _ = timer;
+    }
+}
+
 #[timer(repeat = (3, 30))]
 fn bounded_count() {}
 
@@ -48,6 +58,8 @@ fn main() {
     let counter = app.add_model(Counter { value: 0 });
     app.add_timer(once::timer());
     app.add_timer(periodic::timer(counter));
+    let counter = app.add_model(Counter { value: 0 });
+    app.add_timer(nested::relative::timer(counter));
     app.add_timer(bounded_count::timer());
     app.add_timer(bounded_deadline::timer());
 }

@@ -6,6 +6,7 @@ use syn::{Ident, ItemFn, LitStr, ReturnType, Token, Type, bracketed};
 
 use crate::binding::{BindingCapability, BindingSource, BindingSpec, ModelSource};
 use crate::callback_lowering::{lower_fetched_parameter, lower_helper_parameter};
+use crate::child_scope::ChildScope;
 use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 
 struct SystemArgs {
@@ -173,20 +174,29 @@ fn lower(
     let mut metadata = args
         .expect
         .iter()
-        .map(|ty| quote!(::mirui::__macro_support::SystemAccess::expect_component::<#ty>()))
+        .map(|ty| {
+            let ty = ChildScope::ty(ty);
+            quote!(::mirui::__macro_support::SystemAccess::expect_component::<#ty>())
+        })
         .collect::<Vec<_>>();
     let mut commands = None;
 
     for binding in &bindings {
         match &binding.source {
             BindingSource::Model(ModelSource::Registered { ty }) => {
-                models.push((binding.name.clone(), ty.clone()));
+                models.push((binding.name.clone(), ChildScope::ty(ty)));
             }
             BindingSource::Resource(_) | BindingSource::Query(_) => {
                 let (marker, access) = lower_fetched_parameter(binding)?;
                 fetched_names.push(binding.name.clone());
-                fetched_types.push(marker);
-                metadata.extend(access);
+                let marker: Type = syn::parse2(marker)?;
+                let marker = ChildScope::ty(&marker);
+                fetched_types.push(quote!(#marker));
+                for access in access {
+                    let expression: syn::Expr = syn::parse2(access)?;
+                    let expression = ChildScope::expression(&expression);
+                    metadata.push(quote!(#expression));
+                }
             }
             BindingSource::Capability(BindingCapability::Commands) => {
                 commands = Some(binding.name.clone());

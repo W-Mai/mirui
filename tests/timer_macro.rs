@@ -45,11 +45,17 @@ fn after_once(timer: entity!(), commands: commands!()) {
     commands.insert(timer, Fired(1));
 }
 
-#[timer(every = 250)]
-fn every_tick(counter: model!(Counter), timer: entity!(), commands: commands!()) {
-    counter.record(timer);
-    commands.insert(timer, Fired(counter.fires()));
+mod nested {
+    const PERIOD: u32 = 250;
+
+    #[mirui::timer(every = self::PERIOD)]
+    pub fn every_tick(counter: model!(super::Counter), timer: entity!(), commands: commands!()) {
+        counter.record(timer);
+        commands.insert(timer, super::Fired(counter.fires()));
+    }
 }
+
+use nested::every_tick;
 
 #[timer(repeat = (3, 50))]
 fn repeat_tick(counter: model!(Counter), timer: entity!()) {
@@ -67,8 +73,10 @@ fn capture_pair(first: model!(Counter), second: model!(Counter), timer: entity!(
     second.record(timer);
 }
 
-fn fresh() -> App<mirui::surface::framebuf::FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>>
-{
+type HeadlessApp =
+    App<mirui::surface::framebuf::FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>>;
+
+fn fresh() -> HeadlessApp {
     let mut app = App::headless(32, 32);
     app.world.insert_resource(MonoClock::from_time_source());
     app.add_system(mirui::core::timer::timer_system::system());

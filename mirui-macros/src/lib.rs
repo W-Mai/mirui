@@ -3,6 +3,7 @@ extern crate proc_macro;
 mod animate_attr;
 mod binding;
 mod callback_lowering;
+mod child_scope;
 mod component_attr;
 mod compose;
 mod compose_attr;

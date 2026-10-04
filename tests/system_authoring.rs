@@ -52,28 +52,30 @@ struct Settings {
 
 struct Missing;
 
-#[system(order = Animation, expect = Active)]
-fn integrate(
-    counter: model!(Counter),
-    settings: res!(mut Settings),
-    missing: res!(optional Missing),
-    rows: query!(
-        Entity,
-        Position,
-        mut Velocity,
-        optional Integrated;
-        with Active;
-        without Hidden;
-    ),
-    commands: commands!(),
-) {
-    assert!(missing.is_none());
-    settings.ticks += 1;
-    for (entity, position, velocity, integrated) in rows {
-        counter.add(position.0 + velocity.0);
-        velocity.0 += 1;
-        if integrated.is_none() {
-            commands.insert(entity, Integrated);
+mod nested {
+    #[mirui::system(order = Animation, expect = super::Active)]
+    pub fn integrate(
+        counter: model!(super::Counter),
+        settings: res!(mut super::Settings),
+        missing: res!(optional super::Missing),
+        rows: query!(
+            Entity,
+            super::Position,
+            mut super::Velocity,
+            optional super::Integrated;
+            with super::Active;
+            without super::Hidden;
+        ),
+        commands: commands!(),
+    ) {
+        assert!(missing.is_none());
+        settings.ticks += 1;
+        for (entity, position, velocity, integrated) in rows {
+            counter.add(position.0 + velocity.0);
+            velocity.0 += 1;
+            if integrated.is_none() {
+                commands.insert(entity, super::Integrated);
+            }
         }
     }
 }
@@ -95,7 +97,7 @@ fn generated_system_composes_all_roles_and_reuses_its_command_queue() {
     app.world.insert(hidden, Active);
     app.world.insert(hidden, Hidden);
 
-    app.add_system(integrate::system(counter.clone()));
+    app.add_system(nested::integrate::system(counter.clone()));
     app.systems.run_all(&mut app.world);
 
     assert_eq!(counter.value(), 7);

@@ -609,6 +609,12 @@ Function attributes such as `inline` apply to the callback body; documentation
 applies to its registration module or generated motion component. `cfg_attr`
 entries are split by that purpose, and malformed or nested entries are rejected.
 
+System, event, timer, and View factories preserve authored `self::` and `super::`
+paths when generating their registration modules. This includes typed roles,
+access plans, View generic bounds and hooks, and timer schedule expressions.
+The body remains in its declaration scope. Generic Views forward type and const
+arguments explicitly, including types used through associated resource types.
+
 `Slider` input and `prop::SliderValue` use the same clamped value update. A
 programmatic property change invalidates the control without emitting a user
 gesture event.
