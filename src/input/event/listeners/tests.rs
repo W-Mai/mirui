@@ -376,6 +376,328 @@ fn internal_only_gesture_routes_prepare_and_restore_reactive_owner_without_alloc
 }
 impl Component for Widget {}
 
+struct KeyboardTrace {
+    trace: Rc<RefCell<Trace>>,
+    author_stop: Option<Entity>,
+    internal_stop: Option<Entity>,
+}
+
+#[crate::event]
+fn keyboard_author(node: entity!(), trace: res!(KeyboardTrace)) -> bool {
+    trace.trace.borrow_mut().record(100 + node.id);
+    trace.author_stop == Some(node)
+}
+
+#[crate::event]
+fn keyboard_app(trace: res!(KeyboardTrace)) -> bool {
+    trace.trace.borrow_mut().record(900);
+    false
+}
+
+fn keyboard_default(world: &mut World, node: Entity, _: &InputEvent) -> bool {
+    let trace = world.resource::<KeyboardTrace>().unwrap();
+    trace.trace.borrow_mut().record(200 + node.id);
+    trace.internal_stop == Some(node)
+}
+
+struct KeyboardFixture {
+    world: World,
+    pool: EventListeners,
+    trace: Rc<RefCell<Trace>>,
+    root: Entity,
+    leaf: Entity,
+}
+
+impl KeyboardFixture {
+    fn new(steps: usize) -> Self {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let leaf = world.spawn_empty();
+        world.insert(leaf, Parent(root));
+        world.insert_resource(FocusState {
+            focused: Some(leaf),
+        });
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        world.insert_resource(KeyboardTrace {
+            trace: trace.clone(),
+            author_stop: None,
+            internal_stop: None,
+        });
+        let pool = EventListeners::new(&mut world);
+        pool.reserve(ListenerCapacity {
+            listeners: 6,
+            snapshot_steps: steps,
+        })
+        .unwrap();
+        for node in [root, leaf] {
+            world.insert(
+                node,
+                KeyHandler {
+                    on_key: keyboard_default,
+                },
+            );
+            pool.install_entity::<Key, Widget>(
+                &mut world,
+                node,
+                selector(),
+                keyboard_author::callback(),
+                CommandCapacity::default(),
+            )
+            .unwrap();
+            pool.install_entity::<super::super::input::CharInput, Widget>(
+                &mut world,
+                node,
+                selector(),
+                keyboard_author::callback(),
+                CommandCapacity::default(),
+            )
+            .unwrap();
+        }
+        pool.install_app::<Key>(
+            &mut world,
+            selector(),
+            keyboard_app::callback(),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+        pool.install_app::<super::super::input::CharInput>(
+            &mut world,
+            selector(),
+            keyboard_app::callback(),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+        Self {
+            world,
+            pool,
+            trace,
+            root,
+            leaf,
+        }
+    }
+
+    fn dispatch<E>(&mut self, event: &E) -> Result<BubbleControl, ListenerError>
+    where
+        E: InputPayload + Event<Source = InputSource> + Copy + Into<InputEvent>,
+    {
+        self.pool
+            .snapshot_keyboard(&self.world, event)?
+            .run(&mut self.world)
+    }
+}
+
+#[test]
+fn keyboard_and_character_routes_order_authors_defaults_ancestors_and_app_without_allocation() {
+    let mut fixture = KeyboardFixture::new(5);
+    let key = Key {
+        code: 7,
+        pressed: false,
+    };
+    let before = crate::core::reactive::current_world_id();
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+        }),
+        0
+    );
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
+    fixture.trace.borrow_mut().len = 0;
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                fixture.dispatch(&super::super::input::CharInput { ch: '界' }),
+                Ok(BubbleControl::Allow)
+            );
+        }),
+        0
+    );
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
+    assert_eq!(crate::core::reactive::current_world_id(), before);
+}
+
+#[test]
+fn keyboard_consumption_stops_before_later_defaults_and_fallback() {
+    let mut fixture = KeyboardFixture::new(5);
+    let key = Key {
+        code: 7,
+        pressed: true,
+    };
+    fixture
+        .world
+        .resource_mut::<KeyboardTrace>()
+        .unwrap()
+        .author_stop = Some(fixture.leaf);
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Prevent));
+    assert_eq!(fixture.trace.borrow().values(), &[101]);
+    fixture.trace.borrow_mut().len = 0;
+    let trace = fixture.world.resource_mut::<KeyboardTrace>().unwrap();
+    trace.author_stop = None;
+    trace.internal_stop = Some(fixture.leaf);
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Prevent));
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201]);
+}
+
+#[test]
+fn keyboard_selection_freezes_focus_parents_and_default_hooks() {
+    let mut fixture = KeyboardFixture::new(5);
+    let key = Key {
+        code: 7,
+        pressed: true,
+    };
+    let snapshot = fixture
+        .pool
+        .snapshot_keyboard(&fixture.world, &key)
+        .unwrap();
+    fixture.world.remove::<Parent>(fixture.leaf);
+    fixture.world.remove::<KeyHandler>(fixture.root);
+    fixture.world.resource_mut::<FocusState>().unwrap().focused = Some(fixture.root);
+    assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
+    fixture.trace.borrow_mut().len = 0;
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[100, 900]);
+}
+
+#[test]
+fn keyboard_suppressed_or_stale_focus_only_reaches_app_fallback() {
+    let mut fixture = KeyboardFixture::new(1);
+    let key = Key {
+        code: 7,
+        pressed: true,
+    };
+    fixture.world.insert(fixture.root, UserState::Disabled);
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[900]);
+    fixture.trace.borrow_mut().len = 0;
+    fixture.world.remove::<UserState>(fixture.root);
+    fixture.world.insert(fixture.root, crate::ui::Hidden);
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[900]);
+    fixture.trace.borrow_mut().len = 0;
+    fixture.world.despawn(fixture.leaf);
+    let replacement = fixture.world.spawn_empty();
+    assert_eq!(replacement.id, fixture.leaf.id);
+    fixture.world.insert(
+        replacement,
+        KeyHandler {
+            on_key: keyboard_default,
+        },
+    );
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[900]);
+    fixture.trace.borrow_mut().len = 0;
+    fixture.world.resource_mut::<FocusState>().unwrap().focused = None;
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[900]);
+}
+
+#[test]
+fn keyboard_capacity_and_cycles_fail_before_any_body_and_release_scratch() {
+    let mut fixture = KeyboardFixture::new(4);
+    let key = Key {
+        code: 7,
+        pressed: true,
+    };
+    assert_eq!(
+        tracked_allocations(|| {
+            assert!(matches!(
+                fixture.dispatch(&key),
+                Err(ListenerError::SnapshotCapacity { available: 4 })
+            ));
+        }),
+        0
+    );
+    assert_eq!(fixture.trace.borrow().len, 0);
+    fixture.world.insert(fixture.root, Parent(fixture.leaf));
+    assert_eq!(
+        tracked_allocations(|| {
+            assert!(matches!(
+                fixture.dispatch(&key),
+                Err(ListenerError::CyclicRoute { .. })
+            ));
+        }),
+        0
+    );
+    assert_eq!(fixture.trace.borrow().len, 0);
+    fixture.world.remove::<Parent>(fixture.root);
+    fixture
+        .pool
+        .reserve(ListenerCapacity {
+            listeners: 6,
+            snapshot_steps: 5,
+        })
+        .unwrap();
+    assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
+}
+
+#[test]
+fn keyboard_snapshot_skips_destroyed_generations_without_retargeting_replacements() {
+    let mut fixture = KeyboardFixture::new(5);
+    let key = Key {
+        code: 7,
+        pressed: true,
+    };
+    let snapshot = fixture
+        .pool
+        .snapshot_keyboard(&fixture.world, &key)
+        .unwrap();
+    fixture.world.despawn(fixture.leaf);
+    let replacement = fixture.world.spawn_empty();
+    fixture.world.insert(
+        replacement,
+        KeyHandler {
+            on_key: keyboard_default,
+        },
+    );
+    assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
+    assert_eq!(fixture.trace.borrow().values(), &[100, 200, 900]);
+}
+
+#[test]
+fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
+    use crate::ui::widgets::text_input::{TextInput, TextInputHandler};
+    let mut fixture = KeyboardFixture::new(5);
+    fixture.world.insert(fixture.leaf, TextInput::new());
+    let view = crate::ui::widgets::text_input::view();
+    fixture.world.remove::<KeyHandler>(fixture.leaf);
+    view.auto_attach().unwrap()(&mut fixture.world, fixture.leaf);
+    let changes = Rc::new(Cell::new(0));
+    let called = changes.clone();
+    fixture.world.insert(
+        fixture.leaf,
+        TextInputHandler {
+            on_event: super::super::BusinessCallback::Closure(Rc::new(move |_, _, _| {
+                called.set(called.get() + 1);
+                true
+            })),
+        },
+    );
+    for code in [
+        super::super::input::KEY_BACKSPACE,
+        super::super::input::KEY_DELETE,
+        super::super::input::KEY_LEFT,
+        super::super::input::KEY_RIGHT,
+        super::super::input::KEY_HOME,
+        super::super::input::KEY_END,
+    ] {
+        fixture.trace.borrow_mut().len = 0;
+        let key = Key {
+            code,
+            pressed: true,
+        };
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Prevent));
+            }),
+            0
+        );
+        assert_eq!(fixture.trace.borrow().values(), &[101]);
+    }
+    assert_eq!(changes.get(), 0);
+    assert_eq!(fixture.world.get::<TextInput>(fixture.leaf).unwrap().len, 0);
+}
+
 struct Changed(u32);
 impl Event for Changed {
     type Route = EntityNotification;

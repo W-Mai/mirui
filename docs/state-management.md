@@ -507,6 +507,15 @@ component, or changing listeners does not alter that selection. Each step still
 checks entity generation before execution. Hidden ancestors suppress the route;
 Parent cycles and insufficient step capacity fail before any body runs.
 
+Keyboard selection freezes the focused node, ancestor chain, and default editing
+hooks before running any body. Each node contributes authored listeners first,
+then its default editor; App fallback comes last. A default editor's acceptance
+stops the route even when its content or caret does not change. Hidden, disabled,
+missing, or generation-stale focus skips entity input but still permits App
+fallback. Key and character payloads share this route; wheel and rotary payloads
+cannot use it. The keyboard route reuses the same step storage, generation
+checks, owner scope, and error cleanup as gesture and notification delivery.
+
 Internal hooks and listeners share the reserved step storage and cleanup guard.
 A failed reservation does not raise either logical quota. The pool's ABI is
 confined to hidden macro support; the ordinary `on` and App installation APIs

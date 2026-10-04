@@ -16,12 +16,15 @@ use super::BubbleControl;
 use super::callback::{AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent};
 use super::contract::{
     AppEventSource, AppRoute, EntityRoute, EntitySourceFor, Event, EventKey, EventRoute,
+    InputSource,
 };
+use super::focus::{FocusState, KeyHandler};
 use super::gesture::GestureEvent;
 use super::gesture::event::GesturePayload;
+use super::input::{InputEvent, InputPayload};
 use super::notification::{NotificationFlushError, NotificationQueue};
-use crate::ui::Parent;
 use crate::ui::view::{ViewInternalGesture, ViewRegistry};
+use crate::ui::{Parent, UserState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListenerError {
@@ -190,7 +193,38 @@ enum DispatchStep {
         entity: Entity,
         callback: ViewInternalGesture,
     },
+    Keyboard {
+        entity: Entity,
+        callback: fn(&mut World, Entity, &InputEvent) -> bool,
+    },
     Listener(Rc<dyn ErasedListener>),
+}
+
+enum InternalEvent {
+    None,
+    Gesture(GestureEvent),
+    Keyboard(InputEvent),
+}
+
+fn route_allowed(world: &World, mut entity: Entity, keyboard: bool) -> Result<bool, ListenerError> {
+    let origin = entity;
+    let mut remaining = world.live_entity_count();
+    while world.is_alive(entity) {
+        if remaining == 0 {
+            return Err(ListenerError::CyclicRoute { entity });
+        }
+        remaining -= 1;
+        if crate::ui::branch::is_effectively_hidden(world, entity)
+            || (keyboard && matches!(world.get::<UserState>(entity), Some(UserState::Disabled)))
+        {
+            return Ok(false);
+        }
+        let Some(parent) = world.get::<Parent>(entity) else {
+            return Ok(true);
+        };
+        entity = parent.0;
+    }
+    Ok(world.is_alive(origin))
 }
 
 #[derive(Default)]
@@ -361,7 +395,7 @@ impl EventListeners {
         &'pool self,
         world: &World,
         event: BorrowedEvent<'event>,
-        gesture: Option<GestureEvent>,
+        internal: InternalEvent,
     ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
         self.check_owner(world)?;
         let scratch = self
@@ -373,7 +407,7 @@ impl EventListeners {
             owner: self.owner,
             scratch,
             event,
-            gesture,
+            internal,
         })
     }
 
@@ -383,7 +417,7 @@ impl EventListeners {
         event: BorrowedEvent<'event>,
         target: ListenerTarget,
     ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
-        let mut snapshot = self.empty_snapshot(world, event, None)?;
+        let mut snapshot = self.empty_snapshot(world, event, InternalEvent::None)?;
         snapshot.select_listeners(&self.entries, target)?;
         Ok(snapshot)
     }
@@ -398,21 +432,13 @@ impl EventListeners {
     {
         let gesture = (*event).into();
         let mut current = gesture.target();
-        let mut snapshot = self.empty_snapshot(world, BorrowedEvent::new(event), Some(gesture))?;
-        let mut remaining = world.live_entity_count();
-        let mut checking = current;
-        while world.is_alive(checking) {
-            if remaining == 0 {
-                return Err(ListenerError::CyclicRoute { entity: checking });
-            }
-            remaining -= 1;
-            if crate::ui::branch::is_effectively_hidden(world, checking) {
-                return Ok(snapshot);
-            }
-            let Some(parent) = world.get::<Parent>(checking) else {
-                break;
-            };
-            checking = parent.0;
+        let mut snapshot = self.empty_snapshot(
+            world,
+            BorrowedEvent::new(event),
+            InternalEvent::Gesture(gesture),
+        )?;
+        if !route_allowed(world, current, false)? {
+            return Ok(snapshot);
         }
         while world.is_alive(current) {
             if let Some(registry) = world.resource::<ViewRegistry>() {
@@ -435,6 +461,43 @@ impl EventListeners {
             };
             current = parent.0;
         }
+        Ok(snapshot)
+    }
+
+    pub fn snapshot_keyboard<'pool, 'event, E>(
+        &'pool self,
+        world: &World,
+        event: &'event E,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError>
+    where
+        E: InputPayload + Event<Source = InputSource> + Copy + Into<InputEvent>,
+    {
+        let mut snapshot = self.empty_snapshot(
+            world,
+            BorrowedEvent::new(event),
+            InternalEvent::Keyboard((*event).into()),
+        )?;
+        let focused = world
+            .resource::<FocusState>()
+            .and_then(|state| state.focused);
+        if let Some(mut current) = focused
+            && route_allowed(world, current, true)?
+        {
+            while world.is_alive(current) {
+                snapshot.select_listeners(&self.entries, ListenerTarget::Entity(current))?;
+                if let Some(handler) = world.get::<KeyHandler>(current) {
+                    snapshot.push(DispatchStep::Keyboard {
+                        entity: current,
+                        callback: handler.on_key,
+                    })?;
+                }
+                let Some(parent) = world.get::<Parent>(current) else {
+                    break;
+                };
+                current = parent.0;
+            }
+        }
+        snapshot.select_listeners(&self.entries, ListenerTarget::App)?;
         Ok(snapshot)
     }
 
@@ -471,7 +534,7 @@ pub struct ListenerSnapshot<'pool, 'event> {
     owner: WorldId,
     scratch: RefMut<'pool, Scratch>,
     event: BorrowedEvent<'event>,
-    gesture: Option<GestureEvent>,
+    internal: InternalEvent,
 }
 
 impl ListenerSnapshot<'_, '_> {
@@ -514,11 +577,23 @@ impl ListenerSnapshot<'_, '_> {
                     if !world.is_alive(*entity) {
                         continue;
                     }
-                    let gesture = self
-                        .gesture
-                        .as_ref()
-                        .expect("internal steps retain a gesture");
+                    let InternalEvent::Gesture(gesture) = &self.internal else {
+                        unreachable!("gesture steps retain their carrier");
+                    };
                     if callback(world, *entity, gesture) {
+                        BubbleControl::Prevent
+                    } else {
+                        BubbleControl::Allow
+                    }
+                }
+                DispatchStep::Keyboard { entity, callback } => {
+                    if !world.is_alive(*entity) {
+                        continue;
+                    }
+                    let InternalEvent::Keyboard(input) = &self.internal else {
+                        unreachable!("keyboard steps retain their carrier");
+                    };
+                    if callback(world, *entity, input) {
                         BubbleControl::Prevent
                     } else {
                         BubbleControl::Allow
