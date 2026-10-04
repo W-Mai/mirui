@@ -338,7 +338,9 @@ impl System {
                 let mut queue = CommandQueue::default();
                 let mut batch = queue.begin();
                 self.callback.invoke_deferred(world, batch.commands());
-                batch.finish(world);
+                batch
+                    .finish(world)
+                    .expect("deferred system commands failed");
             } else {
                 self.callback.invoke_plain(world);
             }
@@ -568,7 +570,9 @@ impl PreparedSystem {
             self.system
                 .callback
                 .invoke_deferred(world, batch.commands());
-            batch.finish(world);
+            batch
+                .finish(world)
+                .expect("deferred system commands failed");
         } else {
             self.system.callback.invoke_plain(world);
         }

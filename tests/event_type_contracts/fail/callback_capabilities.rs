@@ -1,4 +1,4 @@
-use mirui::__macro_support::{AppContext, EntityContext, event_callback};
+use mirui::__macro_support::{AppContext, CommandCapacity, EntityContext, event_callback};
 use mirui::component;
 use mirui::ecs::{Entity, World};
 use mirui::input::event::gesture::Tap;
@@ -29,7 +29,8 @@ fn main() {
         );
         let callback =
             event_callback::<Started, AppContext, (), ()>("app-entity", &[], |(), _, ()| ())
-                .prepare(&mut World::new());
+                .prepare(&mut World::new(), CommandCapacity::default())
+                .unwrap();
         callback.invoke(
             &mut World::new(),
             &Started,

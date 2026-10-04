@@ -116,7 +116,7 @@ pub mod __macro_support {
     pub use crate::core::timer::generated::{
         TimerSchedule, bound_timer, require_timer_model, static_timer,
     };
-    pub use crate::ecs::commands::DeferredCommands;
+    pub use crate::ecs::commands::{CommandCapacity, CommandError, DeferredCommands};
     pub use crate::ecs::query::system::{
         ComponentDriver, EntityItem, OptionalRead, Read, With, Without, Write,
     };
@@ -129,7 +129,8 @@ pub mod __macro_support {
         OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
     };
     pub use crate::input::event::callback::{
-        AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent, event_callback,
+        AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent,
+        deferred_event_callback, event_callback,
     };
     pub use crate::input::event::notification::{
         Notification, NotificationCapacity, NotificationError, NotificationQueue,

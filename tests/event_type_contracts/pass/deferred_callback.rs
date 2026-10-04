@@ -1,0 +1,44 @@
+use mirui::__macro_support::{
+    AppContext, CommandCapacity, ResMut, SystemAccess, deferred_event_callback,
+};
+use mirui::ecs::World;
+use mirui::input::event::BubbleControl;
+use mirui::input::event::input::Key;
+
+struct State(u32);
+
+fn main() {
+    let mut world = World::new();
+    world.insert_resource(State(1));
+    const ACCESS: &[SystemAccess] = &[SystemAccess::write_resource::<State>()];
+    // SAFETY: ACCESS matches the sole parameter. Resource removal is recorded,
+    // not performed while the parameter reference lives.
+    let callback = unsafe {
+        deferred_event_callback::<Key, AppContext, (ResMut<State>,), bool>(
+            "remove-resource",
+            ACCESS,
+            |(state,), _, (), mut commands| {
+                commands.remove_resource::<State>();
+                state.0 += 1;
+                true
+            },
+        )
+    }
+    .prepare(
+        &mut world,
+        CommandCapacity {
+            records: 1,
+            ..CommandCapacity::default()
+        },
+    )
+    .unwrap();
+    let payload = Key {
+        code: 1,
+        pressed: true,
+    };
+    assert_eq!(
+        callback.invoke(&mut world, &payload, ()),
+        Ok(Some(BubbleControl::Prevent))
+    );
+    assert!(world.resource::<State>().is_none());
+}

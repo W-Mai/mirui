@@ -240,7 +240,7 @@ impl TimerRuntime {
 
             let mut batch = self.commands.begin();
             callback.invoke(entity, batch.commands());
-            batch.finish(world);
+            batch.finish(world).expect("deferred timer commands failed");
 
             let remove = {
                 let Some(timer) = world.get_mut::<Timer>(entity) else {

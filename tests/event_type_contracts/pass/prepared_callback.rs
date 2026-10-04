@@ -1,4 +1,6 @@
-use mirui::__macro_support::{AppContext, EntityContext, ResMut, SystemAccess, event_callback};
+use mirui::__macro_support::{
+    AppContext, CommandCapacity, EntityContext, ResMut, SystemAccess, event_callback,
+};
 use mirui::component;
 use mirui::ecs::World;
 use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
@@ -31,15 +33,17 @@ fn main() {
             |(hits,), payload, _| hits.0 += payload.0.len(),
         )
     }
-    .prepare(&mut world);
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     assert_eq!(
         hit.invoke(&mut world, &Hit(String::from("pad")), node),
-        Some(())
+        Ok(Some(()))
     );
     assert_eq!(world.resource::<Hits>().unwrap().0, 3);
     // SAFETY: the empty access plan matches the empty parameter set.
     let started =
         unsafe { event_callback::<Started, AppContext, (), ()>("started", &[], |(), _, ()| ()) }
-            .prepare(&mut world);
-    assert_eq!(started.invoke(&mut world, &Started, ()), Some(()));
+            .prepare(&mut world, CommandCapacity::default())
+            .unwrap();
+    assert_eq!(started.invoke(&mut world, &Started, ()), Ok(Some(())));
 }

@@ -98,19 +98,19 @@ note: required by a bound in `mirui::__macro_support::event_callback`
    = note: this error originates in the macro `consumable_results` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0308]: mismatched types
-  --> tests/event_type_contracts/fail/callback_capabilities.rs:36:13
+  --> tests/event_type_contracts/fail/callback_capabilities.rs:37:13
    |
-33 |           callback.invoke(
+34 |           callback.invoke(
    |                    ------ arguments to this method are incorrect
 ...
-36 | /             Entity {
-37 | |                 id: 0,
-38 | |                 generation: 0,
-39 | |             },
+37 | /             Entity {
+38 | |                 id: 0,
+39 | |                 generation: 0,
+40 | |             },
    | |_____________^ expected `()`, found `Entity`
    |
 note: method defined here
   --> src/input/event/callback.rs
    |
-   |     pub fn invoke(&self, world: &mut World, payload: &E, target: C::Target) -> Option<Decision<E>> {
+   |     pub fn invoke(
    |            ^^^^^^

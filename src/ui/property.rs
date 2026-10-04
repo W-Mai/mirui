@@ -605,7 +605,7 @@ mod tests {
 
         let mut batch = queue.begin();
         batch.commands().set::<prop::RenderKey>(entity, 9);
-        batch.finish(&mut world);
+        batch.finish(&mut world).unwrap();
 
         assert_eq!(world.get::<crate::ui::RenderKey>(entity).unwrap().0, 9);
         assert!(world.has::<VisualDirty>(entity));
@@ -615,7 +615,7 @@ mod tests {
         let allocations = tracked_allocations(|| {
             let mut batch = queue.begin();
             batch.commands().set::<prop::RenderKey>(entity, 10);
-            batch.finish(&mut world);
+            batch.finish(&mut world).unwrap();
         });
         assert_eq!(allocations, 0);
         assert_eq!(world.get::<crate::ui::RenderKey>(entity).unwrap().0, 10);

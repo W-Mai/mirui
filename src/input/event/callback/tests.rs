@@ -78,8 +78,9 @@ fn invocation_combines_typed_payload_resources_and_point_query() {
             },
         )
     }
-    .prepare(&mut world);
-    assert_eq!(callback.invoke(&mut world, &Changed(4), node), Some(()));
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
+    assert_eq!(callback.invoke(&mut world, &Changed(4), node), Ok(Some(())));
     assert_eq!(world.get::<Position>(node), Some(&Position(7)));
     assert_eq!(world.resource::<Settings>().unwrap().0, 2);
 }
@@ -103,7 +104,7 @@ fn prepare_rejects_conflicts_before_fetching_or_running_body() {
         })
     };
     let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        callback.prepare(&mut world)
+        callback.prepare(&mut world, CommandCapacity::default())
     }));
     let message = error.err().unwrap().downcast::<String>().unwrap();
     assert!(message.contains("event `conflict` has conflicting access"));
@@ -134,8 +135,9 @@ fn component_and_resource_domains_are_independent_and_shared_reads_are_valid() {
             },
         )
     }
-    .prepare(&mut world);
-    assert_eq!(callback.invoke(&mut world, &Changed(0), node), Some(()));
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
+    assert_eq!(callback.invoke(&mut world, &Changed(0), node), Ok(Some(())));
 }
 
 #[test]
@@ -156,8 +158,9 @@ fn stale_generation_is_skipped_before_required_resource_fetch() {
             |_, _, _| panic!("stale callback invoked"),
         )
     }
-    .prepare(&mut world);
-    assert_eq!(callback.invoke(&mut world, &Changed(0), old), None);
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
+    assert_eq!(callback.invoke(&mut world, &Changed(0), old), Ok(None));
 }
 
 #[test]
@@ -170,7 +173,8 @@ fn installed_owner_is_checked_before_body_execution() {
             panic!("cross-owner body invoked")
         })
     }
-    .prepare(&mut first);
+    .prepare(&mut first, CommandCapacity::default())
+    .unwrap();
     let payload = Key {
         code: 1,
         pressed: true,
@@ -193,12 +197,13 @@ fn app_payload_is_borrowed_without_clone_or_entity() {
             assert_eq!(payload.0.as_ptr() as usize, address);
         })
     }
-    .prepare(&mut world);
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     assert_eq!(
         tracked_allocations(|| {
             for _ in 0..64 {
                 let snapshot = callback.clone();
-                assert_eq!(snapshot.invoke(&mut world, &payload, ()), Some(()));
+                assert_eq!(snapshot.invoke(&mut world, &payload, ()), Ok(Some(())));
             }
         }),
         0
@@ -213,19 +218,20 @@ fn input_callback_normalizes_consume_results() {
     let callback = unsafe {
         event_callback::<Key, AppContext, (), bool>("key", &[], |(), input, ()| input.pressed)
     }
-    .prepare(&mut world);
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     let mut payload = Key {
         code: 1,
         pressed: true,
     };
     assert_eq!(
         callback.invoke(&mut world, &payload, ()),
-        Some(BubbleControl::Prevent)
+        Ok(Some(BubbleControl::Prevent))
     );
     payload.pressed = false;
     assert_eq!(
         callback.invoke(&mut world, &payload, ()),
-        Some(BubbleControl::Allow)
+        Ok(Some(BubbleControl::Allow))
     );
 }
 
@@ -243,14 +249,15 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
         })
     }
     .require_model(&first)
-    .prepare(&mut app.world);
+    .prepare(&mut app.world, CommandCapacity::default())
+    .unwrap();
     let payload = Key {
         code: 1,
         pressed: true,
     };
     assert_eq!(
         callback.invoke(&mut app.world, &payload, ()),
-        Some(BubbleControl::Prevent)
+        Ok(Some(BubbleControl::Prevent))
     );
     assert_eq!(first.value(), 2);
     assert_eq!(second.value(), 8);
@@ -272,7 +279,7 @@ fn model_capture_rejects_mixed_owners_and_wrong_installation_owner() {
     }));
     assert!(mixed.is_err());
     let install = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        build().prepare(&mut second_app.world)
+        build().prepare(&mut second_app.world, CommandCapacity::default())
     }));
     assert!(install.is_err());
 }
@@ -295,12 +302,13 @@ fn query_reborrow_and_repeated_prepared_invocation_do_not_allocate() {
             },
         )
     }
-    .prepare(&mut world);
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     assert_eq!(
         tracked_allocations(|| {
             for _ in 0..64 {
                 let snapshot = callback.clone();
-                assert_eq!(snapshot.invoke(&mut world, &Changed(1), node), Some(()));
+                assert_eq!(snapshot.invoke(&mut world, &Changed(1), node), Ok(Some(())));
             }
         }),
         0
@@ -325,7 +333,8 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
             },
         )
     }
-    .prepare(&mut world);
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     let mut payload = Key {
         code: 1,
         pressed: true,
@@ -337,7 +346,265 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
     payload.pressed = false;
     assert_eq!(
         callback.invoke(&mut world, &payload, ()),
-        Some(BubbleControl::Allow)
+        Ok(Some(BubbleControl::Allow))
     );
     assert_eq!(world.resource::<Settings>().unwrap().0, 2);
+}
+
+fn command_capacity<T>(records: usize) -> CommandCapacity {
+    CommandCapacity {
+        records,
+        payload_bytes: core::mem::size_of::<T>() * records,
+        payload_alignment: core::mem::align_of::<T>(),
+    }
+}
+
+#[test]
+fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating() {
+    let mut world = World::new();
+    world.insert_resource(Settings(0));
+    const ACCESS: &[SystemAccess] = &[SystemAccess::write_resource::<Settings>()];
+    type Payload = (i32, fn(&mut World, i32));
+    // SAFETY: ACCESS describes the only live mutable resource. Queued updates
+    // do not borrow it until the body has released its parameter.
+    let callback = unsafe {
+        deferred_event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
+            "deferred",
+            ACCESS,
+            |(settings,), _, (), mut commands| {
+                settings.0 = 1;
+                commands.apply_resource(4i32, |world, value| {
+                    world.resource_mut::<Settings>().unwrap().0 += value;
+                });
+                commands.apply_resource(3i32, |world, value| {
+                    world.resource_mut::<Settings>().unwrap().0 *= value;
+                });
+                assert_eq!(settings.0, 1);
+                true
+            },
+        )
+    }
+    .prepare(&mut world, command_capacity::<Payload>(2))
+    .unwrap();
+    let payload = Key {
+        code: 1,
+        pressed: true,
+    };
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..32 {
+                let snapshot = callback.clone();
+                assert_eq!(
+                    snapshot.invoke(&mut world, &payload, ()),
+                    Ok(Some(BubbleControl::Prevent))
+                );
+            }
+        }),
+        0
+    );
+    assert_eq!(world.resource::<Settings>().unwrap().0, 15);
+}
+
+#[test]
+fn deferred_component_removal_runs_after_query_reborrow_ends() {
+    let mut world = World::new();
+    let node = world.spawn_empty();
+    world.insert(node, Position(7));
+    type Rows = QueryParam<ComponentDriver<Position>, Read<Position>, ()>;
+    const ACCESS: &[SystemAccess] = &[SystemAccess::read_component::<Position>()];
+    // SAFETY: the only live query read matches ACCESS; component removal is
+    // deferred and cannot invalidate it while the authored body runs.
+    let callback = unsafe {
+        deferred_event_callback::<Changed, EntityContext<Widget>, (Rows,), ()>(
+            "remove",
+            ACCESS,
+            |(rows,), _, target, mut commands| {
+                let position = rows.get(target).unwrap();
+                commands.remove::<Position>(target);
+                assert_eq!(position.0, 7);
+                assert_eq!(rows.get(target), Some(&Position(7)));
+            },
+        )
+    }
+    .prepare(
+        &mut world,
+        CommandCapacity {
+            records: 1,
+            ..CommandCapacity::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(callback.invoke(&mut world, &Changed(0), node), Ok(Some(())));
+    assert!(!world.has::<Position>(node));
+}
+
+#[test]
+fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource_values() {
+    let mut world = World::new();
+    world.insert_resource(Settings(0));
+    const ACCESS: &[SystemAccess] = &[SystemAccess::write_resource::<Settings>()];
+    type Payload = (i32, fn(&mut World, i32));
+    // SAFETY: the declared resource is only borrowed during the body; commands
+    // cannot access it before the body returns.
+    let callback = unsafe {
+        deferred_event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
+            "capacity",
+            ACCESS,
+            |(settings,), payload, (), mut commands| {
+                settings.0 += 1;
+                commands.apply_resource(100i32, |world, value| {
+                    world.resource_mut::<Settings>().unwrap().0 += value;
+                });
+                if payload.pressed {
+                    commands.remove_resource::<Settings>();
+                }
+                false
+            },
+        )
+    }
+    .prepare(&mut world, command_capacity::<Payload>(1))
+    .unwrap();
+    let mut payload = Key {
+        code: 1,
+        pressed: true,
+    };
+    assert_eq!(
+        callback.invoke(&mut world, &payload, ()),
+        Err(CommandError::RecordCapacity { available: 1 })
+    );
+    assert_eq!(world.resource::<Settings>().unwrap().0, 1);
+    payload.pressed = false;
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                callback.invoke(&mut world, &payload, ()),
+                Ok(Some(BubbleControl::Allow))
+            );
+        }),
+        0
+    );
+    assert_eq!(world.resource::<Settings>().unwrap().0, 102);
+}
+
+#[test]
+fn deferred_snapshot_shares_storage_and_reports_busy_without_panicking() {
+    let mut world = World::new();
+    // SAFETY: the empty plan matches Params; the body captures no Models.
+    let callback = unsafe {
+        deferred_event_callback::<Key, AppContext, (), bool>("busy", &[], |(), _, (), _| false)
+    }
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
+    let snapshot = callback.clone();
+    let CallbackRun::Deferred {
+        commands: queue, ..
+    } = &callback.run
+    else {
+        panic!("deferred callback expected");
+    };
+    let CallbackRun::Deferred {
+        commands: snapshot_queue,
+        ..
+    } = &snapshot.run
+    else {
+        panic!("deferred callback expected");
+    };
+    assert!(Rc::ptr_eq(queue, snapshot_queue));
+    let guard = queue.borrow_mut();
+    let payload = Key {
+        code: 1,
+        pressed: true,
+    };
+    assert_eq!(
+        snapshot.invoke(&mut world, &payload, ()),
+        Err(CommandError::Busy)
+    );
+    drop(guard);
+    assert_eq!(
+        snapshot.invoke(&mut world, &payload, ()),
+        Ok(Some(BubbleControl::Allow))
+    );
+    // Plain callbacks do not allocate or retain command storage.
+    let plain =
+        unsafe { event_callback::<Key, AppContext, (), bool>("plain", &[], |(), _, ()| false) }
+            .prepare(&mut world, CommandCapacity::default())
+            .unwrap();
+    assert!(matches!(plain.run, CallbackRun::Plain(_)));
+}
+
+struct OwnedCommand(Rc<Cell<usize>>);
+impl Drop for OwnedCommand {
+    fn drop(&mut self) {
+        self.0.set(self.0.get() + 1);
+    }
+}
+
+#[test]
+fn deferred_body_and_apply_panic_drop_pending_values_and_leave_executor_reusable() {
+    for fail_in_body in [true, false] {
+        let mut world = World::new();
+        let drops = Rc::new(Cell::new(0));
+        let captured = Rc::clone(&drops);
+        type Payload = (OwnedCommand, fn(&mut World, OwnedCommand));
+        // SAFETY: there are no borrowed parameters. Apply receives World only
+        // after the callback body has returned; payloads are always consumed.
+        let callback = unsafe {
+            deferred_event_callback::<Key, AppContext, (), bool>(
+                "unwind",
+                &[],
+                move |(), payload, (), mut commands| {
+                    if !payload.pressed {
+                        return false;
+                    }
+                    commands.apply_resource(OwnedCommand(captured.clone()), |_, value| {
+                        drop(value);
+                        panic!("apply failure");
+                    });
+                    commands.apply_resource(OwnedCommand(captured.clone()), |_, value| drop(value));
+                    assert!(!fail_in_body, "body failure");
+                    true
+                },
+            )
+        }
+        .prepare(&mut world, command_capacity::<Payload>(2))
+        .unwrap();
+        let mut payload = Key {
+            code: 1,
+            pressed: true,
+        };
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            callback.invoke(&mut world, &payload, ())
+        }));
+        assert!(error.is_err());
+        assert_eq!(drops.get(), 2);
+        payload.pressed = false;
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(
+                    callback.invoke(&mut world, &payload, ()),
+                    Ok(Some(BubbleControl::Allow))
+                );
+            }),
+            0
+        );
+    }
+}
+
+#[test]
+fn invalid_command_budget_is_rejected_during_installation() {
+    let mut world = World::new();
+    // SAFETY: the empty plan matches Params and the body captures no Models.
+    let callback = unsafe {
+        deferred_event_callback::<Key, AppContext, (), bool>("budget", &[], |(), _, (), _| false)
+    };
+    assert!(matches!(
+        callback.prepare(
+            &mut world,
+            CommandCapacity {
+                payload_alignment: 3,
+                ..CommandCapacity::default()
+            }
+        ),
+        Err(CommandError::InvalidLayout)
+    ));
 }

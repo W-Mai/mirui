@@ -262,7 +262,7 @@ impl EventCommandQueue {
             };
             body(&mut scope)
         };
-        batch.finish(world);
+        batch.finish(world).expect("deferred event commands failed");
         result
     }
 }

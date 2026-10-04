@@ -1,10 +1,12 @@
 //! Typed callback execution with validated parameter access.
 
 use alloc::rc::Rc;
+use core::cell::RefCell;
 use core::marker::PhantomData;
 
 use crate::core::model::{ModelHandle, registered_owner};
 use crate::core::reactive::OwnerGuard;
+use crate::ecs::commands::{CommandCapacity, CommandError, CommandQueue, DeferredCommands};
 use crate::ecs::system::access::{SystemAccess, validate};
 use crate::ecs::system::param::{SystemParamSet, fetch_system_params, reserve_system_params};
 use crate::ecs::world::WorldId;
@@ -74,6 +76,32 @@ where
 
 type Decision<E> = <<E as Event>::Route as EventRoute>::Decision;
 type Run<E, C> = dyn Fn(&mut World, &E, <C as CallbackContext<E>>::Target) -> Decision<E>;
+type DeferredRun<E, C> = dyn for<'commands> Fn(
+    &mut World,
+    &E,
+    <C as CallbackContext<E>>::Target,
+    DeferredCommands<'commands>,
+) -> Decision<E>;
+
+enum CallbackRun<E: Event, C: CallbackContext<E>, D> {
+    Plain(Rc<Run<E, C>>),
+    Deferred {
+        run: Rc<DeferredRun<E, C>>,
+        commands: D,
+    },
+}
+
+impl<E: Event, C: CallbackContext<E>, D: Clone> Clone for CallbackRun<E, C, D> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Plain(run) => Self::Plain(Rc::clone(run)),
+            Self::Deferred { run, commands } => Self::Deferred {
+                run: Rc::clone(run),
+                commands: commands.clone(),
+            },
+        }
+    }
+}
 
 /// Uninstalled callback description emitted by an event authoring macro.
 #[doc(hidden)]
@@ -82,7 +110,7 @@ pub struct EventCallback<E: Event, C: CallbackContext<E>> {
     metadata: &'static [SystemAccess],
     owner: Option<WorldId>,
     reserve_params: unsafe fn(&mut World),
-    run: Rc<Run<E, C>>,
+    run: CallbackRun<E, C, ()>,
 }
 
 impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
@@ -95,7 +123,11 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
         self
     }
 
-    pub fn prepare(self, world: &mut World) -> PreparedEvent<E, C> {
+    pub fn prepare(
+        self,
+        world: &mut World,
+        capacity: CommandCapacity,
+    ) -> Result<PreparedEvent<E, C>, CommandError> {
         if let Some(owner) = self.owner {
             assert_eq!(
                 owner,
@@ -104,14 +136,21 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
             );
         }
         validate("event", self.name, self.metadata);
+        let run = match self.run {
+            CallbackRun::Plain(run) => CallbackRun::Plain(run),
+            CallbackRun::Deferred { run, commands: () } => CallbackRun::Deferred {
+                run,
+                commands: Rc::new(RefCell::new(CommandQueue::bounded(capacity)?)),
+            },
+        };
         let _owner = OwnerGuard::enter(world);
         // SAFETY: the immutable access plan was validated before this callback
         // parameter budget is prepared. No parameter references exist yet.
         unsafe { (self.reserve_params)(world) };
-        PreparedEvent {
+        Ok(PreparedEvent {
             owner: world.id(),
-            run: self.run,
-        }
+            run,
+        })
     }
 }
 
@@ -119,31 +158,46 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
 #[doc(hidden)]
 pub struct PreparedEvent<E: Event, C: CallbackContext<E>> {
     owner: WorldId,
-    run: Rc<Run<E, C>>,
+    run: CallbackRun<E, C, Rc<RefCell<CommandQueue>>>,
 }
 
 impl<E: Event, C: CallbackContext<E>> Clone for PreparedEvent<E, C> {
     fn clone(&self) -> Self {
         Self {
             owner: self.owner,
-            run: Rc::clone(&self.run),
+            run: self.run.clone(),
         }
     }
 }
 
 impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
     /// Return no decision for a destroyed or generation-stale entity.
-    pub fn invoke(&self, world: &mut World, payload: &E, target: C::Target) -> Option<Decision<E>> {
+    pub fn invoke(
+        &self,
+        world: &mut World,
+        payload: &E,
+        target: C::Target,
+    ) -> Result<Option<Decision<E>>, CommandError> {
         assert_eq!(
             self.owner,
             world.id(),
             "event callback belongs to a different App"
         );
         if !C::is_live(world, target) {
-            return None;
+            return Ok(None);
         }
         let _owner = OwnerGuard::enter(world);
-        Some((self.run)(world, payload, target))
+        let decision = match &self.run {
+            CallbackRun::Plain(run) => run(world, payload, target),
+            CallbackRun::Deferred { run, commands } => {
+                let mut queue = commands.try_borrow_mut().map_err(|_| CommandError::Busy)?;
+                let mut batch = queue.begin();
+                let decision = run(world, payload, target, batch.commands());
+                batch.finish(world)?;
+                decision
+            }
+        };
+        Ok(Some(decision))
     }
 }
 
@@ -171,12 +225,53 @@ where
         metadata,
         owner: None,
         reserve_params: reserve_system_params::<P>,
-        run: Rc::new(move |world, payload, target| {
+        run: CallbackRun::Plain(Rc::new(move |world, payload, target| {
             // SAFETY: prepare validated the complete immutable metadata before
             // this closure can run. The body cannot access World directly.
             let params = unsafe { fetch_system_params::<P>(world, name) };
             body(params, payload, target).into_decision()
-        }),
+        })),
+    }
+}
+
+/// Build a typed callback requiring bounded command storage at installation.
+///
+/// # Safety
+///
+/// The same access and captured-Model requirements as [`event_callback`] apply.
+#[doc(hidden)]
+pub unsafe fn deferred_event_callback<E, C, P, R>(
+    name: &'static str,
+    metadata: &'static [SystemAccess],
+    body: impl for<'world, 'event, 'commands> Fn(
+        P::Item<'world>,
+        &'event E,
+        C::Target,
+        DeferredCommands<'commands>,
+    ) -> R
+    + 'static,
+) -> EventCallback<E, C>
+where
+    E: Event,
+    C: CallbackContext<E>,
+    P: SystemParamSet + 'static,
+    R: EventResult<E::Route>,
+{
+    EventCallback {
+        name,
+        metadata,
+        owner: None,
+        reserve_params: reserve_system_params::<P>,
+        run: CallbackRun::Deferred {
+            commands: (),
+            run: Rc::new(move |world, payload, target, commands| {
+                // SAFETY: prepare validated the immutable complete access plan.
+                // These references are released when the body returns, before the
+                // executor commits any recorded structural changes.
+                let params = unsafe { fetch_system_params::<P>(world, name) };
+                body(params, payload, target, commands).into_decision()
+            }),
+        },
     }
 }
 

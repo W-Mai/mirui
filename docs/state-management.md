@@ -457,9 +457,16 @@ and callback results follow the payload's route contract. Snapshot copies share
 the installed callback allocation. Execution within reserved capacities does not
 allocate callback storage.
 
-This execution layer does not install or route listeners and has no
-deferred-command capability. Its ABI is confined to hidden macro support, not
-the ordinary authoring prelude.
+Deferred callbacks receive a command facade backed by installation-time storage
+limits. The body records commands; every live parameter borrow ends before the
+executor applies them in source order. A recording error discards that batch
+and is returned from invocation. It does not roll back Model or resource values
+already updated by the body. Callback and apply unwinding release pending
+payloads and leave storage reusable. A busy command buffer returns an error
+rather than recursively borrowing it. Plain callbacks have no command buffer.
+
+This execution layer does not install or route listeners. Its ABI is confined
+to hidden macro support, not the ordinary authoring prelude.
 
 ## Choosing state and rendering roles
 
