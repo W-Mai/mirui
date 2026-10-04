@@ -6,7 +6,6 @@ use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
 
 crate::input::event::contract::widget_events! {
     ProgressBar;
@@ -115,13 +114,8 @@ impl crate::ecs::IntoBundle for ProgressBarBuilder {
     }
 }
 
-fn progress_bar_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(pb) = world.get::<ProgressBar>(entity) else {
-        return;
-    };
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+#[crate::view(component = ProgressBar, name = "ProgressBar", priority = 60, gesture = progress_bar_handler)]
+fn progress_bar_render(pb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let state = paint.state();
     let rect = paint.rect();
     let track_color = pb.track_color.resolve_in(theme, state);
@@ -197,17 +191,7 @@ fn emit_progress_bar_event(world: &mut World, entity: Entity, event: &ProgressBa
     }
 }
 
-fn progress_bar_attach(world: &mut World, entity: Entity) {
-    let _ = world;
-    let _ = entity;
-}
-
-pub fn view() -> View {
-    View::new("ProgressBar", 60, progress_bar_render)
-        .with_filter::<ProgressBar>()
-        .with_attach(progress_bar_attach)
-        .with_internal_gesture(progress_bar_handler)
-}
+pub use progress_bar_render::view;
 
 #[cfg(test)]
 mod tests {

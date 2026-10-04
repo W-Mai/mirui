@@ -1,8 +1,6 @@
-use crate::ecs::{Entity, World};
 use crate::render::path::Path;
 use crate::types::{Dimension, Fixed, Rect, Transform};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
 
 /// `scale` is a unitless multiplier orthogonal to `size`. Animate
 /// `scale` (e.g. through `#[mirui::animate]`) so hover bounces
@@ -69,13 +67,8 @@ fn icon_transform(icon: &Icon, rect: &Rect, parent: Transform) -> Option<Transfo
     super::image::vector_transform(rect, icon.viewbox, icon_size(icon, rect)?, parent)
 }
 
-fn icon_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(icon) = world.get::<Icon>(entity) else {
-        return;
-    };
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+#[crate::view(component = Icon, name = "Icon", priority = 70)]
+fn icon_render(icon: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let color = icon.color.resolve_in(theme, paint.state());
     let rect = paint.rect();
 
@@ -85,15 +78,14 @@ fn icon_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     super::image::draw_vector_transformed(paint, &icon.path, color, transform);
 }
 
-pub fn view() -> View {
-    View::new("Icon", 70, icon_render).with_filter::<Icon>()
-}
+pub use icon_render::view;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::anim::Spring;
     use crate::ecs::DeltaTimeMs;
+    use crate::ecs::World;
     use crate::render::path::PathCmd;
     use crate::types::{Color, Point};
     use alloc::borrow::Cow;

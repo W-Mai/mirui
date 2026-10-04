@@ -332,6 +332,10 @@ app.with_widget(paint_counter::view());
 ```
 
 `component = T` selects the entities painted by the View.
+Button, Slider, Checkbox, ProgressBar, TabBar, and Icon use this declaration
+for built-in paint callbacks. Their widget modules export the generated `view`
+factory directly; component filters, paint priorities, and internal gesture
+hooks remain part of the descriptor.
 `model!(component.field)` borrows that component's model only during paint;
 `watch(selector)` adds an exact subscription to an `#[observe]` field, an
 observed getter, or a named revision. An optional model field uses

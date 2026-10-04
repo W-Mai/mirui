@@ -3,7 +3,6 @@ use crate::render::command::DrawCommand;
 use crate::types::Dimension;
 use crate::ui::layout::{AlignItems, JustifyContent, Padding};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::View;
 use crate::ui::{HitTarget, InteractionFeedback, Style};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -185,9 +184,7 @@ fn button_attach(world: &mut World, entity: Entity) {
     world.insert(entity, InteractionFeedback);
 }
 
-pub fn view() -> View {
-    button_render::view()
-}
+pub use button_render::view;
 
 #[cfg(test)]
 mod tests {

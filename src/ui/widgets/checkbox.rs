@@ -4,7 +4,6 @@ use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
 
 crate::input::event::contract::widget_events! {
     Checkbox;
@@ -129,13 +128,8 @@ impl crate::ecs::IntoBundle for CheckboxBuilder {
     }
 }
 
-fn checkbox_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(cb) = world.get::<Checkbox>(entity) else {
-        return;
-    };
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+#[crate::view(component = Checkbox, name = "Checkbox", priority = 40, gesture = checkbox_handler)]
+fn checkbox_render(cb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let state = paint.state();
     let color = if cb.checked {
         cb.checked_color.resolve_in(theme, state)
@@ -178,17 +172,7 @@ fn emit_checkbox_event(world: &mut World, entity: Entity, event: &CheckboxEvent)
     }
 }
 
-fn checkbox_attach(world: &mut World, entity: Entity) {
-    let _ = world;
-    let _ = entity;
-}
-
-pub fn view() -> View {
-    View::new("Checkbox", 40, checkbox_render)
-        .with_filter::<Checkbox>()
-        .with_attach(checkbox_attach)
-        .with_internal_gesture(checkbox_handler)
-}
+pub use checkbox_render::view;
 
 #[cfg(test)]
 mod tests {

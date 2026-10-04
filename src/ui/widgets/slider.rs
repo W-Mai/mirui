@@ -6,7 +6,6 @@ use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::View;
 
 crate::input::event::contract::widget_events! {
     Slider;
@@ -297,9 +296,7 @@ fn slider_attach(world: &mut World, entity: Entity) {
     world.insert(entity, crate::input::event::scroll::TouchAction::PanY);
 }
 
-pub fn view() -> View {
-    slider_render::view()
-}
+pub use slider_render::view;
 
 #[cfg(test)]
 mod tests {

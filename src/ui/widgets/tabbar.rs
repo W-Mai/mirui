@@ -7,7 +7,6 @@ use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
 
 crate::input::event::contract::widget_events! {
     TabBar;
@@ -129,16 +128,11 @@ impl crate::ecs::IntoBundle for TabBarBuilder {
     }
 }
 
-fn tab_bar_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(tb) = world.get::<TabBar>(entity) else {
-        return;
-    };
+#[crate::view(component = TabBar, name = "TabBar", priority = 60, gesture = tabbar_handler)]
+fn tab_bar_render(tb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     if tb.count == 0 {
         return;
     }
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
     let indicator_color = tb.indicator_color.resolve_in(theme, state);
@@ -221,17 +215,7 @@ fn emit_tabbar_event(world: &mut World, entity: Entity, event: &TabBarEvent) {
     }
 }
 
-fn tab_bar_attach(world: &mut World, entity: Entity) {
-    let _ = world;
-    let _ = entity;
-}
-
-pub fn view() -> View {
-    View::new("TabBar", 60, tab_bar_render)
-        .with_filter::<TabBar>()
-        .with_attach(tab_bar_attach)
-        .with_internal_gesture(tabbar_handler)
-}
+pub use tab_bar_render::view;
 
 #[cfg(test)]
 mod tests {

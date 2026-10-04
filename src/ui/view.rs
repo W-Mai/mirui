@@ -941,6 +941,92 @@ mod tests {
     }
 
     #[test]
+    fn builtin_typed_views_preserve_descriptors_and_borrowed_paint_execution() {
+        struct CountingRenderer(usize);
+        impl Renderer for CountingRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.0 += 1;
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+
+        fn check<T: crate::ecs::Component>(
+            component: T,
+            view: View,
+            name: &'static str,
+            priority: u8,
+            gesture: bool,
+            draws: usize,
+        ) {
+            assert_eq!(view.name(), name);
+            assert_eq!(view.priority(), Some(priority));
+            assert_eq!(view.component_filter(), Some(TypeId::of::<T>()));
+            assert_eq!(view.internal_gesture().is_some(), gesture);
+            assert!(view.auto_attach().is_none());
+            assert_eq!(view.invalidation(), ViewInvalidation::Visual);
+            let mut world = World::new();
+            world.insert_resource(crate::ui::Theme::default());
+            let node = world.spawn_empty();
+            world.insert(node, component);
+            let render = view.render().unwrap();
+            let style = Style::default();
+            let rect = Rect::new(0, 0, 40, 20);
+            let mut renderer = CountingRenderer(0);
+            for _ in 0..2 {
+                let mut paint = PaintCtx::new(
+                    &mut renderer,
+                    &style,
+                    &rect,
+                    &rect,
+                    Transform::IDENTITY,
+                    None,
+                    WidgetState::Hovered,
+                );
+                assert_eq!(tracked_allocations(|| render(&world, node, &mut paint)), 0);
+                assert_eq!(paint.error(), None);
+            }
+            assert_eq!(renderer.0, 2 * draws);
+        }
+
+        use crate::ui::widgets::{Checkbox, Icon, ProgressBar, TabBar};
+        check(
+            Checkbox::new(),
+            crate::ui::widgets::checkbox::view(),
+            "Checkbox",
+            40,
+            true,
+            1,
+        );
+        let mut progress = ProgressBar::new();
+        progress.value = 0.5;
+        check(
+            progress,
+            crate::ui::widgets::progress_bar::view(),
+            "ProgressBar",
+            60,
+            true,
+            2,
+        );
+        check(
+            TabBar::new(4),
+            crate::ui::widgets::tabbar::view(),
+            "TabBar",
+            60,
+            true,
+            1,
+        );
+        check(
+            Icon::new(Path::from_static(&[])),
+            crate::ui::widgets::icon::view(),
+            "Icon",
+            70,
+            false,
+            1,
+        );
+    }
+
+    #[test]
     fn filtered_views_invalidate_without_model_observations() {
         let mut app = crate::app::App::headless(32, 32);
         app.with_widget(make_view("visual", 60).with_filter::<VisualOnlyTile>());
