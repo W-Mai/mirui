@@ -258,6 +258,38 @@ pub(crate) struct WgpuRuntime {
 }
 
 impl WgpuRuntime {
+    fn keyboard_input(&mut self, key: &Key, state: ElementState, text: Option<&str>) -> bool {
+        use crate::input::event::input::{
+            KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
+        };
+
+        let pressed = state == ElementState::Pressed;
+        let code = match key {
+            Key::Named(NamedKey::Backspace) => Some(KEY_BACKSPACE),
+            Key::Named(NamedKey::Delete) => Some(KEY_DELETE),
+            Key::Named(NamedKey::ArrowLeft) => Some(KEY_LEFT),
+            Key::Named(NamedKey::ArrowRight) => Some(KEY_RIGHT),
+            Key::Named(NamedKey::Home) => Some(KEY_HOME),
+            Key::Named(NamedKey::End) => Some(KEY_END),
+            Key::Named(NamedKey::Enter) => Some(KEY_RETURN),
+            Key::Named(NamedKey::Escape | NamedKey::BrowserBack) => {
+                if pressed {
+                    self.event_queue.push_back(InputEvent::Quit);
+                }
+                return pressed;
+            }
+            _ => None,
+        };
+        if let Some(code) = code {
+            self.event_queue
+                .push_back(InputEvent::Key { code, pressed });
+        }
+        if pressed && let Some(text) = text {
+            enqueue_text(&mut self.event_queue, text);
+        }
+        false
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             context: None,
@@ -444,36 +476,7 @@ impl WgpuRuntime {
                         ..
                     },
                 ..
-            } => {
-                use crate::input::event::input::*;
-                if state != ElementState::Pressed {
-                    return false;
-                }
-                let code = match &logical_key {
-                    Key::Named(NamedKey::Backspace) => Some(KEY_BACKSPACE),
-                    Key::Named(NamedKey::Delete) => Some(KEY_DELETE),
-                    Key::Named(NamedKey::ArrowLeft) => Some(KEY_LEFT),
-                    Key::Named(NamedKey::ArrowRight) => Some(KEY_RIGHT),
-                    Key::Named(NamedKey::Home) => Some(KEY_HOME),
-                    Key::Named(NamedKey::End) => Some(KEY_END),
-                    Key::Named(NamedKey::Enter) => Some(KEY_RETURN),
-                    Key::Named(NamedKey::Escape | NamedKey::BrowserBack) => {
-                        self.event_queue.push_back(InputEvent::Quit);
-                        return true;
-                    }
-                    _ => None,
-                };
-                if let Some(code) = code {
-                    self.event_queue.push_back(InputEvent::Key {
-                        code,
-                        pressed: true,
-                    });
-                }
-                if let Some(text) = text.as_ref() {
-                    enqueue_text(&mut self.event_queue, text);
-                }
-                false
-            }
+            } => self.keyboard_input(&logical_key, state, text.as_deref()),
             WindowEvent::Ime(Ime::Commit(text)) => {
                 enqueue_text(&mut self.event_queue, &text);
                 false
@@ -1274,6 +1277,54 @@ fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_translation_preserves_pressed_and_released_states() {
+        use crate::input::event::input::{
+            KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
+        };
+
+        let mut runtime = WgpuRuntime::new();
+        for (key, expected) in [
+            (NamedKey::Backspace, KEY_BACKSPACE),
+            (NamedKey::Delete, KEY_DELETE),
+            (NamedKey::ArrowLeft, KEY_LEFT),
+            (NamedKey::ArrowRight, KEY_RIGHT),
+            (NamedKey::Home, KEY_HOME),
+            (NamedKey::End, KEY_END),
+            (NamedKey::Enter, KEY_RETURN),
+        ] {
+            for state in [ElementState::Pressed, ElementState::Released] {
+                assert!(!runtime.keyboard_input(&Key::Named(key), state, None));
+                assert!(matches!(runtime.event_queue.pop_front(),
+                    Some(InputEvent::Key { code, pressed })
+                    if code == expected && pressed == (state == ElementState::Pressed)));
+                assert!(runtime.event_queue.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn keyboard_translation_does_not_duplicate_quit_or_text() {
+        let mut runtime = WgpuRuntime::new();
+        for key in [NamedKey::Escape, NamedKey::BrowserBack] {
+            assert!(runtime.keyboard_input(&Key::Named(key), ElementState::Pressed, None));
+            assert!(matches!(
+                runtime.event_queue.pop_front(),
+                Some(InputEvent::Quit)
+            ));
+            assert!(!runtime.keyboard_input(&Key::Named(key), ElementState::Released, None));
+            assert!(runtime.event_queue.is_empty());
+        }
+        let key = Key::Character("A中🙂".into());
+        assert!(!runtime.keyboard_input(&key, ElementState::Pressed, Some("A中🙂")));
+        for expected in ['A', '中', '🙂'] {
+            assert!(matches!(runtime.event_queue.pop_front(),
+                Some(InputEvent::CharInput { ch }) if ch == expected));
+        }
+        assert!(!runtime.keyboard_input(&key, ElementState::Released, Some("A中🙂")));
+        assert!(runtime.event_queue.is_empty());
+    }
 
     #[test]
     fn suspend_discards_input_bound_to_the_old_native_window() {

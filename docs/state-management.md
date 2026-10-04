@@ -421,6 +421,10 @@ input source capabilities. `Wheel` carries its position and deltas; `Rotary`
 carries its device id and delta, without fabricated pointer coordinates.
 Wheel and rotary callback sources are App-only.
 
+SDL and WGPU preserve press and release for supported editing keys. Character
+input is produced by text input or key presses, not key releases. Escape retains
+its quit-request behavior; releasing it does not generate a second request.
+
 `Started`, `Suspended`, `Resumed`, `MemoryWarning`, `HostInteraction`, and
 `Quit` are App notification payloads with unit options and results. They do not
 implement platform-input projection: raw suspend/resume/quit requests must not
