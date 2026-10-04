@@ -401,6 +401,13 @@ validates typed arguments and returns explicit errors before storing options in
 an event key. Declaring a payload does not require an event-definition macro or
 changes to the UI macro's event catalog.
 
+The ordinary prelude exports `Tap`, `LongPress`, `DragStart`, `DragMove`,
+`DragEnd`, `DragCancel`, `Pinch`, and `Rotate`, plus `Event` and `EventKey`.
+Their fields match the recognizer's gesture data, including its original target.
+`GestureSelectors` provides the corresponding typed constants for any component.
+Tap keys hold a validated count; the default is 1 and explicit values outside
+1 through 255 return `TapCountError`. Other gesture keys have no options.
+
 ## Choosing state and rendering roles
 
 | Role | Use | Update path |

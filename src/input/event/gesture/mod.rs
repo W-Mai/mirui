@@ -2,7 +2,10 @@ pub mod event;
 pub mod recognizer;
 pub mod system;
 
-pub use event::GestureEvent;
+pub use event::{
+    DragCancel, DragEnd, DragMove, DragStart, GestureEvent, GesturePayload, GestureSelectors,
+    LongPress, Pinch, Rotate, Tap, TapCountError, TapOptions,
+};
 pub use recognizer::GestureRecognizer;
 pub use system::{GestureEvents, GestureSystem};
 

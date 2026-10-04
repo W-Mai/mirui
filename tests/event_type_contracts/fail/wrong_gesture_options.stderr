@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/event_type_contracts/fail/wrong_gesture_options.rs:4:37
+  |
+4 |     let _ = Rotate::EVENT.configure((2,));
+  |                           --------- ^^^^ expected `()`, found `({integer},)`
+  |                           |
+  |                           arguments to this method are incorrect
+  |
+  = note: expected unit type `()`
+                 found tuple `({integer},)`
+note: method defined here
+ --> src/input/event/contract.rs
+  |
+  |     pub fn configure(
+  |            ^^^^^^^^^
