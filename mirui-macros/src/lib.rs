@@ -111,24 +111,6 @@ const STYLE_ATTRS: &[&str] = &[
 
 const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column", "Scroll"];
 
-#[allow(dead_code)]
-const BUILTIN_COMPONENT_NAMES: &[&str] = &[
-    "Button",
-    "Checkbox",
-    "ProgressBar",
-    "Slider",
-    "Switch",
-    "TabBar",
-    "TextInput",
-    "Image",
-    "Icon",
-    "Text",
-    "LazyList",
-    "MirrorOf",
-    "BackgroundBlur",
-    "TemporalMix",
-];
-
 fn primary_attr_for(widget_name: &str) -> Option<&'static str> {
     match widget_name {
         "Text" | "Button" => Some("text"),
