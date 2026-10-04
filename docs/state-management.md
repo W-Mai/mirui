@@ -489,7 +489,7 @@ targets. Widget notification installation checks the source component and
 entity generation. Captured Model owners are validated by preparation; the
 pool rejects a different App before installation or dispatch.
 
-Listener entries and matching scratch have explicit, shared count limits.
+Listener entries and snapshot steps have independent explicit count limits.
 Matching produces an installation-order snapshot without borrowing the World
 or retaining a borrow of the entry list. Removing a listener does not change
 the current selection; a new listener participates in later selections. Each
@@ -500,8 +500,17 @@ Notification draining uses this pool and the same prepared executor. Payloads
 are borrowed without cloning, and reserved invocation scratch is cleared on
 success, error, and unwinding. Reentrant use of that scratch returns an error.
 Selection and draining within reserved capacities allocate no listener storage.
-The pool's ABI is confined to hidden macro support. It does not implement
-ancestor traversal or the ordinary `on` and App installation APIs.
+Gesture selection freezes the complete Parent chain before running any body.
+Each node contributes matching internal View hooks in registration order, then
+its authored listeners in installation order. Reparenting, removing a filter
+component, or changing listeners does not alter that selection. Each step still
+checks entity generation before execution. Hidden ancestors suppress the route;
+Parent cycles and insufficient step capacity fail before any body runs.
+
+Internal hooks and listeners share the reserved step storage and cleanup guard.
+A failed reservation does not raise either logical quota. The pool's ABI is
+confined to hidden macro support; the ordinary `on` and App installation APIs
+are not implemented by this layer.
 
 ### Named event callback declarations
 

@@ -17,16 +17,22 @@ use super::callback::{AppContext, CallbackContext, EntityContext, EventCallback,
 use super::contract::{
     AppEventSource, AppRoute, EntityRoute, EntitySourceFor, Event, EventKey, EventRoute,
 };
+use super::gesture::GestureEvent;
+use super::gesture::event::GesturePayload;
 use super::notification::{NotificationFlushError, NotificationQueue};
+use crate::ui::Parent;
+use crate::ui::view::{ViewInternalGesture, ViewRegistry};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListenerError {
     Busy,
     Capacity { available: usize },
+    SnapshotCapacity { available: usize },
     AllocationFailed,
     IdentityExhausted,
     ForeignOwner,
     MissingSource { entity: Entity },
+    CyclicRoute { entity: Entity },
     Command(CommandError),
 }
 
@@ -46,6 +52,12 @@ pub enum ListenerTarget {
 pub struct ListenerId {
     owner: WorldId,
     serial: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ListenerCapacity {
+    pub listeners: usize,
+    pub snapshot_steps: usize,
 }
 
 /// A read-only event window; type erasure does not own or clone the payload.
@@ -173,23 +185,38 @@ struct Entries {
     next: u64,
 }
 
+enum DispatchStep {
+    Internal {
+        entity: Entity,
+        callback: ViewInternalGesture,
+    },
+    Listener(Rc<dyn ErasedListener>),
+}
+
+#[derive(Default)]
+struct Scratch {
+    steps: Vec<DispatchStep>,
+    limit: usize,
+}
+
 /// One installation pool shared by typed input and notification listeners.
 pub struct EventListeners {
     owner: WorldId,
     entries: RefCell<Entries>,
-    scratch: RefCell<Vec<Rc<dyn ErasedListener>>>,
+    scratch: RefCell<Scratch>,
 }
 
 impl EventListeners {
-    pub fn new(world: &World) -> Self {
+    pub fn new(world: &mut World) -> Self {
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
         Self {
             owner: world.id(),
             entries: RefCell::new(Entries::default()),
-            scratch: RefCell::new(Vec::new()),
+            scratch: RefCell::new(Scratch::default()),
         }
     }
 
-    pub fn reserve(&self, capacity: usize) -> Result<(), ListenerError> {
+    pub fn reserve(&self, capacity: ListenerCapacity) -> Result<(), ListenerError> {
         let mut scratch = self
             .scratch
             .try_borrow_mut()
@@ -198,16 +225,19 @@ impl EventListeners {
             .entries
             .try_borrow_mut()
             .map_err(|_| ListenerError::Busy)?;
-        let requested = capacity.max(entries.limit);
+        let requested = capacity.listeners.max(entries.limit);
+        let steps = capacity.snapshot_steps.max(scratch.limit);
         let additional = requested.saturating_sub(entries.listeners.len());
         entries
             .listeners
             .try_reserve_exact(additional)
             .map_err(|_| ListenerError::AllocationFailed)?;
         scratch
-            .try_reserve_exact(requested)
+            .steps
+            .try_reserve_exact(steps)
             .map_err(|_| ListenerError::AllocationFailed)?;
         entries.limit = requested;
+        scratch.limit = steps;
         Ok(())
     }
 
@@ -327,30 +357,83 @@ impl EventListeners {
         Ok(true)
     }
 
-    fn snapshot_borrowed<'pool, 'event>(
+    fn empty_snapshot<'pool, 'event>(
         &'pool self,
         world: &World,
         event: BorrowedEvent<'event>,
-        target: ListenerTarget,
+        gesture: Option<GestureEvent>,
     ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
         self.check_owner(world)?;
         let scratch = self
             .scratch
             .try_borrow_mut()
             .map_err(|_| ListenerError::Busy)?;
-        debug_assert!(scratch.is_empty());
-        let mut snapshot = ListenerSnapshot {
+        debug_assert!(scratch.steps.is_empty());
+        Ok(ListenerSnapshot {
             owner: self.owner,
             scratch,
             event,
-        };
-        for entry in &self.entries.borrow().listeners {
-            if entry.kind == snapshot.event.kind
-                && entry.target == target
-                && entry.callback.matches(&snapshot.event)
-            {
-                snapshot.scratch.push(Rc::clone(&entry.callback));
+            gesture,
+        })
+    }
+
+    fn snapshot_borrowed<'pool, 'event>(
+        &'pool self,
+        world: &World,
+        event: BorrowedEvent<'event>,
+        target: ListenerTarget,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
+        let mut snapshot = self.empty_snapshot(world, event, None)?;
+        snapshot.select_listeners(&self.entries, target)?;
+        Ok(snapshot)
+    }
+
+    pub fn snapshot_gesture<'pool, 'event, E>(
+        &'pool self,
+        world: &World,
+        event: &'event E,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError>
+    where
+        E: GesturePayload + Copy + Into<GestureEvent>,
+    {
+        let gesture = (*event).into();
+        let mut current = gesture.target();
+        let mut snapshot = self.empty_snapshot(world, BorrowedEvent::new(event), Some(gesture))?;
+        let mut remaining = world.live_entity_count();
+        let mut checking = current;
+        while world.is_alive(checking) {
+            if remaining == 0 {
+                return Err(ListenerError::CyclicRoute { entity: checking });
             }
+            remaining -= 1;
+            if crate::ui::branch::is_effectively_hidden(world, checking) {
+                return Ok(snapshot);
+            }
+            let Some(parent) = world.get::<Parent>(checking) else {
+                break;
+            };
+            checking = parent.0;
+        }
+        while world.is_alive(current) {
+            if let Some(registry) = world.resource::<ViewRegistry>() {
+                for view in registry.iter() {
+                    if let Some(callback) = view.internal_gesture()
+                        && view
+                            .component_filter()
+                            .is_none_or(|kind| world.has_type(current, kind))
+                    {
+                        snapshot.push(DispatchStep::Internal {
+                            entity: current,
+                            callback,
+                        })?;
+                    }
+                }
+            }
+            snapshot.select_listeners(&self.entries, ListenerTarget::Entity(current))?;
+            let Some(parent) = world.get::<Parent>(current) else {
+                break;
+            };
+            current = parent.0;
         }
         Ok(snapshot)
     }
@@ -386,17 +469,62 @@ impl EventListeners {
 /// A fixed installation-order selection, independent of later entry changes.
 pub struct ListenerSnapshot<'pool, 'event> {
     owner: WorldId,
-    scratch: RefMut<'pool, Vec<Rc<dyn ErasedListener>>>,
+    scratch: RefMut<'pool, Scratch>,
     event: BorrowedEvent<'event>,
+    gesture: Option<GestureEvent>,
 }
 
 impl ListenerSnapshot<'_, '_> {
+    fn push(&mut self, step: DispatchStep) -> Result<(), ListenerError> {
+        if self.scratch.steps.len() == self.scratch.limit {
+            return Err(ListenerError::SnapshotCapacity {
+                available: self.scratch.limit,
+            });
+        }
+        self.scratch.steps.push(step);
+        Ok(())
+    }
+
+    fn select_listeners(
+        &mut self,
+        entries: &RefCell<Entries>,
+        target: ListenerTarget,
+    ) -> Result<(), ListenerError> {
+        let entries = entries.try_borrow().map_err(|_| ListenerError::Busy)?;
+        for entry in &entries.listeners {
+            if entry.kind == self.event.kind
+                && entry.target == target
+                && entry.callback.matches(&self.event)
+            {
+                self.push(DispatchStep::Listener(Rc::clone(&entry.callback)))?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn run(self, world: &mut World) -> Result<BubbleControl, ListenerError> {
         if self.owner != world.id() {
             return Err(ListenerError::ForeignOwner);
         }
-        for callback in &*self.scratch {
-            let result = callback.invoke(world, &self.event)?;
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+        for step in &self.scratch.steps {
+            let result = match step {
+                DispatchStep::Listener(callback) => callback.invoke(world, &self.event)?,
+                DispatchStep::Internal { entity, callback } => {
+                    if !world.is_alive(*entity) {
+                        continue;
+                    }
+                    let gesture = self
+                        .gesture
+                        .as_ref()
+                        .expect("internal steps retain a gesture");
+                    if callback(world, *entity, gesture) {
+                        BubbleControl::Prevent
+                    } else {
+                        BubbleControl::Allow
+                    }
+                }
+            };
             if result == BubbleControl::Prevent {
                 return Ok(result);
             }
@@ -407,7 +535,7 @@ impl ListenerSnapshot<'_, '_> {
 
 impl Drop for ListenerSnapshot<'_, '_> {
     fn drop(&mut self) {
-        self.scratch.clear();
+        self.scratch.steps.clear();
     }
 }
 

@@ -133,8 +133,8 @@ pub mod __macro_support {
         deferred_event_callback, event_callback,
     };
     pub use crate::input::event::listeners::{
-        EventListeners, ListenerError, ListenerId, ListenerSelector, ListenerSnapshot,
-        ListenerTarget,
+        EventListeners, ListenerCapacity, ListenerError, ListenerId, ListenerSelector,
+        ListenerSnapshot, ListenerTarget,
     };
     pub use crate::input::event::notification::{
         Notification, NotificationCapacity, NotificationError, NotificationFlushError,

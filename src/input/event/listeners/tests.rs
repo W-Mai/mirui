@@ -3,10 +3,377 @@ use super::super::contract::{AppNotification, AppSource, EntityNotification, Wid
 use super::super::input::Key;
 use super::super::notification::NotificationCapacity;
 use super::*;
+use crate::input::event::gesture::DragMove;
 use crate::test_support::tracked_allocations;
+use crate::types::Fixed;
 use core::cell::Cell;
 
+struct RouteMarker;
+impl Component for RouteMarker {}
+
+struct RouteTrace {
+    trace: Rc<RefCell<Trace>>,
+    origin: Entity,
+    alternate: Entity,
+    old_parent: Entity,
+    internal_stop: Option<Entity>,
+    author_stop: Option<Entity>,
+}
+
+fn route_first(world: &mut World, node: Entity, event: &GestureEvent) -> bool {
+    let trace = world.resource::<RouteTrace>().unwrap();
+    assert_eq!(event.target(), trace.origin);
+    trace.trace.borrow_mut().record(100 + node.id);
+    let stop = trace.internal_stop == Some(node);
+    if node == trace.origin {
+        let (alternate, old_parent) = (trace.alternate, trace.old_parent);
+        world.insert(node, Parent(alternate));
+        world.remove::<RouteMarker>(old_parent);
+    }
+    stop
+}
+
+fn route_second(world: &mut World, node: Entity, _: &GestureEvent) -> bool {
+    world
+        .resource::<RouteTrace>()
+        .unwrap()
+        .trace
+        .borrow_mut()
+        .record(200 + node.id);
+    false
+}
+
+#[crate::event]
+fn route_author(input: event!(DragMove), node: entity!(), trace: res!(RouteTrace)) -> bool {
+    assert_eq!(input.target, trace.origin);
+    trace.trace.borrow_mut().record(300 + node.id);
+    trace.author_stop == Some(node)
+}
+
+struct RouteFixture {
+    world: World,
+    pool: EventListeners,
+    trace: Rc<RefCell<Trace>>,
+    root: Entity,
+    parent: Entity,
+    leaf: Entity,
+    alternate: Entity,
+}
+
+impl RouteFixture {
+    fn new(snapshot_steps: usize) -> Self {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let parent = world.spawn_empty();
+        let leaf = world.spawn_empty();
+        let alternate = world.spawn_empty();
+        world.insert(parent, Parent(root));
+        world.insert(leaf, Parent(parent));
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        world.insert_resource(RouteTrace {
+            trace: trace.clone(),
+            origin: leaf,
+            alternate,
+            old_parent: parent,
+            internal_stop: None,
+            author_stop: None,
+        });
+        let mut registry = ViewRegistry::default();
+        registry.insert(
+            crate::ui::view::View::systems_only("first", &[])
+                .with_filter::<RouteMarker>()
+                .with_internal_gesture(route_first),
+        );
+        registry.insert(
+            crate::ui::view::View::systems_only("second", &[])
+                .with_filter::<RouteMarker>()
+                .with_internal_gesture(route_second),
+        );
+        world.insert_resource(registry);
+        let pool = EventListeners::new(&mut world);
+        pool.reserve(ListenerCapacity {
+            listeners: 4,
+            snapshot_steps,
+        })
+        .unwrap();
+        // Install out of tree order; route order must still be leaf to root.
+        for node in [root, alternate, parent, leaf] {
+            world.insert(node, RouteMarker);
+            pool.install_entity::<DragMove, RouteMarker>(
+                &mut world,
+                node,
+                selector(),
+                route_author::callback(),
+                CommandCapacity::default(),
+            )
+            .unwrap();
+        }
+        Self {
+            world,
+            pool,
+            trace,
+            root,
+            parent,
+            leaf,
+            alternate,
+        }
+    }
+
+    fn event(&self) -> DragMove {
+        DragMove {
+            x: Fixed::ONE,
+            y: Fixed::ONE,
+            dx: Fixed::ONE,
+            dy: Fixed::ZERO,
+            target: self.leaf,
+        }
+    }
+}
+
+#[test]
+fn gesture_route_freezes_all_parents_and_internal_matches_before_any_body() {
+    let mut fixture = RouteFixture::new(9);
+    let event = fixture.event();
+    let allocations = tracked_allocations(|| {
+        assert_eq!(
+            fixture
+                .pool
+                .snapshot_gesture(&fixture.world, &event)
+                .unwrap()
+                .run(&mut fixture.world),
+            Ok(BubbleControl::Allow)
+        );
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(
+        fixture.trace.borrow().values(),
+        &[102, 202, 302, 101, 201, 301, 100, 200, 300]
+    );
+    assert_eq!(
+        fixture.world.get::<Parent>(fixture.leaf).unwrap().0,
+        fixture.alternate
+    );
+    assert!(!fixture.world.has::<RouteMarker>(fixture.parent));
+    fixture.trace.borrow_mut().len = 0;
+    let allocations = tracked_allocations(|| {
+        fixture
+            .pool
+            .snapshot_gesture(&fixture.world, &event)
+            .unwrap()
+            .run(&mut fixture.world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(
+        fixture.trace.borrow().values(),
+        &[102, 202, 302, 103, 203, 303]
+    );
+}
+
+#[test]
+fn gesture_route_rejects_cycles_and_capacity_before_any_partial_execution() {
+    let mut fixture = RouteFixture::new(8);
+    let event = fixture.event();
+    let allocations = tracked_allocations(|| {
+        assert!(matches!(
+            fixture.pool.snapshot_gesture(&fixture.world, &event),
+            Err(ListenerError::SnapshotCapacity { available: 8 })
+        ));
+    });
+    assert_eq!(allocations, 0);
+    assert!(fixture.trace.borrow().values().is_empty());
+    assert!(fixture.pool.scratch.borrow().steps.is_empty());
+    fixture
+        .pool
+        .reserve(ListenerCapacity {
+            listeners: 4,
+            snapshot_steps: 9,
+        })
+        .unwrap();
+    fixture.world.insert(fixture.root, Parent(fixture.leaf));
+    let allocations = tracked_allocations(|| {
+        assert!(matches!(
+            fixture.pool.snapshot_gesture(&fixture.world, &event),
+            Err(ListenerError::CyclicRoute { .. })
+        ));
+    });
+    assert_eq!(allocations, 0);
+    assert!(fixture.trace.borrow().values().is_empty());
+    assert!(fixture.pool.scratch.borrow().steps.is_empty());
+    fixture.world.remove::<Parent>(fixture.root);
+    fixture
+        .pool
+        .snapshot_gesture(&fixture.world, &event)
+        .unwrap()
+        .run(&mut fixture.world)
+        .unwrap();
+    assert_eq!(fixture.trace.borrow().len, 9);
+}
+
+#[test]
+fn hidden_or_stale_gesture_origins_do_not_consume_snapshot_capacity() {
+    let mut fixture = RouteFixture::new(0);
+    let event = fixture.event();
+    fixture.world.insert(fixture.root, crate::ui::Hidden);
+    let allocations = tracked_allocations(|| {
+        fixture
+            .pool
+            .snapshot_gesture(&fixture.world, &event)
+            .unwrap()
+            .run(&mut fixture.world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert!(fixture.trace.borrow().values().is_empty());
+    fixture.world.despawn(fixture.leaf);
+    let recycled = fixture.world.spawn_empty();
+    assert_eq!(fixture.leaf.id, recycled.id);
+    assert_ne!(fixture.leaf.generation, recycled.generation);
+    fixture
+        .pool
+        .snapshot_gesture(&fixture.world, &event)
+        .unwrap()
+        .run(&mut fixture.world)
+        .unwrap();
+    assert!(fixture.trace.borrow().values().is_empty());
+}
+
+#[test]
+fn deleting_a_frozen_ancestor_does_not_dispatch_to_a_recycled_entity() {
+    let mut fixture = RouteFixture::new(9);
+    let event = fixture.event();
+    let snapshot = fixture
+        .pool
+        .snapshot_gesture(&fixture.world, &event)
+        .unwrap();
+    fixture.world.despawn(fixture.parent);
+    let recycled = fixture.world.spawn_empty();
+    assert_eq!(fixture.parent.id, recycled.id);
+    fixture.world.insert(recycled, RouteMarker);
+    assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
+    assert_eq!(
+        fixture.trace.borrow().values(),
+        &[102, 202, 302, 100, 200, 300]
+    );
+}
+
+#[test]
+fn internal_and_authored_prevention_stop_the_same_frozen_route() {
+    let mut fixture = RouteFixture::new(9);
+    let event = fixture.event();
+    fixture
+        .world
+        .resource_mut::<RouteTrace>()
+        .unwrap()
+        .internal_stop = Some(fixture.leaf);
+    assert_eq!(
+        fixture
+            .pool
+            .snapshot_gesture(&fixture.world, &event)
+            .unwrap()
+            .run(&mut fixture.world),
+        Ok(BubbleControl::Prevent)
+    );
+    assert_eq!(fixture.trace.borrow().values(), &[102]);
+    fixture.trace.borrow_mut().len = 0;
+    fixture.world.insert(fixture.leaf, Parent(fixture.parent));
+    fixture.world.insert(fixture.parent, RouteMarker);
+    let trace = fixture.world.resource_mut::<RouteTrace>().unwrap();
+    trace.internal_stop = None;
+    trace.author_stop = Some(fixture.parent);
+    let allocations = tracked_allocations(|| {
+        assert_eq!(
+            fixture
+                .pool
+                .snapshot_gesture(&fixture.world, &event)
+                .unwrap()
+                .run(&mut fixture.world),
+            Ok(BubbleControl::Prevent)
+        );
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(
+        fixture.trace.borrow().values(),
+        &[102, 202, 302, 101, 201, 301]
+    );
+}
+
+#[test]
+fn a_failed_snapshot_reservation_does_not_expand_listener_or_step_quotas() {
+    let mut fixture = RouteFixture::new(9);
+    assert_eq!(
+        fixture.pool.reserve(ListenerCapacity {
+            listeners: 8,
+            snapshot_steps: usize::MAX,
+        }),
+        Err(ListenerError::AllocationFailed)
+    );
+    assert_eq!(fixture.pool.entries.borrow().limit, 4);
+    assert_eq!(fixture.pool.scratch.borrow().limit, 9);
+    assert_eq!(
+        fixture.pool.install_entity::<DragMove, RouteMarker>(
+            &mut fixture.world,
+            fixture.leaf,
+            selector(),
+            route_author::callback(),
+            CommandCapacity::default(),
+        ),
+        Err(ListenerError::Capacity { available: 4 })
+    );
+    let event = fixture.event();
+    let allocations = tracked_allocations(|| {
+        fixture
+            .pool
+            .snapshot_gesture(&fixture.world, &event)
+            .unwrap()
+            .run(&mut fixture.world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(fixture.trace.borrow().len, 9);
+}
+
 struct Widget;
+
+#[test]
+fn internal_only_gesture_routes_prepare_and_restore_reactive_owner_without_allocation() {
+    fn internal(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        assert_eq!(crate::core::reactive::current_world_id(), Some(world.id()));
+        true
+    }
+    let mut world = World::new();
+    let node = world.spawn_empty();
+    let mut registry = ViewRegistry::default();
+    registry.insert(
+        crate::ui::view::View::systems_only("internal", &[]).with_internal_gesture(internal),
+    );
+    world.insert_resource(registry);
+    let before = crate::core::reactive::current_world_id();
+    let pool = EventListeners::new(&mut world);
+    assert_eq!(crate::core::reactive::current_world_id(), before);
+    pool.reserve(ListenerCapacity {
+        listeners: 0,
+        snapshot_steps: 1,
+    })
+    .unwrap();
+    let event = DragMove {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        dx: Fixed::ONE,
+        dy: Fixed::ZERO,
+        target: node,
+    };
+    let allocations = tracked_allocations(|| {
+        assert_eq!(
+            pool.snapshot_gesture(&world, &event)
+                .unwrap()
+                .run(&mut world),
+            Ok(BubbleControl::Prevent)
+        );
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(crate::core::reactive::current_world_id(), before);
+}
 impl Component for Widget {}
 
 struct Changed(u32);
@@ -98,8 +465,12 @@ fn named_factory_receives_owned_notification_through_the_installed_pool() {
     let node = app.world.spawn_empty();
     app.world.insert(node, Widget);
     app.world.insert(node, Position(2));
-    let pool = EventListeners::new(&app.world);
-    pool.reserve(1).unwrap();
+    let pool = EventListeners::new(&mut app.world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
     pool.install_entity(
         &mut app.world,
         node,
@@ -135,8 +506,12 @@ fn erased_delivery_preserves_high_alignment_without_requiring_zst_bytes() {
         type Options = ();
     }
     let mut world = World::new();
-    let pool = EventListeners::new(&world);
-    pool.reserve(1).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
     let called = Rc::new(Cell::new(0));
     let seen = called.clone();
     pool.install_app(
@@ -173,8 +548,12 @@ fn notification_fifo_and_fanout_use_the_prepared_executor_without_allocation() {
     let mut world = World::new();
     let node = world.spawn_empty();
     world.insert(node, Widget);
-    let pool = EventListeners::new(&world);
-    pool.reserve(3).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 3,
+        snapshot_steps: 3,
+    })
+    .unwrap();
     let queue = Rc::new(NotificationQueue::default());
     queue
         .reserve(NotificationCapacity {
@@ -234,8 +613,12 @@ fn notification_fifo_and_fanout_use_the_prepared_executor_without_allocation() {
 #[test]
 fn entry_changes_do_not_change_a_current_snapshot_or_reuse_listener_identity() {
     let mut world = World::new();
-    let pool = EventListeners::new(&world);
-    pool.reserve(3).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 3,
+        snapshot_steps: 3,
+    })
+    .unwrap();
     let trace = Rc::new(RefCell::new(Trace::default()));
     let mut handles = [None, None];
     for (index, value) in [1, 2].into_iter().enumerate() {
@@ -279,8 +662,12 @@ fn entry_changes_do_not_change_a_current_snapshot_or_reuse_listener_identity() {
 #[test]
 fn callback_removal_takes_effect_on_the_following_notification() {
     let mut world = World::new();
-    let pool = Rc::new(EventListeners::new(&world));
-    pool.reserve(2).unwrap();
+    let pool = Rc::new(EventListeners::new(&mut world));
+    pool.reserve(ListenerCapacity {
+        listeners: 2,
+        snapshot_steps: 2,
+    })
+    .unwrap();
     let remove = Rc::new(Cell::new(None));
     let seen = Rc::new(Cell::new(0));
     let weak = Rc::downgrade(&pool);
@@ -322,7 +709,7 @@ fn callback_removal_takes_effect_on_the_following_notification() {
 fn capacity_owner_and_reentry_fail_before_dispatch_or_registration() {
     let mut world = World::new();
     let mut other = World::new();
-    let pool = EventListeners::new(&world);
+    let pool = EventListeners::new(&mut world);
     assert_eq!(
         pool.install_app(
             &mut world,
@@ -332,7 +719,11 @@ fn capacity_owner_and_reentry_fail_before_dispatch_or_registration() {
         ),
         Err(ListenerError::Capacity { available: 0 })
     );
-    pool.reserve(1).unwrap();
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
     assert_eq!(
         pool.install_app(
             &mut other,
@@ -353,17 +744,30 @@ fn capacity_owner_and_reentry_fail_before_dispatch_or_registration() {
     let snapshot = pool
         .snapshot(&world, &Announced(0), ListenerTarget::App)
         .unwrap();
-    assert_eq!(pool.reserve(2), Err(ListenerError::Busy));
+    assert_eq!(
+        pool.reserve(ListenerCapacity {
+            listeners: 2,
+            snapshot_steps: 2
+        }),
+        Err(ListenerError::Busy)
+    );
     assert!(matches!(
         pool.snapshot(&world, &Announced(0), ListenerTarget::App),
         Err(ListenerError::Busy)
     ));
     assert_eq!(snapshot.run(&mut other), Err(ListenerError::ForeignOwner));
-    pool.reserve(2).unwrap();
-    let foreign = EventListeners::new(&other);
+    pool.reserve(ListenerCapacity {
+        listeners: 2,
+        snapshot_steps: 2,
+    })
+    .unwrap();
+    let foreign = EventListeners::new(&mut other);
     assert_eq!(foreign.remove(id), Err(ListenerError::ForeignOwner));
     assert_eq!(
-        pool.reserve(usize::MAX),
+        pool.reserve(ListenerCapacity {
+            listeners: usize::MAX,
+            snapshot_steps: usize::MAX
+        }),
         Err(ListenerError::AllocationFailed)
     );
     assert_eq!(pool.entries.borrow().limit, 2);
@@ -387,8 +791,12 @@ fn capacity_owner_and_reentry_fail_before_dispatch_or_registration() {
 fn widget_installation_checks_source_and_execution_checks_generation() {
     let mut world = World::new();
     let node = world.spawn_empty();
-    let pool = EventListeners::new(&world);
-    pool.reserve(1).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
     let seen = Rc::new(Cell::new(0));
     let callback = || {
         let body = seen.clone();
@@ -442,8 +850,12 @@ fn widget_installation_checks_source_and_execution_checks_generation() {
 #[test]
 fn listener_command_error_cleans_notifications_and_keeps_both_storages_reusable() {
     let mut world = World::new();
-    let pool = EventListeners::new(&world);
-    pool.reserve(1).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
     let called = Rc::new(Cell::new(0));
     let seen = called.clone();
     // SAFETY: this body only uses its deferred command facade; it has no
@@ -501,8 +913,12 @@ fn listener_command_error_cleans_notifications_and_keeps_both_storages_reusable(
 #[test]
 fn snapshot_unwind_releases_borrows_and_notification_payloads() {
     let mut world = World::new();
-    let pool = EventListeners::new(&world);
-    pool.reserve(1).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
     let id = pool
         .install_app(
             &mut world,
@@ -530,7 +946,7 @@ fn snapshot_unwind_releases_borrows_and_notification_payloads() {
         .is_err()
     );
     assert_eq!(drops.get(), 2);
-    assert!(pool.scratch.borrow().is_empty());
+    assert!(pool.scratch.borrow().steps.is_empty());
     pool.remove(id).unwrap();
     pool.install_app(
         &mut world,
@@ -546,8 +962,12 @@ fn snapshot_unwind_releases_borrows_and_notification_payloads() {
 #[test]
 fn consumable_input_uses_the_same_pool_and_stops_in_installation_order() {
     let mut world = World::new();
-    let pool = EventListeners::new(&world);
-    pool.reserve(2).unwrap();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 2,
+        snapshot_steps: 2,
+    })
+    .unwrap();
     let seen = Rc::new(Cell::new(0));
     for index in [1, 2] {
         let seen = seen.clone();

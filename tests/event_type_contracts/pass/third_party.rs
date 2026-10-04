@@ -67,8 +67,13 @@ fn main() {
     let node = world.spawn_empty();
     world.insert(node, Pad);
     world.insert_resource(Hits(0));
-    let listeners = EventListeners::new(&world);
-    listeners.reserve(1).unwrap();
+    let listeners = EventListeners::new(&mut world);
+    listeners
+        .reserve(mirui::__macro_support::ListenerCapacity {
+            listeners: 1,
+            snapshot_steps: 1,
+        })
+        .unwrap();
     listeners
         .install_entity(
             &mut world,
