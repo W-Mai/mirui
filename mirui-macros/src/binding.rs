@@ -18,7 +18,7 @@ mod keyword {
 }
 
 const MAX_QUERY_ARITY: usize = 8;
-const MAX_SYSTEM_FETCH_ARITY: usize = 8;
+pub(crate) const MAX_FETCH_ARITY: usize = 8;
 const MAX_ANIMATE_COMPONENTS: usize = MAX_QUERY_ARITY - 2;
 
 /// One authored parameter after its role syntax has been normalized.
@@ -111,6 +111,7 @@ pub(crate) enum BindingCapability {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RoleKind {
     Model,
+    Event,
     Res,
     Query,
     Commands,
@@ -125,6 +126,7 @@ impl RoleKind {
         let name = role.path.get_ident()?;
         Some(match name.to_string().as_str() {
             "model" => Self::Model,
+            "event" => Self::Event,
             "res" => Self::Res,
             "query" => Self::Query,
             "commands" => Self::Commands,
@@ -139,6 +141,7 @@ impl RoleKind {
     pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Model => "model",
+            Self::Event => "event",
             Self::Res => "res",
             Self::Query => "query",
             Self::Commands => "commands",
@@ -168,6 +171,14 @@ pub(crate) const SYSTEM_ROLES: RoleSet = RoleSet::new(&[
     RoleKind::Model,
     RoleKind::Res,
     RoleKind::Query,
+    RoleKind::Commands,
+]);
+pub(crate) const EVENT_ROLES: RoleSet = RoleSet::new(&[
+    RoleKind::Model,
+    RoleKind::Event,
+    RoleKind::Res,
+    RoleKind::Query,
+    RoleKind::Entity,
     RoleKind::Commands,
 ]);
 pub(crate) const TIMER_ROLES: RoleSet =
@@ -540,11 +551,11 @@ impl BindingSpec {
             }
             match &binding.source {
                 BindingSource::Resource(_) | BindingSource::Query(_) => {
-                    if fetch_count == MAX_SYSTEM_FETCH_ARITY {
+                    if fetch_count == MAX_FETCH_ARITY {
                         return Err(syn::Error::new(
                             binding.syntax.span(),
                             format!(
-                                "`#[system]` supports at most {MAX_SYSTEM_FETCH_ARITY} resource/query parameters",
+                                "`#[system]` supports at most {MAX_FETCH_ARITY} resource/query parameters",
                             ),
                         ));
                     }
@@ -604,6 +615,49 @@ impl BindingSpec {
             RoleKind::Commands => parse_system_commands(name, type_role),
             _ => unreachable!("RoleSet admitted an unsupported system role"),
         }
+    }
+
+    pub(crate) fn parse_event_parameter(name: Ident, ty: &Type) -> syn::Result<Option<Self>> {
+        let Some((role, type_role)) = EVENT_ROLES.classify(ty, "#[event]")? else {
+            return Ok(None);
+        };
+        let binding = match role {
+            RoleKind::Model => {
+                let binding = parse_model_binding(name, type_role)?;
+                if !matches!(
+                    binding.source,
+                    BindingSource::Model(ModelSource::Registered { .. })
+                ) || binding.cardinality != BindingCardinality::Required
+                {
+                    return Err(syn::Error::new(
+                        binding.syntax.span(),
+                        "event model bindings use `model!(T)`",
+                    ));
+                }
+                binding
+            }
+            RoleKind::Event => {
+                let ty = type_role.mac.parse_body::<Type>()?;
+                BindingSpec {
+                    name,
+                    syntax: BindingSyntax::TypeRole(type_role),
+                    logical_type: LogicalType::Explicit(Box::new(ty)),
+                    source: BindingSource::Event,
+                    access: BindingAccess::Read,
+                    cardinality: BindingCardinality::Required,
+                    watch_selectors: Vec::new(),
+                    invalidation: None,
+                }
+            }
+            RoleKind::Res => parse_system_resource(name, type_role)?,
+            RoleKind::Query => parse_system_query(name, type_role)?,
+            RoleKind::Entity => {
+                parse_animate_capability(name, type_role, BindingCapability::Entity)?
+            }
+            RoleKind::Commands => parse_system_commands(name, type_role)?,
+            _ => unreachable!("RoleSet admitted an unsupported event role"),
+        };
+        Ok(Some(binding))
     }
 }
 

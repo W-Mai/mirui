@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Typed gesture payloads.** All eight gesture payloads, recognizer carrier variants, and component selectors share one declaration. Tap selectors validate counts from 1 through 255; other gestures reject tap-count options.
 - **Typed input and lifecycle payloads.** Keyboard and character payloads support entity and App source capabilities; wheel and rotary payloads are App-only. Lifecycle notifications are distinct from raw suspend, resume, and quit requests.
 - **Typed widget notification selectors.** Slider, Switch, Checkbox, ProgressBar, TabBar, and TextInput expose payload-specific selector constants with widget source constraints.
+- **Named event callback factories.** `#[event]` generates `callback(...)` with registered Model and Copy value arguments, invocation-time resource/query access, read-only typed payloads, entity capability checks, and deferred commands.
 
 ### Changed
 

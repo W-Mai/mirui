@@ -145,8 +145,8 @@ pub mod __macro_support {
 pub mod gallery;
 
 pub use mirui_macros::{
-    animate, com, component, compose, model, path, scene, system, timer, trace_fn, trace_span, ui,
-    view,
+    animate, com, component, compose, event, model, path, scene, system, timer, trace_fn,
+    trace_span, ui, view,
 };
 
 /// Glob-imports the types and macros nearly every application file
@@ -190,8 +190,8 @@ pub mod prelude {
     pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{
-        animate, com, component, compose, model, path, scene, system, timer, trace_fn, trace_span,
-        ui, view,
+        animate, com, component, compose, event, model, path, scene, system, timer, trace_fn,
+        trace_span, ui, view,
     };
 
     /// Surface integration — picking and wiring a backend.

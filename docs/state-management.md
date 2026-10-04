@@ -468,6 +468,38 @@ rather than recursively borrowing it. Plain callbacks have no command buffer.
 This execution layer does not install or route listeners. Its ABI is confined
 to hidden macro support, not the ordinary authoring prelude.
 
+### Named event callback declarations
+
+`#[event]` generates a module with `callback(...)`. The factory takes registered
+Model instances and ordinary `Copy + 'static` values in declaration order.
+Resources, queries, the payload, the current entity, and deferred commands are
+invocation parameters, not factory arguments:
+
+```rust,ignore
+#[event]
+fn moved(
+    game: model!(Game),
+    step: u16,
+    input: event!(DragMove),
+    node: entity!(),
+    positions: query!(mut Position),
+) -> bool {
+    let Some(position) = positions.get(node) else {
+        return false;
+    };
+    game.move_to(position, input.x, input.y, step);
+    true
+}
+```
+
+`moved::callback(game, step)` describes the callback without exposing World or
+generated handle types. `event!(E)` borrows a concrete payload; omitting it
+leaves the event type to the binding site. `entity!()` excludes App-only
+bindings. Notification callbacks return `()`; consumable routes also accept
+`bool` or `BubbleControl`. The declaration shares System resource/query
+lowering and the prepared executor. Listener installation and the `on`
+frontends are separate from this factory facility.
+
 ## Choosing state and rendering roles
 
 | Role | Use | Update path |

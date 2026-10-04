@@ -1,0 +1,93 @@
+error[E0271]: type mismatch resolving `<AppContext as CallbackContext<Key>>::Target == Entity`
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:31:46
+   |
+31 |     let _ = requires_entity::callback::<Key, AppContext>();
+   |                                              ^^^^^^^^^^ expected `Entity`, found `()`
+   |
+note: required by a bound in `requires_entity::callback`
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:9:1
+   |
+ 9 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `bool: EventResult<AppNotification>` is not satisfied
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:32:33
+   |
+32 |     let _ = started::callback::<Started, AppContext>();
+   |                                 ^^^^^^^ the trait `EventResult<AppNotification>` is not implemented for `bool`
+   |
+help: `bool` implements trait `EventResult<R>`
+  --> src/input/event/contract.rs
+   |
+   |             impl EventResult<$route> for bool {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             `EventResult<EntityBubble>`
+   |             `EventResult<InputFallback>`
+...
+   | consumable_results!(EntityBubble, InputFallback);
+   | ------------------------------------------------ in this macro invocation
+note: required by a bound in `started::callback`
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:14:1
+   |
+14 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the macro `consumable_results` which comes from the expansion of the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `WidgetSource<Slider>: mirui::input::event::contract::EntitySourceFor<Checkbox>` is not satisfied
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:33:40
+   |
+33 |     let _ = slider_changed::callback::<EntityContext<Checkbox>>();
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::EntitySourceFor<Checkbox>` is not implemented for `WidgetSource<Slider>`
+   |
+help: the trait `EntitySourceFor<Checkbox>` is not implemented for `WidgetSource<Slider>`
+      but trait `EntitySourceFor<Slider>` is implemented for it
+  --> src/input/event/contract.rs
+   |
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `Slider`, found `Checkbox`
+   = note: required for `mirui::__macro_support::EntityContext<Checkbox>` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::slider::ValueChanged>`
+note: required by a bound in `slider_changed::callback`
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:19:1
+   |
+19 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `WidgetSource<Slider>: mirui::input::event::contract::EntitySourceFor<Checkbox>` is not satisfied
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:33:13
+   |
+33 |     let _ = slider_changed::callback::<EntityContext<Checkbox>>();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::EntitySourceFor<Checkbox>` is not implemented for `WidgetSource<Slider>`
+   |
+help: the trait `EntitySourceFor<Checkbox>` is not implemented for `WidgetSource<Slider>`
+      but trait `EntitySourceFor<Slider>` is implemented for it
+  --> src/input/event/contract.rs
+   |
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `Slider`, found `Checkbox`
+   = note: required for `mirui::__macro_support::EntityContext<Checkbox>` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::slider::ValueChanged>`
+note: required by a bound in `mirui::__macro_support::EventCallback`
+  --> src/input/event/callback.rs
+   |
+   | pub struct EventCallback<E: Event, C: CallbackContext<E>> {
+   |                                       ^^^^^^^^^^^^^^^^^^ required by this bound in `EventCallback`
+
+error[E0308]: mismatched types
+  --> tests/event_type_contracts/fail/named_callback_capabilities.rs:36:42
+   |
+36 |     let _ = needs_key.invoke(&mut world, &Started, ());
+   |                       ------             ^^^^^^^^ expected `&Key`, found `&Started`
+   |                       |
+   |                       arguments to this method are incorrect
+   |
+   = note: expected reference `&mirui::prelude::Key`
+              found reference `&Started`
+note: method defined here
+  --> src/input/event/callback.rs
+   |
+   |     pub fn invoke(
+   |            ^^^^^^

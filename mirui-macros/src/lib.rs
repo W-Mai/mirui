@@ -3252,6 +3252,18 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Declare a typed event callback with installation-time Model and Copy value
+/// arguments. The generated module exposes `callback(...)`; resources, queries,
+/// the payload, the current entity, and commands are provided at invocation.
+/// Payload parameters use `event!(E)`. Omitting the payload role leaves the event
+/// type to the binding site. `entity!()` requires an entity-capable route.
+#[proc_macro_attribute]
+pub fn event(args: TokenStream, item: TokenStream) -> TokenStream {
+    event_attr::expand(args.into(), item.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 #[cfg(test)]
 mod bound_capture_tests {
     use super::FreeCaptureUse;
