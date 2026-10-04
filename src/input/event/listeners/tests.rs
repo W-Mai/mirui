@@ -239,6 +239,83 @@ fn hidden_or_stale_gesture_origins_do_not_consume_snapshot_capacity() {
 }
 
 #[test]
+fn disabled_gesture_branches_skip_internal_and_author_hooks_without_using_steps() {
+    for disabled in [0, 1, 2] {
+        let mut fixture = RouteFixture::new(0);
+        let node = [fixture.leaf, fixture.parent, fixture.root][disabled];
+        fixture.world.insert(node, UserState::Disabled);
+        let event = fixture.event();
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(
+                    fixture
+                        .pool
+                        .snapshot_gesture(&fixture.world, &event)
+                        .unwrap()
+                        .run(&mut fixture.world),
+                    Ok(BubbleControl::Allow)
+                );
+            }),
+            0
+        );
+        assert!(fixture.trace.borrow().values().is_empty());
+        assert_eq!(fixture.pool.entries.borrow().listeners.len(), 4);
+        fixture.world.insert(node, UserState::Errored);
+        fixture
+            .pool
+            .reserve(ListenerCapacity {
+                listeners: 4,
+                snapshot_steps: 9,
+            })
+            .unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                fixture
+                    .pool
+                    .snapshot_gesture(&fixture.world, &event)
+                    .unwrap()
+                    .run(&mut fixture.world)
+                    .unwrap();
+            }),
+            0
+        );
+        assert_eq!(fixture.trace.borrow().len, 9);
+    }
+}
+
+#[test]
+fn input_eligibility_is_frozen_with_the_route_not_rechecked_between_steps() {
+    let mut fixture = RouteFixture::new(9);
+    let event = fixture.event();
+    let snapshot = fixture
+        .pool
+        .snapshot_gesture(&fixture.world, &event)
+        .unwrap();
+    fixture.world.insert(fixture.root, UserState::Disabled);
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
+        }),
+        0
+    );
+    assert_eq!(fixture.trace.borrow().len, 9);
+    fixture.trace.borrow_mut().len = 0;
+    fixture.world.insert(fixture.leaf, Parent(fixture.parent));
+    assert_eq!(
+        tracked_allocations(|| {
+            fixture
+                .pool
+                .snapshot_gesture(&fixture.world, &event)
+                .unwrap()
+                .run(&mut fixture.world)
+                .unwrap();
+        }),
+        0
+    );
+    assert!(fixture.trace.borrow().values().is_empty());
+}
+
+#[test]
 fn deleting_a_frozen_ancestor_does_not_dispatch_to_a_recycled_entity() {
     let mut fixture = RouteFixture::new(9);
     let event = fixture.event();
@@ -1171,6 +1248,52 @@ fn named_factory_receives_owned_notification_through_the_installed_pool() {
         assert_eq!(app.world.get::<Position>(node).unwrap().0, 7);
     });
     assert_eq!(allocations, 0);
+}
+
+#[test]
+fn disabled_or_hidden_widgets_still_receive_queued_business_notifications() {
+    let mut app = crate::app::App::headless(8, 8);
+    let counter = app.add_model(Counter { value: 0 });
+    let node = app.world.spawn_empty();
+    app.world.insert(node, Widget);
+    app.world.insert(node, Position(0));
+    let pool = EventListeners::new(&mut app.world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
+    pool.install_entity(
+        &mut app.world,
+        node,
+        selector(),
+        record_change::callback(counter.clone()),
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    let queue = NotificationQueue::default();
+    queue
+        .reserve(NotificationCapacity {
+            records: 1,
+            payload_bytes: size_of::<Changed>(),
+            payload_alignment: core::mem::align_of::<Changed>(),
+        })
+        .unwrap();
+    for hidden in [false, true] {
+        app.world.insert(node, UserState::Disabled);
+        if hidden {
+            app.world.insert(node, crate::ui::Hidden);
+        }
+        assert_eq!(
+            tracked_allocations(|| {
+                queue.push_entity(node, Changed(1)).ok().unwrap();
+                assert_eq!(pool.flush_notifications(&mut app.world, &queue, 1), Ok(1));
+            }),
+            0
+        );
+    }
+    assert_eq!(counter.value(), 2);
+    assert_eq!(app.world.get::<Position>(node).unwrap().0, 2);
 }
 
 #[test]

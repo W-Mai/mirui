@@ -29,8 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Disabled gesture routes.** Typed gesture selection rejects disabled nodes and ancestors before selecting internal or authored callbacks, without suppressing business notifications.
 - **Retired event listeners.** Installation and route selection release stale entity listeners and their bounded slots without changing frozen routes or allocating retirement storage.
-
 - **Event callback paths.** Generated callback factories preserve `self::` and `super::` paths in payloads, model and resource roles, queries, value parameters, return types, and const arguments.
 - **System, timer, and View paths.** Generated factories preserve relative role types, access metadata, generic bounds, View hooks, and schedule expressions. Generic paint adapters forward type and const arguments explicitly.
 - **Rotary target validation.** Retired scroll targets and targets without a scroll offset are ignored without marking recycled entities dirty.

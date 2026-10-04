@@ -206,7 +206,7 @@ enum InternalEvent {
     Keyboard(InputEvent),
 }
 
-fn route_allowed(world: &World, mut entity: Entity, keyboard: bool) -> Result<bool, ListenerError> {
+fn route_allowed(world: &World, mut entity: Entity) -> Result<bool, ListenerError> {
     let origin = entity;
     let mut remaining = world.live_entity_count();
     while world.is_alive(entity) {
@@ -215,7 +215,7 @@ fn route_allowed(world: &World, mut entity: Entity, keyboard: bool) -> Result<bo
         }
         remaining -= 1;
         if crate::ui::branch::is_effectively_hidden(world, entity)
-            || (keyboard && matches!(world.get::<UserState>(entity), Some(UserState::Disabled)))
+            || matches!(world.get::<UserState>(entity), Some(UserState::Disabled))
         {
             return Ok(false);
         }
@@ -457,7 +457,7 @@ impl EventListeners {
             BorrowedEvent::new(event),
             InternalEvent::Gesture(gesture),
         )?;
-        if !route_allowed(world, current, false)? {
+        if !route_allowed(world, current)? {
             return Ok(snapshot);
         }
         while world.is_alive(current) {
@@ -501,7 +501,7 @@ impl EventListeners {
             .resource::<FocusState>()
             .and_then(|state| state.focused);
         if let Some(mut current) = focused
-            && route_allowed(world, current, true)?
+            && route_allowed(world, current)?
         {
             while world.is_alive(current) {
                 snapshot.select_listeners(&self.entries, ListenerTarget::Entity(current))?;

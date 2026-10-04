@@ -522,8 +522,12 @@ Gesture selection freezes the complete Parent chain before running any body.
 Each node contributes matching internal View hooks in registration order, then
 its authored listeners in installation order. Reparenting, removing a filter
 component, or changing listeners does not alter that selection. Each step still
-checks entity generation before execution. Hidden ancestors suppress the route;
-Parent cycles and insufficient step capacity fail before any body runs.
+checks entity generation before execution. Hidden or disabled nodes and ancestors
+suppress the route before any steps are selected. Eligibility is frozen with the
+route; later state changes do not rewrite its selected steps. Business
+notifications do not use input eligibility and still reach live disabled or
+hidden widgets. Parent cycles and insufficient step capacity fail before any
+body runs.
 
 Keyboard selection freezes the focused node, ancestor chain, and default editing
 hooks before running any body. Each node contributes authored listeners first,
