@@ -2,12 +2,11 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{Attribute, Ident, ItemFn, LitStr, Meta, ReturnType, Token, Type, bracketed};
+use syn::{Ident, ItemFn, LitStr, ReturnType, Token, Type, bracketed};
 
-use crate::binding::{
-    BindingAccess, BindingCapability, BindingCardinality, BindingSource, BindingSpec, ModelSource,
-    QueryDriver, QueryFilterKind, QueryItemSpec, QuerySpec,
-};
+use crate::binding::{BindingCapability, BindingSource, BindingSpec, ModelSource};
+use crate::callback_lowering::{lower_fetched_parameter, lower_helper_parameter};
+use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 
 struct SystemArgs {
     name: Option<LitStr>,
@@ -149,7 +148,7 @@ fn lower(
 ) -> syn::Result<TokenStream> {
     let function_name = function.sig.ident;
     let visibility = function.vis;
-    let attributes = classify_function_attributes(function.attrs)?;
+    let attributes = classify_function_attributes(function.attrs, "systems")?;
     let body = function.block;
     let system_name = args
         .name
@@ -161,7 +160,7 @@ fn lower(
     );
     let helper_parameters = bindings
         .iter()
-        .map(lower_helper_parameter)
+        .map(|binding| lower_helper_parameter(binding, "#[system]"))
         .collect::<syn::Result<Vec<_>>>()?;
     let helper_arguments = bindings
         .iter()
@@ -183,39 +182,8 @@ fn lower(
             BindingSource::Model(ModelSource::Registered { ty }) => {
                 models.push((binding.name.clone(), ty.clone()));
             }
-            BindingSource::Resource(resource) => {
-                let ty = &resource.ty;
-                let marker = match (binding.access, binding.cardinality) {
-                    (BindingAccess::Read, BindingCardinality::Required) => {
-                        metadata.push(
-                            quote!(::mirui::__macro_support::SystemAccess::read_resource::<#ty>()),
-                        );
-                        quote!(::mirui::__macro_support::Res<#ty>)
-                    }
-                    (BindingAccess::Write, BindingCardinality::Required) => {
-                        metadata.push(
-                            quote!(::mirui::__macro_support::SystemAccess::write_resource::<#ty>()),
-                        );
-                        quote!(::mirui::__macro_support::ResMut<#ty>)
-                    }
-                    (BindingAccess::Read, BindingCardinality::Optional) => {
-                        metadata.push(
-                            quote!(::mirui::__macro_support::SystemAccess::read_resource::<#ty>()),
-                        );
-                        quote!(::mirui::__macro_support::OptionalRes<#ty>)
-                    }
-                    _ => {
-                        return Err(syn::Error::new(
-                            binding.syntax.span(),
-                            "unsupported resource binding",
-                        ));
-                    }
-                };
-                fetched_names.push(binding.name.clone());
-                fetched_types.push(marker);
-            }
-            BindingSource::Query(query) => {
-                let (marker, access) = lower_query(query)?;
+            BindingSource::Resource(_) | BindingSource::Query(_) => {
+                let (marker, access) = lower_fetched_parameter(binding)?;
                 fetched_names.push(binding.name.clone());
                 fetched_types.push(marker);
                 metadata.extend(access);
@@ -370,123 +338,6 @@ fn lower(
     })
 }
 
-struct FunctionAttributes {
-    helper: Vec<Attribute>,
-    module: Vec<Attribute>,
-}
-
-fn classify_function_attributes(attributes: Vec<Attribute>) -> syn::Result<FunctionAttributes> {
-    let mut helper = Vec::new();
-    let mut module = Vec::new();
-    for attribute in attributes {
-        if attribute.path().is_ident("cfg") {
-            helper.push(attribute.clone());
-            module.push(attribute);
-        } else if attribute.path().is_ident("cfg_attr") {
-            let nested = attribute.parse_args_with(
-                syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated,
-            )?;
-            let mut nested = nested.into_iter();
-            let Some(condition) = nested.next() else {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires a condition and at least one attribute",
-                ));
-            };
-            let nested = nested.collect::<Vec<_>>();
-            if nested.is_empty() {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires at least one conditional attribute",
-                ));
-            }
-            let mut helper_nested = Vec::new();
-            let mut module_nested = Vec::new();
-            for meta in nested {
-                if meta.path().is_ident("cfg_attr") {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "nested `cfg_attr` is not supported on systems",
-                    ));
-                }
-                if meta.path().is_ident("cfg") {
-                    helper_nested.push(meta.clone());
-                    module_nested.push(meta);
-                } else if meta.path().is_ident("doc") || meta.path().is_ident("deprecated") {
-                    module_nested.push(meta);
-                } else {
-                    helper_nested.push(meta);
-                }
-            }
-            if !helper_nested.is_empty() {
-                helper.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#helper_nested),*)]
-                ));
-            }
-            if !module_nested.is_empty() {
-                module.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#module_nested),*)]
-                ));
-            }
-        } else if attribute.path().is_ident("doc") || attribute.path().is_ident("deprecated") {
-            module.push(attribute);
-        } else {
-            helper.push(attribute);
-        }
-    }
-    Ok(FunctionAttributes { helper, module })
-}
-
-fn lower_helper_parameter(binding: &BindingSpec) -> syn::Result<TokenStream> {
-    let name = &binding.name;
-    match &binding.source {
-        BindingSource::Model(ModelSource::Registered { ty }) => {
-            Ok(quote!(#name: &<#ty as ::mirui::core::model::BindType>::Shared))
-        }
-        BindingSource::Resource(resource) => {
-            let ty = &resource.ty;
-            match (binding.access, binding.cardinality) {
-                (BindingAccess::Read, BindingCardinality::Required) => Ok(quote!(#name: &#ty)),
-                (BindingAccess::Write, BindingCardinality::Required) => Ok(quote!(#name: &mut #ty)),
-                (BindingAccess::Read, BindingCardinality::Optional) => {
-                    Ok(quote!(#name: ::core::option::Option<&#ty>))
-                }
-                _ => Err(syn::Error::new(
-                    binding.syntax.span(),
-                    "unsupported resource binding",
-                )),
-            }
-        }
-        BindingSource::Query(query) => {
-            let marker = lower_query(query)?.0;
-            let mutable = query.items.iter().any(|item| {
-                matches!(
-                    item,
-                    QueryItemSpec::Component {
-                        access: BindingAccess::Write,
-                        ..
-                    }
-                )
-            });
-            let pattern = if mutable {
-                quote!(#[allow(unused_mut)] mut #name)
-            } else {
-                quote!(#name)
-            };
-            Ok(quote!(
-                #pattern: <#marker as ::mirui::__macro_support::SystemParam>::Item<'_>
-            ))
-        }
-        BindingSource::Capability(BindingCapability::Commands) => Ok(quote!(
-            mut #name: ::mirui::__macro_support::DeferredCommands<'_>
-        )),
-        _ => Err(syn::Error::new(
-            binding.syntax.span(),
-            "binding role is not available in `#[system]`",
-        )),
-    }
-}
-
 fn unsafe_constructor(constructor: TokenStream) -> TokenStream {
     quote!({
         // SAFETY: the callback is generated from the validated binding list and
@@ -529,93 +380,6 @@ fn lower_fetch(
             ::mirui::__macro_support::fetch_system_params::<(#(#types,)*)>(#world, #system_name)
         };
     }
-}
-
-fn lower_query(query: &QuerySpec) -> syn::Result<(TokenStream, Vec<TokenStream>)> {
-    let mut items = Vec::with_capacity(query.items.len());
-    let mut metadata = Vec::new();
-    for item in &query.items {
-        match item {
-            QueryItemSpec::Entity(_) => items.push(quote!(::mirui::__macro_support::EntityItem)),
-            QueryItemSpec::Component {
-                ty,
-                access,
-                cardinality,
-            } => {
-                let marker = match (*access, *cardinality) {
-                    (BindingAccess::Read, BindingCardinality::Required) => {
-                        metadata.push(
-                            quote!(::mirui::__macro_support::SystemAccess::read_component::<#ty>()),
-                        );
-                        quote!(::mirui::__macro_support::Read<#ty>)
-                    }
-                    (BindingAccess::Write, BindingCardinality::Required) => {
-                        metadata.push(
-                            quote!(::mirui::__macro_support::SystemAccess::write_component::<#ty>()),
-                        );
-                        quote!(::mirui::__macro_support::Write<#ty>)
-                    }
-                    (BindingAccess::Read, BindingCardinality::Optional) => {
-                        metadata.push(
-                            quote!(::mirui::__macro_support::SystemAccess::read_component::<#ty>()),
-                        );
-                        quote!(::mirui::__macro_support::OptionalRead<#ty>)
-                    }
-                    _ => {
-                        return Err(syn::Error::new_spanned(
-                            ty,
-                            "unsupported query item binding",
-                        ));
-                    }
-                };
-                items.push(marker);
-            }
-        }
-    }
-
-    let driver_ty = match query.driver {
-        QueryDriver::Item(index) => match query.items.get(index) {
-            Some(QueryItemSpec::Component { ty, .. }) => ty,
-            _ => return Err(syn::Error::new(query_span(query), "invalid query driver")),
-        },
-        QueryDriver::WithFilter(index) => match query.filters.get(index) {
-            Some(filter) if filter.kind == QueryFilterKind::With => &filter.ty,
-            _ => return Err(syn::Error::new(query_span(query), "invalid query driver")),
-        },
-    };
-    let driver = quote!(::mirui::__macro_support::ComponentDriver<#driver_ty>);
-    let data = if items.len() == 1 {
-        items[0].clone()
-    } else {
-        quote!((#(#items,)*))
-    };
-    let filters = query.filters.iter().map(|filter| {
-        let ty = &filter.ty;
-        match filter.kind {
-            QueryFilterKind::With => quote!(::mirui::__macro_support::With<#ty>),
-            QueryFilterKind::Without => quote!(::mirui::__macro_support::Without<#ty>),
-        }
-    });
-    let filters = if query.filters.is_empty() {
-        quote!(())
-    } else {
-        quote!((#(#filters,)*))
-    };
-    Ok((
-        quote!(::mirui::__macro_support::QueryParam<#driver, #data, #filters>),
-        metadata,
-    ))
-}
-
-fn query_span(query: &QuerySpec) -> proc_macro2::Span {
-    query
-        .items
-        .first()
-        .map(|item| match item {
-            QueryItemSpec::Entity(entity) => entity.span(),
-            QueryItemSpec::Component { ty, .. } => ty.span(),
-        })
-        .unwrap_or_else(proc_macro2::Span::call_site)
 }
 
 #[cfg(test)]

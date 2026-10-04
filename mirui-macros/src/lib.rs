@@ -2,11 +2,13 @@ extern crate proc_macro;
 
 mod animate_attr;
 mod binding;
+mod callback_lowering;
 mod component_attr;
 mod compose;
 mod compose_attr;
 mod diag;
 mod event_attr;
+mod function_attrs;
 mod layout_reactive;
 mod vector;
 mod view_attr;
