@@ -1,0 +1,5 @@
+error[E0308]: mismatched types
+ --> tests/ui_diagnostics_fail/tap_argument_type.rs:7:24
+  |
+7 |         View () on Tap(count) { }
+  |                        ^^^^^ expected `u32`, found `f32`

@@ -427,6 +427,11 @@ Their fields match the recognizer's gesture data, including its original target.
 Tap keys hold a validated count; the default is 1 and explicit values outside
 1 through 255 return `TapCountError`. Other gesture keys have no options.
 
+`on Tap(n) { ... }` evaluates its `u32` configuration once when installing the
+handler, using the same validation as a Tap key. Invalid counts panic during
+installation with `TapCountError`; they are not truncated. Dispatch compares the
+observed tap count with the stored options without reevaluating `n`.
+
 `Key` and `CharInput` carry their platform fields and support entity and App
 input source capabilities. `Wheel` carries its position and deltas; `Rotary`
 carries its device id and delta, without fabricated pointer coordinates.

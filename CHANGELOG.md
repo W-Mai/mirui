@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tap count installation.** `on Tap(n)` validates its `u32` count once during handler installation, rejecting zero and overflow instead of truncating them or reevaluating the expression on each gesture.
 - **Gesture batch storage.** App and simulated input reuse separate read and write buffers instead of collecting a temporary Vec for each dispatch batch. Callback-created events remain outside the current batch, and unwinding retains reusable storage.
 - **Disabled gesture routes.** Typed gesture selection rejects disabled nodes and ancestors before selecting internal or authored callbacks, without suppressing business notifications.
 - **Retired event listeners.** Installation and route selection release stale entity listeners and their bounded slots without changing frozen routes or allocating retirement storage.

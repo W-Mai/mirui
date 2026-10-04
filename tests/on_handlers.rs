@@ -240,6 +240,55 @@ mod tests {
     }
 
     #[test]
+    fn tap_selector_rejects_invalid_counts_before_installing_a_handler() {
+        for count in [0, 256, u32::MAX] {
+            let (mut world, root) = fresh_world();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+                ui! {
+                    View () on Tap(count) { }
+                };
+            }));
+            assert!(result.is_err(), "invalid count {count} was accepted");
+            assert!(world.query::<GestureHandler>().iter().next().is_none());
+        }
+    }
+
+    #[test]
+    fn tap_selector_evaluates_its_configuration_once_during_installation() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let (mut world, root) = fresh_world();
+        let configured = Rc::new(Cell::new(2_u32));
+        let evaluations = Rc::new(Cell::new(0_u32));
+        let calls = Rc::new(Cell::new(0_u32));
+        let count = Rc::clone(&configured);
+        let evaluated = Rc::clone(&evaluations);
+        let called = Rc::clone(&calls);
+        let target = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View () on Tap({
+                    evaluated.set(evaluated.get() + 1);
+                    count.get()
+                }) { called.set(called.get() + 1); }
+            }
+        };
+        assert_eq!(evaluations.get(), 1);
+        configured.set(3);
+        for now in [100, 200, 300] {
+            bubble_dispatch_at(&mut world, &tap_event(target), now);
+        }
+        assert_eq!(evaluations.get(), 1);
+        assert_eq!(
+            calls.get(),
+            1,
+            "installed selector must still match count 2"
+        );
+    }
+
+    #[test]
     fn form_b_on_tap_count_resets_after_window() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();

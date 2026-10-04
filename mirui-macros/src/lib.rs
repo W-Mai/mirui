@@ -315,13 +315,14 @@ fn emit_event_arm(
     event_name: &str,
     group: &[&OnCmd],
     handler_scope: &syn::Ident,
+    preparations: &mut proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
     let field_bindings = event_attr::fields(gesture_event_fields(event_name));
     let field_idents = field_bindings.iter().map(|binding| &binding.name);
 
     if event_name == "Tap" && group.iter().any(|h| !h.args.is_empty()) {
-        return emit_tap_with_count(group, &field_bindings, handler_scope);
+        return emit_tap_with_count(group, &field_bindings, handler_scope, preparations);
     }
 
     let bodies = group
@@ -348,10 +349,11 @@ fn emit_tap_with_count(
     group: &[&OnCmd],
     field_bindings: &[binding::BindingSpec],
     handler_scope: &syn::Ident,
+    preparations: &mut proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let mut count_arms = proc_macro2::TokenStream::new();
     let mut default_arm: Option<proc_macro2::TokenStream> = None;
-    for h in group {
+    for (index, h) in group.iter().enumerate() {
         let body = event_attr::lower_body(&h.body, handler_scope);
         if h.args.is_empty() {
             default_arm = Some(quote! {
@@ -363,8 +365,20 @@ fn emit_tap_with_count(
             });
         } else if h.args.len() == 1 {
             let arg = &h.args[0];
+            let options = quote::format_ident!(
+                "__mirui_tap_options_{index}",
+                span = proc_macro2::Span::mixed_site()
+            );
+            preparations.extend(quote! {
+                let #options =
+                    <::mirui::input::event::gesture::Tap as
+                        ::mirui::input::event::contract::Event>::EVENT
+                        .configure((#arg,))
+                        .expect("invalid Tap count")
+                        .options();
+            });
             count_arms.extend(quote! {
-                __c if __c == (#arg as u8) => {
+                __c if __c == #options.count() => {
                     let __consumed: bool =
                         ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
@@ -1124,13 +1138,20 @@ impl MiruiRune {
             let handler_scope = syn::Ident::new("__mirui_event_scope", hidden_span);
             let handler_queue = syn::Ident::new("__mirui_event_commands", hidden_span);
             let mut arms = proc_macro2::TokenStream::new();
+            let mut preparations = proc_macro2::TokenStream::new();
             for (event_name, group) in &gesture_arms {
-                arms.extend(emit_event_arm(event_name, group, &handler_scope));
+                arms.extend(emit_event_arm(
+                    event_name,
+                    group,
+                    &handler_scope,
+                    &mut preparations,
+                ));
             }
             // A closure (not a fn item) so the body can capture handles like a
             // Signal from the surrounding scope.
             tokens.extend(quote! {
                 {
+                    #preparations
                     let #handler_queue =
                         ::mirui::input::event::EventCommandQueue::new(#world);
                     (#world).insert(#widget_var, ::mirui::ui::HitTarget);
