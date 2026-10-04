@@ -11,14 +11,15 @@ the State demos in the gallery.
 ## Contents
 
 1. [Registered model instances](#registered-model-instances)
-2. [Choosing state and rendering roles](#choosing-state-and-rendering-roles)
-3. [Primitives](#primitives)
-4. [Reactive attributes](#reactive-attributes)
-5. [Layout-responsive attributes](#layout-responsive-attributes)
-6. [Reactive control flow](#reactive-control-flow)
-7. [Lists: `walk`, index vs keyed](#lists)
-8. [The flush model](#the-flush-model)
-9. [Limits](#limits)
+2. [Event type contracts](#event-type-contracts)
+3. [Choosing state and rendering roles](#choosing-state-and-rendering-roles)
+4. [Primitives](#primitives)
+5. [Reactive attributes](#reactive-attributes)
+6. [Layout-responsive attributes](#layout-responsive-attributes)
+7. [Reactive control flow](#reactive-control-flow)
+8. [Lists: `walk`, index vs keyed](#lists)
+9. [The flush model](#the-flush-model)
+10. [Limits](#limits)
 
 ## Registered model instances
 
@@ -362,6 +363,43 @@ TabPages and LazyList use this path and remain Views. Paint traversal skips
 these descriptors. Paint priority orders only drawing, with registration order
 breaking ties. Gesture hooks retain registration order, and contributed systems
 use their own `SystemSlot`.
+
+## Event type contracts
+
+`input::event::contract::Event` declares a payload's route, source, and options.
+`EventKey<E>` stores only the options and preserves the payload type; it does not
+own a payload, a model, or a callback. A key with `Options = ()` occupies no memory.
+
+Widget notification types use `EntityNotification` and `WidgetSource<W>`:
+
+```rust
+use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
+
+#[mirui::component]
+struct Pad;
+
+struct Hit {
+    strength: u8,
+}
+
+impl Event for Hit {
+    type Route = EntityNotification;
+    type Source = WidgetSource<Pad>;
+    type Options = ();
+}
+```
+
+The source capability accepts only `Pad`, not another widget or an App listener.
+`EntityBubble` describes target-to-ancestor gestures; `InputFallback` describes
+input reaching App listeners after focus or scroll handling; `AppNotification`
+describes non-consumable App notifications. Source/route pairs are checked when
+the payload implements `Event`.
+
+`EventResult<R>` encodes the route's result policy. Consumable routes accept `()`,
+`bool`, or `BubbleControl`; notifications accept only `()`. `EventOptions`
+validates typed arguments and returns explicit errors before storing options in
+an event key. Declaring a payload does not require an event-definition macro or
+changes to the UI macro's event catalog.
 
 ## Choosing state and rendering roles
 

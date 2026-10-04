@@ -1,3 +1,4 @@
+pub mod contract;
 pub mod focus;
 pub mod gesture;
 pub mod hit_test;

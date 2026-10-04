@@ -1,0 +1,23 @@
+error[E0277]: the trait bound `mirui::input::event::contract::WidgetSource<Pad>: mirui::input::event::contract::EntitySourceFor<Dial>` is not satisfied
+  --> tests/event_type_contracts/fail/wrong_widget.rs:24:25
+   |
+24 |     entity::<Dial, Hit>(Hit::EVENT);
+   |     ------------------- ^^^^^^^^^^ the trait `mirui::input::event::contract::EntitySourceFor<Dial>` is not implemented for `mirui::input::event::contract::WidgetSource<Pad>`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the trait `EntitySourceFor<Dial>` is not implemented for `mirui::input::event::contract::WidgetSource<Pad>`
+      but trait `EntitySourceFor<Pad>` is implemented for it
+  --> src/input/event/contract.rs
+   |
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `Pad`, found `Dial`
+note: required by a bound in `entity`
+  --> tests/event_type_contracts/fail/wrong_widget.rs:19:16
+   |
+16 | fn entity<W: Component, E: Event>(_: EventKey<E>)
+   |    ------ required by a bound in this function
+...
+19 |     E::Source: EntitySourceFor<W>,
+   |                ^^^^^^^^^^^^^^^^^^ required by this bound in `entity`

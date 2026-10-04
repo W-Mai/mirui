@@ -1,0 +1,47 @@
+error[E0277]: the trait bound `mirui::input::event::contract::EntityNotification: mirui::input::event::contract::AppRoute` is not satisfied
+  --> tests/event_type_contracts/fail/widget_at_app.rs:22:9
+   |
+22 |     app(Hit::EVENT);
+   |     --- ^^^^^^^^^^ the trait `mirui::input::event::contract::AppRoute` is not implemented for `mirui::input::event::contract::EntityNotification`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppRoute`
+  --> src/input/event/contract.rs
+   |
+   | impl AppRoute for InputFallback {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputFallback`
+   | impl AppRoute for AppNotification {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppNotification`
+note: required by a bound in `app`
+  --> tests/event_type_contracts/fail/widget_at_app.rs:16:15
+   |
+14 | fn app<E: Event>(_: EventKey<E>)
+   |    --- required by a bound in this function
+15 | where
+16 |     E::Route: AppRoute,
+   |               ^^^^^^^^ required by this bound in `app`
+
+error[E0277]: the trait bound `mirui::input::event::contract::WidgetSource<Pad>: mirui::input::event::contract::AppEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/widget_at_app.rs:22:9
+   |
+22 |     app(Hit::EVENT);
+   |     --- ^^^^^^^^^^ the trait `mirui::input::event::contract::AppEventSource` is not implemented for `mirui::input::event::contract::WidgetSource<Pad>`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl AppEventSource for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl AppEventSource for AppSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppSource`
+note: required by a bound in `app`
+  --> tests/event_type_contracts/fail/widget_at_app.rs:17:16
+   |
+14 | fn app<E: Event>(_: EventKey<E>)
+   |    --- required by a bound in this function
+...
+17 |     E::Source: AppEventSource,
+   |                ^^^^^^^^^^^^^^ required by this bound in `app`

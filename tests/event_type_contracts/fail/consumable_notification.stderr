@@ -1,0 +1,25 @@
+error[E0277]: the trait bound `bool: mirui::input::event::contract::EventResult<mirui::input::event::contract::AppNotification>` is not satisfied
+  --> tests/event_type_contracts/fail/consumable_notification.rs:15:27
+   |
+15 |     notify(Notice::EVENT, true);
+   |     ------                ^^^^ the trait `mirui::input::event::contract::EventResult<mirui::input::event::contract::AppNotification>` is not implemented for `bool`
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: `bool` implements trait `mirui::input::event::contract::EventResult<R>`
+  --> src/input/event/contract.rs
+   |
+   |             impl EventResult<$route> for bool {
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             `mirui::input::event::contract::EventResult<EntityBubble>`
+   |             `mirui::input::event::contract::EventResult<InputFallback>`
+...
+   | consumable_results!(EntityBubble, InputFallback);
+   | ------------------------------------------------ in this macro invocation
+note: required by a bound in `notify`
+  --> tests/event_type_contracts/fail/consumable_notification.rs:10:24
+   |
+10 | fn notify<E: Event, R: EventResult<E::Route>>(_: EventKey<E>, result: R) {
+   |                        ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `notify`
+   = note: this error originates in the macro `consumable_results` (in Nightly builds, run with -Z macro-backtrace for more info)
