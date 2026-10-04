@@ -1,3 +1,4 @@
+use super::contract::{AppSource, Event, InputFallback, InputSource};
 use crate::types::Fixed;
 
 /// Encoder/Digital Crown press button code.
@@ -18,54 +19,139 @@ pub const KEY_END: u32 = 0x0053;
 pub const KEY_RETURN: u32 = 0x000D;
 pub const KEY_ESCAPE: u32 = 0x001B;
 
-/// Raw input event produced by the platform layer (Surface).
-///
-/// `id == 0` is the first finger / mouse pointer; non-zero ids are
-/// additional fingers. Multi-finger gestures (Pinch / Rotate) are
-/// recognized by `GestureRecognizer` from these primitives — backends
-/// that only expose platform-aggregated gestures (e.g. macOS trackpad
-/// `MultiGesture`) reverse-compute virtual finger positions inside
-/// the surface layer so the raw event vocabulary stays minimal.
-#[derive(Clone, Debug)]
-pub enum InputEvent {
-    PointerDown {
-        id: u8,
-        x: Fixed,
-        y: Fixed,
-    },
-    PointerMove {
-        id: u8,
-        x: Fixed,
-        y: Fixed,
-    },
-    PointerUp {
-        id: u8,
-        x: Fixed,
-        y: Fixed,
-    },
-    PointerCancel {
-        id: u8,
-        x: Fixed,
-        y: Fixed,
-    },
-    Rotary {
-        id: u8,
-        delta: i16,
-    },
-    Wheel {
-        dx: Fixed,
-        dy: Fixed,
-        x: Fixed,
-        y: Fixed,
-    },
-    Key {
-        code: u32,
-        pressed: bool,
-    },
-    CharInput {
-        ch: char,
-    },
-    AppSuspend,
-    AppResume,
-    Quit,
+mod sealed {
+    pub trait InputPayload {}
+}
+
+/// Projection from platform input to a concrete input callback payload.
+#[doc(hidden)]
+pub trait InputPayload: Event<Route = InputFallback> + sealed::InputPayload {
+    fn project(event: &InputEvent) -> Option<Self>;
+}
+
+macro_rules! typed_inputs {
+    ($($kind:ident($source:ty) { $($field:ident: $ty:ty),+ $(,)? }),+ $(,)?) => {
+        /// Raw input event produced by the platform layer.
+        ///
+        /// Pointer 0 is the first finger or mouse; other ids are additional
+        /// fingers. Gestures are recognized from these pointer primitives.
+        /// Suspend/resume/quit variants are requests, not state notifications.
+        #[derive(Clone, Debug)]
+        pub enum InputEvent {
+            PointerDown { id: u8, x: Fixed, y: Fixed },
+            PointerMove { id: u8, x: Fixed, y: Fixed },
+            PointerUp { id: u8, x: Fixed, y: Fixed },
+            PointerCancel { id: u8, x: Fixed, y: Fixed },
+            $($kind { $($field: $ty),+ },)+
+            AppSuspend,
+            AppResume,
+            Quit,
+        }
+
+        $(
+            /// A concrete input payload with its platform data.
+            #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+            pub struct $kind {
+                $(pub $field: $ty),+
+            }
+
+            impl Event for $kind {
+                type Route = InputFallback;
+                type Source = $source;
+                type Options = ();
+            }
+
+            impl sealed::InputPayload for $kind {}
+
+            impl InputPayload for $kind {
+                fn project(event: &InputEvent) -> Option<Self> {
+                    match event {
+                        InputEvent::$kind { $($field),+ } => Some(Self {
+                            $($field: *$field),+
+                        }),
+                        _ => None,
+                    }
+                }
+            }
+
+            impl From<$kind> for InputEvent {
+                fn from(payload: $kind) -> Self {
+                    Self::$kind { $($field: payload.$field),+ }
+                }
+            }
+        )+
+    };
+}
+
+typed_inputs! {
+    Rotary(AppSource) { id: u8, delta: i16 },
+    Wheel(AppSource) { dx: Fixed, dy: Fixed, x: Fixed, y: Fixed },
+    Key(InputSource) { code: u32, pressed: bool },
+    CharInput(InputSource) { ch: char },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projections_preserve_input_fields_without_fabricating_targets() {
+        fn round_trip<P>(payload: P)
+        where
+            P: InputPayload + Into<InputEvent> + Copy + PartialEq + core::fmt::Debug,
+        {
+            assert_eq!(P::project(&payload.into()), Some(payload));
+        }
+
+        round_trip(Rotary { id: 3, delta: -7 });
+        round_trip(Wheel {
+            dx: Fixed::from_int(-2),
+            dy: Fixed::from_int(3),
+            x: Fixed::from_int(4),
+            y: Fixed::from_int(5),
+        });
+        round_trip(Key {
+            code: KEY_BACKSPACE,
+            pressed: true,
+        });
+        round_trip(Key {
+            code: KEY_RETURN,
+            pressed: false,
+        });
+        round_trip(CharInput { ch: '界' });
+    }
+
+    #[test]
+    fn requests_and_pointer_primitives_do_not_project_as_callback_input() {
+        for event in [
+            InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::ONE,
+                y: Fixed::ZERO,
+            },
+            InputEvent::PointerMove {
+                id: 0,
+                x: Fixed::ONE,
+                y: Fixed::ZERO,
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::ONE,
+                y: Fixed::ZERO,
+            },
+            InputEvent::PointerCancel {
+                id: 0,
+                x: Fixed::ONE,
+                y: Fixed::ZERO,
+            },
+            InputEvent::AppSuspend,
+            InputEvent::AppResume,
+            InputEvent::Quit,
+        ] {
+            assert!(Key::project(&event).is_none());
+            assert!(CharInput::project(&event).is_none());
+            assert!(Wheel::project(&event).is_none());
+            assert!(Rotary::project(&event).is_none());
+        }
+    }
 }

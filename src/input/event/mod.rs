@@ -3,6 +3,7 @@ pub mod focus;
 pub mod gesture;
 pub mod hit_test;
 pub mod input;
+pub mod lifecycle;
 pub mod multi_tap;
 pub mod scroll;
 pub mod sim;

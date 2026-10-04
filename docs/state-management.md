@@ -408,6 +408,16 @@ Their fields match the recognizer's gesture data, including its original target.
 Tap keys hold a validated count; the default is 1 and explicit values outside
 1 through 255 return `TapCountError`. Other gesture keys have no options.
 
+`Key` and `CharInput` carry their platform fields and support entity and App
+input source capabilities. `Wheel` carries its position and deltas; `Rotary`
+carries its device id and delta, without fabricated pointer coordinates.
+Wheel and rotary callback sources are App-only.
+
+`Started`, `Suspended`, `Resumed`, `MemoryWarning`, `HostInteraction`, and
+`Quit` are App notification payloads with unit options and results. They do not
+implement platform-input projection: raw suspend/resume/quit requests must not
+be treated as notifications of completed lifecycle transitions.
+
 ## Choosing state and rendering roles
 
 | Role | Use | Update path |

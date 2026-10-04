@@ -160,6 +160,10 @@ pub mod prelude {
     pub use crate::input::event::gesture::{
         DragCancel, DragEnd, DragMove, DragStart, GestureSelectors, LongPress, Pinch, Rotate, Tap,
     };
+    pub use crate::input::event::input::{CharInput, Key, Rotary, Wheel};
+    pub use crate::input::event::lifecycle::{
+        HostInteraction, MemoryWarning, Quit, Resumed, Started, Suspended,
+    };
     pub use crate::render::font::FontToken;
     pub use crate::render::path::{Path, PathId};
     pub use crate::surface::{SafeAreaInsets, Surface};

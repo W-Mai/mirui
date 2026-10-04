@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Typed query point fetches.** `query!(...)` supports `get(entity)` with generation, driver, component, and filter validation. Read-only fetches share borrows; mutable fetches enforce exclusive row lifetimes and reuse component-change records.
 - **Event type contracts.** Payloads declare routing, source capabilities, and validated selector options. Widget sources remain tied to their component type, and notification results exclude propagation control.
 - **Typed gesture payloads.** All eight gesture payloads, recognizer carrier variants, and component selectors share one declaration. Tap selectors validate counts from 1 through 255; other gestures reject tap-count options.
+- **Typed input and lifecycle payloads.** Keyboard and character payloads support entity and App source capabilities; wheel and rotary payloads are App-only. Lifecycle notifications are distinct from raw suspend, resume, and quit requests.
 
 ### Changed
 

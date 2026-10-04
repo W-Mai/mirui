@@ -1,3 +1,5 @@
+#![deny(warnings)]
+
 use mirui::ecs::Component;
 use mirui::input::event::contract::*;
 
