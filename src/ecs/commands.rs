@@ -1,113 +1,13 @@
-use alloc::alloc::{alloc, dealloc, handle_alloc_error};
+use alloc::alloc::handle_alloc_error;
 use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::cmp;
-use core::mem::{MaybeUninit, align_of, size_of};
 use core::ptr::NonNull;
 
+use super::payload::{PayloadArena, PayloadError, drop_stored, read_stored};
 use super::{Component, Entity, World};
 
 const MIN_PAYLOAD_CAPACITY: usize = 64;
-
-struct PayloadArena {
-    data: NonNull<MaybeUninit<u8>>,
-    capacity: usize,
-    alignment: usize,
-    len: usize,
-}
-
-impl Default for PayloadArena {
-    fn default() -> Self {
-        Self {
-            data: NonNull::dangling(),
-            capacity: 0,
-            alignment: 1,
-            len: 0,
-        }
-    }
-}
-
-impl PayloadArena {
-    fn store<T: 'static>(&mut self, value: T) -> usize {
-        if size_of::<T>() == 0 {
-            // SAFETY: aligned dangling storage is valid for a ZST write and
-            // transfers the value's logical ownership into the command.
-            unsafe { NonNull::<T>::dangling().as_ptr().write(value) };
-            return 0;
-        }
-
-        let offset =
-            align_up(self.len, align_of::<T>()).expect("deferred command payload offset overflow");
-        let end = offset
-            .checked_add(size_of::<T>())
-            .expect("deferred command payload size overflow");
-        self.reserve(end, align_of::<T>());
-        // SAFETY: reserve established enough storage with T's alignment.
-        unsafe { self.data.as_ptr().add(offset).cast::<T>().write(value) };
-        self.len = end;
-        offset
-    }
-
-    fn reserve(&mut self, required: usize, required_alignment: usize) {
-        if required <= self.capacity && required_alignment <= self.alignment {
-            return;
-        }
-
-        let doubled = self.capacity.checked_mul(2).unwrap_or(self.capacity);
-        let capacity = cmp::max(cmp::max(required, doubled), MIN_PAYLOAD_CAPACITY)
-            .checked_next_power_of_two()
-            .unwrap_or(cmp::max(required, doubled));
-        let alignment = cmp::max(self.alignment, required_alignment);
-        let layout = Layout::from_size_align(capacity, alignment)
-            .expect("invalid deferred command payload layout");
-        // SAFETY: layout is non-zero and valid.
-        let allocation = unsafe { alloc(layout) };
-        let Some(data) = NonNull::new(allocation.cast::<MaybeUninit<u8>>()) else {
-            handle_alloc_error(layout);
-        };
-
-        if self.capacity != 0 {
-            // SAFETY: both allocations cover at least self.len bytes and do
-            // not overlap. Byte copy preserves initialized payload state.
-            unsafe {
-                core::ptr::copy_nonoverlapping(self.data.as_ptr(), data.as_ptr(), self.len);
-                dealloc(
-                    self.data.as_ptr().cast::<u8>(),
-                    Layout::from_size_align_unchecked(self.capacity, self.alignment),
-                );
-            }
-        }
-        self.data = data;
-        self.capacity = capacity;
-        self.alignment = alignment;
-    }
-
-    fn ptr(&mut self, offset: usize) -> *mut u8 {
-        // SAFETY: every non-ZST record stores an offset below len. ZST
-        // helpers ignore this pointer and use a type-aligned dangling value.
-        unsafe { self.data.as_ptr().add(offset).cast::<u8>() }
-    }
-
-    fn clear(&mut self) {
-        self.len = 0;
-    }
-}
-
-impl Drop for PayloadArena {
-    fn drop(&mut self) {
-        if self.capacity == 0 {
-            return;
-        }
-        // SAFETY: the allocation was created with this exact layout and all
-        // live payloads have already been consumed or discarded by the queue.
-        unsafe {
-            dealloc(
-                self.data.as_ptr().cast::<u8>(),
-                Layout::from_size_align_unchecked(self.capacity, self.alignment),
-            );
-        }
-    }
-}
 
 #[derive(Clone, Copy)]
 struct CommandRecord {
@@ -142,7 +42,7 @@ impl CommandQueue {
         self.records
             .try_reserve(1)
             .expect("deferred command record capacity exhausted");
-        let offset = self.payload.store(value);
+        let offset = self.store_payload(value);
         self.records.push(CommandRecord {
             target,
             payload_offset: offset,
@@ -150,6 +50,34 @@ impl CommandQueue {
             drop_payload: Some(drop_stored::<T>),
             consumed: false,
         });
+    }
+
+    fn store_payload<T: 'static>(&mut self, value: T) -> usize {
+        let (required, alignment) = self
+            .payload
+            .required::<T>()
+            .expect("deferred command payload size overflow");
+        if required > self.payload.capacity() || alignment > self.payload.alignment() {
+            let current = self.payload.capacity();
+            let doubled = current.checked_mul(2).unwrap_or(current);
+            let capacity = cmp::max(cmp::max(required, doubled), MIN_PAYLOAD_CAPACITY)
+                .checked_next_power_of_two()
+                .unwrap_or(cmp::max(required, doubled));
+            match self.payload.reserve(capacity, alignment) {
+                Ok(()) => {}
+                Err(PayloadError::AllocationFailed) => {
+                    let layout =
+                        Layout::from_size_align(capacity, alignment.max(self.payload.alignment()))
+                            .expect("invalid deferred command payload layout");
+                    handle_alloc_error(layout);
+                }
+                Err(error) => panic!("deferred command payload reservation failed: {error:?}"),
+            }
+        }
+        match self.payload.try_store(value) {
+            Ok(offset) => offset,
+            Err((error, _value)) => panic!("deferred command payload storage failed: {error:?}"),
+        }
     }
 
     fn push_empty(
@@ -287,32 +215,6 @@ impl DeferredCommands<'_> {
     #[doc(hidden)]
     pub fn remove_resource<T: 'static>(&mut self) {
         self.queue.push_empty(None, apply_remove_resource::<T>);
-    }
-}
-
-fn align_up(value: usize, alignment: usize) -> Option<usize> {
-    debug_assert!(alignment.is_power_of_two());
-    value
-        .checked_add(alignment - 1)
-        .map(|value| value & !(alignment - 1))
-}
-
-unsafe fn read_stored<T>(payload: *mut u8) -> T {
-    if size_of::<T>() == 0 {
-        // SAFETY: dangling is valid for aligned ZST reads.
-        return unsafe { NonNull::<T>::dangling().as_ptr().read() };
-    }
-    // SAFETY: the record stores a live T at this aligned payload address.
-    unsafe { payload.cast::<T>().read() }
-}
-
-unsafe fn drop_stored<T>(payload: *mut u8) {
-    if size_of::<T>() == 0 {
-        // SAFETY: the queue owns one logical ZST value.
-        unsafe { NonNull::<T>::dangling().as_ptr().drop_in_place() };
-    } else {
-        // SAFETY: the record stores one live T at this payload address.
-        unsafe { payload.cast::<T>().drop_in_place() };
     }
 }
 
