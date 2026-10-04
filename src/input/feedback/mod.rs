@@ -1,7 +1,7 @@
 //! Cursor + rotary input feedback overlays.
 //!
 //! Two ECS entities live under [`crate::ui::WidgetRoot`], one per
-//! overlay kind. They are spawned by [`InputFeedbackPlugin`] (cursor
+//! overlay kind. They are spawned by [`InputFeedbackPlugin`](crate::app::plugins::InputFeedbackPlugin) (cursor
 //! lazily, on first [`crate::input::event::PointerCursor`]) and dirty-tracked
 //! through the standard per-entity `Dirty` + `PrevRect` mechanism.
 //!

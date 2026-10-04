@@ -330,6 +330,14 @@ Subscriptions reserve visual notification queue capacity when attached; model
 updates and notifications reuse that capacity. Component replacement and
 removal update bindings before the next paint.
 
+A View describes a widget kind, not just its paint function. Paint, attach,
+gesture, observation, and systems are independent capabilities.
+`View::systems_only(name, systems)` registers behavior without a paint hook;
+TabPages and LazyList use this path and remain Views. Paint traversal skips
+these descriptors. Paint priority orders only drawing, with registration order
+breaking ties. Gesture hooks retain registration order, and contributed systems
+use their own `SystemSlot`.
+
 ## Choosing state and rendering roles
 
 | Role | Use | Update path |
@@ -339,7 +347,7 @@ removal update bindings before the next paint.
 | `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `model!(T)` fields retain registered model identity |
 | `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances among generated bindings, callbacks, and direct child calls |
 | `com!(entity, T)` | Read a component in composition or an event | Returns a short-lived `Option<&T>` without subscribing |
-| `#[view]` | Render a component | The attribute declares the primary component; typed roles declare model projections, watched selectors, resources, and paint capabilities |
+| `View` / `#[view]` | Register a widget kind; the attribute generates its paint callback | Independent hooks provide painting, attachment, gestures, observation, and systems; typed paint roles declare model projections and resources |
 | `#[system]` | Scheduled updates | `model!(T)` captures a registered instance; `res!`, `query!`, and `commands!` declare all other runtime access |
 | `on Event { ... }` | Handle gesture and widget business events | Event fields are local bindings; `com!` reads and `commands!()` defers structural changes |
 | `#[timer]` | Run a callback on a time schedule | `model!`, `entity!`, and `commands!` declare callback access |
@@ -349,8 +357,8 @@ removal update bindings before the next paint.
 
 `#[model]` does not replace components: a model has application-level identity,
 while components attach behavior and model bindings to individual entities.
-`#[view]` does not replace composition: the View paints a component, while
-`#[compose]` builds its surrounding widget tree. `Signal<T>` remains useful
+`#[view]` does not replace composition: it defines a component's paint callback,
+while `#[compose]` builds its surrounding widget tree. `Signal<T>` remains useful
 for a small independent value; a model does not need to wrap every signal.
 
 `Slider` input and `prop::SliderValue` use the same clamped value update. A

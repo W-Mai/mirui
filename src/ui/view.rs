@@ -1,9 +1,8 @@
-// View registry — the type-level definition of one widget kind.
-//
-// `Widget` (in `widget/mod.rs`) is a per-entity marker. `View` is the
-// per-kind dispatch entry: render fn + auto-attach fn + priority.
-// `App::default_views()` populates the registry with built-ins; user
-// code adds custom kinds via `App::register_view`.
+//! Widget-kind descriptors and registration.
+//!
+//! Each [`View`] combines independent paint, attach, gesture, observation,
+//! and system capabilities. Paint priority affects only the paint traversal;
+//! per-entity hooks retain registration order, and systems keep their scheduling slots.
 
 use alloc::vec::Vec;
 use core::any::TypeId;
@@ -440,6 +439,7 @@ struct ViewPaint {
     render: ViewRender,
 }
 
+/// Widget-kind descriptor with optional painting and independent behavior hooks.
 pub struct View {
     name: &'static str,
     paint: Option<ViewPaint>,
@@ -462,6 +462,8 @@ pub struct View {
 }
 
 impl View {
+    /// Create a painting View. Lower priorities paint first; equal priorities
+    /// retain registration order. Priority does not order gestures or systems.
     pub const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
         Self {
             name,
@@ -488,7 +490,7 @@ impl View {
         self
     }
 
-    /// Restrict `render` dispatch to entities owning component `T`.
+    /// Restrict per-entity hooks to entities owning component `T`.
     pub const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
         self.component_filter = Some(TypeId::of::<T>);
         self
@@ -529,7 +531,9 @@ impl View {
         self.registration_id.expect("View has not been registered")
     }
 
-    /// Marker widget: only contributes systems, no rendering.
+    /// Create a widget descriptor without a paint hook.
+    /// Systems are installed through normal widget registration; attach,
+    /// gesture, and observation hooks can be added with the other builders.
     pub const fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
         Self {
             name,
@@ -721,6 +725,7 @@ impl ViewRegistry {
         }
     }
 
+    /// Iterate all descriptors in registration order, including those without paint.
     pub fn iter(&self) -> impl Iterator<Item = &View> {
         self.views.iter()
     }

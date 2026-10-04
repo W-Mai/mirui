@@ -1035,7 +1035,7 @@ impl Texture<'static> {
     }
 }
 
-/// Cheap geometry snapshot used as [`HasProbe::Meta`].
+/// Cheap geometry snapshot used as [`HasProbe::Meta`](crate::core::resource::HasProbe::Meta).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextureMeta {
     pub width: u16,

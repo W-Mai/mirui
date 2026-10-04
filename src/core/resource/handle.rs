@@ -6,7 +6,7 @@ use crate::core::cache::HasSize;
 use crate::core::resource::manager_inner::{self, ManagerInner, ResolveOutcome};
 use crate::core::resource::probe::HasProbe;
 
-/// Lease on a token registered with a [`ResourceManager`]. Holding a handle
+/// Lease on a token registered with a [`ResourceManager`](super::ResourceManager). Holding a handle
 /// bumps the manager's per-token refcount; cloning bumps it again, dropping
 /// decrements it. Use [`ResourceHandle::get`] for programmatic access — it
 /// returns an [`Rc<T>`] that survives the manager being dropped (handle

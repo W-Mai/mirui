@@ -69,7 +69,7 @@
 //!   [`model`][core::model] instances, the [`reactive`][core::reactive] runtime (Signal / Computed / Effect),
 //!   perf tracing, timer.
 //! - [`ecs`]: World, Entity, Component, Resource, Query, System, SystemScheduler.
-//! - [`ui`]: widget tree primitives (Style, View, Theme, Dirty),
+//! - [`mod@ui`]: widget tree primitives (Style, View, Theme, Dirty),
 //!   [`ui::layout`] (flexbox + absolute positioning), and [`ui::widgets`]
 //!   (built-in widget instances — buttons, sliders, lazy lists, effects).
 //! - [`render`]: software rasterizer, paths, textures, draw commands, font,

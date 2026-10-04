@@ -2,7 +2,7 @@
 //! [`crate::input::feedback`] systems and views into [`App`].
 //!
 //! Cursor entity is lazily spawned by `cursor_feedback_system` on the
-//! first [`PointerCursor`]. Rotary entity is spawned eagerly in this
+//! first [`PointerCursor`](crate::input::event::PointerCursor). Rotary entity is spawned eagerly in this
 //! plugin's `pre_render` once `WidgetRoot` is set, so its absolute
 //! Style is in place before the rotary system runs.
 

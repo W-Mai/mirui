@@ -268,7 +268,7 @@ impl Scene {
 
     /// Multiplies `opacity` into each child's alpha at replay — children
     /// stay independently transparent, no implicit flatten. For SVG-style
-    /// "flatten then dim" semantics use [`group_opacity`].
+    /// "flatten then dim" semantics use [`group_opacity`](Self::group_opacity).
     pub fn group_alpha_multiply(
         &mut self,
         transform: Transform,

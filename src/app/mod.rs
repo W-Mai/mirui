@@ -574,7 +574,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Owned snapshot of the entity's rendered output. One-off cost:
     /// triggers a full-tree render if the entity isn't already
-    /// cached. For sustained access use [`WidgetTextureRef`].
+    /// cached. For sustained access use [`WidgetTextureRef`](crate::ui::offscreen::WidgetTextureRef).
     ///
     /// `None` when the renderer doesn't expose offscreen rendering
     /// (GPU backends) or when the pool can't fit the entity's buffer.
@@ -782,7 +782,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Run a UI composition against a given parent entity.
     ///
-    /// Wraps `App::world` and `parent` in a fresh [`UiScope`] and hands it to
+    /// Wraps `App::world` and `parent` in a fresh [`UiScope`](crate::ui::UiScope) and hands it to
     /// the given closure, so demo entry points can chain the framework
     /// setup and the widget tree in a single builder call:
     ///
@@ -1503,8 +1503,7 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
 }
 
 /// Owns an [`App`] and drives [`tick`][App::tick] from a non-blocking
-/// loop. Native: [`run_blocking`][Runner::run_blocking]. Wasm:
-/// [`start_animation_frame`][Runner::start_animation_frame].
+/// loop. Native: `Runner::run_blocking`. Wasm: `Runner::start_animation_frame`.
 pub struct Runner<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     app: App<B, F>,
 }

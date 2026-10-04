@@ -1,8 +1,6 @@
 //! Generic resource manager. Token-string identification, [`core::cell::RefCell`]
-//! interior mutability for [`&World`]-only access from render code, and an
+//! interior mutability for shared [`World`](crate::ecs::World) access from render code, and an
 //! optional probe sidecar gated on [`HasProbe`].
-//!
-//! See `.local/specs/1.0-resource-management/design.md` for the full design.
 
 extern crate alloc;
 
