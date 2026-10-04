@@ -1,0 +1,15 @@
+error[E0521]: borrowed data escapes outside of closure
+ --> tests/event_type_contracts/fail/notification_borrow.rs:9:9
+  |
+7 |     let mut retained = None;
+  |         ------------ `retained` declared here, outside of the closure body
+8 |     let _ = queue.flush(1, |notification| {
+  |                             ------------ `notification` is a reference that is only valid in the closure body
+9 |         retained = notification.payload::<slider::ValueChanged>();
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `notification` escapes the closure body here
+
+error[E0594]: cannot assign to data in a `&` reference
+  --> tests/event_type_contracts/fail/notification_borrow.rs:13:9
+   |
+13 |         notification.payload::<slider::ValueChanged>().unwrap().new = Fixed::ZERO;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot assign

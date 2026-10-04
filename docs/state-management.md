@@ -426,6 +426,23 @@ Wheel and rotary callback sources are App-only.
 implement platform-input projection: raw suspend/resume/quit requests must not
 be treated as notifications of completed lifecycle transitions.
 
+### Notification payload storage
+
+Internal notification storage owns payloads in two explicitly reserved buffers.
+A callback reads one stable payload window while emitted notifications append
+to the other buffer. Remaining records in the current batch run before callback
+writes, preserving FIFO order without recursive delivery.
+
+Record count, payload bytes, and alignment are logical limits; unused allocator
+capacity does not raise them. Writes within those limits do not allocate.
+Rejected writes return the original payload, and interrupted or feedback-limited
+flushes destroy pending values and restore reusable storage. Notification
+references are read-only and cannot escape their invocation.
+
+This storage facility does not install listeners, resolve widget sources, or
+validate an application's owner and entity generations. Those checks belong to
+event installation and routing, not the payload arena.
+
 ## Choosing state and rendering roles
 
 | Role | Use | Update path |

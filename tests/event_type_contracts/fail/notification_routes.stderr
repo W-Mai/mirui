@@ -1,0 +1,50 @@
+error[E0271]: type mismatch resolving `<ValueChanged as Event>::Route == AppNotification`
+  --> tests/event_type_contracts/fail/notification_routes.rs:14:28
+   |
+14 |       let _ = queue.push_app(slider::ValueChanged {
+   |  ___________________--------_^
+   | |                   |
+   | |                   required by a bound introduced by this call
+15 | |         new: Fixed::ONE,
+16 | |         old: Fixed::ZERO,
+17 | |     });
+   | |_____^ expected `AppNotification`, found `EntityNotification`
+   |
+note: required by a bound in `mirui::__macro_support::NotificationQueue::push_app`
+  --> src/input/event/notification.rs
+   |
+   |     pub fn push_app<E: Event<Route = AppNotification>>(
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `NotificationQueue::push_app`
+
+error[E0271]: type mismatch resolving `<Started as Event>::Route == EntityNotification`
+  --> tests/event_type_contracts/fail/notification_routes.rs:18:39
+   |
+18 |     let _ = queue.push_entity(entity, Started);
+   |                   -----------         ^^^^^^^ expected `EntityNotification`, found `AppNotification`
+   |                   |
+   |                   required by a bound introduced by this call
+   |
+note: required by a bound in `mirui::__macro_support::NotificationQueue::push_entity`
+  --> src/input/event/notification.rs
+   |
+   |     pub fn push_entity<E: Event<Route = EntityNotification>>(
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `NotificationQueue::push_entity`
+
+error[E0271]: type mismatch resolving `<Tap as Event>::Route == EntityNotification`
+  --> tests/event_type_contracts/fail/notification_routes.rs:21:9
+   |
+19 |       let _ = queue.push_entity(
+   |                     ----------- required by a bound introduced by this call
+20 |           entity,
+21 | /         Tap {
+22 | |             x: Fixed::ZERO,
+23 | |             y: Fixed::ZERO,
+24 | |             target: entity,
+25 | |         },
+   | |_________^ expected `EntityNotification`, found `EntityBubble`
+   |
+note: required by a bound in `mirui::__macro_support::NotificationQueue::push_entity`
+  --> src/input/event/notification.rs
+   |
+   |     pub fn push_entity<E: Event<Route = EntityNotification>>(
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `NotificationQueue::push_entity`
