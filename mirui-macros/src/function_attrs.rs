@@ -1,9 +1,10 @@
-//! Attribute routing for generated callback bodies and registration modules.
+//! Attribute routing for callback bodies, declarations, and conditional items.
 use syn::{Attribute, Meta, Token};
 
 pub(crate) struct FunctionAttributes {
     pub(crate) helper: Vec<Attribute>,
-    pub(crate) module: Vec<Attribute>,
+    pub(crate) declaration: Vec<Attribute>,
+    pub(crate) conditional: Vec<Attribute>,
 }
 
 pub(crate) fn classify_function_attributes(
@@ -11,11 +12,12 @@ pub(crate) fn classify_function_attributes(
     context: &str,
 ) -> syn::Result<FunctionAttributes> {
     let mut helper = Vec::new();
-    let mut module = Vec::new();
+    let mut declaration = Vec::new();
+    let mut conditional = Vec::new();
     for attribute in attributes {
         if attribute.path().is_ident("cfg") {
             helper.push(attribute.clone());
-            module.push(attribute);
+            conditional.push(attribute);
         } else if attribute.path().is_ident("cfg_attr") {
             let nested = attribute.parse_args_with(
                 syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated,
@@ -35,7 +37,8 @@ pub(crate) fn classify_function_attributes(
                 ));
             }
             let mut helper_nested = Vec::new();
-            let mut module_nested = Vec::new();
+            let mut declaration_nested = Vec::new();
+            let mut conditional_nested = Vec::new();
             for meta in nested {
                 if meta.path().is_ident("cfg_attr") {
                     return Err(syn::Error::new_spanned(
@@ -45,9 +48,9 @@ pub(crate) fn classify_function_attributes(
                 }
                 if meta.path().is_ident("cfg") {
                     helper_nested.push(meta.clone());
-                    module_nested.push(meta);
+                    conditional_nested.push(meta);
                 } else if meta.path().is_ident("doc") || meta.path().is_ident("deprecated") {
-                    module_nested.push(meta);
+                    declaration_nested.push(meta);
                 } else {
                     helper_nested.push(meta);
                 }
@@ -57,16 +60,101 @@ pub(crate) fn classify_function_attributes(
                     #[cfg_attr(#condition, #(#helper_nested),*)]
                 ));
             }
-            if !module_nested.is_empty() {
-                module.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#module_nested),*)]
+            if !declaration_nested.is_empty() {
+                declaration.push(syn::parse_quote!(
+                    #[cfg_attr(#condition, #(#declaration_nested),*)]
+                ));
+            }
+            if !conditional_nested.is_empty() {
+                conditional.push(syn::parse_quote!(
+                    #[cfg_attr(#condition, #(#conditional_nested),*)]
                 ));
             }
         } else if attribute.path().is_ident("doc") || attribute.path().is_ident("deprecated") {
-            module.push(attribute);
+            declaration.push(attribute);
         } else {
             helper.push(attribute);
         }
     }
-    Ok(FunctionAttributes { helper, module })
+    Ok(FunctionAttributes {
+        helper,
+        declaration,
+        conditional,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    #[test]
+    fn separates_body_declaration_and_conditional_attributes() {
+        let function: syn::ItemFn = syn::parse_quote! {
+            #[cfg(all())]
+            #[doc = "A callback."]
+            #[inline]
+            #[cfg_attr(all(), cfg(any()), doc = "Conditional docs.", inline)]
+            fn callback() {}
+        };
+        let FunctionAttributes {
+            helper,
+            declaration,
+            conditional,
+        } = classify_function_attributes(function.attrs, "callbacks").unwrap();
+        assert_eq!(
+            quote!(#(#helper)*).to_string(),
+            quote!(
+                #[cfg(all())]
+                #[inline]
+                #[cfg_attr(all(), cfg(any()), inline)]
+            )
+            .to_string()
+        );
+        assert_eq!(
+            quote!(#(#declaration)*).to_string(),
+            quote!(
+                #[doc = "A callback."]
+                #[cfg_attr(all(), doc = "Conditional docs.")]
+            )
+            .to_string()
+        );
+        assert_eq!(
+            quote!(#(#conditional)*).to_string(),
+            quote!(
+                #[cfg(all())]
+                #[cfg_attr(all(), cfg(any()))]
+            )
+            .to_string()
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_conditional_attributes_in_every_callback_lane() {
+        for context in [
+            "systems",
+            "event callbacks",
+            "timers",
+            "views",
+            "animations",
+        ] {
+            for function in [
+                syn::parse_quote!(
+                    #[cfg_attr()]
+                    fn callback() {}
+                ),
+                syn::parse_quote!(
+                    #[cfg_attr(all())]
+                    fn callback() {}
+                ),
+                syn::parse_quote!(
+                    #[cfg_attr(all(), cfg_attr(all(), inline))]
+                    fn callback() {}
+                ),
+            ] {
+                let function: syn::ItemFn = function;
+                assert!(classify_function_attributes(function.attrs, context).is_err());
+            }
+        }
+    }
 }

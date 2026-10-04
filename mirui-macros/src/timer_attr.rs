@@ -1,9 +1,10 @@
+use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use std::collections::HashSet;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, FnArg, Ident, ItemFn, Meta, Pat, ReturnType, Token};
+use syn::{Expr, FnArg, Ident, ItemFn, Pat, ReturnType, Token};
 
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingSource, BindingSpec,
@@ -284,7 +285,7 @@ fn lower(
 ) -> syn::Result<TokenStream> {
     let function_name = function.sig.ident;
     let visibility = function.vis;
-    let attributes = classify_function_attributes(function.attrs)?;
+    let attributes = classify_function_attributes(function.attrs, "timers")?;
     let body = function.block;
     let schedule = args.schedule.lower();
     let helper_name = format_ident!(
@@ -388,7 +389,11 @@ fn lower(
         }
     };
 
-    let FunctionAttributes { helper, module } = attributes;
+    let FunctionAttributes {
+        helper,
+        declaration,
+        conditional,
+    } = attributes;
     Ok(quote! {
         #(#helper)*
         #[doc(hidden)]
@@ -396,7 +401,8 @@ fn lower(
             #body
         }
 
-        #(#module)*
+        #(#conditional)*
+        #(#declaration)*
         #[allow(non_snake_case, non_camel_case_types)]
         #visibility mod #function_name {
             #[allow(unused_imports)]
@@ -424,73 +430,6 @@ fn lower_helper_parameter(binding: &BindingSpec) -> syn::Result<TokenStream> {
             "binding role is not available in `#[timer]`",
         )),
     }
-}
-
-struct FunctionAttributes {
-    helper: Vec<Attribute>,
-    module: Vec<Attribute>,
-}
-
-fn classify_function_attributes(attributes: Vec<Attribute>) -> syn::Result<FunctionAttributes> {
-    let mut helper = Vec::new();
-    let mut module = Vec::new();
-    for attribute in attributes {
-        if attribute.path().is_ident("cfg") {
-            helper.push(attribute.clone());
-            module.push(attribute);
-        } else if attribute.path().is_ident("cfg_attr") {
-            let nested = attribute.parse_args_with(
-                syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated,
-            )?;
-            let mut nested = nested.into_iter();
-            let Some(condition) = nested.next() else {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires a condition and at least one attribute",
-                ));
-            };
-            let nested = nested.collect::<Vec<_>>();
-            if nested.is_empty() {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires at least one conditional attribute",
-                ));
-            }
-            let mut helper_nested = Vec::new();
-            let mut module_nested = Vec::new();
-            for meta in nested {
-                if meta.path().is_ident("cfg_attr") {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "nested `cfg_attr` is not supported on timers",
-                    ));
-                }
-                if meta.path().is_ident("cfg") {
-                    helper_nested.push(meta.clone());
-                    module_nested.push(meta);
-                } else if meta.path().is_ident("doc") || meta.path().is_ident("deprecated") {
-                    module_nested.push(meta);
-                } else {
-                    helper_nested.push(meta);
-                }
-            }
-            if !helper_nested.is_empty() {
-                helper.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#helper_nested),*)]
-                ));
-            }
-            if !module_nested.is_empty() {
-                module.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#module_nested),*)]
-                ));
-            }
-        } else if attribute.path().is_ident("doc") || attribute.path().is_ident("deprecated") {
-            module.push(attribute);
-        } else {
-            helper.push(attribute);
-        }
-    }
-    Ok(FunctionAttributes { helper, module })
 }
 
 fn capture_name(name: &Ident) -> Ident {

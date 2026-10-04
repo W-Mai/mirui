@@ -26,7 +26,7 @@ mod nested {
 
     #[view(component = Tile, invalidation = Layout)]
     #[allow(clippy::let_and_return)]
-    #[cfg_attr(all(), inline)]
+    #[cfg_attr(all(), cfg(all()), doc = "A typed paint callback.", inline)]
     pub fn paint(
         tile: component!(),
         state: model!(component.state, watch(value)),

@@ -234,6 +234,7 @@ mod relative {
     }
 
     #[event]
+    #[cfg_attr(all(), cfg(all()), doc = "A typed event callback.", inline)]
     pub fn update(
         counter: model!(super::Counter),
         amount: [u8; <self::Marker as super::CallbackTypes>::WIDTH],

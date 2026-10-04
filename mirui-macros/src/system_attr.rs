@@ -317,7 +317,11 @@ fn lower(
         }
     };
 
-    let FunctionAttributes { helper, module } = attributes;
+    let FunctionAttributes {
+        helper,
+        declaration,
+        conditional,
+    } = attributes;
     Ok(quote! {
         #(#helper)*
         #[doc(hidden)]
@@ -326,7 +330,8 @@ fn lower(
             #body
         }
 
-        #(#module)*
+        #(#conditional)*
+        #(#declaration)*
         #[allow(non_snake_case, non_camel_case_types)]
         #visibility mod #function_name {
             #[allow(unused_imports)]

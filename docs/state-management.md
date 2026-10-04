@@ -603,6 +603,12 @@ while components attach behavior and model bindings to individual entities.
 while `#[compose]` builds its surrounding widget tree. `Signal<T>` remains useful
 for a small independent value; a model does not need to wrap every signal.
 
+`#[system]`, `#[event]`, `#[timer]`, `#[view]`, and `#[animate]` share callback
+attribute routing. Conditional compilation applies to every generated item.
+Function attributes such as `inline` apply to the callback body; documentation
+applies to its registration module or generated motion component. `cfg_attr`
+entries are split by that purpose, and malformed or nested entries are rejected.
+
 `Slider` input and `prop::SliderValue` use the same clamped value update. A
 programmatic property change invalidates the control without emitting a user
 gesture event.

@@ -14,7 +14,7 @@ mod nested {
     #[system]
     #[doc = "A relative-path system."]
     #[allow(clippy::let_and_return)]
-    #[cfg_attr(all(), inline)]
+    #[cfg_attr(all(), cfg(all()), doc = "A typed system callback.", inline)]
     pub fn relative_paths() {
         let value = super::ROOT_OFFSET + self::LOCAL_OFFSET + self::local_offset();
         assert_eq!(value, 10);

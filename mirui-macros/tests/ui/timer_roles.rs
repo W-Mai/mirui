@@ -19,6 +19,8 @@ impl Counter {
 }
 
 #[timer(after = 10)]
+#[doc = "A typed timer."]
+#[cfg_attr(all(), cfg(all()), doc = "Timer callback.", inline)]
 fn once(timer: entity!(), commands: commands!()) {
     commands.insert(timer, Marker);
 }
@@ -34,6 +36,12 @@ fn bounded_count() {}
 
 #[timer(until = (120, 40))]
 fn bounded_deadline() {}
+
+#[timer(after = 10)]
+#[cfg_attr(all(), cfg(any()), doc = "Disabled timer.", inline)]
+fn disabled(counter: model!(UnknownType)) {
+    unresolved_when_enabled(counter);
+}
 
 fn main() {
     let mut app = App::headless(32, 32);

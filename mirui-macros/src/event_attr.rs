@@ -258,15 +258,19 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
     let visibility = &function.vis;
     let output = &function.sig.output;
     let body = &function.block;
-    let FunctionAttributes { helper, module } =
-        classify_function_attributes(function.attrs, "event callbacks")?;
+    let FunctionAttributes {
+        helper,
+        declaration,
+        conditional,
+    } = classify_function_attributes(function.attrs, "event callbacks")?;
     Ok(quote! {
         #(#helper)*
         #[doc(hidden)]
         #[allow(clippy::too_many_arguments)]
         fn #helper_name(#(#helper_parameters),*) #output #body
 
-        #(#module)*
+        #(#conditional)*
+        #(#declaration)*
         #[allow(non_snake_case, non_camel_case_types)]
         #visibility mod #name {
             #[allow(unused_imports)]

@@ -5,16 +5,14 @@ use quote::{ToTokens, format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{
-    Attribute, Expr, FnArg, Ident, ItemFn, LitStr, Meta, Pat, Path, ReturnType, Token, Type,
-    bracketed,
-};
+use syn::{Expr, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type, bracketed};
 
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
     BindingSpec, BindingSyntax, ComponentSource, ComponentTarget, LogicalType, ModelSource,
     ResourceSource, RoleKind, VIEW_ROLES,
 };
+use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 
 mod keyword {
     syn::custom_keyword!(optional);
@@ -409,7 +407,7 @@ fn capability_name(capability: BindingCapability) -> &'static str {
 fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::Result<TokenStream> {
     let function_name = function.sig.ident;
     let visibility = function.vis;
-    let attributes = classify_function_attributes(function.attrs)?;
+    let attributes = classify_function_attributes(function.attrs, "views")?;
     let body = function.block;
     let helper_name = format_ident!(
         "__mirui_view_body_{function_name}",
@@ -492,7 +490,11 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         quote!(const SYSTEMS: &[::mirui::ecs::System] = &[#(#systems),*];)
     });
     let with_systems = (!args.systems.is_empty()).then(|| quote!(.with_systems(SYSTEMS)));
-    let FunctionAttributes { helper, module } = attributes;
+    let FunctionAttributes {
+        helper,
+        declaration,
+        conditional,
+    } = attributes;
 
     Ok(quote! {
         #(#helper)*
@@ -503,7 +505,8 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
             #helper_body
         }
 
-        #(#module)*
+        #(#conditional)*
+        #(#declaration)*
         #[allow(non_snake_case, non_camel_case_types)]
         #visibility mod #function_name {
             #[allow(unused_imports)]
@@ -719,72 +722,6 @@ fn lower_observation(
 
 fn fetched_name(name: &Ident) -> Ident {
     format_ident!("__mirui_resource_{name}", span = Span::mixed_site())
-}
-
-struct FunctionAttributes {
-    helper: Vec<Attribute>,
-    module: Vec<Attribute>,
-}
-
-fn classify_function_attributes(attributes: Vec<Attribute>) -> syn::Result<FunctionAttributes> {
-    let mut helper = Vec::new();
-    let mut module = Vec::new();
-    for attribute in attributes {
-        if attribute.path().is_ident("cfg") {
-            helper.push(attribute.clone());
-            module.push(attribute);
-        } else if attribute.path().is_ident("cfg_attr") {
-            let nested =
-                attribute.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
-            let mut nested = nested.into_iter();
-            let Some(condition) = nested.next() else {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires a condition and at least one attribute",
-                ));
-            };
-            let nested = nested.collect::<Vec<_>>();
-            if nested.is_empty() {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires at least one conditional attribute",
-                ));
-            }
-            let mut helper_nested = Vec::new();
-            let mut module_nested = Vec::new();
-            for meta in nested {
-                if meta.path().is_ident("cfg_attr") {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "nested `cfg_attr` is not supported on views",
-                    ));
-                }
-                if meta.path().is_ident("cfg") {
-                    helper_nested.push(meta.clone());
-                    module_nested.push(meta);
-                } else if meta.path().is_ident("doc") || meta.path().is_ident("deprecated") {
-                    module_nested.push(meta);
-                } else {
-                    helper_nested.push(meta);
-                }
-            }
-            if !helper_nested.is_empty() {
-                helper.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#helper_nested),*)]
-                ));
-            }
-            if !module_nested.is_empty() {
-                module.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#module_nested),*)]
-                ));
-            }
-        } else if attribute.path().is_ident("doc") || attribute.path().is_ident("deprecated") {
-            module.push(attribute);
-        } else {
-            helper.push(attribute);
-        }
-    }
-    Ok(FunctionAttributes { helper, module })
 }
 
 #[cfg(test)]

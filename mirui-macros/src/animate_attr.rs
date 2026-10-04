@@ -1,8 +1,9 @@
+use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{Attribute, Ident, ItemFn, LitStr, Meta, ReturnType, Token};
+use syn::{Ident, ItemFn, LitStr, ReturnType, Token};
 
 use crate::binding::{BindingAccess, BindingCapability, BindingSource, BindingSpec, ModelSource};
 
@@ -116,7 +117,7 @@ fn lower(
 ) -> syn::Result<TokenStream> {
     let function_name = function.sig.ident;
     let visibility = function.vis;
-    let attributes = classify_function_attributes(function.attrs)?;
+    let attributes = classify_function_attributes(function.attrs, "animations")?;
     let body = function.block;
     let motion_component = args.component;
     let system_name = LitStr::new(&motion_component.to_string(), motion_component.span());
@@ -191,12 +192,12 @@ fn lower(
 
     let FunctionAttributes {
         helper,
-        component,
+        declaration,
         conditional,
     } = attributes;
     Ok(quote! {
         #(#conditional)*
-        #(#component)*
+        #(#declaration)*
         #visibility struct #motion_component(#visibility ::mirui::anim::Motion);
 
         #(#conditional)*
@@ -300,85 +301,6 @@ fn lower_helper_argument(
             "binding role is not available in `#[animate]`",
         )),
     }
-}
-
-struct FunctionAttributes {
-    helper: Vec<Attribute>,
-    component: Vec<Attribute>,
-    conditional: Vec<Attribute>,
-}
-
-fn classify_function_attributes(attributes: Vec<Attribute>) -> syn::Result<FunctionAttributes> {
-    let mut helper = Vec::new();
-    let mut component = Vec::new();
-    let mut conditional = Vec::new();
-    for attribute in attributes {
-        if attribute.path().is_ident("cfg") {
-            helper.push(attribute.clone());
-            conditional.push(attribute);
-        } else if attribute.path().is_ident("cfg_attr") {
-            let nested = attribute.parse_args_with(
-                syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated,
-            )?;
-            let mut nested = nested.into_iter();
-            let Some(condition) = nested.next() else {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires a condition and at least one attribute",
-                ));
-            };
-            let nested = nested.collect::<Vec<_>>();
-            if nested.is_empty() {
-                return Err(syn::Error::new_spanned(
-                    attribute,
-                    "`cfg_attr` requires at least one conditional attribute",
-                ));
-            }
-            let mut helper_nested = Vec::new();
-            let mut component_nested = Vec::new();
-            let mut conditional_nested = Vec::new();
-            for meta in nested {
-                if meta.path().is_ident("cfg_attr") {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "nested `cfg_attr` is not supported on animations",
-                    ));
-                }
-                if meta.path().is_ident("cfg") {
-                    helper_nested.push(meta.clone());
-                    conditional_nested.push(meta);
-                } else if meta.path().is_ident("doc") || meta.path().is_ident("deprecated") {
-                    component_nested.push(meta);
-                } else {
-                    helper_nested.push(meta);
-                }
-            }
-            if !helper_nested.is_empty() {
-                helper.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#helper_nested),*)]
-                ));
-            }
-            if !component_nested.is_empty() {
-                component.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#component_nested),*)]
-                ));
-            }
-            if !conditional_nested.is_empty() {
-                conditional.push(syn::parse_quote!(
-                    #[cfg_attr(#condition, #(#conditional_nested),*)]
-                ));
-            }
-        } else if attribute.path().is_ident("doc") || attribute.path().is_ident("deprecated") {
-            component.push(attribute);
-        } else {
-            helper.push(attribute);
-        }
-    }
-    Ok(FunctionAttributes {
-        helper,
-        component,
-        conditional,
-    })
 }
 
 fn internal_ident(name: &str) -> Ident {

@@ -26,6 +26,8 @@ struct Marker;
 impl Component for Marker {}
 
 #[animate(component = AnimateTarget)]
+#[doc = "A typed motion component."]
+#[cfg_attr(all(), cfg(all()), doc = "Motion callback.", inline)]
 fn apply_target(
     game: model!(Game),
     entity: entity!(),
@@ -38,6 +40,12 @@ fn apply_target(
     target.value = value;
     game.set_value(value);
     commands.remove::<Marker>(entity);
+}
+
+#[animate(component = DisabledAnimation)]
+#[cfg_attr(all(), cfg(any()), doc = "Disabled animation.", inline)]
+fn disabled(target: component!(UnknownType), value: motion!()) {
+    unresolved_when_enabled(target, value);
 }
 
 fn assert_component<T: Component>() {}
