@@ -2505,89 +2505,128 @@ impl DsRune for MiruiRune {
     }
 }
 
-/// Inject a `cx: &mut UiScope` first parameter into the annotated function.
+/// Compose a widget tree with an implicit UI scope.
 ///
-/// The attribute exists to keep infrastructure out of the signature the user
-/// reads:
+/// Declare bound Model parameters with `model!(T)` or `model!(optional T)`.
+/// The caller supplies the Model instance; composition does not create or look
+/// up an instance. Model bindings are shared with reactive properties, event
+/// closures, and child compositions.
 ///
-/// ```ignore
+/// ```no_run
+/// # use mirui::prelude::*;
+/// # use mirui::ui::widgets::{Button, Text};
+/// #[model]
+/// struct Counter {
+///     #[observe]
+///     count: u32,
+/// }
+///
+/// #[model]
+/// impl Counter {
+///     fn increment(&mut self) {
+///         self.count += 1;
+///     }
+/// }
+///
 /// #[compose]
-/// fn counter_button(sig: Signal<i32>) {
+/// fn counter_panel(counter: model!(Counter)) -> Entity {
 ///     ui! {
-///         View (bg_color: ColorToken::Primary)
-///         on Tap { sig.update(|n| *n += 1); }
-///         { Text($sig) }
-///     };
+///         Column () {
+///             Text (text: ${ counter.count().to_string() })
+///             Button (text: "Increment") on Tap { counter.increment(); }
+///         }
+///     }
 /// }
 /// ```
 ///
-/// Every `ui!` invocation inside the function body reads `cx.world_mut()` /
-/// `cx.parent()` implicitly; callers pass their existing `cx` through the
-/// paired `ui!(func(args))` form so no site ever spells out `world` and
-/// `parent` again.
+/// Ordinary parameters, generic parameters, bounds, and return types retain
+/// their Rust meaning. A function used as a child node must return its root
+/// `Entity`; `ui!(helper(...))` forwards other return types unchanged.
 ///
-/// The attribute rejects three shapes at expansion time:
-///
-/// - non-function items — annotate a fn, or use `ui!(compose Name { ... })`
-///   when you want a full widget class.
-/// - `async fn` — cross-await UI state is a separate topic (v0.41+).
-/// - generic fn — parameter monomorphisation is deferred to a later release.
-///
-/// It also errors out if the user already declared a parameter named `cx`,
-/// so double-injection can't silently pass through.
+/// The attribute takes no arguments and applies only to synchronous free
+/// functions. The parameter name `cx` is reserved for the generated scope.
+/// Use `ui!(compose Name { ... })` to declare a reusable Niche widget instead
+/// of a composition function.
 #[proc_macro_attribute]
 pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
     compose_attr::expand(attr.into(), item.into()).into()
 }
 
-/// Spawn a widget tree, or forward to another `#[compose]` function.
+/// Build widget trees, call composition functions, or declare Niche widgets.
 ///
 /// The macro accepts three forms, distinguished by the shape of the input:
 ///
-/// - **Body form** (`ui! { <tree> }`) reads `cx` from the enclosing scope
-///   and spawns the DSL tree there:
+/// - **Tree form** (`ui! { <tree> }`) builds widgets in the enclosing
+///   composition. Lowercase composition functions can appear directly as
+///   child nodes; each returns a root entity attached at that position:
 ///
-///   ```ignore
+///   ```no_run
+///   # use mirui::prelude::*;
+///   # use mirui::ui::widgets::Text;
 ///   #[compose]
-///   fn build_root() {
+///   fn header(title: &'static str) -> Entity {
+///       ui! {
+///           Text (title)
+///       }
+///   }
+///
+///   #[compose]
+///   fn build_root() -> Entity {
 ///       ui! {
 ///           Column (grow: 1.0) {
+///               header("Status")
 ///               Text("hello")
 ///           }
+///       }
+///   }
+///   ```
+///
+/// - **Function-call form** (`ui!(func(args))`) calls a composition function
+///   using the current scope, without adding a surrounding widget:
+///
+///   ```no_run
+///   # use mirui::prelude::*;
+///   # use mirui::ui::widgets::Text;
+///   #[compose]
+///   fn menu_row(title: &'static str) {
+///       ui! {
+///           Text (title)
 ///       };
 ///   }
-///   ```
 ///
-///   Lowercase `#[compose]` functions can appear directly as tree nodes. Their
-///   returned root entity is attached at that position:
-///
-///   ```ignore
-///   ui! {
-///       Column (grow: 1.0) {
-///           compose_header()
-///           compose_card("Status")
-///       }
-///   };
-///   ```
-///
-///   `world` and `parent` come from `cx.world_mut()` / `cx.parent()`.
-///
-/// - **Fn-call form** (`ui!(func(args))`) rewrites a free-fn call to
-///   `func(cx, args)`, threading the enclosing scope's `cx` into the callee
-///   when no surrounding DSL node supplies the parent:
-///
-///   ```ignore
 ///   #[compose]
 ///   fn menu() {
-///       ui!(menu_row("File", &FILE_ICON));
-///       ui!(menu_row("Edit", &EDIT_ICON));
+///       ui!(menu_row("File"));
+///       ui!(menu_row("Edit"));
 ///   }
 ///   ```
 ///
-///   The macro routes call-syntax input to this form only when the fn
-///   path segment starts with a lowercase letter or underscore. Names
-///   that start uppercase (`Card(...)`, `Column(...)`) stay on the DSL
-///   parsing path — the same convention the widget grammar uses.
+///   Function names start with a lowercase letter or underscore. Uppercase
+///   names such as `Card(...)` and `Column(...)` denote widget nodes.
+///
+/// - **Niche form** (`ui!(compose Name { ... })`) declares a reusable widget
+///   with named content slots. `@@body` declares a slot; `@body` fills it in
+///   an instance. Register its descriptor with `ui!(compose Name)`:
+///
+///   ```no_run
+///   # use mirui::prelude::*;
+///   # use mirui::ui::widgets::Text;
+///   ui!(compose Card {
+///       Column () { @@body }
+///   });
+///
+///   #[compose]
+///   fn card_content() -> Entity {
+///       ui! {
+///           Card () {
+///               @body { Text ("Status") }
+///           }
+///       }
+///   }
+///
+///   let mut app = App::headless(320, 240);
+///   app.with_widget(ui!(compose Card));
+///   ```
 #[proc_macro]
 pub fn ui(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();
