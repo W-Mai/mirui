@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Automatic view invalidation.** Mutable component queries and observed model sources drive visual or layout invalidation through declared view dependencies.
 - **Gallery authoring examples.** Built-in demos and games use typed roles, bound model instances, attribute timers, and typed animation components.
 
+### Fixed
+
+- **Nested event component reads.** Component selectors containing another `com!` read use the current event context at every nesting level.
+
 ## [0.47.0] - 2026-09-29
 
 ### Added

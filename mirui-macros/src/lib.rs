@@ -274,23 +274,13 @@ fn emit_business_handler(
         let body = event_attr::lower_body(&on_cmd.body, &handler_scope);
         let event_path: syn::Path = syn::parse_str(entry.event_path).unwrap();
         let field_bindings = event_attr::fields(entry.fields);
-        let field_idents: Vec<_> = field_bindings
-            .iter()
-            .map(|binding| binding.name.clone())
-            .collect();
-        let pattern = if field_idents.is_empty() {
+        let field_idents = field_bindings.iter().map(|binding| &binding.name);
+        let pattern = if field_bindings.is_empty() {
             quote! { #event_path }
         } else {
             quote! { #event_path { #(#field_idents),* } }
         };
-        let bindings = if field_idents.is_empty() {
-            quote! {}
-        } else {
-            quote! {
-                #(let #field_idents = *#field_idents;)*
-                let _ = ( #(#field_idents),* );
-            }
-        };
+        let bindings = event_attr::lower_fields(&field_bindings);
         arms.extend(quote! {
             #pattern => {
                 #bindings
@@ -343,24 +333,20 @@ fn emit_event_arm(
 ) -> proc_macro2::TokenStream {
     let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
     let field_bindings = event_attr::fields(gesture_event_fields(event_name));
-    let field_idents: Vec<syn::Ident> = field_bindings
-        .iter()
-        .map(|binding| binding.name.clone())
-        .collect();
+    let field_idents = field_bindings.iter().map(|binding| &binding.name);
 
     if event_name == "Tap" && group.iter().any(|h| !h.args.is_empty()) {
-        return emit_tap_with_count(group, &field_idents, handler_scope);
+        return emit_tap_with_count(group, &field_bindings, handler_scope);
     }
 
     let bodies = group
         .iter()
         .map(|h| event_attr::lower_body(&h.body, handler_scope));
-    let used_idents: Vec<&syn::Ident> = field_idents.iter().collect();
+    let bindings = event_attr::lower_fields(&field_bindings);
 
     quote! {
         ::mirui::input::event::gesture::GestureEvent::#event_ident { #(#field_idents),* } => {
-            #(let #field_idents = *#field_idents;)*
-            let _ = ( #( #used_idents ),* );
+            #bindings
             #(
                 {
                     let __consumed: bool =
@@ -375,7 +361,7 @@ fn emit_event_arm(
 
 fn emit_tap_with_count(
     group: &[&OnCmd],
-    field_idents: &[syn::Ident],
+    field_bindings: &[binding::BindingSpec],
     handler_scope: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let mut count_arms = proc_macro2::TokenStream::new();
@@ -402,11 +388,12 @@ fn emit_tap_with_count(
         }
     }
     let default = default_arm.unwrap_or_else(|| quote! { _ => return false });
+    let field_idents = field_bindings.iter().map(|binding| &binding.name);
+    let bindings = event_attr::lower_fields(field_bindings);
 
     quote! {
         ::mirui::input::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
-            #(let #field_idents = *#field_idents;)*
-            let _ = ( #(#field_idents),* );
+            #bindings
             let __count = #handler_scope.tap_count();
             match __count {
                 #count_arms

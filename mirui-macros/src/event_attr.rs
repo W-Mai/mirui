@@ -11,6 +11,13 @@ pub(crate) fn fields(names: &[&str]) -> Vec<BindingSpec> {
         .collect()
 }
 
+pub(crate) fn lower_fields(bindings: &[BindingSpec]) -> TokenStream {
+    let names = bindings.iter().map(|binding| &binding.name);
+    quote! {
+        #(let #names = *#names; let _ = #names;)*
+    }
+}
+
 pub(crate) fn lower_body(body: &syn::Block, scope: &Ident) -> syn::Block {
     syn::parse2(lower_tokens(quote! { #body }, scope))
         .expect("event role lowering must preserve the Rust block grammar")
@@ -100,6 +107,7 @@ fn lower_expression(binding: BindingSpec, scope: &Ident) -> TokenStream {
                 unreachable!("event component reads retain their entity selector");
             };
             let ty = component.ty;
+            let entity = lower_tokens(quote! { #entity }, scope);
             quote! { #scope.component::<#ty>(#entity) }
         }
         BindingSource::Capability(BindingCapability::Commands) => {
@@ -143,5 +151,17 @@ mod tests {
         assert!(lowered.contains("__scope . component :: < Marker > (target)"));
         assert!(lowered.contains("__scope . commands () . insert"));
         assert!(lowered.contains("foreign :: commands ! ()"));
+    }
+
+    #[test]
+    fn nested_component_selectors_lower_every_expression_role() {
+        let body: syn::Block = syn::parse_quote!({
+            let marker = com!(mirui::com!(target, Parent).unwrap().0, Marker);
+        });
+        let scope: Ident = syn::parse_quote!(__scope);
+        let lowered = lower_body(&body, &scope).into_token_stream().to_string();
+
+        assert!(!lowered.contains("com !"));
+        assert_eq!(lowered.matches("__scope . component").count(), 2);
     }
 }

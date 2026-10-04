@@ -23,6 +23,10 @@ struct Marker(u32);
 
 impl Component for Marker {}
 
+struct Parent(Entity);
+
+impl Component for Parent {}
+
 #[model]
 struct EventCounter {
     value: u32,
@@ -82,7 +86,7 @@ fn event_commands_apply_in_source_order_after_component_reads_end() {
         let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
         ui! {
             View () on Tap {
-                assert_eq!(com!(target, Marker) .map(| marker | marker.0), Some(0));
+                assert_eq!(com!(com!(target, Parent).unwrap().0, Marker) .map(| marker | marker.0), Some(0));
                 commands!().insert(target, Marker(1));
                 commands!().insert(target, Marker(2));
                 assert_eq!(com!(target, Marker) .map(| marker | marker.0), Some(0));
@@ -90,6 +94,7 @@ fn event_commands_apply_in_source_order_after_component_reads_end() {
         }
     };
     world.insert(target, Marker(0));
+    world.insert(target, Parent(target));
 
     bubble_dispatch_at(&mut world, &tap(target), 100);
 

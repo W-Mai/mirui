@@ -198,7 +198,8 @@ reuse scheduler-owned storage after warm-up.
 Event bodies receive event fields directly and use capability macros for ECS
 access. `com!(entity, T)` performs a short read. `commands!()` returns the
 handler's reusable deferred-command facade; structural changes are applied in
-source order after all short reads and the event body have ended:
+source order after all short reads and the event body have ended. Component
+selectors can contain another `com!` read; both use the current event context:
 
 ```rust
 use mirui::input::event::BubbleControl;
