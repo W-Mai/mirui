@@ -132,6 +132,10 @@ pub mod __macro_support {
         AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent,
         deferred_event_callback, event_callback,
     };
+    pub use crate::input::event::listeners::{
+        EventListeners, ListenerError, ListenerId, ListenerSelector, ListenerSnapshot,
+        ListenerTarget,
+    };
     pub use crate::input::event::notification::{
         Notification, NotificationCapacity, NotificationError, NotificationFlushError,
         NotificationQueue,

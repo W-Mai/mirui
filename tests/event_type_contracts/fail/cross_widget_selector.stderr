@@ -10,7 +10,7 @@ help: the trait `EntitySourceFor<Checkbox>` is not implemented for `WidgetSource
       but trait `EntitySourceFor<Switch>` is implemented for it
   --> src/input/event/contract.rs
    |
-   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `Switch`, found `Checkbox`
 note: required by a bound in `checkbox`

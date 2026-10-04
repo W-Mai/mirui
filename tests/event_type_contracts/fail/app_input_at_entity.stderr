@@ -9,11 +9,13 @@ error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntityS
 help: the following other types implement trait `mirui::input::event::contract::EntitySourceFor<W>`
   --> src/input/event/contract.rs
    |
-   | impl<W: Component> EntitySourceFor<W> for EntitySource {}
+   | impl<W: Component> EntitySourceFor<W> for EntitySource {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
-   | impl<W: Component> EntitySourceFor<W> for InputSource {}
+...
+   | impl<W: Component> EntitySourceFor<W> for InputSource {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
-   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+...
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
 note: required by a bound in `entity`
   --> tests/event_type_contracts/fail/app_input_at_entity.rs:10:16
@@ -35,11 +37,13 @@ error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntityS
 help: the following other types implement trait `mirui::input::event::contract::EntitySourceFor<W>`
   --> src/input/event/contract.rs
    |
-   | impl<W: Component> EntitySourceFor<W> for EntitySource {}
+   | impl<W: Component> EntitySourceFor<W> for EntitySource {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
-   | impl<W: Component> EntitySourceFor<W> for InputSource {}
+...
+   | impl<W: Component> EntitySourceFor<W> for InputSource {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
-   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
+...
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
 note: required by a bound in `entity`
   --> tests/event_type_contracts/fail/app_input_at_entity.rs:10:16

@@ -188,6 +188,11 @@ pub struct Notification<'storage> {
 }
 
 impl Notification<'_> {
+    pub(crate) fn borrowed_event(&self) -> super::listeners::BorrowedEvent<'_> {
+        // SAFETY: this window retains the unread record and its stable payload.
+        unsafe { super::listeners::BorrowedEvent::stored(self.record.kind, self.payload) }
+    }
+
     pub fn entity(&self) -> Option<Entity> {
         self.record.entity
     }

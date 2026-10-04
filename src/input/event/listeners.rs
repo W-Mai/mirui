@@ -1,0 +1,415 @@
+//! Bounded listener installation and invocation snapshots.
+
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+use core::any::TypeId;
+use core::cell::{RefCell, RefMut};
+use core::marker::PhantomData;
+use core::mem::size_of;
+use core::ptr::NonNull;
+
+use crate::ecs::commands::{CommandCapacity, CommandError};
+use crate::ecs::world::WorldId;
+use crate::ecs::{Component, Entity, World};
+
+use super::BubbleControl;
+use super::callback::{AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent};
+use super::contract::{
+    AppEventSource, AppRoute, EntityRoute, EntitySourceFor, Event, EventKey, EventRoute,
+};
+use super::notification::{NotificationFlushError, NotificationQueue};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListenerError {
+    Busy,
+    Capacity { available: usize },
+    AllocationFailed,
+    IdentityExhausted,
+    ForeignOwner,
+    MissingSource { entity: Entity },
+    Command(CommandError),
+}
+
+impl From<CommandError> for ListenerError {
+    fn from(error: CommandError) -> Self {
+        Self::Command(error)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListenerTarget {
+    App,
+    Entity(Entity),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListenerId {
+    owner: WorldId,
+    serial: u64,
+}
+
+/// A read-only event window; type erasure does not own or clone the payload.
+pub(crate) struct BorrowedEvent<'event> {
+    kind: TypeId,
+    pointer: *const u8,
+    lifetime: PhantomData<&'event ()>,
+}
+
+impl<'event> BorrowedEvent<'event> {
+    fn new<E: Event>(event: &'event E) -> Self {
+        Self {
+            kind: TypeId::of::<E>(),
+            pointer: core::ptr::from_ref(event).cast(),
+            lifetime: PhantomData,
+        }
+    }
+
+    /// # Safety
+    /// `pointer` must retain a live payload of `kind` for `'event`, aligned
+    /// for that payload unless it is zero-sized. ZST projections use an
+    /// aligned dangling pointer instead of reading storage bytes.
+    pub(crate) unsafe fn stored(kind: TypeId, pointer: *const u8) -> Self {
+        Self {
+            kind,
+            pointer,
+            lifetime: PhantomData,
+        }
+    }
+
+    fn payload<E: Event>(&self) -> Option<&E> {
+        if self.kind != TypeId::of::<E>() {
+            return None;
+        }
+        let pointer = if size_of::<E>() == 0 {
+            NonNull::<E>::dangling().as_ptr()
+        } else {
+            self.pointer.cast::<E>()
+        };
+        // SAFETY: constructors retain a live payload, the TypeId matches E,
+        // and no owning or mutable reference is created by this projection.
+        Some(unsafe { &*pointer })
+    }
+}
+
+#[doc(hidden)]
+pub trait ListenerDecision {
+    fn control(self) -> BubbleControl;
+}
+
+impl ListenerDecision for () {
+    fn control(self) -> BubbleControl {
+        BubbleControl::Allow
+    }
+}
+
+impl ListenerDecision for BubbleControl {
+    fn control(self) -> BubbleControl {
+        self
+    }
+}
+
+trait ErasedListener {
+    fn matches(&self, event: &BorrowedEvent<'_>) -> bool;
+    fn invoke(
+        &self,
+        world: &mut World,
+        event: &BorrowedEvent<'_>,
+    ) -> Result<BubbleControl, CommandError>;
+}
+
+struct InstalledListener<E: Event, C: CallbackContext<E>> {
+    callback: PreparedEvent<E, C>,
+    target: C::Target,
+    selector: ListenerSelector<E>,
+}
+
+pub struct ListenerSelector<E: Event> {
+    key: EventKey<E>,
+    matches: fn(E::Options, &E) -> bool,
+}
+
+impl<E: Event> ListenerSelector<E> {
+    pub fn new(key: EventKey<E>, matches: fn(E::Options, &E) -> bool) -> Self {
+        Self { key, matches }
+    }
+}
+
+impl<E: Event, C: CallbackContext<E>> ErasedListener for InstalledListener<E, C>
+where
+    <E::Route as EventRoute>::Decision: ListenerDecision,
+{
+    fn matches(&self, event: &BorrowedEvent<'_>) -> bool {
+        event
+            .payload::<E>()
+            .is_some_and(|payload| (self.selector.matches)(self.selector.key.options(), payload))
+    }
+
+    fn invoke(
+        &self,
+        world: &mut World,
+        event: &BorrowedEvent<'_>,
+    ) -> Result<BubbleControl, CommandError> {
+        let payload = event
+            .payload::<E>()
+            .expect("listener snapshot preserves event identity");
+        Ok(self
+            .callback
+            .invoke(world, payload, self.target)?
+            .map_or(BubbleControl::Allow, ListenerDecision::control))
+    }
+}
+
+struct ListenerEntry {
+    id: ListenerId,
+    kind: TypeId,
+    target: ListenerTarget,
+    callback: Rc<dyn ErasedListener>,
+}
+
+#[derive(Default)]
+struct Entries {
+    listeners: Vec<ListenerEntry>,
+    limit: usize,
+    next: u64,
+}
+
+/// One installation pool shared by typed input and notification listeners.
+pub struct EventListeners {
+    owner: WorldId,
+    entries: RefCell<Entries>,
+    scratch: RefCell<Vec<Rc<dyn ErasedListener>>>,
+}
+
+impl EventListeners {
+    pub fn new(world: &World) -> Self {
+        Self {
+            owner: world.id(),
+            entries: RefCell::new(Entries::default()),
+            scratch: RefCell::new(Vec::new()),
+        }
+    }
+
+    pub fn reserve(&self, capacity: usize) -> Result<(), ListenerError> {
+        let mut scratch = self
+            .scratch
+            .try_borrow_mut()
+            .map_err(|_| ListenerError::Busy)?;
+        let mut entries = self
+            .entries
+            .try_borrow_mut()
+            .map_err(|_| ListenerError::Busy)?;
+        let requested = capacity.max(entries.limit);
+        let additional = requested.saturating_sub(entries.listeners.len());
+        entries
+            .listeners
+            .try_reserve_exact(additional)
+            .map_err(|_| ListenerError::AllocationFailed)?;
+        scratch
+            .try_reserve_exact(requested)
+            .map_err(|_| ListenerError::AllocationFailed)?;
+        entries.limit = requested;
+        Ok(())
+    }
+
+    fn check_installation(&self, world: &World) -> Result<(), ListenerError> {
+        self.check_owner(world)?;
+        let entries = self.entries.try_borrow().map_err(|_| ListenerError::Busy)?;
+        if entries.listeners.len() == entries.limit {
+            return Err(ListenerError::Capacity {
+                available: entries.limit,
+            });
+        }
+        entries
+            .next
+            .checked_add(1)
+            .ok_or(ListenerError::IdentityExhausted)?;
+        Ok(())
+    }
+
+    fn check_owner(&self, world: &World) -> Result<(), ListenerError> {
+        if self.owner != world.id() {
+            return Err(ListenerError::ForeignOwner);
+        }
+        Ok(())
+    }
+
+    fn insert<E: Event>(
+        &self,
+        target: ListenerTarget,
+        listener: impl ErasedListener + 'static,
+    ) -> ListenerId {
+        let mut entries = self.entries.borrow_mut();
+        let serial = entries.next + 1;
+        entries.next = serial;
+        let id = ListenerId {
+            owner: self.owner,
+            serial,
+        };
+        entries.listeners.push(ListenerEntry {
+            id,
+            kind: TypeId::of::<E>(),
+            target,
+            callback: Rc::new(listener),
+        });
+        id
+    }
+
+    pub fn install_entity<E, W>(
+        &self,
+        world: &mut World,
+        entity: Entity,
+        selector: ListenerSelector<E>,
+        callback: EventCallback<E, EntityContext<W>>,
+        capacity: CommandCapacity,
+    ) -> Result<ListenerId, ListenerError>
+    where
+        E: Event,
+        W: Component,
+        E::Route: EntityRoute,
+        E::Source: EntitySourceFor<W>,
+        <E::Route as EventRoute>::Decision: ListenerDecision,
+    {
+        self.check_installation(world)?;
+        if !world.is_alive(entity) || !E::Source::present(world, entity) {
+            return Err(ListenerError::MissingSource { entity });
+        }
+        let callback = callback.prepare(world, capacity)?;
+        Ok(self.insert::<E>(
+            ListenerTarget::Entity(entity),
+            InstalledListener {
+                callback,
+                target: entity,
+                selector,
+            },
+        ))
+    }
+
+    pub fn install_app<E>(
+        &self,
+        world: &mut World,
+        selector: ListenerSelector<E>,
+        callback: EventCallback<E, AppContext>,
+        capacity: CommandCapacity,
+    ) -> Result<ListenerId, ListenerError>
+    where
+        E: Event,
+        E::Route: AppRoute,
+        E::Source: AppEventSource,
+        <E::Route as EventRoute>::Decision: ListenerDecision,
+    {
+        self.check_installation(world)?;
+        let callback = callback.prepare(world, capacity)?;
+        Ok(self.insert::<E>(
+            ListenerTarget::App,
+            InstalledListener {
+                callback,
+                target: (),
+                selector,
+            },
+        ))
+    }
+
+    pub fn remove(&self, id: ListenerId) -> Result<bool, ListenerError> {
+        if self.owner != id.owner {
+            return Err(ListenerError::ForeignOwner);
+        }
+        let removed = {
+            let mut entries = self
+                .entries
+                .try_borrow_mut()
+                .map_err(|_| ListenerError::Busy)?;
+            let Some(index) = entries.listeners.iter().position(|entry| entry.id == id) else {
+                return Ok(false);
+            };
+            entries.listeners.remove(index)
+        };
+        drop(removed);
+        Ok(true)
+    }
+
+    fn snapshot_borrowed<'pool, 'event>(
+        &'pool self,
+        world: &World,
+        event: BorrowedEvent<'event>,
+        target: ListenerTarget,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
+        self.check_owner(world)?;
+        let scratch = self
+            .scratch
+            .try_borrow_mut()
+            .map_err(|_| ListenerError::Busy)?;
+        debug_assert!(scratch.is_empty());
+        let mut snapshot = ListenerSnapshot {
+            owner: self.owner,
+            scratch,
+            event,
+        };
+        for entry in &self.entries.borrow().listeners {
+            if entry.kind == snapshot.event.kind
+                && entry.target == target
+                && entry.callback.matches(&snapshot.event)
+            {
+                snapshot.scratch.push(Rc::clone(&entry.callback));
+            }
+        }
+        Ok(snapshot)
+    }
+
+    pub fn snapshot<'pool, 'event, E: Event>(
+        &'pool self,
+        world: &World,
+        event: &'event E,
+        target: ListenerTarget,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
+        self.snapshot_borrowed(world, BorrowedEvent::new(event), target)
+    }
+
+    pub fn flush_notifications(
+        &self,
+        world: &mut World,
+        queue: &NotificationQueue,
+        limit: usize,
+    ) -> Result<usize, NotificationFlushError<ListenerError>> {
+        self.check_owner(world)
+            .map_err(NotificationFlushError::Listener)?;
+        queue.flush(limit, |notification| {
+            let target = notification
+                .entity()
+                .map_or(ListenerTarget::App, ListenerTarget::Entity);
+            self.snapshot_borrowed(world, notification.borrowed_event(), target)?
+                .run(world)?;
+            Ok(())
+        })
+    }
+}
+
+/// A fixed installation-order selection, independent of later entry changes.
+pub struct ListenerSnapshot<'pool, 'event> {
+    owner: WorldId,
+    scratch: RefMut<'pool, Vec<Rc<dyn ErasedListener>>>,
+    event: BorrowedEvent<'event>,
+}
+
+impl ListenerSnapshot<'_, '_> {
+    pub fn run(self, world: &mut World) -> Result<BubbleControl, ListenerError> {
+        if self.owner != world.id() {
+            return Err(ListenerError::ForeignOwner);
+        }
+        for callback in &*self.scratch {
+            let result = callback.invoke(world, &self.event)?;
+            if result == BubbleControl::Prevent {
+                return Ok(result);
+            }
+        }
+        Ok(BubbleControl::Allow)
+    }
+}
+
+impl Drop for ListenerSnapshot<'_, '_> {
+    fn drop(&mut self) {
+        self.scratch.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests;

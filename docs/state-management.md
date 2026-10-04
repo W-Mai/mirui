@@ -478,6 +478,27 @@ rather than recursively borrowing it. Plain callbacks have no command buffer.
 This execution layer does not install or route listeners. Its ABI is confined
 to hidden macro support, not the ordinary authoring prelude.
 
+### Listener selection and notification delivery
+
+The internal listener pool installs prepared callbacks for entity and App
+targets. Widget notification installation checks the source component and
+entity generation. Captured Model owners are validated by preparation; the
+pool rejects a different App before installation or dispatch.
+
+Listener entries and matching scratch have explicit, shared count limits.
+Matching produces an installation-order snapshot without borrowing the World
+or retaining a borrow of the entry list. Removing a listener does not change
+the current selection; a new listener participates in later selections. Each
+callback checks entity generation before running. Notification callbacks fan
+out; consumable input stops on a prevention result.
+
+Notification draining uses this pool and the same prepared executor. Payloads
+are borrowed without cloning, and reserved invocation scratch is cleared on
+success, error, and unwinding. Reentrant use of that scratch returns an error.
+Selection and draining within reserved capacities allocate no listener storage.
+The pool's ABI is confined to hidden macro support. It does not implement
+ancestor traversal or the ordinary `on` and App installation APIs.
+
 ### Named event callback declarations
 
 `#[event]` generates a module with `callback(...)`. The factory takes registered

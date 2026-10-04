@@ -6,6 +6,10 @@ struct Dial;
 impl Component for Pad {}
 impl Component for Dial {}
 
-impl EntitySourceFor<Dial> for WidgetSource<Pad> {}
+impl EntitySourceFor<Dial> for WidgetSource<Pad> {
+    fn present(_: &mirui::ecs::World, _: mirui::ecs::Entity) -> bool {
+        true
+    }
+}
 
 fn main() {}
