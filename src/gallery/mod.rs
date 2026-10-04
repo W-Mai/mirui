@@ -314,4 +314,116 @@ mod tests {
             .unwrap();
         assert_eq!(scratch.0.get_mut().len(), 640 * 360 * 4);
     }
+
+    #[test]
+    fn typed_scene_views_reuse_workspace_and_preserve_replay_requests() {
+        use crate::ecs::{Component, World};
+        use crate::render::command::DrawCommand;
+        use crate::render::renderer::{DrawRequest, RenderError, RenderRoute, Renderer};
+        use crate::types::Transform;
+        use crate::ui::Style;
+        use crate::ui::theme::WidgetState;
+        use crate::ui::view::{PaintCtx, View, ViewInvalidation};
+
+        struct RejectingRenderer {
+            transform: Transform,
+            area: Rect,
+            clip: Rect,
+            calls: core::cell::Cell<usize>,
+        }
+        impl Renderer for RejectingRenderer {
+            fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                let DrawCommand::Fill {
+                    area, transform, ..
+                } = request.command
+                else {
+                    panic!("the scene starts with its logical canvas background");
+                };
+                assert_eq!(*area, self.area);
+                assert_eq!(*transform, self.transform);
+                assert_eq!(request.clip, self.clip);
+                self.calls.set(self.calls.get() + 1);
+                Err(RenderError::BackendFailure)
+            }
+
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                panic!("failed preflight must not submit draws");
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        fn check<T: Component>(
+            component: T,
+            view: View,
+            name: &'static str,
+            width: i32,
+            height: i32,
+        ) {
+            assert_eq!(view.name(), name);
+            assert_eq!(view.component_filter(), Some(core::any::TypeId::of::<T>()));
+            assert_eq!(view.priority(), Some(60));
+            assert_eq!(view.invalidation(), ViewInvalidation::Visual);
+            assert!(view.auto_attach().is_none());
+            assert!(view.internal_gesture().is_none());
+
+            let mut world = World::new();
+            let node = world.spawn_empty();
+            world.insert(node, component);
+            let rect = Rect::new(4, 8, 40, 48);
+            let bytes = SceneReplayWorkspace::required_bytes(rect, Fixed::ONE).unwrap();
+            world.insert_resource(SceneReplayWorkspace::new(bytes));
+            let storage = world
+                .resource::<SceneReplayWorkspace>()
+                .unwrap()
+                .0
+                .borrow()
+                .as_ptr();
+            let style = Style::default();
+            let render = view.render().unwrap();
+
+            for _ in 0..2 {
+                let parent = Transform::translate(Fixed::from_int(2), Fixed::from_int(3));
+                let mut renderer = RejectingRenderer {
+                    transform: fit_logical_canvas(rect, parent, width, height),
+                    area: Rect::new(0, 0, width, height),
+                    clip: rect,
+                    calls: core::cell::Cell::new(0),
+                };
+                let mut paint = PaintCtx::new(
+                    &mut renderer,
+                    &style,
+                    &rect,
+                    &rect,
+                    parent,
+                    None,
+                    WidgetState::Enabled,
+                );
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| render(&world, node, &mut paint)),
+                    0,
+                );
+                assert_eq!(paint.error(), Some(RenderError::BackendFailure));
+                assert_eq!(renderer.calls.get(), 1);
+                let workspace = world.resource::<SceneReplayWorkspace>().unwrap().0.borrow();
+                assert_eq!(workspace.as_ptr(), storage);
+                assert_eq!(workspace.len(), bytes);
+            }
+        }
+
+        check(
+            demos::render_showcase::RenderShowcase,
+            demos::render_showcase::showcase_view(),
+            "RenderShowcase",
+            640,
+            660,
+        );
+        check(
+            demos::blur_filter::BlurFilter,
+            demos::blur_filter::blur_filter_view(),
+            "BlurFilter",
+            480,
+            240,
+        );
+    }
 }

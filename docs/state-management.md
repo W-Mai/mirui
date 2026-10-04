@@ -336,6 +336,10 @@ Button, Slider, Checkbox, ProgressBar, TabBar, and Icon use this declaration
 for built-in paint callbacks. Their widget modules export the generated `view`
 factory directly; component filters, paint priorities, and internal gesture
 hooks remain part of the descriptor.
+Render Showcase and Blur Filter declare their retained scene workspace with
+read-only `res!` and replay borrowed scene operations through `paint!()`.
+Their setup prepares RGBA storage before painting; the View borrows that
+storage rather than allocating another buffer in its callback.
 `model!(component.field)` borrows that component's model only during paint;
 `watch(selector)` adds an exact subscription to an `#[observe]` field, an
 observed getter, or a named revision. An optional model field uses
