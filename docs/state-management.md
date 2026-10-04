@@ -507,6 +507,13 @@ the current selection; a new listener participates in later selections. Each
 callback checks entity generation before running. Notification callbacks fan
 out; consumable input stops on a prevention result.
 
+Installation and fresh route selection reclaim listeners for retired entity
+generations before checking the installation quota or choosing callbacks.
+Reclamation retains entry storage and live installation order. Captures are
+dropped outside the entry borrow; an existing snapshot keeps its shared callback
+until that route ends. App listeners remain installed until removal or pool
+disposal. Removing a source component alone is not entity retirement.
+
 Notification draining uses this pool and the same prepared executor. Payloads
 are borrowed without cloning, and reserved invocation scratch is cleared on
 success, error, and unwinding. Reentrant use of that scratch returns an error.

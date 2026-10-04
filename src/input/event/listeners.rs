@@ -277,6 +277,7 @@ impl EventListeners {
 
     fn check_installation(&self, world: &World) -> Result<(), ListenerError> {
         self.check_owner(world)?;
+        self.prune_retired_entities(world)?;
         let entries = self.entries.try_borrow().map_err(|_| ListenerError::Busy)?;
         if entries.listeners.len() == entries.limit {
             return Err(ListenerError::Capacity {
@@ -288,6 +289,24 @@ impl EventListeners {
             .checked_add(1)
             .ok_or(ListenerError::IdentityExhausted)?;
         Ok(())
+    }
+
+    fn prune_retired_entities(&self, world: &World) -> Result<(), ListenerError> {
+        loop {
+            let removed = {
+                let mut entries = self
+                    .entries
+                    .try_borrow_mut()
+                    .map_err(|_| ListenerError::Busy)?;
+                let Some(index) = entries.listeners.iter().position(|entry| {
+                    matches!(entry.target, ListenerTarget::Entity(entity) if !world.is_alive(entity))
+                }) else {
+                    return Ok(());
+                };
+                entries.listeners.remove(index)
+            };
+            drop(removed);
+        }
     }
 
     fn check_owner(&self, world: &World) -> Result<(), ListenerError> {
@@ -403,6 +422,7 @@ impl EventListeners {
             .try_borrow_mut()
             .map_err(|_| ListenerError::Busy)?;
         debug_assert!(scratch.steps.is_empty());
+        self.prune_retired_entities(world)?;
         Ok(ListenerSnapshot {
             owner: self.owner,
             scratch,

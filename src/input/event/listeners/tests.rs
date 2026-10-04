@@ -1383,6 +1383,279 @@ fn callback_removal_takes_effect_on_the_following_notification() {
 }
 
 #[test]
+fn retiring_entities_releases_slots_without_rewriting_frozen_snapshots() {
+    let mut world = World::new();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
+    let node = world.spawn_empty();
+    world.insert(node, Widget);
+    let drops = Rc::new(Cell::new(0));
+    let captured = Owned(drops.clone());
+    let seen = Rc::new(Cell::new(0));
+    let calls = seen.clone();
+    // SAFETY: the callback declares no World access or captured Model.
+    let callback = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
+            let _ = &captured;
+            calls.set(calls.get() + 1);
+        })
+    };
+    let old = pool
+        .install_entity(
+            &mut world,
+            node,
+            selector(),
+            callback,
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let event = Changed(1);
+    let snapshot = pool
+        .snapshot(&world, &event, ListenerTarget::Entity(node))
+        .unwrap();
+    assert!(world.despawn(node));
+    let reused = world.spawn_empty();
+    assert_eq!(reused.id, node.id);
+    assert_ne!(reused.generation, node.generation);
+    world.insert(reused, Widget);
+
+    let calls = seen.clone();
+    // SAFETY: the callback declares no World access or captured Model.
+    let callback = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (), ()>(
+            "replacement",
+            &[],
+            move |(), _, _| calls.set(calls.get() + 10),
+        )
+    };
+    let new = pool
+        .install_entity(
+            &mut world,
+            reused,
+            selector(),
+            callback,
+            CommandCapacity::default(),
+        )
+        .expect("retired listeners cannot consume the bounded installation quota");
+    assert_ne!(new, old);
+    assert_eq!(pool.remove(old), Ok(false));
+    assert_eq!(
+        drops.get(),
+        0,
+        "the frozen snapshot still owns its callback"
+    );
+    let allocations = tracked_allocations(|| {
+        snapshot.run(&mut world).unwrap();
+        pool.snapshot(&world, &event, ListenerTarget::Entity(reused))
+            .unwrap()
+            .run(&mut world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(seen.get(), 10);
+    assert_eq!(drops.get(), 1);
+}
+
+#[test]
+fn fresh_selection_reclaims_retired_callbacks_and_preserves_live_installation_order() {
+    let mut world = World::new();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 3,
+        snapshot_steps: 2,
+    })
+    .unwrap();
+    let node = world.spawn_empty();
+    world.insert(node, Widget);
+    let drops = Rc::new(Cell::new(0));
+    let trace = Rc::new(RefCell::new(Trace::default()));
+    let first_trace = trace.clone();
+    let first = pool
+        .install_app(
+            &mut world,
+            selector(),
+            app_callback(move |_: &Announced| first_trace.borrow_mut().record(1)),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let captured = Owned(drops.clone());
+    // SAFETY: the callback declares no World access or captured Model.
+    let callback = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
+            let _ = &captured;
+        })
+    };
+    let retired = pool
+        .install_entity(
+            &mut world,
+            node,
+            selector(),
+            callback,
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let last_trace = trace.clone();
+    let last = pool
+        .install_app(
+            &mut world,
+            selector(),
+            app_callback(move |_: &Announced| last_trace.borrow_mut().record(2)),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let storage = pool.entries.borrow().listeners.as_ptr();
+    assert!(world.despawn(node));
+    let allocations = tracked_allocations(|| {
+        pool.snapshot(&world, &Announced(0), ListenerTarget::App)
+            .unwrap()
+            .run(&mut world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(drops.get(), 1);
+    assert_eq!(trace.borrow().values(), &[1, 2]);
+    let entries = pool.entries.borrow();
+    assert_eq!(entries.listeners.as_ptr(), storage);
+    assert_eq!(entries.listeners.len(), 2);
+    assert_eq!(entries.listeners[0].id, first);
+    assert_eq!(entries.listeners[1].id, last);
+    drop(entries);
+    assert_eq!(pool.remove(retired), Ok(false));
+}
+
+#[test]
+fn retirement_drops_captures_outside_the_entry_borrow_and_restores_scratch_on_unwind() {
+    struct Capture {
+        pool: alloc::rc::Weak<EventListeners>,
+        other: ListenerId,
+        drops: Rc<Cell<usize>>,
+        panic_once: Rc<Cell<bool>>,
+    }
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            assert_eq!(self.pool.upgrade().unwrap().remove(self.other), Ok(true));
+            self.drops.set(self.drops.get() + 1);
+            if self.panic_once.replace(false) {
+                panic!("captured value destructor");
+            }
+        }
+    }
+    let mut world = World::new();
+    let pool = Rc::new(EventListeners::new(&mut world));
+    pool.reserve(ListenerCapacity {
+        listeners: 2,
+        snapshot_steps: 2,
+    })
+    .unwrap();
+    let other = pool
+        .install_app(
+            &mut world,
+            selector(),
+            app_callback(|_: &Announced| {}),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let node = world.spawn_empty();
+    world.insert(node, Widget);
+    let drops = Rc::new(Cell::new(0));
+    let captured = Capture {
+        pool: Rc::downgrade(&pool),
+        other,
+        drops: drops.clone(),
+        panic_once: Rc::new(Cell::new(true)),
+    };
+    // SAFETY: the callback declares no World access or captured Model.
+    let callback = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
+            let _ = &captured;
+        })
+    };
+    pool.install_entity(
+        &mut world,
+        node,
+        selector(),
+        callback,
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    assert!(world.despawn(node));
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = pool.snapshot(&world, &Announced(0), ListenerTarget::App);
+    }));
+    assert!(failure.is_err());
+    assert_eq!(drops.get(), 1);
+    assert!(pool.entries.borrow().listeners.is_empty());
+    let allocations = tracked_allocations(|| {
+        pool.snapshot(&world, &Announced(0), ListenerTarget::App)
+            .unwrap()
+            .run(&mut world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn owner_and_busy_checks_do_not_retire_captures_before_rejecting_selection() {
+    let mut world = World::new();
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
+    let node = world.spawn_empty();
+    world.insert(node, Widget);
+    let drops = Rc::new(Cell::new(0));
+    let captured = Owned(drops.clone());
+    // SAFETY: the callback declares no World access or captured Model.
+    let callback = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
+            let _ = &captured;
+        })
+    };
+    let id = pool
+        .install_entity(
+            &mut world,
+            node,
+            selector(),
+            callback,
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let held = pool
+        .snapshot(&world, &Announced(0), ListenerTarget::App)
+        .unwrap();
+    assert!(world.despawn(node));
+    let foreign = World::new();
+    let allocations = tracked_allocations(|| {
+        assert!(matches!(
+            pool.snapshot(&foreign, &Announced(0), ListenerTarget::App),
+            Err(ListenerError::ForeignOwner)
+        ));
+        assert!(matches!(
+            pool.snapshot(&world, &Announced(0), ListenerTarget::App),
+            Err(ListenerError::Busy)
+        ));
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(drops.get(), 0);
+    assert_eq!(pool.entries.borrow().listeners[0].id, id);
+    drop(held);
+    let allocations = tracked_allocations(|| {
+        pool.snapshot(&world, &Announced(0), ListenerTarget::App)
+            .unwrap()
+            .run(&mut world)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(drops.get(), 1);
+}
+
+#[test]
 fn capacity_owner_and_reentry_fail_before_dispatch_or_registration() {
     let mut world = World::new();
     let mut other = World::new();
