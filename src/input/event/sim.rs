@@ -555,7 +555,8 @@ impl SimTimeline {
         self
     }
 
-    /// `App::run` swallows real backend input while this is true.
+    /// `App` suppresses real interactive input while this is true.
+    /// Host lifecycle requests continue to reach plugins.
     pub fn is_running(&self) -> bool {
         self.looping || self.cursor < self.entries.len()
     }

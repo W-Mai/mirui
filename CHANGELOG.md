@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Lifecycle requests during simulation.** Active input simulation suppresses real interaction without discarding suspend, resume, or quit requests.
 - **Nested event component reads.** Component selectors containing another `com!` read use the current event context at every nesting level.
 
 ## [0.47.0] - 2026-09-29

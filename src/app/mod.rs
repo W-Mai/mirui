@@ -1089,13 +1089,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         break;
                     }
                     Some(event) => {
-                        // Active sim timelines own PointerCursor; real
-                        // input racing them corrupts the demo.
+                        // Simulation owns interactive input, not host lifecycle requests.
                         let sim_running = self
                             .world
                             .resource::<crate::input::event::sim::SimTimeline>()
                             .is_some_and(|t| t.is_running());
-                        if sim_running {
+                        if sim_running && event.is_user_input() {
                             continue;
                         }
                         let mut consumed = false;
@@ -2422,30 +2421,24 @@ mod app_invariant_tests {
 }
 
 #[cfg(test)]
-mod fractional_scale_input_check {
+mod queued_surface {
     use super::*;
     use crate::core::cache::InspectCaches;
-    use crate::input::event::GestureHandler;
-    use crate::input::event::gesture::GestureEvent;
-    use crate::render::factory::SwRendererFactory;
     use crate::render::texture::Texture;
     use crate::surface::framebuf::FramebufSurface;
     use crate::surface::{DisplayInfo, FramebufferAccess, InputEvent};
-    use crate::types::{Dimension, Fixed, PhysicalRect};
-    use crate::ui::builder::WidgetBuilder;
-    use crate::ui::layout::LayoutStyle;
-    use crate::ui::{Children, HitTarget, Parent};
+    use crate::types::{Fixed, PhysicalRect};
     use alloc::collections::VecDeque;
 
     type FlushFn = fn(&[u8], PhysicalRect);
 
-    struct QueuedSurface {
+    pub(super) struct QueuedSurface {
         framebuffer: FramebufSurface<FlushFn>,
-        events: VecDeque<InputEvent>,
+        pub(super) events: VecDeque<InputEvent>,
     }
 
     impl QueuedSurface {
-        fn new(physical_w: u16, physical_h: u16, scale: Fixed) -> Self {
+        pub(super) fn new(physical_w: u16, physical_h: u16, scale: Fixed) -> Self {
             fn flush(_: &[u8], _: PhysicalRect) {}
             Self {
                 framebuffer: FramebufSurface::with_scale(physical_w, physical_h, scale, flush),
@@ -2479,6 +2472,18 @@ mod fractional_scale_input_check {
             self.framebuffer.framebuffer()
         }
     }
+}
+
+#[cfg(test)]
+mod fractional_scale_input_check {
+    use super::queued_surface::QueuedSurface;
+    use super::*;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
+    use crate::types::{Dimension, Fixed};
+    use crate::ui::builder::WidgetBuilder;
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::{Children, HitTarget, Parent};
 
     #[derive(Default)]
     struct TapCount(u8);
@@ -2693,6 +2698,9 @@ mod lifecycle_tests {
         on_suspend: u32,
         on_resume: u32,
         on_memory_warning: u32,
+        user_inputs: u32,
+        lifecycle_requests: u32,
+        on_quit: u32,
     }
 
     struct TracePlugin {
@@ -2716,6 +2724,24 @@ mod lifecycle_tests {
         }
         fn on_memory_warning(&mut self, _world: &mut World) {
             self.trace.borrow_mut().on_memory_warning += 1;
+        }
+        fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
+            use crate::app::lifecycle::SuspendRequest;
+            match event {
+                InputEvent::AppSuspend => {
+                    self.trace.borrow_mut().lifecycle_requests += 1;
+                    world.insert_resource(SuspendRequest::Suspend);
+                }
+                InputEvent::AppResume => {
+                    self.trace.borrow_mut().lifecycle_requests += 1;
+                    world.insert_resource(SuspendRequest::Resume);
+                }
+                _ => self.trace.borrow_mut().user_inputs += 1,
+            }
+            false
+        }
+        fn on_quit(&mut self, _world: &mut World) {
+            self.trace.borrow_mut().on_quit += 1;
         }
     }
 
@@ -2763,6 +2789,43 @@ mod lifecycle_tests {
             app.is_suspended(),
             "tick must not flip the suspend state without a request"
         );
+    }
+
+    #[test]
+    fn simulation_blocks_user_input_but_preserves_suspend_resume_and_quit() {
+        use super::queued_surface::QueuedSurface;
+        use crate::input::event::sim::{SimAction, SimTimeline};
+
+        let mut app = App::new(QueuedSurface::new(32, 32, crate::types::Fixed::ONE));
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        app.add_plugin(TracePlugin {
+            trace: trace.clone(),
+        });
+        app.world
+            .insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
+        let input = InputEvent::Key {
+            code: 1,
+            pressed: true,
+        };
+        app.backend
+            .events
+            .extend([input.clone(), InputEvent::AppSuspend]);
+        assert!(!app.tick());
+        assert!(app.is_suspended());
+        assert_eq!(trace.borrow().user_inputs, 0);
+        assert_eq!(trace.borrow().on_suspend, 1);
+
+        app.backend.events.push_back(InputEvent::AppResume);
+        assert!(!app.tick());
+        assert!(!app.is_suspended());
+        assert_eq!(trace.borrow().on_resume, 1);
+        assert_eq!(trace.borrow().lifecycle_requests, 2);
+
+        app.backend.events.extend([input, InputEvent::Quit]);
+        assert!(app.tick());
+        assert_eq!(trace.borrow().on_quit, 1);
+        assert_eq!(trace.borrow().user_inputs, 0);
+        assert!(app.world.resource::<SimTimeline>().unwrap().is_running());
     }
 
     #[test]

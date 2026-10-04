@@ -426,6 +426,10 @@ Wheel and rotary callback sources are App-only.
 implement platform-input projection: raw suspend/resume/quit requests must not
 be treated as notifications of completed lifecycle transitions.
 
+Active input simulation suppresses competing pointer, wheel, rotary, keyboard,
+and character input before widget and plugin input handlers. Suspend, resume,
+and quit requests remain available to the application lifecycle path.
+
 ### Notification payload storage
 
 Internal notification storage owns payloads in two explicitly reserved buffers.

@@ -90,9 +90,72 @@ typed_inputs! {
     CharInput(InputSource) { ch: char },
 }
 
+impl InputEvent {
+    pub(crate) fn is_user_input(&self) -> bool {
+        match self {
+            Self::PointerDown { .. }
+            | Self::PointerMove { .. }
+            | Self::PointerUp { .. }
+            | Self::PointerCancel { .. }
+            | Self::Rotary { .. }
+            | Self::Wheel { .. }
+            | Self::Key { .. }
+            | Self::CharInput { .. } => true,
+            Self::AppSuspend | Self::AppResume | Self::Quit => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn simulation_input_filter_does_not_include_host_lifecycle_requests() {
+        for event in [
+            InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            InputEvent::PointerMove {
+                id: 0,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            InputEvent::PointerCancel {
+                id: 0,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            InputEvent::Rotary { id: 0, delta: 1 },
+            InputEvent::Wheel {
+                dx: Fixed::ONE,
+                dy: Fixed::ONE,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            InputEvent::Key {
+                code: KEY_RETURN,
+                pressed: true,
+            },
+            InputEvent::CharInput { ch: 'a' },
+        ] {
+            assert!(event.is_user_input());
+        }
+        for event in [
+            InputEvent::AppSuspend,
+            InputEvent::AppResume,
+            InputEvent::Quit,
+        ] {
+            assert!(!event.is_user_input());
+        }
+    }
 
     #[test]
     fn projections_preserve_input_fields_without_fabricating_targets() {
