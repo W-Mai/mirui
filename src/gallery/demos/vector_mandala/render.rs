@@ -4,17 +4,11 @@ use crate::prelude::*;
 use crate::render::font::Font;
 use crate::render::scene::resolver::SliceResolver;
 use crate::render::texture::Texture;
-use crate::ui::view::{PaintCtx, View};
 use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
-fn vector_mandala_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(state) = world.get::<VectorMandala>(entity) else {
-        return;
-    };
-    let now_ms = world
-        .resource::<MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0);
+#[crate::view(component = VectorMandala, name = "VectorMandala", priority = 60)]
+fn vector_mandala_render(state: component!(), clock: res!(optional MonoClock), paint: paint!()) {
+    let now_ms = clock.map(|c| c.now_ms()).unwrap_or(0);
     let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
     let spin_deg = Fixed::from_int((elapsed_ms * 360 / 16000) % 360);
 
@@ -38,9 +32,7 @@ fn vector_mandala_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>
     paint.replay(&scene.ops, &resolver);
 }
 
-pub fn vector_mandala_view() -> View {
-    View::new("VectorMandala", 60, vector_mandala_render).with_filter::<VectorMandala>()
-}
+pub use vector_mandala_render::view as vector_mandala_view;
 
 #[mirui_macros::system(order = Animation)]
 pub fn vector_mandala_anim_system(states: query!(mut VectorMandala)) {

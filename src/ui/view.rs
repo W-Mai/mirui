@@ -1037,6 +1037,165 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "gallery")]
+    #[test]
+    fn gallery_optional_resource_views_preserve_allocation_free_descriptors() {
+        use crate::gallery::demos::{butterfly, shapes, vector_mandala};
+        for (factory, component, name) in [
+            (
+                shapes::shapes_view as fn() -> View,
+                TypeId::of::<shapes::Shapes>(),
+                "Shapes",
+            ),
+            (
+                butterfly::butterfly_view,
+                TypeId::of::<butterfly::Butterfly>(),
+                "Butterfly",
+            ),
+            (
+                vector_mandala::vector_mandala_view,
+                TypeId::of::<vector_mandala::VectorMandala>(),
+                "VectorMandala",
+            ),
+        ] {
+            for _ in 0..2 {
+                let mut view = None;
+                assert_eq!(tracked_allocations(|| view = Some(factory())), 0);
+                let view = view.unwrap();
+                assert_eq!(view.name(), name);
+                assert_eq!(view.component_filter(), Some(component));
+                assert_eq!(view.priority(), Some(60));
+                assert_eq!(view.invalidation(), ViewInvalidation::Visual);
+                assert!(view.render().is_some());
+            }
+        }
+    }
+
+    #[cfg(feature = "gallery")]
+    #[test]
+    fn gallery_optional_resource_paint_refetches_theme_and_clock_without_allocating() {
+        use crate::ecs::MonoClock;
+        use crate::gallery::demos::{butterfly, shapes};
+        use crate::render::canvas::Paint;
+        use crate::types::Color;
+        use crate::ui::{ColorToken, Theme};
+
+        #[derive(Default)]
+        struct Trace {
+            color: Option<Color>,
+            motion: Option<(Transform, Point)>,
+            calls: usize,
+        }
+        impl Renderer for Trace {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                assert_eq!(request.clip, Rect::new(13, 17, 460, 340));
+                match *request.command {
+                    DrawCommand::Arc { color, .. } => {
+                        self.color.get_or_insert(color);
+                    }
+                    DrawCommand::Line { transform, p2, .. } => {
+                        self.motion.get_or_insert((transform, p2));
+                    }
+                    DrawCommand::FillPath {
+                        transform,
+                        paint: Paint::Color(color),
+                        ..
+                    } => {
+                        self.color.get_or_insert((*color).into());
+                        self.motion.get_or_insert((
+                            transform,
+                            Point {
+                                x: Fixed::ZERO,
+                                y: Fixed::ZERO,
+                            },
+                        ));
+                    }
+                    _ => panic!("unexpected gallery paint request"),
+                }
+                self.calls += 1;
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+
+        let mut world = World::new();
+        let shapes_node = world.spawn_empty();
+        let butterfly_node = world.spawn_empty();
+        world.insert(shapes_node, shapes::Shapes::default());
+        world.insert(butterfly_node, butterfly::Butterfly::default());
+        let fixtures = [
+            (shapes::shapes_view().render().unwrap(), shapes_node),
+            (
+                butterfly::butterfly_view().render().unwrap(),
+                butterfly_node,
+            ),
+        ];
+        let style = Style::default();
+        let rect = Rect::new(7, 11, 480, 360);
+        let clip = Rect::new(13, 17, 460, 340);
+        let transform = Transform {
+            m00: Fixed::from_f32(1.25),
+            m11: Fixed::from_f32(0.75),
+            tx: Fixed::from_int(9),
+            ty: Fixed::from_int(13),
+            ..Transform::IDENTITY
+        };
+        let mut initial = [None; 2];
+        let mut previous = [None; 2];
+        for stage in 0..4 {
+            let mut current = [None; 2];
+            let theme = match stage {
+                1 => Theme::light(),
+                _ => Theme::default(),
+            };
+            let color = theme.resolve(ColorToken::Primary);
+            if stage == 1 || stage == 2 {
+                world.insert_resource(theme);
+                world.insert_resource(MonoClock::new(if stage == 1 {
+                    || 1_337_000_000
+                } else {
+                    || 2_000_000_000
+                }));
+            } else {
+                world.remove_resource::<Theme>();
+                world.remove_resource::<MonoClock>();
+            }
+            for (i, (render, entity)) in fixtures.into_iter().enumerate() {
+                for _ in 0..2 {
+                    let mut trace = Trace::default();
+                    let mut paint = PaintCtx::new(
+                        &mut trace,
+                        &style,
+                        &rect,
+                        &clip,
+                        transform,
+                        None,
+                        WidgetState::Enabled,
+                    );
+                    assert_eq!(
+                        tracked_allocations(|| render(&world, entity, &mut paint)),
+                        0
+                    );
+                    assert_eq!(paint.error(), None);
+                    drop(paint);
+                    assert!(trace.calls > 0);
+                    assert_eq!(trace.color, Some(color));
+                    if stage == 0 {
+                        initial[i] = trace.motion;
+                    }
+                    if stage == 1 || stage == 2 {
+                        assert_ne!(trace.motion, previous[i]);
+                    }
+                    if stage == 3 {
+                        assert_eq!(trace.motion, initial[i]);
+                    }
+                    current[i] = trace.motion;
+                }
+            }
+            previous = current;
+        }
+    }
+
     fn observe_bound_tile(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
         let tile = world.get::<BoundTile>(entity).expect("bound tile");
         bindings.watch(|invalidation| {

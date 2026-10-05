@@ -53,20 +53,20 @@ fn fill_wing(
 }
 
 //~focus-start
-fn butterfly_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(state) = world.get::<Butterfly>(entity) else {
-        return;
-    };
+#[crate::view(component = Butterfly, name = "Butterfly", priority = 60)]
+fn butterfly_render(
+    state: component!(),
+    theme: res!(optional Theme),
+    clock: res!(optional MonoClock),
+    paint: paint!(),
+) {
     let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let theme = theme.unwrap_or(&default_theme);
     let outer_wing = theme.resolve(ColorToken::Primary);
     let inner_wing = theme.resolve(ColorToken::Secondary);
     let body_color = theme.resolve(ColorToken::OnSurface);
     let detail_color = theme.resolve(ColorToken::OnSurfaceVariant);
-    let now_ms = world
-        .resource::<MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0);
+    let now_ms = clock.map(|c| c.now_ms()).unwrap_or(0);
     let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
 
     let rect = paint.rect();
@@ -142,6 +142,4 @@ fn butterfly_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
 }
 //~focus-end
 
-pub fn butterfly_view() -> View {
-    View::new("Butterfly", 60, butterfly_render).with_filter::<Butterfly>()
-}
+pub use butterfly_render::view as butterfly_view;

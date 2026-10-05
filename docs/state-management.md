@@ -356,6 +356,9 @@ View resources are read-only. `res!(T)` requires the resource at each paint
 invocation; `res!(optional T)` supplies `Option<&T>` and still runs the body
 when the resource is absent. Both use the same resource role grammar as systems
 and events, without cloning the resource or allocating parameter storage.
+Shapes and Butterfly borrow optional Theme and MonoClock resources; Vector
+Mandala borrows an optional MonoClock. Their generated paint adapters retain
+the default theme and zero-time behavior when those resources are absent.
 `with_clip_path` owns the matching clip push/pop pair, including cleanup after
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker

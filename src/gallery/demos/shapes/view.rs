@@ -1,7 +1,6 @@
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::ui::Theme;
-use crate::ui::view::{PaintCtx, View};
 
 #[crate::component]
 #[derive(Default)]
@@ -9,19 +8,19 @@ pub struct Shapes {
     pub start_ms: u32,
 }
 
-fn shapes_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(state) = world.get::<Shapes>(entity) else {
-        return;
-    };
+#[crate::view(component = Shapes, name = "Shapes", priority = 60)]
+fn shapes_render(
+    state: component!(),
+    theme: res!(optional Theme),
+    clock: res!(optional MonoClock),
+    paint: paint!(),
+) {
     let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let theme = theme.unwrap_or(&default_theme);
     let arc_color = theme.resolve(ColorToken::Primary);
     let hand_color = theme.resolve(ColorToken::Secondary);
     let tick_color = theme.resolve(ColorToken::OnSurfaceVariant);
-    let now_ms = world
-        .resource::<MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0);
+    let now_ms = clock.map(|c| c.now_ms()).unwrap_or(0);
     let elapsed_ms = now_ms.wrapping_sub(state.start_ms) as i32;
 
     let rect = paint.rect();
@@ -81,9 +80,7 @@ fn shapes_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     }
 }
 
-pub fn shapes_view() -> View {
-    View::new("Shapes", 60, shapes_render).with_filter::<Shapes>()
-}
+pub use shapes_render::view as shapes_view;
 
 #[mirui_macros::system(order = Animation)]
 pub fn shapes_anim_system(shapes: query!(mut Shapes)) {
