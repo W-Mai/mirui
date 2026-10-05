@@ -144,3 +144,128 @@ pub(crate) fn write_overlay_layout(
         style.layout.height = crate::types::Dimension::Px(rect.h);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::World;
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::test_support::tracked_allocations;
+    use crate::types::Transform;
+    use crate::ui::Style;
+    use crate::ui::dirty::VisualDirty;
+    use crate::ui::theme::WidgetState;
+    use crate::ui::view::{PaintCtx, View, ViewInvalidation, ViewRegistry};
+    use core::any::TypeId;
+
+    #[derive(Default)]
+    struct CountingRenderer(usize);
+
+    impl Renderer for CountingRenderer {
+        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.0 += 1;
+            Ok(())
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn overlay_descriptors_keep_filters_and_invocation_time_feedback() {
+        for (factory, component, name, priority) in [
+            (
+                cursor::view as fn() -> View,
+                TypeId::of::<OverlayCursor>(),
+                "input_feedback_cursor",
+                90,
+            ),
+            (
+                rotary::view,
+                TypeId::of::<OverlayRotary>(),
+                "input_feedback_rotary",
+                91,
+            ),
+        ] {
+            let mut descriptor = None;
+            assert_eq!(tracked_allocations(|| descriptor = Some(factory())), 0);
+            let descriptor = descriptor.unwrap();
+            assert_eq!(descriptor.name(), name);
+            assert_eq!(descriptor.component_filter(), Some(component));
+            assert_eq!(descriptor.priority(), Some(priority));
+            assert_eq!(descriptor.invalidation(), ViewInvalidation::Visual);
+            assert!(descriptor.observation().is_none());
+            let render = descriptor.render().unwrap();
+            let mut world = World::new();
+            let entity = world.spawn_empty();
+            world.insert(entity, OverlayCursor);
+            world.insert(entity, OverlayRotary);
+            let style = Style::default();
+            let rect = Rect::new(0, 0, 36, 128);
+            let mut feedback = InputFeedback::enabled();
+            feedback.rotary.opacity = Fixed::ONE;
+            for (value, active) in [
+                (None, false),
+                (Some(feedback), true),
+                (Some(InputFeedback::default()), false),
+                (Some(feedback), true),
+                (None, false),
+            ] {
+                world.remove_resource::<InputFeedback>();
+                if let Some(value) = value {
+                    world.insert_resource(value);
+                }
+                let mut renderer = CountingRenderer::default();
+                {
+                    let mut paint = PaintCtx::new(
+                        &mut renderer,
+                        &style,
+                        &rect,
+                        &rect,
+                        Transform::IDENTITY,
+                        None,
+                        WidgetState::Enabled,
+                    );
+                    let allocations = tracked_allocations(|| render(&world, entity, &mut paint));
+                    assert_eq!(paint.background_handled(), active);
+                    assert_eq!(paint.error(), None);
+                    if !active || component == TypeId::of::<OverlayCursor>() {
+                        assert_eq!(allocations, 0);
+                    }
+                }
+                assert_eq!(renderer.0, usize::from(active));
+            }
+        }
+    }
+
+    #[test]
+    fn overlay_marker_changes_use_descriptor_visual_invalidation() {
+        fn check<T: crate::ecs::Component>(
+            world: &mut World,
+            entity: crate::ecs::Entity,
+            make: impl Fn() -> T,
+        ) {
+            for _ in 0..2 {
+                for _ in 0..2 {
+                    world.insert(entity, make());
+                    ViewRegistry::reconcile_observations(world);
+                    assert!(world.get::<VisualDirty>(entity).is_some());
+                    world.remove::<VisualDirty>(entity);
+                }
+                world.remove::<T>(entity);
+                ViewRegistry::reconcile_observations(world);
+                assert!(world.get::<VisualDirty>(entity).is_some());
+                world.remove::<VisualDirty>(entity);
+            }
+        }
+
+        let mut world = World::new();
+        let mut registry = ViewRegistry::default();
+        registry.insert(cursor::view());
+        registry.insert(rotary::view());
+        world.insert_resource(registry);
+        ViewRegistry::reconcile_observations(&mut world);
+        let entity = world.spawn_empty();
+        check(&mut world, entity, || OverlayCursor);
+        check(&mut world, entity, || OverlayRotary);
+    }
+}

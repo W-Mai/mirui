@@ -126,7 +126,7 @@ mod tests {
         app.add_plugin(InputFeedbackPlugin::new());
         let reg = app.world.resource::<ViewRegistry>().unwrap();
         // Built-in widgets cap at priority 80 (Text). Overlays must come last.
-        let names: alloc::vec::Vec<&str> = reg.iter().map(|v| v.name()).collect();
+        let names: alloc::vec::Vec<&str> = reg.paint_iter().map(|v| v.name()).collect();
         let cursor_idx = names
             .iter()
             .position(|n| *n == "input_feedback_cursor")

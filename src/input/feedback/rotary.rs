@@ -5,7 +5,6 @@ use crate::render::command::DrawCommand;
 use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::types::{Color, Fixed, Rect, Viewport};
 use crate::ui::dirty::Dirty;
-use crate::ui::view::{PaintCtx, View};
 use crate::ui::{Children, IgnoreHitTest, Parent, Style, Widget};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
@@ -150,11 +149,9 @@ pub fn rotary_feedback_system(
     }
 }
 
-fn rotary_render(world: &World, entity: Entity, paint_ctx: &mut PaintCtx<'_>) {
-    if world.get::<OverlayRotary>(entity).is_none() {
-        return;
-    }
-    let Some(feedback) = world.resource::<InputFeedback>() else {
+#[crate::view(component = OverlayRotary, name = "input_feedback_rotary", priority = 91)]
+fn rotary_render(feedback: res!(optional InputFeedback), paint_ctx: paint!()) {
+    let Some(feedback) = feedback else {
         return;
     };
     if !feedback.rotary.enabled || !rotary_active(&feedback.rotary) {
@@ -189,9 +186,7 @@ fn rotary_render(world: &World, entity: Entity, paint_ctx: &mut PaintCtx<'_>) {
     });
 }
 
-pub fn view() -> View {
-    View::new("input_feedback_rotary", 91, rotary_render)
-}
+pub use rotary_render::view;
 
 #[cfg(test)]
 mod tests {
@@ -200,6 +195,7 @@ mod tests {
     use crate::render::renderer::{RenderError, RenderFeature, Renderer};
     use crate::types::Transform;
     use crate::ui::WidgetRoot;
+    use crate::ui::view::PaintCtx;
 
     fn make_world() -> World {
         let mut app = crate::app::App::headless(64, 64);
@@ -256,7 +252,7 @@ mod tests {
             None,
             crate::ui::theme::WidgetState::Enabled,
         );
-        rotary_render(&world, entity, &mut paint);
+        view().render().unwrap()(&world, entity, &mut paint);
         assert_eq!(
             paint.error(),
             Some(RenderError::Unsupported(RenderFeature::AffineGeometry))

@@ -335,6 +335,9 @@ app.with_widget(paint_counter::view());
 ```
 
 `component = T` selects the entities painted by the View.
+
+Cursor and rotary feedback Views use their overlay marker as the descriptor filter and borrow `res!(optional InputFeedback)` on each paint call. Replacing or removing that resource affects subsequent calls; inserting, replacing, or removing the marker uses the descriptor's visual invalidation policy.
+
 Button, Slider, Checkbox, ProgressBar, TabBar, Icon, and BackgroundBlur use this declaration
 for built-in paint callbacks. Their widget modules export the generated `view`
 factory directly; component filters, paint priorities, and internal gesture

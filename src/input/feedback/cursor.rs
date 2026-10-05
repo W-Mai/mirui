@@ -9,7 +9,7 @@ use crate::render::command::DrawCommand;
 use crate::types::{Color, Fixed, Rect};
 use crate::ui::dirty::Dirty;
 use crate::ui::render_system::LastDirtyRegions;
-use crate::ui::view::{PaintCtx, View};
+use crate::ui::view::PaintCtx;
 use crate::ui::{Children, ComputedRect, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
@@ -143,11 +143,9 @@ pub fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs::Comma
 
 crate::ecs::system::framework_system!(pub cursor_feedback_system, Normal);
 
-fn cursor_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    if world.get::<OverlayCursor>(entity).is_none() {
-        return;
-    }
-    let Some(feedback) = world.resource::<InputFeedback>() else {
+#[crate::view(component = OverlayCursor, name = "input_feedback_cursor", priority = 90)]
+fn cursor_render(feedback: res!(optional InputFeedback), paint: paint!()) {
+    let Some(feedback) = feedback else {
         return;
     };
     if !feedback.cursor.enabled {
@@ -195,9 +193,7 @@ fn emit_border(paint: &mut PaintCtx<'_>, rect: Rect, radius: Fixed, opa: u8) {
     });
 }
 
-pub fn view() -> View {
-    View::new("input_feedback_cursor", 90, cursor_render)
-}
+pub use cursor_render::view;
 
 #[cfg(test)]
 mod tests {
@@ -229,6 +225,13 @@ mod tests {
             fn flush(&mut self) {}
         }
 
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, OverlayCursor);
+        let mut feedback = InputFeedback::enabled();
+        feedback.cursor.mode = CursorFeedbackMode::MagneticRect;
+        feedback.cursor.current.target_rect = Some(Rect::new(0, 0, 16, 16));
+        world.insert_resource(feedback);
         let style = Style::default();
         let rect = Rect::new(0, 0, 16, 16);
         let mut renderer = RejectRenderer;
@@ -241,8 +244,7 @@ mod tests {
             None,
             crate::ui::theme::WidgetState::Enabled,
         );
-        emit_fill(&mut paint, rect, Fixed::ZERO, 255);
-        emit_border(&mut paint, rect, Fixed::ZERO, 255);
+        view().render().unwrap()(&world, entity, &mut paint);
         assert_eq!(
             paint.error(),
             Some(RenderError::Unsupported(RenderFeature::AffineGeometry))
