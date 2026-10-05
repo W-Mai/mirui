@@ -817,6 +817,109 @@ mod tests {
     struct LayoutTile;
 
     #[crate::component]
+    struct BehaviorOnlyTile;
+
+    struct BehaviorTicks(u32);
+
+    #[crate::system(order = Normal, expect = [BehaviorOnlyTile])]
+    fn tick_behavior(ticks: res!(mut BehaviorTicks)) {
+        ticks.0 += 1;
+    }
+
+    #[crate::view(component = BehaviorOnlyTile, name = "BehaviorOnly", systems = [tick_behavior::system()])]
+    fn behavior_only_view() {}
+
+    #[test]
+    fn empty_view_installs_its_system_only_when_registered_without_paint() {
+        let mut app = crate::app::App::headless(32, 32);
+        app.world.insert_resource(BehaviorTicks(0));
+        let node = app.world.spawn_empty();
+        app.world.insert(node, BehaviorOnlyTile);
+        app.systems.run_all(&mut app.world);
+        assert_eq!(app.world.resource::<BehaviorTicks>().unwrap().0, 0);
+        assert!(
+            !app.systems
+                .iter()
+                .any(|system| system.name == "tick_behavior")
+        );
+
+        let view = behavior_only_view::view();
+        assert_eq!(view.name(), "BehaviorOnly");
+        assert_eq!(
+            view.component_filter().unwrap(),
+            TypeId::of::<BehaviorOnlyTile>()
+        );
+        assert!(view.render().is_none());
+        assert_eq!(view.priority(), None);
+        app.with_widget(view);
+        let registry = app.world.resource::<ViewRegistry>().unwrap();
+        assert!(registry.iter().any(|view| view.name() == "BehaviorOnly"));
+        assert!(
+            !registry
+                .paint_iter()
+                .any(|view| view.name() == "BehaviorOnly")
+        );
+        assert_eq!(
+            app.systems
+                .iter()
+                .filter(|system| system.name == "tick_behavior")
+                .count(),
+            1
+        );
+        for expected in [1, 2] {
+            assert_eq!(
+                tracked_allocations(|| app.systems.run_all(&mut app.world)),
+                0
+            );
+            assert_eq!(app.world.resource::<BehaviorTicks>().unwrap().0, expected);
+        }
+        app.world.remove::<BehaviorOnlyTile>(node);
+        assert_eq!(
+            tracked_allocations(|| app.systems.run_all(&mut app.world)),
+            0
+        );
+        assert_eq!(app.world.resource::<BehaviorTicks>().unwrap().0, 2);
+    }
+
+    #[test]
+    fn builtin_behavior_views_preserve_system_slots_and_expect_without_paint() {
+        use crate::ecs::SystemSlot;
+        for (view, name, component, slot) in [
+            (
+                crate::ui::widgets::tab_pages::view(),
+                "TabPages",
+                TypeId::of::<crate::ui::widgets::tab_pages::TabContent>(),
+                SystemSlot::TabPages,
+            ),
+            (
+                crate::ui::widgets::lazy_list::view(),
+                "LazyList",
+                TypeId::of::<crate::ui::widgets::lazy_list::LazyList>(),
+                SystemSlot::LazyList,
+            ),
+        ] {
+            assert_eq!(view.name(), name);
+            assert_eq!(view.component_filter().unwrap(), component);
+            assert!(view.render().is_none());
+            assert_eq!(view.priority(), None);
+            let mut app = crate::app::App::headless(32, 32);
+            assert!(
+                !app.systems
+                    .iter()
+                    .any(|system| system.priority() == slot.priority())
+            );
+            app.with_widget(view);
+            let mut matching = app
+                .systems
+                .iter()
+                .filter(|system| system.priority() == slot.priority());
+            let system = matching.next().unwrap();
+            assert!(!system.metadata().is_empty());
+            assert!(matching.next().is_none());
+        }
+    }
+
+    #[crate::component]
     struct BoundTile {
         model: model!(BoundState),
     }

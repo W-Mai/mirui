@@ -282,9 +282,10 @@ fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bo
     any_cleared
 }
 
-pub fn view() -> crate::ui::view::View {
-    crate::ui::view::View::systems_only("LazyList", const { &[lazy_list_system::system()] })
-}
+#[crate::view(component = LazyList, name = "LazyList", systems = [lazy_list_system::system()])]
+fn lazy_list_view() {}
+
+pub use lazy_list_view::view;
 
 #[cfg(test)]
 mod tests {

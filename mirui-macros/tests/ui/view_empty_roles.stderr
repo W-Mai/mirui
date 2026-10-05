@@ -1,0 +1,11 @@
+error[E0425]: cannot find type `MissingResource` in this scope
+ --> tests/ui/view_empty_roles.rs:7:36
+  |
+7 | fn missing_resource(resource: res!(MissingResource)) {}
+  |                                    ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0609]: no field `missing` on type `&Tile`
+  --> tests/ui/view_empty_roles.rs:10:47
+   |
+10 | fn missing_projection(model: model!(component.missing)) {}
+   |                                               ^^^^^^^ unknown field

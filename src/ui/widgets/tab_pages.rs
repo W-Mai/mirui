@@ -122,9 +122,10 @@ fn apply_visibility(world: &mut World) {
     }
 }
 
-pub fn view() -> crate::ui::view::View {
-    crate::ui::view::View::systems_only("TabPages", const { &[tab_pages_system::system()] })
-}
+#[crate::view(component = TabContent, name = "TabPages", systems = [tab_pages_system::system()])]
+fn tab_pages_view() {}
+
+pub use tab_pages_view::view;
 
 #[cfg(test)]
 mod tests {

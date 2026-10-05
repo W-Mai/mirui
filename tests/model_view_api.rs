@@ -99,6 +99,65 @@ fn paint_drop(model: model!(component.model, watch(value))) {
     let _ = model.value;
 }
 
+#[view(component = PaintTile, invalidation = Layout)]
+fn observe_tile(model: model!(component.model, watch(value))) {}
+
+#[test]
+fn empty_view_retains_model_observation_without_a_paint_callback() {
+    use mirui::ui::dirty::Dirty;
+
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(PaintModel { value: 1 });
+    let second = app.add_model(PaintModel { value: 7 });
+    for _ in 0..2 {
+        assert_eq!(
+            tracked_allocations(|| {
+                let _ = observe_tile::view();
+            }),
+            0
+        );
+    }
+    app.with_widget(observe_tile::view());
+    let root = app.spawn_root().id();
+    app.world.insert(
+        root,
+        PaintTile {
+            model: first.share(),
+        },
+    );
+    app.render().unwrap();
+    app.world.remove::<Dirty>(root);
+    for value in [2, 3] {
+        assert_eq!(
+            tracked_allocations(|| {
+                first.set_value(value);
+                flush_signal_dirty(&mut app.world);
+            }),
+            0
+        );
+        assert!(app.world.remove::<Dirty>(root).is_some());
+    }
+    app.world.insert(
+        root,
+        PaintTile {
+            model: second.share(),
+        },
+    );
+    app.render_dirty().unwrap();
+    app.world.remove::<Dirty>(root);
+    first.set_value(4);
+    flush_signal_dirty(&mut app.world);
+    assert!(!app.world.has::<Dirty>(root));
+    assert_eq!(
+        tracked_allocations(|| {
+            second.set_value(8);
+            flush_signal_dirty(&mut app.world);
+        }),
+        0
+    );
+    assert!(app.world.remove::<Dirty>(root).is_some());
+}
+
 #[component]
 struct PixelTile {
     model: model!(PaintModel),

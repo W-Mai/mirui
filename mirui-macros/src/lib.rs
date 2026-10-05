@@ -44,6 +44,18 @@ pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Declare a component-filtered widget with independent behavior and paint hooks.
+///
+/// A nonempty function body supplies the paint callback. An empty body omits
+/// painting while retaining declared systems, attachment, gestures, and model
+/// subscriptions. The generated `function_name::view()` factory registers the widget.
+///
+/// ```ignore
+/// #[view(component = TabContent, name = "TabPages", systems = [update_pages::system()])]
+/// fn tab_pages_view() {}
+///
+/// app.with_widget(tab_pages_view::view());
+/// ```
 #[proc_macro_attribute]
 pub fn view(attr: TokenStream, item: TokenStream) -> TokenStream {
     view_attr::expand(attr.into(), item.into())

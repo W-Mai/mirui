@@ -376,6 +376,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
     let visibility = function.vis;
     let attributes = classify_function_attributes(function.attrs, "views")?;
     let body = function.block;
+    let has_paint = !body.stmts.is_empty();
     let helper_name = format_ident!(
         "__mirui_view_body_{function_name}",
         span = Span::mixed_site()
@@ -476,25 +477,19 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         declaration,
         conditional,
     } = attributes;
-
-    Ok(quote! {
-        #(#helper)*
-        #[doc(hidden)]
-        fn #helper_name #impl_generics (
-            #(#helper_parameters),*
-        ) #where_clause {
-            #helper_body
+    let helper_definition = has_paint.then(|| {
+        quote! {
+            #(#helper)*
+            #[doc(hidden)]
+            fn #helper_name #impl_generics (
+                #(#helper_parameters),*
+            ) #where_clause {
+                #helper_body
+            }
         }
-
-        #(#conditional)*
-        #(#declaration)*
-        #[allow(non_snake_case, non_camel_case_types)]
-        #visibility mod #function_name {
-            #[allow(unused_imports)]
-            use super::*;
-
-            #system_array
-
+    });
+    let render_definition = has_paint.then(|| {
+        quote! {
             #[allow(unused_variables)]
             fn render #factory_impl_generics (
                 __mirui_world: &::mirui::ecs::World,
@@ -507,11 +502,50 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
                     #helper_fn(#(#helper_arguments),*);
                 });
             }
+        }
+    });
+    let definition = if has_paint {
+        quote!(::mirui::ui::view::View::new(#view_name, #priority, #render_fn))
+    } else {
+        quote!(::mirui::ui::view::View::systems_only(#view_name, &[]))
+    };
+    let type_checks = if !has_paint && !bindings.is_empty() {
+        let resources = bindings.iter().filter_map(|binding| match &binding.source {
+            BindingSource::Resource(resource) => {
+                let ty = ChildScope::ty(&resource.ty);
+                Some(quote!(let _ = ::core::any::TypeId::of::<#ty>;))
+            }
+            _ => None,
+        });
+        let type_witness: Expr = syn::parse2(quote!(|#(#helper_parameters),*| #helper_body))?;
+        let type_witness = ChildScope::expression(&type_witness);
+        quote! {
+            #(#resources)*
+            #[allow(unused_variables)]
+            let _ = #type_witness;
+        }
+    } else {
+        TokenStream::new()
+    };
+
+    Ok(quote! {
+        #helper_definition
+
+        #(#conditional)*
+        #(#declaration)*
+        #[allow(non_snake_case, non_camel_case_types)]
+        #visibility mod #function_name {
+            #[allow(unused_imports)]
+            use super::*;
+
+            #system_array
+            #render_definition
 
             #observation
 
             pub fn view #factory_impl_generics () -> ::mirui::ui::view::View #factory_where_clause {
-                ::mirui::ui::view::View::new(#view_name, #priority, #render_fn)
+                #type_checks
+                #definition
                     .with_filter::<#factory_component>()
                     .with_invalidation(#invalidation)
                     #with_observation
@@ -721,6 +755,56 @@ mod tests {
         expand(attr, item)
             .unwrap_or_else(|error| panic!("unexpected expansion error: {error}"))
             .to_string()
+    }
+
+    #[test]
+    fn empty_body_keeps_widget_capabilities_without_paint_or_parameter_fetches() {
+        let expanded = expand_ok(
+            quote!(
+                component = Board,
+                name = "Behavior",
+                priority = 42,
+                attach = attach,
+                gesture = gesture,
+                systems = [update::system()]
+            ),
+            quote! {
+                pub fn behavior(
+                    game: model!(component.game, watch(value)),
+                    theme: res!(Theme),
+                    paint: paint!(),
+                ) {}
+            },
+        );
+        assert!(expanded.contains("View :: systems_only"));
+        assert!(expanded.contains("with_filter :: < Board >"));
+        assert!(expanded.contains("with_systems (SYSTEMS)"));
+        assert!(expanded.contains("with_attach (attach)"));
+        assert!(expanded.contains("with_internal_gesture (gesture)"));
+        assert!(expanded.contains("with_observation (observe , 1usize)"));
+        assert!(!expanded.contains("fn render"));
+        assert!(!expanded.contains("fn __mirui_view_body"));
+        assert!(!expanded.contains("resource ::"));
+        assert!(!expanded.contains("with_model_read_only"));
+    }
+
+    #[test]
+    fn nonempty_body_remains_paint_even_without_drawing() {
+        for body in [
+            quote!({
+                let _ = 1;
+            }),
+            quote!({ () }),
+            quote!({
+                return;
+            }),
+        ] {
+            let expanded = expand_ok(quote!(component = Board), quote!(fn behavior() #body));
+            assert!(expanded.contains("View :: new"));
+            assert!(expanded.contains("fn render"));
+            assert!(expanded.contains("fn __mirui_view_body"));
+            assert!(!expanded.contains("View :: systems_only"));
+        }
     }
 
     #[test]

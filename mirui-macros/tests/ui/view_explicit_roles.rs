@@ -49,6 +49,15 @@ mod nested {
         3
     }
 
+    #[view(component = super::Tile, name = "Behavior", attach = self::attach,
+        gesture = self::gesture, systems = [self::update::system()])]
+    #[cfg_attr(all(), cfg(all()), doc = "A behavior-only widget.")]
+    pub fn behavior<T: super::Palette>(
+        state: model!(component.state, watch(value)),
+        optional: model!(optional component.optional, watch(value)),
+        theme: res!(<T as super::Palette>::Theme),
+    ) where self::Marker: super::Palette {}
+
     #[view(component = super::Tile, priority = self::PRIORITY, invalidation = Layout, attach = self::attach, gesture = self::gesture, systems = [self::update::system()])]
     #[allow(clippy::let_and_return)]
     #[cfg_attr(all(), cfg(all()), doc = "A typed paint callback.", inline)]
@@ -70,4 +79,5 @@ mod nested {
 
 fn main() {
     let _ = nested::paint::view::<nested::Marker, 1>();
+    let _ = nested::behavior::view::<nested::Marker>();
 }

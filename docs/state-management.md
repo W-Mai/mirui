@@ -373,9 +373,22 @@ removal update bindings before the next paint.
 
 A View describes a widget kind, not just its paint function. Paint, attach,
 gesture, observation, and systems are independent capabilities.
-`View::systems_only(name, systems)` registers behavior without a paint hook;
-TabPages and LazyList use this path and remain Views. Paint traversal skips
-these descriptors. Paint priority orders only drawing, with registration order
+An empty `#[view]` function declares a widget without a paint hook:
+
+```rust,ignore
+#[view(component = TabContent, name = "TabPages", systems = [tab_pages_system::system()])]
+fn tab_pages_view() {}
+
+app.with_widget(tab_pages_view::view());
+```
+
+TabPages and LazyList use this declaration and remain Views. The macro generates
+neither a body helper nor a render callback for an empty body; nonempty bodies
+remain paint callbacks even when they do not draw. Parameter roles are still
+validated, and declared model watches still create subscriptions. Systems are
+installed only when the View is registered, preserving their execution order
+and component requirements. Paint traversal skips these descriptors.
+Paint priority orders only drawing, with registration order
 breaking ties. Gesture hooks retain registration order, and contributed systems
 use their own `SystemSlot`.
 
@@ -641,7 +654,7 @@ frontends are separate from this factory facility.
 | `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `model!(T)` fields retain registered model identity |
 | `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances among generated bindings, callbacks, and direct child calls |
 | `com!(entity, T)` | Read a component in composition or an event | Returns a short-lived `Option<&T>` without subscribing |
-| `View` / `#[view]` | Register a widget kind; the attribute generates its paint callback | Independent hooks provide painting, attachment, gestures, observation, and systems; typed paint roles declare model projections and resources |
+| `View` / `#[view]` | Register a widget kind; nonempty bodies supply painting and empty bodies omit it | Independent hooks provide painting, attachment, gestures, observation, and systems; typed roles declare model projections and resources |
 | `#[system]` | Scheduled updates | `model!(T)` captures a registered instance; `res!`, `query!`, and `commands!` declare all other runtime access |
 | `on Event { ... }` | Handle gesture and widget business events | Event fields are local bindings; `com!` reads and `commands!()` defers structural changes |
 | `#[timer]` | Run a callback on a time schedule | `model!`, `entity!`, and `commands!` declare callback access |
@@ -651,7 +664,7 @@ frontends are separate from this factory facility.
 
 `#[model]` does not replace components: a model has application-level identity,
 while components attach behavior and model bindings to individual entities.
-`#[view]` does not replace composition: it defines a component's paint callback,
+`#[view]` does not replace composition: it declares a widget's behavior and optional paint callback,
 while `#[compose]` builds its surrounding widget tree. `Signal<T>` remains useful
 for a small independent value; a model does not need to wrap every signal.
 
