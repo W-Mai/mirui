@@ -42,13 +42,11 @@ error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntityS
 help: the following other types implement trait `mirui::input::event::contract::EntitySourceFor<W>`
   --> src/input/event/contract.rs
    |
-   | impl<W: Component> EntitySourceFor<W> for EntitySource {
+   | impl<W: Component> EntitySourceFor<W> for EntitySource {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
-...
-   | impl<W: Component> EntitySourceFor<W> for InputSource {
+   | impl<W: Component> EntitySourceFor<W> for InputSource {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
-...
-   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
    = note: required for `mirui::__macro_support::EntityContext<Pad>` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Wheel>`
 
@@ -67,7 +65,7 @@ help: the trait `EntitySourceFor<Pad>` is not implemented for `WidgetSource<Slid
       but trait `EntitySourceFor<Slider>` is implemented for it
   --> src/input/event/contract.rs
    |
-   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `Slider`, found `Pad`
    = note: required for `mirui::__macro_support::EntityContext<Pad>` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::slider::ValueChanged>`

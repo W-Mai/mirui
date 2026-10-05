@@ -548,6 +548,8 @@ targets. Widget notification installation checks the source component and
 entity generation. Captured Model owners are validated by preparation; the
 pool rejects a different App before installation or dispatch.
 
+Typed widget contexts constrain a notification source to the widget's component type at compile time. Generic node contexts validate the source component after attachments have been installed. Both contexts use the same installer, prepared callback, and listener pool; an event qualifier does not prove that a component exists. App-only sources cannot acquire a node context.
+
 Listener entries and snapshot steps have independent explicit count limits.
 Matching produces an installation-order snapshot without borrowing the World
 or retaining a borrow of the entry list. Removing a listener does not change

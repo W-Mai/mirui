@@ -1,7 +1,8 @@
 #![deny(warnings)]
 
 use mirui::__macro_support::{
-    CommandCapacity, EventListeners, ListenerSelector, NotificationCapacity, NotificationQueue,
+    CommandCapacity, EntityContext, EventListeners, ListenerSelector, NodeContext,
+    NotificationCapacity, NotificationQueue,
 };
 use mirui::ecs::Component;
 use mirui::input::event::contract::*;
@@ -70,8 +71,8 @@ fn main() {
     let listeners = EventListeners::new(&mut world);
     listeners
         .reserve(mirui::__macro_support::ListenerCapacity {
-            listeners: 1,
-            snapshot_steps: 1,
+            listeners: 2,
+            snapshot_steps: 2,
         })
         .unwrap();
     listeners
@@ -79,7 +80,16 @@ fn main() {
             &mut world,
             node,
             ListenerSelector::new(Pad::HIT, |(), _| true),
-            hit_event::callback(),
+            hit_event::callback::<EntityContext<Pad>>(),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    listeners
+        .install_entity(
+            &mut world,
+            node,
+            ListenerSelector::new(Pad::HIT, |(), _| true),
+            hit_event::callback::<NodeContext>(),
             CommandCapacity::default(),
         )
         .unwrap();
@@ -95,5 +105,5 @@ fn main() {
     listeners
         .flush_notifications(&mut world, &queue, 1)
         .unwrap();
-    assert_eq!(world.resource::<Hits>().unwrap().0, 7);
+    assert_eq!(world.resource::<Hits>().unwrap().0, 14);
 }

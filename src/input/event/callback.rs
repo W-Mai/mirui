@@ -13,7 +13,8 @@ use crate::ecs::world::WorldId;
 use crate::ecs::{Component, Entity, World};
 
 use super::contract::{
-    AppEventSource, AppRoute, EntityRoute, EntitySourceFor, Event, EventResult, EventRoute,
+    AppEventSource, AppRoute, EntityEventSource, EntityRoute, EntitySourceFor, Event, EventResult,
+    EventRoute,
 };
 
 mod sealed {
@@ -23,6 +24,10 @@ mod sealed {
 /// Entity capability carried by a generated widget event adapter.
 #[doc(hidden)]
 pub struct EntityContext<W: Component>(PhantomData<fn() -> W>);
+
+/// Entity capability whose component source is checked after attachment.
+#[doc(hidden)]
+pub struct NodeContext;
 
 /// App capability carried by a generated App event adapter.
 #[doc(hidden)]
@@ -47,6 +52,25 @@ impl<E: Event, W: Component> CallbackContext<E> for EntityContext<W>
 where
     E::Route: EntityRoute,
     E::Source: EntitySourceFor<W>,
+{
+    type Target = Entity;
+
+    fn is_live(world: &World, target: Entity) -> bool {
+        world.is_alive(target)
+    }
+}
+
+impl<E: Event> sealed::Context<E> for NodeContext
+where
+    E::Route: EntityRoute,
+    E::Source: EntityEventSource,
+{
+}
+
+impl<E: Event> CallbackContext<E> for NodeContext
+where
+    E::Route: EntityRoute,
+    E::Source: EntityEventSource,
 {
     type Target = Entity;
 

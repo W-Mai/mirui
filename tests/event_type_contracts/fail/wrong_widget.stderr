@@ -10,7 +10,7 @@ help: the trait `EntitySourceFor<Dial>` is not implemented for `mirui::input::ev
       but trait `EntitySourceFor<Pad>` is implemented for it
   --> src/input/event/contract.rs
    |
-   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
+   | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `Pad`, found `Dial`
 note: required by a bound in `entity`

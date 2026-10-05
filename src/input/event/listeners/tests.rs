@@ -1,8 +1,9 @@
-use super::super::callback::{deferred_event_callback, event_callback};
+use super::super::callback::{EntityContext, NodeContext, deferred_event_callback, event_callback};
 use super::super::contract::{AppNotification, AppSource, EntityNotification, WidgetSource};
 use super::super::input::Key;
 use super::super::notification::NotificationCapacity;
 use super::*;
+use crate::ecs::Component;
 use crate::input::event::gesture::DragMove;
 use crate::input::event::gesture::Tap;
 use crate::test_support::tracked_allocations;
@@ -51,7 +52,7 @@ fn tap_selection_freezes_origin_count_and_preserves_order_consumption_and_storag
         (leaf, Tap::EVENT, 4),
         (parent, double, 5),
     ] {
-        pool.install_entity::<Tap, RouteMarker>(
+        pool.install_entity::<Tap, EntityContext<RouteMarker>>(
             &mut world,
             node,
             ListenerSelector::gesture(key),
@@ -198,7 +199,7 @@ impl RouteFixture {
         // Install out of tree order; route order must still be leaf to root.
         for node in [root, alternate, parent, leaf] {
             world.insert(node, RouteMarker);
-            pool.install_entity::<DragMove, RouteMarker>(
+            pool.install_entity::<DragMove, EntityContext<RouteMarker>>(
                 &mut world,
                 node,
                 selector(),
@@ -487,13 +488,15 @@ fn a_failed_snapshot_reservation_does_not_expand_listener_or_step_quotas() {
     assert_eq!(fixture.pool.entries.borrow().limit, 4);
     assert_eq!(fixture.pool.scratch.borrow().limit, 9);
     assert_eq!(
-        fixture.pool.install_entity::<DragMove, RouteMarker>(
-            &mut fixture.world,
-            fixture.leaf,
-            selector(),
-            route_author::callback(),
-            CommandCapacity::default(),
-        ),
+        fixture
+            .pool
+            .install_entity::<DragMove, EntityContext<RouteMarker>>(
+                &mut fixture.world,
+                fixture.leaf,
+                selector(),
+                route_author::callback(),
+                CommandCapacity::default(),
+            ),
         Err(ListenerError::Capacity { available: 4 })
     );
     let event = fixture.event();
@@ -612,7 +615,7 @@ impl KeyboardFixture {
                     on_key: keyboard_default,
                 },
             );
-            pool.install_entity::<Key, Widget>(
+            pool.install_entity::<Key, EntityContext<Widget>>(
                 &mut world,
                 node,
                 selector(),
@@ -620,7 +623,7 @@ impl KeyboardFixture {
                 CommandCapacity::default(),
             )
             .unwrap();
-            pool.install_entity::<super::super::input::CharInput, Widget>(
+            pool.install_entity::<super::super::input::CharInput, EntityContext<Widget>>(
                 &mut world,
                 node,
                 selector(),
@@ -1328,7 +1331,7 @@ fn named_factory_receives_owned_notification_through_the_installed_pool() {
         &mut app.world,
         node,
         selector(),
-        record_change::callback(counter.clone()),
+        record_change::callback::<EntityContext<Widget>>(counter.clone()),
         CommandCapacity::default(),
     )
     .unwrap();
@@ -1366,7 +1369,7 @@ fn disabled_or_hidden_widgets_still_receive_queued_business_notifications() {
         &mut app.world,
         node,
         selector(),
-        record_change::callback(counter.clone()),
+        record_change::callback::<EntityContext<Widget>>(counter.clone()),
         CommandCapacity::default(),
     )
     .unwrap();
@@ -2016,6 +2019,173 @@ fn widget_installation_checks_source_and_execution_checks_generation() {
         .unwrap()
         .run(&mut world)
         .unwrap();
+    assert_eq!(seen.get(), 1);
+}
+
+#[test]
+fn attached_sources_share_typed_execution_and_instance_identity() {
+    let mut app = crate::app::App::headless(8, 8);
+    let counter = app.add_model(Counter { value: 0 });
+    let first = app.world.spawn_empty();
+    let second = app.world.spawn_empty();
+    for node in [first, second] {
+        app.world.insert(node, RouteMarker);
+        app.world.insert(node, Widget);
+        app.world.insert(node, Position(0));
+    }
+    let pool = EventListeners::new(&mut app.world);
+    pool.reserve(ListenerCapacity {
+        listeners: 3,
+        snapshot_steps: 2,
+    })
+    .unwrap();
+    pool.install_entity(
+        &mut app.world,
+        first,
+        selector(),
+        record_change::callback::<EntityContext<Widget>>(counter.clone()),
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    pool.install_entity(
+        &mut app.world,
+        first,
+        selector(),
+        record_change::callback::<NodeContext>(counter.clone()),
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    pool.install_entity(
+        &mut app.world,
+        second,
+        selector(),
+        record_change::callback::<NodeContext>(counter.clone()),
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    let queue = NotificationQueue::default();
+    queue
+        .reserve(NotificationCapacity {
+            records: 2,
+            payload_bytes: 2 * size_of::<Changed>(),
+            payload_alignment: core::mem::align_of::<Changed>(),
+        })
+        .unwrap();
+    for value in [3, 5] {
+        assert_eq!(
+            tracked_allocations(|| {
+                queue.push_entity(first, Changed(value)).ok().unwrap();
+                queue.push_entity(second, Changed(value + 1)).ok().unwrap();
+                assert_eq!(pool.flush_notifications(&mut app.world, &queue, 2), Ok(2));
+            }),
+            0
+        );
+    }
+    assert_eq!(counter.value(), 26);
+    assert_eq!(app.world.get::<Position>(first).unwrap().0, 16);
+    assert_eq!(app.world.get::<Position>(second).unwrap().0, 10);
+}
+
+#[test]
+fn attached_source_validation_rejects_missing_foreign_and_stale_nodes_without_using_slots() {
+    let mut world = World::new();
+    let node = world.spawn(RouteMarker);
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
+    let callback = || {
+        // SAFETY: the body has no World access or captured Models.
+        unsafe { event_callback::<Changed, NodeContext, (), ()>("attached", &[], |(), _, _| ()) }
+    };
+    let install = |world: &mut World, node| {
+        pool.install_entity(
+            world,
+            node,
+            selector(),
+            callback(),
+            CommandCapacity::default(),
+        )
+    };
+    assert_eq!(
+        install(&mut world, node),
+        Err(ListenerError::MissingSource { entity: node })
+    );
+    let mut foreign = World::new();
+    let foreign_node = foreign.spawn(Widget);
+    assert_eq!(
+        install(&mut foreign, foreign_node),
+        Err(ListenerError::ForeignOwner)
+    );
+    assert!(world.despawn(node));
+    let replacement = world.spawn(Widget);
+    assert_eq!(replacement.id, node.id);
+    assert_ne!(replacement.generation, node.generation);
+    assert_eq!(
+        install(&mut world, node),
+        Err(ListenerError::MissingSource { entity: node })
+    );
+    let installed = install(&mut world, replacement).unwrap();
+    assert_eq!(
+        install(&mut world, replacement),
+        Err(ListenerError::Capacity { available: 1 })
+    );
+    assert!(pool.remove(installed).unwrap());
+    assert!(install(&mut world, replacement).is_ok());
+}
+
+#[test]
+fn attached_snapshot_preserves_frozen_matches_and_skips_retired_generations() {
+    let mut world = World::new();
+    let node = world.spawn(Widget);
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 1,
+    })
+    .unwrap();
+    let seen = Rc::new(Cell::new(0));
+    let body = seen.clone();
+    // SAFETY: the body has no World access or captured Models.
+    let callback = unsafe {
+        event_callback::<Changed, NodeContext, (), ()>("attached", &[], move |(), _, _| {
+            body.set(body.get() + 1);
+        })
+    };
+    pool.install_entity(
+        &mut world,
+        node,
+        selector(),
+        callback,
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    let event = Changed(1);
+    let snapshot = pool
+        .snapshot(&world, &event, ListenerTarget::Entity(node))
+        .unwrap();
+    world.remove::<Widget>(node);
+    assert_eq!(
+        tracked_allocations(|| {
+            snapshot.run(&mut world).unwrap();
+        }),
+        0
+    );
+    assert_eq!(seen.get(), 1);
+    let snapshot = pool
+        .snapshot(&world, &event, ListenerTarget::Entity(node))
+        .unwrap();
+    assert!(world.despawn(node));
+    let replacement = world.spawn(Widget);
+    assert_eq!(replacement.id, node.id);
+    assert_eq!(
+        tracked_allocations(|| {
+            snapshot.run(&mut world).unwrap();
+        }),
+        0
+    );
     assert_eq!(seen.get(), 1);
 }
 

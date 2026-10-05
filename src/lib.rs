@@ -129,7 +129,7 @@ pub mod __macro_support {
         OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
     };
     pub use crate::input::event::callback::{
-        AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent,
+        AppContext, CallbackContext, EntityContext, EventCallback, NodeContext, PreparedEvent,
         deferred_event_callback, event_callback,
     };
     pub use crate::input::event::listeners::{

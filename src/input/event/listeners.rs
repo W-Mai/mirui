@@ -10,13 +10,13 @@ use core::ptr::NonNull;
 
 use crate::ecs::commands::{CommandCapacity, CommandError};
 use crate::ecs::world::WorldId;
-use crate::ecs::{Component, Entity, World};
+use crate::ecs::{Entity, World};
 
 use super::BubbleControl;
-use super::callback::{AppContext, CallbackContext, EntityContext, EventCallback, PreparedEvent};
+use super::callback::{AppContext, CallbackContext, EventCallback, PreparedEvent};
 use super::contract::{
-    AppEventSource, AppRoute, AppSource, EntityRoute, EntitySourceFor, Event, EventKey, EventRoute,
-    InputSource,
+    AppEventSource, AppRoute, AppSource, EntityEventSource, EntityRoute, Event, EventKey,
+    EventRoute, InputSource,
 };
 use super::focus::{FocusState, KeyHandler};
 use super::gesture::GestureEvent;
@@ -359,19 +359,19 @@ impl EventListeners {
         id
     }
 
-    pub fn install_entity<E, W>(
+    pub fn install_entity<E, C>(
         &self,
         world: &mut World,
         entity: Entity,
         selector: ListenerSelector<E>,
-        callback: EventCallback<E, EntityContext<W>>,
+        callback: EventCallback<E, C>,
         capacity: CommandCapacity,
     ) -> Result<ListenerId, ListenerError>
     where
         E: Event,
-        W: Component,
+        C: CallbackContext<E, Target = Entity>,
         E::Route: EntityRoute,
-        E::Source: EntitySourceFor<W>,
+        E::Source: EntityEventSource,
         <E::Route as EventRoute>::Decision: ListenerDecision,
     {
         self.check_installation(world)?;

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Typed input and lifecycle payloads.** Keyboard and character payloads support entity and App source capabilities; wheel and rotary payloads are App-only. Lifecycle notifications are distinct from raw suspend, resume, and quit requests.
 - **Typed widget notification selectors.** Slider, Switch, Checkbox, ProgressBar, TabBar, and TextInput expose payload-specific selector constants with widget source constraints.
 - **Named event callback factories.** `#[event]` generates `callback(...)` with registered Model and Copy value arguments, invocation-time resource/query access, read-only typed payloads, entity capability checks, and deferred commands.
+- **Attached event sources.** The internal event installer checks generic node sources against installed components while retaining compile-time source constraints for typed widget contexts. Both contexts share callback execution and generation checks.
 
 ### Changed
 

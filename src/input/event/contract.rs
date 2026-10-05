@@ -95,30 +95,37 @@ impl EventSource<InputFallback> for AppSource {}
 impl EventSource<AppNotification> for AppSource {}
 impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
 
-/// A source accepted by the entity installer for component `W`.
+/// A source checked against an entity's installed components.
 #[doc(hidden)]
-pub trait EntitySourceFor<W: Component>: sealed::EntitySourceFor<W> {
+pub trait EntityEventSource: sealed::Source {
     #[doc(hidden)]
     fn present(world: &World, entity: Entity) -> bool;
 }
-impl<W: Component> sealed::EntitySourceFor<W> for EntitySource {}
-impl<W: Component> sealed::EntitySourceFor<W> for InputSource {}
-impl<W: Component> sealed::EntitySourceFor<W> for WidgetSource<W> {}
-impl<W: Component> EntitySourceFor<W> for EntitySource {
+impl EntityEventSource for EntitySource {
     fn present(_world: &World, _entity: Entity) -> bool {
         true
     }
 }
-impl<W: Component> EntitySourceFor<W> for InputSource {
+impl EntityEventSource for InputSource {
     fn present(_world: &World, _entity: Entity) -> bool {
         true
     }
 }
-impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {
+impl<W: Component> EntityEventSource for WidgetSource<W> {
     fn present(world: &World, entity: Entity) -> bool {
         world.get::<W>(entity).is_some()
     }
 }
+
+/// A source accepted by a typed widget installer for component `W`.
+#[doc(hidden)]
+pub trait EntitySourceFor<W: Component>: EntityEventSource + sealed::EntitySourceFor<W> {}
+impl<W: Component> sealed::EntitySourceFor<W> for EntitySource {}
+impl<W: Component> sealed::EntitySourceFor<W> for InputSource {}
+impl<W: Component> sealed::EntitySourceFor<W> for WidgetSource<W> {}
+impl<W: Component> EntitySourceFor<W> for EntitySource {}
+impl<W: Component> EntitySourceFor<W> for InputSource {}
+impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
 
 /// A source accepted by an App event installer.
 #[doc(hidden)]
