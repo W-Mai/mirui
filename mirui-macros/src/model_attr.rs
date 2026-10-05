@@ -558,7 +558,11 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             type Shared = Self;
         }
 
-        impl #impl_generics ::mirui::core::model::SharedValue for #handle #type_generics #model_where {}
+        impl #impl_generics ::mirui::core::model::SharedValue for #handle #type_generics #model_where {
+            fn assert_registered_owner(&self) {
+                ::mirui::__macro_support::assert_registered_owner(self);
+            }
+        }
 
         impl #impl_generics #handle #type_generics #model_where {
             #(#accessors)*

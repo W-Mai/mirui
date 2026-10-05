@@ -4,7 +4,9 @@ use mirui::prelude::*;
 #[derive(Clone)]
 struct GameHandle;
 
-impl SharedValue for GameHandle {}
+impl SharedValue for GameHandle {
+    fn assert_registered_owner(&self) {}
+}
 
 #[derive(Clone)]
 struct Game;

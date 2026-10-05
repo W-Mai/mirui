@@ -29,6 +29,12 @@ impl<'w> UiScope<'w> {
     }
 
     #[doc(hidden)]
+    pub fn assert_binding<T: crate::core::model::SharedValue>(&mut self, value: &T) {
+        let _owner = crate::core::reactive::OwnerGuard::enter(self.world);
+        value.assert_registered_owner();
+    }
+
+    #[doc(hidden)]
     pub fn world_mut(&mut self) -> &mut World {
         self.world
     }

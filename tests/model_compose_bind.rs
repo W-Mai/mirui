@@ -7,7 +7,14 @@ use mirui::prelude::*;
 use mirui::types::Fixed;
 use mirui::ui::widgets::Button;
 use mirui::ui::widgets::Text;
+use std::cell::Cell;
 use std::format as fmt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+#[path = "support/tracking_allocator.rs"]
+mod tracking_allocator;
+
+use tracking_allocator::tracked_allocations;
 
 #[model]
 struct Counter {
@@ -207,6 +214,138 @@ fn tree_with_optional_children(counter: model!(optional Counter)) -> mirui::ecs:
             optional_counter_button(counter)
         }
     }
+}
+
+#[compose]
+fn checked_panel<T: mirui::core::model::BindType>(counter: model!(T), entered: &Cell<bool>) {
+    entered.set(true);
+}
+
+#[compose]
+fn checked_counter_panel(counter: model!(Counter), entered: &Cell<bool>) {
+    entered.set(true);
+}
+
+#[compose]
+fn checked_optional_panel(
+    first: model!(CounterAlias),
+    second: model!(optional Option<Counter>),
+    entered: &Cell<bool>,
+) {
+    first.increment();
+    if let Some(Some(second)) = second {
+        second.increment();
+    }
+    entered.set(true);
+}
+
+#[test]
+fn declared_models_are_all_validated_before_composition_side_effects() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let first = app.add_model(Counter { count: 0 });
+    let mut other = App::headless(32, 32);
+    let foreign = other.add_model(Counter { count: 0 });
+    let entered = Cell::new(false);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        app.compose(root, |cx| {
+            checked_optional_panel(cx, first.clone(), Some(Some(foreign.clone())), &entered)
+        });
+    }));
+    assert!(result.is_err());
+    assert!(!entered.get());
+    assert_eq!(first.count(), 0);
+    assert_eq!(foreign.count(), 0);
+}
+
+#[test]
+fn ended_registration_is_rejected_even_when_the_model_is_unused() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let ended = {
+        let mut other = App::headless(32, 32);
+        other.add_model(Counter { count: 0 })
+    };
+    let entered = Cell::new(false);
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        app.compose(root, |cx| checked_counter_panel(cx, ended, &entered));
+    }));
+    assert!(result.is_err());
+    assert!(!entered.get());
+}
+
+#[test]
+fn optional_model_validation_preserves_absent_values_and_instance_identity() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let first = app.add_model(Counter { count: 0 });
+    let second = app.add_model(Counter { count: 10 });
+    let entered = Cell::new(false);
+    app.compose(root, |cx| {
+        checked_optional_panel(cx, first.clone(), None, &entered);
+        checked_optional_panel(cx, first.clone(), Some(None), &entered);
+        checked_optional_panel(cx, first.clone(), Some(Some(second.clone())), &entered);
+    });
+    assert!(entered.get());
+    assert_eq!(first.count(), 3);
+    assert_eq!(second.count(), 11);
+}
+
+#[test]
+fn model_validation_uses_the_supplied_scope_and_restores_nested_owner() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let first = app.add_model(Counter { count: 0 });
+    let mut other = App::headless(32, 32);
+    let other_root = other.spawn_root().id();
+    let second = other.add_model(Counter { count: 10 });
+    let entered = Cell::new(false);
+    let mut scope = mirui::ui::scope::UiScope::new(&mut app.world, root);
+    let _outer = mirui::ui::scope::UiScope::new(&mut other.world, other_root);
+    checked_counter_panel(&mut scope, first, &entered);
+    assert!(entered.get());
+    second.increment();
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        checked_counter_panel(&mut scope, second.clone(), &entered);
+    }));
+    assert!(result.is_err());
+    second.increment();
+    assert_eq!(second.count(), 12);
+}
+
+#[test]
+fn shared_reactive_values_keep_their_own_access_rules() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let mut other = App::headless(32, 32);
+    let other_root = other.spawn_root().id();
+    let signal = Signal::new(5_u32);
+    let computed = {
+        let _scope = mirui::ui::scope::UiScope::new(&mut other.world, other_root);
+        Computed::new(|| 7_u32)
+    };
+    let entered = Cell::new(false);
+    app.compose(root, |cx| {
+        checked_panel::<Signal<u32>>(cx, signal, &entered);
+        checked_panel::<Computed<u32>>(cx, computed, &entered);
+    });
+    assert!(entered.get());
+}
+
+#[test]
+fn declared_model_validation_does_not_allocate() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let counter = app.add_model(Counter { count: 0 });
+    let entered = Cell::new(false);
+    let mut scope = mirui::ui::scope::UiScope::new(&mut app.world, root);
+    let count = tracked_allocations(|| {
+        for _ in 0..8 {
+            checked_counter_panel(&mut scope, counter.clone(), &entered);
+        }
+    });
+    assert_eq!(count, 0);
+    assert!(entered.get());
 }
 
 #[test]

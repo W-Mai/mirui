@@ -142,6 +142,9 @@ pub trait BindType {
 
 /// A cheap, instance-preserving value accepted by generated binding captures.
 pub trait SharedValue: Clone {
+    #[doc(hidden)]
+    fn assert_registered_owner(&self);
+
     fn share(&self) -> Self {
         self.clone()
     }
@@ -151,7 +154,13 @@ impl<T: BindType> BindType for Option<T> {
     type Shared = Option<T::Shared>;
 }
 
-impl<T: SharedValue> SharedValue for Option<T> {}
+impl<T: SharedValue> SharedValue for Option<T> {
+    fn assert_registered_owner(&self) {
+        if let Some(value) = self {
+            value.assert_registered_owner();
+        }
+    }
+}
 
 /// A named revision source owned by one registered model instance.
 #[doc(hidden)]
@@ -231,13 +240,17 @@ impl<T: 'static> BindType for crate::core::reactive::Signal<T> {
     type Shared = Self;
 }
 
-impl<T: 'static> SharedValue for crate::core::reactive::Signal<T> {}
+impl<T: 'static> SharedValue for crate::core::reactive::Signal<T> {
+    fn assert_registered_owner(&self) {}
+}
 
 impl<T: 'static> BindType for crate::core::reactive::Computed<T> {
     type Shared = Self;
 }
 
-impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {}
+impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {
+    fn assert_registered_owner(&self) {}
+}
 
 /// Storage owned by a model's registration entity.
 #[doc(hidden)]
@@ -601,6 +614,15 @@ pub(crate) fn registered_owner<H: ModelHandle>(handle: &H) -> WorldId {
         .expect("model registration is no longer alive");
     cell.assert_active();
     cell.owner()
+}
+
+#[doc(hidden)]
+pub fn assert_registered_owner<H: ModelHandle>(handle: &H) {
+    assert_eq!(
+        Some(registered_owner(handle)),
+        crate::core::reactive::current_world_id(),
+        "model belongs to a different App",
+    );
 }
 
 pub(crate) fn register_effect<H, E>(

@@ -137,6 +137,9 @@ directly. Multiple callbacks or children can therefore use one instance
 without spelling a generated handle type or manually cloning it. Nested
 argument expressions retain Rust move semantics; use `counter.clone()` inside
 them when the value is needed again.
+
+Composition validates every declared registered Model parameter against the supplied UI scope before executing the function body. A foreign or ended registration is rejected before any authored changes; optional roles recursively validate present values and accept `None`. Signal, Computed, and audio handles retain their existing access and lifetime rules. This check covers declared role parameters, not arbitrary closure captures.
+
 Implicit named references in standard `format!` and `format_args!` calls are
 shared inside generated callbacks too. This applies to the bare standard macro
 names and absolute `::std::` / `::alloc::` / `::core::` paths; aliases are not

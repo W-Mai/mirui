@@ -73,7 +73,9 @@ impl BindType for AudioHandle {
     type Shared = Self;
 }
 
-impl SharedValue for AudioHandle {}
+impl SharedValue for AudioHandle {
+    fn assert_registered_owner(&self) {}
+}
 
 pub(crate) struct SharedAudioCore<const N: usize> {
     bus: RefCell<AudioBus<N>>,

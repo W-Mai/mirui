@@ -148,7 +148,12 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     function.sig.inputs.insert(0, cx_parameter);
 
     if !captures.is_empty() {
+        let checks = captures
+            .iter()
+            .map(|name| syn::parse_quote!(cx.assert_binding(&#name);))
+            .collect::<Vec<syn::Stmt>>();
         BoundUiCalls { captures }.visit_block_mut(&mut function.block);
+        function.block.stmts.splice(0..0, checks);
     }
 
     quote! { #function }
@@ -252,6 +257,30 @@ mod tests {
         ));
         assert!(rendered.contains("title : & str"));
         assert!(!contains_compile_error(&output));
+    }
+
+    #[test]
+    fn validates_every_model_role_before_the_authored_body() {
+        let output = expand(
+            quote! {},
+            quote! {
+                fn build(game: model!(Game), other: model!(optional Other), plain: u8) {
+                    body(game, other, plain);
+                }
+            },
+        );
+        let function: syn::ItemFn = syn::parse2(output).unwrap();
+        assert_eq!(function.block.stmts.len(), 3);
+        let checks = &function.block.stmts[..2];
+        assert_eq!(
+            quote!(#(#checks)*).to_string(),
+            quote!(cx.assert_binding(&game); cx.assert_binding(&other);).to_string(),
+        );
+        let body = &function.block.stmts[2];
+        assert_eq!(
+            quote!(#body).to_string(),
+            quote!(body(game, other, plain);).to_string()
+        );
     }
 
     #[test]

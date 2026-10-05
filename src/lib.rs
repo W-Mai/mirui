@@ -113,6 +113,7 @@ pub mod ui;
 pub mod __macro_support {
     pub use crate::anim::MotionComponent;
     pub use crate::anim::generated::{MotionFrame, advance_motion};
+    pub use crate::core::model::assert_registered_owner;
     pub use crate::core::timer::generated::{
         TimerSchedule, bound_timer, require_timer_model, static_timer,
     };
