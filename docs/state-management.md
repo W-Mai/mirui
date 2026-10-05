@@ -428,13 +428,27 @@ The ordinary prelude exports `Tap`, `LongPress`, `DragStart`, `DragMove`,
 `DragEnd`, `DragCancel`, `Pinch`, and `Rotate`, plus `Event` and `EventKey`.
 Their fields match the recognizer's gesture data, including its original target.
 `GestureSelectors` provides the corresponding typed constants for any component.
-Tap keys hold a validated count; the default is 1 and explicit values outside
-1 through 255 return `TapCountError`. Other gesture keys have no options.
+The default Tap key matches every tap. An explicit count matches only that
+multiplicity, so `Tap::EVENT.configure((1,))` differs from `Tap::EVENT`.
+Counts outside 1 through 255 return `TapCountError`. Other gesture keys have no options.
 
 `on Tap(n) { ... }` evaluates its `u32` configuration once when installing the
 handler, using the same validation as a Tap key. Invalid counts panic during
 installation with `TapCountError`; they are not truncated. Dispatch compares the
 observed tap count with the stored options without reevaluating `n`.
+Ordinary and counted Tap handlers run in declaration order, stopping at the
+first consuming handler. An ordinary Tap is not a fallback for counted
+handlers. All nodes in a bubbling gesture use the original target's count,
+frozen before internal or authored callbacks run.
+
+```rust,ignore
+View ()
+    on Tap { game.record_tap(); false }
+    on Tap(2) { game.record_double_tap(); }
+```
+
+The first handler runs on every click and allows the second handler to run
+on a double tap. Returning `()` or `true` instead stops that sequence.
 
 `Key` and `CharInput` carry their platform fields and support entity and App
 input source capabilities. `Wheel` carries its position and deltas; `Rotary`

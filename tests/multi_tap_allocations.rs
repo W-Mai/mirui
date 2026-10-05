@@ -18,11 +18,16 @@ fn installed_tap_options_dispatch_without_allocating_or_reevaluating_arguments()
     let calls = Rc::new(Cell::new(0_u32));
     let evaluations = Rc::new(Cell::new(0_u32));
     let called = Rc::clone(&calls);
+    let plain_calls = Rc::new(Cell::new(0_u32));
+    let plain_called = plain_calls.clone();
     let evaluated = Rc::clone(&evaluations);
     let target = {
         let mut cx = mirui::ui::UiScope::new(&mut app.world, root);
         mirui::ui! {
-            View () on Tap({
+            View () on Tap {
+                plain_called.set(plain_called.get() + 1);
+                false
+            } on Tap({
                 evaluated.set(evaluated.get() + 1);
                 2
             }) { called.set(called.get() + 1); }
@@ -41,6 +46,7 @@ fn installed_tap_options_dispatch_without_allocating_or_reevaluating_arguments()
         );
     }
     assert_eq!(calls.get(), 2);
+    assert_eq!(plain_calls.get(), 5);
     assert_eq!(evaluations.get(), 1);
 }
 

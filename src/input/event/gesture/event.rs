@@ -8,10 +8,10 @@ mod sealed {
     pub trait GesturePayload {}
 }
 
-/// Validated tap multiplicity for a gesture selector.
+/// A gesture selector matching any tap or one validated multiplicity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TapOptions {
-    count: NonZeroU8,
+    count: Option<NonZeroU8>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,12 +31,19 @@ impl TapOptions {
     pub fn new(count: u32) -> Result<Self, TapCountError> {
         let validated = u8::try_from(count).ok().and_then(NonZeroU8::new);
         validated
-            .map(|count| Self { count })
+            .map(|count| Self { count: Some(count) })
             .ok_or(TapCountError { count })
     }
 
-    pub const fn count(self) -> u8 {
-        self.count.get()
+    pub const fn count(self) -> Option<u8> {
+        match self.count {
+            Some(count) => Some(count.get()),
+            None => None,
+        }
+    }
+
+    pub fn matches(self, observed: u8) -> bool {
+        observed != 0 && self.count().is_none_or(|count| count == observed)
     }
 }
 
@@ -44,9 +51,7 @@ impl EventOptions for TapOptions {
     type Arguments = (u32,);
     type Error = TapCountError;
 
-    const DEFAULT: Self = Self {
-        count: NonZeroU8::MIN,
-    };
+    const DEFAULT: Self = Self { count: None };
 
     fn from_arguments((count,): Self::Arguments) -> Result<Self, Self::Error> {
         Self::new(count)
@@ -59,6 +64,23 @@ pub trait GesturePayload:
     Event<Route = EntityBubble, Source = EntitySource> + sealed::GesturePayload
 {
     fn project(event: &GestureEvent) -> Option<Self>;
+    fn matches_options(options: Self::Options, tap_count: u8) -> bool;
+}
+
+trait GestureOptions {
+    fn matches(self, tap_count: u8) -> bool;
+}
+
+impl GestureOptions for TapOptions {
+    fn matches(self, tap_count: u8) -> bool {
+        self.matches(tap_count)
+    }
+}
+
+impl GestureOptions for () {
+    fn matches(self, _: u8) -> bool {
+        true
+    }
 }
 
 macro_rules! gestures {
@@ -93,6 +115,10 @@ macro_rules! gestures {
             impl sealed::GesturePayload for $kind {}
 
             impl GesturePayload for $kind {
+                fn matches_options(options: Self::Options, tap_count: u8) -> bool {
+                    GestureOptions::matches(options, tap_count)
+                }
+
                 fn project(event: &GestureEvent) -> Option<Self> {
                     match event {
                         GestureEvent::$kind { $($field),+ } => Some(Self {
@@ -210,11 +236,11 @@ mod tests {
 
     #[test]
     fn tap_options_reject_zero_and_overflow_without_narrowing() {
-        assert_eq!(Tap::EVENT.options().count(), 1);
+        assert_eq!(Tap::EVENT.options().count(), None);
         for count in [1, 2, 255] {
             assert_eq!(
-                u32::from(Tap::EVENT.configure((count,)).unwrap().options().count()),
-                count
+                Tap::EVENT.configure((count,)).unwrap().options().count(),
+                Some(u8::try_from(count).unwrap())
             );
         }
         for count in [0, 256, u32::MAX] {
@@ -235,6 +261,19 @@ mod tests {
 
         tap(Node::Tap);
         rotate(Node::Rotate);
-        assert_eq!(Node::Tap.options().count(), 1);
+        assert_eq!(Node::Tap.options().count(), None);
+    }
+
+    #[test]
+    fn default_and_explicit_single_tap_are_distinct_selectors() {
+        let any = Tap::EVENT.options();
+        let single = TapOptions::new(1).unwrap();
+        assert_ne!(any, single);
+        for count in 1..=255 {
+            assert!(Tap::matches_options(any, count));
+            assert_eq!(Tap::matches_options(single, count), count == 1);
+            assert!(Rotate::matches_options((), count));
+        }
+        assert!(!any.matches(0));
     }
 }

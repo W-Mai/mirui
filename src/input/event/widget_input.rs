@@ -150,7 +150,7 @@ mod tests {
 
         let e = world.spawn_empty();
         world.insert(e, Button::new());
-        fn user_handler(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        fn user_handler(_: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
             false
         }
         world.insert(e, GestureHandler::from_fn(user_handler));
@@ -178,7 +178,7 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(ViewRegistry::default());
         let entity = world.spawn_empty();
-        world.insert(entity, GestureHandler::from_fn(|_, _, _| false));
+        world.insert(entity, GestureHandler::from_fn(|_, _, _, _| false));
 
         attach_handlers_for(&mut world, entity);
 

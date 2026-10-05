@@ -317,7 +317,10 @@ mod tests {
         {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
             ui! {
-                View () on Tap { fire(); } on Tap(2) {
+                View () on Tap {
+                    fire();
+                    false
+                } on Tap(2) {
                     fire();
                     fire();
                 }
@@ -331,9 +334,128 @@ mod tests {
         bubble_dispatch_at(&mut world, &tap_event(target), 200);
         assert_eq!(
             fired(),
-            3,
-            "second Tap within window fires double (2 fires)"
+            4,
+            "second Tap fires the ordinary arm before the counted arm"
         );
+    }
+
+    #[test]
+    fn mixed_tap_handlers_preserve_all_declarations_and_order() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let (mut world, root) = fresh_world();
+        let trace = Rc::new(RefCell::new(([0_u8; 8], 0_usize)));
+        let record = {
+            let trace = trace.clone();
+            move |value| {
+                let mut trace = trace.borrow_mut();
+                let slot = trace.1;
+                trace.0[slot] = value;
+                trace.1 += 1;
+            }
+        };
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View (id: "ordered_taps") on Tap(2) {
+                    record(1);
+                    false
+                } on Tap {
+                    record(2);
+                    false
+                } on Tap(2) {
+                    record(3);
+                    false
+                } on Tap {
+                    record(4);
+                    false
+                } on Tap(1) {
+                    record(5);
+                    false
+                }
+            };
+        }
+        let target = world.find_by_id("ordered_taps").unwrap();
+        for (time, expected) in [
+            (100, &[2, 4, 5][..]),
+            (200, &[1, 2, 3, 4][..]),
+            (250, &[2, 4][..]),
+        ] {
+            trace.borrow_mut().1 = 0;
+            bubble_dispatch_at(&mut world, &tap_event(target), time);
+            let trace = trace.borrow();
+            assert_eq!(&trace.0[..trace.1], expected);
+        }
+    }
+
+    #[test]
+    fn consuming_plain_tap_stops_later_counted_handlers() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let (mut world, root) = fresh_world();
+        let plain = Rc::new(Cell::new(0));
+        let exact = Rc::new(Cell::new(0));
+        let (plain_body, exact_body) = (plain.clone(), exact.clone());
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View (id: "consuming_taps") on Tap { plain_body.set(plain_body.get() + 1); } on Tap(2) { exact_body.set(exact_body.get() + 1); }
+            };
+        }
+        let target = world.find_by_id("consuming_taps").unwrap();
+        for time in [100, 200] {
+            bubble_dispatch_at(&mut world, &tap_event(target), time);
+        }
+        assert_eq!(plain.get(), 2);
+        assert_eq!(exact.get(), 0);
+    }
+
+    #[test]
+    fn tap_count_is_frozen_from_the_origin_before_internal_and_parent_callbacks() {
+        use mirui::input::event::multi_tap::MultiTapEntry;
+        use mirui::ui::view::View;
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        #[mirui::component]
+        struct ResetCount;
+        fn reset(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+            world.remove_resource::<MultiTapTracker>();
+            false
+        }
+        let (mut world, root) = fresh_world();
+        let mut registry = mirui::ui::view::ViewRegistry::default();
+        registry.insert(
+            View::systems_only("ResetCount", &[])
+                .with_filter::<ResetCount>()
+                .with_internal_gesture(reset),
+        );
+        world.insert_resource(registry);
+        let seen = Rc::new(Cell::new(0));
+        let parent_seen = seen.clone();
+        {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View (id: "tap_parent") on Tap(2) { parent_seen.set(parent_seen.get() + 1); }
+                {
+                    View (id: "tap_child") [
+                        ResetCount,
+                    ] on Tap(2) {
+                        assert_eq!(x, Fixed::ZERO);
+                        false
+                    }
+                }
+            };
+        }
+        let target = world.find_by_id("tap_child").unwrap();
+        world.resource_mut::<MultiTapTracker>().unwrap().last = Some(MultiTapEntry {
+            entity: target,
+            time_ms: 100,
+            count: 1,
+        });
+        bubble_dispatch_at(&mut world, &tap_event(target), 200);
+        assert!(world.resource::<MultiTapTracker>().is_none());
+        assert_eq!(seen.get(), 1);
     }
 
     #[test]

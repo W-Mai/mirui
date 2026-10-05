@@ -18,7 +18,7 @@ mod tests {
         Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput,
     };
 
-    fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent) -> bool {
+    fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent, _: u8) -> bool {
         false
     }
 

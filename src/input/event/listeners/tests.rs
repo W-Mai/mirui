@@ -4,12 +4,111 @@ use super::super::input::Key;
 use super::super::notification::NotificationCapacity;
 use super::*;
 use crate::input::event::gesture::DragMove;
+use crate::input::event::gesture::Tap;
 use crate::test_support::tracked_allocations;
 use crate::types::Fixed;
 use core::cell::Cell;
 
 struct RouteMarker;
 impl Component for RouteMarker {}
+
+struct TapTrace {
+    trace: RefCell<Trace>,
+    consume: Cell<Option<u32>>,
+}
+
+#[crate::event]
+fn record_tap(value: u32, trace: res!(TapTrace), event: event!(Tap), node: entity!()) -> bool {
+    assert!(node == event.target || value == 5);
+    trace.trace.borrow_mut().record(value);
+    trace.consume.get() == Some(value)
+}
+
+#[test]
+fn tap_selection_freezes_origin_count_and_preserves_order_consumption_and_storage() {
+    use super::super::multi_tap::{MultiTapEntry, MultiTapTracker};
+    let mut world = World::new();
+    let parent = world.spawn_empty();
+    let leaf = world.spawn_empty();
+    world.insert(parent, RouteMarker);
+    world.insert(leaf, RouteMarker);
+    world.insert(leaf, Parent(parent));
+    world.insert_resource(TapTrace {
+        trace: RefCell::new(Trace::default()),
+        consume: Cell::new(None),
+    });
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 5,
+        snapshot_steps: 5,
+    })
+    .unwrap();
+    let double = Tap::EVENT.configure((2,)).unwrap();
+    for (node, key, value) in [
+        (leaf, double, 1),
+        (leaf, Tap::EVENT, 2),
+        (leaf, double, 3),
+        (leaf, Tap::EVENT, 4),
+        (parent, double, 5),
+    ] {
+        pool.install_entity::<Tap, RouteMarker>(
+            &mut world,
+            node,
+            ListenerSelector::gesture(key),
+            record_tap::callback(value),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    }
+    let event = Tap {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        target: leaf,
+    };
+    for (count, consume, expected) in [
+        (1, None, &[2, 4][..]),
+        (2, None, &[1, 2, 3, 4, 5][..]),
+        (3, None, &[2, 4][..]),
+        (2, Some(2), &[1, 2][..]),
+        (2, Some(1), &[1][..]),
+    ] {
+        world.insert_resource(MultiTapTracker {
+            last: Some(MultiTapEntry {
+                entity: leaf,
+                time_ms: 100,
+                count,
+            }),
+        });
+        let trace = world.resource::<TapTrace>().unwrap();
+        trace.trace.borrow_mut().len = 0;
+        trace.consume.set(consume);
+        assert_eq!(
+            tracked_allocations(|| {
+                let snapshot = pool.snapshot_gesture(&world, &event).unwrap();
+                world.remove_resource::<MultiTapTracker>();
+                let control = snapshot.run(&mut world).unwrap();
+                assert_eq!(
+                    control,
+                    if consume.is_some() {
+                        BubbleControl::Prevent
+                    } else {
+                        BubbleControl::Allow
+                    }
+                );
+            }),
+            0
+        );
+        assert_eq!(
+            world
+                .resource::<TapTrace>()
+                .unwrap()
+                .trace
+                .borrow()
+                .values(),
+            expected
+        );
+    }
+}
 
 struct RouteTrace {
     trace: Rc<RefCell<Trace>>,

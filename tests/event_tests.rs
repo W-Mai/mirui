@@ -13,7 +13,7 @@ mod tests {
     /// Per-entity tap counter so tests don't share static state.
     struct TapHits(u32);
 
-    fn count_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    fn count_handler(world: &mut World, entity: Entity, event: &GestureEvent, _: u8) -> bool {
         if matches!(event, GestureEvent::Tap { .. }) {
             if let Some(c) = world.get_mut::<TapHits>(entity) {
                 c.0 += 1;

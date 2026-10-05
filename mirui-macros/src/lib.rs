@@ -270,7 +270,7 @@ fn emit_business_handler(
             #pattern => {
                 #bindings
                 let __consumed: bool =
-                    ::mirui::input::event::HandlerReturn::into_consumed({ #body });
+                    ::mirui::input::event::HandlerReturn::into_consumed(#body);
                 __consumed
             },
         });
@@ -297,7 +297,6 @@ fn emit_business_handler(
                           -> bool {
                         #handler_queue.run(
                             #handler_world,
-                            #handler_entity,
                             |#handler_scope| match #handler_event {
                                 #arms
                                 #[allow(unreachable_patterns)]
@@ -316,13 +315,20 @@ fn emit_event_arm(
     group: &[&OnCmd],
     handler_scope: &syn::Ident,
     preparations: &mut proc_macro2::TokenStream,
+    tap_count: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
     let field_bindings = event_attr::fields(gesture_event_fields(event_name));
     let field_idents = field_bindings.iter().map(|binding| &binding.name);
 
-    if event_name == "Tap" && group.iter().any(|h| !h.args.is_empty()) {
-        return emit_tap_with_count(group, &field_bindings, handler_scope, preparations);
+    if event_name == "Tap" {
+        return emit_tap_handlers(
+            group,
+            &field_bindings,
+            handler_scope,
+            preparations,
+            tap_count,
+        );
     }
 
     let bodies = group
@@ -336,7 +342,7 @@ fn emit_event_arm(
             #(
                 {
                     let __consumed: bool =
-                        ::mirui::input::event::HandlerReturn::into_consumed({ #bodies });
+                        ::mirui::input::event::HandlerReturn::into_consumed(#bodies);
                     if __consumed { return true; }
                 }
             )*
@@ -345,25 +351,19 @@ fn emit_event_arm(
     }
 }
 
-fn emit_tap_with_count(
+fn emit_tap_handlers(
     group: &[&OnCmd],
     field_bindings: &[binding::BindingSpec],
     handler_scope: &syn::Ident,
     preparations: &mut proc_macro2::TokenStream,
+    tap_count: &syn::Ident,
 ) -> proc_macro2::TokenStream {
-    let mut count_arms = proc_macro2::TokenStream::new();
-    let mut default_arm: Option<proc_macro2::TokenStream> = None;
+    let mut bodies = proc_macro2::TokenStream::new();
     for (index, h) in group.iter().enumerate() {
         let body = event_attr::lower_body(&h.body, handler_scope);
-        if h.args.is_empty() {
-            default_arm = Some(quote! {
-                _ => {
-                    let __consumed: bool =
-                        ::mirui::input::event::HandlerReturn::into_consumed({ #body });
-                    return __consumed;
-                }
-            });
-        } else if h.args.len() == 1 {
+        let matches = if h.args.is_empty() {
+            quote!(true)
+        } else {
             let arg = &h.args[0];
             let options = quote::format_ident!(
                 "__mirui_tap_options_{index}",
@@ -377,27 +377,24 @@ fn emit_tap_with_count(
                         .expect("invalid Tap count")
                         .options();
             });
-            count_arms.extend(quote! {
-                __c if __c == #options.count() => {
-                    let __consumed: bool =
-                        ::mirui::input::event::HandlerReturn::into_consumed({ #body });
-                    return __consumed;
-                },
-            });
-        }
+            quote!(#options.matches(#tap_count))
+        };
+        bodies.extend(quote! {
+            if #matches {
+                let __consumed: bool =
+                    ::mirui::input::event::HandlerReturn::into_consumed(#body);
+                if __consumed { return true; }
+            }
+        });
     }
-    let default = default_arm.unwrap_or_else(|| quote! { _ => return false });
     let field_idents = field_bindings.iter().map(|binding| &binding.name);
     let bindings = event_attr::lower_fields(field_bindings);
 
     quote! {
         ::mirui::input::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
             #bindings
-            let __count = #handler_scope.tap_count();
-            match __count {
-                #count_arms
-                #default
-            }
+            #bodies
+            false
         },
     }
 }
@@ -1137,6 +1134,7 @@ impl MiruiRune {
             let handler_event = syn::Ident::new("__mirui_event_value", hidden_span);
             let handler_scope = syn::Ident::new("__mirui_event_scope", hidden_span);
             let handler_queue = syn::Ident::new("__mirui_event_commands", hidden_span);
+            let tap_count = syn::Ident::new("__mirui_tap_count", hidden_span);
             let mut arms = proc_macro2::TokenStream::new();
             let mut preparations = proc_macro2::TokenStream::new();
             for (event_name, group) in &gesture_arms {
@@ -1145,6 +1143,7 @@ impl MiruiRune {
                     group,
                     &handler_scope,
                     &mut preparations,
+                    &tap_count,
                 ));
             }
             // A closure (not a fn item) so the body can capture handles like a
@@ -1162,11 +1161,11 @@ impl MiruiRune {
                                 ::mirui::__macro_support::__Rc::new(
                                     move |#handler_world: &mut ::mirui::ecs::World,
                                           #handler_entity: ::mirui::ecs::Entity,
-                                          #handler_event: &::mirui::input::event::gesture::GestureEvent|
+                                          #handler_event: &::mirui::input::event::gesture::GestureEvent,
+                                          #tap_count: u8|
                                           -> bool {
                                         #handler_queue.run(
                                             #handler_world,
-                                            #handler_entity,
                                             |#handler_scope| match #handler_event {
                                                 #arms
                                                 _ => false,

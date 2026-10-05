@@ -2485,7 +2485,7 @@ mod fractional_scale_input_check {
     #[derive(Default)]
     struct TapCount(u8);
 
-    fn count_tap(world: &mut World, _: Entity, event: &GestureEvent) -> bool {
+    fn count_tap(world: &mut World, _: Entity, event: &GestureEvent, _: u8) -> bool {
         if matches!(event, GestureEvent::Tap { .. }) {
             world.resource_mut::<TapCount>().unwrap().0 += 1;
         }

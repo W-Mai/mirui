@@ -21,7 +21,7 @@ mod tests {
         PARENT_FIRES.store(0, Ordering::SeqCst);
     }
 
-    fn parent_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+    fn parent_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent, _: u8) -> bool {
         PARENT_FIRES.fetch_add(1, Ordering::SeqCst);
         true
     }

@@ -1155,7 +1155,7 @@ mod tests {
             len: usize,
         }
 
-        fn record(world: &mut World, node: Entity, event: &GestureEvent) -> bool {
+        fn record(world: &mut World, node: Entity, event: &GestureEvent, _: u8) -> bool {
             let GestureEvent::Tap { x, target, .. } = event else {
                 panic!("expected Tap");
             };
@@ -2346,6 +2346,7 @@ mod tests {
         world: &mut World,
         _entity: Entity,
         event: &crate::input::event::gesture::GestureEvent,
+        _: u8,
     ) -> bool {
         if let crate::input::event::gesture::GestureEvent::Pinch { scale_delta, .. } = event {
             if let Some(p) = world.resource_mut::<PinchProbe>() {

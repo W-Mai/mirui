@@ -398,12 +398,12 @@ mod hover_press_e2e {
         child: u8,
     }
 
-    fn parent_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+    fn parent_tap(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
         world.resource_mut::<TapCounts>().unwrap().parent += 1;
         true
     }
 
-    fn child_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+    fn child_tap(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
         world.resource_mut::<TapCounts>().unwrap().child += 1;
         true
     }

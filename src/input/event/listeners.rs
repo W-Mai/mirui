@@ -124,7 +124,7 @@ impl ListenerDecision for BubbleControl {
 }
 
 trait ErasedListener {
-    fn matches(&self, event: &BorrowedEvent<'_>) -> bool;
+    fn matches(&self, event: &BorrowedEvent<'_>, tap_count: Option<u8>) -> bool;
     fn invoke(
         &self,
         world: &mut World,
@@ -140,12 +140,29 @@ struct InstalledListener<E: Event, C: CallbackContext<E>> {
 
 pub struct ListenerSelector<E: Event> {
     key: EventKey<E>,
-    matches: fn(E::Options, &E) -> bool,
+    matcher: OptionMatcher<E>,
+}
+
+enum OptionMatcher<E: Event> {
+    Payload(fn(E::Options, &E) -> bool),
+    Gesture(fn(E::Options, u8) -> bool),
 }
 
 impl<E: Event> ListenerSelector<E> {
     pub fn new(key: EventKey<E>, matches: fn(E::Options, &E) -> bool) -> Self {
-        Self { key, matches }
+        Self {
+            key,
+            matcher: OptionMatcher::Payload(matches),
+        }
+    }
+}
+
+impl<E: GesturePayload> ListenerSelector<E> {
+    pub fn gesture(key: EventKey<E>) -> Self {
+        Self {
+            key,
+            matcher: OptionMatcher::Gesture(E::matches_options),
+        }
     }
 }
 
@@ -153,10 +170,15 @@ impl<E: Event, C: CallbackContext<E>> ErasedListener for InstalledListener<E, C>
 where
     <E::Route as EventRoute>::Decision: ListenerDecision,
 {
-    fn matches(&self, event: &BorrowedEvent<'_>) -> bool {
+    fn matches(&self, event: &BorrowedEvent<'_>, tap_count: Option<u8>) -> bool {
         event
             .payload::<E>()
-            .is_some_and(|payload| (self.selector.matches)(self.selector.key.options(), payload))
+            .is_some_and(|payload| match self.selector.matcher {
+                OptionMatcher::Payload(matches) => matches(self.selector.key.options(), payload),
+                OptionMatcher::Gesture(matches) => {
+                    tap_count.is_some_and(|count| matches(self.selector.key.options(), count))
+                }
+            })
     }
 
     fn invoke(
@@ -438,7 +460,7 @@ impl EventListeners {
         target: ListenerTarget,
     ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
         let mut snapshot = self.empty_snapshot(world, event, InternalEvent::None)?;
-        snapshot.select_listeners(&self.entries, target)?;
+        snapshot.select_listeners(&self.entries, target, None)?;
         Ok(snapshot)
     }
 
@@ -460,6 +482,7 @@ impl EventListeners {
         if !route_allowed(world, current)? {
             return Ok(snapshot);
         }
+        let tap_count = super::multi_tap::current_count(world, current);
         while world.is_alive(current) {
             if let Some(registry) = world.resource::<ViewRegistry>() {
                 for view in registry.iter() {
@@ -475,7 +498,11 @@ impl EventListeners {
                     }
                 }
             }
-            snapshot.select_listeners(&self.entries, ListenerTarget::Entity(current))?;
+            snapshot.select_listeners(
+                &self.entries,
+                ListenerTarget::Entity(current),
+                Some(tap_count),
+            )?;
             let Some(parent) = world.get::<Parent>(current) else {
                 break;
             };
@@ -504,7 +531,7 @@ impl EventListeners {
             && route_allowed(world, current)?
         {
             while world.is_alive(current) {
-                snapshot.select_listeners(&self.entries, ListenerTarget::Entity(current))?;
+                snapshot.select_listeners(&self.entries, ListenerTarget::Entity(current), None)?;
                 if let Some(handler) = world.get::<KeyHandler>(current) {
                     snapshot.push(DispatchStep::Keyboard {
                         entity: current,
@@ -517,7 +544,7 @@ impl EventListeners {
                 current = parent.0;
             }
         }
-        snapshot.select_listeners(&self.entries, ListenerTarget::App)?;
+        snapshot.select_listeners(&self.entries, ListenerTarget::App, None)?;
         Ok(snapshot)
     }
 
@@ -554,7 +581,7 @@ impl EventListeners {
         ) {
             return Ok(BubbleControl::Prevent);
         }
-        snapshot.select_listeners(&self.entries, ListenerTarget::App)?;
+        snapshot.select_listeners(&self.entries, ListenerTarget::App, None)?;
         snapshot.run(world)
     }
 
@@ -600,12 +627,13 @@ impl ListenerSnapshot<'_, '_> {
         &mut self,
         entries: &RefCell<Entries>,
         target: ListenerTarget,
+        tap_count: Option<u8>,
     ) -> Result<(), ListenerError> {
         let entries = entries.try_borrow().map_err(|_| ListenerError::Busy)?;
         for entry in &entries.listeners {
             if entry.kind == self.event.kind
                 && entry.target == target
-                && entry.callback.matches(&self.event)
+                && entry.callback.matches(&self.event, tap_count)
             {
                 self.push(DispatchStep::Listener(Rc::clone(&entry.callback)))?;
             }

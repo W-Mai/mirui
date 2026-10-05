@@ -16,7 +16,7 @@ mod tests {
     use mirui::ui::render_system;
     use mirui::ui::widgets::{Button, Text};
 
-    fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent) -> bool {
+    fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent, _: u8) -> bool {
         false
     }
 

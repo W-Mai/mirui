@@ -144,8 +144,8 @@ pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
 /// Gesture handler callback. `Fn` is a zero-alloc pointer for internal and
 /// hand-written handlers; `Closure` carries an `Rc` so `ui!` handlers can
 /// capture state (e.g. a `Signal`). Returns `true` to consume the event.
-type GestureFn = fn(&mut World, Entity, &GestureEvent) -> bool;
-type GestureClosure = alloc::rc::Rc<dyn Fn(&mut World, Entity, &GestureEvent) -> bool>;
+type GestureFn = fn(&mut World, Entity, &GestureEvent, u8) -> bool;
+type GestureClosure = alloc::rc::Rc<dyn Fn(&mut World, Entity, &GestureEvent, u8) -> bool>;
 
 pub enum GestureCallback {
     Fn(GestureFn),
@@ -153,10 +153,10 @@ pub enum GestureCallback {
 }
 
 impl GestureCallback {
-    fn call(&self, world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    fn call(&self, world: &mut World, entity: Entity, event: &GestureEvent, tap_count: u8) -> bool {
         match self {
-            GestureCallback::Fn(f) => f(world, entity, event),
-            GestureCallback::Closure(rc) => rc(world, entity, event),
+            GestureCallback::Fn(f) => f(world, entity, event, tap_count),
+            GestureCallback::Closure(rc) => rc(world, entity, event, tap_count),
         }
     }
 }
@@ -175,13 +175,23 @@ impl GestureHandler {
     /// Look up `entity`'s gesture handler and run it. Clones the callback out
     /// of the borrow before invoking so the closure may touch the World.
     pub fn trigger(world: &mut World, entity: Entity, event: &GestureEvent) -> Option<bool> {
+        let tap_count = multi_tap::current_count(world, event.target());
+        Self::trigger_counted(world, entity, event, tap_count)
+    }
+
+    fn trigger_counted(
+        world: &mut World,
+        entity: Entity,
+        event: &GestureEvent,
+        tap_count: u8,
+    ) -> Option<bool> {
         let cb = world
             .get::<GestureHandler>(entity)
             .map(|h| match &h.on_gesture {
                 GestureCallback::Fn(f) => GestureCallback::Fn(*f),
                 GestureCallback::Closure(rc) => GestureCallback::Closure(alloc::rc::Rc::clone(rc)),
             })?;
-        Some(cb.call(world, entity, event))
+        Some(cb.call(world, entity, event, tap_count))
     }
 }
 
@@ -243,7 +253,6 @@ impl EventCommandQueue {
     pub fn run<R>(
         &self,
         world: &mut World,
-        entity: Entity,
         body: impl FnOnce(&mut EventHandlerScope<'_, '_>) -> R,
     ) -> R {
         assert_eq!(
@@ -256,11 +265,7 @@ impl EventCommandQueue {
         let mut batch = queue.begin();
         let result = {
             let commands = batch.commands();
-            let mut scope = EventHandlerScope {
-                world,
-                entity,
-                commands,
-            };
+            let mut scope = EventHandlerScope { world, commands };
             body(&mut scope)
         };
         batch.finish(world).expect("deferred event commands failed");
@@ -274,7 +279,6 @@ impl EventCommandQueue {
 #[doc(hidden)]
 pub struct EventHandlerScope<'world, 'commands> {
     world: &'world mut World,
-    entity: Entity,
     commands: crate::ecs::commands::DeferredCommands<'commands>,
 }
 
@@ -290,11 +294,6 @@ impl<'world, 'commands> EventHandlerScope<'world, 'commands> {
     #[doc(hidden)]
     pub fn commands(&mut self) -> &mut crate::ecs::commands::DeferredCommands<'commands> {
         &mut self.commands
-    }
-
-    #[doc(hidden)]
-    pub fn tap_count(&self) -> u8 {
-        multi_tap::current_count(self.world, self.entity)
     }
 }
 
@@ -346,6 +345,7 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     multi_tap::observe_gesture(world, event, now_ms);
+    let tap_count = multi_tap::current_count(world, event.target());
     let mut current = event.target();
     loop {
         let (first, rest) = collect_internal_handlers(world, current);
@@ -359,7 +359,7 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
                 return;
             }
         }
-        if GestureHandler::trigger(world, current, event) == Some(true) {
+        if GestureHandler::trigger_counted(world, current, event, tap_count) == Some(true) {
             return;
         }
         match world.get::<Parent>(current) {
@@ -404,7 +404,7 @@ mod tests {
 
     struct TapCount(u8);
 
-    fn count_tap(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+    fn count_tap(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
         world.resource_mut::<TapCount>().unwrap().0 += 1;
         true
     }
@@ -428,7 +428,7 @@ mod tests {
             world.resource_mut::<Calls>().unwrap().second += 1;
             true
         }
-        fn user(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        fn user(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
             world.resource_mut::<Calls>().unwrap().user += 1;
             true
         }
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn gesture_callback_runs_with_its_world_scope() {
-        fn check_owner(world: &mut World, _entity: Entity, _event: &GestureEvent) -> bool {
+        fn check_owner(world: &mut World, _entity: Entity, _event: &GestureEvent, _: u8) -> bool {
             assert_eq!(crate::core::reactive::current_world_id(), Some(world.id()));
             assert!(crate::core::reactive::with_world(|_| ()).is_none());
             true
@@ -531,7 +531,12 @@ mod tests {
 
     #[test]
     fn gesture_owner_scope_restores_after_callback_unwinds() {
-        fn panic_handler(_world: &mut World, _entity: Entity, _event: &GestureEvent) -> bool {
+        fn panic_handler(
+            _world: &mut World,
+            _entity: Entity,
+            _event: &GestureEvent,
+            _: u8,
+        ) -> bool {
             panic!("gesture unwind");
         }
         let mut world = World::new();
@@ -677,7 +682,7 @@ mod tests {
             false
         }
 
-        fn user_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+        fn user_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent, _: u8) -> bool {
             USER_FIRES.fetch_add(1, Ordering::SeqCst);
             true
         }

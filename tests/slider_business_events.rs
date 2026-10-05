@@ -33,7 +33,7 @@ mod tests {
             .push(name);
     }
 
-    fn user_gesture_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+    fn user_gesture_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent, _: u8) -> bool {
         USER_GESTURE_FIRES.fetch_add(1, Ordering::SeqCst);
         false
     }
