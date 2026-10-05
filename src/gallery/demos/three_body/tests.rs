@@ -50,7 +50,7 @@ fn animation_systems_reuse_body_entities() {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(kick_system::system());
     scheduler.add(sync_layout_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_ne!(
         world.get::<Velocity>(selected).unwrap().vx,
         initial_velocity
@@ -58,7 +58,7 @@ fn animation_systems_reuse_body_entities() {
     let body = world.get_mut::<PhysicsBody>(selected).unwrap();
     body.x = Fixed::from_int(40);
     body.y = Fixed::from_int(50);
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     let origin = *world.get::<LayoutOrigin>(selected).unwrap();
     let transform = world
@@ -112,7 +112,7 @@ fn viewport_resize_recenters_bodies_and_orbit_guides() {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(physics_tick_system::system());
     scheduler.add(sync_layout_system::system());
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
 
     let after = app.world.get::<PhysicsBody>(body).unwrap();
     assert_eq!(after.x, before.0 - Fixed::from_int(80));

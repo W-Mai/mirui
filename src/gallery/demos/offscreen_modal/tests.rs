@@ -63,7 +63,7 @@ fn slide_origin_uses_the_live_layout_position() {
 
     let mut scheduler = SystemScheduler::new();
     scheduler.add(modal_slide_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     let bounce = (Fixed::ONE / 90) * Fixed::from_int(2);
     let expected = Fixed::from_int(-(412 + MODAL_W)) * (Fixed::ONE - bounce);
@@ -90,7 +90,7 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     state.accum_render_ns = 77_000 * (UPDATE_EVERY - 1) as u64;
     let mut scheduler = SystemScheduler::new();
     scheduler.add(fps_readout_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     let text = world.get::<Text>(readout).unwrap();
     assert!(text.resolve(&world).contains("render avg 77us"));

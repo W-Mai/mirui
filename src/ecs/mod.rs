@@ -9,9 +9,10 @@ pub mod time;
 pub mod world;
 
 pub use bundle::{Component, IntoBundle};
+pub use commands::{CommandCommitError, CommandError};
 pub use entity::Entity;
 pub use query::QueryBuilder;
 pub use sparse_set::SparseSet;
-pub use system::{System, SystemScheduler, SystemSlot};
+pub use system::{System, SystemRunError, SystemScheduler, SystemSlot};
 pub use time::{DeltaTimeMs, FrameStats, FrameTimings, MonoClock};
 pub use world::World;

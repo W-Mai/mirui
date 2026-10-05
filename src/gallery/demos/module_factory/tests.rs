@@ -41,12 +41,12 @@ fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
     scheduler.add(factory_tick_system::system(model.clone()));
 
     world.insert_resource(DeltaTimeMs(1_000));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(model.tick(), 2);
 
     let revision = model.visual_revision();
     world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(model.tick(), 2);
     assert_eq!(model.visual_revision(), revision);
 }

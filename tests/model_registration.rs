@@ -1067,10 +1067,10 @@ fn bound_systems_keep_instance_identity_and_do_not_allocate_per_tick() {
     app.add_system(count_tick::system(second.clone()));
     app.add_system(transfer_tick::system(first.clone(), second.clone()));
 
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     assert_eq!((first.value(), second.value()), (4, 14));
     assert_eq!(
-        tracked_allocations(|| app.systems.run_all(&mut app.world)),
+        tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap()),
         0
     );
     assert_eq!((first.value(), second.value()), (8, 18));
@@ -1093,11 +1093,11 @@ fn bound_system_expect_skips_until_component_exists() {
     let model = app.add_model(Counter { value: 0 });
     app.world.insert_resource(mirui::ecs::DeltaTimeMs(3));
     app.add_system(gated_count_tick::system(model.clone()));
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     assert_eq!(model.value(), 0);
     let entity = app.world.spawn_empty();
     app.world.insert(entity, CounterMarker);
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     assert_eq!(model.value(), 3);
 }
 
@@ -1113,7 +1113,7 @@ fn bound_system_rejects_foreign_or_missing_resources() {
 
     owner.add_system(count_tick::system(model.clone()));
     let missing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        owner.systems.run_all(&mut owner.world);
+        owner.systems.run_all(&mut owner.world).unwrap();
     }));
     assert!(missing.is_err());
     assert_eq!(model.value(), 0);
@@ -1137,7 +1137,7 @@ fn bound_constructor_arguments_follow_parameter_order() {
     let first = app.add_model(Counter { value: 0 });
     let second = app.add_model(Counter { value: 0 });
     app.add_system(reversed_bind_tick::system(first.clone(), second.clone()));
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     assert_eq!((first.value(), second.value()), (1, 10));
 }
 

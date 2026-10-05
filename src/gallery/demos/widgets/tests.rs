@@ -22,9 +22,9 @@ fn theme_cycle_timer_captures_model_and_applies_deferred_theme_change() {
     let state = app.add_model(ThemeCycle::default());
     app.add_timer(cycle::timer(state));
 
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     crate::core::time::mock::set_ms(3_000);
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
 
     assert_eq!(
         app.world
@@ -50,13 +50,13 @@ fn slider_progress_sync_reuses_stable_traversal() {
 
     let mut scheduler = SystemScheduler::new();
     scheduler.add(slider_to_progress_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     assert!((world.get::<ProgressBar>(progress).unwrap().value - 0.37).abs() < 0.001);
     assert!(world.get::<VisualDirty>(progress).is_some());
 
     world.remove::<VisualDirty>(progress);
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert!(!world.has::<VisualDirty>(progress));
 }
 

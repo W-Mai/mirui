@@ -42,7 +42,7 @@ fn finish_snapshot(
     width: u16,
     height: u16,
 ) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(&mut app.world, parent, &viewport);
@@ -242,7 +242,7 @@ fn themed_demos_render_in_light_palette() {
         world.insert_resource(mirui::ecs::DeltaTimeMs(16));
         let mut systems = mirui::ecs::SystemScheduler::new();
         systems.add(mirui::gallery::demos::flip_card::flip_system::system());
-        systems.run_all(world);
+        systems.run_all(world).unwrap();
     });
     assert_renders("flip_card_light", card);
 

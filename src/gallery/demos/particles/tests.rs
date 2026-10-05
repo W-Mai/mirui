@@ -35,7 +35,7 @@ fn bounds_system_initializes_the_resource_from_the_arena() {
 
     let mut scheduler = SystemScheduler::new();
     scheduler.add(particle_bounds_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     let bounds = world.resource::<ParticleBounds>().unwrap();
     assert_eq!((bounds.w, bounds.h), (320, 180));

@@ -53,7 +53,7 @@ macro_rules! render_demo {
         mirui::gallery::demos::$module::setup_app(&mut app, root);
         app.set_root(root);
         app.set_theme($theme).unwrap();
-        app.systems.run_all(&mut app.world);
+        app.systems.run_all(&mut app.world).unwrap();
         app.render().unwrap();
         frame_signature(&mut app.backend, width, height)
     }};
@@ -72,7 +72,7 @@ macro_rules! render_persistence_counter {
         });
         app.set_root(root);
         app.set_theme($theme).unwrap();
-        app.systems.run_all(&mut app.world);
+        app.systems.run_all(&mut app.world).unwrap();
         app.render().unwrap();
         frame_signature(&mut app.backend, width, height)
     }};
@@ -225,7 +225,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
                     mirui::gallery::demos::$module::setup_app(&mut app, root);
                     app.set_root(root);
                     app.set_theme(theme).unwrap();
-                    app.systems.run_all(&mut app.world);
+                    app.systems.run_all(&mut app.world).unwrap();
                     mirui::ui::render_system::update_layout(
                         &mut app.world,
                         root,

@@ -51,13 +51,13 @@ fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
     scheduler.add(orbit_tick_system::system(model.clone()));
 
     world.insert_resource(DeltaTimeMs(100));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     let time = with_model(&world, OrbitModel::time);
     assert!(time.is_positive());
 
     let revision = model.visual_revision();
     world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(with_model(&world, OrbitModel::time), time);
     assert_eq!(model.visual_revision(), revision);
 }

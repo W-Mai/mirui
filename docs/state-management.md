@@ -540,6 +540,8 @@ rather than recursively borrowing it. Plain callbacks have no command buffer.
 
 Deferred operations can fail during submission as well as recording. `CommandError::Commit` distinguishes submission failures from command-record limits. Submission stops at the first error, drops unexecuted payloads, and preserves completed operations. No callback borrow remains active during submission.
 
+`SystemScheduler::run_all` returns `Result<(), SystemRunError>`. A failure identifies the system and its `CommandError`, stops the remaining systems in that batch, and preserves completed updates. Failed calls contribute timing when a clock is installed; unexecuted calls do not. App logs scheduling failures and completes rendering and the frame. Owner, access-plan, and required-resource validation remain programming-error checks.
+
 This execution layer does not install or route listeners. Its ABI is confined
 to hidden macro support, not the ordinary authoring prelude.
 

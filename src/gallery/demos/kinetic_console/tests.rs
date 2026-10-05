@@ -71,12 +71,12 @@ fn animation_system_advances_registered_motion_model() {
     scheduler.add(kinetic_animation_system::system(model, motion.clone()));
     app.world.insert_resource(DeltaTimeMs(50));
 
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
 
     assert!(motion.orbit_render_key() > 0);
     assert!(app.world.resource::<ConsoleModel>().is_none());
     assert!(app.world.resource::<ConsoleMotion>().is_none());
-    let allocations = tracked_allocations(|| scheduler.run_all(&mut app.world));
+    let allocations = tracked_allocations(|| scheduler.run_all(&mut app.world).unwrap());
     assert_eq!(allocations, 0);
 }
 

@@ -27,7 +27,7 @@ impl Default for CommandCapacity {
     }
 }
 
-#[doc(hidden)]
+/// Failure to record or submit deferred commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandError {
     RecordCapacity { available: usize },
@@ -41,7 +41,6 @@ pub enum CommandError {
 }
 
 /// A deferred operation rejected after callback borrows have ended.
-#[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandCommitError {
     MissingTarget {

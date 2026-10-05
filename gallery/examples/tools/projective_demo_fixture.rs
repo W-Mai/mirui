@@ -43,27 +43,27 @@ where
             let mut scheduler = SystemScheduler::new();
             scheduler.add(flip_card::flip_system::system());
             for _ in 0..frames {
-                scheduler.run_all(&mut app.world);
+                scheduler.run_all(&mut app.world).unwrap();
             }
         }
         Demo::ImageFlip => {
             let mut scheduler = SystemScheduler::new();
             scheduler.add(image_flip::spin_system::system());
             for _ in 0..frames {
-                scheduler.run_all(&mut app.world);
+                scheduler.run_all(&mut app.world).unwrap();
             }
         }
         Demo::BookFlip => {
             let mut scheduler = SystemScheduler::new();
             scheduler.add(book_flip::flip_system::system());
             for _ in 0..frames {
-                scheduler.run_all(&mut app.world);
+                scheduler.run_all(&mut app.world).unwrap();
             }
         }
         Demo::CoverFlow => {
             let mut scheduler = SystemScheduler::new();
             scheduler.add(cover_flow::layout_system::system());
-            scheduler.run_all(&mut app.world);
+            scheduler.run_all(&mut app.world).unwrap();
         }
     }
     root

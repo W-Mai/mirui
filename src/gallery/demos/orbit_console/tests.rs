@@ -46,7 +46,7 @@ fn run_console_animation(world: &mut World, model: &ConsoleHandle, delta_ms: u16
     world.insert_resource(crate::ecs::DeltaTimeMs(delta_ms));
     let mut scheduler = SystemScheduler::new();
     scheduler.add(console_animation_system::system(model.clone()));
-    scheduler.run_all(world);
+    scheduler.run_all(world).unwrap();
 }
 
 fn fixture() -> (World, Entity) {

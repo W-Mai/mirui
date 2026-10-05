@@ -38,7 +38,7 @@ fn fixture() -> TestApp {
 fn run_curve_animation(world: &mut World) {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(curve_text_animation_system::system());
-    scheduler.run_all(world);
+    scheduler.run_all(world).unwrap();
 }
 
 fn model_handle(world: &World) -> CurveHandle {

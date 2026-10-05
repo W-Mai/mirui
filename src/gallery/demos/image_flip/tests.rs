@@ -8,7 +8,7 @@ use crate::ui::{Children, IdMap, UiScope};
 fn run_spin(world: &mut World) {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(spin_system::system());
-    scheduler.run_all(world);
+    scheduler.run_all(world).unwrap();
 }
 
 #[test]

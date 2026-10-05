@@ -46,7 +46,7 @@ fn layout_system_tracks_live_viewport() {
         update_layout(&mut app.world, root, &vp);
         let mut scheduler = SystemScheduler::new();
         scheduler.add(layout_system::system());
-        scheduler.run_all(&mut app.world);
+        scheduler.run_all(&mut app.world).unwrap();
         let carousel_width = match app.world.get::<Style>(carousel).map(|s| s.layout.width) {
             Some(Dimension::Px(px)) => px.to_int(),
             _ => -1,

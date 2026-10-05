@@ -149,7 +149,7 @@ fn main() {
 
     let mut scheduler = SystemScheduler::new();
     scheduler.add(lazy_list_system::system());
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
 
     let viewport = Viewport::new(W, H, Fixed::ONE);
     render_system::update_layout(&mut app.world, root, &viewport);

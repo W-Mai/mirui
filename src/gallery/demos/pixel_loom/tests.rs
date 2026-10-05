@@ -39,15 +39,15 @@ fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
     scheduler.add(pixel_tick_system::system(model.clone()));
 
     app.world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
     assert_eq!(model.visible_frame(), 0);
 
     app.world.insert_resource(DeltaTimeMs(249));
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
     assert_eq!(model.visible_frame(), 0);
 
     app.world.insert_resource(DeltaTimeMs(1));
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
     assert_eq!(model.visible_frame(), 1);
 }
 
@@ -59,7 +59,7 @@ fn tick_system_rejects_a_missing_delta_resource() {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(pixel_tick_system::system(model));
 
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
 }
 
 #[test]

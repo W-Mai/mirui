@@ -111,11 +111,11 @@ fn bound_tick_uses_the_frame_delta_and_zero_does_not_advance() {
     scheduler.add(lumen_tick_system::system(model.clone()));
 
     world.insert_resource(DeltaTimeMs(7));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(scan_phase(&model), 7 * 23);
 
     world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(scan_phase(&model), 7 * 23);
 }
 
@@ -127,5 +127,5 @@ fn bound_tick_requires_the_frame_delta_resource() {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(lumen_tick_system::system(model));
 
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 }

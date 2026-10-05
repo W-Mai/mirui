@@ -472,12 +472,12 @@ mod tests {
 
         let mut scheduler = crate::ecs::SystemScheduler::new();
         scheduler.add(switch_init_system::system());
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
         let first = world.get::<AnimatedThumbX>(ready).unwrap().0;
         assert!(world.get::<AnimatedThumbX>(waiting).is_none());
 
         world.insert(waiting, ComputedRect(Rect::new(0, 0, 72, 24)));
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
         assert_eq!(world.get::<AnimatedThumbX>(ready).unwrap().0, first);
         assert_eq!(world.get::<AnimatedThumbX>(waiting).unwrap().0, first);
     }

@@ -251,7 +251,7 @@ mod tests {
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
         let sys = i18n_dirty_system::system();
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
 
         assert!(world.has::<crate::ui::dirty::Dirty>(e));
     }
@@ -275,11 +275,11 @@ mod tests {
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
         let sys = i18n_dirty_system::system();
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
         world.remove::<crate::ui::dirty::Dirty>(e);
 
         world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
 
         assert!(world.has::<crate::ui::dirty::Dirty>(e));
     }
@@ -292,9 +292,9 @@ mod tests {
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
         let sys = i18n_dirty_system::system();
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
         world.remove::<crate::ui::dirty::Dirty>(e);
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
 
         assert!(
             !world.has::<crate::ui::dirty::Dirty>(e),
@@ -309,7 +309,7 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, crate::ui::widgets::text::Text::from("static"));
         let sys = i18n_dirty_system::system();
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
         assert!(
             !world.has::<crate::ui::dirty::Dirty>(e),
             "static Text shouldn't be touched"
@@ -322,7 +322,7 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
         let sys = i18n_dirty_system::system();
-        sys.run_once(&mut world);
+        sys.run_once(&mut world).unwrap();
         assert!(!world.has::<crate::ui::dirty::Dirty>(e));
     }
 }

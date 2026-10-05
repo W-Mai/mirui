@@ -835,7 +835,7 @@ mod tests {
         app.world.insert_resource(BehaviorTicks(0));
         let node = app.world.spawn_empty();
         app.world.insert(node, BehaviorOnlyTile);
-        app.systems.run_all(&mut app.world);
+        app.systems.run_all(&mut app.world).unwrap();
         assert_eq!(app.world.resource::<BehaviorTicks>().unwrap().0, 0);
         assert!(
             !app.systems
@@ -868,14 +868,14 @@ mod tests {
         );
         for expected in [1, 2] {
             assert_eq!(
-                tracked_allocations(|| app.systems.run_all(&mut app.world)),
+                tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap()),
                 0
             );
             assert_eq!(app.world.resource::<BehaviorTicks>().unwrap().0, expected);
         }
         app.world.remove::<BehaviorOnlyTile>(node);
         assert_eq!(
-            tracked_allocations(|| app.systems.run_all(&mut app.world)),
+            tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap()),
             0
         );
         assert_eq!(app.world.resource::<BehaviorTicks>().unwrap().0, 2);

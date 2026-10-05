@@ -20,12 +20,12 @@ fn authored_step_system_runs_only_for_a_timer_tick() {
 
     let mut scheduler = crate::ecs::SystemScheduler::new();
     scheduler.add(life_step_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(world.get::<LifeBoard>(board_entity).unwrap().cell, initial);
 
     let timer = world.spawn_empty();
     world.insert(timer, LifeStepDue);
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     assert_ne!(world.get::<LifeBoard>(board_entity).unwrap().cell, initial);
     assert!(!world.has::<LifeStepDue>(timer));

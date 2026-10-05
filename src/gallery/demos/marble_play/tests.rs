@@ -113,12 +113,12 @@ fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
 
     let revision = model.visual_revision();
     world.insert_resource(DeltaTimeMs(60));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert!(model.visual_revision() > revision);
 
     let revision = model.visual_revision();
     world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(model.visual_revision(), revision);
 }
 

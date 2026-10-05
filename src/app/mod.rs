@@ -1153,7 +1153,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         {
             crate::trace_span!("frame.systems");
-            self.systems.run_all(&mut self.world);
+            if let Err(error) = self.systems.run_all(&mut self.world) {
+                crate::warn!("scheduled system failed: {:?}", error);
+            }
         }
         self.snapshot_system_perf();
         let systems_end = self.clock_ns();

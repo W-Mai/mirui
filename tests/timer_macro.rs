@@ -98,7 +98,7 @@ where
     F: mirui::app::RendererFactory<B>,
 {
     fn run_systems(&mut self) {
-        self.systems.run_all(&mut self.world);
+        self.systems.run_all(&mut self.world).unwrap();
     }
 }
 

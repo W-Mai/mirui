@@ -12,7 +12,7 @@ use crate::surface::FramebufferAccess;
 fn run_compact_animation(world: &mut World) {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(compact_curve_animation_system::system());
-    scheduler.run_all(world);
+    scheduler.run_all(world).unwrap();
 }
 
 #[test]

@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use super::Component;
 use super::World;
-use super::commands::{CommandQueue, DeferredCommands};
+use super::commands::{CommandError, CommandQueue, DeferredCommands};
 use super::world::WorldId;
 
 pub(crate) mod param;
@@ -330,7 +330,7 @@ impl System {
     }
 
     #[cfg(test)]
-    pub(crate) fn run_once(&self, world: &mut World) {
+    pub(crate) fn run_once(&self, world: &mut World) -> Result<(), CommandError> {
         self.assert_owner(world);
         self.validate_metadata();
         if self.should_run(world) {
@@ -338,13 +338,12 @@ impl System {
                 let mut queue = CommandQueue::default();
                 let mut batch = queue.begin();
                 self.callback.invoke_deferred(world, batch.commands());
-                batch
-                    .finish(world)
-                    .expect("deferred system commands failed");
+                batch.finish(world)?;
             } else {
                 self.callback.invoke_plain(world);
             }
         }
+        Ok(())
     }
 
     fn validate_metadata(&self) {
@@ -564,19 +563,25 @@ impl PreparedSystem {
         Self { system, commands }
     }
 
-    fn invoke(&mut self, world: &mut World) {
+    fn invoke(&mut self, world: &mut World) -> Result<(), CommandError> {
         if let Some(queue) = &mut self.commands {
             let mut batch = queue.begin();
             self.system
                 .callback
                 .invoke_deferred(world, batch.commands());
-            batch
-                .finish(world)
-                .expect("deferred system commands failed");
+            batch.finish(world)?;
         } else {
             self.system.callback.invoke_plain(world);
         }
+        Ok(())
     }
+}
+
+/// A deferred command failure from one scheduled system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SystemRunError {
+    pub system: &'static str,
+    pub cause: CommandError,
 }
 
 #[derive(Default)]
@@ -600,16 +605,20 @@ impl SystemScheduler {
         self.systems.insert(pos, system);
     }
 
-    pub fn run_all(&mut self, world: &mut World) {
+    /// Run eligible systems in priority and registration order.
+    ///
+    /// The first command failure stops this batch. Completed updates remain; unexecuted systems are not counted or timed as calls.
+    pub fn run_all(&mut self, world: &mut World) -> Result<(), SystemRunError> {
         let clock_fn = world.resource::<super::MonoClock>().map(|c| c.clock);
-        for prepared in &mut self.systems {
+        for index in 0..self.systems.len() {
+            let prepared = &mut self.systems[index];
             prepared.system.assert_owner(world);
             if !prepared.system.should_run(world) {
                 prepared.system.last_us = 0;
                 continue;
             }
             let start_ns = clock_fn.map(|f| f()).unwrap_or(0);
-            prepared.invoke(world);
+            let result = prepared.invoke(world);
             if let Some(f) = clock_fn {
                 let elapsed_ns = f().saturating_sub(start_ns);
                 let elapsed_us = (elapsed_ns / 1_000) as u32;
@@ -618,7 +627,18 @@ impl SystemScheduler {
                 system.total_us = system.total_us.saturating_add(elapsed_us as u64);
                 system.call_count = system.call_count.saturating_add(1);
             }
+            if let Err(cause) = result {
+                let error = SystemRunError {
+                    system: prepared.system.name,
+                    cause,
+                };
+                for skipped in &mut self.systems[index + 1..] {
+                    skipped.system.last_us = 0;
+                }
+                return Err(error);
+            }
         }
+        Ok(())
     }
 
     pub fn reset_perf(&mut self) {
@@ -685,7 +705,7 @@ mod tests {
             100,
             replace_marker_after_return,
         ));
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
 
         assert_eq!(
             world.get::<DeferredMarker>(entity),
@@ -702,12 +722,12 @@ mod tests {
 
         let mut world = World::new();
         let system = framework_raw::system();
-        system.run_once(&mut world);
+        system.run_once(&mut world).unwrap();
         assert_eq!(world.resource::<RawRuns>(), None);
 
         let entity = world.spawn_empty();
         world.insert(entity, DeferredMarker(0));
-        system.run_once(&mut world);
+        system.run_once(&mut world).unwrap();
         assert_eq!(world.resource::<RawRuns>(), Some(&RawRuns(1)));
     }
 
@@ -724,14 +744,121 @@ mod tests {
             100,
             replace_marker_after_return,
         ));
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
 
-        let allocations = tracked_allocations(|| scheduler.run_all(&mut world));
+        let allocations = tracked_allocations(|| scheduler.run_all(&mut world).unwrap());
 
         assert_eq!(allocations, 0);
         assert_eq!(
             world.get::<DeferredMarker>(entity),
             Some(&DeferredMarker(2))
+        );
+    }
+
+    struct MarkerChanged;
+
+    impl crate::input::event::contract::Event for MarkerChanged {
+        type Route = crate::input::event::contract::EntityNotification;
+        type Source = crate::input::event::contract::WidgetSource<DeferredMarker>;
+        type Options = ();
+    }
+
+    #[crate::system]
+    fn submit_marker(target: res!(DeferredTarget), commands: commands!()) {
+        commands.insert(target.0, DeferredMarker(1));
+        commands.emit(target.0, MarkerChanged);
+        commands.insert(target.0, DeferredMarker(2));
+    }
+
+    fn failure_clock() -> u64 {
+        use core::sync::atomic::{AtomicU64, Ordering};
+        static TICKS: AtomicU64 = AtomicU64::new(0);
+        TICKS.fetch_add(1_000, Ordering::Relaxed)
+    }
+
+    #[test]
+    fn submission_failure_stops_the_batch_preserves_updates_and_reuses_storage() {
+        use crate::ecs::commands::CommandCommitError;
+        use crate::input::event::emission::PendingNotifications;
+        use crate::input::event::listeners::EventListeners;
+        use crate::input::event::notification::NotificationCapacity;
+
+        let mut world = World::new();
+        let entity = world.spawn(DeferredMarker(0));
+        world.insert_resource(DeferredTarget(entity));
+        world.insert_resource(RawRuns(0));
+        world.insert_resource(super::super::MonoClock::new(failure_clock));
+        let pending = Rc::new(
+            PendingNotifications::new(
+                &world,
+                NotificationCapacity {
+                    records: 1,
+                    payload_bytes: 0,
+                    payload_alignment: 1,
+                },
+            )
+            .unwrap(),
+        );
+        world.insert_resource(pending.clone());
+        let listeners = EventListeners::new(&mut world);
+        let mut scheduler = SystemScheduler::new();
+        scheduler.add(framework_raw::system());
+        scheduler.add(submit_marker::system());
+        scheduler.add(framework_raw_always::system());
+        scheduler.run_all(&mut world).unwrap();
+        assert_eq!(pending.flush(&listeners, &mut world, 1), Ok(1));
+        assert!(scheduler.iter().all(|system| system.call_count == 1));
+
+        world.remove_resource::<Rc<PendingNotifications>>();
+        let expected = SystemRunError {
+            system: "submit_marker",
+            cause: CommandError::Commit(CommandCommitError::MissingService {
+                service: core::any::type_name::<PendingNotifications>(),
+            }),
+        };
+        assert_eq!(
+            tracked_allocations(|| assert_eq!(scheduler.run_all(&mut world), Err(expected))),
+            0
+        );
+        assert_eq!(
+            world.get::<DeferredMarker>(entity),
+            Some(&DeferredMarker(1))
+        );
+        assert_eq!(world.resource::<RawRuns>(), Some(&RawRuns(2)));
+        let stats: Vec<_> = scheduler
+            .iter()
+            .map(|system| (system.last_us, system.total_us, system.call_count))
+            .collect();
+        assert_eq!(stats, [(1, 2, 2), (1, 2, 2), (0, 1, 1)]);
+
+        world.insert_resource(pending.clone());
+        assert_eq!(
+            tracked_allocations(|| scheduler.run_all(&mut world).unwrap()),
+            0
+        );
+        assert_eq!(
+            world.get::<DeferredMarker>(entity),
+            Some(&DeferredMarker(2))
+        );
+        assert_eq!(pending.flush(&listeners, &mut world, 1), Ok(1));
+        assert_eq!(world.resource::<RawRuns>(), Some(&RawRuns(3)));
+        assert_eq!(scheduler.iter().last().unwrap().call_count, 2);
+    }
+
+    #[test]
+    fn direct_execution_returns_submission_errors() {
+        let mut world = World::new();
+        let entity = world.spawn(DeferredMarker(0));
+        world.insert_resource(DeferredTarget(entity));
+        assert!(matches!(
+            submit_marker::system().run_once(&mut world),
+            Err(CommandError::Commit(
+                super::super::CommandCommitError::MissingService { .. }
+            ))
+        ));
+        assert_eq!(
+            world.get::<DeferredMarker>(entity),
+            Some(&DeferredMarker(1))
         );
     }
 
@@ -766,18 +893,18 @@ mod tests {
         s.add(unsafe { System::new("ticking", 100, ticking).with_metadata(METADATA) });
 
         // No entity carries `Marker` → system must not run.
-        s.run_all(&mut world);
+        s.run_all(&mut world).unwrap();
         assert_eq!(world.resource::<Counter>().unwrap().0, 0);
 
         // Spawn an entity with `Marker` → system runs.
         let e = world.spawn_empty();
         world.insert(e, Marker);
-        s.run_all(&mut world);
+        s.run_all(&mut world).unwrap();
         assert_eq!(world.resource::<Counter>().unwrap().0, 1);
 
         // Despawn it → system stops running again.
         world.despawn(e);
-        s.run_all(&mut world);
+        s.run_all(&mut world).unwrap();
         assert_eq!(world.resource::<Counter>().unwrap().0, 1);
     }
 
@@ -863,7 +990,9 @@ mod tests {
         ];
         let mut world = World::new();
         // SAFETY: deliberately invalid metadata exercises direct-run checks.
-        unsafe { System::new("alias", 100, dummy).with_metadata(METADATA) }.run_once(&mut world);
+        unsafe { System::new("alias", 100, dummy).with_metadata(METADATA) }
+            .run_once(&mut world)
+            .unwrap();
     }
 
     #[test]

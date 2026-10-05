@@ -211,11 +211,11 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
     scheduler.add(moss_tick_system::system(model.clone()));
 
     world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     assert_eq!(with_model(&world, MossModel::generation), 0);
 
     world.insert_resource(DeltaTimeMs(250));
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut world);
 
     assert_eq!(with_model(&world, MossModel::generation), 1);
@@ -237,5 +237,5 @@ fn bound_tick_requires_the_frame_delta_resource() {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(moss_tick_system::system(model));
 
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 }

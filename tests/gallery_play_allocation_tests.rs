@@ -112,10 +112,10 @@ fn warmed_marble_frame_stays_inside_allocation_budget() {
     app.set_root(root);
 
     for _ in 0..3 {
-        app.systems.run_all(&mut app.world);
+        app.systems.run_all(&mut app.world).unwrap();
         app.render_dirty().unwrap();
     }
-    let system_allocations = tracked_allocations(|| app.systems.run_all(&mut app.world));
+    let system_allocations = tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap());
     let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
 
     let mut blank = App::headless(width, height);
@@ -123,10 +123,10 @@ fn warmed_marble_frame_stays_inside_allocation_budget() {
     let blank_root = blank.spawn_root().id();
     blank.set_root(blank_root);
     for _ in 0..3 {
-        blank.systems.run_all(&mut blank.world);
+        blank.systems.run_all(&mut blank.world).unwrap();
         blank.render_dirty().unwrap();
     }
-    let blank_systems = tracked_allocations(|| blank.systems.run_all(&mut blank.world));
+    let blank_systems = tracked_allocations(|| blank.systems.run_all(&mut blank.world).unwrap());
     let blank_render = tracked_allocations(|| blank.render_dirty().unwrap());
 
     assert!(blank_systems <= 1);
@@ -148,7 +148,7 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
     mirui::gallery::demos::marble_play::setup_app(&mut app, root);
     app.set_root(root);
     app.prepare_text_layout().unwrap();
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     app.render().unwrap();
 
     let edit = app.world.find_by_id("marble_properties").unwrap();
@@ -270,7 +270,7 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
     mirui::gallery::demos::marble_play::setup_app(&mut app, root);
     app.set_root(root);
     app.prepare_text_layout().unwrap();
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     app.render().unwrap();
 
     let scenes_nav = app.world.find_by_id("marble_nav_scenes").unwrap();
@@ -393,7 +393,7 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
     mirui::gallery::demos::marble_play::setup_app(&mut app, root);
     app.set_root(root);
     app.prepare_text_layout().unwrap();
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     app.render().unwrap();
 
     let edit = app.world.find_by_id("marble_nav_edit").unwrap();
@@ -513,7 +513,7 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
     mirui::gallery::demos::marble_play::setup_app(&mut app, root);
     app.set_root(root);
     app.prepare_text_layout().unwrap();
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     app.render().unwrap();
 
     let settings = app.world.find_by_id("marble_nav_settings").unwrap();
@@ -624,7 +624,7 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
     mirui::gallery::demos::marble_play::setup_app(&mut app, root);
     app.set_root(root);
     app.prepare_text_layout().unwrap();
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
     app.render().unwrap();
     #[cfg(feature = "audio")]
     {

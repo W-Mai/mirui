@@ -98,7 +98,7 @@ fn generated_system_composes_all_roles_and_reuses_its_command_queue() {
     app.world.insert(hidden, Hidden);
 
     app.add_system(nested::integrate::system(counter.clone()));
-    app.systems.run_all(&mut app.world);
+    app.systems.run_all(&mut app.world).unwrap();
 
     assert_eq!(counter.value(), 7);
     assert_eq!(app.world.get::<Velocity>(visible).unwrap().0, 5);
@@ -106,7 +106,7 @@ fn generated_system_composes_all_roles_and_reuses_its_command_queue() {
     assert!(app.world.has::<Integrated>(visible));
     assert!(!app.world.has::<Integrated>(hidden));
 
-    let allocations = tracked_allocations(|| app.systems.run_all(&mut app.world));
+    let allocations = tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap());
     assert_eq!(allocations, 0);
     assert_eq!(counter.value(), 15);
     assert_eq!(app.world.resource::<Settings>().unwrap().ticks, 2);
@@ -139,7 +139,7 @@ fn generated_system_supports_shared_and_exclusive_point_fetches() {
     app.world.insert_resource(Target(target));
     app.add_system(update_target::system());
 
-    let allocations = tracked_allocations(|| app.systems.run_all(&mut app.world));
+    let allocations = tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap());
     assert_eq!(allocations, 0);
     assert_eq!(app.world.get::<Velocity>(target).unwrap().0, 10);
 }

@@ -138,7 +138,7 @@ fn main() {
     app.set_root(root);
     app.world.insert_resource(DeltaTimeMs(100));
     for _ in 0..ticks {
-        app.systems.run_all(&mut app.world);
+        app.systems.run_all(&mut app.world).unwrap();
         mirui::core::reactive::flush_signal_dirty(&mut app.world);
     }
     app.render().unwrap();

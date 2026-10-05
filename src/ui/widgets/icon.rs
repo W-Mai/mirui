@@ -192,7 +192,7 @@ mod tests {
 
         let system = IconScale::system();
         for _ in 0..20 {
-            system.run_once(&mut world);
+            system.run_once(&mut world).unwrap();
         }
 
         let after = world.get::<Icon>(entity).expect("icon survives");

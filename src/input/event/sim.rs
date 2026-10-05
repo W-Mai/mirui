@@ -2305,7 +2305,7 @@ mod tests {
             sim_timeline_system(&mut world);
             crate::input::event::scroll::scroll_inertia_system(&mut world);
             tab_pages_system(&mut world);
-            switch_systems.run_all(&mut world);
+            switch_systems.run_all(&mut world).unwrap();
             crate::ui::render_system::update_layout(&mut world, _root, &viewport);
 
             let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);

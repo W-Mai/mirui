@@ -241,7 +241,7 @@ fn bound_tick_updates_uart_and_only_publishes_real_visual_changes() {
     scheduler.add(scope_animation_system::system(model.clone()));
     app.world
         .insert_resource(crate::ecs::DeltaTimeMs(UART_SYMBOL_MS as u16));
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut app.world);
 
     assert_eq!(model.uart_symbol(), 1);
@@ -258,7 +258,7 @@ fn bound_tick_updates_uart_and_only_publishes_real_visual_changes() {
     app.world.remove::<VisualDirty>(canvas);
     let revision = model.visual_revision();
     app.world.insert_resource(crate::ecs::DeltaTimeMs(0));
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut app.world);
     assert_eq!(model.visual_revision(), revision);
     assert!(!app.world.has::<VisualDirty>(canvas));
@@ -268,7 +268,7 @@ fn bound_tick_updates_uart_and_only_publishes_real_visual_changes() {
     app.world.remove::<VisualDirty>(canvas);
     let revision = model.visual_revision();
     app.world.insert_resource(crate::ecs::DeltaTimeMs(16));
-    scheduler.run_all(&mut app.world);
+    scheduler.run_all(&mut app.world).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut app.world);
     assert_eq!(model.visual_revision(), revision);
     assert!(!app.world.has::<VisualDirty>(canvas));

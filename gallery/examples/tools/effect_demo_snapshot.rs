@@ -297,7 +297,7 @@ fn main() {
         let dir = std::path::PathBuf::from(&out_path);
         std::fs::create_dir_all(&dir).ok();
         for frame in 0..60 {
-            app.systems.run_all(&mut app.world);
+            app.systems.run_all(&mut app.world).unwrap();
             app.render_dirty().unwrap();
             let path = dir.join(format!("frame-{frame:03}.ppm"));
             write_ppm(
@@ -311,7 +311,7 @@ fn main() {
         eprintln!("wrote 60 frames to {}", dir.display());
     } else {
         for _ in 0..8 {
-            app.systems.run_all(&mut app.world);
+            app.systems.run_all(&mut app.world).unwrap();
             app.render_dirty().unwrap();
         }
         write_ppm(&out_path, &capture.borrow(), WIN_W as u32, WIN_H as u32).expect("write ppm");

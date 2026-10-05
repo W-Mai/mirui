@@ -420,11 +420,11 @@ mod tests {
         );
         let mut scheduler = crate::ecs::SystemScheduler::new();
         scheduler.add(GeneratedMotion::system());
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
 
         let allocations = tracked_allocations(|| {
             for _ in 0..8 {
-                scheduler.run_all(&mut world);
+                scheduler.run_all(&mut world).unwrap();
             }
         });
 
@@ -445,7 +445,7 @@ mod tests {
         let mut scheduler = crate::ecs::SystemScheduler::new();
         scheduler.add(GeneratedMotion::system());
 
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
 
         assert_eq!(world.get::<AnimatedValue>(entity).unwrap().0, Fixed::ONE);
         assert!(world.get::<GeneratedMotion>(entity).is_none());
@@ -769,7 +769,7 @@ mod settle_threshold_check {
         T_NS.store(30_000_000_000, Ordering::Relaxed);
         let mut scheduler = crate::ecs::SystemScheduler::new();
         scheduler.add(sync_delta_time_ms::system());
-        scheduler.run_all(&mut world);
+        scheduler.run_all(&mut world).unwrap();
         let dt = world.resource::<DeltaTimeMs>().map(|d| d.0).unwrap();
         assert!(dt <= MAX_FRAME_DT_MS, "spike dt {dt} must be clamped");
     }

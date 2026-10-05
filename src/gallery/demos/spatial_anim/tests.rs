@@ -12,7 +12,7 @@ use crate::ui::render_system::update_layout;
 fn run_spring_motion(world: &mut World) {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(spring_system::system());
-    scheduler.run_all(world);
+    scheduler.run_all(world).unwrap();
 }
 
 #[test]

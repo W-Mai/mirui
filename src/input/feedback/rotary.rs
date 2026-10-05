@@ -222,7 +222,7 @@ mod tests {
     fn run_rotary_feedback(world: &mut World) {
         let mut scheduler = crate::ecs::SystemScheduler::new();
         scheduler.add(rotary_feedback_system::system());
-        scheduler.run_all(world);
+        scheduler.run_all(world).unwrap();
     }
 
     #[test]

@@ -67,7 +67,7 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     state.accum_render_ns = 123_000 * (UPDATE_EVERY - 1) as u64;
     let mut scheduler = SystemScheduler::new();
     scheduler.add(fps_readout_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     let text = world.get::<Text>(readout).unwrap();
     assert!(text.resolve(&world).contains("render avg 123us"));
@@ -92,7 +92,7 @@ fn readout_stays_clean_between_sample_windows() {
     world.remove::<VisualDirty>(readout);
     let mut scheduler = SystemScheduler::new();
     scheduler.add(fps_readout_system::system());
-    scheduler.run_all(&mut world);
+    scheduler.run_all(&mut world).unwrap();
 
     assert!(!world.has::<Dirty>(readout));
     assert!(!world.has::<VisualDirty>(readout));

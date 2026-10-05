@@ -12,7 +12,7 @@ use crate::ui::{Children, ComputedRect, IdMap, Style, UiScope};
 fn run_bar_motion(world: &mut World) {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(bar_move_system::system());
-    scheduler.run_all(world);
+    scheduler.run_all(world).unwrap();
 }
 
 #[test]
