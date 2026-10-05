@@ -352,6 +352,10 @@ observed getter, or a named revision. An optional model field uses
 frame-scoped paint context. `PaintCtx` provides the current geometry, style,
 widget state, transform, clip, drawing, and scene replay operations without
 exposing the renderer as a separate callback parameter.
+View resources are read-only. `res!(T)` requires the resource at each paint
+invocation; `res!(optional T)` supplies `Option<&T>` and still runs the body
+when the resource is absent. Both use the same resource role grammar as systems
+and events, without cloning the resource or allocating parameter storage.
 `with_clip_path` owns the matching clip push/pop pair, including cleanup after
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker

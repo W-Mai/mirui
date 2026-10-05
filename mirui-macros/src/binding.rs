@@ -610,7 +610,7 @@ impl BindingSpec {
         let name = pattern.ident.clone();
         match role {
             RoleKind::Model => parse_system_model(name, type_role),
-            RoleKind::Res => parse_system_resource(name, type_role),
+            RoleKind::Res => parse_resource_role(name, type_role),
             RoleKind::Query => parse_system_query(name, type_role),
             RoleKind::Commands => parse_system_commands(name, type_role),
             _ => unreachable!("RoleSet admitted an unsupported system role"),
@@ -649,7 +649,7 @@ impl BindingSpec {
                     invalidation: None,
                 }
             }
-            RoleKind::Res => parse_system_resource(name, type_role)?,
+            RoleKind::Res => parse_resource_role(name, type_role)?,
             RoleKind::Query => parse_system_query(name, type_role)?,
             RoleKind::Entity => {
                 parse_animate_capability(name, type_role, BindingCapability::Entity)?
@@ -873,7 +873,10 @@ fn capability_name(capability: BindingCapability) -> &'static str {
     }
 }
 
-fn parse_system_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
+pub(crate) fn parse_resource_role(
+    name: Ident,
+    type_role: syn::TypeMacro,
+) -> syn::Result<BindingSpec> {
     let parsed = type_role.mac.parse_body::<ResourceRole>()?;
     Ok(BindingSpec {
         name,

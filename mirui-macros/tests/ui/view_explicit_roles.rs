@@ -57,11 +57,13 @@ mod nested {
         state: model!(component.state, watch(value)),
         optional: model!(optional component.optional, watch(value)),
         theme: res!(<T as super::Palette>::Theme),
+        fallback: res!(optional <T as super::Palette>::Theme),
         entity: entity!(),
         paint: paint!(),
     ) where self::Marker: super::Palette {
         let value = state.value + super::ROOT_OFFSET + self::local_offset() + OFFSET;
         let optional_value = optional.map(|state| state.value);
+        let _: Option<&<T as super::Palette>::Theme> = fallback;
         let _ = (tile, value, optional_value, theme, entity, paint);
     }
 }

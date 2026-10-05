@@ -10,14 +10,10 @@ use syn::{Expr, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
     BindingSpec, BindingSyntax, ComponentSource, ComponentTarget, LogicalType, ModelSource,
-    ResourceSource, RoleKind, VIEW_ROLES,
+    RoleKind, VIEW_ROLES, parse_resource_role,
 };
 use crate::child_scope::ChildScope;
 use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
-
-mod keyword {
-    syn::custom_keyword!(optional);
-}
 
 struct ViewArgs {
     component: Type,
@@ -322,17 +318,14 @@ fn parse_component(
 }
 
 fn parse_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
-    let ty = type_role.mac.parse_body::<ViewResourceRole>()?.0;
-    Ok(BindingSpec {
-        name,
-        syntax: BindingSyntax::TypeRole(type_role),
-        logical_type: LogicalType::Explicit(Box::new(ty.clone())),
-        source: BindingSource::Resource(ResourceSource { ty }),
-        access: BindingAccess::Read,
-        cardinality: BindingCardinality::Required,
-        watch_selectors: Vec::new(),
-        invalidation: None,
-    })
+    let binding = parse_resource_role(name, type_role)?;
+    if binding.access != BindingAccess::Read {
+        return Err(syn::Error::new(
+            binding.syntax.span(),
+            "views cannot mutably borrow a resource",
+        ));
+    }
+    Ok(binding)
 }
 
 fn parse_capability(
@@ -355,33 +348,6 @@ fn parse_capability(
         watch_selectors: Vec::new(),
         invalidation: None,
     })
-}
-
-struct ViewResourceRole(Type);
-
-impl Parse for ViewResourceRole {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        if input.is_empty() {
-            return Err(input.error("`res!` expects a resource type"));
-        }
-        if input.peek(Token![mut]) {
-            let token = input.parse::<Token![mut]>()?;
-            return Err(syn::Error::new(
-                token.span(),
-                "views cannot mutably borrow a resource",
-            ));
-        }
-        if input.peek(keyword::optional) {
-            return Err(
-                input.error("views require `res!(T)`; optional resources are not supported")
-            );
-        }
-        let ty = input.parse::<Type>()?;
-        if !input.is_empty() {
-            return Err(input.error("`res!` expects exactly one resource type"));
-        }
-        Ok(Self(ty))
-    }
 }
 
 struct EmptyRole;
@@ -567,7 +533,11 @@ fn lower_helper_parameter(binding: &BindingSpec) -> Option<syn::Result<TokenStre
         }
         BindingSource::Resource(resource) => {
             let ty = &resource.ty;
-            Some(Ok(quote!(#name: &#ty)))
+            Some(Ok(match binding.cardinality {
+                BindingCardinality::Required => quote!(#name: &#ty),
+                BindingCardinality::Optional => quote!(#name: ::core::option::Option<&#ty>),
+                BindingCardinality::Many => unreachable!("resources have singular cardinality"),
+            }))
         }
         BindingSource::Capability(capability) => Some(match capability {
             BindingCapability::Entity => Ok(quote!(#name: ::mirui::ecs::Entity)),
@@ -621,10 +591,13 @@ fn lower_render_fetch(
         BindingSource::Resource(resource) => {
             let ty = ChildScope::ty(&resource.ty);
             let local = fetched_name(&binding.name);
-            Some(Ok(quote! {
-                let #local = __mirui_world
-                    .resource::<#ty>()
-                    .expect(concat!("View `", stringify!(#function_name), "` requires resource `", stringify!(#ty), "`"));
+            let fetch = quote!(__mirui_world.resource::<#ty>());
+            Some(Ok(match binding.cardinality {
+                BindingCardinality::Required => quote! {
+                    let #local = #fetch.expect(concat!("View `", stringify!(#function_name), "` requires resource `", stringify!(#ty), "`"));
+                },
+                BindingCardinality::Optional => quote!(let #local = #fetch;),
+                BindingCardinality::Many => unreachable!("resources have singular cardinality"),
             }))
         }
         BindingSource::Model(_) | BindingSource::Capability(_) => None,
@@ -911,6 +884,36 @@ mod tests {
         )
         .unwrap_err();
         assert!(mutable.to_string().contains("mutably borrow a resource"));
+    }
+
+    #[test]
+    fn optional_resources_keep_the_shared_read_only_role_contract() {
+        let expanded = expand_ok(
+            quote!(component = Board),
+            quote! {
+                fn paint(clock: res!(optional super::Clock), theme: res!(Theme)) {
+                    let _ = (clock, theme);
+                }
+            },
+        );
+        assert!(expanded.contains("clock : :: core :: option :: Option < & super :: Clock >"));
+        assert!(expanded.contains("let __mirui_resource_clock = __mirui_world . resource :: < super :: super :: Clock > () ;"));
+        assert!(expanded.contains("theme : & Theme"));
+        assert!(expanded.contains("requires resource"));
+        for role in [quote!(optional mut Theme), quote!(mut optional Theme)] {
+            let error = expand(
+                quote!(component = Board),
+                quote!(
+                    fn paint(theme: res!(#role)) {}
+                ),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("optional mutable resources are not supported")
+            );
+        }
     }
 
     #[test]

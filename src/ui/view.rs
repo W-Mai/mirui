@@ -839,6 +839,101 @@ mod tests {
         seen: Cell<Option<u32>>,
     }
 
+    struct OptionalPaintResource(u32);
+
+    #[crate::component]
+    struct ResourceTile {
+        seen: Cell<Option<u32>>,
+        visits: Cell<u32>,
+    }
+
+    #[crate::view(component = ResourceTile)]
+    fn paint_resource_tile(
+        tile: component!(),
+        value: res!(optional self::OptionalPaintResource),
+        theme: res!(crate::ui::Theme),
+        paint: paint!(),
+    ) {
+        tile.seen.set(value.map(|value| value.0));
+        tile.visits.set(tile.visits.get() + 1);
+        let _ = theme;
+        paint.set_background_handled(value.is_some());
+    }
+
+    #[test]
+    fn optional_resource_paint_refetches_borrowed_values_without_allocating() {
+        struct StubRenderer;
+        impl Renderer for StubRenderer {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+        let mut world = World::new();
+        world.insert_resource(crate::ui::Theme::default());
+        let entity = world.spawn_empty();
+        world.insert(
+            entity,
+            ResourceTile {
+                seen: Cell::new(None),
+                visits: Cell::new(0),
+            },
+        );
+        let render = paint_resource_tile::view().render().unwrap();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 16, 16);
+        let mut renderer = StubRenderer;
+        let mut visits = 0;
+        for value in [None, Some(7), Some(11), None] {
+            if let Some(value) = value {
+                world.insert_resource(OptionalPaintResource(value));
+            } else {
+                world.remove_resource::<OptionalPaintResource>();
+            }
+            for _ in 0..2 {
+                let mut paint = PaintCtx::new(
+                    &mut renderer,
+                    &style,
+                    &rect,
+                    &rect,
+                    Transform::IDENTITY,
+                    None,
+                    WidgetState::Enabled,
+                );
+                assert_eq!(
+                    tracked_allocations(|| render(&world, entity, &mut paint)),
+                    0
+                );
+                visits += 1;
+                let tile = world.get::<ResourceTile>(entity).unwrap();
+                assert_eq!(tile.seen.get(), value);
+                assert_eq!(tile.visits.get(), visits);
+                assert_eq!(paint.background_handled(), value.is_some());
+                assert_eq!(paint.error(), None);
+            }
+        }
+        world.remove_resource::<crate::ui::Theme>();
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
+        );
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                render(&world, entity, &mut paint);
+            }))
+            .is_err()
+        );
+        assert_eq!(
+            world.get::<ResourceTile>(entity).unwrap().visits.get(),
+            visits
+        );
+    }
+
     fn observe_bound_tile(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
         let tile = world.get::<BoundTile>(entity).expect("bound tile");
         bindings.watch(|invalidation| {
