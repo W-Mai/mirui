@@ -1,7 +1,7 @@
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 use quote::{format_ident, quote};
 use std::collections::HashSet;
-use syn::{ExprMacro, FnArg, Ident, ItemFn, LitStr, Pat, ReturnType, Type};
+use syn::{Expr, ExprMacro, FnArg, Ident, ItemFn, LitStr, Pat, ReturnType, Type};
 
 use crate::binding::{
     BindingCapability, BindingSource, BindingSpec, ComponentTarget, LogicalType, MAX_FETCH_ARITY,
@@ -16,12 +16,160 @@ enum EventParameter {
     Value { name: Ident, ty: Box<Type> },
 }
 
-impl EventParameter {
-    fn name(&self) -> &Ident {
-        match self {
-            Self::Binding(binding) => &binding.name,
-            Self::Value { name, .. } => name,
-        }
+struct InvocationParameter {
+    name: Ident,
+    helper: TokenStream,
+    source: InvocationSource,
+}
+
+enum InvocationSource {
+    Value(Box<Type>),
+    Event(Box<Type>),
+    Entity,
+    Model { ty: Type, capture: Ident },
+    Fetch { marker: Type, access: Vec<Expr> },
+    Commands,
+}
+
+struct InvocationPlan {
+    parameters: Vec<InvocationParameter>,
+}
+
+impl InvocationPlan {
+    fn new(parameters: Vec<EventParameter>) -> syn::Result<Self> {
+        let parameters = parameters
+            .into_iter()
+            .map(|parameter| {
+                let (name, helper, source) = match parameter {
+                    EventParameter::Value { name, ty } => {
+                        let helper = quote!(#name: #ty);
+                        (name, helper, InvocationSource::Value(ty))
+                    }
+                    EventParameter::Binding(binding) => {
+                        let name = &binding.name;
+                        let (helper, source) = match &binding.source {
+                            BindingSource::Event => {
+                                let LogicalType::Explicit(ty) = &binding.logical_type else {
+                                    unreachable!(
+                                        "authored event parameters declare their payload type"
+                                    );
+                                };
+                                (quote!(#name: &#ty), InvocationSource::Event(ty.clone()))
+                            }
+                            BindingSource::Capability(BindingCapability::Entity) => (
+                                quote!(#name: ::mirui::ecs::Entity),
+                                InvocationSource::Entity,
+                            ),
+                            BindingSource::Model(ModelSource::Registered { ty }) => (
+                                lower_helper_parameter(&binding, "#[event]")?,
+                                InvocationSource::Model {
+                                    ty: ty.clone(),
+                                    capture: format_ident!(
+                                        "__mirui_model_{name}",
+                                        span = Span::mixed_site()
+                                    ),
+                                },
+                            ),
+                            BindingSource::Resource(_) | BindingSource::Query(_) => {
+                                let (marker, access) = lower_fetched_parameter(&binding)?;
+                                (
+                                    lower_helper_parameter(&binding, "#[event]")?,
+                                    InvocationSource::Fetch {
+                                        marker: syn::parse2(marker)?,
+                                        access: access
+                                            .into_iter()
+                                            .map(syn::parse2)
+                                            .collect::<syn::Result<_>>()?,
+                                    },
+                                )
+                            }
+                            BindingSource::Capability(BindingCapability::Commands) => (
+                                lower_helper_parameter(&binding, "#[event]")?,
+                                InvocationSource::Commands,
+                            ),
+                            _ => unreachable!("event parsing only admits event callback roles"),
+                        };
+                        (binding.name, helper, source)
+                    }
+                };
+                Ok(InvocationParameter {
+                    name,
+                    helper,
+                    source,
+                })
+            })
+            .collect::<syn::Result<_>>()?;
+        Ok(Self { parameters })
+    }
+
+    fn values(&self) -> impl Iterator<Item = &Ident> {
+        self.parameters.iter().filter_map(|parameter| {
+            if matches!(parameter.source, InvocationSource::Value(_)) {
+                Some(&parameter.name)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn models(&self) -> impl Iterator<Item = (&Ident, &Ident)> {
+        self.parameters.iter().filter_map(|parameter| {
+            if let InvocationSource::Model { capture, .. } = &parameter.source {
+                Some((&parameter.name, capture))
+            } else {
+                None
+            }
+        })
+    }
+
+    fn fetches(&self) -> impl Iterator<Item = (&Ident, &Type, &[Expr])> {
+        self.parameters.iter().filter_map(|parameter| {
+            if let InvocationSource::Fetch { marker, access } = &parameter.source {
+                Some((&parameter.name, marker, access.as_slice()))
+            } else {
+                None
+            }
+        })
+    }
+
+    fn payload(&self) -> Option<&Type> {
+        self.parameters.iter().find_map(|parameter| {
+            if let InvocationSource::Event(ty) = &parameter.source {
+                Some(&**ty)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn has_entity(&self) -> bool {
+        self.parameters
+            .iter()
+            .any(|parameter| matches!(parameter.source, InvocationSource::Entity))
+    }
+
+    fn has_commands(&self) -> bool {
+        self.parameters
+            .iter()
+            .any(|parameter| matches!(parameter.source, InvocationSource::Commands))
+    }
+
+    fn aliases<'a>(
+        &'a self,
+        payload: &'a Ident,
+        target: &'a Ident,
+        commands: &'a Ident,
+    ) -> impl Iterator<Item = TokenStream> + 'a {
+        self.parameters.iter().filter_map(move |parameter| {
+            let name = &parameter.name;
+            match &parameter.source {
+                InvocationSource::Event(_) => Some(quote!(let #name = #payload;)),
+                InvocationSource::Entity => Some(quote!(let #name = #target;)),
+                InvocationSource::Model { capture, .. } => Some(quote!(let #name = &#capture;)),
+                InvocationSource::Commands => Some(quote!(let #name = #commands;)),
+                InvocationSource::Value(_) | InvocationSource::Fetch { .. } => None,
+            }
+        })
     }
 }
 
@@ -123,10 +271,10 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         }
         parameters.push(EventParameter::Binding(Box::new(binding)));
     }
-    lower_callback(function, parameters)
+    lower_callback(function, InvocationPlan::new(parameters)?)
 }
 
-fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Result<TokenStream> {
+fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenStream> {
     let name = &function.sig.ident;
     let helper_name = format_ident!("__mirui_event_body_{name}", span = Span::mixed_site());
     let context = format_ident!("__MiruiContext", span = Span::mixed_site());
@@ -134,88 +282,43 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
     let payload_name = format_ident!("__mirui_payload", span = Span::mixed_site());
     let target_name = format_ident!("__mirui_target", span = Span::mixed_site());
     let commands_name = format_ident!("__mirui_commands", span = Span::mixed_site());
-    let mut helper_parameters = Vec::new();
-    let mut inputs = Vec::new();
-    let mut checks = Vec::new();
-    let mut captures = Vec::new();
-    let mut aliases = Vec::new();
-    let mut models = Vec::new();
-    let mut fetched_names = Vec::new();
-    let mut fetched_types = Vec::new();
-    let mut metadata = Vec::new();
-    let mut payload_type = None;
-    let mut has_entity = false;
-    let mut has_commands = false;
-
-    for parameter in &parameters {
-        match parameter {
-            EventParameter::Value { name, ty } => {
-                helper_parameters.push(quote!(#name: #ty));
+    let helper_parameters = plan.parameters.iter().map(|parameter| &parameter.helper);
+    let inputs = plan.parameters.iter().filter_map(|parameter| {
+        let name = &parameter.name;
+        match &parameter.source {
+            InvocationSource::Value(ty) => {
                 let ty = ChildScope::ty(ty);
-                inputs.push(quote!(#name: #ty));
-                checks.push(quote!(self::__require_copy(&#name);));
+                Some(quote!(#name: #ty))
             }
-            EventParameter::Binding(binding) => {
-                let binding_name = &binding.name;
-                match &binding.source {
-                    BindingSource::Event => {
-                        let LogicalType::Explicit(ty) = &binding.logical_type else {
-                            unreachable!("authored event parameters declare their payload type");
-                        };
-                        helper_parameters.push(quote!(#binding_name: &#ty));
-                        aliases.push(quote!(let #binding_name = #payload_name;));
-                        let ty = ChildScope::ty(ty);
-                        payload_type = Some(quote!(#ty));
-                    }
-                    BindingSource::Capability(BindingCapability::Entity) => {
-                        helper_parameters.push(quote!(#binding_name: ::mirui::ecs::Entity));
-                        aliases.push(quote!(let #binding_name = #target_name;));
-                        has_entity = true;
-                    }
-                    BindingSource::Model(ModelSource::Registered { ty }) => {
-                        helper_parameters.push(lower_helper_parameter(binding, "#[event]")?);
-                        let ty = ChildScope::ty(ty);
-                        inputs.push(
-                            quote!(#binding_name: <#ty as ::mirui::core::model::BindType>::Shared),
-                        );
-                        let capture = format_ident!(
-                            "__mirui_model_{binding_name}",
-                            span = Span::mixed_site()
-                        );
-                        captures.push(quote!(let #capture = ::mirui::core::model::SharedValue::share(&#binding_name);));
-                        aliases.push(quote!(let #binding_name = &#capture;));
-                        models.push(binding_name);
-                    }
-                    BindingSource::Resource(_) | BindingSource::Query(_) => {
-                        helper_parameters.push(lower_helper_parameter(binding, "#[event]")?);
-                        let (marker, access) = lower_fetched_parameter(binding)?;
-                        fetched_names.push(binding_name);
-                        let marker: Type = syn::parse2(marker)?;
-                        let marker = ChildScope::ty(&marker);
-                        fetched_types.push(quote!(#marker));
-                        for access in access {
-                            let expression: syn::Expr = syn::parse2(access)?;
-                            let expression = ChildScope::expression(&expression);
-                            metadata.push(quote!(#expression));
-                        }
-                    }
-                    BindingSource::Capability(BindingCapability::Commands) => {
-                        helper_parameters.push(lower_helper_parameter(binding, "#[event]")?);
-                        aliases.push(quote!(let #binding_name = #commands_name;));
-                        has_commands = true;
-                    }
-                    _ => unreachable!("event parsing only admits event callback roles"),
-                }
+            InvocationSource::Model { ty, .. } => {
+                let ty = ChildScope::ty(ty);
+                Some(quote!(#name: <#ty as ::mirui::core::model::BindType>::Shared))
             }
+            _ => None,
         }
-    }
-
-    let generics = if payload_type.is_some() {
+    });
+    let checks = plan
+        .values()
+        .map(|name| quote!(self::__require_copy(&#name);));
+    let captures = plan.models().map(
+        |(name, capture)| quote!(let #capture = ::mirui::core::model::SharedValue::share(&#name);),
+    );
+    let aliases = plan.aliases(&payload_name, &target_name, &commands_name);
+    let fetched_names = plan.fetches().map(|(name, _, _)| name);
+    let fetched_types = plan.fetches().map(|(_, marker, _)| ChildScope::ty(marker));
+    let metadata = plan
+        .fetches()
+        .flat_map(|(_, _, access)| access)
+        .map(ChildScope::expression);
+    let generics = if plan.payload().is_some() {
         quote!(<#context>)
     } else {
         quote!(<#generic_event, #context>)
     };
-    let payload = payload_type.unwrap_or_else(|| quote!(#generic_event));
+    let payload = plan
+        .payload()
+        .map(ChildScope::ty)
+        .map_or_else(|| quote!(#generic_event), |ty| quote!(#ty));
     let result = match &function.sig.output {
         ReturnType::Default => quote!(()),
         ReturnType::Type(_, ty) => {
@@ -223,14 +326,16 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
             quote!(#ty)
         }
     };
-    let entity_bound = has_entity.then(|| quote!(Target = ::mirui::ecs::Entity));
-    let constructor = if has_commands {
+    let entity_bound = plan
+        .has_entity()
+        .then(|| quote!(Target = ::mirui::ecs::Entity));
+    let constructor = if plan.has_commands() {
         quote!(::mirui::__macro_support::deferred_event_callback)
     } else {
         quote!(::mirui::__macro_support::event_callback)
     };
-    let commands_argument = has_commands.then(|| quote!(, #commands_name));
-    let arguments = parameters.iter().map(EventParameter::name);
+    let commands_argument = plan.has_commands().then(|| quote!(, #commands_name));
+    let arguments = plan.parameters.iter().map(|parameter| &parameter.name);
     let callback_name = LitStr::new(&name.to_string(), name.span());
     let callback = quote! {
         // SAFETY: the generated parameter set matches the complete access plan;
@@ -246,11 +351,11 @@ fn lower_callback(function: ItemFn, parameters: Vec<EventParameter>) -> syn::Res
             )
         }
     };
-    let callback = models.iter().fold(
+    let callback = plan.models().fold(
         callback,
-        |callback, model| quote!(#callback.require_model(&#model)),
+        |callback, (model, _)| quote!(#callback.require_model(&#model)),
     );
-    let copy_check = (!checks.is_empty()).then(|| {
+    let copy_check = plan.values().next().map(|_| {
         quote!(
             fn __require_copy<T: ::core::marker::Copy + 'static>(_: &T) {}
         )
@@ -413,6 +518,156 @@ mod tests {
     use quote::ToTokens;
 
     #[test]
+    fn invocation_plan_keeps_order_and_scope_across_factory_emission() {
+        fn assert_access(expression: &Expr, operation: &str, ty: Type) {
+            let Expr::Call(call) = expression else {
+                panic!("access metadata must be a constructor call");
+            };
+            assert!(call.args.is_empty());
+            let Expr::Path(function) = &*call.func else {
+                panic!("access metadata must call a static constructor");
+            };
+            assert!(function.path.leading_colon.is_some());
+            let segments: Vec<_> = function
+                .path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect();
+            assert_eq!(
+                segments,
+                ["mirui", "__macro_support", "SystemAccess", operation]
+            );
+            let syn::PathArguments::AngleBracketed(arguments) =
+                &function.path.segments.last().unwrap().arguments
+            else {
+                panic!("access metadata must declare its accessed type");
+            };
+            assert_eq!(arguments.args.len(), 1);
+            let syn::GenericArgument::Type(actual) = &arguments.args[0] else {
+                panic!("access metadata must declare a type argument");
+            };
+            assert_eq!(
+                actual.to_token_stream().to_string(),
+                ty.to_token_stream().to_string()
+            );
+        }
+
+        let function: ItemFn = syn::parse_quote! {
+            fn moved(
+                clock: res!(self::Clock), left: model!(self::Counter),
+                input: event!(self::DragMove), amount: u16,
+                rows: query!(mut super::Position), node: entity!(),
+                right: model!(super::Counter), commands: commands!(),
+            ) {}
+        };
+        let parameters = function
+            .sig
+            .inputs
+            .iter()
+            .map(|input| {
+                let FnArg::Typed(parameter) = input else {
+                    unreachable!();
+                };
+                let Pat::Ident(pattern) = &*parameter.pat else {
+                    unreachable!();
+                };
+                let name = pattern.ident.clone();
+                match BindingSpec::parse_event_parameter(name.clone(), &parameter.ty).unwrap() {
+                    Some(binding) => EventParameter::Binding(Box::new(binding)),
+                    None => EventParameter::Value {
+                        name,
+                        ty: parameter.ty.clone(),
+                    },
+                }
+            })
+            .collect();
+        let plan = InvocationPlan::new(parameters).unwrap();
+        let names: Vec<_> = plan
+            .parameters
+            .iter()
+            .map(|parameter| parameter.name.to_string())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "clock", "left", "input", "amount", "rows", "node", "right", "commands"
+            ]
+        );
+        assert_eq!(
+            plan.payload().unwrap().to_token_stream().to_string(),
+            quote!(self::DragMove).to_string()
+        );
+        let fetches: Vec<_> = plan.fetches().collect();
+        assert_eq!(fetches[0].0, "clock");
+        assert_eq!(
+            fetches[0].1.to_token_stream().to_string(),
+            quote!(::mirui::__macro_support::Res<self::Clock>).to_string()
+        );
+        assert_access(
+            &fetches[0].2[0],
+            "read_resource",
+            syn::parse_quote!(self::Clock),
+        );
+        assert_eq!(fetches[1].0, "rows");
+        assert!(
+            fetches[1]
+                .1
+                .to_token_stream()
+                .to_string()
+                .contains(&quote!(Write<super::Position>).to_string())
+        );
+        assert_access(
+            &fetches[1].2[0],
+            "write_component",
+            syn::parse_quote!(super::Position),
+        );
+        assert!(plan.has_entity());
+        assert!(plan.has_commands());
+
+        let output: syn::File = syn::parse2(lower_callback(function, plan).unwrap()).unwrap();
+        let syn::Item::Fn(helper) = &output.items[0] else {
+            unreachable!();
+        };
+        let helper_parameters = helper.sig.inputs.to_token_stream().to_string();
+        assert!(helper_parameters.contains(&quote!(&self::Clock).to_string()));
+        assert!(helper_parameters.contains(&quote!(&self::DragMove).to_string()));
+        assert!(helper_parameters.contains(&quote!(Write<super::Position>).to_string()));
+        let syn::Item::Mod(factory_module) = &output.items[1] else {
+            unreachable!();
+        };
+        let factory = factory_module
+            .content
+            .as_ref()
+            .unwrap()
+            .1
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Fn(function) if function.sig.ident == "callback" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let inputs: Vec<_> = factory
+            .sig
+            .inputs
+            .iter()
+            .map(|input| {
+                let FnArg::Typed(parameter) = input else {
+                    unreachable!();
+                };
+                parameter.pat.to_token_stream().to_string()
+            })
+            .collect();
+        assert_eq!(inputs, ["left", "amount", "right"]);
+        let factory_body = factory.block.to_token_stream().to_string();
+        assert!(factory_body.contains("deferred_event_callback"));
+        assert!(factory_body.contains(&quote!(Res<super::Clock>).to_string()));
+        assert!(factory_body.contains(&quote!(Write<super::super::Position>).to_string()));
+        assert!(factory_body.contains("require_model (& left)"));
+        assert!(factory_body.contains("require_model (& right)"));
+    }
+
+    #[test]
     fn named_callback_lowers_shared_roles_and_installation_values() {
         let output = expand(
             TokenStream::new(),
@@ -459,6 +714,7 @@ mod tests {
         assert!(output.contains("callback < __MiruiEvent , __MiruiContext >"));
         assert!(output.contains("pub fn callback < __MiruiEvent , __MiruiContext > ()"));
         assert!(output.contains("event_callback :: < __MiruiEvent"));
+        assert!(!output.contains("deferred_event_callback"));
     }
 
     #[test]

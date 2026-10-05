@@ -518,6 +518,8 @@ event installation and routing, not the payload arena.
 
 ### Prepared callback execution
 
+Named event factories derive installation inputs, typed invocation parameters, access metadata, and body arguments from one ordered parameter plan. Authored types remain in their declaration scope; relative paths are relocated only when emitting the generated factory module. Model and ordinary value arguments retain their declaration order.
+
 Internal typed callbacks share the system parameter fetch and access validator.
 Preparation checks component/resource aliases and captured Model owners, binds
 the callback to one App, and reserves the current query change-record budget.
