@@ -1040,7 +1040,9 @@ mod tests {
     #[cfg(feature = "gallery")]
     #[test]
     fn gallery_optional_resource_views_preserve_allocation_free_descriptors() {
-        use crate::gallery::demos::{butterfly, shapes, vector_mandala};
+        use crate::gallery::demos::{
+            butterfly, clip_path, fill_rules, shapes, stroke_styles, vector_mandala,
+        };
         for (factory, component, name) in [
             (
                 shapes::shapes_view as fn() -> View,
@@ -1056,6 +1058,21 @@ mod tests {
                 vector_mandala::vector_mandala_view,
                 TypeId::of::<vector_mandala::VectorMandala>(),
                 "VectorMandala",
+            ),
+            (
+                fill_rules::fill_rules_view,
+                TypeId::of::<fill_rules::FillRules>(),
+                "FillRules",
+            ),
+            (
+                clip_path::clip_path_view,
+                TypeId::of::<clip_path::ClipPath>(),
+                "ClipPath",
+            ),
+            (
+                stroke_styles::stroke_styles_view,
+                TypeId::of::<stroke_styles::StrokeStyles>(),
+                "StrokeStyles",
             ),
         ] {
             for _ in 0..2 {
@@ -1075,7 +1092,7 @@ mod tests {
     #[test]
     fn gallery_optional_resource_paint_refetches_theme_and_clock_without_allocating() {
         use crate::ecs::MonoClock;
-        use crate::gallery::demos::{butterfly, shapes};
+        use crate::gallery::demos::{butterfly, clip_path, fill_rules, shapes, stroke_styles};
         use crate::render::canvas::Paint;
         use crate::types::Color;
         use crate::ui::{ColorToken, Theme};
@@ -1090,13 +1107,18 @@ mod tests {
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 assert_eq!(request.clip, Rect::new(13, 17, 460, 340));
                 match *request.command {
-                    DrawCommand::Arc { color, .. } => {
+                    DrawCommand::Arc { color, .. } | DrawCommand::Fill { color, .. } => {
                         self.color.get_or_insert(color);
                     }
                     DrawCommand::Line { transform, p2, .. } => {
                         self.motion.get_or_insert((transform, p2));
                     }
                     DrawCommand::FillPath {
+                        transform,
+                        paint: Paint::Color(color),
+                        ..
+                    }
+                    | DrawCommand::StrokePath {
                         transform,
                         paint: Paint::Color(color),
                         ..
@@ -1110,6 +1132,7 @@ mod tests {
                             },
                         ));
                     }
+                    DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
                     _ => panic!("unexpected gallery paint request"),
                 }
                 self.calls += 1;
@@ -1121,13 +1144,44 @@ mod tests {
         let mut world = World::new();
         let shapes_node = world.spawn_empty();
         let butterfly_node = world.spawn_empty();
+        let fill_rules_node = world.spawn_empty();
+        let clip_path_node = world.spawn_empty();
+        let stroke_styles_node = world.spawn_empty();
         world.insert(shapes_node, shapes::Shapes::default());
         world.insert(butterfly_node, butterfly::Butterfly::default());
+        world.insert(fill_rules_node, fill_rules::FillRules);
+        world.insert(clip_path_node, clip_path::ClipPath);
+        world.insert(stroke_styles_node, stroke_styles::StrokeStyles);
         let fixtures = [
-            (shapes::shapes_view().render().unwrap(), shapes_node),
+            (
+                shapes::shapes_view().render().unwrap(),
+                shapes_node,
+                ColorToken::Primary,
+                true,
+            ),
             (
                 butterfly::butterfly_view().render().unwrap(),
                 butterfly_node,
+                ColorToken::Primary,
+                true,
+            ),
+            (
+                fill_rules::fill_rules_view().render().unwrap(),
+                fill_rules_node,
+                ColorToken::Secondary,
+                false,
+            ),
+            (
+                clip_path::clip_path_view().render().unwrap(),
+                clip_path_node,
+                ColorToken::SurfaceVariant,
+                false,
+            ),
+            (
+                stroke_styles::stroke_styles_view().render().unwrap(),
+                stroke_styles_node,
+                ColorToken::Primary,
+                false,
             ),
         ];
         let style = Style::default();
@@ -1140,15 +1194,15 @@ mod tests {
             ty: Fixed::from_int(13),
             ..Transform::IDENTITY
         };
-        let mut initial = [None; 2];
-        let mut previous = [None; 2];
+        let mut initial = [None; 5];
+        let mut previous = [None; 5];
         for stage in 0..4 {
-            let mut current = [None; 2];
+            let mut current = [None; 5];
             let theme = match stage {
                 1 => Theme::light(),
                 _ => Theme::default(),
             };
-            let color = theme.resolve(ColorToken::Primary);
+            let colors = fixtures.map(|(_, _, token, _)| theme.resolve(token));
             if stage == 1 || stage == 2 {
                 world.insert_resource(theme);
                 world.insert_resource(MonoClock::new(if stage == 1 {
@@ -1160,7 +1214,7 @@ mod tests {
                 world.remove_resource::<Theme>();
                 world.remove_resource::<MonoClock>();
             }
-            for (i, (render, entity)) in fixtures.into_iter().enumerate() {
+            for (i, (render, entity, _, animated)) in fixtures.into_iter().enumerate() {
                 for _ in 0..2 {
                     let mut trace = Trace::default();
                     let mut paint = PaintCtx::new(
@@ -1179,11 +1233,11 @@ mod tests {
                     assert_eq!(paint.error(), None);
                     drop(paint);
                     assert!(trace.calls > 0);
-                    assert_eq!(trace.color, Some(color));
+                    assert_eq!(trace.color, Some(colors[i]));
                     if stage == 0 {
                         initial[i] = trace.motion;
                     }
-                    if stage == 1 || stage == 2 {
+                    if animated && (stage == 1 || stage == 2) {
                         assert_ne!(trace.motion, previous[i]);
                     }
                     if stage == 3 {

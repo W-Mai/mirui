@@ -20,9 +20,10 @@ pub(super) static STAR: Path = path!(
 pub(super) const LOGICAL_WIDTH: i32 = 400;
 pub(super) const LOGICAL_HEIGHT: i32 = 240;
 
-fn fill_rules_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
+#[crate::view(component = FillRules, name = "FillRules", priority = 60)]
+fn fill_rules_render(theme: res!(optional Theme), paint: paint!()) {
     let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let theme = theme.unwrap_or(&default_theme);
     let fill = Paint::Color(theme.resolve(ColorToken::Secondary).into());
     let stroke = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
     let canvas = crate::gallery::fit_logical_canvas(
@@ -63,6 +64,4 @@ fn fill_rules_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
     }
 }
 
-pub fn fill_rules_view() -> View {
-    View::new("FillRules", 60, fill_rules_render).with_filter::<FillRules>()
-}
+pub use fill_rules_render::view as fill_rules_view;

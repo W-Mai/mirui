@@ -20,7 +20,8 @@ fn fill_rect(paint: &mut PaintCtx<'_>, area: Rect, color: Color, transform: Tran
     });
 }
 
-pub(super) fn clip_path_render(world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
+#[crate::view(component = ClipPath, name = "ClipPath", priority = 60)]
+fn clip_path_render(theme: res!(optional Theme), paint: paint!()) {
     let canvas = crate::gallery::fit_logical_canvas(
         paint.rect(),
         paint.transform(),
@@ -28,7 +29,7 @@ pub(super) fn clip_path_render(world: &World, _entity: Entity, paint: &mut Paint
         LOGICAL_SIZE,
     );
     let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let theme = theme.unwrap_or(&default_theme);
     let surface = theme.resolve(ColorToken::SurfaceVariant);
     let foreground = theme.resolve(ColorToken::OnSurface);
     let grays = [
@@ -81,6 +82,4 @@ pub(super) fn clip_path_render(world: &World, _entity: Entity, paint: &mut Paint
     });
 }
 
-pub fn clip_path_view() -> View {
-    View::new("ClipPath", 60, clip_path_render).with_filter::<ClipPath>()
-}
+pub use clip_path_render::view as clip_path_view;

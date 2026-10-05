@@ -359,6 +359,8 @@ and events, without cloning the resource or allocating parameter storage.
 Shapes and Butterfly borrow optional Theme and MonoClock resources; Vector
 Mandala borrows an optional MonoClock. Their generated paint adapters retain
 the default theme and zero-time behavior when those resources are absent.
+FillRules, ClipPath, and StrokeStyles borrow an optional Theme. Their paths
+remain static, and ClipPath uses the paint context's scoped clip cleanup.
 `with_clip_path` owns the matching clip push/pop pair, including cleanup after
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker

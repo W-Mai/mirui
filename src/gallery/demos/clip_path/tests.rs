@@ -1,4 +1,4 @@
-use super::render::clip_path_render;
+use super::render::{ClipPath, clip_path_view};
 use super::scene::{CLIP_CIRCLE, LOGICAL_SIZE};
 use crate::prelude::draw::*;
 use crate::prelude::*;
@@ -40,6 +40,7 @@ fn failed_content_still_pops_clip() {
     let mut renderer = FailingRenderer::default();
     let mut world = World::new();
     let entity = world.spawn_empty();
+    world.insert(entity, ClipPath);
     let style = Style::default();
     let clip = Rect::new(0, 0, 320, 320);
     let mut paint = PaintCtx::new(
@@ -52,7 +53,12 @@ fn failed_content_still_pops_clip() {
         WidgetState::Enabled,
     );
 
-    clip_path_render(&world, entity, &mut paint);
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            clip_path_view().render().unwrap()(&world, entity, &mut paint);
+        }),
+        0
+    );
 
     assert_eq!(paint.error(), Some(RenderError::BackendFailure));
     drop(paint);

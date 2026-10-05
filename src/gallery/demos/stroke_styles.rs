@@ -40,9 +40,10 @@ fn stroke(
     });
 }
 
-fn stroke_styles_render(world: &World, _entity: Entity, paint_ctx: &mut PaintCtx<'_>) {
+#[crate::view(component = StrokeStyles, name = "StrokeStyles", priority = 60)]
+fn stroke_styles_render(theme: res!(optional Theme), paint_ctx: paint!()) {
     let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let theme = theme.unwrap_or(&default_theme);
     let paint = Paint::Color(theme.resolve(ColorToken::Primary).into());
     let hot = Paint::Color(theme.resolve(ColorToken::Error).into());
     let green = Paint::Color(theme.resolve(ColorToken::Success).into());
@@ -159,9 +160,7 @@ fn stroke_styles_render(world: &World, _entity: Entity, paint_ctx: &mut PaintCtx
     });
 }
 
-pub fn stroke_styles_view() -> View {
-    View::new("StrokeStyles", 60, stroke_styles_render).with_filter::<StrokeStyles>()
-}
+pub use stroke_styles_render::view as stroke_styles_view;
 
 #[compose]
 pub fn build_widgets() {
