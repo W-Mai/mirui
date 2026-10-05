@@ -364,6 +364,8 @@ remain static, and ClipPath uses the paint context's scoped clip cleanup.
 ScopeCanvas observes its model's `visual_revision` and borrows optional waveform
 scratch storage. Replacing the component's model rebinds the observation; absent
 scratch storage skips painting. Waveform paths reuse buffers prepared at setup.
+CurvePaths borrows optional path IDs, a path store, and a theme. Missing path
+resources skip painting; retired path IDs are skipped without copying paths.
 `with_clip_path` owns the matching clip push/pop pair, including cleanup after
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker
