@@ -7748,7 +7748,7 @@ mod offscreen_render_check {
         // auto_attach won't run on its own outside the App lifecycle,
         // so plant the WidgetTextureRef manually for the test.
         world.insert(mirror, crate::ui::offscreen::WidgetTextureRef(source));
-        super::super::offscreen::maintain_widget_texture_refs(&mut world);
+        super::super::offscreen::maintain_widget_texture_refs(&mut world).unwrap();
 
         let viewport = Viewport::new(32, 32, Fixed::ONE);
         let mut buf = std::vec![0u8; 32 * 32 * 4];

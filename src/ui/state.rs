@@ -53,14 +53,14 @@ pub enum InteractionState {
 
 impl crate::ecs::Component for InteractionState {}
 
-pub fn hover_system(world: &mut World) {
+pub fn hover_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let snap = cursor_snapshot(world);
     let last = world
         .resource::<HoverSnapshot>()
         .map(|s| s.0)
         .unwrap_or_default();
     if snap == last {
-        return;
+        return Ok(());
     }
     world.insert_resource(HoverSnapshot(snap));
     let new_hover = if snap.down {
@@ -74,18 +74,19 @@ pub fn hover_system(world: &mut World) {
         |s| matches!(s, InteractionState::Hovered),
         InteractionState::Hovered,
     );
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub hover_system, InteractionState);
 
-pub fn press_system(world: &mut World) {
+pub fn press_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let snap = cursor_snapshot(world);
     let last = world
         .resource::<PressSnapshot>()
         .map(|s| s.pointer)
         .unwrap_or_default();
     if snap == last {
-        return;
+        return Ok(());
     }
 
     // Mid-drag: skip the ~1.4 ms hit_test while the pointer stays
@@ -105,7 +106,7 @@ pub fn press_system(world: &mut World) {
                 pointer: snap,
                 target: prev_pressed,
             });
-            return;
+            return Ok(());
         }
     }
 
@@ -124,6 +125,7 @@ pub fn press_system(world: &mut World) {
         |s| matches!(s, InteractionState::Pressed),
         InteractionState::Pressed,
     );
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub press_system, InteractionState);
@@ -464,7 +466,7 @@ mod hover_press_e2e {
             down: false,
             event_seq: 1,
         });
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert_eq!(
             world.get::<InteractionState>(child),
             Some(&InteractionState::Hovered)
@@ -477,7 +479,7 @@ mod hover_press_e2e {
             down: false,
             event_seq: 1,
         });
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert!(world.get::<InteractionState>(child).is_none());
         assert!(world.get::<InteractionState>(root).is_none());
     }
@@ -496,18 +498,18 @@ mod hover_press_e2e {
             event_seq: 1,
         });
 
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert_eq!(
             world.get::<InteractionState>(child),
             Some(&InteractionState::Hovered)
         );
 
         crate::input::event::hit_test::invalidate_hit_test_geometry(&mut world);
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert!(world.get::<InteractionState>(child).is_none());
 
         refresh_hit_geometry(&mut world, root);
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert_eq!(
             world.get::<InteractionState>(child),
             Some(&InteractionState::Hovered)
@@ -521,7 +523,7 @@ mod hover_press_e2e {
         world.insert(root, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
 
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert!(world.get::<InteractionState>(root).is_none());
     }
 
@@ -541,7 +543,7 @@ mod hover_press_e2e {
             down: false,
             event_seq: 1,
         });
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert_eq!(
             world.get::<InteractionState>(child),
             Some(&InteractionState::Hovered)
@@ -554,7 +556,7 @@ mod hover_press_e2e {
             down: true,
             event_seq: 2,
         });
-        press_system(&mut world);
+        press_system(&mut world).unwrap();
         assert_eq!(
             world.get::<InteractionState>(child),
             Some(&InteractionState::Pressed)
@@ -577,7 +579,7 @@ mod hover_press_e2e {
             down: true,
             event_seq: 1,
         });
-        press_system(&mut world);
+        press_system(&mut world).unwrap();
         assert_eq!(
             world.get::<InteractionState>(child),
             Some(&InteractionState::Pressed)
@@ -593,7 +595,7 @@ mod hover_press_e2e {
             down: false,
             event_seq: 2,
         });
-        press_system(&mut world);
+        press_system(&mut world).unwrap();
         assert!(world.get::<InteractionState>(child).is_none());
         assert!(world.get::<InteractionState>(root).is_none());
     }
@@ -610,7 +612,7 @@ mod hover_press_e2e {
             down: false,
             event_seq: 1,
         });
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert!(matches!(
             world.get::<InteractionState>(root),
             Some(InteractionState::Hovered)
@@ -630,7 +632,7 @@ mod hover_press_e2e {
             down: true,
             event_seq: 1,
         });
-        hover_system(&mut world);
+        hover_system(&mut world).unwrap();
         assert!(world.get::<InteractionState>(root).is_none());
     }
 
@@ -646,7 +648,7 @@ mod hover_press_e2e {
             down: true,
             event_seq: 1,
         });
-        press_system(&mut world);
+        press_system(&mut world).unwrap();
         assert!(matches!(
             world.get::<InteractionState>(root),
             Some(InteractionState::Pressed)

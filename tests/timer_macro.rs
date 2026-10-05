@@ -73,6 +73,22 @@ fn capture_pair(first: model!(Counter), second: model!(Counter), timer: entity!(
     second.record(timer);
 }
 
+struct Pulse;
+
+impl mirui::input::event::contract::Event for Pulse {
+    type Route = mirui::input::event::contract::EntityNotification;
+    type Source = mirui::input::event::contract::WidgetSource<Timer>;
+    type Options = ();
+}
+
+#[timer(repeat = (2, 10))]
+fn submit_pulse(counter: model!(Counter), timer: entity!(), commands: commands!()) {
+    counter.record(timer);
+    commands.insert(timer, Fired(counter.fires()));
+    commands.emit(timer, Pulse);
+    commands.insert(timer, Fired(99));
+}
+
 type HeadlessApp =
     App<mirui::surface::framebuf::FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>>;
 
@@ -187,6 +203,50 @@ fn repeat_schedule_fires_the_declared_count() {
 
     assert_eq!(counter.fires(), 3);
     assert!(app.world.get::<Timer>(entity).is_none());
+}
+
+#[test]
+fn bound_timer_submission_failure_reaches_scheduler_and_consumes_the_invocation() {
+    use mirui::ecs::{CommandCommitError, CommandError, SystemRunError};
+
+    let _guard = mock::install();
+    let mut app = fresh();
+    let counter = app.add_model(Counter {
+        fires: 0,
+        last_timer: None,
+    });
+    let entity = app.add_timer(submit_pulse::timer(counter.clone()));
+    tick(&mut app, 0);
+    mock::set_ms(10);
+    let failure = app.systems.run_all(&mut app.world).unwrap_err();
+    assert!(matches!(
+        failure,
+        SystemRunError {
+            system: "timer_system",
+            cause: CommandError::Commit(CommandCommitError::MissingService { .. }),
+        }
+    ));
+    assert_eq!(counter.fires(), 1);
+    assert_eq!(counter.last_timer(), Some(entity));
+    assert_eq!(app.world.get::<Fired>(entity), Some(&Fired(1)));
+    assert_eq!(
+        app.world.get::<Timer>(entity).unwrap().mode(),
+        TimerMode::Repeat { remaining: 1 }
+    );
+    assert_eq!(tracked_allocations(|| tick(&mut app, 10)), 0);
+    assert_eq!(counter.fires(), 1);
+    mock::set_ms(20);
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(app.systems.run_all(&mut app.world), Err(failure));
+        }),
+        0
+    );
+    assert_eq!(counter.fires(), 2);
+    assert_eq!(app.world.get::<Fired>(entity), Some(&Fired(2)));
+    assert!(app.world.get::<Timer>(entity).is_none());
+    assert_eq!(tracked_allocations(|| tick(&mut app, 20)), 0);
+    assert_eq!(counter.fires(), 2);
 }
 
 #[test]

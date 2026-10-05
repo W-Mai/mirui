@@ -542,6 +542,8 @@ Deferred operations can fail during submission as well as recording. `CommandErr
 
 `SystemScheduler::run_all` returns `Result<(), SystemRunError>`. A failure identifies the system and its `CommandError`, stops the remaining systems in that batch, and preserves completed updates. Failed calls contribute timing when a clock is installed; unexecuted calls do not. App logs scheduling failures and completes rendering and the frame. Owner, access-plan, and required-resource validation remain programming-error checks.
 
+Timer callbacks consume their invocation after the body completes. Command submission errors still advance periodic schedules, decrement repeat counts, and remove completed one-shot or deadline timers. The error stops the remaining timers and returns through `SystemScheduler::run_all`; already completed updates are not rolled back or automatically retried. Timer command storage remains reusable after failure. Ordinary `#[system]` and `#[timer]` functions retain their authored signatures; fallible execution belongs to the internal wrappers.
+
 This execution layer does not install or route listeners. Its ABI is confined
 to hidden macro support, not the ordinary authoring prelude.
 

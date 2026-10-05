@@ -82,15 +82,15 @@ fn world_has_layout_motion(world: &World) -> bool {
     shifted || pending_scroll
 }
 
-pub fn cursor_feedback_system(world: &mut World) {
+pub fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let Some(mut feedback) = world.resource::<InputFeedback>().copied() else {
-        return;
+        return Ok(());
     };
     if !feedback.cursor.enabled {
-        return;
+        return Ok(());
     }
     let Some(cursor) = world.resource::<PointerCursor>().copied() else {
-        return;
+        return Ok(());
     };
     // event_seq doesn't tick on Move events, so it can't gate this
     // whole system; compare the raw pointer fields instead and skip
@@ -110,13 +110,13 @@ pub fn cursor_feedback_system(world: &mut World) {
         && feedback.cursor.current.down == cursor.down
         && !world_has_layout_motion(world)
     {
-        return;
+        return Ok(());
     }
     let visual = current_visual(world, cursor);
     let unchanged =
         feedback.cursor.last_event_seq == cursor.event_seq && feedback.cursor.current == visual;
     if unchanged {
-        return;
+        return Ok(());
     }
 
     feedback.cursor.current = visual;
@@ -130,7 +130,7 @@ pub fn cursor_feedback_system(world: &mut World) {
         let Some(root) = world.resource::<WidgetRoot>().copied() else {
             // Visual change recorded but root not ready; commit and bail.
             world.insert_resource(feedback);
-            return;
+            return Ok(());
         };
         let e = spawn_overlay_cursor(world, root.0, rect);
         feedback.cursor.entity = Some(e);
@@ -138,6 +138,7 @@ pub fn cursor_feedback_system(world: &mut World) {
     };
     world.insert_resource(feedback);
     world.insert(entity, Dirty);
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub cursor_feedback_system, Normal);
@@ -325,7 +326,7 @@ mod tests {
                 .is_none(),
             "no entity before pointer"
         );
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         assert!(
             world
                 .resource::<InputFeedback>()
@@ -347,7 +348,7 @@ mod tests {
             down: false,
             event_seq: 1,
         });
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         let entity = world
             .resource::<InputFeedback>()
             .unwrap()
@@ -364,7 +365,7 @@ mod tests {
             down: false,
             event_seq: 2,
         });
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         assert!(
             world.get::<Dirty>(entity).is_some(),
             "move should re-mark dirty"
@@ -385,7 +386,7 @@ mod tests {
         let mut fb = world.resource::<InputFeedback>().copied().unwrap();
         fb.cursor.mode = CursorFeedbackMode::MagneticRect;
         world.insert_resource(fb);
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         let entity = world
             .resource::<InputFeedback>()
             .unwrap()
@@ -439,7 +440,7 @@ mod tests {
                 dy: Fixed::from_int(-4),
             }],
         }));
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         let new_target = world
             .resource::<InputFeedback>()
             .unwrap()
@@ -467,7 +468,7 @@ mod tests {
             down: false,
             event_seq: 1,
         });
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         let entity = world
             .resource::<InputFeedback>()
             .unwrap()
@@ -477,7 +478,7 @@ mod tests {
         world.remove::<Dirty>(entity);
 
         // Same event_seq + same visual → no work.
-        cursor_feedback_system(&mut world);
+        cursor_feedback_system(&mut world).unwrap();
         assert!(world.get::<Dirty>(entity).is_none());
     }
 }

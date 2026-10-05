@@ -1,13 +1,20 @@
 use mirui::core::model::ModelHandle;
-use mirui::{__macro_support::DeferredCommands, ecs::World};
+use mirui::{
+    __macro_support::DeferredCommands,
+    ecs::{CommandError, World},
+};
 
-fn raw(_: &mut World) {}
+fn raw(_: &mut World) -> Result<(), CommandError> {
+    Ok(())
+}
 
-fn deferred(_: &mut World, _: DeferredCommands<'_>) {}
+fn deferred(_: &mut World, _: DeferredCommands<'_>) -> Result<(), CommandError> {
+    Ok(())
+}
 
 fn bound<H: ModelHandle>(model: &H) {
-    let _ = mirui::__macro_support::bound_system("bound", 0, model, |_| {});
-    let _ = mirui::__macro_support::bound_deferred_system("bound", 0, model, |_, _| {});
+    let _ = mirui::__macro_support::bound_system("bound", 0, model, |_| Ok(()));
+    let _ = mirui::__macro_support::bound_deferred_system("bound", 0, model, |_, _| Ok(()));
 }
 
 fn main() {

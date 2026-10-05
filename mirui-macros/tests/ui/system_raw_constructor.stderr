@@ -1,10 +1,14 @@
 error[E0624]: associated function `new` is private
- --> tests/ui/system_raw_constructor.rs:6:21
+ --> tests/ui/system_raw_constructor.rs:8:21
   |
-6 |     let _ = System::new("raw", 0, raw);
-  |                     ^^^ private associated function
+8 |       let _ = System::new("raw", 0, raw);
+  |                       ^^^ private associated function
   |
  ::: $WORKSPACE/src/ecs/system.rs
   |
-  |     pub(crate) const fn new(name: &'static str, priority: i32, run: fn(&mut World)) -> Self {
-  |     --------------------------------------------------------------------------------------- private associated function defined here
+  | /     pub(crate) const fn new(
+  | |         name: &'static str,
+  | |         priority: i32,
+  | |         run: fn(&mut World) -> Result<(), CommandError>,
+  | |     ) -> Self {
+  | |_____________- private associated function defined here

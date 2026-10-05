@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Attached event sources.** The internal event installer checks generic node sources against installed components while retaining compile-time source constraints for typed widget contexts. Both contexts share callback execution and generation checks.
 - **Deferred widget notifications.** Typed command callbacks record owning widget payloads and submit them after parameter borrows end. Submission validates the source and storage owner, returns structured errors, and reuses bounded command and notification storage.
 - **System submission errors.** Scheduling returns deferred command failures with the system name, preserves completed updates, and stops the remaining systems in the batch without panicking.
+- **Timer submission errors.** Completed callbacks advance or end their schedule even when deferred commands fail. Failures return through the system scheduler without automatically repeating completed actions.
 
 ### Changed
 

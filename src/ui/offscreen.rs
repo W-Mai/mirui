@@ -328,7 +328,7 @@ impl WidgetTextureAccess for World {
 /// Walk every `WidgetTextureRef` and reconcile each referenced
 /// source's `OffscreenRender` state. Auto-add when a source gains
 /// its first ref; auto-remove when the last ref drops.
-pub fn maintain_widget_texture_refs(world: &mut World) {
+pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     use alloc::vec::Vec;
     use hashbrown::HashMap;
 
@@ -337,7 +337,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) {
     let any_ref = world.query::<WidgetTextureRef>().iter().next().is_some();
     let any_auto = world.query::<OffscreenAutoAdded>().iter().next().is_some();
     if !any_ref && !any_auto {
-        return;
+        return Ok(());
     }
 
     let mut counts: HashMap<Entity, u32> = HashMap::new();
@@ -420,6 +420,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) {
             }
         }
     }
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(
@@ -679,7 +680,7 @@ mod tests {
     }
 
     fn run_refs(world: &mut World) {
-        super::maintain_widget_texture_refs(world);
+        super::maintain_widget_texture_refs(world).unwrap();
     }
 
     #[test]

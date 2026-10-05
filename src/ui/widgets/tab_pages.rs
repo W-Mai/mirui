@@ -16,10 +16,11 @@ pub struct TabContent {
 
 impl crate::ecs::Component for TabContent {}
 
-pub fn tab_pages_system(world: &mut World) {
+pub fn tab_pages_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     drive_indicator_tweens(world);
     detect_programmatic_selection_changes(world);
     apply_visibility(world);
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub tab_pages_system, TabPages, expect = [TabBar]);
@@ -157,7 +158,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         let tb = world.get::<TabBar>(bar).unwrap();
         assert_eq!(tb.indicator_offset, Fixed::from_int(2));
         assert!(world.get::<TabIndicatorTween>(bar).is_none());
@@ -167,11 +168,11 @@ mod tests {
     fn selection_change_starts_tween() {
         let mut world = World::default();
         let bar = make_bar(&mut world, 3);
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 1;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         assert!(world.get::<TabIndicatorTween>(bar).is_some());
     }
 
@@ -183,7 +184,7 @@ mod tests {
         let p1 = make_content(&mut world, bar, 1);
         let p2 = make_content(&mut world, bar, 2);
 
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         assert!(
             world.get::<Hidden>(p0).is_none(),
             "selected=0 should show p0"
@@ -194,7 +195,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         assert!(world.get::<Hidden>(p0).is_some());
         assert!(world.get::<Hidden>(p1).is_some());
         assert!(world.get::<Hidden>(p2).is_none());
@@ -219,7 +220,7 @@ mod tests {
         world.insert(p1, Children(alloc::vec![p1_child]));
 
         // Initial selection = 0 → p1 + p1_child get Hidden.
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         assert!(world.get::<Hidden>(p1).is_some());
 
         // Theme swap (or any global event) walks from a wider root.
@@ -233,7 +234,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 1;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
 
         // After unhide both the tab content and its descendant must
         // be Dirty so a downstream `OffscreenRender` cache inside

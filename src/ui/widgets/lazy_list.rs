@@ -191,7 +191,7 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
     any_changed
 }
 
-pub fn lazy_list_system(world: &mut World) {
+pub fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let lists: Vec<Entity> = world.query::<LazyList>().collect();
     for entity in lists {
         let Some(ctx) = collect_list_context(world, entity) else {
@@ -235,6 +235,7 @@ pub fn lazy_list_system(world: &mut World) {
             world.insert(entity, Dirty);
         }
     }
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub lazy_list_system, LazyList, expect = [LazyList]);
@@ -354,7 +355,7 @@ mod tests {
         );
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
 
         let trace = &world.resource::<BindTrace>().unwrap().0;
         assert_eq!(trace, &alloc::vec![0u32, 1, 2, 3, 4]);
@@ -380,7 +381,7 @@ mod tests {
         );
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
         world.resource_mut::<BindTrace>().unwrap().0.clear();
 
         // Scroll down 40 px → visible_start should become 1.
@@ -391,7 +392,7 @@ mod tests {
                 y: Fixed::from_int(40),
             },
         );
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
 
         // After scrolling to visible_start=1 with pool_size=5, only
         // slot 0 (mapped from target=5) needs rebinding; targets 1..4
@@ -424,7 +425,7 @@ mod tests {
         );
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
 
         for &slot in &pool[..3] {
             assert!(
@@ -459,7 +460,7 @@ mod tests {
         );
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
         let bound_after_bind = world
             .get::<LazyListPool>(list)
             .unwrap()
@@ -471,7 +472,7 @@ mod tests {
         if let Some(l) = world.get_mut::<LazyList>(list) {
             l.item_count = 3;
         }
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
 
         let bound_after_shrink = &world.get::<LazyListPool>(list).unwrap().bound_indices;
         assert_eq!(
@@ -501,14 +502,14 @@ mod tests {
         );
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
         assert!(world.get::<crate::ui::Hidden>(pool[3]).is_some());
         assert!(world.get::<crate::ui::Hidden>(pool[4]).is_some());
 
         if let Some(l) = world.get_mut::<LazyList>(list) {
             l.item_count = 5;
         }
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
 
         for &slot in &pool {
             assert!(
@@ -555,13 +556,13 @@ mod tests {
 
         // Short canvas: 64 px / 32 px = 2 rows + 2 overscan = 4 visible.
         set_list_height(&mut world, list, 64);
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
         let narrow = visible_count(&world, &pool);
         assert_eq!(narrow, 4, "short canvas binds ceil(h/item)+2 rows");
 
         // Grow taller than pool*item_height: window saturates at the pool.
         set_list_height(&mut world, list, 600);
-        lazy_list_system(&mut world);
+        lazy_list_system(&mut world).unwrap();
         let wide = visible_count(&world, &pool);
         assert!(
             wide > narrow,

@@ -241,17 +241,21 @@ fn lower(
                 fn __run(
                     #world: &mut ::mirui::ecs::World,
                     #deferred_commands: ::mirui::__macro_support::DeferredCommands<'_>,
-                ) {
+                ) -> ::core::result::Result<(), ::mirui::ecs::CommandError> {
                     #fetch
                     #commands_alias
                     super::#helper_name(#(#helper_arguments),*);
+                    ::core::result::Result::Ok(())
                 }
             }
         } else {
             quote! {
-                fn __run(#world: &mut ::mirui::ecs::World) {
+                fn __run(#world: &mut ::mirui::ecs::World)
+                    -> ::core::result::Result<(), ::mirui::ecs::CommandError>
+                {
                     #fetch
                     super::#helper_name(#(#helper_arguments),*);
+                    ::core::result::Result::Ok(())
                 }
             }
         };
@@ -283,19 +287,23 @@ fn lower(
                 move |
                     #world: &mut ::mirui::ecs::World,
                     #deferred_commands: ::mirui::__macro_support::DeferredCommands<'_>,
-                | {
+                | -> ::core::result::Result<(), ::mirui::ecs::CommandError> {
                     #(#model_aliases)*
                     #fetch
                     #commands_alias
                     super::#helper_name(#(#helper_arguments),*);
+                    ::core::result::Result::Ok(())
                 }
             }
         } else {
             quote! {
-                move |#world: &mut ::mirui::ecs::World| {
+                move |#world: &mut ::mirui::ecs::World|
+                    -> ::core::result::Result<(), ::mirui::ecs::CommandError>
+                {
                     #(#model_aliases)*
                     #fetch
                     super::#helper_name(#(#helper_arguments),*);
+                    ::core::result::Result::Ok(())
                 }
             }
         };

@@ -554,31 +554,31 @@ pub(crate) fn scroll_system_with_target(
 }
 
 /// Inertia system — call every frame to decelerate scroll after release
-pub fn scroll_inertia_system(world: &mut World) {
+pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let active = {
         let Some(state) = world.resource::<ScrollDragState>() else {
-            return;
+            return Ok(());
         };
         state.active
     };
 
     if active {
-        return;
+        return Ok(());
     }
 
     let (has_spring, target_entity) = {
         let Some(ss) = world.resource::<ScrollSpring>() else {
-            return;
+            return Ok(());
         };
         (ss.x.is_some() || ss.y.is_some(), ss.target_entity)
     };
 
     if !has_spring {
-        return;
+        return Ok(());
     }
 
     let Some(target) = target_entity else {
-        return;
+        return Ok(());
     };
 
     let dt = world
@@ -594,7 +594,7 @@ pub fn scroll_inertia_system(world: &mut World) {
 
     let (new_x, new_y, done) = {
         let Some(ss) = world.resource_mut::<ScrollSpring>() else {
-            return;
+            return Ok(());
         };
 
         let mut done = true;
@@ -680,6 +680,7 @@ pub fn scroll_inertia_system(world: &mut World) {
             ss.target_entity = None;
         }
     }
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub scroll_inertia_system, ScrollInertia);
@@ -1147,7 +1148,7 @@ mod tests {
         // Tick the spring forward and assert offset never goes negative.
         world.insert_resource(crate::ecs::DeltaTimeMs(16));
         for _ in 0..30 {
-            scroll_inertia_system(&mut world);
+            scroll_inertia_system(&mut world).unwrap();
             let off = world
                 .get::<ScrollOffset>(target)
                 .map(|s| s.y)
@@ -1276,7 +1277,7 @@ mod tests {
         world.insert_resource(crate::ecs::DeltaTimeMs(16));
 
         for _ in 0..30 {
-            scroll_inertia_system(&mut world);
+            scroll_inertia_system(&mut world).unwrap();
             let offset = world.get::<ScrollOffset>(target).unwrap().y;
             assert!(
                 offset <= Fixed::from_int(400),

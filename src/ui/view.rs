@@ -1322,7 +1322,9 @@ mod tests {
         false
     }
 
-    fn options_system(_: &mut World) {}
+    fn options_system(_: &mut World) -> Result<(), crate::ecs::CommandError> {
+        Ok(())
+    }
 
     #[crate::view(
         component = GenericTile<u8>,
@@ -1469,7 +1471,9 @@ mod tests {
     fn install_preserves_system_expect_tag() {
         struct Marker;
         impl crate::ecs::Component for Marker {}
-        fn dummy_run(_: &mut World) {}
+        fn dummy_run(_: &mut World) -> Result<(), crate::ecs::CommandError> {
+            Ok(())
+        }
 
         const EXPECT: &[crate::__macro_support::SystemAccess] =
             &[crate::__macro_support::SystemAccess::expect_component::<

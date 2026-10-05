@@ -129,7 +129,7 @@ fn main() {
     // Tick once so tab_pages_system applies the initial Hidden flags +
     // seeds indicator_offset for the chosen selected tab.
     let world = &mut app.world;
-    mirui::ui::widgets::tab_pages::tab_pages_system(world);
+    mirui::ui::widgets::tab_pages::tab_pages_system(world).unwrap();
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(world, root, &viewport);

@@ -211,16 +211,16 @@ fn resolve_timings(commands: &[SimCommand]) -> Vec<u32> {
     resolved
 }
 
-pub fn sim_input_system(world: &mut World) {
+pub fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
     let (commands_to_fire, root, screen_w, screen_h) = {
         let Some(sim) = world.resource_mut::<SimulatedInput>() else {
-            return;
+            return Ok(());
         };
         if sim.commands.is_empty() {
-            return;
+            return Ok(());
         }
 
         let start = *sim.start_ms.get_or_insert(now_ms);
@@ -258,7 +258,7 @@ pub fn sim_input_system(world: &mut World) {
         Some(r) => r,
         None => match world.resource::<SimRootFallback>() {
             Some(f) => f.0,
-            None => return,
+            None => return Ok(()),
         },
     };
 
@@ -285,6 +285,7 @@ pub fn sim_input_system(world: &mut World) {
     if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
         crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub sim_input_system, SimInput);
@@ -558,7 +559,7 @@ impl SimTimeline {
     }
 }
 
-pub fn sim_timeline_system(world: &mut World) {
+pub fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
@@ -577,10 +578,10 @@ pub fn sim_timeline_system(world: &mut World) {
     // Tight scope releases the &mut Timeline borrow before entity_centre.
     let (entry, action_elapsed, action_started) = {
         let Some(tl) = world.resource_mut::<SimTimeline>() else {
-            return;
+            return Ok(());
         };
         if tl.entries.is_empty() {
-            return;
+            return Ok(());
         }
 
         let start = *tl.start_ms.get_or_insert(now_ms);
@@ -594,12 +595,12 @@ pub fn sim_timeline_system(world: &mut World) {
                 tl.rotate_emitted = 0;
                 tl.start_ms = Some(now_ms);
             }
-            return;
+            return Ok(());
         }
 
         let entry = tl.entries[tl.cursor];
         if elapsed < entry.start_ms {
-            return;
+            return Ok(());
         }
         (entry, elapsed - entry.start_ms, tl.action_started)
     };
@@ -669,7 +670,7 @@ pub fn sim_timeline_system(world: &mut World) {
     // so we keep waiting indefinitely; the timeline's own Wait actions
     // remain the only way to budget time.
     let Some(action) = resolved else {
-        return;
+        return Ok(());
     };
 
     match action {
@@ -1113,6 +1114,7 @@ pub fn sim_timeline_system(world: &mut World) {
     if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
         crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
+    Ok(())
 }
 
 crate::ecs::system::framework_system!(pub sim_timeline_system, SimInput);
@@ -1195,7 +1197,7 @@ mod tests {
                     y: Fixed::ZERO,
                     target: root,
                 });
-            run(&mut world);
+            run(&mut world).unwrap();
             let buffer = &world.resource::<GestureSystem>().unwrap().events.buffer;
             assert!(buffer.is_empty());
             assert_eq!(buffer.capacity(), 4);
@@ -1221,7 +1223,7 @@ mod tests {
             crate::anim::ease::linear,
         )]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         let cursor = world
             .resource::<crate::input::event::PointerCursor>()
             .copied()
@@ -1231,7 +1233,7 @@ mod tests {
 
         for _ in 0..7 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         let mid = world
             .resource::<crate::input::event::PointerCursor>()
@@ -1246,7 +1248,7 @@ mod tests {
 
         for _ in 0..20 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         let end = world
             .resource::<crate::input::event::PointerCursor>()
@@ -1268,12 +1270,12 @@ mod tests {
         // 5 ticks × 20 ms each = 100 ms total.
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate(5, 20)]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
 
         for _ in 0..3 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().rotate_emitted,
@@ -1284,7 +1286,7 @@ mod tests {
 
         for _ in 0..6 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1307,10 +1309,10 @@ mod tests {
             crate::anim::ease::linear,
         )]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         for _ in 0..2 {
             mock::advance_ms(20);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().rotate_emitted,
@@ -1334,11 +1336,11 @@ mod tests {
             crate::anim::ease::ease_in_out_cubic,
         )]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         // 25% elapsed: ease_in_out_cubic(0.25) ≈ 0.0625 → 0 detents.
         for _ in 0..1 {
             mock::advance_ms(25);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         let mid_emitted = world.resource::<SimTimeline>().unwrap().rotate_emitted;
         assert!(
@@ -1350,7 +1352,7 @@ mod tests {
         // cursor must advance.
         for _ in 0..8 {
             mock::advance_ms(20);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1369,10 +1371,10 @@ mod tests {
             crate::anim::ease::linear,
         )]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         for _ in 0..9 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1387,7 +1389,7 @@ mod tests {
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotary_click()]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
             0,
@@ -1397,7 +1399,7 @@ mod tests {
         // Hold past the 50 ms release threshold.
         for _ in 0..5 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1423,7 +1425,7 @@ mod tests {
             crate::anim::ease::linear,
         )]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         let initial_seq = world
             .resource::<crate::input::event::PointerCursor>()
             .map(|c| c.event_seq)
@@ -1431,7 +1433,7 @@ mod tests {
 
         for _ in 0..10 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         let final_seq = world
             .resource::<crate::input::event::PointerCursor>()
@@ -1449,12 +1451,12 @@ mod tests {
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::Wait(800)]));
 
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
 
         for _ in 0..25 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1464,7 +1466,7 @@ mod tests {
 
         for _ in 0..30 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1485,7 +1487,7 @@ mod tests {
         let mut elapsed: u64 = 0;
         let mut last: usize = usize::MAX;
         for _ in 0..max_steps {
-            sim_timeline_system(world);
+            sim_timeline_system(world).unwrap();
             let cur = world
                 .resource::<SimTimeline>()
                 .map(|t| t.cursor)
@@ -1516,10 +1518,10 @@ mod tests {
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::Wait(800)]));
 
         // Halfway through the Wait — cursor must still be 0.
-        sim_timeline_system(&mut world);
+        sim_timeline_system(&mut world).unwrap();
         for _ in 0..25 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1530,7 +1532,7 @@ mod tests {
         // Past full 800 ms — should advance.
         for _ in 0..30 {
             mock::advance_ms(16);
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
@@ -1661,7 +1663,7 @@ mod tests {
             SimAction::tap(DimPoint::CENTER).on(target),
         ]));
         for _ in 0..10 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 
@@ -1679,7 +1681,7 @@ mod tests {
             SimAction::tap(DimPoint::CENTER).on(target),
         ]));
         for _ in 0..50 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
         assert_eq!(
@@ -1725,7 +1727,7 @@ mod tests {
         ]));
 
         for _ in 0..15 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
         assert!(
@@ -1856,7 +1858,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         crate::ui::render_system::update_layout(
             &mut world,
             root,
@@ -2038,7 +2040,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         crate::ui::render_system::update_layout(
             &mut world,
             root,
@@ -2110,7 +2112,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_pages_system(&mut world);
+        tab_pages_system(&mut world).unwrap();
         crate::ui::render_system::update_layout(
             &mut world,
             root,
@@ -2302,9 +2304,9 @@ mod tests {
         switch_systems.add(crate::ui::widgets::switch::AnimateThumbX::system());
 
         for frame in 0..total_frames {
-            sim_timeline_system(&mut world);
-            crate::input::event::scroll::scroll_inertia_system(&mut world);
-            tab_pages_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
+            crate::input::event::scroll::scroll_inertia_system(&mut world).unwrap();
+            tab_pages_system(&mut world).unwrap();
             switch_systems.run_all(&mut world).unwrap();
             crate::ui::render_system::update_layout(&mut world, _root, &viewport);
 
@@ -2424,7 +2426,7 @@ mod tests {
         ]));
 
         for _ in 0..40 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 
@@ -2525,7 +2527,7 @@ mod tests {
         ]));
 
         for _ in 0..260 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 
@@ -2591,7 +2593,7 @@ mod tests {
         ]));
 
         for _ in 0..40 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 
@@ -2646,7 +2648,7 @@ mod tests {
         ]));
 
         for _ in 0..40 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 
@@ -2702,7 +2704,7 @@ mod tests {
         ]));
 
         for _ in 0..40 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 
@@ -2793,7 +2795,7 @@ mod tests {
         );
 
         for _ in 0..1100 {
-            sim_timeline_system(&mut world);
+            sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);
         }
 

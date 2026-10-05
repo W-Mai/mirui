@@ -8,7 +8,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use crate::core::model::ModelHandle;
-use crate::ecs::commands::{CommandQueue, DeferredCommands};
+use crate::ecs::commands::{CommandError, CommandQueue, DeferredCommands};
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, MonoClock, World};
 
@@ -213,7 +213,7 @@ impl TimerRuntime {
             .expect("timer entity buffer capacity exhausted");
     }
 
-    fn tick(&mut self, world: &mut World, now_ms: u32) {
+    fn tick(&mut self, world: &mut World, now_ms: u32) -> Result<(), CommandError> {
         world.query::<Timer>().collect_into(&mut self.entities);
         let owner = world.id();
 
@@ -240,13 +240,10 @@ impl TimerRuntime {
 
             let mut batch = self.commands.begin();
             callback.invoke(entity, batch.commands());
-            batch.finish(world).expect("deferred timer commands failed");
+            let result = batch.finish(world);
 
-            let remove = {
-                let Some(timer) = world.get_mut::<Timer>(entity) else {
-                    continue;
-                };
-                match timer.mode {
+            if let Some(timer) = world.get_mut::<Timer>(entity) {
+                let remove = match timer.mode {
                     TimerMode::After => true,
                     TimerMode::Every => {
                         timer.next_at_ms = now_ms.wrapping_add(timer.period_ms);
@@ -272,12 +269,14 @@ impl TimerRuntime {
                             false
                         }
                     }
+                };
+                if remove {
+                    let _ = world.remove::<Timer>(entity);
                 }
-            };
-            if remove {
-                let _ = world.remove::<Timer>(entity);
             }
+            result?;
         }
+        Ok(())
     }
 }
 
@@ -297,15 +296,16 @@ pub(crate) fn install(world: &mut World, timer: Timer) -> Entity {
     entity
 }
 
-/// Advance every installed timer. Missing [`MonoClock`] or runtime state is a
-/// no-op.
-pub fn timer_system(world: &mut World) {
+/// Advance every installed timer. Missing [`MonoClock`] or runtime state is a no-op.
+///
+/// A completed callback advances or ends its schedule even if command submission fails. The first failure stops the remaining timers and preserves completed updates.
+pub fn timer_system(world: &mut World) -> Result<(), CommandError> {
     let Some(now_ms) = world.resource::<MonoClock>().map(MonoClock::now_ms) else {
-        return;
+        return Ok(());
     };
-    let _ = world.with_resource_box::<TimerRuntime, _>(|runtime, world| {
-        runtime.tick(world, now_ms);
-    });
+    world
+        .with_resource_box::<TimerRuntime, _>(|runtime, world| runtime.tick(world, now_ms))
+        .unwrap_or(Ok(()))
 }
 
 crate::ecs::system::framework_system!(pub timer_system, Timer);
@@ -349,6 +349,36 @@ mod tests {
         panic!("timer callback failed");
     }
 
+    struct Pulse;
+
+    impl crate::input::event::contract::Event for Pulse {
+        type Route = crate::input::event::contract::EntityNotification;
+        type Source = crate::input::event::contract::WidgetSource<Fired>;
+        type Options = ();
+    }
+
+    fn submit_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
+        let next = FIRE_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+        commands.insert(entity, Fired(next));
+        commands.emit(entity, Pulse);
+        commands.insert(entity, Fired(99));
+    }
+
+    fn remove_then_submit_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
+        commands.insert(entity, Fired(1));
+        commands.remove::<Timer>(entity);
+        commands.emit(entity, Pulse);
+    }
+
+    fn submission_failed(result: Result<(), CommandError>) {
+        assert!(matches!(
+            result,
+            Err(CommandError::Commit(
+                crate::ecs::CommandCommitError::MissingService { .. }
+            ))
+        ));
+    }
+
     fn reset_count() {
         FIRE_COUNT.store(0, Ordering::SeqCst);
     }
@@ -365,7 +395,7 @@ mod tests {
 
     fn tick(world: &mut World, now_ms: u32) {
         mock::set_ms(now_ms as u64);
-        timer_system(world);
+        timer_system(world).unwrap();
     }
 
     #[test]
@@ -487,6 +517,73 @@ mod tests {
         tick(&mut world, 10);
 
         assert_eq!(world.get::<Fired>(entity), Some(&Fired(2)));
+    }
+
+    #[test]
+    fn submission_failures_advance_each_schedule_without_repeating_the_same_call() {
+        let _guard = mock::install();
+        for (schedule, remaining, ends_at_second_call) in [
+            (TimerSchedule::after(10), None, true),
+            (TimerSchedule::every(10), Some(TimerMode::Every), false),
+            (
+                TimerSchedule::repeat(2, 10),
+                Some(TimerMode::Repeat { remaining: 1 }),
+                true,
+            ),
+            (TimerSchedule::until(10, 10), None, true),
+            (
+                TimerSchedule::until(25, 10),
+                Some(TimerMode::Until { deadline_ms: 25 }),
+                true,
+            ),
+        ] {
+            reset_count();
+            let mut world = fresh_world();
+            let entity = add(&mut world, schedule, submit_cb);
+            tick(&mut world, 0);
+            mock::set_ms(10);
+            submission_failed(timer_system(&mut world));
+            assert_eq!(world.get::<Fired>(entity), Some(&Fired(1)));
+            assert_eq!(world.get::<Timer>(entity).map(Timer::mode), remaining);
+            if let Some(timer) = world.get::<Timer>(entity) {
+                assert_eq!(timer.next_at_ms, 20);
+            }
+            assert!(world.resource::<TimerRuntime>().is_some());
+            assert_eq!(tracked_allocations(|| tick(&mut world, 10)), 0);
+            assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
+            mock::set_ms(20);
+            let allocations = tracked_allocations(|| {
+                if remaining.is_some() {
+                    submission_failed(timer_system(&mut world));
+                } else {
+                    timer_system(&mut world).unwrap();
+                }
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(world.get::<Timer>(entity).is_none(), ends_at_second_call);
+            assert_eq!(
+                FIRE_COUNT.load(Ordering::SeqCst),
+                if remaining.is_some() { 2 } else { 1 }
+            );
+        }
+    }
+
+    #[test]
+    fn submission_error_survives_timer_removal_and_stops_remaining_timers() {
+        let _guard = mock::install();
+        reset_count();
+        let mut world = fresh_world();
+        let first = add(&mut world, TimerSchedule::every(10), remove_then_submit_cb);
+        let second = add(&mut world, TimerSchedule::after(10), mark_cb);
+        tick(&mut world, 0);
+        mock::set_ms(10);
+        submission_failed(timer_system(&mut world));
+        assert!(world.get::<Timer>(first).is_none());
+        assert_eq!(world.get::<Fired>(first), Some(&Fired(1)));
+        assert!(world.get::<Fired>(second).is_none());
+        assert_eq!(tracked_allocations(|| tick(&mut world, 10)), 0);
+        assert_eq!(world.get::<Fired>(second), Some(&Fired(1)));
+        assert!(world.get::<Timer>(second).is_none());
     }
 
     #[test]

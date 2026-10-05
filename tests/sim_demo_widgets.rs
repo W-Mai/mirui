@@ -121,7 +121,7 @@ fn build() -> (World, Entity, Entity, Entity, Entity) {
     // update_layout runs, so handlers see ComputedRect for the
     // visible tab only. attach_widget_input_handlers also needs
     // the registry to be installed (done above).
-    tab_pages_system(&mut world);
+    tab_pages_system(&mut world).unwrap();
     attach_widget_input_handlers(&mut world, root);
     let viewport = Viewport::new(W, H, Fixed::ONE);
     render_system::update_layout(&mut world, root, &viewport);
@@ -182,7 +182,7 @@ fn select_tab(world: &mut World, root: Entity, idx: u8, now_ms: u32) -> u32 {
     let third = (W as i32) / 3;
     let cx = idx as i32 * third + third / 2;
     let next = tap_at(world, root, cx, 7, now_ms);
-    tab_pages_system(world);
+    tab_pages_system(world).unwrap();
     let viewport = Viewport::new(W, H, Fixed::ONE);
     render_system::update_layout(world, root, &viewport);
     next

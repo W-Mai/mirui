@@ -144,14 +144,17 @@ pub(crate) mod access {
 
 use access::{SystemAccess, SystemAccessKind};
 
-type BoundCallback = dyn Fn(&mut World);
-type BoundDeferredCallback = dyn for<'commands> Fn(&mut World, DeferredCommands<'commands>);
+type BoundCallback = dyn Fn(&mut World) -> Result<(), CommandError>;
+type BoundDeferredCallback =
+    dyn for<'commands> Fn(&mut World, DeferredCommands<'commands>) -> Result<(), CommandError>;
 
 /// A static system function or a callback captured at registration.
 enum SystemCallback {
-    Static(fn(&mut World)),
+    Static(fn(&mut World) -> Result<(), CommandError>),
     Bound(Rc<BoundCallback>),
-    Deferred(for<'commands> fn(&mut World, DeferredCommands<'commands>)),
+    Deferred(
+        for<'commands> fn(&mut World, DeferredCommands<'commands>) -> Result<(), CommandError>,
+    ),
     BoundDeferred(Rc<BoundDeferredCallback>),
 }
 
@@ -171,7 +174,7 @@ impl SystemCallback {
         matches!(self, Self::Deferred(_) | Self::BoundDeferred(_))
     }
 
-    fn invoke_plain(&self, world: &mut World) {
+    fn invoke_plain(&self, world: &mut World) -> Result<(), CommandError> {
         match self {
             Self::Static(run) => run(world),
             Self::Bound(run) => run(world),
@@ -181,7 +184,11 @@ impl SystemCallback {
         }
     }
 
-    fn invoke_deferred(&self, world: &mut World, commands: DeferredCommands<'_>) {
+    fn invoke_deferred(
+        &self,
+        world: &mut World,
+        commands: DeferredCommands<'_>,
+    ) -> Result<(), CommandError> {
         match self {
             Self::Deferred(run) => run(world, commands),
             Self::BoundDeferred(run) => run(world, commands),
@@ -216,7 +223,11 @@ impl System {
         self.priority
     }
 
-    pub(crate) const fn new(name: &'static str, priority: i32, run: fn(&mut World)) -> Self {
+    pub(crate) const fn new(
+        name: &'static str,
+        priority: i32,
+        run: fn(&mut World) -> Result<(), CommandError>,
+    ) -> Self {
         Self {
             name,
             priority,
@@ -233,7 +244,7 @@ impl System {
     pub(crate) const fn deferred(
         name: &'static str,
         priority: i32,
-        run: for<'commands> fn(&mut World, DeferredCommands<'commands>),
+        run: for<'commands> fn(&mut World, DeferredCommands<'commands>) -> Result<(), CommandError>,
     ) -> Self {
         Self {
             name,
@@ -253,7 +264,7 @@ impl System {
         name: &'static str,
         priority: i32,
         model: &H,
-        run: impl Fn(&mut World) + 'static,
+        run: impl Fn(&mut World) -> Result<(), CommandError> + 'static,
     ) -> Self {
         let owner = crate::core::model::registered_owner(model);
         Self {
@@ -275,7 +286,8 @@ impl System {
         name: &'static str,
         priority: i32,
         model: &H,
-        run: impl for<'commands> Fn(&mut World, DeferredCommands<'commands>) + 'static,
+        run: impl for<'commands> Fn(&mut World, DeferredCommands<'commands>) -> Result<(), CommandError>
+        + 'static,
     ) -> Self {
         let owner = crate::core::model::registered_owner(model);
         Self {
@@ -337,10 +349,10 @@ impl System {
             if self.callback.uses_commands() {
                 let mut queue = CommandQueue::default();
                 let mut batch = queue.begin();
-                self.callback.invoke_deferred(world, batch.commands());
+                self.callback.invoke_deferred(world, batch.commands())?;
                 batch.finish(world)?;
             } else {
-                self.callback.invoke_plain(world);
+                self.callback.invoke_plain(world)?;
             }
         }
         Ok(())
@@ -373,7 +385,7 @@ impl System {
 /// Constructor seam used by generated authoring macros.
 #[doc(hidden)]
 pub(crate) mod generated {
-    use super::{DeferredCommands, System, SystemAccess, World};
+    use super::{CommandError, DeferredCommands, System, SystemAccess, World};
 
     /// # Safety
     ///
@@ -383,7 +395,7 @@ pub(crate) mod generated {
     pub const unsafe fn static_system(
         name: &'static str,
         priority: i32,
-        run: fn(&mut World),
+        run: fn(&mut World) -> Result<(), CommandError>,
     ) -> System {
         System::new(name, priority, run)
     }
@@ -396,7 +408,7 @@ pub(crate) mod generated {
     pub const unsafe fn deferred_system(
         name: &'static str,
         priority: i32,
-        run: for<'commands> fn(&mut World, DeferredCommands<'commands>),
+        run: for<'commands> fn(&mut World, DeferredCommands<'commands>) -> Result<(), CommandError>,
     ) -> System {
         System::deferred(name, priority, run)
     }
@@ -410,7 +422,7 @@ pub(crate) mod generated {
         name: &'static str,
         priority: i32,
         model: &H,
-        run: impl Fn(&mut World) + 'static,
+        run: impl Fn(&mut World) -> Result<(), CommandError> + 'static,
     ) -> System {
         System::bound(name, priority, model, run)
     }
@@ -424,7 +436,8 @@ pub(crate) mod generated {
         name: &'static str,
         priority: i32,
         model: &H,
-        run: impl for<'commands> Fn(&mut World, DeferredCommands<'commands>) + 'static,
+        run: impl for<'commands> Fn(&mut World, DeferredCommands<'commands>) -> Result<(), CommandError>
+        + 'static,
     ) -> System {
         System::bound_deferred(name, priority, model, run)
     }
@@ -568,10 +581,10 @@ impl PreparedSystem {
             let mut batch = queue.begin();
             self.system
                 .callback
-                .invoke_deferred(world, batch.commands());
+                .invoke_deferred(world, batch.commands())?;
             batch.finish(world)?;
         } else {
-            self.system.callback.invoke_plain(world);
+            self.system.callback.invoke_plain(world)?;
         }
         Ok(())
     }
@@ -660,7 +673,9 @@ mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
 
-    fn dummy(_: &mut World) {}
+    fn dummy(_: &mut World) -> Result<(), CommandError> {
+        Ok(())
+    }
 
     #[derive(Debug, PartialEq, Eq)]
     struct DeferredMarker(u32);
@@ -673,23 +688,30 @@ mod tests {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct RawRuns(u32);
 
-    fn framework_raw(world: &mut World) {
+    fn framework_raw(world: &mut World) -> Result<(), CommandError> {
         let next = world.resource::<RawRuns>().map_or(1, |runs| runs.0 + 1);
         world.insert_resource(RawRuns(next));
+        Ok(())
     }
 
     super::framework_system!(framework_raw, Normal, expect = [DeferredMarker]);
 
-    fn framework_raw_always(_world: &mut World) {}
+    fn framework_raw_always(_world: &mut World) -> Result<(), CommandError> {
+        Ok(())
+    }
 
     super::framework_system!(framework_raw_always, PreRender);
 
-    fn replace_marker_after_return(world: &mut World, mut commands: DeferredCommands<'_>) {
+    fn replace_marker_after_return(
+        world: &mut World,
+        mut commands: DeferredCommands<'_>,
+    ) -> Result<(), CommandError> {
         let entity = world.resource::<DeferredTarget>().unwrap().0;
         let before = world.get::<DeferredMarker>(entity).unwrap().0;
         commands.insert(entity, DeferredMarker(1));
         commands.insert(entity, DeferredMarker(2));
         assert_eq!(world.get::<DeferredMarker>(entity).unwrap().0, before);
+        Ok(())
     }
 
     #[test]
@@ -710,6 +732,38 @@ mod tests {
         assert_eq!(
             world.get::<DeferredMarker>(entity),
             Some(&DeferredMarker(2))
+        );
+    }
+
+    fn reject_before_submission(
+        world: &mut World,
+        commands: DeferredCommands<'_>,
+    ) -> Result<(), CommandError> {
+        replace_marker_after_return(world, commands)?;
+        Err(CommandError::Busy)
+    }
+
+    #[test]
+    fn callback_failure_discards_unsubmitted_commands_and_reuses_storage() {
+        let mut world = World::new();
+        let entity = world.spawn(DeferredMarker(0));
+        world.insert_resource(DeferredTarget(entity));
+        let mut scheduler = SystemScheduler::new();
+        scheduler.add(System::deferred("rejected", 100, reject_before_submission));
+        let expected = SystemRunError {
+            system: "rejected",
+            cause: CommandError::Busy,
+        };
+        assert_eq!(scheduler.run_all(&mut world), Err(expected));
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(scheduler.run_all(&mut world), Err(expected));
+            }),
+            0
+        );
+        assert_eq!(
+            world.get::<DeferredMarker>(entity),
+            Some(&DeferredMarker(0))
         );
     }
 
@@ -878,10 +932,11 @@ mod tests {
         impl Component for Marker {}
         struct Counter(u32);
 
-        fn ticking(world: &mut World) {
+        fn ticking(world: &mut World) -> Result<(), CommandError> {
             if let Some(c) = world.resource_mut::<Counter>() {
                 c.0 += 1;
             }
+            Ok(())
         }
 
         let mut world = World::new();
