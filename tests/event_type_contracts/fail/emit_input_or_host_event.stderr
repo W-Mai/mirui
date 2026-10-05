@@ -1,0 +1,66 @@
+error[E0271]: type mismatch resolving `<Tap as Event>::Route == EntityNotification`
+  --> tests/event_type_contracts/fail/emit_input_or_host_event.rs:9:9
+   |
+ 7 |       commands.emit(
+   |                ---- required by a bound introduced by this call
+ 8 |           node,
+ 9 | /         Tap {
+10 | |             x: Fixed::ZERO,
+11 | |             y: Fixed::ZERO,
+12 | |             target: node,
+13 | |         },
+   | |_________^ expected `EntityNotification`, found `EntityBubble`
+   |
+note: required by a bound in `mirui::input::event::emission::<impl mirui::__macro_support::DeferredCommands<'_>>::emit`
+  --> src/input/event/emission.rs
+   |
+   |     pub fn emit<E>(&mut self, entity: Entity, payload: E)
+   |            ---- required by a bound in this associated function
+   |     where
+   |         E: Event<Route = EntityNotification>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::emission::<impl DeferredCommands<'_>>::emit`
+
+error[E0271]: type mismatch resolving `<Started as Event>::Route == EntityNotification`
+  --> tests/event_type_contracts/fail/emit_input_or_host_event.rs:15:25
+   |
+15 |     commands.emit(node, Started);
+   |              ----       ^^^^^^^ expected `EntityNotification`, found `AppNotification`
+   |              |
+   |              required by a bound introduced by this call
+   |
+note: required by a bound in `mirui::input::event::emission::<impl mirui::__macro_support::DeferredCommands<'_>>::emit`
+  --> src/input/event/emission.rs
+   |
+   |     pub fn emit<E>(&mut self, entity: Entity, payload: E)
+   |            ---- required by a bound in this associated function
+   |     where
+   |         E: Event<Route = EntityNotification>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::emission::<impl DeferredCommands<'_>>::emit`
+
+error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntityEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/emit_input_or_host_event.rs:15:25
+   |
+15 |     commands.emit(node, Started);
+   |              ----       ^^^^^^^ the trait `mirui::input::event::contract::EntityEventSource` is not implemented for `AppSource`
+   |              |
+   |              required by a bound introduced by this call
+   |
+help: the following other types implement trait `mirui::input::event::contract::EntityEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl EntityEventSource for EntitySource {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
+...
+   | impl EntityEventSource for InputSource {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+...
+   | impl<W: Component> EntityEventSource for WidgetSource<W> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
+note: required by a bound in `mirui::input::event::emission::<impl mirui::__macro_support::DeferredCommands<'_>>::emit`
+  --> src/input/event/emission.rs
+   |
+   |     pub fn emit<E>(&mut self, entity: Entity, payload: E)
+   |            ---- required by a bound in this associated function
+...
+   |         E::Source: EntityEventSource,
+   |                    ^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::emission::<impl DeferredCommands<'_>>::emit`

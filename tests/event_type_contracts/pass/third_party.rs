@@ -1,11 +1,13 @@
 #![deny(warnings)]
 
 use mirui::__macro_support::{
-    CommandCapacity, EntityContext, EventListeners, ListenerSelector, NodeContext,
-    NotificationCapacity, NotificationQueue,
+    CommandCapacity, CommandError, EntityContext, EventListeners, ListenerSelector, NodeContext,
+    NotificationCapacity, PendingNotifications,
 };
 use mirui::ecs::Component;
 use mirui::input::event::contract::*;
+use mirui::input::event::gesture::Tap;
+use std::rc::Rc;
 
 struct Pad;
 impl Component for Pad {}
@@ -36,6 +38,11 @@ struct Hits(u8);
 #[mirui::event]
 fn hit_event(hit: event!(Hit), hits: res!(mut Hits)) {
     hits.0 += hit.strength;
+}
+
+#[mirui::event]
+fn emit_hit(node: entity!(), commands: commands!()) {
+    commands.emit(node, Hit { strength: 7 });
 }
 
 fn entity<W: Component, E: Event>(_: EventKey<E>)
@@ -93,17 +100,35 @@ fn main() {
             CommandCapacity::default(),
         )
         .unwrap();
-    let queue = NotificationQueue::default();
-    queue
-        .reserve(NotificationCapacity {
-            records: 1,
-            payload_bytes: 1,
-            payload_alignment: 1,
-        })
+    let pending = Rc::new(
+        PendingNotifications::new(
+            &world,
+            NotificationCapacity {
+                records: 1,
+                payload_bytes: 1,
+                payload_alignment: 1,
+            },
+        )
+        .unwrap(),
+    );
+    world.insert_resource(pending.clone());
+    type Apply = fn(&mut mirui::ecs::World, mirui::ecs::Entity, Hit) -> Result<(), CommandError>;
+    let sender = emit_hit::callback::<Tap, NodeContext>()
+        .prepare(
+            &mut world,
+            CommandCapacity {
+                records: 1,
+                payload_bytes: std::mem::size_of::<(Hit, Apply)>(),
+                payload_alignment: std::mem::align_of::<(Hit, Apply)>(),
+            },
+        )
         .unwrap();
-    queue.push_entity(node, hit).ok().unwrap();
-    listeners
-        .flush_notifications(&mut world, &queue, 1)
-        .unwrap();
+    let input = Tap {
+        x: mirui::types::Fixed::ZERO,
+        y: mirui::types::Fixed::ZERO,
+        target: node,
+    };
+    sender.invoke(&mut world, &input, node).unwrap();
+    pending.flush(&listeners, &mut world, 1).unwrap();
     assert_eq!(world.resource::<Hits>().unwrap().0, 14);
 }

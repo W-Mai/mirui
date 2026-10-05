@@ -538,6 +538,8 @@ already updated by the body. Callback and apply unwinding release pending
 payloads and leave storage reusable. A busy command buffer returns an error
 rather than recursively borrowing it. Plain callbacks have no command buffer.
 
+Deferred operations can fail during submission as well as recording. `CommandError::Commit` distinguishes submission failures from command-record limits. Submission stops at the first error, drops unexecuted payloads, and preserves completed operations. No callback borrow remains active during submission.
+
 This execution layer does not install or route listeners. Its ABI is confined
 to hidden macro support, not the ordinary authoring prelude.
 
@@ -568,6 +570,7 @@ Notification draining uses this pool and the same prepared executor. Payloads
 are borrowed without cloning, and reserved invocation scratch is cleared on
 success, error, and unwinding. Reentrant use of that scratch returns an error.
 Selection and draining within reserved capacities allocate no listener storage.
+
 Gesture selection freezes the complete Parent chain before running any body.
 Each node contributes matching internal View hooks in registration order, then
 its authored listeners in installation order. Reparenting, removing a filter
@@ -602,6 +605,14 @@ Internal hooks and listeners share the reserved step storage and cleanup guard.
 A failed reservation does not raise either logical quota. The pool's ABI is
 confined to hidden macro support; the ordinary `on` and App installation APIs
 are not implemented by this layer.
+
+### Deferred widget notification submission
+
+The internal command facade records `emit(entity, payload)` without reading the World or borrowing notification storage. The payload must declare an entity notification route; input and App lifecycle payloads cannot be emitted through this capability. Recording a request does not mean that it has been delivered.
+
+After callback borrows end, submission checks the entity generation, actual source component, and notification storage owner. The owning payload moves from command storage into the pending notification arena without cloning. Missing sources, missing storage, and storage limits return structured errors through the prepared event executor. Source removal earlier in the command batch is visible to a later submission. Already completed data changes are not rolled back.
+
+Pending storage is retained by an owner-bound shared runtime resource. Draining retains a shared reference before acquiring the World, so callbacks can submit further notifications without removing that resource. The existing listener pool drains the queue in FIFO order with stable read payloads and separate write storage. Storage is explicitly prepared; this internal facility does not install the application route or select public capacity defaults.
 
 ### Recognized gesture batches
 

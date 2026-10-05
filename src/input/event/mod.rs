@@ -1,5 +1,6 @@
 pub(crate) mod callback;
 pub mod contract;
+pub(crate) mod emission;
 pub mod focus;
 pub mod gesture;
 pub mod hit_test;

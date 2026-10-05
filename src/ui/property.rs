@@ -80,8 +80,13 @@ impl crate::ecs::commands::DeferredCommands<'_> {
     }
 }
 
-fn apply_deferred<P: Property>(world: &mut World, entity: Entity, value: P::Value) {
+fn apply_deferred<P: Property>(
+    world: &mut World,
+    entity: Entity,
+    value: P::Value,
+) -> Result<(), crate::ecs::commands::CommandError> {
     apply_to_world::<P>(world, entity, value);
+    Ok(())
 }
 
 #[doc(hidden)]
