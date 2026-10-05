@@ -5,7 +5,7 @@ use crate::gallery::demos::instruments::InstrumentPainter;
 use crate::prelude::*;
 use crate::render::path::Path;
 use crate::types::Transform;
-use crate::ui::view::{PaintCtx, View, ViewObservationBindings};
+use crate::ui::view::PaintCtx;
 
 pub(super) const BG: ColorToken = ColorToken::Surface;
 pub(super) const ICE: Color = Color::rgb(222, 231, 237);
@@ -410,31 +410,137 @@ fn paint_scope(scratch: &ScopeWaveScratch, state: &ScopeModel, paint: &mut Paint
     );
 }
 
-fn scope_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(canvas) = world.get::<ScopeCanvas>(entity) else {
+#[crate::view(component = ScopeCanvas, name = "ScopeCanvas", priority = 61)]
+fn scope_render(
+    model: model!(component.model, watch(visual_revision)),
+    scratch: res!(optional ScopeWaveScratch),
+    paint: paint!(),
+) {
+    let Some(scratch) = scratch else {
         return;
     };
-    let Some(scratch) = world.resource::<ScopeWaveScratch>() else {
-        return;
-    };
-    crate::core::model::with_model_read_only(|| {
-        crate::core::model::ModelHandle::read(&canvas.model, |model| {
-            paint_scope(scratch, model, paint);
-        });
-    });
+    paint_scope(scratch, model, paint);
 }
 
-fn scope_observe(world: &World, entity: Entity, bindings: &mut ViewObservationBindings) {
-    let canvas = world.get::<ScopeCanvas>(entity).expect("scope canvas");
-    bindings.watch(|invalidation| {
-        canvas
-            .model
-            .__mirui_subscribe_visual_revision(world, entity, invalidation)
-    });
-}
+pub(super) use scope_render::view as scope_view;
 
-pub(super) fn scope_view() -> View {
-    View::new("ScopeCanvas", 61, scope_render)
-        .with_filter::<ScopeCanvas>()
-        .with_observation(scope_observe, 1)
+#[cfg(test)]
+mod paint_contract_tests {
+    use super::*;
+    use crate::render::canvas::Paint;
+    use crate::render::command::DrawCommand;
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::test_support::tracked_allocations;
+    use crate::ui::{Style, theme::WidgetState};
+
+    struct Trace {
+        paths: [*const crate::render::path::PathCmd; 2],
+        calls: usize,
+        fail: bool,
+    }
+
+    impl Renderer for Trace {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.calls += 1;
+            if self.fail {
+                return Err(RenderError::BackendFailure);
+            }
+            if let DrawCommand::StrokePath {
+                path,
+                paint: Paint::Color(color),
+                ..
+            } = request.command
+            {
+                let color = Color::from(*color);
+                if let Some(channel) = [CHANNEL_A, CHANNEL_B]
+                    .iter()
+                    .position(|value| *value == color)
+                {
+                    assert_eq!(path.commands().as_ptr(), self.paths[channel]);
+                }
+            }
+            Ok(())
+        }
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn scope_canvas_paint_refetches_scratch_and_reuses_wave_storage_without_allocating() {
+        let mut app = App::headless(1, 1);
+        let model = app.add_model(ScopeModel::default());
+        let node = app.world.spawn_empty();
+        app.world.insert(node, ScopeCanvas { model });
+        let view = scope_view();
+        assert_eq!(view.name(), "ScopeCanvas");
+        assert_eq!(view.priority(), Some(61));
+        assert_eq!(
+            view.component_filter(),
+            Some(core::any::TypeId::of::<ScopeCanvas>())
+        );
+        assert_eq!(
+            view.invalidation(),
+            crate::ui::view::ViewInvalidation::Visual
+        );
+        let render = view.render().unwrap();
+        let style = Style::default();
+        let rect = Rect::new(11, 17, 640, 360);
+        let transform = Transform {
+            m00: Fixed::from_ratio(5, 4),
+            m11: Fixed::from_ratio(3, 4),
+            tx: Fixed::from_int(7),
+            ty: Fixed::from_int(13),
+            ..Transform::IDENTITY
+        };
+        for present in [false, true, true, false] {
+            if present {
+                app.world.insert_resource(ScopeWaveScratch::default());
+            } else {
+                app.world.remove_resource::<ScopeWaveScratch>();
+            }
+            let paths = app
+                .world
+                .resource::<ScopeWaveScratch>()
+                .map(|scratch| {
+                    let paths = scratch.paths.borrow();
+                    [paths[0].commands().as_ptr(), paths[1].commands().as_ptr()]
+                })
+                .unwrap_or([core::ptr::null(); 2]);
+            for fail in [false, true] {
+                for _ in 0..2 {
+                    let mut renderer = Trace {
+                        paths,
+                        calls: 0,
+                        fail,
+                    };
+                    let mut paint = PaintCtx::new(
+                        &mut renderer,
+                        &style,
+                        &rect,
+                        &rect,
+                        transform,
+                        None,
+                        WidgetState::Enabled,
+                    );
+                    assert_eq!(
+                        tracked_allocations(|| render(&app.world, node, &mut paint)),
+                        0
+                    );
+                    assert_eq!(
+                        paint.error(),
+                        if present && fail {
+                            Some(RenderError::BackendFailure)
+                        } else {
+                            None
+                        }
+                    );
+                    drop(paint);
+                    if present && !fail {
+                        assert!(renderer.calls > 0);
+                    } else {
+                        assert_eq!(renderer.calls, usize::from(present));
+                    }
+                }
+            }
+        }
+    }
 }

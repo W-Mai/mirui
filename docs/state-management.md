@@ -361,6 +361,9 @@ Mandala borrows an optional MonoClock. Their generated paint adapters retain
 the default theme and zero-time behavior when those resources are absent.
 FillRules, ClipPath, and StrokeStyles borrow an optional Theme. Their paths
 remain static, and ClipPath uses the paint context's scoped clip cleanup.
+ScopeCanvas observes its model's `visual_revision` and borrows optional waveform
+scratch storage. Replacing the component's model rebinds the observation; absent
+scratch storage skips painting. Waveform paths reuse buffers prepared at setup.
 `with_clip_path` owns the matching clip push/pop pair, including cleanup after
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker

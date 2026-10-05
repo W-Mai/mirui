@@ -167,6 +167,61 @@ fn registered_scope_models_publish_only_real_instance_changes() {
 }
 
 #[test]
+fn scope_canvas_observation_rebinds_to_the_current_model_without_allocating() {
+    use super::render::scope_view;
+    use crate::test_support::tracked_allocations;
+
+    let mut app = App::headless(1, 1);
+    let first = app.add_model(ScopeModel::default());
+    let second = app.add_model(ScopeModel::default());
+    let canvas = app.world.spawn_empty();
+    app.world.insert(
+        canvas,
+        ScopeCanvas {
+            model: first.clone(),
+        },
+    );
+    app.with_widget(scope_view());
+    ViewRegistry::reconcile_observations(&mut app.world);
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    app.world.remove::<VisualDirty>(canvas);
+
+    for (current, retired) in [(&second, &first), (&first, &second)] {
+        app.world.insert(
+            canvas,
+            ScopeCanvas {
+                model: current.clone(),
+            },
+        );
+        assert_eq!(
+            tracked_allocations(|| ViewRegistry::reconcile_observations(&mut app.world)),
+            0
+        );
+        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        app.world.remove::<VisualDirty>(canvas);
+        for _ in 0..2 {
+            assert_eq!(
+                tracked_allocations(|| {
+                    retired.advance_ms(16);
+                    crate::core::reactive::flush_signal_dirty(&mut app.world);
+                }),
+                0
+            );
+            assert!(!app.world.has::<VisualDirty>(canvas));
+            assert_eq!(
+                tracked_allocations(|| {
+                    current.advance_ms(16);
+                    crate::core::reactive::flush_signal_dirty(&mut app.world);
+                }),
+                0
+            );
+            assert!(app.world.has::<VisualDirty>(canvas));
+            app.world.remove::<VisualDirty>(canvas);
+        }
+    }
+}
+
+#[test]
 fn bound_tick_updates_uart_and_only_publishes_real_visual_changes() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
     app.with_default_widgets().with_default_systems();
