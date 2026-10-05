@@ -179,15 +179,8 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
                 cx.world_mut().insert(__mirui_parent, __mold_niche_map);
             }
 
-            #[doc(hidden)]
-            pub fn __render(
-                _: &::mirui::ecs::World,
-                _: ::mirui::ecs::Entity,
-                _: &mut ::mirui::ui::view::PaintCtx<'_>,
-            ) {}
-
             pub fn __view() -> ::mirui::ui::View {
-                ::mirui::ui::View::new(stringify!(#name), 60, Self::__render)
+                ::mirui::ui::View::systems_only(stringify!(#name), &[])
                     .with_filter::<Self>()
                     .with_attach(Self::__attach)
             }

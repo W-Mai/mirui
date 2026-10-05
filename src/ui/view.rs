@@ -1538,6 +1538,49 @@ mod tests {
     }
 
     #[test]
+    fn niche_descriptors_keep_attach_without_paint_hooks() {
+        use crate::ui::widgets::Text;
+
+        crate::ui!(compose StaticNiche {
+            @@body
+        });
+        crate::ui!(compose TypedNiche(label: &'static str) {
+            @@body {
+                Text(text: label)
+            }
+        });
+
+        let mut registry = ViewRegistry::default();
+        registry.insert(make_view("paint", 60));
+        for (factory, name, component) in [
+            (
+                StaticNiche::__view as fn() -> View,
+                "StaticNiche",
+                TypeId::of::<StaticNiche>(),
+            ),
+            (TypedNiche::__view, "TypedNiche", TypeId::of::<TypedNiche>()),
+        ] {
+            let mut descriptor = None;
+            assert_eq!(tracked_allocations(|| descriptor = Some(factory())), 0);
+            let descriptor = descriptor.unwrap();
+            assert_eq!(descriptor.name(), name);
+            assert_eq!(descriptor.component_filter(), Some(component));
+            assert!(descriptor.auto_attach().is_some());
+            assert!(descriptor.render().is_none());
+            assert_eq!(descriptor.priority(), None);
+            registry.insert(descriptor);
+        }
+        assert_eq!(
+            registry.iter().map(View::name).collect::<Vec<_>>(),
+            ["paint", "StaticNiche", "TypedNiche"],
+        );
+        assert_eq!(
+            registry.paint_iter().map(View::name).collect::<Vec<_>>(),
+            ["paint"],
+        );
+    }
+
+    #[test]
     fn observed_view_registration_tracks_its_component_type() {
         fn observe(_: &World, _: Entity, _: &mut ViewObservationBindings) {}
         struct Marker;

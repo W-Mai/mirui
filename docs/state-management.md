@@ -410,6 +410,8 @@ Paint priority orders only drawing, with registration order
 breaking ties. Gesture hooks retain registration order, and contributed systems
 use their own `SystemSlot`.
 
+`ui!(compose Name { ... })` declares a Niche with tree and slot attachment but no paint hook. Register its descriptor with `app.with_widget(ui!(compose Name))`. Declared fields retain their Rust types, and parameter snapshots, fallback content, filled slots, and instance isolation remain part of attachment rather than paint traversal.
+
 ## Event type contracts
 
 `input::event::contract::Event` declares a payload's route, source, and options.
