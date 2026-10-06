@@ -1,6 +1,6 @@
 use super::geometry::{board_geometry_for_level, clues_for_level};
 use super::input::{
-    PictureKeyboardPlugin, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
+    keyboard, surface_drag_end, surface_drag_move, surface_drag_start, surface_tap,
 };
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
@@ -1649,10 +1649,10 @@ where
     app.add_plugin(PlayFontPlugin);
     let model = app.add_model(PictureModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());
-    app.add_plugin(PictureKeyboardPlugin::new(
-        model.clone(),
-        expedition.clone(),
-    ));
+    app.on_event(
+        CharInput::EVENT,
+        keyboard::callback(model.clone(), expedition.clone()),
+    );
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
     app.with_widget(surface_render::view());

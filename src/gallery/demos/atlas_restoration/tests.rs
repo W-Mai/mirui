@@ -1,5 +1,4 @@
 use super::geometry::board_geometry;
-use super::input::PictureKeyboardPlugin;
 use super::setup_app;
 use super::state::PictureSurface;
 use crate::core::model::ModelHandle;
@@ -155,7 +154,6 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     let surface = world.find_by_id("picture_surface").unwrap();
     world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
     let (model, expedition) = handles(&world);
-    let keyboard = PictureKeyboardPlugin::new(model.clone(), expedition.clone());
     let (cell, x, y) = editable_cell(&model);
     let before = ModelHandle::read(&model, |model| model.cell(cell));
     let cursor = ModelHandle::read(&model, PictureModel::cursor);
@@ -190,7 +188,14 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
             target: surface,
         },
     ));
-    assert!(!keyboard.on_char('d'));
+    crate::input::event::dispatch_input(
+        &mut world,
+        None,
+        &crate::surface::InputEvent::CharInput { ch: 'd' },
+        0,
+        480,
+        320,
+    );
     assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(ModelHandle::read(&model, PictureModel::cursor), cursor);
     assert_eq!(model.history_len(), 0);
@@ -203,8 +208,16 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     let cursor = ModelHandle::read(&model, PictureModel::cursor);
     let tool = model.tool();
     let history_len = model.history_len();
-    assert!(!keyboard.on_char('d'));
-    assert!(!keyboard.on_char('x'));
+    for ch in ['d', 'x'] {
+        crate::input::event::dispatch_input(
+            &mut world,
+            None,
+            &crate::surface::InputEvent::CharInput { ch },
+            1,
+            480,
+            320,
+        );
+    }
     assert!(trigger(
         &mut world,
         surface,
@@ -293,8 +306,7 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
     let mut world = fixture();
     let surface = world.find_by_id("picture_surface").unwrap();
     world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
-    let (model, expedition) = handles(&world);
-    let keyboard = PictureKeyboardPlugin::new(model.clone(), expedition);
+    let (model, _) = handles(&world);
     let (cell, x, y) = editable_cell(&model);
     let before = ModelHandle::read(&model, |model| model.cell(cell));
     let hints = model.hints();
@@ -309,7 +321,14 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
             target: surface,
         },
     ));
-    assert!(keyboard.on_char('h'));
+    crate::input::event::dispatch_input(
+        &mut world,
+        None,
+        &crate::surface::InputEvent::CharInput { ch: 'h' },
+        0,
+        480,
+        320,
+    );
     assert_eq!(model.hints(), hints);
     assert_eq!(model.history_len(), history_len);
 
@@ -327,6 +346,73 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
     assert_eq!(model.history_len(), history_len + 1);
     model.undo();
     assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
+}
+
+#[derive(Default)]
+struct UnhandledCharacter(Option<char>);
+
+#[event]
+fn unhandled_character(input: event!(CharInput), seen: res!(mut UnhandledCharacter)) -> bool {
+    seen.0 = Some(input.ch);
+    true
+}
+
+#[test]
+fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_unhandled() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    let (model, expedition) = handles(&app.world);
+    let observer = model.clone();
+    let panel = expedition.clone();
+    app.world.insert_resource(UnhandledCharacter::default());
+    app.on_event(CharInput::EVENT, unhandled_character::callback());
+    drop(model);
+    drop(expedition);
+
+    let before = observer.read(PictureModel::cursor);
+    crate::input::event::dispatch_input(
+        &mut app.world,
+        Some(root),
+        &crate::surface::InputEvent::CharInput { ch: 'D' },
+        0,
+        480,
+        320,
+    );
+    let moved = observer.read(PictureModel::cursor);
+    assert_ne!(moved, before);
+    assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+
+    panel.open_rules();
+    crate::input::event::dispatch_input(
+        &mut app.world,
+        Some(root),
+        &crate::surface::InputEvent::CharInput { ch: 'a' },
+        1,
+        480,
+        320,
+    );
+    assert_eq!(observer.read(PictureModel::cursor), moved);
+    assert_eq!(
+        app.world.resource::<UnhandledCharacter>().unwrap().0,
+        Some('a')
+    );
+
+    panel.close();
+    crate::input::event::dispatch_input(
+        &mut app.world,
+        Some(root),
+        &crate::surface::InputEvent::CharInput { ch: 'q' },
+        2,
+        480,
+        320,
+    );
+    assert_eq!(observer.read(PictureModel::cursor), moved);
+    assert_eq!(
+        app.world.resource::<UnhandledCharacter>().unwrap().0,
+        Some('q')
+    );
 }
 
 #[test]
