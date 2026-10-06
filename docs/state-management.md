@@ -344,6 +344,9 @@ Button, Slider, Checkbox, ProgressBar, TabBar, Icon, and BackgroundBlur use this
 for built-in paint callbacks. Their widget modules export the generated `view`
 factory directly; component filters, paint priorities, and internal gesture
 hooks remain part of the descriptor.
+
+StaticGlyphRun declares its component filter, paint priority 80, and layout invalidation through `#[view]`. It submits its borrowed positioned glyph slice without runtime shaping or a layout workspace. FontManager and Theme are borrowed as optional resources, retaining the empty-run and missing-font-manager early returns; a run that reaches painting requires a Theme.
+
 Render Showcase and Blur Filter declare their retained scene workspace with
 read-only `res!` and replay borrowed scene operations through `paint!()`.
 Their setup prepares RGBA storage before painting; the View borrows that

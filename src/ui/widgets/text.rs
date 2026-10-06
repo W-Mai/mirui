@@ -1451,7 +1451,7 @@ fn draw_text_layout_with_identity<'font>(
     }
 }
 
-/// Borrowed positioned glyphs for rendering without runtime shaping or allocation.
+/// Borrowed positioned glyphs for rendering without runtime shaping or layout storage.
 #[crate::component]
 #[derive(Clone, Copy, Debug)]
 pub struct StaticGlyphRun {
@@ -1493,24 +1493,30 @@ impl StaticGlyphRun {
     }
 }
 
-fn static_glyph_run_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(run) = world.get::<StaticGlyphRun>(entity) else {
-        return;
-    };
+#[crate::view(
+    component = StaticGlyphRun,
+    name = "StaticGlyphRun",
+    priority = 80,
+    invalidation = Layout,
+)]
+fn static_glyph_run_render(
+    run: component!(),
+    fonts: res!(optional crate::render::font::FontManager),
+    theme: res!(optional crate::ui::Theme),
+    paint: paint!(),
+) {
     let Some(first) = run.glyphs.first() else {
         return;
     };
-    let Some(font) =
-        crate::render::font::resolve_or_default(world, paint.style().font_stack.primary())
-    else {
+    let Some(manager) = fonts else {
         return;
     };
+    let font = manager.resolve(paint.style().font_stack.primary().cache_key());
     let mut font = font.as_ref().clone();
     font.size = paint.style().font_size.unwrap_or(font.size).max(1);
     let metrics = font.metrics(font.size);
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let theme =
+        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let rect = paint.rect();
     paint.draw(&DrawCommand::GlyphRun {
         pos: Point {
@@ -1531,11 +1537,7 @@ pub fn view() -> View {
         .with_invalidation(crate::ui::ViewInvalidation::Layout)
 }
 
-pub fn static_glyph_run_view() -> View {
-    View::new("StaticGlyphRun", 80, static_glyph_run_render)
-        .with_filter::<StaticGlyphRun>()
-        .with_invalidation(crate::ui::ViewInvalidation::Layout)
-}
+pub use static_glyph_run_render::view as static_glyph_run_view;
 
 #[cfg(test)]
 mod tests {
@@ -1603,24 +1605,236 @@ mod tests {
             h: Fixed::from_int(10),
         };
         let mut renderer = RecordingRenderer::default();
-        let mut paint = PaintCtx::new(
-            &mut renderer,
-            &style,
-            &rect,
-            &rect,
-            Transform::IDENTITY,
-            None,
-            WidgetState::Enabled,
-        );
-
-        static_glyph_run_render(&world, entity, &mut paint);
-        drop(paint);
+        {
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            static_glyph_run_view().render().unwrap()(&world, entity, &mut paint);
+        }
 
         assert_eq!(renderer.glyph_runs, vec![(Point::new(3, 5), 2)]);
         assert_eq!(
             StaticGlyphRun::new(&GLYPHS).measure(Fixed::from_int(8)),
             (Fixed::from_int(16), Fixed::from_int(8))
         );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn static_run_typed_roles_refetch_resources_and_borrow_glyphs_without_allocating() {
+        use crate::render::font::{Font, FontBackend, FontToken};
+        use crate::render::{DrawRequest, RenderError};
+        use crate::test_support::tracked_allocations;
+        use core::any::TypeId;
+
+        static GLYPHS: [PositionedGlyph; 1] = [PositionedGlyph::new(
+            GlyphId::new(65),
+            FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        struct Trace {
+            expected_color: crate::types::Color,
+            family: &'static str,
+            size: u16,
+            fail: bool,
+            calls: usize,
+        }
+        impl Renderer for Trace {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                assert_eq!(request.clip, Rect::new(4, 6, 18, 8));
+                let DrawCommand::GlyphRun {
+                    pos,
+                    transform,
+                    glyphs,
+                    font,
+                    color,
+                    opa,
+                } = request.command
+                else {
+                    panic!("expected a borrowed static glyph run");
+                };
+                assert_eq!(*pos, Point::new(3, 5));
+                assert_eq!(
+                    *transform,
+                    Transform::translate(Fixed::from_int(2), Fixed::from_int(3))
+                );
+                assert_eq!(glyphs.as_ptr(), GLYPHS.as_ptr());
+                assert_eq!(glyphs.len(), GLYPHS.len());
+                assert_eq!((font.family, font.size), (self.family, self.size));
+                assert_eq!(*color, self.expected_color);
+                assert_eq!(*opa, 255);
+                self.calls += 1;
+                if self.fail {
+                    Err(RenderError::BackendFailure)
+                } else {
+                    Ok(())
+                }
+            }
+            fn flush(&mut self) {}
+        }
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, StaticGlyphRun::new(&GLYPHS));
+        let mut render = None;
+        for _ in 0..2 {
+            let mut descriptor = None;
+            assert_eq!(
+                tracked_allocations(|| descriptor = Some(static_glyph_run_view())),
+                0
+            );
+            let descriptor = descriptor.unwrap();
+            assert_eq!(descriptor.name(), "StaticGlyphRun");
+            assert_eq!(
+                descriptor.component_filter(),
+                Some(TypeId::of::<StaticGlyphRun>())
+            );
+            assert_eq!(descriptor.priority(), Some(80));
+            assert_eq!(
+                descriptor.invalidation(),
+                crate::ui::ViewInvalidation::Layout
+            );
+            assert!(descriptor.auto_attach().is_none());
+            assert!(descriptor.internal_gesture().is_none());
+            assert!(descriptor.observation().is_none());
+            let mut installed = 0;
+            descriptor.install(&mut world, |_| installed += 1);
+            assert_eq!(installed, 0);
+            render = descriptor.render();
+        }
+        let render = render.unwrap();
+        let mut style = Style {
+            font_stack: FontToken::Heading.into(),
+            ..Style::default()
+        };
+        let rect = Rect::new(3, 5, 20, 10);
+        let clip = Rect::new(4, 6, 18, 8);
+        for (family, size, theme, override_size) in [
+            ("first-static-font", 16, Theme::dark(), None),
+            ("replacement-static-font", 20, Theme::light(), Some(0)),
+        ] {
+            let fonts = default_font_manager();
+            fonts.add_static(
+                FontToken::Heading.cache_key(),
+                Font {
+                    family,
+                    size,
+                    backend: FontBackend::Bitmap8x8,
+                },
+            );
+            // Prepare the existing font cache before checking the typed paint adapter.
+            fonts.prefetch(FontToken::Heading.cache_key());
+            world.insert_resource(fonts);
+            style.font_size = override_size;
+            let expected_color = style.text_color.resolve_in(&theme, WidgetState::Hovered);
+            world.insert_resource(theme);
+            for fail in [false, true] {
+                for _ in 0..2 {
+                    let mut trace = Trace {
+                        expected_color,
+                        family,
+                        size: override_size.unwrap_or(size).max(1),
+                        fail,
+                        calls: 0,
+                    };
+                    {
+                        let mut paint = PaintCtx::new(
+                            &mut trace,
+                            &style,
+                            &rect,
+                            &clip,
+                            Transform::translate(Fixed::from_int(2), Fixed::from_int(3)),
+                            None,
+                            WidgetState::Hovered,
+                        );
+                        assert_eq!(
+                            tracked_allocations(|| render(&world, entity, &mut paint)),
+                            0
+                        );
+                        assert_eq!(paint.error(), fail.then_some(RenderError::BackendFailure));
+                        assert!(!paint.background_handled());
+                    }
+                    assert_eq!(trace.calls, 1);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn static_run_optional_resources_preserve_early_returns_and_the_theme_requirement() {
+        use crate::render::font::{FontManager, FontToken};
+        use crate::test_support::tracked_allocations;
+
+        static GLYPHS: [PositionedGlyph; 1] = [PositionedGlyph::new(
+            GlyphId::new(65),
+            FlowPoint { x: 0, y: 7 << 8 },
+        )];
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 20, 10);
+        let render = static_glyph_run_view().render().unwrap();
+        let mut renderer = RecordingRenderer::default();
+        for stage in 0..3 {
+            world.insert(
+                entity,
+                StaticGlyphRun::new(if stage == 2 { &GLYPHS } else { &[] }),
+            );
+            if stage == 1 {
+                world.insert_resource(default_font_manager());
+            } else {
+                world.remove_resource::<FontManager>();
+            }
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            assert_eq!(
+                tracked_allocations(|| render(&world, entity, &mut paint)),
+                0
+            );
+            assert_eq!(paint.error(), None);
+        }
+        assert!(renderer.glyph_runs.is_empty());
+        let fonts = default_font_manager();
+        fonts.prefetch(FontToken::Default.cache_key());
+        world.insert_resource(fonts);
+        {
+            let mut paint = PaintCtx::new(
+                &mut renderer,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                render(&world, entity, &mut paint);
+            }))
+            .unwrap_err();
+            let message = error
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| error.downcast_ref::<String>().map(String::as_str))
+                .unwrap();
+            assert_eq!(
+                message,
+                "App::new must insert Theme; missing means a test fixture skipped App"
+            );
+        }
+        assert!(renderer.glyph_runs.is_empty());
     }
 
     #[test]
