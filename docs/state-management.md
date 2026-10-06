@@ -599,6 +599,8 @@ Named event factories derive installation inputs, typed invocation parameters, a
 
 Internal typed callbacks share the system parameter fetch and access validator. Preparation rejects component/resource aliases and foreign, mixed, or retired Model captures with structured installation errors. App logs these errors and skips the affected binding. Successful preparation binds the callback to one App and reserves the current query change-record budget. The prepared callback and its access plan cannot be replaced independently.
 
+Event factories accept the same shared binding values as composition. Optional bindings recursively contribute their registered Model identity; `None` contributes none. Signal, Computed, and audio handles retain their own access rules instead of acquiring a Model registration. Capture requirements merge without retaining Model cells or allocating owner storage. This is an installation identity check, not a new lifetime lease or poison check.
+
 Invocation checks the App identity and entity generation before fetching
 parameters. Entity contexts receive an `Entity`; App contexts receive no entity.
 Payloads are read-only borrows, resources and query rows cannot escape the body,

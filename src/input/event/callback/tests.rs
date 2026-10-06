@@ -1,4 +1,6 @@
 use super::*;
+use crate::core::model::ModelHandle;
+use crate::core::reactive::{Computed, Signal};
 use crate::ecs::query::system::{ComponentDriver, Read, Write};
 use crate::ecs::system::param::{OptionalRes, QueryParam, Res, ResMut};
 use crate::input::event::BubbleControl;
@@ -256,7 +258,7 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
             captured.increment();
         })
     }
-    .require_model(&first)
+    .require_binding(&first)
     .prepare(&mut app.world, CommandCapacity::default())
     .unwrap();
     let payload = Key {
@@ -272,6 +274,72 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
 }
 
 #[test]
+fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
+    let mut app = crate::app::App::headless(32, 32);
+    let model = app.add_model(Counter { value: 0 });
+    let nested = Some(Some(model.clone()));
+    let missing: Option<CounterHandle> = None;
+    let signal = Signal::new(5_u32);
+    let computed = {
+        let _owner = crate::core::reactive::OwnerGuard::enter(&mut app.world);
+        Computed::new(|| 7_u32)
+    };
+    let captured = nested.clone();
+    let captured_signal = signal.clone();
+    let captured_computed = computed.clone();
+    // SAFETY: Params is empty and every captured binding is declared before
+    // preparation. The body only uses its shared binding facades.
+    let callback = unsafe {
+        event_callback::<Key, AppContext, (), ()>("shared", &[], move |(), _, ()| {
+            assert_eq!(captured_signal.get(), 5);
+            assert_eq!(captured_computed.get(), 7);
+            captured.as_ref().unwrap().as_ref().unwrap().increment();
+        })
+    };
+    let mut prepared = None;
+    assert_eq!(
+        tracked_allocations(|| {
+            prepared = Some(
+                callback
+                    .require_binding(&nested)
+                    .require_binding(&missing)
+                    .require_binding(&signal)
+                    .require_binding(&computed)
+                    .prepare(&mut app.world, CommandCapacity::new())
+                    .unwrap(),
+            );
+        }),
+        0
+    );
+    let prepared = prepared.unwrap();
+    let payload = Key {
+        code: 1,
+        pressed: true,
+    };
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                prepared.invoke(&mut app.world, &payload, ()),
+                Ok(Some(BubbleControl::Prevent))
+            );
+        }),
+        0
+    );
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..64 {
+                assert_eq!(
+                    prepared.invoke(&mut app.world, &payload, ()),
+                    Ok(Some(BubbleControl::Prevent))
+                );
+            }
+        }),
+        0
+    );
+    assert_eq!(model.value(), 65);
+}
+
+#[test]
 fn model_capture_rejects_mixed_owners_and_wrong_installation_owner() {
     let mut first_app = crate::app::App::headless(32, 32);
     let mut second_app = crate::app::App::headless(32, 32);
@@ -280,9 +348,9 @@ fn model_capture_rejects_mixed_owners_and_wrong_installation_owner() {
     let build = || {
         // SAFETY: the body captures no Models or World and Params is empty.
         unsafe { event_callback::<Key, AppContext, (), ()>("owner", &[], |(), _, ()| ()) }
-            .require_model(&first)
+            .require_binding(&Some(Some(first.clone())))
     };
-    let mixed = build().require_model(&second);
+    let mixed = build().require_binding(&Some(second.clone()));
     assert_eq!(
         mixed
             .prepare(&mut first_app.world, CommandCapacity::default())
@@ -315,6 +383,7 @@ fn ended_model_capture_returns_an_owner_error_without_allocating_or_running_body
             (model, retained)
         };
         let mut world = World::new();
+        let nested = Some(Some(model));
         // SAFETY: the body has no borrowed parameters or raw World access.
         let callback = unsafe {
             event_callback::<Key, AppContext, (), ()>("ended", &[], |(), _, ()| {
@@ -324,7 +393,7 @@ fn ended_model_capture_returns_an_owner_error_without_allocating_or_running_body
         assert_eq!(
             tracked_allocations(|| {
                 let error = callback
-                    .require_model(&model)
+                    .require_binding(&nested)
                     .prepare(&mut world, CommandCapacity::new())
                     .err()
                     .unwrap();

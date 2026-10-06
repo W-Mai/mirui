@@ -353,7 +353,7 @@ fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenSt
     };
     let callback = plan.models().fold(
         callback,
-        |callback, (model, _)| quote!(#callback.require_model(&#model)),
+        |callback, (model, _)| quote!(#callback.require_binding(&#model)),
     );
     let copy_check = plan.values().next().map(|_| {
         quote!(
@@ -663,8 +663,8 @@ mod tests {
         assert!(factory_body.contains("deferred_event_callback"));
         assert!(factory_body.contains(&quote!(Res<super::Clock>).to_string()));
         assert!(factory_body.contains(&quote!(Write<super::super::Position>).to_string()));
-        assert!(factory_body.contains("require_model (& left)"));
-        assert!(factory_body.contains("require_model (& right)"));
+        assert!(factory_body.contains("require_binding (& left)"));
+        assert!(factory_body.contains("require_binding (& right)"));
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
         assert!(output.contains("Write < Position >"));
         assert!(output.contains("write_component :: < Position >"));
         assert!(output.contains("deferred_event_callback"));
-        assert!(output.contains("require_model (& game)"));
+        assert!(output.contains("require_binding (& game)"));
         assert!(!output.contains("World"));
         assert!(!output.contains("event !"));
         assert!(!output.contains("query !"));

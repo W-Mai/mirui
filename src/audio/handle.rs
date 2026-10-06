@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use super::{
     AudioBus, AudioCommand, AudioOutputState, AudioState, AudioStateSignal, AudioTone, CueId,
 };
-use crate::core::model::{BindType, SharedValue};
+use crate::core::model::{BindType, BindingOwner, SharedValue};
 
 trait AudioControl {
     fn submit(&self, command: AudioCommand) -> bool;
@@ -74,7 +74,9 @@ impl BindType for AudioHandle {
 }
 
 impl SharedValue for AudioHandle {
-    fn assert_registered_owner(&self) {}
+    fn binding_owner(&self) -> BindingOwner {
+        BindingOwner::unbound()
+    }
 }
 
 pub(crate) struct SharedAudioCore<const N: usize> {

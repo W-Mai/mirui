@@ -140,10 +140,88 @@ pub trait BindType {
     type Shared: SharedValue;
 }
 
+/// An invalid registered model identity captured by a binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum ModelOwnerError {
+    RegistrationEnded,
+    MixedOwners,
+    ForeignOwner,
+}
+
+#[derive(Clone, Copy)]
+enum OwnerState {
+    Unbound,
+    Bound(WorldId),
+    Invalid(ModelOwnerError),
+}
+
+/// Opaque ownership requirements contributed by a captured shared value.
+#[derive(Clone, Copy)]
+#[doc(hidden)]
+pub struct BindingOwner(OwnerState);
+
+impl BindingOwner {
+    /// A shared value with no registered model ownership requirement.
+    #[doc(hidden)]
+    pub const fn unbound() -> Self {
+        Self(OwnerState::Unbound)
+    }
+
+    /// Capture a model's current registration identity without retaining its cell.
+    #[doc(hidden)]
+    pub fn registered<H: ModelHandle>(handle: &H) -> Self {
+        match try_registered_owner(handle) {
+            Some(owner) => Self(OwnerState::Bound(owner)),
+            None => Self(OwnerState::Invalid(ModelOwnerError::RegistrationEnded)),
+        }
+    }
+
+    pub(crate) fn merge(self, other: Self) -> Self {
+        match (self.0, other.0) {
+            (OwnerState::Invalid(_), _) => self,
+            (_, OwnerState::Invalid(_)) | (OwnerState::Unbound, _) => other,
+            (OwnerState::Bound(left), OwnerState::Bound(right)) if left != right => {
+                Self(OwnerState::Invalid(ModelOwnerError::MixedOwners))
+            }
+            _ => self,
+        }
+    }
+
+    pub(crate) fn check(self, owner: WorldId) -> Result<(), ModelOwnerError> {
+        match self.0 {
+            OwnerState::Invalid(error) => Err(error),
+            OwnerState::Bound(required) if required != owner => Err(ModelOwnerError::ForeignOwner),
+            OwnerState::Unbound | OwnerState::Bound(_) => Ok(()),
+        }
+    }
+}
+
 /// A cheap, instance-preserving value accepted by generated binding captures.
 pub trait SharedValue: Clone {
     #[doc(hidden)]
-    fn assert_registered_owner(&self);
+    fn binding_owner(&self) -> BindingOwner;
+
+    #[doc(hidden)]
+    fn assert_registered_owner(&self) {
+        match self.binding_owner().0 {
+            OwnerState::Unbound => {}
+            OwnerState::Bound(owner) => assert_eq!(
+                Some(owner),
+                crate::core::reactive::current_world_id(),
+                "model belongs to a different App",
+            ),
+            OwnerState::Invalid(ModelOwnerError::RegistrationEnded) => {
+                panic!("model registration is no longer alive")
+            }
+            OwnerState::Invalid(ModelOwnerError::MixedOwners) => {
+                panic!("model bindings belong to different Apps")
+            }
+            OwnerState::Invalid(ModelOwnerError::ForeignOwner) => {
+                panic!("model belongs to a different App")
+            }
+        }
+    }
 
     fn share(&self) -> Self {
         self.clone()
@@ -155,10 +233,9 @@ impl<T: BindType> BindType for Option<T> {
 }
 
 impl<T: SharedValue> SharedValue for Option<T> {
-    fn assert_registered_owner(&self) {
-        if let Some(value) = self {
-            value.assert_registered_owner();
-        }
+    fn binding_owner(&self) -> BindingOwner {
+        self.as_ref()
+            .map_or(BindingOwner::unbound(), SharedValue::binding_owner)
     }
 }
 
@@ -241,7 +318,9 @@ impl<T: 'static> BindType for crate::core::reactive::Signal<T> {
 }
 
 impl<T: 'static> SharedValue for crate::core::reactive::Signal<T> {
-    fn assert_registered_owner(&self) {}
+    fn binding_owner(&self) -> BindingOwner {
+        BindingOwner::unbound()
+    }
 }
 
 impl<T: 'static> BindType for crate::core::reactive::Computed<T> {
@@ -249,7 +328,9 @@ impl<T: 'static> BindType for crate::core::reactive::Computed<T> {
 }
 
 impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {
-    fn assert_registered_owner(&self) {}
+    fn binding_owner(&self) -> BindingOwner {
+        BindingOwner::unbound()
+    }
 }
 
 /// Storage owned by a model's registration entity.
@@ -616,15 +697,6 @@ pub(crate) fn try_registered_owner<H: ModelHandle>(handle: &H) -> Option<WorldId
     cell.active.get().then_some(cell.owner())
 }
 
-#[doc(hidden)]
-pub fn assert_registered_owner<H: ModelHandle>(handle: &H) {
-    assert_eq!(
-        Some(registered_owner(handle)),
-        crate::core::reactive::current_world_id(),
-        "model belongs to a different App",
-    );
-}
-
 pub(crate) fn register_effect<H, E>(
     owner: WorldId,
     handle: &H,
@@ -645,8 +717,12 @@ where
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use super::{Model, ModelCell, ModelHandle, ModelInvalidation, ModelMethods};
-    use crate::core::reactive::{Computed, Effect, flush_signal_dirty, with_world_scope};
+    use super::{
+        BindingOwner, Model, ModelCell, ModelHandle, ModelInvalidation, ModelMethods,
+        ModelOwnerError, SharedValue,
+    };
+    use crate::core::reactive::{Computed, Effect, Signal, flush_signal_dirty, with_world_scope};
+    use crate::test_support::tracked_allocations;
     use crate::ui::dirty::VisualDirty;
     use alloc::rc::{Rc, Weak};
     use core::cell::Cell;
@@ -727,6 +803,12 @@ mod tests {
         }
     }
 
+    impl SharedValue for CounterHandle {
+        fn binding_owner(&self) -> BindingOwner {
+            BindingOwner::registered(self)
+        }
+    }
+
     impl CounterHandle {
         fn increment(&self) {
             self.update(|counter| counter.0 += 1);
@@ -754,11 +836,95 @@ mod tests {
     }
 
     #[test]
-    fn handle_rejects_access_after_app_drops() {
-        let handle = {
-            let mut app = crate::app::App::headless(32, 32);
-            app.add_model(Counter(4))
+    fn shared_binding_owners_merge_without_allocating_and_preserve_the_first_error() {
+        const UNBOUND: BindingOwner = BindingOwner::unbound();
+        let mut app = crate::app::App::headless(32, 32);
+        let first = app.add_model(Counter(1));
+        let second = app.add_model(Counter(2));
+        let mut other = crate::app::App::headless(32, 32);
+        let foreign = other.add_model(Counter(3));
+        let ended = {
+            let mut retired = crate::app::App::headless(32, 32);
+            retired.add_model(Counter(4))
         };
+        let absent: Option<Option<CounterHandle>> = None;
+        let nested_absent = Some(None::<CounterHandle>);
+        let present = Some(Some(first.clone()));
+        let signal = Signal::new(5_u32);
+        let computed = with_world_scope(&mut other.world, || Computed::new(|| 6_u32));
+        let owner = app.world.id();
+
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..8 {
+                    let bound = UNBOUND
+                        .merge(absent.binding_owner())
+                        .merge(present.binding_owner())
+                        .merge(nested_absent.binding_owner())
+                        .merge(second.binding_owner())
+                        .merge(signal.binding_owner())
+                        .merge(computed.binding_owner());
+                    assert_eq!(bound.check(owner), Ok(()));
+                    assert_eq!(
+                        bound.check(other.world.id()),
+                        Err(ModelOwnerError::ForeignOwner)
+                    );
+                    let mixed = bound.merge(foreign.binding_owner());
+                    assert_eq!(mixed.check(owner), Err(ModelOwnerError::MixedOwners));
+                    assert_eq!(
+                        mixed.merge(ended.binding_owner()).check(owner),
+                        Err(ModelOwnerError::MixedOwners)
+                    );
+                    assert_eq!(
+                        ended.binding_owner().merge(mixed).check(owner),
+                        Err(ModelOwnerError::RegistrationEnded)
+                    );
+                }
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn shared_binding_owner_assertion_uses_the_composition_scope_and_restores_the_outer_owner() {
+        let mut app = crate::app::App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let handle = app.add_model(Counter(1));
+        let outside = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle.assert_registered_owner();
+        }));
+        assert!(outside.is_err());
+
+        let mut other = crate::app::App::headless(32, 32);
+        let foreign_handle = other.add_model(Counter(2));
+        let other_owner = other.world.id();
+        let _outer = crate::core::reactive::OwnerGuard::enter(&mut other.world);
+        {
+            let mut scope = crate::ui::UiScope::new(&mut app.world, root);
+            scope.assert_binding(&Some(Some(handle.clone())));
+        }
+        assert_eq!(crate::core::reactive::current_world_id(), Some(other_owner));
+        let foreign = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut scope = crate::ui::UiScope::new(&mut app.world, root);
+            scope.assert_binding(&Some(Some(foreign_handle.clone())));
+        }));
+        assert!(foreign.is_err());
+        assert_eq!(crate::core::reactive::current_world_id(), Some(other_owner));
+    }
+
+    #[test]
+    fn handle_rejects_access_after_app_drops() {
+        let (handle, owner, captured) = {
+            let mut app = crate::app::App::headless(32, 32);
+            let handle = app.add_model(Counter(4));
+            let captured = handle.binding_owner();
+            (handle, app.world.id(), captured)
+        };
+        assert_eq!(captured.check(owner), Ok(()));
+        assert_eq!(
+            handle.binding_owner().check(owner),
+            Err(ModelOwnerError::RegistrationEnded)
+        );
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
         assert!(error.is_err());
     }
@@ -777,12 +943,16 @@ mod tests {
 
     #[test]
     fn retained_cell_does_not_keep_a_registration_alive() {
-        let (handle, retained_cell) = {
+        let (handle, retained_cell, owner) = {
             let mut app = crate::app::App::headless(32, 32);
             let handle = app.add_model(Counter(4));
             let retained_cell = handle.cell().upgrade().unwrap();
-            (handle, retained_cell)
+            (handle, retained_cell, app.world.id())
         };
+        assert_eq!(
+            handle.binding_owner().check(owner),
+            Err(ModelOwnerError::RegistrationEnded)
+        );
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
         assert!(error.is_err());
         drop(retained_cell);
@@ -911,6 +1081,7 @@ mod tests {
             });
         }));
         assert!(error.is_err());
+        assert_eq!(handle.binding_owner().check(app.world.id()), Ok(()));
         let read_after_failure =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.value()));
         assert!(read_after_failure.is_err());

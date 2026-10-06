@@ -1,11 +1,13 @@
-use mirui::core::model::{BindType, SharedValue};
+use mirui::core::model::{BindType, BindingOwner, SharedValue};
 use mirui::prelude::*;
 
 #[derive(Clone)]
 struct GameHandle;
 
 impl SharedValue for GameHandle {
-    fn assert_registered_owner(&self) {}
+    fn binding_owner(&self) -> BindingOwner {
+        BindingOwner::unbound()
+    }
 }
 
 #[derive(Clone)]

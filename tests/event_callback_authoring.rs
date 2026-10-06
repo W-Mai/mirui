@@ -2,6 +2,7 @@ use mirui::__macro_support::{
     AccessError, AppContext, EntityContext, ModelOwnerError, PreparationError,
 };
 use mirui::app::App;
+use mirui::core::reactive::{Computed, Signal, with_world_scope};
 use mirui::ecs::CommandCapacity;
 use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
 use mirui::input::event::input::Key;
@@ -128,6 +129,149 @@ fn payload_independent_callback_binds_multiple_event_types_and_app_context() {
         Ok(Some(()))
     );
     assert_eq!(counter.value(), 5);
+}
+
+#[derive(Default)]
+struct CaptureCalls {
+    optional: u32,
+    nested: u32,
+    shared: u32,
+}
+
+#[event]
+fn optional_increment(counter: model!(Option<Counter>), calls: res!(mut CaptureCalls)) {
+    calls.optional += 1;
+    if let Some(counter) = counter {
+        counter.add(1);
+    }
+}
+
+#[event]
+fn nested_increment(counter: model!(Option<Option<Counter>>), calls: res!(mut CaptureCalls)) {
+    calls.nested += 1;
+    if let Some(Some(counter)) = counter {
+        counter.add(2);
+    }
+}
+
+#[event]
+fn shared_values(
+    signal: model!(Signal<i32>),
+    computed: model!(Computed<i32>),
+    counter: model!(Counter),
+    calls: res!(mut CaptureCalls),
+) {
+    calls.shared += 1;
+    counter.add(signal.get() + computed.get());
+}
+
+#[test]
+fn app_callbacks_consume_optional_nested_and_shared_bindings_once() {
+    let mut app = App::headless(8, 8);
+    let counter = app.add_model(Counter { value: 0 });
+    let independent = app.add_model(Counter { value: 40 });
+    let signal = Signal::new(5_i32);
+    let computed = with_world_scope(&mut app.world, || Computed::new(|| 7_i32));
+    app.world.insert_resource(CaptureCalls::default());
+
+    app.on_event(
+        Started::EVENT,
+        optional_increment::callback(Some(counter.clone())),
+    );
+    app.on_event(Started::EVENT, optional_increment::callback(None));
+    app.on_event(
+        Started::EVENT,
+        nested_increment::callback(Some(Some(counter.clone()))),
+    );
+    app.on_event(Started::EVENT, nested_increment::callback(Some(None)));
+    app.on_event(Started::EVENT, nested_increment::callback(None));
+    app.on_event(
+        Started::EVENT,
+        shared_values::callback(signal, computed, counter.clone()),
+    );
+
+    for _ in 0..2 {
+        assert!(!app.tick());
+        assert_eq!(counter.value(), 15);
+        assert_eq!(independent.value(), 40);
+        let calls = app.world.resource::<CaptureCalls>().unwrap();
+        assert_eq!((calls.optional, calls.nested, calls.shared), (2, 3, 1));
+    }
+}
+
+#[event]
+fn invalid_optional_owners(
+    first: model!(Option<Counter>),
+    second: model!(Option<Option<Counter>>),
+) {
+    let _ = (first, second);
+    panic!("invalid optional binding reached its callback body");
+}
+
+#[test]
+fn app_skips_mixed_foreign_and_ended_optional_bindings_and_keeps_valid_callbacks() {
+    let mut app = App::headless(8, 8);
+    let counter = app.add_model(Counter { value: 0 });
+    let mut other = App::headless(8, 8);
+    let foreign = other.add_model(Counter { value: 30 });
+    let ended = {
+        let mut retired = App::headless(8, 8);
+        retired.add_model(Counter { value: 50 })
+    };
+    app.world.insert_resource(CaptureCalls::default());
+
+    app.on_event(
+        Started::EVENT,
+        optional_increment::callback(Some(counter.clone())),
+    );
+    app.on_event(
+        Started::EVENT,
+        invalid_optional_owners::callback(Some(counter.clone()), Some(Some(foreign.clone()))),
+    );
+    app.on_event(
+        Started::EVENT,
+        invalid_optional_owners::callback(None, Some(Some(foreign.clone()))),
+    );
+    app.on_event(
+        Started::EVENT,
+        invalid_optional_owners::callback(Some(ended), None),
+    );
+    app.on_event(Started::EVENT, optional_increment::callback(None));
+
+    assert!(!app.tick());
+    assert_eq!(counter.value(), 1);
+    assert_eq!(foreign.value(), 30);
+    assert_eq!(app.world.resource::<CaptureCalls>().unwrap().optional, 2);
+}
+
+#[cfg(feature = "audio")]
+#[event]
+fn mute_audio(audio: model!(mirui::audio::AudioHandle), counter: model!(Counter)) {
+    assert!(audio.set_muted(true));
+    counter.add(1);
+}
+
+#[cfg(feature = "audio")]
+#[test]
+fn app_callback_consumes_shared_audio_with_a_registered_model() {
+    static BANK: mirui::audio::AudioBank = mirui::audio::AudioBank::new(&[]);
+    let mut app = App::headless(8, 8);
+    app.add_plugin(mirui::app::plugins::AudioPlugin::new(
+        mirui::audio::SilentAudioSink::default(),
+        &BANK,
+    ));
+    let counter = app.add_model(Counter { value: 0 });
+    let audio = app.audio().unwrap();
+    app.on_event(
+        Started::EVENT,
+        mute_audio::callback(audio.clone(), counter.clone()),
+    );
+
+    for _ in 0..2 {
+        assert!(!app.tick());
+        assert_eq!(counter.value(), 1);
+        assert!(audio.state().unwrap().muted);
+    }
 }
 
 #[event]

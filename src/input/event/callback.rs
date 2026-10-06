@@ -4,7 +4,7 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::marker::PhantomData;
 
-use crate::core::model::{ModelHandle, try_registered_owner};
+use crate::core::model::{BindingOwner, ModelOwnerError, SharedValue};
 use crate::core::reactive::OwnerGuard;
 use crate::ecs::commands::{CommandCapacity, CommandError, CommandQueue, DeferredCommands};
 use crate::ecs::system::access::{AccessError, SystemAccess, check};
@@ -132,23 +132,9 @@ impl<E: Event, C: CallbackContext<E>, D: Clone> Clone for CallbackRun<E, C, D> {
 pub struct EventCallback<E: Event, C: CallbackContext<E>> {
     name: &'static str,
     metadata: &'static [SystemAccess],
-    owner: CallbackOwner,
+    owner: BindingOwner,
     reserve_params: unsafe fn(&mut World),
     run: CallbackRun<E, C, ()>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[doc(hidden)]
-pub enum ModelOwnerError {
-    RegistrationEnded,
-    MixedOwners,
-    ForeignOwner,
-}
-
-enum CallbackOwner {
-    Unbound,
-    Bound(WorldId),
-    Invalid(ModelOwnerError),
 }
 
 /// A callback rejected before parameter preparation or body execution.
@@ -174,21 +160,8 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
         matches!(self.run, CallbackRun::Deferred { .. })
     }
 
-    pub fn require_model<H: ModelHandle>(mut self, model: &H) -> Self {
-        if matches!(self.owner, CallbackOwner::Invalid(_)) {
-            return self;
-        }
-        let Some(owner) = try_registered_owner(model) else {
-            self.owner = CallbackOwner::Invalid(ModelOwnerError::RegistrationEnded);
-            return self;
-        };
-        if let CallbackOwner::Bound(previous) = self.owner
-            && previous != owner
-        {
-            self.owner = CallbackOwner::Invalid(ModelOwnerError::MixedOwners);
-        } else {
-            self.owner = CallbackOwner::Bound(owner);
-        }
+    pub fn require_binding<T: SharedValue>(mut self, value: &T) -> Self {
+        self.owner = self.owner.merge(value.binding_owner());
         self
     }
 
@@ -197,21 +170,12 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
         world: &mut World,
         capacity: CommandCapacity,
     ) -> Result<PreparedEvent<E, C>, PreparationError> {
-        match self.owner {
-            CallbackOwner::Invalid(error) => {
-                return Err(PreparationError::Owner {
-                    callback: self.name,
-                    error,
-                });
-            }
-            CallbackOwner::Bound(owner) if owner != world.id() => {
-                return Err(PreparationError::Owner {
-                    callback: self.name,
-                    error: ModelOwnerError::ForeignOwner,
-                });
-            }
-            CallbackOwner::Unbound | CallbackOwner::Bound(_) => {}
-        }
+        self.owner
+            .check(world.id())
+            .map_err(|error| PreparationError::Owner {
+                callback: self.name,
+                error,
+            })?;
         check(self.metadata).map_err(|error| PreparationError::Access {
             callback: self.name,
             error,
@@ -291,7 +255,7 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
 /// # Safety
 ///
 /// `metadata` must describe every component/resource access in `P`. Every
-/// captured Model must be declared with `require_model` before preparation.
+/// captured binding must be declared with `require_binding` before preparation.
 /// The body must not obtain another World window through an external pointer.
 #[doc(hidden)]
 pub unsafe fn event_callback<E, C, P, R>(
@@ -308,7 +272,7 @@ where
     EventCallback {
         name,
         metadata,
-        owner: CallbackOwner::Unbound,
+        owner: BindingOwner::unbound(),
         reserve_params: reserve_system_params::<P>,
         run: CallbackRun::Plain(Rc::new(move |world, payload, target| {
             // SAFETY: prepare validated the complete immutable metadata before
@@ -345,7 +309,7 @@ where
     EventCallback {
         name,
         metadata,
-        owner: CallbackOwner::Unbound,
+        owner: BindingOwner::unbound(),
         reserve_params: reserve_system_params::<P>,
         run: CallbackRun::Deferred {
             commands: (),

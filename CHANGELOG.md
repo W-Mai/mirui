@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Shared event captures.** Named callback factories accept optional Model bindings and other shared values while validating registered Model owners through one capture contract.
 - **Input feedback View filters.** Cursor and rotary overlays declare their component filters and invocation-time feedback resources through typed Views. Overlay marker changes participate in visual invalidation, and paint ordering is checked independently of registration order.
 - **Composition Model ownership.** Declared Model parameters are validated against the supplied UI scope before the function body executes, including nested optional roles. Foreign and ended registrations are rejected without preceding authored side effects or added validation allocations.
 - **Tap count installation.** `on Tap(n)` validates its `u32` count once during handler installation. Invalid counts log a warning and skip the binding without panicking, blocking valid handlers, or installing an unused input target.

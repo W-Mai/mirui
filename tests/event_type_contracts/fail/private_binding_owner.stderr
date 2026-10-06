@@ -1,0 +1,13 @@
+error[E0616]: field `0` of struct `mirui::core::model::BindingOwner` is private
+ --> tests/event_type_contracts/fail/private_binding_owner.rs:5:19
+  |
+5 |     let _ = owner.0;
+  |                   ^ private field
+
+error[E0277]: `mirui::core::model::BindingOwner` doesn't implement `std::fmt::Debug`
+ --> tests/event_type_contracts/fail/private_binding_owner.rs:6:22
+  |
+6 |     let _ = format!("{owner:?}");
+  |                      ^^^^^^^^^ `mirui::core::model::BindingOwner` cannot be formatted using `{:?}` because it doesn't implement `std::fmt::Debug`
+  |
+  = help: the trait `std::fmt::Debug` is not implemented for `mirui::core::model::BindingOwner`

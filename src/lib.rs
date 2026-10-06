@@ -113,7 +113,7 @@ pub mod ui;
 pub mod __macro_support {
     pub use crate::anim::MotionComponent;
     pub use crate::anim::generated::{MotionFrame, advance_motion};
-    pub use crate::core::model::assert_registered_owner;
+    pub use crate::core::model::{BindingOwner, ModelOwnerError};
     pub use crate::core::timer::generated::{
         TimerSchedule, bound_timer, require_timer_model, static_timer,
     };
@@ -130,8 +130,8 @@ pub mod __macro_support {
         OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
     };
     pub use crate::input::event::callback::{
-        AppContext, CallbackContext, EntityContext, EventCallback, ModelOwnerError, NodeContext,
-        PreparationError, PreparedEvent, deferred_event_callback, event_callback,
+        AppContext, CallbackContext, EntityContext, EventCallback, NodeContext, PreparationError,
+        PreparedEvent, deferred_event_callback, event_callback,
     };
     pub use crate::input::event::emission::{flush_notifications, prepare_notifications};
     pub use crate::input::event::listeners::{

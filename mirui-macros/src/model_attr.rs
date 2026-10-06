@@ -559,8 +559,8 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         }
 
         impl #impl_generics ::mirui::core::model::SharedValue for #handle #type_generics #model_where {
-            fn assert_registered_owner(&self) {
-                ::mirui::__macro_support::assert_registered_owner(self);
+            fn binding_owner(&self) -> ::mirui::core::model::BindingOwner {
+                ::mirui::core::model::BindingOwner::registered(self)
             }
         }
 
