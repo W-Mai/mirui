@@ -1,5 +1,5 @@
-use mirui::__macro_support::{AppContext, CommandCapacity, EntityContext};
-use mirui::ecs::World;
+use mirui::__macro_support::{AppContext, EntityContext};
+use mirui::ecs::{CommandCapacity, World};
 use mirui::input::event::input::Key;
 use mirui::input::event::lifecycle::Started;
 use mirui::ui::widgets::{Checkbox, Slider};

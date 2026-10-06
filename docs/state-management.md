@@ -523,6 +523,21 @@ event installation and routing, not the payload arena.
 
 ### Prepared callback execution
 
+`CommandCapacity` is available from `mirui::ecs` and the ordinary prelude. Its typed operation counts describe deferred storage without exposing arena bytes or alignment. `insert`, `remove`, `despawn`, `insert_resource`, and `remove_resource` describe structural operations; `set`, `set_theme`, and `emit` include their actual deferred apply payloads. Capacity construction is allocation-free and supports const declarations.
+
+```rust
+use mirui::prelude::*;
+
+#[component]
+struct Marker;
+
+const COMMANDS: CommandCapacity = CommandCapacity::new()
+    .insert::<Marker>(1)
+    .despawn(2);
+```
+
+Each count reserves a combination of operations, not a per-type runtime quota. The declared combination fits in any recording order, including mixed alignments and empty operations. Recording a different, larger combination can still exceed the total record, byte, or alignment limit. Arithmetic overflow is returned by bounded preparation rather than wrapping or reducing the declaration. Prepared queues retain only the resolved limits, not the capacity-construction statistics.
+
 Named event factories derive installation inputs, typed invocation parameters, access metadata, and body arguments from one ordered parameter plan. Authored types remain in their declaration scope; relative paths are relocated only when emitting the generated factory module. Model and ordinary value arguments retain their declaration order.
 
 Internal typed callbacks share the system parameter fetch and access validator.

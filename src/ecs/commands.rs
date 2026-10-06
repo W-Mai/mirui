@@ -3,28 +3,124 @@ use core::alloc::Layout;
 use core::cmp;
 use core::ptr::NonNull;
 
-use super::payload::{PayloadArena, PayloadError, drop_stored, read_stored};
+use super::payload::{PayloadArena, PayloadError, PayloadRequirements, drop_stored, read_stored};
 use super::{Component, Entity, World};
 
 const MIN_PAYLOAD_CAPACITY: usize = 64;
 
-/// Explicit logical limits for deferred command storage.
-#[doc(hidden)]
+pub(crate) type EntityPayload<T> = (T, fn(&mut World, Entity, T) -> Result<(), CommandError>);
+pub(crate) type ResourcePayload<T> = (T, fn(&mut World, T));
+
+/// Storage requirements for deferred operations in one callback.
+///
+/// Counts describe a combination of operations, not individual runtime quotas. Their real payload layouts determine the byte and alignment requirements for every ordering of that combination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandCapacity {
-    pub records: usize,
-    pub payload_bytes: usize,
-    pub payload_alignment: usize,
+    records: usize,
+    payload: PayloadRequirements,
+    error: Option<CommandError>,
+}
+
+impl CommandCapacity {
+    /// Declare no deferred operations.
+    pub const fn new() -> Self {
+        Self {
+            records: 0,
+            payload: PayloadRequirements::new(),
+            error: None,
+        }
+    }
+
+    /// Reserve component insertions or replacements.
+    pub const fn insert<T: Component>(self, count: usize) -> Self {
+        self.payload::<T>(count)
+    }
+
+    /// Reserve component removals.
+    pub const fn remove<T: Component>(self, count: usize) -> Self {
+        self.empty(count)
+    }
+
+    /// Reserve entity removals.
+    pub const fn despawn(self, count: usize) -> Self {
+        self.empty(count)
+    }
+
+    /// Reserve resource insertions or replacements.
+    pub const fn insert_resource<T: 'static>(self, count: usize) -> Self {
+        self.payload::<T>(count)
+    }
+
+    /// Reserve resource removals.
+    pub const fn remove_resource<T: 'static>(self, count: usize) -> Self {
+        self.empty(count)
+    }
+
+    pub(crate) const fn entity_value<T: 'static>(self, count: usize) -> Self {
+        self.payload::<EntityPayload<T>>(count)
+    }
+
+    pub(crate) const fn resource_value<T: 'static>(self, count: usize) -> Self {
+        self.payload::<ResourcePayload<T>>(count)
+    }
+
+    const fn payload<T>(mut self, count: usize) -> Self {
+        if self.error.is_some() {
+            return self;
+        }
+        let Some(records) = self.records.checked_add(count) else {
+            self.error = Some(CommandError::SizeOverflow);
+            return self;
+        };
+        let Some(payload) = self.payload.include::<T>(count) else {
+            self.error = Some(CommandError::SizeOverflow);
+            return self;
+        };
+        if payload.limits().is_none() {
+            self.error = Some(CommandError::SizeOverflow);
+            return self;
+        }
+        self.records = records;
+        self.payload = payload;
+        self
+    }
+
+    const fn empty(mut self, count: usize) -> Self {
+        if self.error.is_none() {
+            match self.records.checked_add(count) {
+                Some(records) => self.records = records,
+                None => self.error = Some(CommandError::SizeOverflow),
+            }
+        }
+        self
+    }
+
+    const fn limits(self) -> Result<CommandLimits, CommandError> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        let Some((payload_bytes, payload_alignment)) = self.payload.limits() else {
+            return Err(CommandError::SizeOverflow);
+        };
+        Ok(CommandLimits {
+            records: self.records,
+            payload_bytes,
+            payload_alignment,
+        })
+    }
 }
 
 impl Default for CommandCapacity {
     fn default() -> Self {
-        Self {
-            records: 0,
-            payload_bytes: 0,
-            payload_alignment: 1,
-        }
+        Self::new()
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CommandLimits {
+    records: usize,
+    payload_bytes: usize,
+    payload_alignment: usize,
 }
 
 /// Failure to record or submit deferred commands.
@@ -107,12 +203,13 @@ struct CommandRecord {
 pub(crate) struct CommandQueue {
     records: Vec<CommandRecord>,
     payload: PayloadArena,
-    capacity: Option<CommandCapacity>,
+    capacity: Option<CommandLimits>,
     error: Option<CommandError>,
 }
 
 impl CommandQueue {
     pub(crate) fn bounded(capacity: CommandCapacity) -> Result<Self, CommandError> {
+        let capacity = capacity.limits()?;
         Layout::array::<CommandRecord>(capacity.records).map_err(|_| CommandError::SizeOverflow)?;
         Layout::from_size_align(capacity.payload_bytes, capacity.payload_alignment)
             .map_err(|_| CommandError::InvalidLayout)?;
@@ -334,13 +431,15 @@ impl DeferredCommands<'_> {
         value: T,
         apply: fn(&mut World, Entity, T) -> Result<(), CommandError>,
     ) {
+        let payload: EntityPayload<T> = (value, apply);
         self.queue
-            .push_payload(Some(entity), (value, apply), apply_value::<T>);
+            .push_payload(Some(entity), payload, apply_value::<T>);
     }
 
     pub(crate) fn apply_resource<T: 'static>(&mut self, value: T, apply: fn(&mut World, T)) {
+        let payload: ResourcePayload<T> = (value, apply);
         self.queue
-            .push_payload(None, (value, apply), apply_resource_value::<T>);
+            .push_payload(None, payload, apply_resource_value::<T>);
     }
 
     #[doc(hidden)]
@@ -388,9 +487,7 @@ unsafe fn apply_value<T: 'static>(
     payload: *mut u8,
 ) -> Result<(), CommandError> {
     // SAFETY: this apply function is paired with a stored value/function tuple.
-    let (value, apply) = unsafe {
-        read_stored::<(T, fn(&mut World, Entity, T) -> Result<(), CommandError>)>(payload)
-    };
+    let (value, apply) = unsafe { read_stored::<EntityPayload<T>>(payload) };
     apply(world, target.expect("deferred value target"), value)
 }
 
@@ -400,7 +497,7 @@ unsafe fn apply_resource_value<T: 'static>(
     payload: *mut u8,
 ) -> Result<(), CommandError> {
     // SAFETY: this apply function is paired with a stored value/function tuple.
-    let (value, apply) = unsafe { read_stored::<(T, fn(&mut World, T))>(payload) };
+    let (value, apply) = unsafe { read_stored::<ResourcePayload<T>>(payload) };
     apply(world, value);
     Ok(())
 }
@@ -474,6 +571,26 @@ mod tests {
     struct OverAligned([u8; 160]);
 
     impl Component for OverAligned {}
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Small([u8; 3]);
+
+    impl Component for Small {}
+
+    #[derive(Debug, PartialEq, Eq)]
+    #[repr(align(8))]
+    struct Medium(u64);
+
+    impl Component for Medium {}
+
+    #[repr(align(64))]
+    struct UnitNotification;
+
+    impl crate::input::event::contract::Event for UnitNotification {
+        type Route = crate::input::event::contract::EntityNotification;
+        type Source = crate::input::event::contract::WidgetSource<Marker>;
+        type Options = ();
+    }
 
     static ZST_DROPS: AtomicUsize = AtomicUsize::new(0);
 
@@ -662,20 +779,12 @@ mod tests {
         assert_eq!(world.get::<Marker>(entity), Some(&Marker(9)));
     }
 
-    fn capacity<T>(records: usize) -> CommandCapacity {
-        CommandCapacity {
-            records,
-            payload_bytes: core::mem::size_of::<T>() * records,
-            payload_alignment: core::mem::align_of::<T>(),
-        }
-    }
-
     #[test]
     fn bounded_batch_records_and_commits_without_first_call_growth() {
         let mut world = World::new();
         let entity = world.spawn_empty();
         world.insert(entity, Marker(0));
-        let mut queue = CommandQueue::bounded(capacity::<Marker>(2)).unwrap();
+        let mut queue = CommandQueue::bounded(CommandCapacity::new().insert::<Marker>(2)).unwrap();
         let records = queue.records.capacity();
         let bytes = queue.payload.capacity();
         assert_eq!(
@@ -695,9 +804,131 @@ mod tests {
     }
 
     #[test]
+    fn semantic_requirements_are_const_and_build_without_allocation() {
+        const CAPACITY: CommandCapacity = CommandCapacity::new()
+            .insert::<Marker>(1)
+            .remove::<Marker>(2)
+            .despawn(1)
+            .insert_resource::<Resource>(1)
+            .remove_resource::<Resource>(1)
+            .set::<crate::ui::property::prop::Width>(1)
+            .emit::<UnitNotification>(1)
+            .set_theme(1);
+        assert_eq!(CAPACITY.limits().unwrap().records, 9);
+        assert_eq!(
+            tracked_allocations(|| {
+                let capacity = CommandCapacity::new()
+                    .insert::<Marker>(1)
+                    .remove::<Marker>(2)
+                    .despawn(1)
+                    .insert_resource::<Resource>(1)
+                    .remove_resource::<Resource>(1)
+                    .set::<crate::ui::property::prop::Width>(1)
+                    .emit::<UnitNotification>(1)
+                    .set_theme(1);
+                assert_eq!(capacity, CAPACITY);
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn mixed_requirements_accept_every_operation_order_without_first_or_repeated_growth() {
+        const CAPACITY: CommandCapacity = CommandCapacity::new()
+            .insert::<Small>(1)
+            .insert::<Medium>(1)
+            .insert::<OverAligned>(1);
+        const REVERSED: CommandCapacity = CommandCapacity::new()
+            .insert::<OverAligned>(1)
+            .insert::<Medium>(1)
+            .insert::<Small>(1);
+        assert_eq!(CAPACITY.limits(), REVERSED.limits());
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Small([0; 3]));
+        world.insert(entity, Medium(0));
+        world.insert(entity, OverAligned([0; 160]));
+        let mut queue = CommandQueue::bounded(CAPACITY).unwrap();
+        let records = queue.records.capacity();
+        let bytes = queue.payload.capacity();
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            assert_eq!(
+                tracked_allocations(|| {
+                    for _ in 0..2 {
+                        let mut batch = queue.begin();
+                        for item in order {
+                            match item {
+                                0 => batch.commands().insert(entity, Small([3; 3])),
+                                1 => batch.commands().insert(entity, Medium(8)),
+                                2 => batch.commands().insert(entity, OverAligned([64; 160])),
+                                _ => unreachable!("three operation kinds"),
+                            }
+                        }
+                        batch.finish(&mut world).unwrap();
+                    }
+                }),
+                0
+            );
+        }
+        assert_eq!(queue.records.capacity(), records);
+        assert_eq!(queue.payload.capacity(), bytes);
+        assert_eq!(world.get::<Small>(entity), Some(&Small([3; 3])));
+        assert_eq!(world.get::<Medium>(entity), Some(&Medium(8)));
+        assert_eq!(world.get::<OverAligned>(entity).unwrap().0, [64; 160]);
+    }
+
+    #[test]
+    fn unit_emission_reserves_the_real_function_tuple_instead_of_an_empty_payload() {
+        const CAPACITY: CommandCapacity = CommandCapacity::new().emit::<UnitNotification>(2);
+        let limits = CAPACITY.limits().unwrap();
+        assert_eq!(limits.records, 2);
+        assert_eq!(
+            limits.payload_bytes,
+            core::mem::size_of::<EntityPayload<UnitNotification>>() * 2
+        );
+        assert_eq!(
+            limits.payload_alignment,
+            core::mem::align_of::<EntityPayload<UnitNotification>>()
+        );
+        assert!(limits.payload_bytes > 0);
+        assert_eq!(limits.payload_alignment, 64);
+    }
+
+    #[test]
+    fn overflowing_requirements_preserve_the_first_error_without_allocating() {
+        const CAPACITY: CommandCapacity = CommandCapacity::new().insert_resource::<u16>(usize::MAX);
+        assert_eq!(CAPACITY.limits(), Err(CommandError::SizeOverflow));
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(CAPACITY.despawn(1).set_theme(usize::MAX), CAPACITY);
+                assert_eq!(
+                    CommandCapacity::new()
+                        .insert_resource::<u8>(usize::MAX - 192)
+                        .insert::<OverAligned>(1)
+                        .limits(),
+                    Err(CommandError::SizeOverflow)
+                );
+                assert!(matches!(
+                    CommandQueue::bounded(CAPACITY),
+                    Err(CommandError::SizeOverflow)
+                ));
+            }),
+            0
+        );
+    }
+
+    #[test]
     fn bounded_storage_returns_rejected_ownership_without_mutating_records() {
         let drops = Rc::new(Cell::new(0));
-        let mut queue = CommandQueue::bounded(capacity::<DropMarker>(1)).unwrap();
+        let mut queue =
+            CommandQueue::bounded(CommandCapacity::new().insert::<DropMarker>(1)).unwrap();
         let entity = Entity {
             id: 0,
             generation: 0,
@@ -731,7 +962,8 @@ mod tests {
         let entity = world.spawn_empty();
         world.insert(entity, Marker(0));
         let drops = Rc::new(Cell::new(0));
-        let mut queue = CommandQueue::bounded(capacity::<DropMarker>(1)).unwrap();
+        let mut queue =
+            CommandQueue::bounded(CommandCapacity::new().insert::<DropMarker>(1)).unwrap();
         let allocations = tracked_allocations(|| {
             let mut batch = queue.begin();
             batch.commands().insert(entity, DropMarker(drops.clone()));
@@ -761,11 +993,11 @@ mod tests {
     fn logical_payload_and_alignment_limits_do_not_use_allocator_slack() {
         let mut world = World::new();
         let entity = world.spawn_empty();
-        let mut queue = CommandQueue::bounded(CommandCapacity {
-            records: 3,
-            payload_bytes: 4,
-            payload_alignment: 4,
-        })
+        let mut queue = CommandQueue::bounded(
+            CommandCapacity::new()
+                .insert::<Marker>(1)
+                .remove::<Marker>(2),
+        )
         .unwrap();
         // Deliberately enlarge physical storage without raising logical limits.
         queue.payload.reserve(256, 64).unwrap();
@@ -793,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_bounded_queue_rejects_commands_and_invalid_layouts_explicitly() {
+    fn empty_bounded_queue_rejects_commands_and_invalid_requirements_explicitly() {
         let mut queue = CommandQueue::bounded(CommandCapacity::default()).unwrap();
         let mut world = World::new();
         let allocations = tracked_allocations(|| {
@@ -808,17 +1040,13 @@ mod tests {
         assert_eq!(queue.records.capacity(), 0);
         assert_eq!(queue.payload.capacity(), 0);
         assert!(matches!(
-            CommandQueue::bounded(CommandCapacity {
-                records: usize::MAX,
-                ..CommandCapacity::default()
-            }),
+            CommandQueue::bounded(CommandCapacity::new().despawn(usize::MAX).despawn(1)),
             Err(CommandError::SizeOverflow)
         ));
         assert!(matches!(
-            CommandQueue::bounded(CommandCapacity {
-                payload_alignment: 3,
-                ..CommandCapacity::default()
-            }),
+            CommandQueue::bounded(CommandCapacity::new().insert::<OverAligned>(
+                isize::MAX as usize / core::mem::size_of::<OverAligned>() + 1
+            )),
             Err(CommandError::InvalidLayout)
         ));
     }
@@ -834,11 +1062,7 @@ mod tests {
                 DROPS.fetch_add(1, Ordering::Relaxed);
             }
         }
-        let mut queue = CommandQueue::bounded(CommandCapacity {
-            records: 2,
-            ..CommandCapacity::default()
-        })
-        .unwrap();
+        let mut queue = CommandQueue::bounded(CommandCapacity::new().insert::<Empty>(2)).unwrap();
         let mut world = World::new();
         let entity = world.spawn_empty();
         assert_eq!(

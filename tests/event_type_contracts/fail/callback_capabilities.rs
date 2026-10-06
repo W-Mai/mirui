@@ -1,6 +1,6 @@
-use mirui::__macro_support::{AppContext, CommandCapacity, EntityContext, event_callback};
+use mirui::__macro_support::{AppContext, EntityContext, event_callback};
 use mirui::component;
-use mirui::ecs::{Entity, World};
+use mirui::ecs::{CommandCapacity, Entity, World};
 use mirui::input::event::gesture::Tap;
 use mirui::input::event::input::Wheel;
 use mirui::input::event::lifecycle::Started;

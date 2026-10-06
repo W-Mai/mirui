@@ -351,20 +351,11 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
     assert_eq!(world.resource::<Settings>().unwrap().0, 2);
 }
 
-fn command_capacity<T>(records: usize) -> CommandCapacity {
-    CommandCapacity {
-        records,
-        payload_bytes: core::mem::size_of::<T>() * records,
-        payload_alignment: core::mem::align_of::<T>(),
-    }
-}
-
 #[test]
 fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating() {
     let mut world = World::new();
     world.insert_resource(Settings(0));
     const ACCESS: &[SystemAccess] = &[SystemAccess::write_resource::<Settings>()];
-    type Payload = (i32, fn(&mut World, i32));
     // SAFETY: ACCESS describes the only live mutable resource. Queued updates
     // do not borrow it until the body has released its parameter.
     let callback = unsafe {
@@ -384,7 +375,7 @@ fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating(
             },
         )
     }
-    .prepare(&mut world, command_capacity::<Payload>(2))
+    .prepare(&mut world, CommandCapacity::new().resource_value::<i32>(2))
     .unwrap();
     let payload = Key {
         code: 1,
@@ -426,13 +417,7 @@ fn deferred_component_removal_runs_after_query_reborrow_ends() {
             },
         )
     }
-    .prepare(
-        &mut world,
-        CommandCapacity {
-            records: 1,
-            ..CommandCapacity::default()
-        },
-    )
+    .prepare(&mut world, CommandCapacity::new().remove::<Position>(1))
     .unwrap();
     assert_eq!(callback.invoke(&mut world, &Changed(0), node), Ok(Some(())));
     assert!(!world.has::<Position>(node));
@@ -443,7 +428,6 @@ fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource
     let mut world = World::new();
     world.insert_resource(Settings(0));
     const ACCESS: &[SystemAccess] = &[SystemAccess::write_resource::<Settings>()];
-    type Payload = (i32, fn(&mut World, i32));
     // SAFETY: the declared resource is only borrowed during the body; commands
     // cannot access it before the body returns.
     let callback = unsafe {
@@ -462,7 +446,7 @@ fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource
             },
         )
     }
-    .prepare(&mut world, command_capacity::<Payload>(1))
+    .prepare(&mut world, CommandCapacity::new().resource_value::<i32>(1))
     .unwrap();
     let mut payload = Key {
         code: 1,
@@ -545,7 +529,6 @@ fn deferred_body_and_apply_panic_drop_pending_values_and_leave_executor_reusable
         let mut world = World::new();
         let drops = Rc::new(Cell::new(0));
         let captured = Rc::clone(&drops);
-        type Payload = (OwnedCommand, fn(&mut World, OwnedCommand));
         // SAFETY: there are no borrowed parameters. Apply receives World only
         // after the callback body has returned; payloads are always consumed.
         let callback = unsafe {
@@ -566,7 +549,10 @@ fn deferred_body_and_apply_panic_drop_pending_values_and_leave_executor_reusable
                 },
             )
         }
-        .prepare(&mut world, command_capacity::<Payload>(2))
+        .prepare(
+            &mut world,
+            CommandCapacity::new().resource_value::<OwnedCommand>(2),
+        )
         .unwrap();
         let mut payload = Key {
             code: 1,
@@ -598,13 +584,7 @@ fn invalid_command_budget_is_rejected_during_installation() {
         deferred_event_callback::<Key, AppContext, (), bool>("budget", &[], |(), _, (), _| false)
     };
     assert!(matches!(
-        callback.prepare(
-            &mut world,
-            CommandCapacity {
-                payload_alignment: 3,
-                ..CommandCapacity::default()
-            }
-        ),
-        Err(CommandError::InvalidLayout)
+        callback.prepare(&mut world, CommandCapacity::new().despawn(usize::MAX)),
+        Err(CommandError::SizeOverflow)
     ));
 }

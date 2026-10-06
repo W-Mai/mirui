@@ -117,9 +117,7 @@ pub mod __macro_support {
     pub use crate::core::timer::generated::{
         TimerSchedule, bound_timer, require_timer_model, static_timer,
     };
-    pub use crate::ecs::commands::{
-        CommandCapacity, CommandCommitError, CommandError, DeferredCommands,
-    };
+    pub use crate::ecs::commands::{CommandCommitError, CommandError, DeferredCommands};
     pub use crate::ecs::query::system::{
         ComponentDriver, EntityItem, OptionalRead, Read, With, Without, Write,
     };
@@ -170,7 +168,7 @@ pub use mirui_macros::{
 pub mod prelude {
     pub use crate::app::{App, RendererFactory};
     pub use crate::core::reactive::{Computed, Effect, Signal};
-    pub use crate::ecs::{Component, Entity, IntoBundle, MonoClock, World};
+    pub use crate::ecs::{CommandCapacity, Component, Entity, IntoBundle, MonoClock, World};
     pub use crate::input::event::contract::{Event, EventKey};
     pub use crate::input::event::focus::{Focusable, TextEditable};
     pub use crate::input::event::gesture::{

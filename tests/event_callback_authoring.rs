@@ -1,5 +1,6 @@
-use mirui::__macro_support::{AppContext, CommandCapacity, EntityContext};
+use mirui::__macro_support::{AppContext, EntityContext};
 use mirui::app::App;
+use mirui::ecs::CommandCapacity;
 use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
 use mirui::input::event::input::Key;
 use mirui::input::event::lifecycle::{Started, Suspended};
@@ -169,14 +170,7 @@ fn generated_commands_commit_after_query_borrows_end() {
     app.world.insert(node, Pad);
     app.world.insert(node, Position(7));
     let handler = remove_position::callback::<Key, EntityContext<Pad>>()
-        .prepare(
-            &mut app.world,
-            CommandCapacity {
-                records: 1,
-                payload_bytes: 0,
-                payload_alignment: 1,
-            },
-        )
+        .prepare(&mut app.world, CommandCapacity::new().remove::<Position>(1))
         .unwrap();
     let allocations = tracked_allocations(|| {
         assert_eq!(

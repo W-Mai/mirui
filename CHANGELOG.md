@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typed command capacities.** Const operation-count declarations calculate deferred payload sizes, mixed-alignment storage, and apply-function layout without exposing byte limits or allocating a type catalog.
 - **Typed authoring roles.** `model!`, `res!`, `query!`, `component!`, and capability roles give generated callbacks typed access without exposing `World`, generated handles, or explicit lifetimes.
 - **Deferred authoring commands.** `commands!()` records component, resource, entity, and UI property changes for ordered application after callback borrows end, while retaining command storage across runs.
 - **Typed query point fetches.** `query!(...)` supports `get(entity)` with generation, driver, component, and filter validation. Read-only fetches share borrows; mutable fetches enforce exclusive row lifetimes and reuse component-change records.

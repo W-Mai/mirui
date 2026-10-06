@@ -80,6 +80,17 @@ impl crate::ecs::commands::DeferredCommands<'_> {
     }
 }
 
+impl crate::ecs::CommandCapacity {
+    /// Reserve typed property updates, including their deferred apply function.
+    pub const fn set<P>(self, count: usize) -> Self
+    where
+        P: Property,
+        P::Value: 'static,
+    {
+        self.entity_value::<P::Value>(count)
+    }
+}
+
 fn apply_deferred<P: Property>(
     world: &mut World,
     entity: Entity,

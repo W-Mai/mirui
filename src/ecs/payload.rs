@@ -12,6 +12,123 @@ pub(crate) enum PayloadError {
     Alignment { required: usize, available: usize },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PayloadLayout {
+    size: usize,
+    alignment: usize,
+}
+
+impl PayloadLayout {
+    pub(crate) const fn of<T>() -> Self {
+        let size = size_of::<T>();
+        Self {
+            size,
+            alignment: if size == 0 { 1 } else { align_of::<T>() },
+        }
+    }
+
+    const fn required(self, used: usize) -> Result<(usize, usize), PayloadError> {
+        if self.size == 0 {
+            return Ok((0, 1));
+        }
+        let Some(offset) = align_up(used, self.alignment) else {
+            return Err(PayloadError::SizeOverflow);
+        };
+        let Some(end) = offset.checked_add(self.size) else {
+            return Err(PayloadError::SizeOverflow);
+        };
+        Ok((end, self.alignment))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PayloadRequirements {
+    bytes: usize,
+    count: usize,
+    alignment_weight: usize,
+    minimum_alignment: usize,
+    maximum_alignment: usize,
+}
+
+impl PayloadRequirements {
+    pub(crate) const fn new() -> Self {
+        Self {
+            bytes: 0,
+            count: 0,
+            alignment_weight: 0,
+            minimum_alignment: 1,
+            maximum_alignment: 1,
+        }
+    }
+
+    pub(crate) const fn include<T>(self, count: usize) -> Option<Self> {
+        let layout = PayloadLayout::of::<T>();
+        if count == 0 || layout.size == 0 {
+            return Some(self);
+        }
+        let Some(bytes) = layout.size.checked_mul(count) else {
+            return None;
+        };
+        let Some(weight) = layout.alignment.checked_mul(count) else {
+            return None;
+        };
+        let Some(bytes) = self.bytes.checked_add(bytes) else {
+            return None;
+        };
+        let Some(alignment_weight) = self.alignment_weight.checked_add(weight) else {
+            return None;
+        };
+        let Some(total) = self.count.checked_add(count) else {
+            return None;
+        };
+        let minimum_alignment = if self.count == 0 || layout.alignment < self.minimum_alignment {
+            layout.alignment
+        } else {
+            self.minimum_alignment
+        };
+        let maximum_alignment = if layout.alignment > self.maximum_alignment {
+            layout.alignment
+        } else {
+            self.maximum_alignment
+        };
+        Some(Self {
+            bytes,
+            count: total,
+            alignment_weight,
+            minimum_alignment,
+            maximum_alignment,
+        })
+    }
+
+    pub(crate) const fn limits(self) -> Option<(usize, usize)> {
+        // Charge each alignment rise to the current item above the minimum,
+        // or to the preceding item below the maximum; either bound covers every order.
+        let Some(minimum_weight) = self.count.checked_mul(self.minimum_alignment) else {
+            return None;
+        };
+        let Some(forward) = self.alignment_weight.checked_sub(minimum_weight) else {
+            return None;
+        };
+        let padding = match self.count.checked_mul(self.maximum_alignment) {
+            Some(maximum_weight) => {
+                let Some(backward) = maximum_weight.checked_sub(self.alignment_weight) else {
+                    return None;
+                };
+                if backward < forward {
+                    backward
+                } else {
+                    forward
+                }
+            }
+            None => forward,
+        };
+        let Some(bytes) = self.bytes.checked_add(padding) else {
+            return None;
+        };
+        Some((bytes, self.maximum_alignment))
+    }
+}
+
 /// Byte storage; the owning record queue consumes or drops every stored value.
 pub(crate) struct PayloadArena {
     data: NonNull<MaybeUninit<u8>>,
@@ -33,14 +150,7 @@ impl Default for PayloadArena {
 
 impl PayloadArena {
     pub(crate) fn required<T>(&self) -> Result<(usize, usize), PayloadError> {
-        if size_of::<T>() == 0 {
-            return Ok((0, 1));
-        }
-        let offset = align_up(self.len, align_of::<T>()).ok_or(PayloadError::SizeOverflow)?;
-        let end = offset
-            .checked_add(size_of::<T>())
-            .ok_or(PayloadError::SizeOverflow)?;
-        Ok((end, align_of::<T>()))
+        PayloadLayout::of::<T>().required(self.len)
     }
 
     pub(crate) fn capacity(&self) -> usize {
@@ -146,10 +256,11 @@ impl Drop for PayloadArena {
     }
 }
 
-fn align_up(value: usize, alignment: usize) -> Option<usize> {
-    value
-        .checked_add(alignment - 1)
-        .map(|value| value & !(alignment - 1))
+const fn align_up(value: usize, alignment: usize) -> Option<usize> {
+    match value.checked_add(alignment - 1) {
+        Some(value) => Some(value & !(alignment - 1)),
+        None => None,
+    }
 }
 
 /// The pointer must hold one unread T paired with its owning record.
@@ -192,6 +303,98 @@ mod tests {
     #[derive(Debug, PartialEq, Eq)]
     #[repr(align(128))]
     struct Aligned([u8; 128]);
+
+    #[derive(Debug)]
+    #[repr(align(64))]
+    struct SixtyFour([u8; 64]);
+
+    #[repr(align(128))]
+    struct AlignedEmpty;
+
+    #[test]
+    fn typed_layout_shares_zero_sized_and_placement_rules_with_the_arena() {
+        let mut arena = PayloadArena::default();
+        arena.reserve(16, 8).unwrap();
+        arena.try_store([0_u8; 3]).unwrap();
+        assert_eq!(
+            arena.required::<u64>(),
+            PayloadLayout::of::<u64>().required(3)
+        );
+        assert_eq!(arena.required::<u64>(), Ok((16, 8)));
+        assert_eq!(
+            PayloadLayout::of::<AlignedEmpty>().required(usize::MAX),
+            Ok((0, 1))
+        );
+        assert_eq!(
+            PayloadRequirements::new()
+                .include::<AlignedEmpty>(usize::MAX)
+                .unwrap()
+                .limits(),
+            Some((0, 1))
+        );
+        let mut aligned = PayloadArena::default();
+        aligned.reserve(64, 64).unwrap();
+        let offset = aligned.try_store(SixtyFour([64; 64])).unwrap();
+        // SAFETY: this test owns the single initialized payload at offset.
+        let value = unsafe { read_stored::<SixtyFour>(aligned.ptr(offset)) };
+        assert_eq!(value.0, [64; 64]);
+        aligned.clear();
+    }
+
+    #[test]
+    fn mixed_alignment_requirements_are_order_independent_and_keep_skewed_counts_compact() {
+        const SMALL_FIRST: PayloadRequirements = PayloadRequirements::new()
+            .include::<u8>(1000)
+            .unwrap()
+            .include::<SixtyFour>(1)
+            .unwrap();
+        let large_first = PayloadRequirements::new()
+            .include::<SixtyFour>(1)
+            .unwrap()
+            .include::<u8>(1000)
+            .unwrap();
+        assert_eq!(SMALL_FIRST, large_first);
+        assert_eq!(SMALL_FIRST.limits(), Some((1127, 64)));
+        assert_eq!(
+            PayloadRequirements::new()
+                .include::<SixtyFour>(1000)
+                .unwrap()
+                .include::<u8>(1)
+                .unwrap()
+                .limits(),
+            Some((64064, 64))
+        );
+        assert_eq!(
+            PayloadRequirements::new()
+                .include::<SixtyFour>(1000)
+                .unwrap()
+                .limits(),
+            Some((64000, 64))
+        );
+        assert_eq!(
+            tracked_allocations(|| {
+                let requirements = PayloadRequirements::new()
+                    .include::<u8>(1000)
+                    .unwrap()
+                    .include::<SixtyFour>(1)
+                    .unwrap();
+                assert_eq!(requirements, SMALL_FIRST);
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn overflowing_alternate_padding_bound_uses_the_finite_forward_bound() {
+        let count = usize::MAX / 2;
+        let requirements = PayloadRequirements::new()
+            .include::<u8>(count)
+            .unwrap()
+            .include::<SixtyFour>(1)
+            .unwrap();
+        assert!(requirements.count.checked_mul(64).is_none());
+        assert_eq!(requirements.limits(), Some((count + 127, 64)));
+    }
 
     #[test]
     fn bounded_storage_keeps_existing_values_and_returns_rejected_ownership() {

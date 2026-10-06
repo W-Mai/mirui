@@ -446,6 +446,13 @@ impl crate::ecs::commands::DeferredCommands<'_> {
     }
 }
 
+impl crate::ecs::CommandCapacity {
+    /// Reserve deferred theme changes.
+    pub const fn set_theme(self, count: usize) -> Self {
+        self.resource_value::<ThemeSource>(count)
+    }
+}
+
 pub fn register(world: &mut World, theme: Theme) -> Option<Theme> {
     if world.resource::<ThemeCatalog>().is_none() {
         world.insert_resource(ThemeCatalog::new());

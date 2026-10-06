@@ -1,10 +1,10 @@
 #![deny(warnings)]
 
 use mirui::__macro_support::{
-    CommandCapacity, CommandError, EntityContext, EventListeners, ListenerSelector, NodeContext,
-    NotificationCapacity, flush_notifications, prepare_notifications,
+    EntityContext, EventListeners, ListenerSelector, NodeContext, NotificationCapacity,
+    flush_notifications, prepare_notifications,
 };
-use mirui::ecs::Component;
+use mirui::ecs::{CommandCapacity, Component};
 use mirui::input::event::contract::*;
 use mirui::input::event::gesture::Tap;
 
@@ -108,16 +108,8 @@ fn main() {
         },
     )
     .unwrap();
-    type Apply = fn(&mut mirui::ecs::World, mirui::ecs::Entity, Hit) -> Result<(), CommandError>;
     let sender = emit_hit::callback::<Tap, NodeContext>()
-        .prepare(
-            &mut world,
-            CommandCapacity {
-                records: 1,
-                payload_bytes: std::mem::size_of::<(Hit, Apply)>(),
-                payload_alignment: std::mem::align_of::<(Hit, Apply)>(),
-            },
-        )
+        .prepare(&mut world, CommandCapacity::new().emit::<Hit>(1))
         .unwrap();
     let input = Tap {
         x: mirui::types::Fixed::ZERO,

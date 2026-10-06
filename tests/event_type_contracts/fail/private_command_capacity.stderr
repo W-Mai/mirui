@@ -1,0 +1,5 @@
+error[E0616]: field `records` of struct `CommandCapacity` is private
+ --> tests/event_type_contracts/fail/private_command_capacity.rs:5:14
+  |
+5 |     capacity.records = 1;
+  |              ^^^^^^^ private field

@@ -1,7 +1,5 @@
-use mirui::__macro_support::{
-    AppContext, CommandCapacity, ResMut, SystemAccess, deferred_event_callback,
-};
-use mirui::ecs::World;
+use mirui::__macro_support::{AppContext, ResMut, SystemAccess, deferred_event_callback};
+use mirui::ecs::{CommandCapacity, World};
 use mirui::input::event::BubbleControl;
 use mirui::input::event::input::Key;
 
@@ -26,10 +24,7 @@ fn main() {
     }
     .prepare(
         &mut world,
-        CommandCapacity {
-            records: 1,
-            ..CommandCapacity::default()
-        },
+        CommandCapacity::new().remove_resource::<State>(1),
     )
     .unwrap();
     let payload = Key {

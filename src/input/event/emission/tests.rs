@@ -70,13 +70,12 @@ fn record(input: event!(Hit), trace: res!(mut Trace)) {
     trace.record(input.old, input.new);
 }
 
-fn command_capacity<E>(records: usize) -> CommandCapacity {
-    type Apply<E> = fn(&mut World, Entity, E) -> Result<(), CommandError>;
-    CommandCapacity {
-        records,
-        payload_bytes: records * size_of::<(E, Apply<E>)>(),
-        payload_alignment: align_of::<(E, Apply<E>)>(),
-    }
+fn command_capacity<E>(records: usize) -> CommandCapacity
+where
+    E: Event<Route = EntityNotification>,
+    E::Source: EntityEventSource,
+{
+    CommandCapacity::new().emit::<E>(records)
 }
 
 fn notification_capacity<E>(records: usize) -> NotificationCapacity {
@@ -259,8 +258,6 @@ fn prepare_while_flushing(input: event!(Hit), node: entity!(), commands: command
 #[test]
 fn active_preparation_returns_busy_without_replacing_the_service_or_reordering_notifications() {
     let mut fixture = Fixture::new(notification_capacity::<Hit>(2));
-    type Prepare = fn(&mut World, ());
-    let capacity = command_capacity::<Hit>(1);
     fixture
         .listeners
         .install_entity(
@@ -268,11 +265,9 @@ fn active_preparation_returns_busy_without_replacing_the_service_or_reordering_n
             fixture.node,
             ListenerSelector::new(Hit::EVENT, |(), _| true),
             prepare_while_flushing::callback::<NodeContext>(),
-            CommandCapacity {
-                records: 2,
-                payload_bytes: size_of::<((), Prepare)>() + capacity.payload_bytes,
-                payload_alignment: align_of::<((), Prepare)>().max(capacity.payload_alignment),
-            },
+            CommandCapacity::new()
+                .resource_value::<()>(1)
+                .emit::<Hit>(1),
         )
         .unwrap();
     let mut commands = CommandQueue::bounded(command_capacity::<Hit>(2)).unwrap();
@@ -413,22 +408,15 @@ fn forced_service_replacement_keeps_active_payloads_alive_and_redirects_later_su
             snapshot_steps: 2,
         })
         .unwrap();
-    type Install = fn(&mut World, Rc<PendingNotifications>);
-    let capacity = command_capacity::<Hit>(1);
     listeners
         .install_entity(
             &mut world,
             node,
             ListenerSelector::new(OwnedHit::EVENT, |(), _| true),
             replace_pending::callback::<NodeContext>(),
-            CommandCapacity {
-                records: 2,
-                payload_bytes: size_of::<(Rc<PendingNotifications>, Install)>()
-                    + capacity.payload_bytes,
-                payload_alignment: capacity
-                    .payload_alignment
-                    .max(align_of::<(Rc<PendingNotifications>, Install)>()),
-            },
+            CommandCapacity::new()
+                .resource_value::<Rc<PendingNotifications>>(1)
+                .emit::<Hit>(1),
         )
         .unwrap();
     listeners

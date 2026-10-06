@@ -1,8 +1,6 @@
-use mirui::__macro_support::{
-    AppContext, CommandCapacity, EntityContext, ResMut, SystemAccess, event_callback,
-};
+use mirui::__macro_support::{AppContext, EntityContext, ResMut, SystemAccess, event_callback};
 use mirui::component;
-use mirui::ecs::World;
+use mirui::ecs::{CommandCapacity, World};
 use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
 use mirui::input::event::lifecycle::Started;
 

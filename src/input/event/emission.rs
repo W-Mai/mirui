@@ -83,6 +83,17 @@ impl DeferredCommands<'_> {
     }
 }
 
+impl crate::ecs::CommandCapacity {
+    /// Reserve widget notifications, including their deferred submission function.
+    pub const fn emit<E>(self, count: usize) -> Self
+    where
+        E: Event<Route = EntityNotification>,
+        E::Source: EntityEventSource,
+    {
+        self.entity_value::<E>(count)
+    }
+}
+
 fn submit<E>(world: &mut World, entity: Entity, payload: E) -> Result<(), CommandError>
 where
     E: Event<Route = EntityNotification>,
