@@ -1,4 +1,4 @@
-use super::input::{handle_key, local_cell};
+use super::input::local_cell;
 use super::render::{cell_origin, map_box};
 use super::setup_app;
 use super::state::EchoSurface;
@@ -69,13 +69,20 @@ fn board_hit_testing_maps_the_player_cell() {
 
 #[test]
 fn keyboard_wait_advances_exactly_one_beat() {
-    let world = fixture();
-    let model = model_handle(&world);
-    assert!(handle_key(&model, ' '));
+    let mut world = fixture();
+    crate::input::event::dispatch_input(
+        &mut world,
+        None,
+        &crate::surface::InputEvent::CharInput { ch: ' ' },
+        0,
+        480,
+        320,
+    );
     assert_eq!(with_model(&world, EchoModel::tick), 1);
     #[cfg(feature = "persistence")]
     {
-        let bytes = crate::core::model::ModelHandle::read(&model, EchoModel::encode_replay);
+        let bytes =
+            crate::core::model::ModelHandle::read(&model_handle(&world), EchoModel::encode_replay);
         let log = EchoReplayLog::decode(&bytes, ReplayKind::Echo).unwrap();
         assert_eq!(log.len(), 1);
     }

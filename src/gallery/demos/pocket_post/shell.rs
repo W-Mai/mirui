@@ -1,4 +1,4 @@
-use super::input::{PostKeyboardPlugin, post_tick_system, surface_tap};
+use super::input::{keyboard, post_tick_system, surface_tap};
 use super::render::{modal_render, surface_render};
 use super::state::{PostModalSurface, PostSurface};
 use super::style::{ACCENT, BACKGROUND, CONTROL, CONTROL_DISABLED, MUTED, STATION_COLORS, TEXT};
@@ -824,7 +824,7 @@ where
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     let model = app.add_model(PostModel::default());
-    app.add_plugin(PostKeyboardPlugin::new(model.clone()));
+    app.on_event(CharInput::EVENT, keyboard::callback(model.clone()));
     app.add_system(post_tick_system::system(model.clone()));
     app.compose(parent, |cx| build_widgets(cx, model));
 }

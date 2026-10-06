@@ -1,4 +1,4 @@
-use super::input::{EchoKeyboardPlugin, surface_tap};
+use super::input::{keyboard, surface_tap};
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::{modal_render, surface_render};
@@ -681,6 +681,6 @@ where
     install_persistence(app, model.clone());
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
-    app.add_plugin(EchoKeyboardPlugin::new(model.clone()));
+    app.on_event(CharInput::EVENT, keyboard::callback(model.clone()));
     app.compose(parent, |cx| build_widgets(cx, model));
 }

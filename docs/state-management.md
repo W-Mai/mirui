@@ -532,6 +532,8 @@ app.on_event(Key::EVENT, handle_key::callback(shortcuts));
 
 Focused keyboard handlers and default text editing run before App key and character fallback. Wheel and rotary events first try the scroll route. An accepted input is not dispatched again through a second handler path. App fallback also works without a widget root. Plugin consumption can stop user input, but does not stop lifecycle requests from reaching other plugins or bypass cancellation.
 
+Echo Walker and Pocket Post bind keyboard controls with `#[event]`, `event!(CharInput)`, and `model!` parameters. Their shortcuts use App fallback rather than a lifecycle plugin or an explicit Model handle type. The registered instance is shared with the rest of the game; character input consumed by a focused editor does not trigger the shortcut.
+
 `Started` follows the startup hooks once, including applications driven directly by `tick`. Suspend and resume notify only after an actual state change and their plugin hooks; suspension and quit cancel active pointer, scroll, and gesture state. Memory warnings and host interactions notify after their hooks. Quit hooks and notifications run once even if `tick` is called again. These notifications join the same FIFO as previously submitted widget notifications.
 
 `EventCapacity` is available from `mirui::app` and the ordinary prelude. Configure it before installing the first callback:

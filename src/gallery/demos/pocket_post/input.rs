@@ -1,10 +1,7 @@
 use super::state::PostSurface;
-use crate::core::model::Model;
 use crate::ecs::DeltaTimeMs;
 use crate::gallery::play::post::PostModel;
-use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
-use crate::surface::InputEvent;
 
 fn local_point(rect: Rect, x: Fixed, y: Fixed) -> Option<Point> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -36,39 +33,15 @@ pub(super) fn post_tick_system(model: model!(PostModel), delta: res!(DeltaTimeMs
     model.advance_ms(delta.0);
 }
 
-pub(super) struct PostKeyboardPlugin {
-    model: <PostModel as Model>::Handle,
-}
-
-impl PostKeyboardPlugin {
-    pub(super) fn new(model: <PostModel as Model>::Handle) -> Self {
-        Self { model }
-    }
-
-    fn handle_char(&self, ch: char) -> bool {
-        match ch {
-            'a' | 'A' => self.model.toggle_switch(0),
-            's' | 'S' => self.model.toggle_switch(1),
-            ' ' => self.model.toggle_running(),
-            _ => return false,
-        };
-        true
-    }
-}
-
-impl<B, F> Plugin<B, F> for PostKeyboardPlugin
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    fn build(&mut self, _app: &mut App<B, F>) {}
-
-    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
-        let InputEvent::CharInput { ch } = event else {
-            return false;
-        };
-        self.handle_char(*ch)
-    }
+#[event]
+pub(super) fn keyboard(input: event!(CharInput), model: model!(PostModel)) -> bool {
+    match input.ch {
+        'a' | 'A' => model.toggle_switch(0),
+        's' | 'S' => model.toggle_switch(1),
+        ' ' => model.toggle_running(),
+        _ => return false,
+    };
+    true
 }
 
 #[cfg(test)]
@@ -76,33 +49,60 @@ mod tests {
     use super::*;
     use crate::core::model::ModelHandle;
     use crate::gallery::play::post::PostModal;
+    use crate::input::event::{dispatch_input, input::InputEvent};
+
+    #[derive(Default)]
+    struct Unhandled(Option<char>);
+
+    #[event]
+    fn unhandled(input: event!(CharInput), seen: res!(mut Unhandled)) -> bool {
+        seen.0 = Some(input.ch);
+        true
+    }
 
     #[test]
     fn keyboard_commands_keep_using_the_registered_model_after_the_original_handle_is_dropped() {
         let mut app = App::headless(1, 1);
         let model = app.add_model(PostModel::default());
-        let plugin = PostKeyboardPlugin::new(model.clone());
+        let observer = model.clone();
+        app.world.insert_resource(Unhandled::default());
+        app.on_event(CharInput::EVENT, keyboard::callback(model.clone()))
+            .on_event(CharInput::EVENT, unhandled::callback());
         drop(model);
 
-        assert!(plugin.handle_char('a'));
-        assert!(plugin.handle_char('S'));
-        assert!(plugin.handle_char(' '));
-        plugin.model.read(|model| {
+        for ch in ['a', 'S', ' '] {
+            dispatch_input(&mut app.world, None, &InputEvent::CharInput { ch }, 0, 1, 1);
+        }
+        observer.read(|model| {
             assert_eq!(model.switch(0), 1);
             assert_eq!(model.switch(1), 1);
             assert!(model.running());
         });
 
-        plugin.model.open_manifests();
-        assert!(plugin.handle_char('A'));
-        assert!(plugin.handle_char('s'));
-        assert!(plugin.handle_char(' '));
-        plugin.model.read(|model| {
+        observer.open_manifests();
+        for ch in ['A', 's', ' '] {
+            dispatch_input(&mut app.world, None, &InputEvent::CharInput { ch }, 1, 1, 1);
+        }
+        observer.read(|model| {
             assert_eq!(model.modal(), PostModal::Manifests);
             assert_eq!(model.switch(0), 1);
             assert_eq!(model.switch(1), 1);
             assert!(!model.running());
         });
-        assert!(!plugin.handle_char('x'));
+        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, None);
+        dispatch_input(
+            &mut app.world,
+            None,
+            &InputEvent::CharInput { ch: 'x' },
+            2,
+            1,
+            1,
+        );
+        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, Some('x'));
+        observer.read(|model| {
+            assert_eq!(model.switch(0), 1);
+            assert_eq!(model.switch(1), 1);
+            assert!(!model.running());
+        });
     }
 }

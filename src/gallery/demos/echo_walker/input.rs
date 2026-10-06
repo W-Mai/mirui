@@ -1,10 +1,7 @@
 use super::render::{MapBox, map_box_from_columns};
 use super::state::EchoSurface;
-use crate::core::model::Model;
 use crate::gallery::play::echo::{BOARD_HEIGHT, BOARD_WIDTH, Direction, EchoModel};
-use crate::prelude::plugin::Plugin;
 use crate::prelude::*;
-use crate::surface::InputEvent;
 
 pub(super) fn local_cell(map: MapBox, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -48,8 +45,9 @@ pub(super) fn surface_tap(surface: &EchoSurface, rect: Rect, x: Fixed, y: Fixed)
     true
 }
 
-pub(super) fn handle_key(model: &<EchoModel as Model>::Handle, ch: char) -> bool {
-    match ch {
+#[event]
+pub(super) fn keyboard(input: event!(CharInput), model: model!(EchoModel)) -> bool {
+    match input.ch {
         'w' | 'W' => model.step(Direction::Up),
         'a' | 'A' => model.step(Direction::Left),
         's' | 'S' => model.step(Direction::Down),
@@ -62,46 +60,52 @@ pub(super) fn handle_key(model: &<EchoModel as Model>::Handle, ch: char) -> bool
     true
 }
 
-pub(super) struct EchoKeyboardPlugin {
-    model: <EchoModel as Model>::Handle,
-}
-
-impl EchoKeyboardPlugin {
-    pub(super) fn new(model: <EchoModel as Model>::Handle) -> Self {
-        Self { model }
-    }
-}
-
-impl<B, F> Plugin<B, F> for EchoKeyboardPlugin
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    fn build(&mut self, _app: &mut App<B, F>) {}
-
-    fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
-        let InputEvent::CharInput { ch } = event else {
-            return false;
-        };
-        handle_key(&self.model, *ch)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::model::ModelHandle;
+    use crate::input::event::{dispatch_input, input::InputEvent};
+
+    #[derive(Default)]
+    struct Unhandled(Option<char>);
+
+    #[event]
+    fn unhandled(input: event!(CharInput), seen: res!(mut Unhandled)) -> bool {
+        seen.0 = Some(input.ch);
+        true
+    }
 
     #[test]
     fn keyboard_keeps_the_registered_model_instance() {
         let mut app = App::headless(1, 1);
         let model = app.add_model(EchoModel::default());
-        let plugin = EchoKeyboardPlugin::new(model.clone());
+        let observer = model.clone();
+        app.world.insert_resource(Unhandled::default());
+        app.on_event(CharInput::EVENT, keyboard::callback(model.clone()))
+            .on_event(CharInput::EVENT, unhandled::callback());
         drop(model);
 
-        assert!(handle_key(&plugin.model, ' '));
-        crate::core::model::ModelHandle::read(&plugin.model, |model| {
+        dispatch_input(
+            &mut app.world,
+            None,
+            &InputEvent::CharInput { ch: ' ' },
+            0,
+            1,
+            1,
+        );
+        observer.read(|model| {
             assert_eq!(model.tick(), 1);
         });
-        assert!(!handle_key(&plugin.model, 'x'));
+        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, None);
+        dispatch_input(
+            &mut app.world,
+            None,
+            &InputEvent::CharInput { ch: 'x' },
+            1,
+            1,
+            1,
+        );
+        observer.read(|model| assert_eq!(model.tick(), 1));
+        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, Some('x'));
     }
 }
