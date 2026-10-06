@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn submission_failure_stops_the_batch_preserves_updates_and_reuses_storage() {
         use crate::ecs::commands::CommandCommitError;
-        use crate::input::event::emission::PendingNotifications;
+        use crate::input::event::emission::{flush_notifications, prepare_notifications};
         use crate::input::event::listeners::EventListeners;
         use crate::input::event::notification::NotificationCapacity;
 
@@ -842,33 +842,26 @@ mod tests {
         world.insert_resource(DeferredTarget(entity));
         world.insert_resource(RawRuns(0));
         world.insert_resource(super::super::MonoClock::new(failure_clock));
-        let pending = Rc::new(
-            PendingNotifications::new(
-                &world,
-                NotificationCapacity {
-                    records: 1,
-                    payload_bytes: 0,
-                    payload_alignment: 1,
-                },
-            )
-            .unwrap(),
-        );
-        world.insert_resource(pending.clone());
+        prepare_notifications(
+            &mut world,
+            NotificationCapacity {
+                records: 1,
+                payload_bytes: 0,
+                payload_alignment: 1,
+            },
+        )
+        .unwrap();
         let listeners = EventListeners::new(&mut world);
         let mut scheduler = SystemScheduler::new();
         scheduler.add(framework_raw::system());
         scheduler.add(submit_marker::system());
         scheduler.add(framework_raw_always::system());
         scheduler.run_all(&mut world).unwrap();
-        assert_eq!(pending.flush(&listeners, &mut world, 1), Ok(1));
         assert!(scheduler.iter().all(|system| system.call_count == 1));
 
-        world.remove_resource::<Rc<PendingNotifications>>();
         let expected = SystemRunError {
             system: "submit_marker",
-            cause: CommandError::Commit(CommandCommitError::MissingService {
-                service: core::any::type_name::<PendingNotifications>(),
-            }),
+            cause: CommandError::Commit(CommandCommitError::RecordCapacity { available: 1 }),
         };
         assert_eq!(
             tracked_allocations(|| assert_eq!(scheduler.run_all(&mut world), Err(expected))),
@@ -885,7 +878,7 @@ mod tests {
             .collect();
         assert_eq!(stats, [(1, 2, 2), (1, 2, 2), (0, 1, 1)]);
 
-        world.insert_resource(pending.clone());
+        assert_eq!(flush_notifications(&mut world, &listeners, 1), Some(Ok(1)));
         assert_eq!(
             tracked_allocations(|| scheduler.run_all(&mut world).unwrap()),
             0
@@ -894,7 +887,7 @@ mod tests {
             world.get::<DeferredMarker>(entity),
             Some(&DeferredMarker(2))
         );
-        assert_eq!(pending.flush(&listeners, &mut world, 1), Ok(1));
+        assert_eq!(flush_notifications(&mut world, &listeners, 1), Some(Ok(1)));
         assert_eq!(world.resource::<RawRuns>(), Some(&RawRuns(3)));
         assert_eq!(scheduler.iter().last().unwrap().call_count, 2);
     }

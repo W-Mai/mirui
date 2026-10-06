@@ -88,9 +88,11 @@ fn notification_capacity<E>(records: usize) -> NotificationCapacity {
 }
 
 fn install_pending(world: &mut World, capacity: NotificationCapacity) -> Rc<PendingNotifications> {
-    let pending = Rc::new(PendingNotifications::new(world, capacity).unwrap());
-    world.insert_resource(pending.clone());
-    pending
+    prepare_notifications(world, capacity).unwrap();
+    world
+        .resource::<Rc<PendingNotifications>>()
+        .unwrap()
+        .clone()
 }
 
 struct Fixture {
@@ -165,10 +167,8 @@ fn typed_emission_releases_parameters_and_preserves_component_change_tracking_wi
                 });
                 assert_eq!(changed, 1);
                 assert_eq!(
-                    fixture
-                        .pending
-                        .flush(&fixture.listeners, &mut fixture.world, 1),
-                    Ok(1)
+                    flush_notifications(&mut fixture.world, &fixture.listeners, 1),
+                    Some(Ok(1))
                 );
             }),
             0
@@ -178,6 +178,129 @@ fn typed_emission_releases_parameters_and_preserves_component_change_tracking_wi
     assert_eq!(
         &fixture.world.resource::<Trace>().unwrap().values[..2],
         &[(0, 1), (1, 2)]
+    );
+}
+
+#[test]
+fn preparation_reuses_the_service_and_preserves_pending_records_and_monotonic_capacity() {
+    let mut fixture = Fixture::new(notification_capacity::<Hit>(1));
+    let tap = fixture.tap();
+    fixture
+        .hit
+        .invoke(&mut fixture.world, &tap, fixture.node)
+        .unwrap();
+    prepare_notifications(&mut fixture.world, notification_capacity::<Hit>(2)).unwrap();
+    assert!(Rc::ptr_eq(
+        &fixture.pending,
+        fixture
+            .world
+            .resource::<Rc<PendingNotifications>>()
+            .unwrap()
+    ));
+    let mut commands = CommandQueue::bounded(command_capacity::<Hit>(1)).unwrap();
+    assert_eq!(
+        tracked_allocations(|| {
+            prepare_notifications(&mut fixture.world, notification_capacity::<Hit>(0)).unwrap();
+            let mut batch = commands.begin();
+            batch.commands().emit(fixture.node, Hit { old: 1, new: 2 });
+            batch.finish(&mut fixture.world).unwrap();
+            assert_eq!(
+                flush_notifications(&mut fixture.world, &fixture.listeners, 2),
+                Some(Ok(2))
+            );
+        }),
+        0
+    );
+    let trace = fixture.world.resource::<Trace>().unwrap();
+    assert_eq!(&trace.values[..trace.len], &[(0, 1), (1, 2)]);
+    assert!(Rc::ptr_eq(
+        &fixture.pending,
+        fixture
+            .world
+            .resource::<Rc<PendingNotifications>>()
+            .unwrap()
+    ));
+}
+
+#[test]
+fn flushing_an_absent_service_does_not_install_storage_or_allocate() {
+    let mut world = World::new();
+    let listeners = EventListeners::new(&mut world);
+    for _ in 0..2 {
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(flush_notifications(&mut world, &listeners, 1), None);
+            }),
+            0
+        );
+    }
+    assert!(world.resource::<Rc<PendingNotifications>>().is_none());
+}
+
+#[crate::event]
+fn prepare_while_flushing(input: event!(Hit), node: entity!(), commands: commands!()) {
+    if input.old == 0 {
+        commands.apply_resource((), |world, ()| {
+            assert_eq!(
+                prepare_notifications(world, notification_capacity::<Hit>(2)),
+                Err(NotificationError::Busy)
+            );
+        });
+        commands.emit(
+            node,
+            Hit {
+                old: input.new,
+                new: input.new + 10,
+            },
+        );
+    }
+}
+
+#[test]
+fn active_preparation_returns_busy_without_replacing_the_service_or_reordering_notifications() {
+    let mut fixture = Fixture::new(notification_capacity::<Hit>(2));
+    type Prepare = fn(&mut World, ());
+    let capacity = command_capacity::<Hit>(1);
+    fixture
+        .listeners
+        .install_entity(
+            &mut fixture.world,
+            fixture.node,
+            ListenerSelector::new(Hit::EVENT, |(), _| true),
+            prepare_while_flushing::callback::<NodeContext>(),
+            CommandCapacity {
+                records: 2,
+                payload_bytes: size_of::<((), Prepare)>() + capacity.payload_bytes,
+                payload_alignment: align_of::<((), Prepare)>().max(capacity.payload_alignment),
+            },
+        )
+        .unwrap();
+    let mut commands = CommandQueue::bounded(command_capacity::<Hit>(2)).unwrap();
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut batch = commands.begin();
+            for new in [1, 2] {
+                batch.commands().emit(fixture.node, Hit { old: 0, new });
+            }
+            batch.finish(&mut fixture.world).unwrap();
+            assert_eq!(
+                flush_notifications(&mut fixture.world, &fixture.listeners, 4),
+                Some(Ok(4))
+            );
+        }),
+        0
+    );
+    assert!(Rc::ptr_eq(
+        &fixture.pending,
+        fixture
+            .world
+            .resource::<Rc<PendingNotifications>>()
+            .unwrap()
+    ));
+    let trace = fixture.world.resource::<Trace>().unwrap();
+    assert_eq!(
+        &trace.values[..trace.len],
+        &[(0, 1), (0, 2), (1, 11), (2, 12)]
     );
 }
 
@@ -215,10 +338,8 @@ fn notifications_emitted_by_callbacks_keep_fifo_and_the_active_payload_stable() 
                 .invoke(&mut fixture.world, &tap, fixture.node)
                 .unwrap();
             assert_eq!(
-                fixture
-                    .pending
-                    .flush(&fixture.listeners, &mut fixture.world, 3),
-                Ok(3)
+                flush_notifications(&mut fixture.world, &fixture.listeners, 3),
+                Some(Ok(3))
             );
         }),
         0
@@ -276,7 +397,7 @@ fn replace_pending(
 }
 
 #[test]
-fn replacing_the_service_keeps_active_payloads_alive_and_redirects_later_submissions() {
+fn forced_service_replacement_keeps_active_payloads_alive_and_redirects_later_submissions() {
     let mut world = World::new();
     let node = world.spawn(Pad { strength: 0 });
     world.insert_resource(Trace::default());
@@ -499,6 +620,7 @@ fn stale_targets_and_missing_or_foreign_services_return_commit_errors() {
             service: type_name::<PendingNotifications>()
         }))
     );
+    world.remove_resource::<Rc<PendingNotifications>>();
     let pending = install_pending(&mut world, notification_capacity::<Hit>(1));
     let mut batch = queue.begin();
     batch.commands().despawn(node);
@@ -548,8 +670,6 @@ fn executor_propagates_commit_capacity_errors_without_rolling_back_component_upd
 
 #[test]
 fn submission_byte_and_alignment_limits_remain_distinct_from_recording_limits() {
-    let mut world = World::new();
-    let node = world.spawn(Pad { strength: 0 });
     let drops = Rc::new(Cell::new(0));
     let mut queue = CommandQueue::bounded(command_capacity::<OwnedHit>(1)).unwrap();
     for (capacity, error) in [
@@ -576,6 +696,8 @@ fn submission_byte_and_alignment_limits_remain_distinct_from_recording_limits() 
             },
         ),
     ] {
+        let mut world = World::new();
+        let node = world.spawn(Pad { strength: 0 });
         install_pending(&mut world, capacity);
         assert_eq!(
             tracked_allocations(|| {

@@ -498,6 +498,8 @@ and quit requests remain available to the application lifecycle path.
 
 ### Notification payload storage
 
+The notification service and its retained handle are private. Runtime preparation reserves an existing service in place instead of replacing it; generic resource commands cannot remove or replace that service. Preparing capacity during an active flush returns `Busy`, while normal emission continues into the separate write buffer.
+
 Internal notification storage owns payloads in two explicitly reserved buffers.
 A callback reads one stable payload window while emitted notifications append
 to the other buffer. Remaining records in the current batch run before callback

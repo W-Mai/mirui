@@ -13,15 +13,13 @@ use super::notification::{
     NotificationCapacity, NotificationError, NotificationFlushError, NotificationQueue,
 };
 
-/// Owner-bound notification storage installed by the application runtime.
-#[doc(hidden)]
-pub struct PendingNotifications {
+struct PendingNotifications {
     owner: WorldId,
     queue: NotificationQueue,
 }
 
 impl PendingNotifications {
-    pub fn new(world: &World, capacity: NotificationCapacity) -> Result<Self, NotificationError> {
+    fn new(world: &World, capacity: NotificationCapacity) -> Result<Self, NotificationError> {
         let queue = NotificationQueue::default();
         queue.reserve(capacity)?;
         Ok(Self {
@@ -30,7 +28,7 @@ impl PendingNotifications {
         })
     }
 
-    pub fn flush(
+    fn flush(
         &self,
         listeners: &EventListeners,
         world: &mut World,
@@ -43,6 +41,31 @@ impl PendingNotifications {
         }
         listeners.flush_notifications(world, &self.queue, limit)
     }
+}
+
+/// Prepare notification storage without exposing the runtime service.
+#[doc(hidden)]
+pub fn prepare_notifications(
+    world: &mut World,
+    capacity: NotificationCapacity,
+) -> Result<(), NotificationError> {
+    if let Some(pending) = world.resource::<Rc<PendingNotifications>>() {
+        return pending.queue.reserve(capacity);
+    }
+    let pending = Rc::new(PendingNotifications::new(world, capacity)?);
+    world.insert_resource(pending);
+    Ok(())
+}
+
+/// Flush the installed service, or return no batch when it is absent.
+#[doc(hidden)]
+pub fn flush_notifications(
+    world: &mut World,
+    listeners: &EventListeners,
+    limit: usize,
+) -> Option<Result<usize, NotificationFlushError<ListenerError>>> {
+    let pending = world.resource::<Rc<PendingNotifications>>()?.clone();
+    Some(pending.flush(listeners, world, limit))
 }
 
 impl DeferredCommands<'_> {

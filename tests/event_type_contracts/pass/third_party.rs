@@ -2,12 +2,11 @@
 
 use mirui::__macro_support::{
     CommandCapacity, CommandError, EntityContext, EventListeners, ListenerSelector, NodeContext,
-    NotificationCapacity, PendingNotifications,
+    NotificationCapacity, flush_notifications, prepare_notifications,
 };
 use mirui::ecs::Component;
 use mirui::input::event::contract::*;
 use mirui::input::event::gesture::Tap;
-use std::rc::Rc;
 
 struct Pad;
 impl Component for Pad {}
@@ -100,18 +99,15 @@ fn main() {
             CommandCapacity::default(),
         )
         .unwrap();
-    let pending = Rc::new(
-        PendingNotifications::new(
-            &world,
-            NotificationCapacity {
-                records: 1,
-                payload_bytes: 1,
-                payload_alignment: 1,
-            },
-        )
-        .unwrap(),
-    );
-    world.insert_resource(pending.clone());
+    prepare_notifications(
+        &mut world,
+        NotificationCapacity {
+            records: 1,
+            payload_bytes: 1,
+            payload_alignment: 1,
+        },
+    )
+    .unwrap();
     type Apply = fn(&mut mirui::ecs::World, mirui::ecs::Entity, Hit) -> Result<(), CommandError>;
     let sender = emit_hit::callback::<Tap, NodeContext>()
         .prepare(
@@ -129,6 +125,8 @@ fn main() {
         target: node,
     };
     sender.invoke(&mut world, &input, node).unwrap();
-    pending.flush(&listeners, &mut world, 1).unwrap();
+    flush_notifications(&mut world, &listeners, 1)
+        .unwrap()
+        .unwrap();
     assert_eq!(world.resource::<Hits>().unwrap().0, 14);
 }

@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `mirui::__macro_support::PendingNotifications`
+ --> tests/event_type_contracts/fail/private_notification_service.rs:1:5
+  |
+1 | use mirui::__macro_support::PendingNotifications;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `PendingNotifications` in `__macro_support`
