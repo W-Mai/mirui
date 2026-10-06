@@ -359,19 +359,13 @@ impl HandlerReturn for BubbleControl {
     }
 }
 
-/// Walk from `target` up via `Parent` links, invoking the first
-/// `GestureHandler` found. Stops when a handler returns `true`
-/// (consumed) or the root is reached.
-pub fn bubble_dispatch(world: &mut World, event: &GestureEvent) {
-    bubble_dispatch_at(world, event, 0);
-}
-
-/// `now_ms`-aware variant; pass `0` when no clock is available.
+/// Update tap focus and multiplicity, then invoke handlers along the target's Parent chain until consumed. Pass the current clock time in milliseconds, or `0` for a semantic gesture without a clock.
 pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) {
     if crate::ui::branch::is_hidden_in_tree(world, event.target()) {
         return;
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+    focus::focus_on_tap(world, event);
     multi_tap::observe_gesture(world, event, now_ms);
     let tap_count = multi_tap::current_count(world, event.target());
     let mut current = event.target();
@@ -496,9 +490,14 @@ mod tests {
     fn gesture_saved_before_a_branch_switch_cannot_reach_a_hidden_target() {
         let mut world = World::new();
         world.insert_resource(TapCount(0));
+        let previous_focus = world.spawn_empty();
+        world.insert_resource(focus::FocusState {
+            focused: Some(previous_focus),
+        });
         let branch = world.spawn_empty();
         let target = world.spawn_empty();
         world.insert(target, Parent(branch));
+        world.insert(target, focus::Focusable);
         world.insert(target, GestureHandler::from_fn(count_tap));
         world.insert(
             branch,
@@ -512,6 +511,10 @@ mod tests {
 
         bubble_dispatch_at(&mut world, &tap, 0);
         assert_eq!(world.resource::<TapCount>().unwrap().0, 0);
+        assert_eq!(
+            world.resource::<focus::FocusState>().unwrap().focused,
+            Some(previous_focus)
+        );
 
         world
             .get_mut::<crate::ui::branch::CachedBranchVisibility>(branch)
@@ -519,10 +522,19 @@ mod tests {
             .selected = true;
         bubble_dispatch_at(&mut world, &tap, 0);
         assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
+        assert_eq!(
+            world.resource::<focus::FocusState>().unwrap().focused,
+            Some(target)
+        );
 
         world.insert(branch, crate::ui::Hidden);
+        world.resource_mut::<focus::FocusState>().unwrap().focused = Some(previous_focus);
         bubble_dispatch_at(&mut world, &tap, 0);
         assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
+        assert_eq!(
+            world.resource::<focus::FocusState>().unwrap().focused,
+            Some(previous_focus)
+        );
     }
 
     #[test]

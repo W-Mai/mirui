@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use crate::app::plugin::Plugin;
 use crate::ecs::{Entity, System, SystemScheduler, World};
-use crate::input::event::focus::{FocusState, focus_on_tap};
+use crate::input::event::focus::FocusState;
 use crate::input::event::gesture::GestureSystem;
 use crate::input::event::multi_tap::MultiTapTracker;
 use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
@@ -796,7 +796,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if let Err(error) = crate::input::event::gesture::system::drain_gestures(
             &mut self.world,
             |world, gesture| {
-                focus_on_tap(world, gesture);
                 bubble_dispatch_at(world, gesture, now_ms);
             },
         ) {

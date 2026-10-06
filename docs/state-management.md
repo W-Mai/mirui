@@ -696,6 +696,8 @@ Pending storage is retained by an owner-bound shared runtime resource. Draining 
 
 ### Recognized gesture batches
 
+App input, `SimulatedInput`, and `SimTimeline` dispatch recognized gestures with the current clock time. Tap focus is updated before internal and authored handlers; hidden targets leave focus unchanged. Simulated recognizer input and tap-count tracking use the same tick timestamp, so successive taps retain their multiplicity.
+
 App input and both simulation routes share a retained gesture batch handoff.
 The installed `GestureSystem` prepares a write buffer and a separate read
 buffer. Dispatch swaps their storage and drains the selected read batch without

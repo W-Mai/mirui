@@ -4,7 +4,7 @@ mod tests {
     use mirui::input::event::gesture::{GestureEvent, GestureEvents, GestureRecognizer};
     use mirui::input::event::hit_test::hit_test;
     use mirui::input::event::input::InputEvent;
-    use mirui::input::event::{GestureHandler, bubble_dispatch};
+    use mirui::input::event::{GestureHandler, bubble_dispatch_at};
     use mirui::types::{Color, Dimension, Fixed, Viewport};
     use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::*;
@@ -34,8 +34,7 @@ mod tests {
         world.get::<TapHits>(entity).map(|c| c.0).unwrap_or(0)
     }
 
-    /// Drive a Tap gesture on (x, y) through hit_test + recognizer + bubble_dispatch.
-    /// Mirrors what App::run does for one event pair.
+    /// Drive a tap through hit testing, recognition, and dispatch using the pointer release timestamp.
     fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, screen: u16) {
         let xf = Fixed::from_int(x);
         let yf = Fixed::from_int(y);
@@ -65,7 +64,7 @@ mod tests {
             &mut events,
         );
         for ev in events.buffer.drain(..) {
-            bubble_dispatch(world, &ev);
+            bubble_dispatch_at(world, &ev, 50);
         }
     }
 

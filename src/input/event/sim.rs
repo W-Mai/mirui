@@ -255,11 +255,12 @@ pub fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandErro
     });
 
     for event in &commands_to_fire {
-        let now_ms_inner = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
-        super::dispatch_input(world, root, event, now_ms_inner, screen_w, screen_h);
+        super::dispatch_input(world, root, event, now_ms, screen_w, screen_h);
     }
 
-    if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
+    if let Err(error) = super::gesture::system::drain_gestures(world, |world, gesture| {
+        super::bubble_dispatch_at(world, gesture, now_ms);
+    }) {
         crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
     Ok(())
@@ -1082,7 +1083,9 @@ pub fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandE
         }
     }
 
-    if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
+    if let Err(error) = super::gesture::system::drain_gestures(world, |world, gesture| {
+        super::bubble_dispatch_at(world, gesture, now_ms);
+    }) {
         crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
     Ok(())
@@ -1117,6 +1120,172 @@ mod tests {
         mock::set_ns(0);
         world.insert_resource(MonoClock::from_time_source());
         world
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct SimTapObservation {
+        focused: Option<Entity>,
+        time_ms: u32,
+        tracker_count: u8,
+        callback_count: u8,
+    }
+
+    #[derive(Default)]
+    struct SimTapTrace {
+        observations: [Option<SimTapObservation>; 2],
+        len: usize,
+    }
+
+    fn record_sim_tap(
+        world: &mut World,
+        target: Entity,
+        event: &crate::input::event::gesture::GestureEvent,
+        tap_count: u8,
+    ) -> bool {
+        let crate::input::event::gesture::GestureEvent::Tap { target: source, .. } = event else {
+            panic!("expected Tap");
+        };
+        assert_eq!(*source, target);
+        let focused = world
+            .resource::<crate::input::event::focus::FocusState>()
+            .unwrap()
+            .focused;
+        let entry = world
+            .resource::<crate::input::event::multi_tap::MultiTapTracker>()
+            .unwrap()
+            .last
+            .unwrap();
+        assert_eq!(entry.entity, target);
+        let trace = world.resource_mut::<SimTapTrace>().unwrap();
+        trace.observations[trace.len] = Some(SimTapObservation {
+            focused,
+            time_ms: entry.time_ms,
+            tracker_count: entry.count,
+            callback_count: tap_count,
+        });
+        trace.len += 1;
+        true
+    }
+
+    fn setup_sim_tap_contract_world() -> (World, Entity) {
+        let mut world = setup_world();
+        let target = crate::ui::builder::WidgetBuilder::new(&mut world)
+            .layout(crate::ui::layout::LayoutStyle {
+                width: crate::types::Dimension::px(128),
+                height: crate::types::Dimension::px(128),
+                ..Default::default()
+            })
+            .id();
+        world.insert(target, crate::ui::HitTarget);
+        world.insert(target, crate::input::event::focus::Focusable);
+        world.insert(
+            target,
+            crate::input::event::GestureHandler::from_fn(record_sim_tap),
+        );
+        world.insert_resource(crate::input::event::multi_tap::MultiTapTracker::new());
+        world.insert_resource(SimTapTrace::default());
+        set_sim_root(&mut world, target);
+        crate::ui::render_system::update_layout(
+            &mut world,
+            target,
+            &crate::types::Viewport::new(128, 128, Fixed::ONE),
+        );
+        (world, target)
+    }
+
+    fn assert_sim_tap_contract(world: &World, target: Entity, index: usize, time_ms: u32) {
+        let count = index as u8 + 1;
+        let entry = world
+            .resource::<crate::input::event::multi_tap::MultiTapTracker>()
+            .unwrap()
+            .last
+            .unwrap();
+        assert_eq!(entry.entity, target);
+        assert_eq!(entry.time_ms, time_ms);
+        assert_eq!(entry.count, count);
+        let trace = world.resource::<SimTapTrace>().unwrap();
+        assert_eq!(trace.len, index + 1);
+        let observed = trace.observations[index].unwrap();
+        assert_eq!(observed.focused, Some(target));
+        assert_eq!(observed.time_ms, time_ms);
+        assert_eq!(observed.tracker_count, count);
+        assert_eq!(observed.callback_count, count);
+    }
+
+    #[test]
+    fn scheduled_taps_update_focus_clock_and_count_before_callback() {
+        let _guard = mock::install();
+        let (mut world, target) = setup_sim_tap_contract_world();
+        mock::set_ms(1000);
+        world.insert_resource(SimulatedInput::new(alloc::vec![
+            SimCommand::at(
+                0,
+                InputEvent::PointerDown {
+                    id: 0,
+                    x: Fixed::from_int(64),
+                    y: Fixed::from_int(64),
+                },
+            ),
+            SimCommand::at(
+                50,
+                InputEvent::PointerUp {
+                    id: 0,
+                    x: Fixed::from_int(64),
+                    y: Fixed::from_int(64),
+                },
+            ),
+            SimCommand::at(
+                100,
+                InputEvent::PointerDown {
+                    id: 0,
+                    x: Fixed::from_int(64),
+                    y: Fixed::from_int(64),
+                },
+            ),
+            SimCommand::at(
+                150,
+                InputEvent::PointerUp {
+                    id: 0,
+                    x: Fixed::from_int(64),
+                    y: Fixed::from_int(64),
+                },
+            ),
+        ]));
+
+        sim_input_system(&mut world).unwrap();
+        mock::advance_ms(50);
+        sim_input_system(&mut world).unwrap();
+        assert_sim_tap_contract(&world, target, 0, 1050);
+        mock::advance_ms(50);
+        sim_input_system(&mut world).unwrap();
+        mock::advance_ms(50);
+        sim_input_system(&mut world).unwrap();
+        assert_sim_tap_contract(&world, target, 1, 1150);
+    }
+
+    #[test]
+    fn timeline_taps_update_focus_clock_and_count_before_callback() {
+        let _guard = mock::install();
+        let (mut world, target) = setup_sim_tap_contract_world();
+        mock::set_ms(1000);
+        let point = Point {
+            x: Fixed::from_int(64),
+            y: Fixed::from_int(64),
+        };
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::tap(point),
+            SimAction::tap(point),
+        ]));
+
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(50);
+        sim_timeline_system(&mut world).unwrap();
+        assert_sim_tap_contract(&world, target, 0, 1050);
+        mock::advance_ms(50);
+        sim_timeline_system(&mut world).unwrap();
+        mock::advance_ms(50);
+        sim_timeline_system(&mut world).unwrap();
+        assert_sim_tap_contract(&world, target, 1, 1150);
     }
 
     #[test]
@@ -2160,10 +2329,9 @@ mod tests {
         );
 
         assert_eq!(
-            crate::input::event::gesture::system::drain_gestures(
-                &mut world,
-                crate::input::event::bubble_dispatch,
-            ),
+            crate::input::event::gesture::system::drain_gestures(&mut world, |world, gesture| {
+                crate::input::event::bubble_dispatch_at(world, gesture, now_ms);
+            },),
             Ok(1)
         );
 
@@ -2234,10 +2402,9 @@ mod tests {
             );
             // Drain & bubble pending Tap events the same way
             // sim_timeline_system does at the end of each sim tick.
-            crate::input::event::gesture::system::drain_gestures(
-                &mut world,
-                crate::input::event::bubble_dispatch,
-            )
+            crate::input::event::gesture::system::drain_gestures(&mut world, |world, gesture| {
+                crate::input::event::bubble_dispatch_at(world, gesture, now_ms);
+            })
             .unwrap();
             // Gap between taps so the recognizer fully resets.
             mock::advance_ms(150);

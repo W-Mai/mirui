@@ -450,9 +450,7 @@ pub fn cursor_blink_system(
     }
 }
 
-/// Focus is actually set by `focus_on_tap` in `App::run`; this
-/// just mirrors `FocusState` onto `TextInput.focused` for the
-/// renderer's fast read.
+/// Gesture dispatch sets tap focus before this handler copies FocusState into TextInput.focused for rendering.
 fn textinput_gesture_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     if let GestureEvent::Tap { .. } = event {
         sync_textinput_focus(world);

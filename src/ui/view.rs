@@ -450,7 +450,7 @@ pub struct View {
     /// (e.g. the generic Style stage).
     component_filter: Option<fn() -> TypeId>,
     /// Component-internal gesture handler that runs *before* the user
-    /// `GestureHandler` channel during `bubble_dispatch`. Returning
+    /// `GestureHandler` channel during `bubble_dispatch_at`. Returning
     /// `true` consumes the event; returning `false` lets bubble walk
     /// continue (and visit any user-attached `GestureHandler`).
     internal_gesture: Option<ViewInternalGesture>,
@@ -497,7 +497,7 @@ impl View {
     }
 
     /// Register a component-internal gesture handler. Runs before the
-    /// user `GestureHandler` channel during `bubble_dispatch`; return
+    /// user `GestureHandler` channel during `bubble_dispatch_at`; return
     /// `false` to let the user handler also see the event.
     pub const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
         self.internal_gesture = Some(f);

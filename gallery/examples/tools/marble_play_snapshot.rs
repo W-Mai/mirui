@@ -1,7 +1,7 @@
 mod lab_snapshot_support;
 
 use mirui::gallery::demos::marble_play;
-use mirui::input::event::bubble_dispatch;
+use mirui::input::event::bubble_dispatch_at;
 use mirui::input::event::gesture::GestureEvent;
 use mirui::types::Fixed;
 
@@ -20,13 +20,14 @@ fn main() {
             .world
             .find_by_id(nav_id)
             .expect("Marble page navigation");
-        bubble_dispatch(
+        bubble_dispatch_at(
             &mut app.world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
                 target,
             },
+            0,
         );
     });
 }

@@ -698,13 +698,14 @@ fn nav_tap_updates_model_and_bound_page() {
     let mut world = fixture();
     let edit = world.find_by_id("marble_nav_edit").unwrap();
     let properties = world.find_by_id("marble_properties").unwrap();
-    crate::input::event::bubble_dispatch(
+    crate::input::event::bubble_dispatch_at(
         &mut world,
         &GestureEvent::Tap {
             x: Fixed::ZERO,
             y: Fixed::ZERO,
             target: edit,
         },
+        0,
     );
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert_eq!(
@@ -816,9 +817,9 @@ fn external_mute_updates_shared_state_without_playing_a_pad() {
         y: Fixed::ZERO,
         target: audio_button,
     };
-    crate::input::event::bubble_dispatch(&mut world, &tap);
+    crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
     assert_eq!(core.pop(), Some(AudioCommand::SetMuted(true)));
-    crate::input::event::bubble_dispatch(&mut world, &tap);
+    crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
     assert_eq!(core.pop(), Some(AudioCommand::SetMuted(false)));
     assert!(matches!(core.pop(), Some(AudioCommand::Tone(_))));
 }
@@ -976,13 +977,14 @@ fn scene_card_tap_loads_selected_preset() {
         .set_page(Page::Scenes);
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert!(!is_hidden_in_tree(&world, card));
-    crate::input::event::bubble_dispatch(
+    crate::input::event::bubble_dispatch_at(
         &mut world,
         &GestureEvent::Tap {
             x: Fixed::from_int(340),
             y: Fixed::from_int(120),
             target: card,
         },
+        0,
     );
     let model = world.resource::<MarbleModelHandle>().unwrap();
     assert_eq!(model.scene(), 2);
