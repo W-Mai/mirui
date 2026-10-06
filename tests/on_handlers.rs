@@ -240,18 +240,85 @@ mod tests {
     }
 
     #[test]
-    fn tap_selector_rejects_invalid_counts_before_installing_a_handler() {
+    fn invalid_bindings_warn_once_without_installing_input_or_blocking_valid_bindings() {
+        use mirui::core::log::{self, Level, Sink};
+        use mirui::ui::HitTarget;
+        use std::cell::Cell;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
+
+        struct Warnings {
+            count: Arc<AtomicUsize>,
+            thread: std::thread::ThreadId,
+        }
+
+        impl Sink for Warnings {
+            fn enabled(&self, level: Level, target: &'static str) -> bool {
+                level == Level::Warn && target == "mirui::event::install"
+            }
+
+            fn emit(&self, event: &log::Event<'_>) {
+                if self.thread == std::thread::current().id() {
+                    assert_eq!(event.meta.level, Level::Warn);
+                    assert!(event.args.to_string().contains("tap count"));
+                    self.count.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+
+        let warnings = Arc::new(AtomicUsize::new(0));
+        log::install_sink(Box::new(Warnings {
+            count: Arc::clone(&warnings),
+            thread: std::thread::current().id(),
+        }));
         for count in [0, 256, u32::MAX] {
             let (mut world, root) = fresh_world();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let target = {
                 let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
                 ui! {
                     View () on Tap(count) { }
-                };
-            }));
-            assert!(result.is_err(), "invalid count {count} was accepted");
+                }
+            };
+            assert!(world.is_alive(target));
             assert!(world.query::<GestureHandler>().iter().next().is_none());
+            assert!(!world.has::<HitTarget>(target));
+            for now in [100, 200, 300] {
+                bubble_dispatch_at(&mut world, &tap_event(target), now);
+            }
         }
+        assert_eq!(warnings.load(Ordering::SeqCst), 3);
+
+        let (mut world, root) = fresh_world();
+        let calls = Rc::new(Cell::new(0));
+        let called = Rc::clone(&calls);
+        let target = {
+            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            ui! {
+                View ()
+                    on Tap(0) { called.set(1000); true }
+                    on Tap { called.set(called.get() + 1); false }
+                    on Tap(2) { called.set(called.get() + 10); false }
+                    on LongPress { called.set(called.get() + 100); }
+            }
+        };
+        assert!(world.has::<GestureHandler>(target));
+        assert!(world.has::<HitTarget>(target));
+        for now in [100, 200, 300] {
+            bubble_dispatch_at(&mut world, &tap_event(target), now);
+        }
+        assert_eq!(calls.get(), 13);
+        bubble_dispatch_at(
+            &mut world,
+            &GestureEvent::LongPress {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            },
+            400,
+        );
+        assert_eq!(calls.get(), 113);
+        assert_eq!(warnings.load(Ordering::SeqCst), 4);
     }
 
     #[test]

@@ -327,6 +327,7 @@ fn emit_event_arm(
     group: &[&OnCmd],
     handler_scope: &syn::Ident,
     preparations: &mut proc_macro2::TokenStream,
+    configured: &mut Vec<syn::Ident>,
     tap_count: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
@@ -339,6 +340,7 @@ fn emit_event_arm(
             &field_bindings,
             handler_scope,
             preparations,
+            configured,
             tap_count,
         );
     }
@@ -368,6 +370,7 @@ fn emit_tap_handlers(
     field_bindings: &[binding::BindingSpec],
     handler_scope: &syn::Ident,
     preparations: &mut proc_macro2::TokenStream,
+    configured: &mut Vec<syn::Ident>,
     tap_count: &syn::Ident,
 ) -> proc_macro2::TokenStream {
     let mut bodies = proc_macro2::TokenStream::new();
@@ -382,14 +385,25 @@ fn emit_tap_handlers(
                 span = proc_macro2::Span::mixed_site()
             );
             preparations.extend(quote! {
-                let #options =
+                let #options = match
                     <::mirui::input::event::gesture::Tap as
                         ::mirui::input::event::contract::Event>::EVENT
                         .configure((#arg,))
-                        .expect("invalid Tap count")
-                        .options();
+                {
+                    ::core::result::Result::Ok(key) =>
+                        ::core::option::Option::Some(key.options()),
+                    ::core::result::Result::Err(error) => {
+                        ::mirui::warn!(
+                            target: "mirui::event::install",
+                            "skipping Tap event binding: {}",
+                            error,
+                        );
+                        ::core::option::Option::None
+                    }
+                };
             });
-            quote!(#options.matches(#tap_count))
+            configured.push(options.clone());
+            quote!(#options.is_some_and(|options| options.matches(#tap_count)))
         };
         bodies.extend(quote! {
             if #matches {
@@ -1149,20 +1163,20 @@ impl MiruiRune {
             let tap_count = syn::Ident::new("__mirui_tap_count", hidden_span);
             let mut arms = proc_macro2::TokenStream::new();
             let mut preparations = proc_macro2::TokenStream::new();
+            let mut configured = Vec::new();
             for (event_name, group) in &gesture_arms {
                 arms.extend(emit_event_arm(
                     event_name,
                     group,
                     &handler_scope,
                     &mut preparations,
+                    &mut configured,
                     &tap_count,
                 ));
             }
             // A closure (not a fn item) so the body can capture handles like a
             // Signal from the surrounding scope.
-            tokens.extend(quote! {
-                {
-                    #preparations
+            let installation = quote! {
                     let #handler_queue =
                         ::mirui::input::event::EventCommandQueue::new(#world);
                     (#world).insert(#widget_var, ::mirui::ui::HitTarget);
@@ -1188,6 +1202,23 @@ impl MiruiRune {
                             ),
                         },
                     );
+            };
+            let installation = if gesture_arms
+                .iter()
+                .any(|(name, group)| name != "Tap" || group.iter().any(|h| h.args.is_empty()))
+            {
+                installation
+            } else {
+                quote! {
+                    if #(#configured.is_some())||* {
+                        #installation
+                    }
+                }
+            };
+            tokens.extend(quote! {
+                {
+                    #preparations
+                    #installation
                 }
             });
         }

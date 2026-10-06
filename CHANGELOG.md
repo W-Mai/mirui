@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Input feedback View filters.** Cursor and rotary overlays declare their component filters and invocation-time feedback resources through typed Views. Overlay marker changes participate in visual invalidation, and paint ordering is checked independently of registration order.
 - **Composition Model ownership.** Declared Model parameters are validated against the supplied UI scope before the function body executes, including nested optional roles. Foreign and ended registrations are rejected without preceding authored side effects or added validation allocations.
-- **Tap count installation.** `on Tap(n)` validates its `u32` count once during handler installation, rejecting zero and overflow instead of truncating them or reevaluating the expression on each gesture.
+- **Tap count installation.** `on Tap(n)` validates its `u32` count once during handler installation. Invalid counts log a warning and skip the binding without panicking, blocking valid handlers, or installing an unused input target.
 - **Gesture batch storage.** App and simulated input reuse separate read and write buffers instead of collecting a temporary Vec for each dispatch batch. Callback-created events remain outside the current batch, and unwinding retains reusable storage.
 - **Disabled gesture routes.** Typed gesture selection rejects disabled nodes and ancestors before selecting internal or authored callbacks, without suppressing business notifications.
 - **Retired event listeners.** Installation and route selection release stale entity listeners and their bounded slots without changing frozen routes or allocating retirement storage.

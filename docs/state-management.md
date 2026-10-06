@@ -465,14 +465,9 @@ The default Tap key matches every tap. An explicit count matches only that
 multiplicity, so `Tap::EVENT.configure((1,))` differs from `Tap::EVENT`.
 Counts outside 1 through 255 return `TapCountError`. Other gesture keys have no options.
 
-`on Tap(n) { ... }` evaluates its `u32` configuration once when installing the
-handler, using the same validation as a Tap key. Invalid counts panic during
-installation with `TapCountError`; they are not truncated. Dispatch compares the
-observed tap count with the stored options without reevaluating `n`.
-Ordinary and counted Tap handlers run in declaration order, stopping at the
-first consuming handler. An ordinary Tap is not a fallback for counted
-handlers. All nodes in a bubbling gesture use the original target's count,
-frozen before internal or authored callbacks run.
+`on Tap(n) { ... }` evaluates its `u32` configuration once when installing the handler, using the same validation as a Tap key. Invalid counts log a warning and skip that binding without failing UI construction or suppressing other valid handlers. A node with no valid gesture bindings receives no authored gesture handler or extra hit target. Dispatch compares the observed tap count with the stored options without reevaluating `n` or repeating installation warnings.
+
+Ordinary and counted Tap handlers run in declaration order, stopping at the first consuming handler. An ordinary Tap is not a fallback for counted handlers. All nodes in a bubbling gesture use the original target's count, frozen before internal or authored callbacks run.
 
 ```rust,ignore
 View ()
