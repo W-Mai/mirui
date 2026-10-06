@@ -1,4 +1,5 @@
 use crate::anim::Spring;
+use crate::ecs::query::system::{ComponentDriver, OptionalRead, Read, SystemQuery};
 use crate::ecs::{Entity, World};
 use crate::input::event::BusinessCallback;
 use crate::input::event::gesture::GestureEvent;
@@ -189,7 +190,17 @@ pub(crate) fn switch_init_system(
 }
 
 fn switch_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(s) = world.get::<Switch>(entity) else {
+    let rows = SystemQuery::<
+        ComponentDriver<Switch>,
+        (
+            Read<Switch>,
+            OptionalRead<SwitchBgT>,
+            OptionalRead<AnimatedThumbX>,
+            OptionalRead<AnimateThumbX>,
+        ),
+        (),
+    >::from_shared(world);
+    let Some((s, background, animated_x, animation)) = rows.get(entity) else {
         return;
     };
     let theme = world
@@ -202,8 +213,7 @@ fn switch_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let thumb_color = s.thumb_color.resolve_in(theme, state);
     let cap_radius = rect.h / Fixed::from_int(2);
 
-    let t = world
-        .get::<SwitchBgT>(entity)
+    let t = background
         .map(|x| x.0)
         .unwrap_or_else(|| if s.on { Fixed::ONE } else { Fixed::ZERO });
     let track_color = Color::lerp(off_color, on_color, t);
@@ -220,9 +230,8 @@ fn switch_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     // Mid-animation the spring owns the position; at rest derive it from the
     // live rect so a resize moves the ON knob to the new right edge instead
     // of leaving it at the baked `AnimatedThumbX`.
-    let thumb_local_x = if world.get::<AnimateThumbX>(entity).is_some() {
-        world
-            .get::<AnimatedThumbX>(entity)
+    let thumb_local_x = if animation.is_some() {
+        animated_x
             .map(|x| x.0)
             .unwrap_or_else(|| off_thumb_x(&rect))
     } else if s.on {
@@ -363,7 +372,234 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::test_support::tracked_allocations;
+    use crate::types::{Point, Transform};
     use crate::ui::dirty::VisualDirty;
+    use crate::ui::theme::WidgetState;
+    use crate::ui::view::PaintCtx;
+    use crate::ui::{Style, Theme};
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct FillTrace {
+        area: Rect,
+        clip: Rect,
+        transform: Transform,
+        quad: Option<[Point; 4]>,
+        color: Color,
+        radius: Fixed,
+        opa: u8,
+    }
+
+    #[derive(Default)]
+    struct Trace {
+        fills: [Option<FillTrace>; 2],
+        draws: usize,
+        failure: Option<(usize, RenderError)>,
+    }
+
+    impl Renderer for Trace {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            let DrawCommand::Fill {
+                area,
+                transform,
+                quad,
+                color,
+                radius,
+                opa,
+            } = *request.command
+            else {
+                panic!("unexpected Switch request");
+            };
+            let index = self.draws;
+            self.fills[index] = Some(FillTrace {
+                area,
+                clip: request.clip,
+                transform,
+                quad,
+                color,
+                radius,
+                opa,
+            });
+            self.draws += 1;
+            match self.failure {
+                Some((at, error)) if at == index => Err(error),
+                _ => Ok(()),
+            }
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn render_refetches_optional_animation_data_and_live_geometry_without_allocating() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let render = view().render().unwrap();
+        let style = Style::default();
+        let clip = Rect::new(9, 13, 10, 8);
+        let transform = Transform::translate(Fixed::from_int(5), Fixed::from_int(9));
+        let quad = Some([
+            Point::new(7, 11),
+            Point::new(61, 11),
+            Point::new(61, 35),
+            Point::new(7, 35),
+        ]);
+        let half = Fixed::from_f32(0.5);
+
+        for theme in [Theme::dark(), Theme::light()] {
+            world.insert_resource(theme);
+            for state in [
+                WidgetState::Enabled,
+                WidgetState::Hovered,
+                WidgetState::Disabled,
+            ] {
+                for (on, width, x, animating, background, expected_x, expected_t) in [
+                    (false, 54, Some(41), false, None, 3, Fixed::ZERO),
+                    (true, 54, Some(3), false, None, 33, Fixed::ONE),
+                    (true, 96, Some(3), false, None, 75, Fixed::ONE),
+                    (true, 54, Some(12), true, Some(half), 12, half),
+                    (true, 96, None, true, None, 3, Fixed::ONE),
+                    (false, 54, None, false, Some(Fixed::ONE), 3, Fixed::ONE),
+                    (true, 54, None, false, Some(Fixed::ZERO), 33, Fixed::ZERO),
+                ] {
+                    let mut switch = Switch::new();
+                    switch.on = on;
+                    world.insert(entity, switch);
+                    match x {
+                        Some(x) => world.insert(entity, AnimatedThumbX(Fixed::from_int(x))),
+                        None => {
+                            world.remove::<AnimatedThumbX>(entity);
+                        }
+                    }
+                    if animating {
+                        world.insert(
+                            entity,
+                            AnimateThumbX(
+                                Spring::new(Fixed::ZERO, Fixed::ONE, 250, Fixed::ZERO).into(),
+                            ),
+                        );
+                    } else {
+                        world.remove::<AnimateThumbX>(entity);
+                    }
+                    match background {
+                        Some(t) => world.insert(entity, SwitchBgT(t)),
+                        None => {
+                            world.remove::<SwitchBgT>(entity);
+                        }
+                    }
+                    assert!(!world.has::<ComputedRect>(entity));
+                    let theme = world.resource::<Theme>().unwrap();
+                    let track_color = Color::lerp(
+                        theme.resolve_in(ColorToken::SurfaceVariant, state),
+                        theme.resolve_in(ColorToken::Success, state),
+                        expected_t,
+                    );
+                    let thumb_color = theme.resolve_in(ColorToken::OnPrimary, state);
+                    let rect = Rect::new(7, 11, width, 24);
+                    for _ in 0..2 {
+                        let mut trace = Trace::default();
+                        {
+                            let mut paint = PaintCtx::new(
+                                &mut trace, &style, &rect, &clip, transform, quad, state,
+                            );
+                            assert_eq!(
+                                tracked_allocations(|| render(&world, entity, &mut paint)),
+                                0
+                            );
+                            assert_eq!(paint.error(), None);
+                        }
+                        assert_eq!(trace.draws, 2);
+                        assert_eq!(
+                            trace.fills,
+                            [
+                                Some(FillTrace {
+                                    area: rect,
+                                    clip,
+                                    transform,
+                                    quad,
+                                    color: track_color,
+                                    radius: Fixed::from_int(12),
+                                    opa: 255,
+                                }),
+                                Some(FillTrace {
+                                    area: Rect::new(7 + expected_x, 14, 18, 18),
+                                    clip,
+                                    transform,
+                                    quad,
+                                    color: thumb_color,
+                                    radius: Fixed::from_int(9),
+                                    opa: 255,
+                                }),
+                            ]
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn render_skips_missing_switch_and_retains_first_error_without_allocating() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let render = view().render().unwrap();
+        let style = Style::default();
+        let rect = Rect::new(7, 11, 54, 24);
+        let mut trace = Trace::default();
+        {
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            for _ in 0..2 {
+                assert_eq!(
+                    tracked_allocations(|| render(&world, entity, &mut paint)),
+                    0
+                );
+                assert_eq!(paint.error(), None);
+            }
+        }
+        assert_eq!(trace.draws, 0);
+        assert_eq!(trace.fills, [None, None]);
+
+        world.insert(entity, Switch::new());
+        world.insert_resource(Theme::dark());
+        for failure_at in [0, 1] {
+            for _ in 0..2 {
+                let mut trace = Trace {
+                    failure: Some((failure_at, RenderError::BackendFailure)),
+                    ..Trace::default()
+                };
+                {
+                    let mut paint = PaintCtx::new(
+                        &mut trace,
+                        &style,
+                        &rect,
+                        &rect,
+                        Transform::IDENTITY,
+                        None,
+                        WidgetState::Enabled,
+                    );
+                    for _ in 0..2 {
+                        assert_eq!(
+                            tracked_allocations(|| render(&world, entity, &mut paint)),
+                            0
+                        );
+                        assert_eq!(paint.error(), Some(RenderError::BackendFailure));
+                    }
+                }
+                assert_eq!(trace.draws, failure_at + 1);
+                assert!(trace.fills[0].is_some());
+                assert_eq!(trace.fills[1].is_some(), failure_at == 1);
+            }
+        }
+    }
 
     fn h(_: &mut World, _: Entity, _: &SwitchEvent) -> bool {
         true

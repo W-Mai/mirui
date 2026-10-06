@@ -4,11 +4,9 @@ use core::marker::PhantomData;
 
 use super::entity::Entity;
 
-/// Pointer-only snapshot of one sparse set while a system query owns the World.
+/// Pointer-only snapshot of one sparse set during a stable query World window.
 ///
-/// The snapshot never changes storage structure. Its caller must keep the
-/// originating World exclusively borrowed and prevent insert/remove/despawn
-/// until every snapshot and reference produced from it has been dropped.
+/// The snapshot never changes storage structure. Its caller must keep the originating World borrowed and prevent insert/remove/despawn until every snapshot and reference produced from it has been dropped. Shared World windows permit only shared value reads; exclusive windows validate every read/write access before capturing parts.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct SparseSetParts<'world, T> {
     sparse: *const Option<u32>,
@@ -162,8 +160,9 @@ impl<T> SparseSet<T> {
         if self.dense[idx] != entity {
             return None;
         }
-        // SAFETY: safe mutation requires `&mut self`; the crate-private raw
-        // snapshot path owns an exclusive World window for its whole lifetime.
+        // SAFETY: safe mutation requires `&mut self`; crate-private query
+        // snapshots only write within a validated exclusive World window.
+        // Shared query windows produce compatible shared value references.
         Some(unsafe { &*self.data[idx].get() })
     }
 

@@ -44,6 +44,18 @@ pub struct ComponentDriver<T>(PhantomData<fn() -> T>);
 /// Opaque component-storage state carried by generated system queries.
 pub struct ComponentState<'world, T>(Option<SparseSetParts<'world, T>>);
 
+impl<'world, T: Component> ComponentState<'world, T> {
+    fn from_shared(world: &'world World) -> Self {
+        Self(world.storage::<T>().map(|storage| {
+            // SAFETY: the shared World borrow prevents structural mutation for
+            // 'world. Shared initialization is only exposed to read-only data
+            // and presence-only drivers/filters, so all live value references
+            // remain shared.
+            unsafe { storage.parts() }
+        }))
+    }
+}
+
 pub struct WriteState<'world, T> {
     components: Option<SparseSetParts<'world, T>>,
     changes: ComponentChangeSink<'world>,
@@ -134,7 +146,15 @@ pub unsafe trait QueryElement: sealed::QueryElement {
         'world: 'item;
 }
 
+pub(crate) trait SharedQueryElement: QueryElement<Mutability = ReadOnly> {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryElement>::State<'world>;
+}
+
 impl sealed::QueryElement for EntityItem {}
+
+impl SharedQueryElement for EntityItem {
+    fn init_shared<'world>(_world: &'world World) -> <Self as QueryElement>::State<'world> {}
+}
 
 unsafe impl QueryElement for EntityItem {
     type State<'world> = ();
@@ -161,6 +181,12 @@ unsafe impl QueryElement for EntityItem {
 }
 
 impl<T> sealed::QueryElement for Read<T> {}
+
+impl<T: Component> SharedQueryElement for Read<T> {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryElement>::State<'world> {
+        ComponentState::from_shared(world)
+    }
+}
 
 unsafe impl<T: Component> QueryElement for Read<T> {
     type State<'world> = ComponentState<'world, T>;
@@ -249,6 +275,12 @@ unsafe impl<T: Component> QueryElement for Write<T> {
 
 impl<T> sealed::QueryElement for OptionalRead<T> {}
 
+impl<T: Component> SharedQueryElement for OptionalRead<T> {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryElement>::State<'world> {
+        ComponentState::from_shared(world)
+    }
+}
+
 unsafe impl<T: Component> QueryElement for OptionalRead<T> {
     type State<'world> = ComponentState<'world, T>;
     type Item<'w> = Option<&'w T>;
@@ -316,6 +348,16 @@ pub unsafe trait QueryData: sealed::QueryData {
         'world: 'item;
 }
 
+pub(crate) trait SharedQueryData: QueryData<Mutability = ReadOnly> {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryData>::State<'world>;
+}
+
+impl<E: SharedQueryElement> SharedQueryData for E {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryData>::State<'world> {
+        <E as SharedQueryElement>::init_shared(world)
+    }
+}
+
 impl<E: QueryElement> sealed::QueryData for E {}
 
 unsafe impl<E: QueryElement> QueryData for E {
@@ -361,6 +403,14 @@ macro_rules! query_mutability {
 macro_rules! impl_query_data {
     ($(($element:ident, $index:tt)),+ $(,)?) => {
         impl<$($element: QueryElement),+> sealed::QueryData for ($($element,)+) {}
+
+        impl<$($element: SharedQueryElement),+> SharedQueryData for ($($element,)+) {
+            fn init_shared<'world>(
+                world: &'world World,
+            ) -> <Self as QueryData>::State<'world> {
+                ($(<$element as SharedQueryElement>::init_shared(world),)+)
+            }
+        }
 
         unsafe impl<$($element: QueryElement),+> QueryData for ($($element,)+) {
             type State<'world> = ($($element::State<'world>,)+);
@@ -453,7 +503,17 @@ pub unsafe trait FilterElement: sealed::FilterElement {
     unsafe fn matches<'world>(state: &Self::State<'world>, entity: Entity) -> bool;
 }
 
+pub(crate) trait SharedFilterElement: FilterElement {
+    fn init_shared<'world>(world: &'world World) -> <Self as FilterElement>::State<'world>;
+}
+
 impl<T> sealed::FilterElement for With<T> {}
+
+impl<T: Component> SharedFilterElement for With<T> {
+    fn init_shared<'world>(world: &'world World) -> <Self as FilterElement>::State<'world> {
+        ComponentState::from_shared(world)
+    }
+}
 
 unsafe impl<T: Component> FilterElement for With<T> {
     type State<'world> = ComponentState<'world, T>;
@@ -469,6 +529,12 @@ unsafe impl<T: Component> FilterElement for With<T> {
 }
 
 impl<T> sealed::FilterElement for Without<T> {}
+
+impl<T: Component> SharedFilterElement for Without<T> {
+    fn init_shared<'world>(world: &'world World) -> <Self as FilterElement>::State<'world> {
+        ComponentState::from_shared(world)
+    }
+}
 
 unsafe impl<T: Component> FilterElement for Without<T> {
     type State<'world> = ComponentState<'world, T>;
@@ -502,7 +568,15 @@ pub unsafe trait QueryFilter: sealed::QueryFilter {
     unsafe fn matches<'world>(state: &Self::State<'world>, entity: Entity) -> bool;
 }
 
+pub(crate) trait SharedQueryFilter: QueryFilter {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryFilter>::State<'world>;
+}
+
 impl sealed::QueryFilter for () {}
+
+impl SharedQueryFilter for () {
+    fn init_shared<'world>(_world: &'world World) -> <Self as QueryFilter>::State<'world> {}
+}
 
 unsafe impl QueryFilter for () {
     type State<'world> = ();
@@ -517,6 +591,14 @@ unsafe impl QueryFilter for () {
 macro_rules! impl_query_filter {
     ($(($filter:ident, $index:tt)),+ $(,)?) => {
         impl<$($filter: FilterElement),+> sealed::QueryFilter for ($($filter,)+) {}
+
+        impl<$($filter: SharedFilterElement),+> SharedQueryFilter for ($($filter,)+) {
+            fn init_shared<'world>(
+                world: &'world World,
+            ) -> <Self as QueryFilter>::State<'world> {
+                ($(<$filter as SharedFilterElement>::init_shared(world),)+)
+            }
+        }
 
         unsafe impl<$($filter: FilterElement),+> QueryFilter for ($($filter,)+) {
             type State<'world> = ($($filter::State<'world>,)+);
@@ -580,7 +662,17 @@ pub unsafe trait QueryDriver: sealed::QueryDriver {
     unsafe fn entity(state: &Self::State<'_>, index: usize) -> Entity;
 }
 
+pub(crate) trait SharedQueryDriver: QueryDriver {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryDriver>::State<'world>;
+}
+
 impl<T> sealed::QueryDriver for ComponentDriver<T> {}
+
+impl<T: Component> SharedQueryDriver for ComponentDriver<T> {
+    fn init_shared<'world>(world: &'world World) -> <Self as QueryDriver>::State<'world> {
+        ComponentState::from_shared(world)
+    }
+}
 
 unsafe impl<T: Component> QueryDriver for ComponentDriver<T> {
     type State<'world> = ComponentState<'world, T>;
@@ -626,8 +718,7 @@ fn assert_compatible_access<Q: QueryData>() {
 
 /// Internal typed query used by generated systems.
 ///
-/// It owns the exclusive World borrow for `'world`; only pointer snapshots live in
-/// its state. Iteration cannot revisit World or structurally modify storage.
+/// It retains a stable World borrow for `'world`; only pointer snapshots live in its state. Shared construction accepts only sealed read-only data. Mutable construction holds an exclusive window through its input World borrow. Iteration cannot revisit World or structurally modify storage.
 pub struct SystemQuery<
     'world,
     D: QueryDriver,
@@ -638,7 +729,7 @@ pub struct SystemQuery<
     driver: D::State<'world>,
     data: Q::State<'world>,
     filters: F::State<'world>,
-    _world: PhantomData<(&'world mut World, M)>,
+    _world: PhantomData<(&'world World, M)>,
 }
 
 impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> SystemQuery<'world, D, Q, F> {
@@ -685,6 +776,22 @@ where
     Q: QueryData<Mutability = ReadOnly>,
     F: QueryFilter,
 {
+    /// Capture existing read-only state without opening a system mutation window.
+    pub(crate) fn from_shared(world: &'world World) -> Self
+    where
+        D: SharedQueryDriver,
+        Q: SharedQueryData,
+        F: SharedQueryFilter,
+    {
+        // Sealed read-only data cannot contain conflicting writes.
+        Self {
+            driver: <D as SharedQueryDriver>::init_shared(world),
+            data: <Q as SharedQueryData>::init_shared(world),
+            filters: <F as SharedQueryFilter>::init_shared(world),
+            _world: PhantomData,
+        }
+    }
+
     /// Read one matching row for the lifetime of this query borrow.
     pub fn get(&self, entity: Entity) -> Option<Q::Item<'_>> {
         if !self.matches(entity) {
@@ -788,6 +895,138 @@ mod tests {
     struct Marker;
 
     impl Component for Marker {}
+
+    #[test]
+    fn shared_queries_coexist_and_preserve_pointer_optional_filter_and_generation_contracts() {
+        let mut world = World::new();
+        let expired = world.spawn_empty();
+        world.insert(expired, Position(-1));
+        assert!(world.despawn(expired));
+        let first = world.spawn_empty();
+        assert_eq!(first.id, expired.id);
+        assert_ne!(first.generation, expired.generation);
+        world.insert(first, Position(1));
+        world.insert(first, Velocity(10));
+        world.insert(first, Active);
+        let second = world.spawn_empty();
+        world.insert(second, Position(2));
+        world.insert(second, Label("two"));
+        world.insert(second, Active);
+        let hidden = world.spawn_empty();
+        world.insert(hidden, Position(3));
+        world.insert(hidden, Active);
+        world.insert(hidden, Hidden);
+        let inactive = world.spawn_empty();
+        world.insert(inactive, Position(4));
+        let outside_driver = world.spawn_empty();
+        world.insert(outside_driver, Velocity(50));
+        world.insert(outside_driver, Active);
+        world.watch_component_type(TypeId::of::<Position>());
+        world.drain_component_changes(|_, _| {});
+
+        type Rows<'world> = SystemQuery<
+            'world,
+            ComponentDriver<Position>,
+            (
+                EntityItem,
+                Read<Position>,
+                Read<Position>,
+                OptionalRead<Velocity>,
+                OptionalRead<Label>,
+                OptionalRead<Marker>,
+            ),
+            (With<Active>, Without<Hidden>),
+        >;
+        type Other<'world> =
+            SystemQuery<'world, ComponentDriver<Active>, Read<Position>, (Without<Hidden>,)>;
+        type Only<'world> = SystemQuery<'world, ComponentDriver<Active>, EntityItem, ()>;
+        type Missing<'world> =
+            SystemQuery<'world, ComponentDriver<Marker>, OptionalRead<Position>, ()>;
+        {
+            let rows = Rows::from_shared(&world);
+            let other = Other::from_shared(&world);
+            let only = Only::from_shared(&world);
+            let missing = Missing::from_shared(&world);
+            {
+                let (entity, left, right, velocity, label, marker) = rows.get(first).unwrap();
+                let concurrent = other.get(first).unwrap();
+                let repeated = rows.get(first).unwrap().1;
+                assert_eq!(entity, first);
+                assert!(core::ptr::eq(left, right));
+                assert!(core::ptr::eq(left, concurrent));
+                assert!(core::ptr::eq(left, repeated));
+                assert!(core::ptr::eq(left, world.get::<Position>(first).unwrap()));
+                assert!(core::ptr::eq(
+                    velocity.unwrap(),
+                    world.get::<Velocity>(first).unwrap()
+                ));
+                assert!(label.is_none());
+                assert!(marker.is_none());
+            }
+            let (_, _, _, velocity, label, marker) = rows.get(second).unwrap();
+            assert!(velocity.is_none());
+            assert!(core::ptr::eq(
+                label.unwrap(),
+                world.get::<Label>(second).unwrap()
+            ));
+            assert!(marker.is_none());
+            assert!(rows.get(hidden).is_none());
+            assert!(rows.get(inactive).is_none());
+            assert!(rows.get(outside_driver).is_none());
+            assert!(rows.get(expired).is_none());
+            assert!(other.get(outside_driver).is_none());
+            assert!(other.get(expired).is_none());
+            assert_eq!(only.get(outside_driver), Some(outside_driver));
+            assert!(missing.get(first).is_none());
+            assert_eq!(missing.into_iter().count(), 0);
+            let mut iter = rows.into_iter();
+            assert_eq!(iter.next().map(|row| row.0), Some(first));
+            assert_eq!(iter.next().map(|row| row.0), Some(second));
+            assert!(iter.next().is_none());
+            assert_eq!(other.get(first).unwrap(), &Position(1));
+        }
+        let mut changes = 0;
+        world.drain_component_changes(|_, _| changes += 1);
+        assert_eq!(changes, 0);
+    }
+
+    #[test]
+    fn shared_query_first_and_repeated_construction_get_and_iteration_do_not_allocate() {
+        let mut world = World::new();
+        let first = world.spawn_empty();
+        world.insert(first, Position(1));
+        world.insert(first, Velocity(10));
+        world.insert(first, Active);
+        let second = world.spawn_empty();
+        world.insert(second, Position(2));
+        world.insert(second, Active);
+        type Rows<'world> = SystemQuery<
+            'world,
+            ComponentDriver<Position>,
+            (EntityItem, Read<Position>, OptionalRead<Velocity>),
+            (With<Active>, Without<Hidden>),
+        >;
+        for repetitions in [1, 64] {
+            assert_eq!(
+                tracked_allocations(|| {
+                    for _ in 0..repetitions {
+                        let first_query = Rows::from_shared(&world);
+                        let second_query = Rows::from_shared(&world);
+                        {
+                            let left = first_query.get(first).unwrap();
+                            let right = second_query.get(first).unwrap();
+                            assert!(core::ptr::eq(left.1, right.1));
+                            assert!(core::ptr::eq(left.2.unwrap(), right.2.unwrap()));
+                        }
+                        assert!(first_query.get(second).unwrap().2.is_none());
+                        assert_eq!(first_query.into_iter().count(), 2);
+                        assert_eq!(second_query.into_iter().count(), 2);
+                    }
+                }),
+                0
+            );
+        }
+    }
 
     #[crate::animate(component = GeneratedInventoryMotion)]
     fn apply_generated_inventory_motion(_value: motion!()) {}
