@@ -4,10 +4,10 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::marker::PhantomData;
 
-use crate::core::model::{ModelHandle, registered_owner};
+use crate::core::model::{ModelHandle, try_registered_owner};
 use crate::core::reactive::OwnerGuard;
 use crate::ecs::commands::{CommandCapacity, CommandError, CommandQueue, DeferredCommands};
-use crate::ecs::system::access::{SystemAccess, validate};
+use crate::ecs::system::access::{AccessError, SystemAccess, check};
 use crate::ecs::system::param::{SystemParamSet, fetch_system_params, reserve_system_params};
 use crate::ecs::world::WorldId;
 use crate::ecs::{Component, Entity, World};
@@ -132,18 +132,63 @@ impl<E: Event, C: CallbackContext<E>, D: Clone> Clone for CallbackRun<E, C, D> {
 pub struct EventCallback<E: Event, C: CallbackContext<E>> {
     name: &'static str,
     metadata: &'static [SystemAccess],
-    owner: Option<WorldId>,
+    owner: CallbackOwner,
     reserve_params: unsafe fn(&mut World),
     run: CallbackRun<E, C, ()>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum ModelOwnerError {
+    RegistrationEnded,
+    MixedOwners,
+    ForeignOwner,
+}
+
+enum CallbackOwner {
+    Unbound,
+    Bound(WorldId),
+    Invalid(ModelOwnerError),
+}
+
+/// A callback rejected before parameter preparation or body execution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum PreparationError {
+    Owner {
+        callback: &'static str,
+        error: ModelOwnerError,
+    },
+    Access {
+        callback: &'static str,
+        error: AccessError,
+    },
+    Command {
+        callback: &'static str,
+        error: CommandError,
+    },
+}
+
 impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
+    pub(crate) fn uses_commands(&self) -> bool {
+        matches!(self.run, CallbackRun::Deferred { .. })
+    }
+
     pub fn require_model<H: ModelHandle>(mut self, model: &H) -> Self {
-        let owner = registered_owner(model);
-        if let Some(previous) = self.owner {
-            assert_eq!(previous, owner, "event models belong to different Apps");
+        if matches!(self.owner, CallbackOwner::Invalid(_)) {
+            return self;
         }
-        self.owner = Some(owner);
+        let Some(owner) = try_registered_owner(model) else {
+            self.owner = CallbackOwner::Invalid(ModelOwnerError::RegistrationEnded);
+            return self;
+        };
+        if let CallbackOwner::Bound(previous) = self.owner
+            && previous != owner
+        {
+            self.owner = CallbackOwner::Invalid(ModelOwnerError::MixedOwners);
+        } else {
+            self.owner = CallbackOwner::Bound(owner);
+        }
         self
     }
 
@@ -151,20 +196,36 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
         self,
         world: &mut World,
         capacity: CommandCapacity,
-    ) -> Result<PreparedEvent<E, C>, CommandError> {
-        if let Some(owner) = self.owner {
-            assert_eq!(
-                owner,
-                world.id(),
-                "event callback belongs to a different App"
-            );
+    ) -> Result<PreparedEvent<E, C>, PreparationError> {
+        match self.owner {
+            CallbackOwner::Invalid(error) => {
+                return Err(PreparationError::Owner {
+                    callback: self.name,
+                    error,
+                });
+            }
+            CallbackOwner::Bound(owner) if owner != world.id() => {
+                return Err(PreparationError::Owner {
+                    callback: self.name,
+                    error: ModelOwnerError::ForeignOwner,
+                });
+            }
+            CallbackOwner::Unbound | CallbackOwner::Bound(_) => {}
         }
-        validate("event", self.name, self.metadata);
+        check(self.metadata).map_err(|error| PreparationError::Access {
+            callback: self.name,
+            error,
+        })?;
         let run = match self.run {
             CallbackRun::Plain(run) => CallbackRun::Plain(run),
             CallbackRun::Deferred { run, commands: () } => CallbackRun::Deferred {
                 run,
-                commands: Rc::new(RefCell::new(CommandQueue::bounded(capacity)?)),
+                commands: Rc::new(RefCell::new(CommandQueue::bounded(capacity).map_err(
+                    |error| PreparationError::Command {
+                        callback: self.name,
+                        error,
+                    },
+                )?)),
             },
         };
         let _owner = OwnerGuard::enter(world);
@@ -247,7 +308,7 @@ where
     EventCallback {
         name,
         metadata,
-        owner: None,
+        owner: CallbackOwner::Unbound,
         reserve_params: reserve_system_params::<P>,
         run: CallbackRun::Plain(Rc::new(move |world, payload, target| {
             // SAFETY: prepare validated the complete immutable metadata before
@@ -284,7 +345,7 @@ where
     EventCallback {
         name,
         metadata,
-        owner: None,
+        owner: CallbackOwner::Unbound,
         reserve_params: reserve_system_params::<P>,
         run: CallbackRun::Deferred {
             commands: (),

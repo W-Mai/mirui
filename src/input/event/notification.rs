@@ -8,6 +8,7 @@ use crate::ecs::Entity;
 use crate::ecs::payload::{PayloadArena, PayloadError, drop_stored};
 
 use super::contract::{AppNotification, EntityNotification, Event};
+use super::lifecycle::AppNotice;
 
 /// Logical capacity for each half of notification storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +90,7 @@ struct NotificationBuffer {
     records: Vec<NotificationRecord>,
     payload: PayloadArena,
     cursor: usize,
+    entity_records: usize,
 }
 
 impl NotificationBuffer {
@@ -147,6 +149,7 @@ impl NotificationBuffer {
             offset,
             drop_payload: drop_stored::<E>,
         });
+        self.entity_records += usize::from(entity.is_some());
         Ok(())
     }
 
@@ -171,6 +174,7 @@ impl NotificationBuffer {
         self.records.clear();
         self.payload.clear();
         self.cursor = 0;
+        self.entity_records = 0;
     }
 }
 
@@ -239,16 +243,33 @@ enum QueuePhase {
 pub struct NotificationQueue {
     state: RefCell<QueueState>,
     phase: Cell<QueuePhase>,
+    // The active read buffer lives outside QueueState during a flush.
+    app_notice_pending: Cell<bool>,
 }
 
 impl NotificationQueue {
-    /// Reserve both buffers. Logical limits change only after both succeed.
-    pub fn reserve(&self, requested: NotificationCapacity) -> Result<(), NotificationError> {
+    pub(crate) fn check_idle(&self) -> Result<(), NotificationError> {
         if self.phase.get() != QueuePhase::Idle {
             return Err(NotificationError::Busy);
         }
+        Ok(())
+    }
+
+    pub(crate) fn validate_capacity(
+        &self,
+        requested: NotificationCapacity,
+    ) -> Result<(), NotificationError> {
+        self.check_idle()?;
         core::alloc::Layout::from_size_align(requested.payload_bytes, requested.payload_alignment)
             .map_err(|_| NotificationError::InvalidLayout)?;
+        core::alloc::Layout::array::<NotificationRecord>(requested.records)
+            .map_err(|_| NotificationError::InvalidLayout)?;
+        Ok(())
+    }
+
+    /// Reserve both buffers. Logical limits change only after both succeed.
+    pub fn reserve(&self, requested: NotificationCapacity) -> Result<(), NotificationError> {
+        self.validate_capacity(requested)?;
         let mut state = self.state.borrow_mut();
         let capacity = NotificationCapacity {
             records: requested.records.max(state.capacity.records),
@@ -280,6 +301,46 @@ impl NotificationQueue {
         self.push(None, value)
     }
 
+    pub(crate) fn push_business<E: Event<Route = EntityNotification>>(
+        &self,
+        entity: Entity,
+        value: E,
+        capacity: NotificationCapacity,
+    ) -> Result<(), (NotificationError, E)> {
+        if self.phase.get() == QueuePhase::Discarding {
+            return Err((NotificationError::Busy, value));
+        }
+        let mut state = self.state.borrow_mut();
+        if state.write.entity_records >= capacity.records {
+            return Err((
+                NotificationError::RecordCapacity {
+                    available: capacity.records,
+                },
+                value,
+            ));
+        }
+        let capacity = NotificationCapacity {
+            records: state.capacity.records,
+            ..capacity
+        };
+        state.write.push(Some(entity), value, capacity)
+    }
+
+    pub(crate) fn push_app_notice<E: AppNotice>(
+        &self,
+        value: E,
+    ) -> Result<(), (NotificationError, E)> {
+        if self.phase.get() == QueuePhase::Discarding {
+            return Err((NotificationError::Busy, value));
+        }
+        if self.app_notice_pending.get() {
+            return Err((NotificationError::RecordCapacity { available: 1 }, value));
+        }
+        self.push(None, value)?;
+        self.app_notice_pending.set(true);
+        Ok(())
+    }
+
     fn push<E: Event>(
         &self,
         entity: Option<Entity>,
@@ -302,6 +363,7 @@ impl NotificationQueue {
         let mut state = self.state.borrow_mut();
         state.read.clear();
         state.write.clear();
+        self.app_notice_pending.set(false);
         Ok(())
     }
 
@@ -312,12 +374,23 @@ impl NotificationQueue {
         limit: usize,
         mut run: impl FnMut(&Notification<'_>) -> Result<(), E>,
     ) -> Result<usize, NotificationFlushError<E>> {
+        self.flush_with(limit, &mut run, |_| Ok(()), |run, notice| run(notice))
+    }
+
+    pub(crate) fn flush_with<C, E>(
+        &self,
+        limit: usize,
+        context: &mut C,
+        prepare: impl FnOnce(&mut C) -> Result<(), E>,
+        mut run: impl FnMut(&mut C, &Notification<'_>) -> Result<(), E>,
+    ) -> Result<usize, NotificationFlushError<E>> {
         if self.phase.get() != QueuePhase::Idle {
             return Err(NotificationError::Busy.into());
         }
         self.phase.set(QueuePhase::Flushing);
         let read = mem::take(&mut self.state.borrow_mut().read);
         let mut guard = FlushGuard { queue: self, read };
+        prepare(context).map_err(NotificationFlushError::Listener)?;
         let mut dispatched = 0;
         loop {
             if guard.read.is_empty() {
@@ -332,7 +405,7 @@ impl NotificationQueue {
                 return Err(NotificationError::FlushLimit { limit }.into());
             }
             let notification = guard.read.next().expect("non-empty notification batch");
-            run(&notification).map_err(NotificationFlushError::Listener)?;
+            run(context, &notification).map_err(NotificationFlushError::Listener)?;
             dispatched += 1;
         }
     }
@@ -351,6 +424,7 @@ impl Drop for FlushGuard<'_> {
         let mut state = self.queue.state.borrow_mut();
         state.write.clear();
         mem::swap(&mut state.read, &mut self.read);
+        self.queue.app_notice_pending.set(false);
     }
 }
 

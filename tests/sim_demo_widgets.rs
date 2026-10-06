@@ -141,7 +141,7 @@ fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, mut now_ms: u32) -> u
     let yf = Fixed::from_int(y);
     dispatch_input(
         world,
-        root,
+        Some(root),
         &InputEvent::PointerDown {
             id: 0,
             x: xf,
@@ -154,7 +154,7 @@ fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, mut now_ms: u32) -> u
     now_ms += 50;
     dispatch_input(
         world,
-        root,
+        Some(root),
         &InputEvent::PointerUp {
             id: 0,
             x: xf,

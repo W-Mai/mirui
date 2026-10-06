@@ -13,7 +13,9 @@ use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
 
 use super::BubbleControl;
-use super::callback::{AppContext, CallbackContext, EventCallback, PreparedEvent};
+use super::callback::{
+    AppContext, CallbackContext, EventCallback, PreparationError, PreparedEvent,
+};
 use super::contract::{
     AppEventSource, AppRoute, AppSource, EntityEventSource, EntityRoute, Event, EventKey,
     EventRoute, InputSource,
@@ -32,16 +34,24 @@ pub enum ListenerError {
     Capacity { available: usize },
     SnapshotCapacity { available: usize },
     AllocationFailed,
+    SizeOverflow,
     IdentityExhausted,
     ForeignOwner,
     MissingSource { entity: Entity },
     CyclicRoute { entity: Entity },
     Command(CommandError),
+    Preparation(PreparationError),
 }
 
 impl From<CommandError> for ListenerError {
     fn from(error: CommandError) -> Self {
         Self::Command(error)
+    }
+}
+
+impl From<PreparationError> for ListenerError {
+    fn from(error: PreparationError) -> Self {
+        Self::Preparation(error)
     }
 }
 
@@ -124,6 +134,7 @@ impl ListenerDecision for BubbleControl {
 }
 
 trait ErasedListener {
+    fn is_notification(&self) -> bool;
     fn matches(&self, event: &BorrowedEvent<'_>, tap_count: Option<u8>) -> bool;
     fn invoke(
         &self,
@@ -170,6 +181,10 @@ impl<E: Event, C: CallbackContext<E>> ErasedListener for InstalledListener<E, C>
 where
     <E::Route as EventRoute>::Decision: ListenerDecision,
 {
+    fn is_notification(&self) -> bool {
+        TypeId::of::<E::Route>() == TypeId::of::<super::contract::AppNotification>()
+    }
+
     fn matches(&self, event: &BorrowedEvent<'_>, tap_count: Option<u8>) -> bool {
         event
             .payload::<E>()
@@ -263,6 +278,35 @@ pub struct EventListeners {
 }
 
 impl EventListeners {
+    pub(crate) fn listener_count(&self, world: &World) -> Result<usize, ListenerError> {
+        self.check_owner(world)?;
+        self.prune_retired_entities(world)?;
+        self.entries
+            .try_borrow()
+            .map(|entries| entries.listeners.len())
+            .map_err(|_| ListenerError::Busy)
+    }
+
+    pub(crate) fn has_app_listener<E: Event>(&self, world: &World) -> Result<bool, ListenerError> {
+        self.check_owner(world)?;
+        self.prune_retired_entities(world)?;
+        let entries = self.entries.try_borrow().map_err(|_| ListenerError::Busy)?;
+        Ok(entries
+            .listeners
+            .iter()
+            .any(|entry| entry.target == ListenerTarget::App && entry.kind == TypeId::of::<E>()))
+    }
+
+    pub(crate) fn has_app_notifications(&self, world: &World) -> Result<bool, ListenerError> {
+        self.check_owner(world)?;
+        self.prune_retired_entities(world)?;
+        let entries = self.entries.try_borrow().map_err(|_| ListenerError::Busy)?;
+        Ok(entries
+            .listeners
+            .iter()
+            .any(|entry| entry.target == ListenerTarget::App && entry.callback.is_notification()))
+    }
+
     pub fn new(world: &mut World) -> Self {
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
         Self {
@@ -591,16 +635,33 @@ impl EventListeners {
         queue: &NotificationQueue,
         limit: usize,
     ) -> Result<usize, NotificationFlushError<ListenerError>> {
+        self.flush_notifications_with(world, queue, limit, |_| Ok(()))
+    }
+
+    pub(crate) fn flush_notifications_with(
+        &self,
+        world: &mut World,
+        queue: &NotificationQueue,
+        limit: usize,
+        before_dispatch: impl FnMut(&mut World) -> Result<(), ListenerError>,
+    ) -> Result<usize, NotificationFlushError<ListenerError>> {
         self.check_owner(world)
             .map_err(NotificationFlushError::Listener)?;
-        queue.flush(limit, |notification| {
-            let target = notification
-                .entity()
-                .map_or(ListenerTarget::App, ListenerTarget::Entity);
-            self.snapshot_borrowed(world, notification.borrowed_event(), target)?
-                .run(world)?;
-            Ok(())
-        })
+        let mut context = (world, before_dispatch);
+        queue.flush_with(
+            limit,
+            &mut context,
+            |(world, before_dispatch)| before_dispatch(world),
+            |(world, before_dispatch), notification| {
+                before_dispatch(world)?;
+                let target = notification
+                    .entity()
+                    .map_or(ListenerTarget::App, ListenerTarget::Entity);
+                self.snapshot_borrowed(world, notification.borrowed_event(), target)?
+                    .run(world)?;
+                Ok(())
+            },
+        )
     }
 }
 

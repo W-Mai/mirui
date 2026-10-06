@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **App event callbacks.** Named callbacks handle lifecycle notifications and input fallback through the shared executor. Typed event capacities declare notification and deferred-command storage; rejected configuration changes and bindings log warnings without failing application construction.
 - **Typed command capacities.** Const operation-count declarations calculate deferred payload sizes, mixed-alignment storage, and apply-function layout without exposing byte limits or allocating a type catalog.
 - **Typed authoring roles.** `model!`, `res!`, `query!`, `component!`, and capability roles give generated callbacks typed access without exposing `World`, generated handles, or explicit lifetimes.
 - **Deferred authoring commands.** `commands!()` records component, resource, entity, and UI property changes for ordered application after callback borrows end, while retaining command storage across runs.
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **App input and notification routing.** Keyboard editing and scroll handling precede App fallback without duplicate dispatch. Lifecycle notifications follow completed hooks in the same FIFO as widget notifications, and startup and quit run once across loop entrypoints.
 - **Notification service ownership.** The runtime retains a private notification service, prepares capacity in place, and exposes no service handle for generic resource replacement.
 - **Unified authoring callbacks.** Components, compositions, views, systems, events, timers, and animations share one role model with compile-time diagnostics for unsupported access and alias conflicts.
 - **Unified paint context.** View callbacks use one `paint!()` capability for geometry, style, drawing, scene replay, clipping, and render-error propagation.

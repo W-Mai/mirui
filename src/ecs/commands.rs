@@ -108,6 +108,27 @@ impl CommandCapacity {
             payload_alignment,
         })
     }
+
+    pub(crate) const fn validate(self) -> Result<(), CommandError> {
+        match self.validated_limits() {
+            Ok(_) => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    const fn validated_limits(self) -> Result<CommandLimits, CommandError> {
+        let limits = match self.limits() {
+            Ok(limits) => limits,
+            Err(error) => return Err(error),
+        };
+        if Layout::array::<CommandRecord>(limits.records).is_err() {
+            return Err(CommandError::SizeOverflow);
+        }
+        if Layout::from_size_align(limits.payload_bytes, limits.payload_alignment).is_err() {
+            return Err(CommandError::InvalidLayout);
+        }
+        Ok(limits)
+    }
 }
 
 impl Default for CommandCapacity {
@@ -209,10 +230,7 @@ pub(crate) struct CommandQueue {
 
 impl CommandQueue {
     pub(crate) fn bounded(capacity: CommandCapacity) -> Result<Self, CommandError> {
-        let capacity = capacity.limits()?;
-        Layout::array::<CommandRecord>(capacity.records).map_err(|_| CommandError::SizeOverflow)?;
-        Layout::from_size_align(capacity.payload_bytes, capacity.payload_alignment)
-            .map_err(|_| CommandError::InvalidLayout)?;
+        let capacity = capacity.validated_limits()?;
         let mut queue = Self::default();
         queue
             .payload

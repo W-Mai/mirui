@@ -61,31 +61,6 @@ fn find_focusable(world: &World, entity: Entity) -> Option<Entity> {
     }
 }
 
-/// Route Key/CharInput events to the focused entity's KeyHandler.
-pub fn key_dispatch(world: &mut World, event: &InputEvent) {
-    let target = match world.resource::<FocusState>() {
-        Some(fs) => match fs.focused {
-            Some(e) => e,
-            None => return,
-        },
-        None => return,
-    };
-
-    match event {
-        InputEvent::Key { .. } | InputEvent::CharInput { .. } => {}
-        _ => return,
-    }
-
-    if super::entity_or_ancestor_disabled(world, target) {
-        return;
-    }
-
-    let handler_fn = world.get::<KeyHandler>(target).map(|h| h.on_key);
-    if let Some(f) = handler_fn {
-        f(world, target, event);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

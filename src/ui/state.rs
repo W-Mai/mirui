@@ -145,6 +145,21 @@ pub(crate) fn clear_hidden_interaction_states(world: &mut World) {
     }
 }
 
+pub(crate) fn clear_active_interaction_states(world: &mut World) {
+    loop {
+        let target = world
+            .query::<InteractionState>()
+            .iter()
+            .next()
+            .map(|(entity, _)| entity);
+        let Some(target) = target else {
+            break;
+        };
+        world.remove::<InteractionState>(target);
+        world.insert(target, Dirty);
+    }
+}
+
 fn compute_pointer_target(
     world: &World,
     x: crate::types::Fixed,

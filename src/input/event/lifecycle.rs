@@ -2,6 +2,11 @@
 
 use super::contract::{AppNotification, AppSource, Event};
 
+pub(crate) trait AppNotice:
+    Event<Route = AppNotification, Source = AppSource, Options = ()>
+{
+}
+
 macro_rules! notifications {
     ($($kind:ident),+ $(,)?) => {
         $(
@@ -14,6 +19,8 @@ macro_rules! notifications {
                 type Source = AppSource;
                 type Options = ();
             }
+
+            impl AppNotice for $kind {}
         )+
     };
 }

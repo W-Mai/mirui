@@ -46,9 +46,7 @@ where
     /// installed.
     fn post_render(&mut self, _world: &mut World, _render_nanos: u64) {}
 
-    /// Inspect each input event before it reaches widgets. Return true to
-    /// mark the event consumed; `App` will skip widget-level dispatch for
-    /// that event.
+    /// Inspect input before widgets and App fallback. Returning true consumes user input. Lifecycle requests still reach every plugin and retain cancellation and state-transition handling.
     fn on_event(&mut self, _world: &mut World, _event: &InputEvent) -> bool {
         false
     }

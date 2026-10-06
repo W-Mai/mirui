@@ -107,14 +107,19 @@ pub(crate) mod access {
         Write,
     }
 
-    pub(crate) fn validate(kind: &str, name: &str, metadata: &[SystemAccess]) {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum AccessError {
+        ExpectAfterAccess,
+        Conflict { type_name: &'static str },
+    }
+
+    pub(crate) fn check(metadata: &[SystemAccess]) -> Result<(), AccessError> {
         let mut access_started = false;
         for descriptor in metadata {
             if descriptor.kind == SystemAccessKind::ExpectComponent {
-                assert!(
-                    !access_started,
-                    "{kind} `{name}` has expect metadata after access metadata"
-                );
+                if access_started {
+                    return Err(AccessError::ExpectAfterAccess);
+                }
             } else {
                 access_started = true;
             }
@@ -130,13 +135,27 @@ pub(crate) mod access {
                     continue;
                 };
                 let right_type = (right.resolve)();
-                assert!(
-                    left_domain != right_domain
-                        || left_type.id != right_type.id
-                        || (left_mode == AccessMode::Read && right_mode == AccessMode::Read),
-                    "{kind} `{name}` has conflicting access to `{}`",
-                    left_type.name
-                );
+                if left_domain == right_domain
+                    && left_type.id == right_type.id
+                    && (left_mode != AccessMode::Read || right_mode != AccessMode::Read)
+                {
+                    return Err(AccessError::Conflict {
+                        type_name: left_type.name,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate(kind: &str, name: &str, metadata: &[SystemAccess]) {
+        match check(metadata) {
+            Ok(()) => {}
+            Err(AccessError::ExpectAfterAccess) => {
+                panic!("{kind} `{name}` has expect metadata after access metadata")
+            }
+            Err(AccessError::Conflict { type_name }) => {
+                panic!("{kind} `{name}` has conflicting access to `{type_name}`")
             }
         }
     }

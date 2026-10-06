@@ -740,7 +740,7 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
         (InputEvent::PointerDown { id: 0, x, y }, 0),
         (InputEvent::PointerUp { id: 0, x, y }, 50),
     ] {
-        crate::input::event::dispatch_input(&mut app.world, root, &event, now, 480, 320);
+        crate::input::event::dispatch_input(&mut app.world, Some(root), &event, now, 480, 320);
     }
     let gestures: Vec<_> = app
         .world

@@ -608,12 +608,12 @@ pub(crate) fn register<M: Model>(
 }
 
 pub(crate) fn registered_owner<H: ModelHandle>(handle: &H) -> WorldId {
-    let cell = handle
-        .cell()
-        .upgrade()
-        .expect("model registration is no longer alive");
-    cell.assert_active();
-    cell.owner()
+    try_registered_owner(handle).expect("model registration is no longer alive")
+}
+
+pub(crate) fn try_registered_owner<H: ModelHandle>(handle: &H) -> Option<WorldId> {
+    let cell = handle.cell().upgrade()?;
+    cell.active.get().then_some(cell.owner())
 }
 
 #[doc(hidden)]

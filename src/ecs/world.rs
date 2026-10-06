@@ -307,6 +307,12 @@ impl World {
         self.allocator.live_count()
     }
 
+    pub(crate) fn component_count(&self, kind: TypeId) -> usize {
+        self.storages
+            .get(&kind)
+            .map_or(0, |storage| storage.entities().len())
+    }
+
     pub fn insert<T: 'static>(&mut self, entity: Entity, component: T) {
         if !self.is_alive(entity) {
             return;

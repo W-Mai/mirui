@@ -496,6 +496,61 @@ Active input simulation suppresses competing pointer, wheel, rotary, keyboard,
 and character input before widget and plugin input handlers. Suspend, resume,
 and quit requests remain available to the application lifecycle path.
 
+### App callbacks and event capacity
+
+`App::on_event(E::EVENT, callback)` installs a named callback for App lifecycle notifications or input fallback. The callback factory infers the installation context; authors do not name an internal context type or write a World callback.
+
+```rust
+use mirui::prelude::*;
+
+#[model]
+struct Shortcuts {
+    enabled: bool,
+}
+
+#[model]
+impl Shortcuts {
+    fn toggle(&mut self) {
+        self.enabled = !self.enabled;
+    }
+}
+
+#[event]
+fn handle_key(input: event!(Key), shortcuts: model!(Shortcuts)) -> bool {
+    if input.pressed && input.code == 32 {
+        shortcuts.toggle();
+        true
+    } else {
+        false
+    }
+}
+
+let mut app = App::headless(320, 240);
+let shortcuts = app.add_model(Shortcuts { enabled: false });
+app.on_event(Key::EVENT, handle_key::callback(shortcuts));
+```
+
+Focused keyboard handlers and default text editing run before App key and character fallback. Wheel and rotary events first try the scroll route. An accepted input is not dispatched again through a second handler path. App fallback also works without a widget root. Plugin consumption can stop user input, but does not stop lifecycle requests from reaching other plugins or bypass cancellation.
+
+`Started` follows the startup hooks once, including applications driven directly by `tick`. Suspend and resume notify only after an actual state change and their plugin hooks; suspension and quit cancel active pointer, scroll, and gesture state. Memory warnings and host interactions notify after their hooks. Quit hooks and notifications run once even if `tick` is called again. These notifications join the same FIFO as previously submitted widget notifications.
+
+`EventCapacity` is available from `mirui::app` and the ordinary prelude. Configure it before installing the first callback:
+
+```rust,ignore
+app.with_event_capacity(
+    EventCapacity::new()
+        .notifications::<PadHit>(MAX_PENDING_HITS)
+        .commands(CommandCapacity::new().emit::<PadHit>(MAX_HITS_PER_CALLBACK))
+        .flush_limit(MAX_DELIVERIES),
+);
+```
+
+Notification counts describe combined pending payload storage, not per-type runtime quotas. A nonzero business notification requirement needs an explicit flush limit. Undeclared storage differs from explicitly declared zero capacity; neither supplies an automatic budget. Deferred event callbacks require command capacity and each retain a separate prepared command queue. Plain callbacks have no command queue. Total command memory therefore grows with the number of deferred callbacks, not just the size of the shared declaration.
+
+The first successfully installed callback freezes the capacity configuration. Reapplying the same configuration is a no-op; an invalid or different configuration logs a warning and preserves the installed configuration. A rejected binding logs a warning and skips that binding. Runtime submission and flush failures retain their structured error contract internally and are logged by App; completed data changes are not rolled back.
+
+App lifecycle listeners reserve one additional unit-notification slot, independent of business storage. Business notifications cannot borrow that slot. Listener and route scratch storage are prepared from actual installed listeners, matching gesture hooks, and keyboard handlers at structural boundaries. Stable dispatch does not grow those buffers; route snapshots and callback borrows finish before further preparation.
+
 ### Notification payload storage
 
 The notification service and its retained handle are private. Runtime preparation reserves an existing service in place instead of replacing it; generic resource commands cannot remove or replace that service. Preparing capacity during an active flush returns `Busy`, while normal emission continues into the separate write buffer.
@@ -540,10 +595,7 @@ Each count reserves a combination of operations, not a per-type runtime quota. T
 
 Named event factories derive installation inputs, typed invocation parameters, access metadata, and body arguments from one ordered parameter plan. Authored types remain in their declaration scope; relative paths are relocated only when emitting the generated factory module. Model and ordinary value arguments retain their declaration order.
 
-Internal typed callbacks share the system parameter fetch and access validator.
-Preparation checks component/resource aliases and captured Model owners, binds
-the callback to one App, and reserves the current query change-record budget.
-The prepared callback and its access plan cannot be replaced independently.
+Internal typed callbacks share the system parameter fetch and access validator. Preparation rejects component/resource aliases and foreign, mixed, or retired Model captures with structured installation errors. App logs these errors and skips the affected binding. Successful preparation binds the callback to one App and reserves the current query change-record budget. The prepared callback and its access plan cannot be replaced independently.
 
 Invocation checks the App identity and entity generation before fetching
 parameters. Entity contexts receive an `Entity`; App contexts receive no entity.
@@ -625,12 +677,10 @@ marked dirty. The listener pool's scroll route runs that handler first and
 selects App listeners only when scrolling is not accepted. It retains wheel
 coordinates and rotary hardware fields, uses the same prepared callbacks and
 reserved step storage, and rejects foreign owners or busy scratch before
-scrolling. This is an internal route, not an ordinary App installation API.
+scrolling. App fallback uses this route after scroll acceptance is checked.
 
 Internal hooks and listeners share the reserved step storage and cleanup guard.
-A failed reservation does not raise either logical quota. The pool's ABI is
-confined to hidden macro support; the ordinary `on` and App installation APIs
-are not implemented by this layer.
+A failed reservation does not raise either logical quota. The pool's ABI is confined to hidden macro support. App installs callbacks into this pool and prepares structural storage; widget `on` syntax is a separate authoring frontend.
 
 ### Deferred widget notification submission
 
@@ -638,7 +688,7 @@ The internal command facade records `emit(entity, payload)` without reading the 
 
 After callback borrows end, submission checks the entity generation, actual source component, and notification storage owner. The owning payload moves from command storage into the pending notification arena without cloning. Missing sources, missing storage, and storage limits return structured errors through the prepared event executor. Source removal earlier in the command batch is visible to a later submission. Already completed data changes are not rolled back.
 
-Pending storage is retained by an owner-bound shared runtime resource. Draining retains a shared reference before acquiring the World, so callbacks can submit further notifications without removing that resource. The existing listener pool drains the queue in FIFO order with stable read payloads and separate write storage. Storage is explicitly prepared; this internal facility does not install the application route or select public capacity defaults.
+Pending storage is retained by an owner-bound shared runtime resource. Draining retains a shared reference before acquiring the World, so callbacks can submit further notifications without removing that resource. The listener pool drains the queue in FIFO order with stable read payloads and separate write storage. App prepares business storage from `EventCapacity` and flushes at input, system, render-hook, and lifecycle boundaries without choosing implicit business capacity defaults.
 
 ### Recognized gesture batches
 

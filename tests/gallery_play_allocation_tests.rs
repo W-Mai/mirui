@@ -42,7 +42,7 @@ fn try_tap_at(
 ) -> Option<Entity> {
     dispatch_input(
         world,
-        root,
+        Some(root),
         &InputEvent::PointerDown { id: 0, x, y },
         now_ms,
         width,
@@ -50,7 +50,7 @@ fn try_tap_at(
     );
     dispatch_input(
         world,
-        root,
+        Some(root),
         &InputEvent::PointerUp { id: 0, x, y },
         now_ms + 50,
         width,
@@ -200,7 +200,7 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
         let tap_allocations = tracked_allocations(|| {
             dispatch_input(
                 &mut app.world,
-                root,
+                Some(root),
                 &InputEvent::PointerDown { id: 0, x, y },
                 now_ms,
                 width,
@@ -208,7 +208,7 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
             );
             dispatch_input(
                 &mut app.world,
-                root,
+                Some(root),
                 &InputEvent::PointerUp { id: 0, x, y },
                 now_ms + 50,
                 width,
@@ -433,7 +433,7 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
         let tap_allocations = tracked_allocations(|| {
             dispatch_input(
                 &mut app.world,
-                root,
+                Some(root),
                 &InputEvent::PointerDown { id: 0, x, y },
                 now_ms,
                 width,
@@ -441,7 +441,7 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
             );
             dispatch_input(
                 &mut app.world,
-                root,
+                Some(root),
                 &InputEvent::PointerUp { id: 0, x, y },
                 now_ms + 50,
                 width,
@@ -693,7 +693,7 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
         let tap_allocations = tracked_allocations(|| {
             dispatch_input(
                 &mut app.world,
-                root,
+                Some(root),
                 &InputEvent::PointerDown { id: 0, x, y },
                 now_ms,
                 width,
@@ -701,7 +701,7 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
             );
             dispatch_input(
                 &mut app.world,
-                root,
+                Some(root),
                 &InputEvent::PointerUp { id: 0, x, y },
                 now_ms + 50,
                 width,

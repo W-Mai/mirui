@@ -1,4 +1,6 @@
-use mirui::__macro_support::{AppContext, EntityContext};
+use mirui::__macro_support::{
+    AccessError, AppContext, EntityContext, ModelOwnerError, PreparationError,
+};
 use mirui::app::App;
 use mirui::ecs::CommandCapacity;
 use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
@@ -137,19 +139,34 @@ fn reject_alias(left: res!(Settings), right: res!(mut Settings)) {
 #[test]
 fn generated_plan_and_all_model_owners_are_checked_at_preparation() {
     let mut app = App::headless(32, 32);
-    let alias = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        reject_alias::callback::<Started, AppContext>()
-            .prepare(&mut app.world, CommandCapacity::default())
-    }));
-    assert!(alias.is_err());
+    let alias = reject_alias::callback::<Started, AppContext>()
+        .prepare(&mut app.world, CommandCapacity::default())
+        .err()
+        .unwrap();
+    assert_eq!(
+        alias,
+        PreparationError::Access {
+            callback: "reject_alias",
+            error: AccessError::Conflict {
+                type_name: std::any::type_name::<Settings>()
+            },
+        }
+    );
 
     let mut other = App::headless(32, 32);
     let first = app.add_model(Counter { value: 0 });
     let second = other.add_model(Counter { value: 0 });
-    let owners = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        update_pad::callback::<EntityContext<Pad>>(first, 1, second)
-    }));
-    assert!(owners.is_err());
+    let owners = update_pad::callback::<EntityContext<Pad>>(first, 1, second)
+        .prepare(&mut app.world, CommandCapacity::default())
+        .err()
+        .unwrap();
+    assert_eq!(
+        owners,
+        PreparationError::Owner {
+            callback: "update_pad",
+            error: ModelOwnerError::MixedOwners,
+        }
+    );
 }
 
 #[event]

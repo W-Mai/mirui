@@ -22,6 +22,7 @@ use crate::ui::render_system;
 use crate::ui::view::{View, ViewRegistry};
 use crate::ui::{Theme, ThemeCatalog, ThemeError, ThemeSource};
 
+pub use crate::input::event::EventCapacity;
 pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 
 /// Viewport used by the frame currently entering layout and rendering.
@@ -92,6 +93,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     needs_full_first_frame: bool,
     suspended: bool,
     started: bool,
+    quitting: bool,
     text_layout_started: bool,
     dirty_reserved_slots: u32,
     dirty_reserved_live_entities: usize,
@@ -199,6 +201,38 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::core::model::register_effect(self.world.id(), model, handler)
     }
 
+    /// Prepare typed event storage before installing callbacks. Invalid changes log a warning and retain the installed configuration.
+    pub fn with_event_capacity(&mut self, capacity: EventCapacity) -> &mut Self {
+        if let Err(error) = crate::input::event::runtime::configure(&mut self.world, capacity) {
+            crate::warn!(target: "mirui::event::install", "event capacity ignored: {:?}", error);
+        }
+        self
+    }
+
+    /// Install an App lifecycle or input-fallback callback in declaration order. Rejected bindings log a warning without failing application construction.
+    pub fn on_event<E>(
+        &mut self,
+        key: crate::input::event::contract::EventKey<E>,
+        callback: crate::input::event::callback::EventCallback<
+            E,
+            crate::input::event::callback::AppContext,
+        >,
+    ) -> &mut Self
+    where
+        E: crate::input::event::contract::Event<Options = ()>,
+        E::Route: crate::input::event::contract::AppRoute,
+        E::Source: crate::input::event::contract::AppEventSource,
+        <E::Route as crate::input::event::contract::EventRoute>::Decision:
+            crate::input::event::listeners::ListenerDecision,
+    {
+        if let Err(error) =
+            crate::input::event::runtime::install_app(&mut self.world, key, callback)
+        {
+            crate::warn!(target: "mirui::event::install", "App event binding skipped: {:?}", error);
+        }
+        self
+    }
+
     pub fn with_factory(backend: B, factory: F) -> Self {
         #[cfg(feature = "std")]
         install_default_log_sink_once();
@@ -229,6 +263,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(crate::ui::render_system::LastDirtyRegions(
             DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
         ));
+        crate::input::event::runtime::initialize(&mut world);
         Self {
             world,
             backend,
@@ -247,6 +282,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             needs_full_first_frame: true,
             suspended: false,
             started: false,
+            quitting: false,
             text_layout_started: false,
             dirty_reserved_slots: 0,
             dirty_reserved_live_entities: 0,
@@ -675,14 +711,19 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.on_host_interaction(&mut self.world);
         }
+        self.notify_app(crate::input::event::lifecycle::HostInteraction);
     }
 
     pub fn suspend(&mut self) {
         if !self.suspended {
             self.suspended = true;
+            let now_ms = (self.clock_ns() / 1_000_000) as u32;
+            crate::input::event::cancel_active_input(&mut self.world, now_ms);
+            self.dispatch_gestures();
             for p in &mut self.plugins {
                 p.on_suspend(&mut self.world);
             }
+            self.notify_app(crate::input::event::lifecycle::Suspended);
         }
     }
 
@@ -692,6 +733,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             for p in &mut self.plugins {
                 p.on_resume(&mut self.world);
             }
+            self.notify_app(crate::input::event::lifecycle::Resumed);
         }
     }
 
@@ -724,6 +766,79 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if let Some(root) = self.root {
             self.world.invalidate(root);
         }
+        self.notify_app(crate::input::event::lifecycle::MemoryWarning);
+    }
+
+    fn notify_app<E: crate::input::event::lifecycle::AppNotice>(&mut self, notice: E) {
+        if let Err(error) = crate::input::event::runtime::notify_app(&mut self.world, notice) {
+            crate::warn!("App notification failed: {:?}", error);
+        }
+    }
+
+    fn flush_event_notifications(&mut self) {
+        if let Err(error) = crate::input::event::runtime::flush(&mut self.world) {
+            crate::warn!("event notification flush failed: {:?}", error);
+        }
+    }
+
+    fn ensure_started(&mut self) {
+        if !self.started {
+            self.started = true;
+            for plugin in &mut self.plugins {
+                plugin.on_start(&mut self.world);
+            }
+            self.notify_app(crate::input::event::lifecycle::Started);
+        }
+    }
+
+    fn dispatch_gestures(&mut self) {
+        let now_ms = (self.clock_ns() / 1_000_000) as u32;
+        if let Err(error) = crate::input::event::gesture::system::drain_gestures(
+            &mut self.world,
+            |world, gesture| {
+                focus_on_tap(world, gesture);
+                bubble_dispatch_at(world, gesture, now_ms);
+            },
+        ) {
+            crate::warn!("gesture batch dispatch failed: {:?}", error);
+        }
+    }
+
+    fn finish_quit(&mut self) {
+        if !self.quitting {
+            self.quitting = true;
+            let now_ms = (self.clock_ns() / 1_000_000) as u32;
+            crate::input::event::cancel_active_input(&mut self.world, now_ms);
+            self.dispatch_gestures();
+            for plugin in &mut self.plugins {
+                plugin.on_quit(&mut self.world);
+            }
+            self.notify_app(crate::input::event::lifecycle::Quit);
+        }
+    }
+
+    fn apply_suspend_request(&mut self) {
+        if let Some(request) = self
+            .world
+            .remove_resource::<crate::app::lifecycle::SuspendRequest>()
+        {
+            match request {
+                crate::app::lifecycle::SuspendRequest::Suspend => self.suspend(),
+                crate::app::lifecycle::SuspendRequest::Resume => self.resume(),
+            }
+        }
+    }
+
+    fn notify_raw_input(&mut self, event: &InputEvent) -> bool {
+        let mut consumed = false;
+        for plugin in &mut self.plugins {
+            let accepted = plugin.on_event(&mut self.world, event);
+            consumed |= accepted;
+            if accepted && event.is_user_input() {
+                break;
+            }
+        }
+        consumed
     }
 
     fn clock_ns(&self) -> u64 {
@@ -861,6 +976,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
+        self.flush_event_notifications();
         self.prepare_dirty_storage();
         ViewRegistry::reconcile_observations(&mut self.world);
         crate::core::reactive::flush_signal_dirty(&mut self.world);
@@ -1001,12 +1117,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Systems + render + poll until quit. Persistent backends take the
     /// `render_dirty` fast path; Transient backends render every frame.
     pub fn run(&mut self) {
-        if !self.started {
-            self.started = true;
-            for p in &mut self.plugins {
-                p.on_start(&mut self.world);
-            }
-        }
+        self.ensure_started();
         if let Err(error) = self.render() {
             crate::warn!("frame render failed: {:?}", error);
         }
@@ -1019,6 +1130,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
+        if self.quitting {
+            return true;
+        }
+        self.ensure_started();
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         if self.suspended {
             // Fan-out plugin on_event while suspended so AutoSuspendOnFocus-style
@@ -1027,30 +1142,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             loop {
                 match self.poll_event() {
                     Some(InputEvent::Quit) => {
-                        for p in &mut self.plugins {
-                            p.on_quit(&mut self.world);
-                        }
+                        self.finish_quit();
                         return true;
                     }
                     Some(event) => {
-                        for p in &mut self.plugins {
-                            if p.on_event(&mut self.world, &event) {
-                                break;
-                            }
+                        self.notify_raw_input(&event);
+                        self.apply_suspend_request();
+                        self.flush_event_notifications();
+                        if !self.suspended {
+                            break;
                         }
                     }
                     None => break,
                 }
             }
-            if let Some(req) = self
-                .world
-                .remove_resource::<crate::app::lifecycle::SuspendRequest>()
-            {
-                match req {
-                    crate::app::lifecycle::SuspendRequest::Resume => self.resume(),
-                    crate::app::lifecycle::SuspendRequest::Suspend => {}
-                }
-            }
+            self.apply_suspend_request();
+            self.flush_event_notifications();
             if self.suspended {
                 #[cfg(feature = "std")]
                 std::thread::sleep(core::time::Duration::from_millis(50));
@@ -1094,17 +1201,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         if sim_running && event.is_user_input() {
                             continue;
                         }
-                        let mut consumed = false;
-                        for p in &mut self.plugins {
-                            if p.on_event(&mut self.world, &event) {
-                                consumed = true;
-                                break;
-                            }
-                        }
-                        if consumed {
-                            continue;
-                        }
-                        if let Some(root) = self.root {
+                        let consumed = self.notify_raw_input(&event);
+                        if !event.is_user_input()
+                            && self
+                                .world
+                                .resource::<crate::app::lifecycle::SuspendRequest>()
+                                .is_some()
+                        {
+                            self.apply_suspend_request();
+                        } else if (!consumed || !event.is_user_input()) && !self.suspended {
                             let (lw, lh) = *logical.get_or_insert_with(|| {
                                 let info = self.backend.display_info();
                                 (info.width, info.height)
@@ -1112,13 +1217,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             let now_ms = (self.clock_ns() / 1_000_000) as u32;
                             crate::input::event::dispatch_input(
                                 &mut self.world,
-                                root,
+                                self.root,
                                 &event,
                                 now_ms,
                                 lw,
                                 lh,
                             );
                         }
+                        self.flush_event_notifications();
+                        self.apply_suspend_request();
                     }
                     None => break,
                 }
@@ -1130,23 +1237,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
 
-            let now_ms = (self.clock_ns() / 1_000_000) as u32;
-            if let Err(error) = crate::input::event::gesture::system::drain_gestures(
-                &mut self.world,
-                |world, gesture| {
-                    focus_on_tap(world, gesture);
-                    bubble_dispatch_at(world, gesture, now_ms);
-                },
-            ) {
-                crate::warn!("gesture batch dispatch failed: {:?}", error);
-            }
+            self.dispatch_gestures();
 
             if quit {
-                for p in &mut self.plugins {
-                    p.on_quit(&mut self.world);
-                }
+                self.finish_quit();
                 return true;
             }
+            self.flush_event_notifications();
+        }
+
+        if self.suspended {
+            return false;
         }
 
         let input_end = self.clock_ns();
@@ -1158,6 +1259,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
         self.snapshot_system_perf();
+        self.flush_event_notifications();
         let systems_end = self.clock_ns();
 
         self.pending_frame = Some(PendingFrame {
@@ -1174,17 +1276,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 crate::warn!("dirty frame render failed: {:?}", error);
             }
         }
+        self.flush_event_notifications();
         self.backend.frame_end();
 
-        if let Some(req) = self
-            .world
-            .remove_resource::<crate::app::lifecycle::SuspendRequest>()
-        {
-            match req {
-                crate::app::lifecycle::SuspendRequest::Suspend => self.suspend(),
-                crate::app::lifecycle::SuspendRequest::Resume => {}
-            }
-        }
+        self.apply_suspend_request();
 
         false
     }
@@ -1510,6 +1605,7 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
     /// `App::run` with `-> !`.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_blocking(mut self) -> ! {
+        self.app.ensure_started();
         if let Err(error) = self.app.render() {
             crate::warn!("frame render failed: {:?}", error);
         }

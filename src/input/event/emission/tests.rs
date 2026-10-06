@@ -1,8 +1,9 @@
 use super::*;
 use crate::ecs::commands::{CommandCapacity, CommandQueue};
-use crate::input::event::callback::{NodeContext, PreparedEvent};
+use crate::input::event::callback::{AppContext, NodeContext, PreparedEvent};
 use crate::input::event::contract::WidgetSource;
 use crate::input::event::gesture::Tap;
+use crate::input::event::lifecycle::{Resumed, Started};
 use crate::input::event::listeners::{ListenerCapacity, ListenerSelector};
 use crate::test_support::tracked_allocations;
 use crate::types::Fixed;
@@ -221,6 +222,380 @@ fn preparation_reuses_the_service_and_preserves_pending_records_and_monotonic_ca
     ));
 }
 
+struct EmptyHit;
+
+impl Event for EmptyHit {
+    type Route = EntityNotification;
+    type Source = WidgetSource<Pad>;
+    type Options = ();
+}
+
+#[test]
+fn runtime_business_limits_do_not_borrow_app_slots_or_retained_storage() {
+    let mut world = World::new();
+    let node = world.spawn(Pad { strength: 0 });
+    let listeners = EventListeners::new(&mut world);
+    prepare_runtime_notifications(&mut world, None, false).unwrap();
+    assert!(world.resource::<Rc<PendingNotifications>>().is_none());
+    assert_eq!(
+        enqueue_app_notice(&mut world, Started),
+        Err(CommandError::Commit(CommandCommitError::MissingService {
+            service: type_name::<PendingNotifications>(),
+        }))
+    );
+    prepare_runtime_notifications(&mut world, Some(NotificationCapacity::default()), false)
+        .unwrap();
+    assert_eq!(
+        enqueue_app_notice(&mut world, Started),
+        Err(CommandError::Commit(CommandCommitError::RecordCapacity {
+            available: 0
+        }))
+    );
+    prepare_runtime_notifications(&mut world, None, true).unwrap();
+    let pending = world
+        .resource::<Rc<PendingNotifications>>()
+        .unwrap()
+        .clone();
+    let mut empty = CommandQueue::bounded(command_capacity::<EmptyHit>(1)).unwrap();
+    for (business, error) in [
+        (
+            None,
+            CommandCommitError::MissingService {
+                service: type_name::<PendingNotifications>(),
+            },
+        ),
+        (
+            Some(NotificationCapacity::default()),
+            CommandCommitError::RecordCapacity { available: 0 },
+        ),
+    ] {
+        prepare_runtime_notifications(&mut world, business, true).unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                enqueue_app_notice(&mut world, Started).unwrap();
+                let mut batch = empty.begin();
+                batch.commands().emit(node, EmptyHit);
+                assert_eq!(batch.finish(&mut world), Err(CommandError::Commit(error)));
+                assert_eq!(flush_notifications(&mut world, &listeners, 1), Some(Ok(1)));
+            }),
+            0
+        );
+    }
+    prepare_runtime_notifications(&mut world, Some(notification_capacity::<Hit>(3)), true).unwrap();
+    prepare_runtime_notifications(&mut world, Some(notification_capacity::<Hit>(1)), true).unwrap();
+    let mut hits = CommandQueue::bounded(command_capacity::<Hit>(2)).unwrap();
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut batch = hits.begin();
+            batch.commands().emit(node, Hit { old: 0, new: 1 });
+            batch.commands().emit(node, Hit { old: 1, new: 2 });
+            assert_eq!(
+                batch.finish(&mut world),
+                Err(CommandError::Commit(CommandCommitError::RecordCapacity {
+                    available: 1
+                }))
+            );
+            enqueue_app_notice(&mut world, Started).unwrap();
+            assert_eq!(flush_notifications(&mut world, &listeners, 2), Some(Ok(2)));
+        }),
+        0
+    );
+    prepare_runtime_notifications(&mut world, None, false).unwrap();
+    let mut batch = empty.begin();
+    batch.commands().emit(node, EmptyHit);
+    assert!(matches!(
+        batch.finish(&mut world),
+        Err(CommandError::Commit(
+            CommandCommitError::MissingService { .. }
+        ))
+    ));
+    assert!(Rc::ptr_eq(
+        &pending,
+        world.resource::<Rc<PendingNotifications>>().unwrap()
+    ));
+}
+
+#[crate::event]
+fn after_first(input: event!(Hit), node: entity!(), commands: commands!()) {
+    if input.new == 1 {
+        commands.emit(node, Hit { old: 1, new: 3 });
+    }
+}
+
+#[crate::event]
+fn record_app(trace: res!(mut Trace)) {
+    trace.record(u8::MAX, 0);
+}
+
+#[test]
+fn runtime_app_notices_share_fifo_with_business_and_callback_writes_without_allocation() {
+    let mut fixture = Fixture::new(notification_capacity::<Hit>(2));
+    prepare_runtime_notifications(
+        &mut fixture.world,
+        Some(notification_capacity::<Hit>(2)),
+        true,
+    )
+    .unwrap();
+    fixture
+        .listeners
+        .reserve(ListenerCapacity {
+            listeners: 3,
+            snapshot_steps: 2,
+        })
+        .unwrap();
+    fixture
+        .listeners
+        .install_entity(
+            &mut fixture.world,
+            fixture.node,
+            ListenerSelector::new(Hit::EVENT, |(), _| true),
+            after_first::callback::<NodeContext>(),
+            command_capacity::<Hit>(1),
+        )
+        .unwrap();
+    fixture
+        .listeners
+        .install_app(
+            &mut fixture.world,
+            ListenerSelector::new(Started::EVENT, |(), _| true),
+            record_app::callback::<Started, AppContext>(),
+            CommandCapacity::default(),
+        )
+        .unwrap();
+    let mut commands = CommandQueue::bounded(command_capacity::<Hit>(2)).unwrap();
+    for expected in [4, 8] {
+        let visits = Cell::new(0);
+        assert_eq!(
+            tracked_allocations(|| {
+                let mut batch = commands.begin();
+                for new in [1, 2] {
+                    batch.commands().emit(fixture.node, Hit { old: 0, new });
+                }
+                batch.finish(&mut fixture.world).unwrap();
+                enqueue_app_notice(&mut fixture.world, Started).unwrap();
+                assert_eq!(
+                    flush_notifications_with(&mut fixture.world, &fixture.listeners, 4, |world| {
+                        assert_eq!(
+                            prepare_runtime_notifications(world, None, false),
+                            Err(NotificationError::Busy)
+                        );
+                        assert_eq!(
+                            prepare_runtime_notifications(
+                                world,
+                                Some(NotificationCapacity {
+                                    records: usize::MAX,
+                                    ..NotificationCapacity::default()
+                                }),
+                                true,
+                            ),
+                            Err(NotificationError::Busy)
+                        );
+                        visits.set(visits.get() + 1);
+                        Ok(())
+                    }),
+                    Some(Ok(4))
+                );
+            }),
+            0
+        );
+        assert_eq!(visits.get(), 5);
+        let trace = fixture.world.resource::<Trace>().unwrap();
+        assert_eq!(trace.len, expected);
+        assert_eq!(
+            &trace.values[expected - 4..expected],
+            &[(0, 1), (0, 2), (u8::MAX, 0), (1, 3)]
+        );
+    }
+}
+
+#[test]
+fn runtime_app_slot_count_is_checked_without_installing_partial_storage() {
+    let mut world = World::new();
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                prepare_runtime_notifications(
+                    &mut world,
+                    Some(NotificationCapacity {
+                        records: usize::MAX,
+                        ..NotificationCapacity::default()
+                    }),
+                    true,
+                ),
+                Err(NotificationError::SizeOverflow)
+            );
+        }),
+        0
+    );
+    assert!(world.resource::<Rc<PendingNotifications>>().is_none());
+}
+
+#[test]
+fn runtime_payload_limits_and_failed_flushes_preserve_app_slots_and_drop_owning_values_once() {
+    let mut world = World::new();
+    let node = world.spawn(Pad { strength: 0 });
+    let listeners = EventListeners::new(&mut world);
+    let drops = Rc::new(Cell::new(0));
+    let mut commands = CommandQueue::bounded(command_capacity::<OwnedHit>(1)).unwrap();
+    prepare_runtime_notifications(&mut world, Some(notification_capacity::<OwnedHit>(1)), true)
+        .unwrap();
+    for (capacity, error) in [
+        (
+            NotificationCapacity {
+                records: 1,
+                payload_bytes: 0,
+                payload_alignment: align_of::<OwnedHit>(),
+            },
+            CommandCommitError::PayloadCapacity {
+                required: size_of::<OwnedHit>(),
+                available: 0,
+            },
+        ),
+        (
+            NotificationCapacity {
+                records: 1,
+                payload_bytes: size_of::<OwnedHit>(),
+                payload_alignment: 1,
+            },
+            CommandCommitError::PayloadAlignment {
+                required: align_of::<OwnedHit>(),
+                available: 1,
+            },
+        ),
+    ] {
+        prepare_runtime_notifications(&mut world, Some(capacity), false).unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                enqueue_app_notice(&mut world, Started).unwrap();
+                let mut batch = commands.begin();
+                batch.commands().emit(
+                    node,
+                    OwnedHit {
+                        value: 1,
+                        drops: drops.clone(),
+                    },
+                );
+                assert_eq!(batch.finish(&mut world), Err(CommandError::Commit(error)));
+                assert_eq!(flush_notifications(&mut world, &listeners, 1), Some(Ok(1)));
+            }),
+            0
+        );
+    }
+    assert_eq!(drops.get(), 2);
+    prepare_runtime_notifications(
+        &mut world,
+        Some(notification_capacity::<OwnedHit>(1)),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        prepare_runtime_notifications(
+            &mut world,
+            Some(NotificationCapacity {
+                records: 1,
+                payload_bytes: size_of::<OwnedHit>(),
+                payload_alignment: 3
+            }),
+            false,
+        ),
+        Err(NotificationError::InvalidLayout)
+    );
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut batch = commands.begin();
+            batch.commands().emit(
+                node,
+                OwnedHit {
+                    value: 3,
+                    drops: drops.clone(),
+                },
+            );
+            batch.finish(&mut world).unwrap();
+            enqueue_app_notice(&mut world, Started).unwrap();
+            assert_eq!(
+                flush_notifications(&mut world, &listeners, 0),
+                Some(Err(NotificationFlushError::Storage(
+                    NotificationError::FlushLimit { limit: 0 }
+                )))
+            );
+            assert_eq!(drops.get(), 3);
+            enqueue_app_notice(&mut world, Resumed).unwrap();
+            let mut batch = commands.begin();
+            batch.commands().emit(
+                node,
+                OwnedHit {
+                    value: 4,
+                    drops: drops.clone(),
+                },
+            );
+            batch.finish(&mut world).unwrap();
+            assert_eq!(flush_notifications(&mut world, &listeners, 2), Some(Ok(2)));
+        }),
+        0
+    );
+    assert_eq!(drops.get(), 4);
+}
+
+#[test]
+fn failed_structural_preparation_drops_pending_payloads_and_reuses_the_app_slot_without_allocation()
+{
+    let mut world = World::new();
+    let node = world.spawn(Pad { strength: 0 });
+    let listeners = EventListeners::new(&mut world);
+    let drops = Rc::new(Cell::new(0));
+    let mut commands = CommandQueue::bounded(command_capacity::<OwnedHit>(1)).unwrap();
+    prepare_runtime_notifications(&mut world, Some(notification_capacity::<OwnedHit>(1)), true)
+        .unwrap();
+    for expected in [2, 4] {
+        let attempts = Cell::new(0);
+        assert_eq!(
+            tracked_allocations(|| {
+                let mut batch = commands.begin();
+                batch.commands().emit(
+                    node,
+                    OwnedHit {
+                        value: 1,
+                        drops: drops.clone(),
+                    },
+                );
+                batch.finish(&mut world).unwrap();
+                enqueue_app_notice(&mut world, Started).unwrap();
+                assert_eq!(
+                    flush_notifications_with(&mut world, &listeners, 2, |_| {
+                        attempts.set(attempts.get() + 1);
+                        Err(ListenerError::Busy)
+                    }),
+                    Some(Err(NotificationFlushError::Listener(ListenerError::Busy)))
+                );
+                assert_eq!(drops.get(), expected - 1);
+                assert_eq!(attempts.get(), 1);
+                enqueue_app_notice(&mut world, Resumed).unwrap();
+                let mut batch = commands.begin();
+                batch.commands().emit(
+                    node,
+                    OwnedHit {
+                        value: 2,
+                        drops: drops.clone(),
+                    },
+                );
+                batch.finish(&mut world).unwrap();
+                assert_eq!(flush_notifications(&mut world, &listeners, 2), Some(Ok(2)));
+                assert_eq!(drops.get(), expected);
+            }),
+            0
+        );
+    }
+    let attempts = Cell::new(0);
+    assert_eq!(
+        flush_notifications_with(&mut world, &listeners, 0, |_| {
+            attempts.set(attempts.get() + 1);
+            Ok(())
+        }),
+        Some(Ok(0))
+    );
+    assert_eq!(attempts.get(), 1);
+}
+
 #[test]
 fn flushing_an_absent_service_does_not_install_storage_or_allocate() {
     let mut world = World::new();
@@ -398,8 +773,9 @@ fn forced_service_replacement_keeps_active_payloads_alive_and_redirects_later_su
     world.insert_resource(Trace::default());
     let old = install_pending(&mut world, notification_capacity::<OwnedHit>(2));
     let old_weak = Rc::downgrade(&old);
-    let replacement =
-        Rc::new(PendingNotifications::new(&world, notification_capacity::<Hit>(2)).unwrap());
+    let replacement = Rc::new(
+        PendingNotifications::new(&world, Some(notification_capacity::<Hit>(2)), false).unwrap(),
+    );
     world.insert_resource(Replacement(replacement.clone()));
     let listeners = EventListeners::new(&mut world);
     listeners
@@ -597,8 +973,9 @@ fn stale_targets_and_missing_or_foreign_services_return_commit_errors() {
         }))
     );
     let other = World::new();
-    let foreign =
-        Rc::new(PendingNotifications::new(&other, notification_capacity::<Hit>(1)).unwrap());
+    let foreign = Rc::new(
+        PendingNotifications::new(&other, Some(notification_capacity::<Hit>(1)), false).unwrap(),
+    );
     world.insert_resource(foreign);
     let mut batch = queue.begin();
     batch.commands().emit(node, Hit { old: 0, new: 1 });

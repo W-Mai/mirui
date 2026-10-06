@@ -1,4 +1,5 @@
 pub(crate) mod callback;
+pub(crate) mod capacity;
 pub mod contract;
 pub(crate) mod emission;
 pub mod focus;
@@ -9,16 +10,18 @@ pub mod lifecycle;
 pub(crate) mod listeners;
 pub mod multi_tap;
 pub(crate) mod notification;
+pub(crate) mod runtime;
 pub mod scroll;
 pub mod sim;
 pub mod widget_input;
+
+pub use capacity::EventCapacity;
 
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::ui::{Parent, UserState};
 use core::cell::RefCell;
 
-use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
 use hit_test::hit_test;
 use input::InputEvent;
@@ -67,13 +70,30 @@ fn update_pointer_cursor(world: &mut World, update: impl FnOnce(&mut PointerCurs
 /// burst; sim drains every system tick).
 pub fn dispatch_input(
     world: &mut World,
-    root: Entity,
+    root: Option<Entity>,
     event: &InputEvent,
     now_ms: u32,
     lw: u16,
     lh: u16,
 ) {
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+    if matches!(event, InputEvent::AppSuspend) {
+        cancel_active_input(world, now_ms);
+        return;
+    }
+    runtime::initialize(world);
+    if let Err(error) = runtime::prepare(world) {
+        crate::warn!("input route preparation failed: {:?}", error);
+        return;
+    }
+    match runtime::dispatch_input(world, root, event, lw, lh) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            crate::warn!("input event dispatch failed: {:?}", error);
+            return;
+        }
+    }
     match event {
         InputEvent::PointerDown { x, y, .. } => {
             update_pointer_cursor(world, |cursor| {
@@ -97,23 +117,18 @@ pub fn dispatch_input(
                 cursor.event_seq = cursor.event_seq.wrapping_add(1);
             });
         }
-        InputEvent::AppSuspend => {
-            if let Some(cursor) = world.resource_mut::<PointerCursor>()
-                && cursor.down
-            {
-                cursor.down = false;
-                cursor.event_seq = cursor.event_seq.wrapping_add(1);
-            }
-        }
         _ => {}
     }
+
+    let Some(root) = root else {
+        return;
+    };
 
     let pointer_down_target = match event {
         InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, lw, lh),
         _ => None,
     };
     if pointer_down_target.is_some_and(|target| entity_or_ancestor_disabled(world, target)) {
-        key_dispatch(world, event);
         return;
     }
 
@@ -127,8 +142,20 @@ pub fn dispatch_input(
         gs.recognizer
             .update(event, now_ms, pointer_down_target, &mut gs.events);
     }
+}
 
-    key_dispatch(world, event);
+pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
+    if let Some(cursor) = world.resource_mut::<PointerCursor>() {
+        cursor.down = false;
+        cursor.event_seq = cursor.event_seq.wrapping_add(1);
+    }
+    scroll::system::cancel_scroll_drag(world);
+    if let Some(gestures) = world.resource_mut::<GestureSystem>() {
+        gestures
+            .recognizer
+            .update(&InputEvent::AppSuspend, now_ms, None, &mut gestures.events);
+    }
+    crate::ui::state::clear_active_interaction_states(world);
 }
 
 pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
@@ -596,7 +623,7 @@ mod tests {
 
         dispatch_input(
             &mut world,
-            root,
+            Some(root),
             &InputEvent::PointerCancel {
                 id: 0,
                 x: Fixed::from_int(12),
@@ -638,7 +665,7 @@ mod tests {
                 y: Fixed::from_int(9),
             },
         ] {
-            dispatch_input(&mut world, root, &event, 0, 64, 64);
+            dispatch_input(&mut world, Some(root), &event, 0, 64, 64);
             assert_eq!(
                 world.resource::<PointerCursor>().unwrap() as *const _,
                 address
@@ -652,6 +679,56 @@ mod tests {
         );
         assert!(!cursor.down);
         assert_eq!(cursor.event_seq, 2);
+    }
+
+    #[test]
+    fn suspend_cancellation_clears_active_input_without_a_root() {
+        use crate::input::event::scroll::{ScrollOffset, ScrollSpring};
+        use crate::ui::{InteractionState, dirty::Dirty};
+
+        let mut world = World::new();
+        let node = world.spawn_empty();
+        world.insert(node, InteractionState::Pressed);
+        world.insert(node, UserState::Errored);
+        world.insert(node, Dirty);
+        world.insert(
+            node,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(-8),
+            },
+        );
+        world.insert_resource(PointerCursor {
+            down: true,
+            event_seq: 7,
+            ..PointerCursor::default()
+        });
+        world.insert_resource(ScrollDragState {
+            active: true,
+            resolved: true,
+            target: node,
+            vel_y: Fixed::ONE,
+            ..ScrollDragState::default()
+        });
+        world.insert_resource(ScrollSpring::default());
+        world.insert_resource(GestureSystem::default());
+
+        dispatch_input(&mut world, None, &InputEvent::AppSuspend, 10, 64, 64);
+
+        let cursor = world.resource::<PointerCursor>().unwrap();
+        assert!(!cursor.down);
+        assert_eq!(cursor.event_seq, 8);
+        let scroll = world.resource::<ScrollDragState>().unwrap();
+        assert!(!scroll.active);
+        assert!(!scroll.resolved);
+        assert_eq!(scroll.vel_y, Fixed::ZERO);
+        assert_eq!(world.get::<ScrollOffset>(node).unwrap().y, Fixed::ZERO);
+        assert!(!world.has::<InteractionState>(node));
+        assert!(world.has::<Dirty>(node));
+        assert!(matches!(
+            world.get::<UserState>(node),
+            Some(UserState::Errored)
+        ));
     }
 
     mod dual_channel {

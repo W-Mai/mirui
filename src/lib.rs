@@ -121,7 +121,7 @@ pub mod __macro_support {
     pub use crate::ecs::query::system::{
         ComponentDriver, EntityItem, OptionalRead, Read, With, Without, Write,
     };
-    pub use crate::ecs::system::access::SystemAccess;
+    pub use crate::ecs::system::access::{AccessError, SystemAccess};
     pub use crate::ecs::system::generated::{
         bound_deferred_system, bound_system, deferred_system, require_same_owner, static_system,
         with_metadata,
@@ -130,8 +130,8 @@ pub mod __macro_support {
         OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
     };
     pub use crate::input::event::callback::{
-        AppContext, CallbackContext, EntityContext, EventCallback, NodeContext, PreparedEvent,
-        deferred_event_callback, event_callback,
+        AppContext, CallbackContext, EntityContext, EventCallback, ModelOwnerError, NodeContext,
+        PreparationError, PreparedEvent, deferred_event_callback, event_callback,
     };
     pub use crate::input::event::emission::{flush_notifications, prepare_notifications};
     pub use crate::input::event::listeners::{
@@ -166,7 +166,7 @@ pub use mirui_macros::{
 /// - [`prelude::draw`] for emitting [`DrawCommand`][render::DrawCommand]s
 ///   from a custom widget view
 pub mod prelude {
-    pub use crate::app::{App, RendererFactory};
+    pub use crate::app::{App, EventCapacity, RendererFactory};
     pub use crate::core::reactive::{Computed, Effect, Signal};
     pub use crate::ecs::{CommandCapacity, Component, Entity, IntoBundle, MonoClock, World};
     pub use crate::input::event::contract::{Event, EventKey};

@@ -103,11 +103,19 @@ fn prepare_rejects_conflicts_before_fetching_or_running_body() {
             true
         })
     };
-    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        callback.prepare(&mut world, CommandCapacity::default())
-    }));
-    let message = error.err().unwrap().downcast::<String>().unwrap();
-    assert!(message.contains("event `conflict` has conflicting access"));
+    let error = callback
+        .prepare(&mut world, CommandCapacity::default())
+        .err()
+        .unwrap();
+    assert_eq!(
+        error,
+        PreparationError::Access {
+            callback: "conflict",
+            error: AccessError::Conflict {
+                type_name: core::any::type_name::<Missing>()
+            },
+        }
+    );
     assert!(!called.get());
 }
 
@@ -274,14 +282,64 @@ fn model_capture_rejects_mixed_owners_and_wrong_installation_owner() {
         unsafe { event_callback::<Key, AppContext, (), ()>("owner", &[], |(), _, ()| ()) }
             .require_model(&first)
     };
-    let mixed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        build().require_model(&second)
-    }));
-    assert!(mixed.is_err());
-    let install = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        build().prepare(&mut second_app.world, CommandCapacity::default())
-    }));
-    assert!(install.is_err());
+    let mixed = build().require_model(&second);
+    assert_eq!(
+        mixed
+            .prepare(&mut first_app.world, CommandCapacity::default())
+            .err()
+            .unwrap(),
+        PreparationError::Owner {
+            callback: "owner",
+            error: ModelOwnerError::MixedOwners
+        },
+    );
+    assert_eq!(
+        build()
+            .prepare(&mut second_app.world, CommandCapacity::default())
+            .err()
+            .unwrap(),
+        PreparationError::Owner {
+            callback: "owner",
+            error: ModelOwnerError::ForeignOwner
+        },
+    );
+}
+
+#[test]
+fn ended_model_capture_returns_an_owner_error_without_allocating_or_running_body() {
+    for retain_cell in [false, true] {
+        let (model, retained) = {
+            let mut app = crate::app::App::headless(32, 32);
+            let model = app.add_model(Counter { value: 1 });
+            let retained = retain_cell.then(|| model.cell().upgrade().unwrap());
+            (model, retained)
+        };
+        let mut world = World::new();
+        // SAFETY: the body has no borrowed parameters or raw World access.
+        let callback = unsafe {
+            event_callback::<Key, AppContext, (), ()>("ended", &[], |(), _, ()| {
+                panic!("ended model callback reached its body")
+            })
+        };
+        assert_eq!(
+            tracked_allocations(|| {
+                let error = callback
+                    .require_model(&model)
+                    .prepare(&mut world, CommandCapacity::new())
+                    .err()
+                    .unwrap();
+                assert_eq!(
+                    error,
+                    PreparationError::Owner {
+                        callback: "ended",
+                        error: ModelOwnerError::RegistrationEnded,
+                    }
+                );
+            }),
+            0
+        );
+        drop(retained);
+    }
 }
 
 #[test]
@@ -585,6 +643,9 @@ fn invalid_command_budget_is_rejected_during_installation() {
     };
     assert!(matches!(
         callback.prepare(&mut world, CommandCapacity::new().despawn(usize::MAX)),
-        Err(CommandError::SizeOverflow)
+        Err(PreparationError::Command {
+            error: CommandError::SizeOverflow,
+            ..
+        })
     ));
 }

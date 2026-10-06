@@ -138,6 +138,41 @@ pub fn scroll_system(
     scroll_system_with_target(world, root, event, screen_w, screen_h, pointer_down_target);
 }
 
+pub(crate) fn cancel_scroll_drag(world: &mut World) {
+    let target = world
+        .resource::<ScrollDragState>()
+        .filter(|state| state.active && state.resolved)
+        .map(|state| state.target);
+    if let Some(target) = target {
+        let bounds = scroll_bounds(world, target).unwrap_or_default();
+        let mut applied_dx = Fixed::ZERO;
+        let mut applied_dy = Fixed::ZERO;
+        if let Some(offset) = world.get_mut::<ScrollOffset>(target) {
+            let old_x = offset.x;
+            let old_y = offset.y;
+            offset.x = offset.x.clamp(Fixed::ZERO, bounds.max_x);
+            offset.y = offset.y.clamp(Fixed::ZERO, bounds.max_y);
+            applied_dx = offset.x - old_x;
+            applied_dy = offset.y - old_y;
+        }
+        accumulate_scroll_delta(world, target, applied_dx, applied_dy);
+        if applied_dx != Fixed::ZERO || applied_dy != Fixed::ZERO {
+            world.insert(target, crate::ui::dirty::Dirty);
+        }
+    }
+    if let Some(spring) = world.resource_mut::<ScrollSpring>() {
+        spring.x = None;
+        spring.y = None;
+        spring.target_entity = None;
+    }
+    if let Some(state) = world.resource_mut::<ScrollDragState>() {
+        state.active = false;
+        state.resolved = false;
+        state.vel_x = Fixed::ZERO;
+        state.vel_y = Fixed::ZERO;
+    }
+}
+
 /// Reports Wheel/Rotary acceptance; pointer ownership remains in ScrollDragState.
 pub(crate) fn scroll_system_with_target(
     world: &mut World,
@@ -324,40 +359,7 @@ pub(crate) fn scroll_system_with_target(
             }
         }
         InputEvent::PointerCancel { .. } | InputEvent::AppSuspend => {
-            let target = world
-                .resource::<ScrollDragState>()
-                .filter(|state| state.active && state.resolved)
-                .map(|state| state.target);
-
-            if let Some(target) = target {
-                let bounds = scroll_bounds(world, target).unwrap_or_default();
-                let mut applied_dx = Fixed::ZERO;
-                let mut applied_dy = Fixed::ZERO;
-                if let Some(offset) = world.get_mut::<ScrollOffset>(target) {
-                    let old_x = offset.x;
-                    let old_y = offset.y;
-                    offset.x = offset.x.clamp(Fixed::ZERO, bounds.max_x);
-                    offset.y = offset.y.clamp(Fixed::ZERO, bounds.max_y);
-                    applied_dx = offset.x - old_x;
-                    applied_dy = offset.y - old_y;
-                }
-                accumulate_scroll_delta(world, target, applied_dx, applied_dy);
-                if applied_dx != Fixed::ZERO || applied_dy != Fixed::ZERO {
-                    world.insert(target, crate::ui::dirty::Dirty);
-                }
-            }
-
-            if let Some(spring) = world.resource_mut::<ScrollSpring>() {
-                spring.x = None;
-                spring.y = None;
-                spring.target_entity = None;
-            }
-            if let Some(state) = world.resource_mut::<ScrollDragState>() {
-                state.active = false;
-                state.resolved = false;
-                state.vel_x = Fixed::ZERO;
-                state.vel_y = Fixed::ZERO;
-            }
+            cancel_scroll_drag(world);
         }
         InputEvent::PointerUp { .. } => {
             let (vel_x, vel_y, target_entity, dir, elastic) = {

@@ -4,8 +4,6 @@ use crate::anim::EaseFn;
 use crate::ecs::{Entity, World};
 use crate::types::{DimPoint, Fixed};
 
-use super::gesture::GestureSystem;
-use super::hit_test::hit_test;
 use super::input::InputEvent;
 use crate::types::Point;
 use crate::ui::ComputedRect;
@@ -226,15 +224,11 @@ pub fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandErro
         let start = *sim.start_ms.get_or_insert(now_ms);
         let elapsed = now_ms.wrapping_sub(start);
 
-        let mut fired: Vec<(InputEvent, bool)> = Vec::new();
+        let mut fired: Vec<InputEvent> = Vec::new();
         while sim.cursor < sim.commands.len() {
             let target_ms = sim.resolved_ms[sim.cursor];
             if elapsed >= target_ms {
-                let is_down = matches!(
-                    sim.commands[sim.cursor].event,
-                    InputEvent::PointerDown { .. }
-                );
-                fired.push((sim.commands[sim.cursor].event.clone(), is_down));
+                fired.push(sim.commands[sim.cursor].event.clone());
                 sim.cursor += 1;
             } else {
                 break;
@@ -254,32 +248,15 @@ pub fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandErro
         (fired, root, sw, sh)
     };
 
-    let root = match root {
-        Some(r) => r,
-        None => match world.resource::<SimRootFallback>() {
-            Some(f) => f.0,
-            None => return Ok(()),
-        },
-    };
+    let root = root.or_else(|| {
+        world
+            .resource::<SimRootFallback>()
+            .map(|fallback| fallback.0)
+    });
 
-    for (event, is_down) in &commands_to_fire {
-        let hit = if *is_down {
-            match event {
-                InputEvent::PointerDown { x, y, .. } => {
-                    hit_test(world, root, *x, *y, screen_w, screen_h)
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-
+    for event in &commands_to_fire {
         let now_ms_inner = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
-
-        if let Some(gs) = world.resource_mut::<GestureSystem>() {
-            gs.recognizer
-                .update(event, now_ms_inner, hit, &mut gs.events);
-        }
+        super::dispatch_input(world, root, event, now_ms_inner, screen_w, screen_h);
     }
 
     if let Err(error) = super::gesture::system::drain_gestures(world, super::bubble_dispatch) {
@@ -567,13 +544,7 @@ pub fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandE
         .resource::<crate::surface::DisplayInfo>()
         .map(|d| (d.width, d.height))
         .unwrap_or((128, 128));
-    let root = world
-        .resource::<SimRootFallback>()
-        .map(|f| f.0)
-        .unwrap_or(Entity {
-            id: 0,
-            generation: 0,
-        });
+    let root = world.resource::<SimRootFallback>().map(|f| f.0);
 
     // Tight scope releases the &mut Timeline borrow before entity_centre.
     let (entry, action_elapsed, action_started) = {
@@ -1124,6 +1095,7 @@ mod tests {
     use super::*;
     use crate::core::time::mock;
     use crate::ecs::MonoClock;
+    use crate::input::event::gesture::GestureSystem;
     use crate::types::Point;
 
     fn setup_world() -> World {
@@ -1145,6 +1117,114 @@ mod tests {
         mock::set_ns(0);
         world.insert_resource(MonoClock::from_time_source());
         world
+    }
+
+    #[test]
+    fn scheduled_input_updates_pointer_state_without_a_root() {
+        let _guard = mock::install();
+        let mut world = setup_world();
+        world.remove_resource::<SimRootFallback>();
+        world.insert_resource(SimulatedInput::new(alloc::vec![
+            SimCommand::at(
+                0,
+                InputEvent::PointerDown {
+                    id: 0,
+                    x: Fixed::from_int(4),
+                    y: Fixed::from_int(5),
+                },
+            ),
+            SimCommand::at(
+                50,
+                InputEvent::PointerUp {
+                    id: 0,
+                    x: Fixed::from_int(6),
+                    y: Fixed::from_int(7),
+                },
+            ),
+        ]));
+        sim_input_system(&mut world).unwrap();
+        let cursor = world.resource::<super::super::PointerCursor>().unwrap();
+        assert!(cursor.down);
+        assert_eq!(
+            (cursor.x, cursor.y),
+            (Fixed::from_int(4), Fixed::from_int(5))
+        );
+        mock::advance_ms(50);
+        sim_input_system(&mut world).unwrap();
+        let cursor = world.resource::<super::super::PointerCursor>().unwrap();
+        assert!(!cursor.down);
+        assert_eq!(
+            (cursor.x, cursor.y),
+            (Fixed::from_int(6), Fixed::from_int(7))
+        );
+        assert_eq!(cursor.event_seq, 2);
+        assert!(world.resource::<SimRootFallback>().is_none());
+    }
+
+    #[derive(Default)]
+    struct SimKeyTrace {
+        pressed: [bool; 2],
+        len: usize,
+    }
+
+    #[crate::event]
+    fn record_simulated_key(
+        input: event!(crate::input::event::input::Key),
+        trace: res!(mut SimKeyTrace),
+    ) -> bool {
+        assert_eq!(input.code, crate::input::event::input::KEY_ROTARY_PRESS);
+        trace.pressed[trace.len] = input.pressed;
+        trace.len += 1;
+        true
+    }
+
+    #[test]
+    fn scheduled_input_and_timeline_use_the_same_app_keyboard_route_without_a_root() {
+        use crate::input::event::callback::AppContext;
+        use crate::input::event::contract::Event;
+
+        let _guard = mock::install();
+        for (index, run) in [sim_input_system, sim_timeline_system]
+            .into_iter()
+            .enumerate()
+        {
+            let mut world = setup_world();
+            world.remove_resource::<SimRootFallback>();
+            world.insert_resource(SimKeyTrace::default());
+            super::super::runtime::install_app(
+                &mut world,
+                crate::input::event::input::Key::EVENT,
+                record_simulated_key::callback::<AppContext>(),
+            )
+            .unwrap();
+            if index == 0 {
+                world.insert_resource(SimulatedInput::new(alloc::vec![
+                    SimCommand::at(
+                        0,
+                        InputEvent::Key {
+                            code: crate::input::event::input::KEY_ROTARY_PRESS,
+                            pressed: true,
+                        },
+                    ),
+                    SimCommand::at(
+                        50,
+                        InputEvent::Key {
+                            code: crate::input::event::input::KEY_ROTARY_PRESS,
+                            pressed: false,
+                        },
+                    ),
+                ]));
+            } else {
+                world.insert_resource(SimTimeline::new(alloc::vec![SimAction::RotaryClick]));
+            }
+            run(&mut world).unwrap();
+            mock::advance_ms(50);
+            run(&mut world).unwrap();
+            let trace = world.resource::<SimKeyTrace>().unwrap();
+            assert_eq!(trace.len, 2);
+            assert_eq!(trace.pressed, [true, false]);
+            assert!(world.resource::<SimRootFallback>().is_none());
+        }
     }
 
     #[test]
@@ -2053,7 +2133,7 @@ mod tests {
         let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
         dispatch_input(
             &mut world,
-            root,
+            Some(root),
             &InputEvent::PointerDown {
                 id: 0,
                 x: cx,
@@ -2068,7 +2148,7 @@ mod tests {
         let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
         dispatch_input(
             &mut world,
-            root,
+            Some(root),
             &InputEvent::PointerUp {
                 id: 0,
                 x: cx,
@@ -2128,7 +2208,7 @@ mod tests {
             let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
             dispatch_input(
                 &mut world,
-                root,
+                Some(root),
                 &InputEvent::PointerDown {
                     id: 0,
                     x: cx,
@@ -2142,7 +2222,7 @@ mod tests {
             let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
             dispatch_input(
                 &mut world,
-                root,
+                Some(root),
                 &InputEvent::PointerUp {
                     id: 0,
                     x: cx,

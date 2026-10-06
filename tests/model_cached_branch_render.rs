@@ -73,7 +73,7 @@ fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32
     let target = hit_test(world, root, x, y, 128, 96).unwrap();
     dispatch_input(
         world,
-        root,
+        Some(root),
         &InputEvent::PointerDown { id: 0, x, y },
         now_ms,
         128,
@@ -81,7 +81,7 @@ fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32
     );
     dispatch_input(
         world,
-        root,
+        Some(root),
         &InputEvent::PointerUp { id: 0, x, y },
         now_ms + 50,
         128,
