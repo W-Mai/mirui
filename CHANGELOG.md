@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Game keyboard bindings.** Atlas Restoration, Echo Walker, Pocket Post, and Twin Beacons use named Model-bound App callbacks; focused text editing takes precedence over their character shortcuts. Twin Beacons borrows its installed hint service through a typed resource parameter.
+- **Game keyboard bindings.** Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark use named Model-bound App callbacks; focused text editing takes precedence over their character shortcuts. Twin Beacons and Folding Ark borrow their installed hint services through typed resource parameters.
 - **App input and notification routing.** Keyboard editing and scroll handling precede App fallback without duplicate dispatch. Lifecycle notifications follow completed hooks in the same FIFO as widget notifications, and startup and quit run once across loop entrypoints.
 - **Notification service ownership.** The runtime retains a private notification service, prepares capacity in place, and exposes no service handle for generic resource replacement.
 - **Unified authoring callbacks.** Components, compositions, views, systems, events, timers, and animations share one role model with compile-time diagnostics for unsupported access and alias conflicts.
