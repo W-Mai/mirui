@@ -23,6 +23,8 @@ the State demos in the gallery.
 
 ## Registered model instances
 
+`App::add_resource(value)` immediately installs a resource in the application's existing World storage. Values move into storage without a `Clone` or `Copy` requirement; adding the same type replaces and drops its previous value. Callbacks borrow the current value through `res!(T)` or `res!(mut T)`. Structural changes during a callback continue to use deferred `commands.insert_resource(value)` and `commands.remove_resource::<T>()` after parameter borrows end. Resource installation does not create model observations or a second resource registry.
+
 Place `#[model]` on a struct and one inherent impl to generate its instance
 handle and forwarded methods. Each `App::add_model` call registers an independent
 instance; cloning a handle refers to the same instance without cloning its data.

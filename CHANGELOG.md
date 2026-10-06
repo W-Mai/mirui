@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Resource setup API.** `App::add_resource` installs values immediately through the existing World resource storage, retaining same-type replacement and deferred resource changes inside callbacks.
 - **App event callbacks.** Named callbacks handle lifecycle notifications and input fallback through the shared executor. Typed event capacities declare notification and deferred-command storage; rejected configuration changes and bindings log warnings without failing application construction.
 - **Typed command capacities.** Const operation-count declarations calculate deferred payload sizes, mixed-alignment storage, and apply-function layout without exposing byte limits or allocating a type catalog.
 - **Typed authoring roles.** `model!`, `res!`, `query!`, `component!`, and capability roles give generated callbacks typed access without exposing `World`, generated handles, or explicit lifetimes.

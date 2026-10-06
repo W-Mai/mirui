@@ -180,6 +180,14 @@ fn install_default_log_sink_once() {
 }
 
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
+    /// Install a resource immediately in this application's World.
+    ///
+    /// Replaces the previous value of the same type. Callbacks borrow resources through `res!`; structural resource changes inside callbacks use deferred `commands!`.
+    pub fn add_resource<T: 'static>(&mut self, value: T) -> &mut Self {
+        self.world.insert_resource(value);
+        self
+    }
+
     /// Register an independent model instance and return its shared handle.
     pub fn add_model<M: crate::core::model::Model>(&mut self, value: M) -> M::Handle {
         let (registration, handle) = crate::core::model::register(&mut self.world, value);

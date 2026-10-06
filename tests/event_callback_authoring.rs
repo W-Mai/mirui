@@ -42,6 +42,17 @@ struct Clock(i32);
 struct Settings(i32);
 struct Missing;
 
+struct SetupResource {
+    value: i32,
+    drops: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl Drop for SetupResource {
+    fn drop(&mut self) {
+        self.drops.set(self.drops.get() + 1);
+    }
+}
+
 #[model]
 struct Counter {
     value: i32,
@@ -56,6 +67,66 @@ impl Counter {
     fn value(&self) -> i32 {
         self.value
     }
+}
+
+#[event]
+fn read_setup_resource(counter: model!(Counter), resource: res!(SetupResource)) {
+    counter.add(resource.value);
+}
+
+#[test]
+fn app_resource_setup_is_immediate_and_replacement_uses_the_existing_storage() {
+    let drops = std::rc::Rc::new(std::cell::Cell::new(0));
+    let mut app = App::headless(8, 8);
+    let counter = app.add_model(Counter { value: 0 });
+    app.add_resource(SetupResource {
+        value: 2,
+        drops: drops.clone(),
+    })
+    .add_resource(Clock(7));
+    assert_eq!(app.world.resource::<SetupResource>().unwrap().value, 2);
+    assert_eq!(app.world.resource::<Clock>().unwrap().0, 7);
+    assert_eq!(counter.value(), 0);
+    let address = app.world.resource::<SetupResource>().unwrap() as *const SetupResource;
+    app.on_event(
+        Started::EVENT,
+        read_setup_resource::callback(counter.clone()),
+    );
+
+    assert_eq!(
+        tracked_allocations(|| {
+            app.add_resource(SetupResource {
+                value: 5,
+                drops: drops.clone(),
+            });
+        }),
+        0
+    );
+    assert_eq!(drops.get(), 1);
+    assert_eq!(
+        app.world.resource::<SetupResource>().unwrap() as *const _,
+        address
+    );
+
+    let mut other = App::headless(8, 8);
+    let independent = other.add_model(Counter { value: 0 });
+    other.add_resource(SetupResource {
+        value: 11,
+        drops: drops.clone(),
+    });
+    other.on_event(
+        Started::EVENT,
+        read_setup_resource::callback(independent.clone()),
+    );
+    assert!(!app.tick());
+    assert!(!other.tick());
+    assert_eq!(counter.value(), 5);
+    assert_eq!(independent.value(), 11);
+    drop(app);
+    assert_eq!(drops.get(), 2);
+    assert_eq!(other.world.resource::<SetupResource>().unwrap().value, 11);
+    drop(other);
+    assert_eq!(drops.get(), 3);
 }
 
 #[event]
