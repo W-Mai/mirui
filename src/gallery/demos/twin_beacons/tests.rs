@@ -1,11 +1,11 @@
 use super::shell;
-use super::state::{TwinSurface, select_map_level};
+use super::state::{TwinHintService, TwinSurface, select_map_level};
 use crate::core::model::{Model, ModelHandle};
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
-    Direction4, ExpeditionHintWorkspace, ExpeditionPanel, ExpeditionUiModel,
+    Direction4, ExpeditionHintWorkspace, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel,
 };
-use crate::gallery::play::twin::TwinModel;
+use crate::gallery::play::twin::{TwinMessage, TwinModel};
 use crate::prelude::*;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::ViewRegistry;
@@ -49,6 +49,147 @@ fn visible_interactive_descendant(world: &World, entity: Entity) -> bool {
             .copied()
             .any(|child| visible_interactive_descendant(world, child))
     })
+}
+
+#[derive(Default)]
+struct UnhandledCharacter(Option<char>);
+
+#[event]
+fn unhandled_character(input: event!(CharInput), seen: res!(mut UnhandledCharacter)) -> bool {
+    seen.0 = Some(input.ch);
+    true
+}
+
+fn send_character(world: &mut World, root: Entity, ch: char) {
+    crate::input::event::dispatch_input(
+        world,
+        Some(root),
+        &crate::surface::InputEvent::CharInput { ch },
+        0,
+        480,
+        320,
+    );
+}
+
+#[test]
+fn registered_keyboard_preserves_commands_and_bound_model_instances() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let (game, expedition) = shell::setup_test_app(&mut app, root);
+    let observer = game.clone();
+    let panel = expedition.clone();
+    let independent = app.add_model(TwinModel::default());
+    let independent_panel = app.add_model(ExpeditionUiModel::default());
+    independent_panel.open_summary();
+    app.add_resource(UnhandledCharacter::default());
+    app.on_event(CharInput::EVENT, unhandled_character::callback());
+    drop(game);
+    drop(expedition);
+
+    for (characters, direction) in [
+        (['w', 'W'], Direction4::Up),
+        (['d', 'D'], Direction4::Right),
+        (['s', 'S'], Direction4::Down),
+        (['a', 'A'], Direction4::Left),
+    ] {
+        for ch in characters {
+            observer.restart();
+            let mut expected = with_game(&observer, |game| *game);
+            expected.move_direction(direction);
+            send_character(&mut app.world, root, ch);
+            assert_eq!(with_game(&observer, |game| *game), expected);
+            assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+        }
+    }
+
+    observer.restart();
+    let direction = with_game(&observer, |game| game.level().solution(0).unwrap());
+    observer.move_direction(direction);
+    assert_eq!(observer.steps(), 1);
+    for ch in ['Z', 'z'] {
+        send_character(&mut app.world, root, ch);
+        assert_eq!(observer.steps(), 0);
+        assert_eq!(observer.message(), TwinMessage::Undone);
+        assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+    }
+    for ch in ['h', 'H'] {
+        send_character(&mut app.world, root, ch);
+        assert_eq!(observer.hints(), 1);
+        assert!(matches!(observer.message(), TwinMessage::Hint(_, _)));
+        assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+    }
+
+    panel.open_rules();
+    let before = with_game(&observer, |game| *game);
+    for ch in ['w', 'D', 'z', 'H'] {
+        send_character(&mut app.world, root, ch);
+        assert_eq!(with_game(&observer, |game| *game), before);
+        assert_eq!(
+            app.world.resource::<UnhandledCharacter>().unwrap().0,
+            Some(ch)
+        );
+    }
+    panel.close();
+    send_character(&mut app.world, root, 'q');
+    assert_eq!(with_game(&observer, |game| *game), before);
+    assert_eq!(
+        app.world.resource::<UnhandledCharacter>().unwrap().0,
+        Some('q')
+    );
+
+    observer.restart();
+    let solution_len = with_game(&observer, |game| game.level().solution_len());
+    for step in 0..solution_len {
+        let direction = with_game(&observer, |game| game.level().solution(step).unwrap());
+        observer.move_direction(direction);
+    }
+    assert_ne!(observer.modal(), ExpeditionModal::None);
+    let completed = with_game(&observer, |game| *game);
+    app.world.resource_mut::<UnhandledCharacter>().unwrap().0 = None;
+    for ch in ['W', 'Z', 'H'] {
+        send_character(&mut app.world, root, ch);
+        assert_eq!(with_game(&observer, |game| *game), completed);
+        assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+    }
+    assert_eq!(with_game(&independent, |game| *game), TwinModel::default());
+    assert_eq!(independent_panel.panel(), ExpeditionPanel::Summary);
+}
+
+#[test]
+fn keyboard_refetches_the_required_hint_service_after_resource_changes() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let (game, expedition) = shell::setup_test_app(&mut app, root);
+    let observer = game.clone();
+    drop(game);
+    drop(expedition);
+
+    let retained = app.world.resource::<TwinHintService>().unwrap().clone();
+    app.add_resource(TwinHintService::new());
+    send_character(&mut app.world, root, 'h');
+    assert_eq!(observer.hints(), 1);
+    assert!(matches!(observer.message(), TwinMessage::Hint(_, _)));
+
+    observer.restart();
+    let before = with_game(&observer, |game| *game);
+    app.world.remove_resource::<TwinHintService>().unwrap();
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        send_character(&mut app.world, root, 'H');
+    }));
+    assert!(error.is_err());
+    assert_eq!(with_game(&observer, |game| *game), before);
+    retained.request(&observer);
+    assert_eq!(observer.hints(), 1);
+
+    observer.restart();
+    app.add_resource(TwinHintService::new());
+    for ch in ['H', 'h'] {
+        send_character(&mut app.world, root, ch);
+        assert_eq!(observer.hints(), 1);
+        assert!(matches!(observer.message(), TwinMessage::Hint(_, _)));
+    }
 }
 
 #[test]

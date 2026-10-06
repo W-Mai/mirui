@@ -1,4 +1,4 @@
-use super::input::TwinKeyboardPlugin;
+use super::input::keyboard;
 #[cfg(feature = "persistence")]
 use super::persistence::install_persistence;
 use super::render::surface_render;
@@ -1265,13 +1265,13 @@ where
     let expedition = app.add_model(ExpeditionUiModel::default());
     capture(&game, &expedition);
     let hints = TwinHintService::new();
+    app.add_resource(hints.clone());
     #[cfg(feature = "persistence")]
     install_persistence(app, game.clone());
-    app.add_plugin(TwinKeyboardPlugin::new(
-        game.clone(),
-        expedition.clone(),
-        hints.clone(),
-    ));
+    app.on_event(
+        CharInput::EVENT,
+        keyboard::callback(game.clone(), expedition.clone()),
+    );
     app.compose(parent, |cx| build_widgets(cx, game, expedition, hints));
 }
 

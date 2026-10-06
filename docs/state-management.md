@@ -537,7 +537,9 @@ app.on_event(Key::EVENT, handle_key::callback(shortcuts));
 
 Focused keyboard handlers and default text editing run before App key and character fallback. Wheel and rotary events first try the scroll route. An accepted input is not dispatched again through a second handler path. App fallback also works without a widget root. Plugin consumption can stop user input, but does not stop lifecycle requests from reaching other plugins or bypass cancellation.
 
-Atlas Restoration, Echo Walker, and Pocket Post bind keyboard controls with `#[event]`, `event!(CharInput)`, and `model!` parameters. Their shortcuts use App fallback rather than a lifecycle plugin or an explicit Model handle type. Registered instances are shared with the rest of each game; character input consumed by a focused editor does not trigger the shortcut.
+Atlas Restoration, Echo Walker, Pocket Post, and Twin Beacons bind keyboard controls with `#[event]`, `event!(CharInput)`, and `model!` parameters. Their shortcuts use App fallback rather than a lifecycle plugin or an explicit Model handle type. Registered instances are shared with the rest of each game; character input consumed by a focused editor does not trigger the shortcut.
+
+Twin Beacons installs its hint service with `App::add_resource` before binding the keyboard callback, which borrows it through `res!(TwinHintService)` on each invocation. At setup, the keyboard and hint controls share the same search workspace; subsequent keyboard calls read the current installed service.
 
 `Started` follows the startup hooks once, including applications driven directly by `tick`. Suspend and resume notify only after an actual state change and their plugin hooks; suspension and quit cancel active pointer, scroll, and gesture state. Memory warnings and host interactions notify after their hooks. Quit hooks and notifications run once even if `tick` is called again. These notifications join the same FIFO as previously submitted widget notifications.
 
