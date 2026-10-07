@@ -1,9 +1,9 @@
 use crate::binding::{
-    BindingCardinality, BindingSource, BindingSpec, COMPOSE_ROLES, LogicalType, ModelSource,
-    RoleKind,
+    BindingAccess, BindingCardinality, BindingSource, BindingSpec, COMPOSE_ROLES,
+    ComposeResourceExpression, LogicalType, ModelSource, RoleKind,
 };
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 
@@ -156,7 +156,73 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         function.block.stmts.splice(0..0, checks);
     }
 
+    let mut resources = ResourceExpressions { error: None };
+    resources.visit_block_mut(&mut function.block);
+    if let Some(error) = resources.error {
+        return error.to_compile_error();
+    }
+
     quote! { #function }
+}
+
+struct ResourceExpressions {
+    error: Option<syn::Error>,
+}
+
+impl VisitMut for ResourceExpressions {
+    fn visit_expr_mut(&mut self, expression: &mut syn::Expr) {
+        if self.error.is_some() {
+            return;
+        }
+        if let syn::Expr::MethodCall(call) = expression
+            && let Err(error) = lower_resource_receiver(&mut call.receiver)
+        {
+            self.error = Some(error);
+            return;
+        }
+        syn::visit_mut::visit_expr_mut(self, expression);
+    }
+
+    fn visit_item_mut(&mut self, _item: &mut syn::Item) {}
+
+    fn visit_macro_mut(&mut self, _macro_call: &mut syn::Macro) {}
+}
+
+fn lower_resource_receiver(receiver: &mut syn::Expr) -> syn::Result<()> {
+    match receiver {
+        syn::Expr::Paren(parenthesized) => lower_resource_receiver(&mut parenthesized.expr),
+        syn::Expr::Group(grouped) => lower_resource_receiver(&mut grouped.expr),
+        syn::Expr::Macro(expression) => {
+            let Some(resource) =
+                BindingSpec::parse_compose_resource_expression(expression.clone())?
+            else {
+                return Ok(());
+            };
+            let attributes = &expression.attrs;
+            let lowered = match resource {
+                ComposeResourceExpression::Gateway(syntax) => {
+                    quote_spanned!(syntax.span()=> #(#attributes)* cx.__resources())
+                }
+                ComposeResourceExpression::Resource(binding) => {
+                    let BindingSource::Resource(source) = &binding.source else {
+                        unreachable!("Compose resource parsing produced a non-resource binding");
+                    };
+                    let ty = &source.ty;
+                    let method = match (binding.access, binding.cardinality) {
+                        (BindingAccess::Read, BindingCardinality::Required) => "__res_read",
+                        (BindingAccess::Read, BindingCardinality::Optional) => "__res_optional",
+                        (BindingAccess::Write, BindingCardinality::Required) => "__res_write",
+                        _ => unreachable!("ResourceRole admitted unsupported Compose access"),
+                    };
+                    let method = syn::Ident::new(method, binding.syntax.span());
+                    quote_spanned!(binding.syntax.span()=> #(#attributes)* cx.#method::<#ty>())
+                }
+            };
+            *receiver = syn::parse2(lowered)?;
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 struct BoundUiCalls {
@@ -237,6 +303,128 @@ mod tests {
     }
 
     #[test]
+    fn lowers_all_resource_operations_into_same_scope_receivers() {
+        let output = expand(
+            quote! {},
+            quote! {
+                fn build<T: 'static>(value: T) {
+                    let required = res!(T).with(|resource| resource.inspect());
+                    let optional = res!(optional T).with(|resource| resource.is_some());
+                    res!(mut T).with(|resource| resource.update());
+                    res!().insert(value);
+                    let removed = res!().remove::<T>();
+                }
+            },
+        );
+        let function: syn::ItemFn = syn::parse2(output).unwrap();
+        let body = function.block;
+        assert_eq!(
+            quote!(#body).to_string(),
+            quote!({
+                let required = cx.__res_read::<T>().with(|resource| resource.inspect());
+                let optional = cx.__res_optional::<T>().with(|resource| resource.is_some());
+                cx.__res_write::<T>().with(|resource| resource.update());
+                cx.__resources().insert(value);
+                let removed = cx.__resources().remove::<T>();
+            })
+            .to_string(),
+        );
+        assert_eq!(function.sig.generics.params.len(), 1);
+        assert_eq!(function.sig.inputs.len(), 2);
+    }
+
+    #[test]
+    fn resource_operations_lower_through_blocks_and_synchronous_closures() {
+        let output = expand(
+            quote! {},
+            quote! {
+                fn build() {
+                    for value in values {
+                        if value.ready() {
+                            (res!()).insert(value);
+                        }
+                    }
+                    let mut install = || res!().insert(Resource::new());
+                    install();
+                    let count = match present {
+                        true => res!(optional Resource).with(|resource| resource.is_some()),
+                        false => false,
+                    };
+                }
+            },
+        );
+        let rendered = output.to_string();
+        assert_eq!(rendered.matches("cx . __resources ()").count(), 2);
+        assert!(rendered.contains("(cx . __resources ()) . insert (value)"));
+        assert!(rendered.contains("cx . __resources () . insert (Resource :: new ())"));
+        assert!(rendered.contains("cx . __res_optional :: < Resource > () . with"));
+        assert!(!rendered.contains("res !"));
+        assert!(!contains_compile_error(&output));
+    }
+
+    #[test]
+    fn resource_lowering_leaves_nested_items_and_macro_tokens_to_their_contexts() {
+        let output = expand(
+            quote! {},
+            quote! {
+                fn build(game: model!(Game)) {
+                    fn independent() {
+                        res!().insert(Resource);
+                    }
+                    #[compose]
+                    fn child() {
+                        res!(Resource).with(inspect);
+                    }
+                    let now = res!(Clock).with(now);
+                    ui! {
+                        Button () on Tap(|resource: res!(mut Resource)| {
+                            commands!().insert_resource(Resource);
+                        })
+                    };
+                    foreign! { res!().insert(Resource) };
+                    ui!(child(game));
+                }
+            },
+        );
+        let function: syn::ItemFn = syn::parse2(output).unwrap();
+        let first = &function.block.stmts[0];
+        assert_eq!(
+            quote!(#first).to_string(),
+            quote!(cx.assert_binding(&game);).to_string()
+        );
+        let rendered = quote!(#function).to_string();
+        assert_eq!(rendered.matches("cx . __res_read").count(), 1);
+        assert!(!rendered.contains("cx . __resources"));
+        assert!(rendered.contains("res ! () . insert (Resource)"));
+        assert!(rendered.contains("res ! (Resource) . with (inspect)"));
+        assert!(rendered.contains("resource : res ! (mut Resource)"));
+        assert!(rendered.contains("commands ! () . insert_resource (Resource)"));
+        assert_eq!(rendered.matches("__mirui_bind").count(), 1);
+        assert_eq!(rendered.matches("SharedValue :: share").count(), 1);
+    }
+
+    #[test]
+    fn compose_resource_expressions_reject_unsupported_access_without_extending_parameters() {
+        for role in [
+            quote!(res!(optional mut Resource)),
+            quote!(res!(mut optional Resource)),
+            quote!(res!(Resource, Other)),
+            quote!(res![Resource]),
+        ] {
+            let output = expand(quote! {}, quote!(fn build() { #role.with(inspect); }));
+            assert!(contains_compile_error(&output));
+        }
+        let parameter = expand(
+            quote! {},
+            quote!(
+                fn build(resource: res!(Resource)) {}
+            ),
+        );
+        assert!(contains_compile_error(&parameter));
+        assert!(parameter.to_string().contains("not available"));
+    }
+
+    #[test]
     fn lowers_required_and_optional_model_roles_only() {
         let output = expand(
             quote! {},
@@ -289,7 +477,12 @@ mod tests {
             quote! {},
             quote! {
                 fn build(game: model!(Game)) {
-                    ui! { Row { child(game) child(game) } };
+                    ui! {
+                        Row () {
+                            child (game)
+                            child (game)
+                        }
+                    };
                     ui!(child(game));
                 }
             },
@@ -340,11 +533,19 @@ mod tests {
             quote! {},
             quote! {
                 fn build(game: model!(Game)) {
-                    ui! { Button() on Tap { game.advance(); } };
-                    mirui::ui! { Button() on Tap { game.advance(); } };
+                    ui! {
+                        Button () on Tap { game.advance(); }
+                    };
+                    mirui::ui! {
+                        Button () on Tap { game.advance(); }
+                    };
                     crate::ui!(child(game));
-                    ::mirui::ui! { Button() on Tap { game.advance(); } };
-                    other::ui! { Button() on Tap { game.advance(); } };
+                    ::mirui::ui! {
+                        Button () on Tap { game.advance(); }
+                    };
+                    other::ui! {
+                        Button () on Tap { game.advance(); }
+                    };
                 }
             },
         );

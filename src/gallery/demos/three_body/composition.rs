@@ -19,29 +19,25 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
     let logical_w = view_w as i32;
     let logical_h = view_h as i32;
 
-    let now_ms = cx
-        .world_mut()
-        .resource::<MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0);
-    cx.world_mut().insert_resource(PhysicsTime {
+    let now_ms = res!(optional MonoClock).with(|clock| clock.map_or(0, |clock| clock.now_ms()));
+    res!().insert(PhysicsTime {
         last_tick_ms: now_ms,
         accumulator_ms: 0,
     });
-    cx.world_mut().insert_resource(WorldBounds {
+    res!().insert(WorldBounds {
         w: logical_w,
         h: logical_h,
     });
-    cx.world_mut().insert_resource(SpringLength(equilibrium));
+    res!().insert(SpringLength(equilibrium));
     let n = n_bodies.max(1);
-    cx.world_mut().insert_resource(PhysicsScratch {
+    res!().insert(PhysicsScratch {
         entities: Vec::with_capacity(n),
         positions: Vec::with_capacity(n),
         velocities: Vec::with_capacity(n),
         ax: Vec::with_capacity(n),
         ay: Vec::with_capacity(n),
     });
-    cx.world_mut().insert_resource(KickPhase(0));
+    res!().insert(KickPhase(0));
 
     let orbit_size = logical_w.min(logical_h) * 72 / 100;
     let orbit_left = (logical_w - orbit_size) / 2;

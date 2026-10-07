@@ -35,6 +35,28 @@ impl<'w> UiScope<'w> {
     }
 
     #[doc(hidden)]
+    pub fn __res_read<T: 'static>(&mut self) -> super::resource_access::ResourceRead<'_, T> {
+        super::resource_access::ResourceRead::new(self.world)
+    }
+
+    #[doc(hidden)]
+    pub fn __res_optional<T: 'static>(
+        &mut self,
+    ) -> super::resource_access::OptionalResourceRead<'_, T> {
+        super::resource_access::OptionalResourceRead::new(self.world)
+    }
+
+    #[doc(hidden)]
+    pub fn __res_write<T: 'static>(&mut self) -> super::resource_access::ResourceWrite<'_, T> {
+        super::resource_access::ResourceWrite::new(self.world)
+    }
+
+    #[doc(hidden)]
+    pub fn __resources(&mut self) -> super::resource_access::Resources<'_> {
+        super::resource_access::Resources::new(self.world)
+    }
+
+    #[doc(hidden)]
     pub fn world_mut(&mut self) -> &mut World {
         self.world
     }

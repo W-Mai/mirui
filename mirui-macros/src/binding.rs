@@ -44,6 +44,11 @@ pub(crate) enum BindingSyntax {
     ExprRole(syn::ExprMacro),
 }
 
+pub(crate) enum ComposeResourceExpression {
+    Resource(Box<BindingSpec>),
+    Gateway(ExprMacro),
+}
+
 impl BindingSyntax {
     pub(crate) fn span(&self) -> Span {
         match self {
@@ -312,6 +317,30 @@ pub(crate) enum QueryDriver {
 }
 
 impl BindingSpec {
+    pub(crate) fn parse_compose_resource_expression(
+        expression: ExprMacro,
+    ) -> syn::Result<Option<ComposeResourceExpression>> {
+        if RoleKind::from_macro(&expression.mac) != Some(RoleKind::Res) {
+            return Ok(None);
+        }
+        require_parentheses(&expression.mac)?;
+        if expression.mac.tokens.is_empty() {
+            return Ok(Some(ComposeResourceExpression::Gateway(expression)));
+        }
+        let parsed = expression.mac.parse_body::<ResourceRole>()?;
+        let name = expression
+            .mac
+            .path
+            .segments
+            .last()
+            .expect("a Compose resource role has a final segment")
+            .ident
+            .clone();
+        Ok(Some(ComposeResourceExpression::Resource(Box::new(
+            resource_binding(name, BindingSyntax::ExprRole(expression), parsed),
+        ))))
+    }
+
     pub(crate) fn parse_event_expression(expression: ExprMacro) -> syn::Result<Option<Self>> {
         if !is_event_commands(&expression.mac.path) {
             return Ok(None);
@@ -805,16 +834,24 @@ pub(crate) fn parse_resource_role(
     type_role: syn::TypeMacro,
 ) -> syn::Result<BindingSpec> {
     let parsed = type_role.mac.parse_body::<ResourceRole>()?;
-    Ok(BindingSpec {
+    Ok(resource_binding(
         name,
-        syntax: BindingSyntax::TypeRole(type_role),
+        BindingSyntax::TypeRole(type_role),
+        parsed,
+    ))
+}
+
+fn resource_binding(name: Ident, syntax: BindingSyntax, parsed: ResourceRole) -> BindingSpec {
+    BindingSpec {
+        name,
+        syntax,
         logical_type: LogicalType::Explicit(Box::new(parsed.ty.clone())),
         source: BindingSource::Resource(ResourceSource { ty: parsed.ty }),
         access: parsed.access,
         cardinality: parsed.cardinality,
         watch_selectors: Vec::new(),
         invalidation: None,
-    })
+    }
 }
 
 fn parse_system_query(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
@@ -1278,6 +1315,68 @@ mod tests {
             BindingSyntax::TypeRole(role) => tokens(role),
             BindingSyntax::ExprRole(role) => tokens(role),
         }
+    }
+
+    fn compose_resource(source: &str) -> syn::Result<Option<ComposeResourceExpression>> {
+        let syn::Expr::Macro(expression) = syn::parse_str::<syn::Expr>(source)? else {
+            panic!("expected resource role expression");
+        };
+        BindingSpec::parse_compose_resource_expression(expression)
+    }
+
+    #[test]
+    fn compose_resource_expressions_share_parameter_resource_ir() {
+        for role in ["res!(Time)", "res!(optional Time)", "res!(mut Time)"] {
+            let parameter = parse(&format!("value: {role}"));
+            let Some(ComposeResourceExpression::Resource(expression)) =
+                compose_resource(role).unwrap()
+            else {
+                panic!("expected typed Compose resource");
+            };
+            let (BindingSource::Resource(parameter_source), BindingSource::Resource(source)) =
+                (&parameter.source, &expression.source)
+            else {
+                panic!("expected common resource sources");
+            };
+            assert_eq!(tokens(&parameter_source.ty), tokens(&source.ty));
+            assert_eq!(parameter.access, expression.access);
+            assert_eq!(parameter.cardinality, expression.cardinality);
+            assert!(matches!(&expression.syntax, BindingSyntax::ExprRole(_)));
+            assert_eq!(syntax_tokens(&expression.syntax), role.replace('!', " ! "));
+            assert!(matches!(
+                &expression.logical_type,
+                LogicalType::Explicit(ty) if tokens(ty) == "Time"
+            ));
+        }
+    }
+
+    #[test]
+    fn empty_compose_resource_is_a_gateway_not_a_parameter_role() {
+        let Some(ComposeResourceExpression::Gateway(expression)) =
+            compose_resource("res!()").unwrap()
+        else {
+            panic!("expected empty Compose resource gateway");
+        };
+        assert_eq!(tokens(&expression), "res ! ()");
+        assert!(error("value: res!()").contains("expects a resource type"));
+    }
+
+    #[test]
+    fn compose_resource_expression_validation_uses_existing_resource_grammar() {
+        for role in [
+            "res!(optional mut Time)",
+            "res!(mut optional Time)",
+            "res!(Time, Other)",
+        ] {
+            let expression_error = match compose_resource(role) {
+                Err(error) => error.to_string(),
+                Ok(_) => panic!("expected malformed Compose resource to fail"),
+            };
+            assert_eq!(expression_error, error(&format!("value: {role}")));
+        }
+        assert!(compose_resource("res![Time]").is_err());
+        assert!(compose_resource("res!{}").is_err());
+        assert!(compose_resource("foreign::res!(Time)").unwrap().is_none());
     }
 
     #[test]

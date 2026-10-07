@@ -31,6 +31,35 @@ The default `mirui::prelude` supplies the authoring macros and their common type
 
 Application setup installs shared services with `app.add_resource(value)` and creates paths through `app.paths()`. Path helpers can accept `mirui::text::PathAccess` to insert or edit paths without receiving the entire World.
 
+Within a `#[compose]` Rust body, resource expressions access that composition's existing application storage. Each `with` closure borrows only for its call and returns a value independent of the resource reference. Resources remain shared services or configuration; mutating one does not add Model observations.
+
+| Operation | Expression | Result |
+| --- | --- | --- |
+| Read a required resource | `res!(T).with(read)` | `read` receives `&T` |
+| Read an optional resource | `res!(optional T).with(read)` | `read` receives `Option<&T>` |
+| Mutate a required resource | `res!(mut T).with(write)` | `write` receives `&mut T` |
+| Install or replace a resource | `res!().insert(value)` | Immediate replacement; the previous value drops |
+| Remove a resource | `res!().remove::<T>()` | `Option<T>` |
+
+```rust,ignore
+struct PanelConfig {
+    gap: i32,
+}
+
+#[compose]
+fn configured_panel() {
+    let gap = res!(PanelConfig).with(|config| config.gap);
+    ui! {
+        Column (gap: gap) {}
+    };
+}
+
+app.add_resource(PanelConfig { gap: 8 });
+app.compose(root, configured_panel);
+```
+
+Compute resource-backed arguments before passing them to `ui!`, `format!`, or another macro; the composition attribute does not rewrite another macro's tokens. Required resources report missing values as programming errors, while optional reads receive `None`. Composition inserts and removals are immediate; structural changes during System or Event callbacks continue through deferred `commands!`. Resource access adds no heap storage; registering a new resource type still uses the existing resource store's allocation.
+
 Place `#[model]` on a struct and one inherent impl to generate its instance
 handle and forwarded methods. Each `App::add_model` call registers an independent
 instance; cloning a handle refers to the same instance without cloning its data.

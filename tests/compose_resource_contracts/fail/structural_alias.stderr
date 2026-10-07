@@ -1,0 +1,13 @@
+error[E0500]: closure requires unique access to value but it is already borrowed
+  --> tests/compose_resource_contracts/fail/structural_alias.rs:7:28
+   |
+ 7 |     res!(mut Counter).with(|counter| {
+   |     ---                    ^^^^^^^^^ closure construction occurs here
+   |     |
+   |     borrow occurs here
+   |     a temporary with access to the first borrow is created here ...
+ 8 |         res!().insert(Counter(4));
+   |         --- second borrow occurs due to use of value in closure
+ 9 |         counter.0 += 1;
+10 |     });
+   |       - ... and the first borrow might be used here, when that temporary is dropped and runs the destructor for type `mirui::ui::resource_access::ResourceWrite<'_, Counter>`

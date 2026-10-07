@@ -1,0 +1,8 @@
+error: lifetime may not live long enough
+ --> tests/compose_resource_contracts/fail/borrow_escape.rs:7:34
+  |
+7 |     res!(Counter).with(|counter| counter)
+  |                         -------- ^^^^^^^ returning this value requires that `'1` must outlive `'2`
+  |                         |      |
+  |                         |      return type of closure is &'2 Counter
+  |                         has type `&'1 Counter`

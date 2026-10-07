@@ -54,6 +54,12 @@ struct WorldWindow {
     owner: WorldId,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WorldAccess {
+    Borrowed(WorldId),
+    Suppressed(WorldId),
+}
+
 struct Reactive {
     scope: Option<Subscriber>,
     scope_graph_consumer: Option<ConsumerKey>,
@@ -61,7 +67,7 @@ struct Reactive {
     world_window: Option<WorldWindow>,
     world_id: Option<WorldId>,
     world_lifetime: Option<Weak<()>>,
-    borrowed_worlds: [Option<WorldId>; 8],
+    borrowed_worlds: [Option<WorldAccess>; 8],
     model_read_only_depth: u16,
     dirty_widgets: VecDeque<(Option<WorldId>, Entity)>,
     dirty_visual_widgets: VecDeque<(Option<WorldId>, Entity)>,
@@ -508,30 +514,44 @@ impl WorldGuard {
     }
 }
 
-struct WorldBorrowGuard {
+pub(crate) struct WorldAccessGuard {
     slot: usize,
+    _thread: ::core::marker::PhantomData<Rc<()>>,
 }
 
-impl WorldBorrowGuard {
-    fn enter(id: WorldId) -> Self {
+impl WorldAccessGuard {
+    fn borrow(id: WorldId) -> Self {
+        Self::enter(WorldAccess::Borrowed(id))
+    }
+
+    pub(crate) fn suppress(world: &World) -> Self {
+        Self::enter(WorldAccess::Suppressed(world.id()))
+    }
+
+    fn enter(access: WorldAccess) -> Self {
         let slot = with_reactive(|r| {
-            assert!(
-                !r.borrowed_worlds.contains(&Some(id)),
-                "World is already mutably borrowed through with_world"
-            );
+            if let WorldAccess::Borrowed(id) = access {
+                assert!(
+                    !r.borrowed_worlds.contains(&Some(WorldAccess::Borrowed(id))),
+                    "World is already mutably borrowed through with_world"
+                );
+            }
             let slot = r
                 .borrowed_worlds
                 .iter()
                 .position(Option::is_none)
                 .expect("too many nested World borrows");
-            r.borrowed_worlds[slot] = Some(id);
+            r.borrowed_worlds[slot] = Some(access);
             slot
         });
-        Self { slot }
+        Self {
+            slot,
+            _thread: ::core::marker::PhantomData,
+        }
     }
 }
 
-impl Drop for WorldBorrowGuard {
+impl Drop for WorldAccessGuard {
     fn drop(&mut self) {
         with_reactive(|r| r.borrowed_worlds[self.slot] = None);
     }
@@ -594,9 +614,15 @@ pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
 /// This entry point supports `ui!`-generated reactive control flow in user crates.
 pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     // Copy the window before deref so `f` may re-enter with_reactive.
-    let (window, owner) = with_reactive(|r| (r.world_window, r.world_id));
-    let window = window.filter(|window| Some(window.owner) == owner)?;
-    let _borrow = WorldBorrowGuard::enter(window.owner);
+    let window = with_reactive(|r| {
+        let window = r
+            .world_window
+            .filter(|window| Some(window.owner) == r.world_id)?;
+        (!r.borrowed_worlds
+            .contains(&Some(WorldAccess::Suppressed(window.owner))))
+        .then_some(window)
+    })?;
+    let _borrow = WorldAccessGuard::borrow(window.owner);
     // SAFETY: a window exists only within flush_signal_dirty / with_world_scope, which
     // hold a live &mut World; single-threaded. Windows may nest (a reactive
     // walk/if/match re-run enters another scope); WorldGuard saves/restores the
@@ -2348,6 +2374,81 @@ mod tests {
             );
         });
         assert!(with_world(|_| ()).is_none(), "no world outside any scope");
+    }
+
+    #[test]
+    fn world_suppression_records_are_nested_and_owner_specific() {
+        reset();
+        let mut first = World::new();
+        let first_id = first.id();
+        let mut second = World::new();
+        let second_id = second.id();
+        with_world_scope(&mut first, || {
+            let first_suppression = with_world(|world| WorldAccessGuard::suppress(world)).unwrap();
+            let nested = WorldAccessGuard::enter(WorldAccess::Suppressed(first_id));
+            let second_suppression = WorldAccessGuard::suppress(&second);
+            assert!(with_world(|_| ()).is_none());
+            drop(first_suppression);
+            assert!(with_world(|_| ()).is_none());
+            drop(nested);
+            assert_eq!(with_world(|world| world.id()), Some(first_id));
+            with_world_scope(&mut second, || {
+                assert!(with_world(|_| ()).is_none());
+            });
+            drop(second_suppression);
+            with_world_scope(&mut second, || {
+                assert_eq!(with_world(|world| world.id()), Some(second_id));
+            });
+            assert_eq!(with_world(|world| world.id()), Some(first_id));
+        });
+    }
+
+    #[test]
+    fn world_suppression_releases_its_record_on_unwind() {
+        reset();
+        let mut world = World::new();
+        let owner = world.id();
+        with_world_scope(&mut world, || {
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_world(|world| {
+                    let _suppression = WorldAccessGuard::suppress(world);
+                    assert!(with_world(|_| ()).is_none());
+                    panic!("suppression unwind");
+                });
+            }));
+            assert!(failed.is_err());
+            assert_eq!(with_world(|world| world.id()), Some(owner));
+        });
+    }
+
+    #[test]
+    fn world_access_limit_is_shared_by_borrows_and_suppression() {
+        reset();
+        let mut world = World::new();
+        let owner = world.id();
+        let guards: [WorldAccessGuard; 8] =
+            ::core::array::from_fn(|_| WorldAccessGuard::suppress(&world));
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            WorldAccessGuard::suppress(&world)
+        }));
+        assert!(failed.is_err());
+        assert!(with_reactive(|runtime| runtime
+            .borrowed_worlds
+            .iter()
+            .all(Option::is_some)));
+        let mut other = World::new();
+        with_world_scope(&mut other, || {
+            let failed = std::panic::catch_unwind(|| with_world(|_| ()));
+            assert!(failed.is_err());
+        });
+        drop(guards);
+        assert!(with_reactive(|runtime| runtime
+            .borrowed_worlds
+            .iter()
+            .all(Option::is_none)));
+        with_world_scope(&mut world, || {
+            assert_eq!(with_world(|world| world.id()), Some(owner));
+        });
     }
 
     #[test]

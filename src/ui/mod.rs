@@ -21,6 +21,8 @@ pub mod niche;
 pub mod offscreen;
 pub mod property;
 pub mod render_system;
+#[doc(hidden)]
+pub mod resource_access;
 pub mod scope;
 pub mod state;
 pub mod style_view;

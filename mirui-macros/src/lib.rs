@@ -2214,6 +2214,10 @@ impl DsRune for MiruiRune {
 /// their Rust meaning. A function used as a child node must return its root
 /// `Entity`; `ui!(helper(...))` forwards other return types unchanged.
 ///
+/// Resource expressions borrow the current application's storage through `res!(T).with(...)`, `res!(optional T).with(...)`, or `res!(mut T).with(...)`. Closure outputs cannot retain resource references. `res!().insert(value)` and `res!().remove::<T>()` perform immediate setup operations; callback `commands!` remains deferred.
+///
+/// Compute resource-backed values in the Rust body before passing them to `ui!` or another macro. Resource expressions do not expand inside another macro's token stream.
+///
 /// The attribute takes no arguments and applies only to synchronous free
 /// functions. The parameter name `cx` is reserved for the generated scope.
 /// Use `ui!(compose Name { ... })` to declare a reusable Niche widget instead
