@@ -83,7 +83,7 @@ where
         SimAction::wait(800),
     ])
     .looping(true);
-    app.world.insert_resource(timeline);
+    app.add_resource(timeline);
     app.add_system(sim_timeline_system::system());
     app.add_plugin(StdInstantClockPlugin);
 }

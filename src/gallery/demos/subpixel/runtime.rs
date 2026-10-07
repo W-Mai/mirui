@@ -15,5 +15,5 @@ where
         .world
         .find_by_id("subpixel_arena")
         .expect("subpixel arena");
-    app.world.insert_resource(BarArena(arena));
+    app.add_resource(BarArena(arena));
 }

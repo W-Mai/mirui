@@ -34,7 +34,7 @@ where
     app.add_system(crate::input::event::sim::sim_timeline_system::system());
     app.add_system(slider_to_progress_system::system());
 
-    app.world.insert_resource(dark_with_accent());
+    app.add_resource(dark_with_accent());
     let theme_cycle = app.add_model(ThemeCycle::default());
     app.add_timer(cycle::timer(theme_cycle));
 
@@ -45,14 +45,13 @@ where
     }
 
     if let Some(timeline) = build_sim_timeline(&app.world) {
-        app.world.insert_resource(timeline);
+        app.add_resource(timeline);
     }
 }
 
 /// Construct the demo's looping `SimTimeline` from the live widget tree.
-/// Returns `None` when the expected widgets aren't installed (e.g.
-/// `build_widgets` skipped) — callers can `insert_resource` the result
-/// unconditionally and the sim system stays a no-op without a timeline.
+///
+/// Returns `None` when the expected widgets aren't installed. Install a returned timeline with `App::add_resource`; the sim system is a no-op without one.
 pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
     let tab_bars: Vec<Entity> = world.query::<TabBar>().collect();
     let tab_bar_e = *tab_bars.first()?;

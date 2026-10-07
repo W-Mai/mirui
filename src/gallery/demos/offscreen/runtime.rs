@@ -11,7 +11,7 @@ where
     F: RendererFactory<B>,
 {
     app.with_offscreen_pool_budget(512 * 1024);
-    app.world.insert_resource(ModeToggle {
+    app.add_resource(ModeToggle {
         last_flip_ns: 0,
         elapsed_ns: 0,
         offscreen: false,

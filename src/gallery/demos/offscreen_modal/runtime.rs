@@ -20,7 +20,7 @@ where
     // Modal buffer at RGBA8888 = 200×280×4 = 224 KB; the 256 KiB pool
     // fits one buffer with eviction headroom.
     app.with_offscreen_pool_budget(256 * 1024);
-    app.world.insert_resource(ModeToggle {
+    app.add_resource(ModeToggle {
         last_flip_ns: 0,
         elapsed_ns: 0,
         offscreen: false,

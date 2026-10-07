@@ -77,6 +77,6 @@ where
         return;
     }
     if let Some(timeline) = automation(&app.world) {
-        app.world.insert_resource(timeline);
+        app.add_resource(timeline);
     }
 }
