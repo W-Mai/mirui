@@ -5,6 +5,7 @@ use crate::binding::{
 };
 use proc_macro2::TokenStream;
 use quote::quote;
+use syn::Type;
 use syn::spanned::Spanned;
 
 pub(crate) fn lower_fetched_parameter(
@@ -172,6 +173,17 @@ fn lower_query(query: &QuerySpec) -> syn::Result<(TokenStream, Vec<TokenStream>)
     ))
 }
 
+pub(crate) fn query_dependency_types(query: &QuerySpec) -> impl Iterator<Item = &Type> {
+    query
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            QueryItemSpec::Entity(_) => None,
+            QueryItemSpec::Component { ty, .. } => Some(ty.as_ref()),
+        })
+        .chain(query.filters.iter().map(|filter| &filter.ty))
+}
+
 fn query_span(query: &QuerySpec) -> proc_macro2::Span {
     query
         .items
@@ -181,4 +193,52 @@ fn query_span(query: &QuerySpec) -> proc_macro2::Span {
             QueryItemSpec::Component { ty, .. } => ty.span(),
         })
         .unwrap_or_else(proc_macro2::Span::call_site)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::ToTokens;
+
+    #[test]
+    fn query_marker_and_dependency_types_come_from_the_same_shared_spec() {
+        let parameter: syn::FnArg = syn::parse_quote!(
+            rows: query!(Entity, Position, optional Velocity; with Active; without Hidden;)
+        );
+        let binding = BindingSpec::parse_system_parameter(&parameter).unwrap();
+        let BindingSource::Query(query) = &binding.source else {
+            panic!("expected a query binding");
+        };
+        let types = query_dependency_types(query)
+            .map(|ty| ty.to_token_stream().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(types, ["Position", "Velocity", "Active", "Hidden"]);
+        let marker: syn::TypePath =
+            syn::parse2(lower_fetched_parameter(&binding).unwrap().0).unwrap();
+        let syn::PathArguments::AngleBracketed(arguments) =
+            &marker.path.segments.last().unwrap().arguments
+        else {
+            panic!("expected typed query arguments");
+        };
+        assert_eq!(
+            arguments
+                .args
+                .iter()
+                .map(|argument| argument.to_token_stream().to_string())
+                .collect::<Vec<_>>(),
+            [
+                quote!(::mirui::__macro_support::ComponentDriver<Position>),
+                quote!((
+                    ::mirui::__macro_support::EntityItem,
+                    ::mirui::__macro_support::Read<Position>,
+                    ::mirui::__macro_support::OptionalRead<Velocity>,
+                )),
+                quote!((
+                    ::mirui::__macro_support::With<Active>,
+                    ::mirui::__macro_support::Without<Hidden>,
+                )),
+            ]
+            .map(|argument| argument.to_string()),
+        );
+    }
 }

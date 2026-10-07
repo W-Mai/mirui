@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Read-only View queries.** Paint callbacks use shared typed queries with point fetches, iteration, optional items, and presence filters. Static component-type dependencies drive visual or layout invalidation without per-fetch subscriptions.
 - **Composition resource access.** `res!` expressions provide short-lived required, optional, and mutable resource access inside compositions, with immediate resource installation and removal through the existing application storage.
 - **Node event callbacks.** Event blocks, typed inline callbacks, and named factories share source validation, prepared execution, and deferred commands. Widget builders install typed event bindings after their components are attached.
 - **Resource setup API.** `App::add_resource` installs values immediately through the existing World resource storage, retaining same-type replacement and deferred resource changes inside callbacks.

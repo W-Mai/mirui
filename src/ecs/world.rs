@@ -21,7 +21,7 @@ use super::sparse_set::{SparseSet, SparseSetParts};
 pub struct SystemWorldCell<'world> {
     storages: NonNull<HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>>,
     resources: NonNull<HashMap<TypeId, Box<dyn Any>, FxBuildHasher>>,
-    watched_component_types: NonNull<alloc::vec::Vec<TypeId>>,
+    watched_component_types: NonNull<alloc::vec::Vec<WatchedComponentType>>,
     component_changes: NonNull<alloc::vec::Vec<ComponentChange>>,
     _marker: PhantomData<&'world mut World>,
 }
@@ -97,7 +97,7 @@ impl<'world> SystemWorldCell<'world> {
         }
     }
 
-    /// Whether mutable access to `T` needs to enqueue View invalidation.
+    /// Whether mutable access to `T` needs an entity-level change record.
     ///
     /// # Safety
     ///
@@ -105,7 +105,9 @@ impl<'world> SystemWorldCell<'world> {
     /// mutate the watched-type registry during this call.
     pub(crate) unsafe fn watches_component<T: Component>(&self) -> bool {
         // SAFETY: this pointer targets a field disjoint from component storage.
-        unsafe { self.watched_component_types.as_ref() }.contains(&TypeId::of::<T>())
+        unsafe { self.watched_component_types.as_ref() }
+            .iter()
+            .any(|watched| watched.type_id == TypeId::of::<T>() && watched.entity_tracking)
     }
 
     /// Reserve the complete system's change-record budget before any mutable
@@ -180,10 +182,18 @@ pub(crate) struct ComponentChange {
     pub type_id: TypeId,
 }
 
-/// Disjoint access to the component-change queue while generated queries hold
-/// references into component storage.
+#[derive(Clone, Copy)]
+struct WatchedComponentType {
+    type_id: TypeId,
+    entity_tracking: bool,
+    query_tracking: bool,
+    query_pending: bool,
+    query_snapshot: bool,
+}
+
+/// Disjoint access to component-change records and dependency flags while generated queries hold references into component storage.
 pub(crate) struct ComponentChangeSink<'world> {
-    watched_component_types: NonNull<alloc::vec::Vec<TypeId>>,
+    watched_component_types: NonNull<alloc::vec::Vec<WatchedComponentType>>,
     component_changes: NonNull<alloc::vec::Vec<ComponentChange>>,
     _marker: PhantomData<&'world mut World>,
 }
@@ -193,25 +203,30 @@ impl ComponentChangeSink<'_> {
     ///
     /// # Safety
     ///
-    /// The sink must originate from the same live `SystemWorldCell` as the
-    /// yielded component reference, and callers must not access either queue
-    /// through another path while this method runs.
+    /// The sink must originate from the same live `SystemWorldCell` as the yielded component reference, and callers must not access the registry or change queue through another path while this method runs.
     pub(crate) unsafe fn record<T: Component>(&self, entity: Entity) {
         // SAFETY: the pointers target distinct World fields and the caller
         // holds the system's exclusive World window.
-        let watched = unsafe { self.watched_component_types.as_ref() };
+        let watched = unsafe { &mut *self.watched_component_types.as_ptr() };
         let changes = unsafe { &mut *self.component_changes.as_ptr() };
         record_component_change(watched, changes, entity, TypeId::of::<T>());
     }
 }
 
 fn record_component_change(
-    watched_component_types: &[TypeId],
+    watched_component_types: &mut [WatchedComponentType],
     component_changes: &mut alloc::vec::Vec<ComponentChange>,
     entity: Entity,
     type_id: TypeId,
 ) {
-    if !watched_component_types.contains(&type_id) {
+    let Some(watched) = watched_component_types
+        .iter_mut()
+        .find(|watched| watched.type_id == type_id)
+    else {
+        return;
+    };
+    watched.query_pending |= watched.query_tracking;
+    if !watched.entity_tracking {
         return;
     }
     let change = ComponentChange { entity, type_id };
@@ -225,12 +240,24 @@ fn record_component_change(
     }
 }
 
+fn record_query_dependency_change(
+    watched_component_types: &mut [WatchedComponentType],
+    type_id: TypeId,
+) {
+    if let Some(watched) = watched_component_types
+        .iter_mut()
+        .find(|watched| watched.type_id == type_id)
+    {
+        watched.query_pending |= watched.query_tracking;
+    }
+}
+
 pub struct World {
     id: WorldId,
     allocator: EntityAllocator,
     storages: HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
     resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
-    watched_component_types: alloc::vec::Vec<TypeId>,
+    watched_component_types: alloc::vec::Vec<WatchedComponentType>,
     component_changes: alloc::vec::Vec<ComponentChange>,
     drop_hooks: alloc::vec::Vec<(TypeId, fn(WorldId))>,
     lifetime: Option<Rc<()>>,
@@ -284,7 +311,7 @@ impl World {
             return false;
         }
         for index in 0..self.watched_component_types.len() {
-            let type_id = self.watched_component_types[index];
+            let type_id = self.watched_component_types[index].type_id;
             if self.has_type(entity, type_id) {
                 self.record_component_change(entity, type_id);
             }
@@ -333,9 +360,7 @@ impl World {
     /// Begin recording structural changes for a component type. Existing
     /// components are queued so a newly registered View can attach them.
     pub(crate) fn watch_component_type(&mut self, type_id: TypeId) {
-        if !self.watched_component_types.contains(&type_id) {
-            self.watched_component_types.push(type_id);
-        }
+        self.watch_component_type_entry(type_id).entity_tracking = true;
         let count = self
             .storages
             .get(&type_id)
@@ -350,6 +375,32 @@ impl World {
         }
     }
 
+    /// Track type-level writes without recording entities or creating storage.
+    pub(crate) fn watch_query_dependency_type(&mut self, type_id: TypeId) {
+        self.watch_component_type_entry(type_id).query_tracking = true;
+    }
+
+    fn watch_component_type_entry(&mut self, type_id: TypeId) -> &mut WatchedComponentType {
+        let index = if let Some(index) = self
+            .watched_component_types
+            .iter()
+            .position(|watched| watched.type_id == type_id)
+        {
+            index
+        } else {
+            let index = self.watched_component_types.len();
+            self.watched_component_types.push(WatchedComponentType {
+                type_id,
+                entity_tracking: false,
+                query_tracking: false,
+                query_pending: false,
+                query_snapshot: false,
+            });
+            index
+        };
+        &mut self.watched_component_types[index]
+    }
+
     pub(crate) fn reserve_component_storage<T: 'static>(
         &mut self,
         max_entity_id: u32,
@@ -361,7 +412,7 @@ impl World {
 
     fn record_component_change(&mut self, entity: Entity, type_id: TypeId) {
         record_component_change(
-            &self.watched_component_types,
+            &mut self.watched_component_types,
             &mut self.component_changes,
             entity,
             type_id,
@@ -382,14 +433,41 @@ impl World {
         self.component_changes.clear();
     }
 
+    /// Freeze all pending type changes before visiting this batch once. Writes made by callbacks remain pending for the next drain. An interrupted snapshot is retained until its callbacks complete successfully.
+    pub(crate) fn drain_query_dependency_changes(
+        &mut self,
+        mut visit: impl FnMut(&mut Self, TypeId),
+    ) {
+        let count = self.watched_component_types.len();
+        for watched in &mut self.watched_component_types {
+            watched.query_snapshot |= watched.query_pending;
+            watched.query_pending = false;
+        }
+        for index in 0..count {
+            let watched = self.watched_component_types[index];
+            if watched.query_snapshot {
+                visit(self, watched.type_id);
+                self.watched_component_types[index].query_snapshot = false;
+            }
+        }
+    }
+
     pub fn get<T: 'static>(&self, entity: Entity) -> Option<&T> {
         self.storage::<T>()?.get(entity)
     }
 
-    /// In-place writes do not produce structural component-change records.
-    /// Replace the component with `insert` when its bindings change.
+    /// In-place writes mark query dependencies but do not produce structural component-change records. Replace the component with `insert` when its bindings change.
     pub fn get_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
-        self.storage_mut_if_exists::<T>()?.get_mut(entity)
+        let type_id = TypeId::of::<T>();
+        let component = self
+            .storages
+            .get_mut(&type_id)?
+            .as_any_mut()
+            .downcast_mut::<SparseSet<T>>()
+            .expect("component storage type")
+            .get_mut(entity)?;
+        record_query_dependency_change(&mut self.watched_component_types, type_id);
+        Some(component)
     }
 
     pub fn has<T: 'static>(&self, entity: Entity) -> bool {
@@ -416,22 +494,33 @@ impl World {
     ///
     /// The callback may mutate component values and other component types, but
     /// it must not insert or remove `T`. Debug builds verify that invariant.
-    pub fn for_each_stable<T: 'static>(&mut self, mut visit: impl FnMut(&mut Self, Entity)) {
-        let count = self.storage::<T>().map_or(0, SparseSet::len);
+    pub fn for_each_stable<T: 'static>(&mut self, visit: impl FnMut(&mut Self, Entity)) {
+        self.for_each_stable_type(TypeId::of::<T>(), visit);
+    }
+
+    /// Visit a prepared component type without holding its storage borrow across the callback. The callback must preserve that type's structure.
+    pub(crate) fn for_each_stable_type(
+        &mut self,
+        type_id: TypeId,
+        mut visit: impl FnMut(&mut Self, Entity),
+    ) {
+        let count = self.component_count(type_id);
         for index in 0..count {
             let entity = self
-                .storage::<T>()
+                .storages
+                .get(&type_id)
                 .and_then(|storage| storage.entities().get(index))
                 .copied()
                 .expect("stable component storage changed during iteration");
             visit(self, entity);
             debug_assert_eq!(
-                self.storage::<T>().map_or(0, SparseSet::len),
+                self.component_count(type_id),
                 count,
                 "for_each_stable callback inserted or removed the iterated component"
             );
             debug_assert_eq!(
-                self.storage::<T>()
+                self.storages
+                    .get(&type_id)
                     .and_then(|storage| storage.entities().get(index))
                     .copied(),
                 Some(entity),
@@ -540,6 +629,240 @@ impl Drop for World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tracked_allocations;
+
+    #[test]
+    fn query_dependencies_share_registration_with_late_entity_tracking() {
+        let mut world = World::new();
+        let kind = TypeId::of::<u16>();
+        world.watch_query_dependency_type(kind);
+        world.watch_query_dependency_type(kind);
+        assert!(world.storages.is_empty());
+        assert_eq!(world.watched_component_types.len(), 1);
+        assert!(!world.watched_component_types[0].entity_tracking);
+        assert!(world.watched_component_types[0].query_tracking);
+        world.drain_query_dependency_changes(|_, _| panic!("registration is not a write"));
+
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u16);
+        assert!(world.component_changes.is_empty());
+        let mut notifications = 0;
+        world.drain_query_dependency_changes(|_, changed| {
+            assert_eq!(changed, kind);
+            notifications += 1;
+        });
+        assert_eq!(notifications, 1);
+
+        world.watch_component_type(kind);
+        world.watch_component_type(kind);
+        assert_eq!(world.watched_component_types.len(), 1);
+        assert!(world.watched_component_types[0].entity_tracking);
+        assert!(world.watched_component_types[0].query_tracking);
+        assert_eq!(
+            world.component_changes,
+            [ComponentChange {
+                entity,
+                type_id: kind
+            }]
+        );
+    }
+
+    #[test]
+    fn component_value_borrows_only_mark_existing_query_dependencies() {
+        let mut world = World::new();
+        let first = world.spawn_empty();
+        let absent = world.spawn_empty();
+        let kind = TypeId::of::<u16>();
+        world.watch_component_type(kind);
+        world.watch_query_dependency_type(kind);
+        assert!(world.get_mut::<u16>(first).is_none());
+        assert!(world.storages.is_empty());
+        world.drain_query_dependency_changes(|_, _| panic!("absent storage is not a write"));
+
+        world.insert(first, 1u16);
+        world.drain_component_changes(|_, _| {});
+        world.drain_query_dependency_changes(|_, _| {});
+        assert!(world.get_mut::<u16>(absent).is_none());
+        assert_eq!(world.get::<u16>(first), Some(&1));
+        world.drain_query_dependency_changes(|_, _| {
+            panic!("reads and absent values are not writes")
+        });
+
+        *world.get_mut::<u16>(first).unwrap() = 2;
+        assert!(world.component_changes.is_empty());
+        let mut notifications = 0;
+        world.drain_query_dependency_changes(|_, changed| {
+            assert_eq!(changed, kind);
+            notifications += 1;
+        });
+        assert_eq!(notifications, 1);
+    }
+
+    #[test]
+    fn structural_query_dependencies_coalesce_without_extra_entity_records() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let query_only = TypeId::of::<u16>();
+        let both = TypeId::of::<u32>();
+        world.watch_query_dependency_type(query_only);
+        world.watch_query_dependency_type(both);
+        world.watch_component_type(both);
+        world.watch_component_type(TypeId::of::<bool>());
+        world.insert(entity, 1u16);
+        world.insert(entity, 2u16);
+        world.insert(entity, 3u32);
+        world.insert(entity, true);
+        let mut changed = alloc::vec::Vec::new();
+        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        assert_eq!(changed, [query_only, both]);
+        assert_eq!(world.component_changes.len(), 2);
+        world.drain_component_changes(|_, _| {});
+
+        assert_eq!(world.remove::<u16>(entity), Some(2));
+        assert!(world.remove::<u16>(entity).is_none());
+        changed.clear();
+        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        assert_eq!(changed, [query_only]);
+        assert!(world.component_changes.is_empty());
+
+        world.insert(entity, 4u16);
+        world.drain_query_dependency_changes(|_, _| {});
+        assert!(world.despawn(entity));
+        assert!(!world.despawn(entity));
+        changed.clear();
+        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        assert_eq!(changed, [query_only, both]);
+        assert_eq!(world.component_changes.len(), 2);
+        assert!(
+            world
+                .component_changes
+                .iter()
+                .all(|change| change.entity == entity)
+        );
+        assert!(
+            world
+                .component_changes
+                .iter()
+                .all(|change| change.type_id != query_only)
+        );
+    }
+
+    #[test]
+    fn query_dependency_drain_freezes_all_types_before_callbacks() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let first = TypeId::of::<u16>();
+        let second = TypeId::of::<u32>();
+        let added = TypeId::of::<bool>();
+        world.watch_query_dependency_type(first);
+        world.watch_query_dependency_type(second);
+        world.insert(entity, 1u16);
+        world.insert(entity, 2u32);
+
+        let mut changed = alloc::vec::Vec::new();
+        world.drain_query_dependency_changes(|world, kind| {
+            changed.push(kind);
+            if kind == first {
+                *world.get_mut::<u16>(entity).unwrap() += 1;
+                *world.get_mut::<u32>(entity).unwrap() += 1;
+                world.watch_query_dependency_type(added);
+                world.insert(entity, true);
+            }
+        });
+        assert_eq!(changed, [first, second]);
+        changed.clear();
+        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        assert_eq!(changed, [first, second, added]);
+        world.drain_query_dependency_changes(|_, _| panic!("snapshot was already consumed"));
+    }
+
+    #[test]
+    fn query_dependency_drain_retains_unfinished_snapshot_after_unwind() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let first = TypeId::of::<u16>();
+        let second = TypeId::of::<u32>();
+        world.watch_query_dependency_type(first);
+        world.watch_query_dependency_type(second);
+        world.insert(entity, 1u16);
+        world.insert(entity, 2u32);
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world.drain_query_dependency_changes(|world, kind| {
+                assert_eq!(kind, first);
+                *world.get_mut::<u16>(entity).unwrap() += 1;
+                panic!("dependency callback failed");
+            });
+        }));
+        assert!(failed.is_err());
+        let mut changed = alloc::vec::Vec::new();
+        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        assert_eq!(changed, [first, second]);
+        world.drain_query_dependency_changes(|_, _| panic!("snapshot was already consumed"));
+    }
+
+    #[test]
+    fn erased_stable_iteration_uses_current_storage_without_allocating() {
+        let mut world = World::new();
+        world.for_each_stable_type(TypeId::of::<u16>(), |_, _| panic!("absent storage"));
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        for entity in [first, second] {
+            world.insert(entity, 1u16);
+            world.insert(entity, false);
+        }
+        let allocations = tracked_allocations(|| {
+            world.for_each_stable_type(TypeId::of::<u16>(), |world, entity| {
+                *world.get_mut::<u16>(entity).unwrap() += 1;
+                *world.get_mut::<bool>(entity).unwrap() = true;
+            });
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(world.get::<u16>(first), Some(&2));
+        assert_eq!(world.get::<u16>(second), Some(&2));
+        assert_eq!(world.get::<bool>(first), Some(&true));
+        assert_eq!(world.get::<bool>(second), Some(&true));
+    }
+
+    #[test]
+    #[should_panic(expected = "inserted or removed the iterated component")]
+    fn erased_stable_iteration_rejects_driver_structure_changes() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u16);
+        world.for_each_stable_type(TypeId::of::<u16>(), |world, entity| {
+            world.remove::<u16>(entity);
+        });
+    }
+
+    #[test]
+    fn prepared_query_dependency_writes_and_first_drain_do_not_allocate() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u16);
+        world.watch_query_dependency_type(TypeId::of::<u16>());
+        let registry = world.watched_component_types.as_ptr();
+        let registry_capacity = world.watched_component_types.capacity();
+        let entity_capacity = world.component_changes.capacity();
+        let mut notifications = 0;
+        let allocations = tracked_allocations(|| {
+            for _ in 0..64 {
+                *world.get_mut::<u16>(entity).unwrap() += 1;
+            }
+            world.drain_query_dependency_changes(|world, kind| {
+                assert_eq!(kind, TypeId::of::<u16>());
+                world.for_each_stable_type(kind, |world, entity| {
+                    assert_eq!(world.get::<u16>(entity), Some(&65));
+                });
+                notifications += 1;
+            });
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(notifications, 1);
+        assert_eq!(world.watched_component_types.as_ptr(), registry);
+        assert_eq!(world.watched_component_types.capacity(), registry_capacity);
+        assert_eq!(world.component_changes.capacity(), entity_capacity);
+        assert!(world.component_changes.is_empty());
+    }
 
     #[test]
     fn lifetime_expires_before_resource_destructors() {

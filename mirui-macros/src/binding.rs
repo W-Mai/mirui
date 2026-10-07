@@ -160,6 +160,7 @@ pub(crate) const VIEW_ROLES: RoleSet = RoleSet::new(&[
     RoleKind::Component,
     RoleKind::Model,
     RoleKind::Res,
+    RoleKind::Query,
     RoleKind::Entity,
     RoleKind::Paint,
 ]);
@@ -597,7 +598,7 @@ impl BindingSpec {
         match role {
             RoleKind::Model => parse_system_model(name, type_role),
             RoleKind::Res => parse_resource_role(name, type_role),
-            RoleKind::Query => parse_system_query(name, type_role),
+            RoleKind::Query => parse_query_role(name, type_role),
             RoleKind::Commands => parse_system_commands(name, type_role),
             _ => unreachable!("RoleSet admitted an unsupported system role"),
         }
@@ -636,7 +637,7 @@ impl BindingSpec {
                 }
             }
             RoleKind::Res => parse_resource_role(name, type_role)?,
-            RoleKind::Query => parse_system_query(name, type_role)?,
+            RoleKind::Query => parse_query_role(name, type_role)?,
             RoleKind::Entity => {
                 parse_animate_capability(name, type_role, BindingCapability::Entity)?
             }
@@ -854,7 +855,7 @@ fn resource_binding(name: Ident, syntax: BindingSyntax, parsed: ResourceRole) ->
     }
 }
 
-fn parse_system_query(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
+pub(crate) fn parse_query_role(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
     let query = type_role.mac.parse_body::<QuerySpec>()?;
     let access = if query.items.iter().any(|item| {
         matches!(

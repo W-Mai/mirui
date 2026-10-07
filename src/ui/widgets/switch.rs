@@ -2,7 +2,6 @@ use crate::__macro_support::{
     EntityContext, EntityEventBindings, EntityInstallRoute, EventBinding, EventCallback,
 };
 use crate::anim::Spring;
-use crate::ecs::query::system::{ComponentDriver, OptionalRead, Read, SystemQuery};
 use crate::ecs::{CommandError, Entity, World};
 use crate::input::event::contract::{EntitySourceFor, Event, EventKey, EventRoute};
 use crate::input::event::gesture::GestureEvent;
@@ -12,7 +11,6 @@ use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
 
 crate::input::event::contract::widget_events! {
     Switch;
@@ -197,23 +195,25 @@ pub(crate) fn switch_init_system(
     }
 }
 
-fn switch_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let rows = SystemQuery::<
-        ComponentDriver<Switch>,
-        (
-            Read<Switch>,
-            OptionalRead<SwitchBgT>,
-            OptionalRead<AnimatedThumbX>,
-            OptionalRead<AnimateThumbX>,
-        ),
-        (),
-    >::from_shared(world);
+#[crate::view(
+    component = Switch,
+    name = "Switch",
+    priority = 60,
+    attach = switch_attach,
+    gesture = switch_handler,
+    systems = [switch_init_system::system(), AnimateSwitchBgT::system(), AnimateThumbX::system()]
+)]
+fn switch_render(
+    rows: query!(Switch, optional SwitchBgT, optional AnimatedThumbX, optional AnimateThumbX),
+    entity: entity!(),
+    theme: res!(optional crate::ui::Theme),
+    paint: paint!(),
+) {
     let Some((s, background, animated_x, animation)) = rows.get(entity) else {
         return;
     };
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let theme =
+        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
     let on_color = s.on_color.resolve_in(theme, state);
@@ -356,21 +356,7 @@ fn switch_attach(world: &mut World, entity: Entity) {
     // ComputedRect exists.
 }
 
-pub fn view() -> View {
-    View::new("Switch", 60, switch_render)
-        .with_filter::<Switch>()
-        .with_attach(switch_attach)
-        .with_internal_gesture(switch_handler)
-        .with_systems(
-            const {
-                &[
-                    switch_init_system::system(),
-                    AnimateSwitchBgT::system(),
-                    AnimateThumbX::system(),
-                ]
-            },
-        )
-}
+pub use switch_render::view;
 
 #[cfg(test)]
 mod tests {

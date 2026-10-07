@@ -450,6 +450,7 @@ pub struct View {
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
     component_filter: Option<fn() -> TypeId>,
+    query_dependencies: &'static [fn() -> TypeId],
     /// Component-internal gesture handler selected before authored listeners.
     /// Returning `true` consumes the input; `false` continues the frozen route.
     internal_gesture: Option<ViewInternalGesture>,
@@ -470,6 +471,7 @@ impl View {
             auto_attach: None,
             systems: &[],
             component_filter: None,
+            query_dependencies: &[],
             internal_gesture: None,
             observe: None,
             observation_count: 0,
@@ -492,6 +494,15 @@ impl View {
     /// Restrict per-entity hooks to entities owning component `T`.
     pub const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
         self.component_filter = Some(TypeId::of::<T>);
+        self
+    }
+
+    #[doc(hidden)]
+    pub const fn with_query_dependencies(
+        mut self,
+        dependencies: &'static [fn() -> TypeId],
+    ) -> Self {
+        self.query_dependencies = dependencies;
         self
     }
 
@@ -538,6 +549,7 @@ impl View {
             auto_attach: None,
             systems,
             component_filter: None,
+            query_dependencies: &[],
             internal_gesture: None,
             observe: None,
             observation_count: 0,
@@ -607,15 +619,54 @@ impl ViewRegistry {
                 }
             }
             for view in &mut registry.views {
-                if !view.component_tracking_ready
-                    && let Some(type_id) = view.component_filter()
-                {
-                    world.watch_component_type(type_id);
+                if !view.component_tracking_ready {
+                    if let Some(type_id) = view.component_filter() {
+                        world.watch_component_type(type_id);
+                    }
+                    for dependency in view.query_dependencies {
+                        world.watch_query_dependency_type(dependency());
+                    }
+                    if !view.query_dependencies.is_empty() {
+                        Self::invalidate_instances(world, view);
+                    }
                 }
                 view.component_tracking_ready = true;
             }
             world.drain_component_changes(|world, change| registry.apply_change(world, change));
+            registry.invalidate_pending_queries(world);
         });
+    }
+
+    pub(crate) fn invalidate_queries(world: &mut World) {
+        world.with_resource_box::<Self, _>(|registry, world| {
+            if let Some(owner) = registry.owner {
+                assert_eq!(owner, world.id(), "ViewRegistry belongs to a different App");
+            }
+            registry.invalidate_pending_queries(world);
+        });
+    }
+
+    fn invalidate_pending_queries(&self, world: &mut World) {
+        world.drain_query_dependency_changes(|world, changed| {
+            for view in &self.views {
+                if view
+                    .query_dependencies
+                    .iter()
+                    .any(|dependency| dependency() == changed)
+                {
+                    Self::invalidate_instances(world, view);
+                }
+            }
+        });
+    }
+
+    fn invalidate_instances(world: &mut World, view: &View) {
+        if let Some(type_id) = view.component_filter() {
+            world.for_each_stable_type(type_id, |world, entity| match view.invalidation {
+                ViewInvalidation::Visual => world.invalidate_visual(entity),
+                ViewInvalidation::Layout => world.invalidate(entity),
+            });
+        }
     }
 
     fn apply_change(&mut self, world: &mut World, change: crate::ecs::world::ComponentChange) {
@@ -697,6 +748,10 @@ impl ViewRegistry {
     /// Add a View descriptor in registration order and index its optional
     /// paint hook independently by paint priority.
     pub fn insert(&mut self, mut view: View) {
+        assert!(
+            view.query_dependencies.is_empty() || view.component_filter.is_some(),
+            "queried View requires a component filter"
+        );
         if view.observe.is_some() {
             assert!(
                 view.component_filter.is_some(),
@@ -1466,6 +1521,98 @@ mod tests {
                 .bindings
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn query_dependencies_invalidate_only_matching_views_with_their_declared_policy() {
+        #[crate::component]
+        struct Source(u32);
+
+        let mut app = crate::app::App::headless(32, 32);
+        app.with_widget(
+            make_view("query-visual", 60)
+                .with_filter::<VisualOnlyTile>()
+                .with_query_dependencies(&[TypeId::of::<Source>]),
+        );
+        app.with_widget(
+            make_view("query-layout", 60)
+                .with_filter::<LayoutTile>()
+                .with_query_dependencies(&[TypeId::of::<Source>])
+                .with_invalidation(ViewInvalidation::Layout),
+        );
+        let visual = app.world.spawn_empty();
+        let layout = app.world.spawn_empty();
+        let unrelated = app.world.spawn_empty();
+        let source = app.world.spawn_empty();
+        app.world.insert(visual, VisualOnlyTile);
+        app.world.insert(layout, LayoutTile);
+        app.world.insert(source, Source(0));
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<VisualDirty>(visual);
+        app.world.remove::<Dirty>(layout);
+
+        for _ in 0..2 {
+            assert_eq!(
+                tracked_allocations(|| {
+                    app.world.get_mut::<Source>(source).unwrap().0 += 1;
+                    ViewRegistry::invalidate_queries(&mut app.world);
+                }),
+                0
+            );
+            assert!(app.world.remove::<VisualDirty>(visual).is_some());
+            assert!(!app.world.has::<Dirty>(visual));
+            assert!(app.world.remove::<Dirty>(layout).is_some());
+            assert!(!app.world.has::<Dirty>(unrelated));
+            assert!(!app.world.has::<VisualDirty>(unrelated));
+            ViewRegistry::invalidate_queries(&mut app.world);
+            assert!(!app.world.has::<VisualDirty>(visual));
+            assert!(!app.world.has::<Dirty>(layout));
+        }
+    }
+
+    #[test]
+    fn late_query_registration_invalidates_existing_instances_without_observation_slots() {
+        #[crate::component]
+        struct Source;
+
+        let mut app = crate::app::App::headless(32, 32);
+        let entity = app.world.spawn_empty();
+        app.world.insert(entity, VisualOnlyTile);
+        app.with_widget(
+            make_view("late-query", 60)
+                .with_filter::<VisualOnlyTile>()
+                .with_query_dependencies(&[TypeId::of::<Source>]),
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+        assert!(
+            app.world
+                .resource::<ViewRegistry>()
+                .unwrap()
+                .bindings
+                .is_empty()
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(entity));
+        let source = app.world.spawn_empty();
+        app.world.insert(source, Source);
+        ViewRegistry::invalidate_queries(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
+    fn query_invalidation_rejects_a_registry_transferred_to_another_world() {
+        let mut first = crate::app::App::headless(32, 32);
+        let mut second = crate::app::App::headless(32, 32);
+        first.with_widget(make_view("owned", 60));
+        ViewRegistry::reconcile_observations(&mut first.world);
+        let registry = first.world.remove_resource::<ViewRegistry>().unwrap();
+        second.world.insert_resource(registry);
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ViewRegistry::invalidate_queries(&mut second.world);
+        }));
+        assert!(rejected.is_err());
+        assert!(second.world.resource::<ViewRegistry>().is_some());
     }
 
     #[test]

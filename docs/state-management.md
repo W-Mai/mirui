@@ -381,10 +381,7 @@ app.with_widget(paint_counter::view());
 
 Cursor and rotary feedback Views use their overlay marker as the descriptor filter and borrow `res!(optional InputFeedback)` on each paint call. Replacing or removing that resource affects subsequent calls; inserting, replacing, or removing the marker uses the descriptor's visual invalidation policy.
 
-Button, Slider, Checkbox, ProgressBar, TabBar, Icon, and BackgroundBlur use this declaration
-for built-in paint callbacks. Their widget modules export the generated `view`
-factory directly; component filters, paint priorities, and internal gesture
-hooks remain part of the descriptor.
+Button, Slider, Switch, Checkbox, ProgressBar, TabBar, Icon, and BackgroundBlur use this declaration for built-in paint callbacks. Their widget modules export the generated `view` factory directly; component filters, paint priorities, and internal gesture hooks remain part of the descriptor.
 
 StaticGlyphRun declares its component filter, paint priority 80, and layout invalidation through `#[view]`. It submits its borrowed positioned glyph slice without runtime shaping or a layout workspace. FontManager and Theme are borrowed as optional resources, retaining the empty-run and missing-font-manager early returns; a run that reaches painting requires a Theme.
 
@@ -404,10 +401,29 @@ observed getter, or a named revision. An optional model field uses
 frame-scoped paint context. `PaintCtx` provides the current geometry, style,
 widget state, transform, clip, drawing, and scene replay operations without
 exposing the renderer as a separate callback parameter.
-View resources are read-only. `res!(T)` requires the resource at each paint
-invocation; `res!(optional T)` supplies `Option<&T>` and still runs the body
-when the resource is absent. Both use the same resource role grammar as systems
-and events, without cloning the resource or allocating parameter storage.
+View resources are read-only. `res!(T)` requires the resource at each paint invocation; `res!(optional T)` supplies `Option<&T>` and still runs the body when the resource is absent. Both use the same resource role grammar as systems and events, without cloning the resource or allocating parameter storage.
+
+View queries use the same `query!` grammar and row types as systems and events, but accept only shared component access. A required component item or `with` filter drives the query; `Entity` and optional items alone do not supply a driver. The query can read other entities, iterate its complete dataset, or call `get(entity)`; the View's `component = T` filter selects its own instances rather than restricting query results.
+
+```rust
+#[view(component = Gauge)]
+fn paint_gauge(
+    gauge: component!(),
+    samples: query!(Sample, optional Calibration; with Active; without Hidden;),
+    paint: paint!(),
+) {
+    if let Some((sample, calibration)) = samples.get(gauge.source) {
+        paint_sample(paint, sample, calibration);
+    }
+}
+```
+
+Required items, optional items, and `with`/`without` filter types form static View dependencies. Component writes and insertion, removal, or despawn of those types invalidate that descriptor's instances according to its Visual or Layout policy. Tracking is conservative: obtaining a mutable component reference counts as a possible write, and changing an unrelated entity of the same type can repaint another instance. This does not create per-fetch subscriptions or rebuild the composition tree; registering types prepares tracking, and repeated writes and invalidation reuse existing storage.
+
+Pending dependencies are consumed before layout and after layout before the dirty-region plan. A changed `ComputedRect` therefore reaches querying Views in that frame. Changes produced by dirty-plan generation itself, such as `OffscreenGeneration` or scroll residue, remain pending for the next frame rather than replaying the walker. A View whose redraw changes its own queried dependency can continue to invalidate itself; dependency tracking does not suppress that feedback.
+
+Switch queries its component together with optional background and thumb-animation state. Its generated View retains the same attachment, gesture handler, paint priority, and animation systems.
+
 Shapes and Butterfly borrow optional Theme and MonoClock resources; Vector
 Mandala borrows an optional MonoClock. Their generated paint adapters retain
 the default theme and zero-time behavior when those resources are absent.

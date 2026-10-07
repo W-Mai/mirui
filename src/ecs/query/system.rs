@@ -348,7 +348,8 @@ pub unsafe trait QueryData: sealed::QueryData {
         'world: 'item;
 }
 
-pub(crate) trait SharedQueryData: QueryData<Mutability = ReadOnly> {
+#[doc(hidden)]
+pub trait SharedQueryData: QueryData<Mutability = ReadOnly> {
     fn init_shared<'world>(world: &'world World) -> <Self as QueryData>::State<'world>;
 }
 
@@ -568,7 +569,8 @@ pub unsafe trait QueryFilter: sealed::QueryFilter {
     unsafe fn matches<'world>(state: &Self::State<'world>, entity: Entity) -> bool;
 }
 
-pub(crate) trait SharedQueryFilter: QueryFilter {
+#[doc(hidden)]
+pub trait SharedQueryFilter: QueryFilter {
     fn init_shared<'world>(world: &'world World) -> <Self as QueryFilter>::State<'world>;
 }
 
@@ -662,7 +664,8 @@ pub unsafe trait QueryDriver: sealed::QueryDriver {
     unsafe fn entity(state: &Self::State<'_>, index: usize) -> Entity;
 }
 
-pub(crate) trait SharedQueryDriver: QueryDriver {
+#[doc(hidden)]
+pub trait SharedQueryDriver: QueryDriver {
     fn init_shared<'world>(world: &'world World) -> <Self as QueryDriver>::State<'world>;
 }
 
@@ -895,6 +898,109 @@ mod tests {
     struct Marker;
 
     impl Component for Marker {}
+
+    #[test]
+    fn shared_query_traits_keep_the_readonly_data_contract() {
+        fn assert_shared<D: SharedQueryDriver, Q: SharedQueryData, F: SharedQueryFilter>() {
+            fn assert_readonly<Q: QueryData<Mutability = ReadOnly>>() {}
+            assert_readonly::<Q>();
+        }
+        assert_shared::<
+            ComponentDriver<Position>,
+            (EntityItem, Read<Position>, OptionalRead<Velocity>),
+            (With<Active>, Without<Hidden>),
+        >();
+    }
+
+    #[test]
+    fn query_only_dependencies_do_not_reserve_entity_change_records() {
+        let mut world = World::new();
+        for value in 0..32 {
+            let entity = world.spawn_empty();
+            world.insert(entity, Position(value));
+            world.insert(entity, Velocity(value));
+        }
+        world.watch_query_dependency_type(TypeId::of::<Velocity>());
+        type Rows<'w> = SystemQuery<'w, ComponentDriver<Position>, Write<Velocity>, ()>;
+        let mut rows_written = 0;
+        let allocations = tracked_allocations(|| {
+            for velocity in Rows::new(&mut world) {
+                velocity.0 += 1;
+                rows_written += 1;
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(rows_written, 32);
+        world.drain_component_changes(|_, _| panic!("query-only tracking has no entity records"));
+        let mut notifications = 0;
+        world.drain_query_dependency_changes(|_, kind| {
+            assert_eq!(kind, TypeId::of::<Velocity>());
+            notifications += 1;
+        });
+        assert_eq!(notifications, 1);
+    }
+
+    #[test]
+    fn query_dependencies_preserve_yielded_entity_records_and_prepared_budget() {
+        let mut world = World::new();
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        let inactive = world.spawn_empty();
+        for entity in [first, second, inactive] {
+            world.insert(entity, Position(1));
+            world.insert(entity, Velocity(2));
+        }
+        world.insert(first, Active);
+        world.insert(second, Active);
+        world.watch_query_dependency_type(TypeId::of::<Velocity>());
+        world.watch_component_type(TypeId::of::<Velocity>());
+        world.drain_component_changes(|_, _| {});
+        world.drain_query_dependency_changes(|_, _| {});
+        type Rows<'w> = SystemQuery<
+            'w,
+            ComponentDriver<Position>,
+            (EntityItem, Write<Velocity>),
+            (With<Active>,),
+        >;
+        drop(Rows::new(&mut world));
+
+        let allocations = tracked_allocations(|| {
+            let mut rows = Rows::new(&mut world);
+            assert!(rows.get(inactive).is_none());
+            for _ in 0..64 {
+                let (_, velocity) = rows.get(first).expect("active row");
+                velocity.0 += 1;
+            }
+            for (_, velocity) in rows {
+                velocity.0 += 1;
+            }
+        });
+        assert_eq!(allocations, 0);
+        let mut changes = alloc::vec::Vec::new();
+        world.drain_component_changes(|_, change| changes.push(change));
+        assert_eq!(
+            changes,
+            [
+                crate::ecs::world::ComponentChange {
+                    entity: first,
+                    type_id: TypeId::of::<Velocity>()
+                },
+                crate::ecs::world::ComponentChange {
+                    entity: second,
+                    type_id: TypeId::of::<Velocity>()
+                },
+            ]
+        );
+        let mut notifications = 0;
+        world.drain_query_dependency_changes(|_, kind| {
+            assert_eq!(kind, TypeId::of::<Velocity>());
+            notifications += 1;
+        });
+        assert_eq!(notifications, 1);
+        assert_eq!(world.get::<Velocity>(first), Some(&Velocity(67)));
+        assert_eq!(world.get::<Velocity>(second), Some(&Velocity(3)));
+        assert_eq!(world.get::<Velocity>(inactive), Some(&Velocity(2)));
+    }
 
     #[test]
     fn shared_queries_coexist_and_preserve_pointer_optional_filter_and_generation_contracts() {

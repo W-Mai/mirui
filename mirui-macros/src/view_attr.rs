@@ -10,8 +10,9 @@ use syn::{Expr, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
     BindingSpec, BindingSyntax, ComponentSource, LogicalType, ModelSource, RoleKind, VIEW_ROLES,
-    parse_resource_role,
+    parse_query_role, parse_resource_role,
 };
+use crate::callback_lowering;
 use crate::child_scope::ChildScope;
 use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
 
@@ -284,6 +285,7 @@ fn parse_parameter(
             Ok(binding)
         }
         RoleKind::Res => parse_resource(name, type_role),
+        RoleKind::Query => parse_query(name, type_role),
         RoleKind::Entity => parse_capability(name, type_role, BindingCapability::Entity),
         RoleKind::Paint => parse_capability(name, type_role, BindingCapability::Paint),
         _ => unreachable!("RoleSet admitted an unsupported View role"),
@@ -320,6 +322,17 @@ fn parse_resource(name: Ident, type_role: syn::TypeMacro) -> syn::Result<Binding
         return Err(syn::Error::new(
             binding.syntax.span(),
             "views cannot mutably borrow a resource",
+        ));
+    }
+    Ok(binding)
+}
+
+fn parse_query(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
+    let binding = parse_query_role(name, type_role)?;
+    if binding.access != BindingAccess::Read {
+        return Err(syn::Error::new(
+            binding.syntax.span(),
+            "views cannot mutably borrow query components",
         ));
     }
     Ok(binding)
@@ -448,6 +461,22 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
     };
     let render_fn = quote!(render #call_generics);
     let helper_fn = quote!(super::#helper_name #call_generics);
+    let query_dependencies = bindings
+        .iter()
+        .filter_map(|binding| match &binding.source {
+            BindingSource::Query(query) => Some(query),
+            _ => None,
+        })
+        .flat_map(callback_lowering::query_dependency_types)
+        .map(ChildScope::ty)
+        .collect::<Vec<_>>();
+    let with_query_dependencies = (!query_dependencies.is_empty()).then(|| {
+        quote! {
+            .with_query_dependencies(const {
+                &[#(::core::any::TypeId::of::<#query_dependencies> as fn() -> ::core::any::TypeId),*]
+            })
+        }
+    });
     let watch_count = bindings
         .iter()
         .map(|binding| binding.watch_selectors.len())
@@ -545,6 +574,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
                 #definition
                     .with_filter::<#factory_component>()
                     .with_invalidation(#invalidation)
+                    #with_query_dependencies
                     #with_observation
                     #with_attach
                     #with_gesture
@@ -570,6 +600,9 @@ fn lower_helper_parameter(binding: &BindingSpec) -> Option<syn::Result<TokenStre
                 BindingCardinality::Many => unreachable!("resources have singular cardinality"),
             }))
         }
+        BindingSource::Query(_) => Some(callback_lowering::lower_helper_parameter(
+            binding, "#[view]",
+        )),
         BindingSource::Capability(capability) => Some(match capability {
             BindingCapability::Entity => Ok(quote!(#name: ::mirui::ecs::Entity)),
             BindingCapability::Paint => Ok(quote!(#name: &mut ::mirui::ui::view::PaintCtx<'_>)),
@@ -592,7 +625,7 @@ fn lower_helper_argument(
     match &binding.source {
         BindingSource::Model(_) => None,
         BindingSource::Component(_) => Some(Ok(quote!(#component_local))),
-        BindingSource::Resource(_) => {
+        BindingSource::Resource(_) | BindingSource::Query(_) => {
             let local = fetched_name(&binding.name);
             Some(Ok(quote!(#local)))
         }
@@ -631,6 +664,12 @@ fn lower_render_fetch(
                 BindingCardinality::Many => unreachable!("resources have singular cardinality"),
             }))
         }
+        BindingSource::Query(_) => Some((|| {
+            let marker = callback_lowering::lower_fetched_parameter(binding)?.0;
+            let marker = ChildScope::ty(&syn::parse2::<Type>(marker)?);
+            let local = fetched_name(&binding.name);
+            Ok(quote!(let #local = <#marker>::read_shared(__mirui_world);))
+        })()),
         BindingSource::Model(_) | BindingSource::Capability(_) => None,
         _ => Some(Err(syn::Error::new(
             binding.syntax.span(),
@@ -783,6 +822,158 @@ mod tests {
         assert!(!expanded.contains("fn __mirui_view_body"));
         assert!(!expanded.contains("resource ::"));
         assert!(!expanded.contains("with_model_read_only"));
+        assert!(!expanded.contains("query_dependencies"));
+    }
+
+    #[test]
+    fn query_parameters_use_shared_lowering_and_fetch_the_complete_current_row() {
+        let expanded = expand_ok(
+            quote!(component = Switch),
+            quote! {
+                fn paint(rows: query!(Switch, optional Background, optional Position), node: entity!()) {
+                    let Some((switch, background, position)) = rows.get(node) else {
+                        return;
+                    };
+                    let _ = (switch, background, position);
+                }
+            },
+        );
+        assert!(expanded.contains("rows : < :: mirui :: __macro_support :: QueryParam"));
+        assert!(expanded.contains("ComponentDriver < Switch >"));
+        assert!(expanded.contains("Read < Switch >"));
+        assert!(expanded.contains("OptionalRead < Background >"));
+        assert!(expanded.contains("OptionalRead < Position >"));
+        assert!(
+            expanded.contains("as :: mirui :: __macro_support :: SystemParam > :: Item < '_ >")
+        );
+        assert_eq!(expanded.matches("read_shared (__mirui_world)").count(), 1);
+        assert!(expanded.contains("rows . get (node)"));
+        assert!(!expanded.contains("__mirui_world . get :: < Switch >"));
+        assert!(expanded.contains("with_query_dependencies (const {"));
+        for ty in ["Switch", "Background", "Position"] {
+            assert!(expanded.contains(&format!("TypeId :: of :: < {ty} > as fn ()")));
+        }
+        assert_eq!(expanded.matches("TypeId :: of").count(), 3);
+        for forbidden in [
+            "SystemWorldCell",
+            "new_unchecked",
+            "SystemAccess",
+            "Vec",
+            "Box",
+        ] {
+            assert!(!expanded.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn query_dependency_metadata_includes_optional_and_presence_filter_types_not_entity() {
+        let expanded = expand_ok(
+            quote!(component = Board),
+            quote! {
+                fn paint(rows: query!(Entity, optional Motion; with Active; without Hidden;), node: entity!()) {
+                    let _ = rows.get(node);
+                }
+            },
+        );
+        assert!(expanded.contains("ComponentDriver < Active >"));
+        assert!(expanded.contains("EntityItem"));
+        assert!(expanded.contains("With < Active >"));
+        assert!(expanded.contains("Without < Hidden >"));
+        for ty in ["Motion", "Active", "Hidden"] {
+            assert!(expanded.contains(&format!("TypeId :: of :: < {ty} > as fn ()")));
+        }
+        assert_eq!(expanded.matches("TypeId :: of").count(), 3);
+        assert!(!expanded.contains("TypeId :: of :: < Entity >"));
+        assert!(!expanded.contains("TypeId :: of :: < Board >"));
+    }
+
+    #[test]
+    fn query_roles_reject_writes_and_keep_the_shared_positive_driver_rule() {
+        for role in [quote!(mut Switch), quote!(Switch, mut Position)] {
+            let error = expand(
+                quote!(component = Switch),
+                quote!(
+                    fn paint(rows: query!(#role)) {}
+                ),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("mutably borrow query components")
+            );
+        }
+        for role in [
+            quote!(Entity),
+            quote!(Entity, optional Position; without Hidden;),
+        ] {
+            let error = expand(
+                quote!(component = Switch),
+                quote!(
+                    fn paint(rows: query!(#role)) {}
+                ),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("needs a required component item or `with` filter")
+            );
+        }
+        let error = expand(
+            quote!(component = Switch),
+            quote!(
+                fn paint(rows: query!(Switch, optional mut Position)) {}
+            ),
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("optional mutable query items are not supported")
+        );
+    }
+
+    #[test]
+    fn empty_query_view_checks_types_and_dependencies_without_a_render_fetch() {
+        let expanded = expand_ok(
+            quote!(component = Board, systems = [update::system()]),
+            quote!(
+                fn behavior(rows: query!(Entity, optional Motion; with Active;)) {}
+            ),
+        );
+        assert!(expanded.contains("View :: systems_only"));
+        assert!(expanded.contains("QueryParam"));
+        assert!(expanded.contains("OptionalRead < Motion >"));
+        assert!(expanded.contains("with_query_dependencies (const {"));
+        assert_eq!(expanded.matches("TypeId :: of").count(), 2);
+        assert!(!expanded.contains("fn render"));
+        assert!(!expanded.contains("fn __mirui_view_body"));
+        assert!(!expanded.contains("read_shared"));
+    }
+
+    #[test]
+    fn generic_query_markers_and_static_dependencies_keep_relative_author_paths() {
+        let expanded = expand_ok(
+            quote!(component = self::Board<T>),
+            quote! {
+                fn paint<T>(
+                    rows: query!(self::Item<T>, optional super::Extra<T>; with super::Active<T>; without super::Hidden<T>;),
+                    node: entity!(),
+                ) where T: self::Tag + 'static {
+                    let _ = rows.get(node);
+                }
+            },
+        );
+        assert!(expanded.contains("Read < self :: Item < T > >"));
+        assert!(expanded.contains("ComponentDriver < super :: Item < T > >"));
+        assert!(expanded.contains("OptionalRead < super :: super :: Extra < T > >"));
+        assert!(expanded.contains("With < super :: super :: Active < T > >"));
+        assert!(expanded.contains("Without < super :: super :: Hidden < T > >"));
+        assert!(expanded.contains("TypeId :: of :: < super :: Item < T > > as fn ()"));
+        assert!(expanded.contains("TypeId :: of :: < super :: super :: Extra < T > > as fn ()"));
+        assert!(expanded.contains("where T : super :: Tag + 'static"));
+        assert!(expanded.contains("with_query_dependencies (const {"));
     }
 
     #[test]

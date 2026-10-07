@@ -2144,6 +2144,7 @@ pub fn try_update_layout(
     root: Entity,
     transform: &Viewport,
 ) -> Result<(), TextLayoutFailure> {
+    super::view::ViewRegistry::invalidate_queries(world);
     let (logical_w, logical_h) = transform.logical_size();
 
     if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
@@ -2159,6 +2160,7 @@ pub fn try_update_layout(
     };
     let Some(snapshot) = snapshot else {
         world.remove_resource::<TextLayoutFailure>();
+        super::view::ViewRegistry::invalidate_queries(world);
         return Ok(());
     };
     crate::input::event::hit_test::update_hit_test_geometry(
@@ -2171,6 +2173,7 @@ pub fn try_update_layout(
     );
     world.put_resource_box(snapshot);
     world.remove_resource::<TextLayoutFailure>();
+    super::view::ViewRegistry::invalidate_queries(world);
     Ok(())
 }
 
@@ -2181,7 +2184,13 @@ fn write_computed_rects(
     idx: &mut usize,
 ) {
     if *idx < entities.len() {
-        world.insert(entities[*idx], super::ComputedRect(node.rect));
+        let entity = entities[*idx];
+        if world
+            .get::<super::ComputedRect>(entity)
+            .is_none_or(|rect| rect.0 != node.rect)
+        {
+            world.insert(entity, super::ComputedRect(node.rect));
+        }
     }
     *idx += 1;
     for child in &node.children {
@@ -2797,6 +2806,7 @@ pub(crate) fn try_collect_dirty_regions_into(
     transform: &Viewport,
     plan: &mut DirtyRegions,
 ) -> Result<(), TextLayoutFailure> {
+    super::view::ViewRegistry::invalidate_queries(world);
     let (logical_w, logical_h) = transform.logical_size();
     plan.clear();
 
@@ -2810,6 +2820,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             record_text_layout_failure(world, root, failure);
             return Err(failure);
         }
+        super::view::ViewRegistry::invalidate_queries(world);
         drain_dirty_rects(world, plan);
         if had_snapshot || !plan.rects.is_empty() {
             plan.rects.clear();
@@ -2892,8 +2903,11 @@ pub(crate) fn try_collect_dirty_regions_into(
     };
     let Some(mut snapshot) = snapshot else {
         world.remove_resource::<TextLayoutFailure>();
+        super::view::ViewRegistry::invalidate_queries(world);
         return Ok(());
     };
+
+    super::view::ViewRegistry::invalidate_queries(world);
 
     let mut bounds = DirtyBounds {
         min_x: Fixed::from(logical_w),

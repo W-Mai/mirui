@@ -46,9 +46,9 @@ pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Declare a component-filtered widget with independent behavior and paint hooks.
 ///
-/// A nonempty function body supplies the paint callback. An empty body omits
-/// painting while retaining declared systems, attachment, gestures, and model
-/// subscriptions. The generated `function_name::view()` factory registers the widget.
+/// A nonempty function body supplies the paint callback. An empty body omits painting while retaining declared systems, attachment, gestures, and model subscriptions. The generated `function_name::view()` factory creates its widget descriptor.
+///
+/// Read-only `query!` parameters share system query syntax and can fetch other entities. Required items, optional items, and presence filters declare static component dependencies; changes invalidate this widget's instances according to its policy. Queries need a required item or `with` filter as their driver and cannot request mutable component access.
 ///
 /// ```ignore
 /// #[view(component = TabContent, name = "TabPages", systems = [update_pages::system()])]

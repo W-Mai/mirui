@@ -1,7 +1,10 @@
 use core::any::type_name;
 use core::marker::PhantomData;
 
-use crate::ecs::query::system::{QueryData, QueryDriver, QueryFilter, SystemQuery};
+use crate::ecs::query::system::{
+    QueryData, QueryDriver, QueryFilter, SharedQueryData, SharedQueryDriver, SharedQueryFilter,
+    SystemQuery,
+};
 use crate::ecs::world::{SystemWorldCell, World};
 
 mod sealed {
@@ -17,6 +20,18 @@ pub struct QueryParam<D, Q, F>(
     PhantomData<fn() -> Q>,
     PhantomData<fn() -> F>,
 );
+
+impl<D, Q, F> QueryParam<D, Q, F>
+where
+    D: SharedQueryDriver,
+    Q: SharedQueryData,
+    F: SharedQueryFilter,
+{
+    #[doc(hidden)]
+    pub fn read_shared(world: &World) -> SystemQuery<'_, D, Q, F> {
+        SystemQuery::from_shared(world)
+    }
+}
 
 /// One generated system parameter.
 ///
