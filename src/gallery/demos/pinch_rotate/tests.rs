@@ -1,7 +1,6 @@
 use super::runtime::setup_app;
 use super::state::{PinchStatus, PinchTarget};
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::types::Fixed64;
@@ -41,16 +40,21 @@ fn pinch_updates_target_and_status() {
     let model = app.world.get::<PinchTarget>(target).unwrap().model.clone();
 
     assert_eq!(model.status().pinch_events, 0);
-    GestureHandler::trigger(
-        &mut app.world,
-        target,
-        &GestureEvent::Pinch {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            scale_delta: Fixed64::from_int(2),
-            target,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut app.world,
+            &GestureEvent::Pinch {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                scale_delta: Fixed64::from_int(2),
+                target,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert_eq!(model.status().pinch_events, 1);
     assert_eq!(model.status().mode, "EXPAND");
     flush_signal_dirty(&mut app.world);

@@ -259,7 +259,8 @@ pub fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandErro
     }
 
     if let Err(error) = super::gesture::system::drain_gestures(world, |world, gesture| {
-        super::bubble_dispatch_at(world, gesture, now_ms);
+        super::runtime::dispatch_gesture(world, gesture, now_ms)?;
+        super::runtime::flush(world).map(|_| ())
     }) {
         crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
@@ -1084,7 +1085,8 @@ pub fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandE
     }
 
     if let Err(error) = super::gesture::system::drain_gestures(world, |world, gesture| {
-        super::bubble_dispatch_at(world, gesture, now_ms);
+        super::runtime::dispatch_gesture(world, gesture, now_ms)?;
+        super::runtime::flush(world).map(|_| ())
     }) {
         crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
     }
@@ -1098,6 +1100,7 @@ mod tests {
     use super::*;
     use crate::core::time::mock;
     use crate::ecs::MonoClock;
+    use crate::input::event::contract::Event;
     use crate::input::event::gesture::GestureSystem;
     use crate::types::Point;
 
@@ -1136,32 +1139,22 @@ mod tests {
         len: usize,
     }
 
+    #[crate::event]
     fn record_sim_tap(
-        world: &mut World,
-        target: Entity,
-        event: &crate::input::event::gesture::GestureEvent,
-        tap_count: u8,
+        input: event!(crate::input::event::gesture::Tap),
+        target: entity!(),
+        focus: res!(crate::input::event::focus::FocusState),
+        taps: res!(crate::input::event::multi_tap::MultiTapTracker),
+        trace: res!(mut SimTapTrace),
     ) -> bool {
-        let crate::input::event::gesture::GestureEvent::Tap { target: source, .. } = event else {
-            panic!("expected Tap");
-        };
-        assert_eq!(*source, target);
-        let focused = world
-            .resource::<crate::input::event::focus::FocusState>()
-            .unwrap()
-            .focused;
-        let entry = world
-            .resource::<crate::input::event::multi_tap::MultiTapTracker>()
-            .unwrap()
-            .last
-            .unwrap();
+        assert_eq!(input.target, target);
+        let entry = taps.last.unwrap();
         assert_eq!(entry.entity, target);
-        let trace = world.resource_mut::<SimTapTrace>().unwrap();
         trace.observations[trace.len] = Some(SimTapObservation {
-            focused,
+            focused: focus.focused,
             time_ms: entry.time_ms,
             tracker_count: entry.count,
-            callback_count: tap_count,
+            callback_count: entry.count,
         });
         trace.len += 1;
         true
@@ -1178,12 +1171,15 @@ mod tests {
             .id();
         world.insert(target, crate::ui::HitTarget);
         world.insert(target, crate::input::event::focus::Focusable);
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(record_sim_tap),
-        );
         world.insert_resource(crate::input::event::multi_tap::MultiTapTracker::new());
         world.insert_resource(SimTapTrace::default());
+        crate::input::event::runtime::install_entity(
+            &mut world,
+            target,
+            crate::input::event::gesture::Tap::EVENT,
+            record_sim_tap::callback::<crate::__macro_support::NodeContext>(),
+        )
+        .unwrap();
         set_sim_root(&mut world, target);
         crate::ui::render_system::update_layout(
             &mut world,
@@ -1350,8 +1346,6 @@ mod tests {
     #[test]
     fn scheduled_input_and_timeline_use_the_same_app_keyboard_route_without_a_root() {
         use crate::input::event::callback::AppContext;
-        use crate::input::event::contract::Event;
-
         let _guard = mock::install();
         for (index, run) in [sim_input_system, sim_timeline_system]
             .into_iter()
@@ -1396,32 +1390,39 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct SimBatchTrace {
+        values: [i32; 2],
+        len: usize,
+    }
+
+    #[crate::event]
+    fn record_sim_batch_tap(
+        input: event!(crate::input::event::gesture::Tap),
+        node: entity!(),
+        trace: res!(mut SimBatchTrace),
+    ) -> bool {
+        assert_eq!(input.target, node);
+        trace.values[trace.len] = input.x.to_int();
+        trace.len += 1;
+        true
+    }
+
     #[test]
     fn scheduled_input_and_timeline_share_retained_gesture_batch_storage() {
-        use crate::input::event::{GestureHandler, gesture::GestureEvent};
-
-        #[derive(Default)]
-        struct Trace {
-            values: [i32; 2],
-            len: usize,
-        }
-
-        fn record(world: &mut World, node: Entity, event: &GestureEvent, _: u8) -> bool {
-            let GestureEvent::Tap { x, target, .. } = event else {
-                panic!("expected Tap");
-            };
-            assert_eq!(*target, node);
-            let trace = world.resource_mut::<Trace>().unwrap();
-            trace.values[trace.len] = x.to_int();
-            trace.len += 1;
-            true
-        }
+        use crate::input::event::gesture::GestureEvent;
 
         let _guard = mock::install();
         let mut world = setup_world();
         let root = world.resource::<SimRootFallback>().unwrap().0;
-        world.insert(root, GestureHandler::from_fn(record));
-        world.insert_resource(Trace::default());
+        world.insert_resource(SimBatchTrace::default());
+        crate::input::event::runtime::install_entity(
+            &mut world,
+            root,
+            crate::input::event::gesture::Tap::EVENT,
+            record_sim_batch_tap::callback::<crate::__macro_support::NodeContext>(),
+        )
+        .unwrap();
         world.insert_resource(SimulatedInput::new(alloc::vec![SimCommand::at(
             1000,
             InputEvent::AppResume,
@@ -1452,7 +1453,7 @@ mod tests {
             assert_eq!(buffer.capacity(), 4);
             assert_eq!(buffer.as_ptr() == original, index == 1);
         }
-        assert_eq!(world.resource::<Trace>().unwrap().values, [1, 2]);
+        assert_eq!(world.resource::<SimBatchTrace>().unwrap().values, [1, 2]);
     }
 
     #[test]
@@ -2329,9 +2330,13 @@ mod tests {
         );
 
         assert_eq!(
-            crate::input::event::gesture::system::drain_gestures(&mut world, |world, gesture| {
-                crate::input::event::bubble_dispatch_at(world, gesture, now_ms);
-            },),
+            crate::input::event::gesture::system::drain_gestures(
+                &mut world,
+                |world, gesture| -> Result<(), crate::input::event::runtime::RuntimeRunError> {
+                    crate::input::event::runtime::dispatch_gesture(world, gesture, now_ms)?;
+                    crate::input::event::runtime::flush(world).map(|_| ())
+                },
+            ),
             Ok(1)
         );
 
@@ -2402,9 +2407,13 @@ mod tests {
             );
             // Drain & bubble pending Tap events the same way
             // sim_timeline_system does at the end of each sim tick.
-            crate::input::event::gesture::system::drain_gestures(&mut world, |world, gesture| {
-                crate::input::event::bubble_dispatch_at(world, gesture, now_ms);
-            })
+            crate::input::event::gesture::system::drain_gestures(
+                &mut world,
+                |world, gesture| -> Result<(), crate::input::event::runtime::RuntimeRunError> {
+                    crate::input::event::runtime::dispatch_gesture(world, gesture, now_ms)?;
+                    crate::input::event::runtime::flush(world).map(|_| ())
+                },
+            )
             .unwrap();
             // Gap between taps so the recognizer fully resets.
             mock::advance_ms(150);
@@ -2460,7 +2469,11 @@ mod tests {
                 y: Fixed::from_int(10),
                 target: e,
             };
-            assert!(slider_handler(&mut world, e, &ev), "handler accepts Tap");
+            assert_eq!(
+                slider_handler(&mut world, e, &ev),
+                Ok(true),
+                "handler accepts Tap"
+            );
             let r = world.get::<Slider>(e).unwrap().ratio();
             assert!(
                 r >= Fixed::ZERO && r <= Fixed::ONE,
@@ -2591,32 +2604,47 @@ mod tests {
         rotate_deltas: Vec<Fixed>,
     }
 
-    fn pinch_probe_handler(
-        world: &mut World,
-        _entity: Entity,
-        event: &crate::input::event::gesture::GestureEvent,
-        _: u8,
+    #[crate::event]
+    fn record_sim_pinch(
+        input: event!(crate::input::event::gesture::Pinch),
+        probe: res!(mut PinchProbe),
     ) -> bool {
-        if let crate::input::event::gesture::GestureEvent::Pinch { scale_delta, .. } = event {
-            if let Some(p) = world.resource_mut::<PinchProbe>() {
-                if p.accum_scale == Fixed::ZERO {
-                    p.accum_scale = Fixed::ONE;
-                    p.accum_scale64 = crate::types::Fixed64::ONE;
-                }
-                p.deltas.push(*scale_delta);
-                p.accum_scale64 = p.accum_scale64 * *scale_delta;
-                p.accum_scale = p.accum_scale64.to_fixed();
-                p.per_frame.push(p.accum_scale);
-            }
-            return true;
+        if probe.accum_scale == Fixed::ZERO {
+            probe.accum_scale = Fixed::ONE;
+            probe.accum_scale64 = crate::types::Fixed64::ONE;
         }
-        if let crate::input::event::gesture::GestureEvent::Rotate { angle, .. } = event {
-            if let Some(p) = world.resource_mut::<PinchProbe>() {
-                p.rotate_deltas.push(*angle);
-            }
-            return true;
-        }
-        false
+        probe.deltas.push(input.scale_delta);
+        probe.accum_scale64 = probe.accum_scale64 * input.scale_delta;
+        probe.accum_scale = probe.accum_scale64.to_fixed();
+        probe.per_frame.push(probe.accum_scale);
+        true
+    }
+
+    #[crate::event]
+    fn record_sim_rotate(
+        input: event!(crate::input::event::gesture::Rotate),
+        probe: res!(mut PinchProbe),
+    ) -> bool {
+        probe.rotate_deltas.push(input.angle);
+        true
+    }
+
+    fn install_pinch_probe(world: &mut World, target: Entity) {
+        world.insert_resource(PinchProbe::default());
+        crate::input::event::runtime::install_entity(
+            world,
+            target,
+            crate::input::event::gesture::Pinch::EVENT,
+            record_sim_pinch::callback::<crate::__macro_support::NodeContext>(),
+        )
+        .unwrap();
+        crate::input::event::runtime::install_entity(
+            world,
+            target,
+            crate::input::event::gesture::Rotate::EVENT,
+            record_sim_rotate::callback::<crate::__macro_support::NodeContext>(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -2641,12 +2669,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
-        );
-        world.insert(target, crate::ui::HitTarget);
-        world.insert_resource(PinchProbe::default());
+        install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
@@ -2740,12 +2763,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
-        );
-        world.insert(target, crate::ui::HitTarget);
-        world.insert_resource(PinchProbe::default());
+        install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
@@ -2819,12 +2837,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
-        );
-        world.insert(target, crate::ui::HitTarget);
-        world.insert_resource(PinchProbe::default());
+        install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
@@ -2874,12 +2887,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
-        );
-        world.insert(target, crate::ui::HitTarget);
-        world.insert_resource(PinchProbe::default());
+        install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
@@ -2929,12 +2937,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
-        );
-        world.insert(target, crate::ui::HitTarget);
-        world.insert_resource(PinchProbe::default());
+        install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
@@ -2985,12 +2988,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(
-            target,
-            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
-        );
-        world.insert(target, crate::ui::HitTarget);
-        world.insert_resource(PinchProbe::default());
+        install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         crate::ui::render_system::update_layout(&mut world, root, &viewport);
 

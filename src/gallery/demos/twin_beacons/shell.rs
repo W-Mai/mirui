@@ -569,8 +569,7 @@ fn compose_result_overlay(
             bg_color: Color::rgba(5, 12, 20, 244)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 48,
@@ -651,7 +650,7 @@ fn compose_result_overlay(
                     ) on Tap { next(&game, &expedition); }
                 }
             }
-        }
+        } on Tap { }
     }
 }
 
@@ -669,8 +668,7 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
             bg_color: Color::rgba(5, 12, 20, 244)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 5,
@@ -839,7 +837,7 @@ fn compose_map_overlay(game: model!(TwinModel), expedition: model!(ExpeditionUiM
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
             }
-        }
+        } on Tap { }
     }
 }
 
@@ -857,8 +855,7 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
             bg_color: Color::rgba(5, 12, 20, 244)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 30,
@@ -929,7 +926,7 @@ fn compose_rules_overlay(expedition: model!(ExpeditionUiModel)) -> Entity {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
             }
-        }
+        } on Tap { }
     }
 }
 
@@ -950,8 +947,7 @@ fn compose_briefing_overlay(
             bg_color: Color::rgba(5, 12, 20, 244)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 42,
@@ -1021,7 +1017,7 @@ fn compose_briefing_overlay(
                     border_radius: 7
                 ) on Tap { expedition.close(); }
             }
-        }
+        } on Tap { }
     }
 }
 
@@ -1042,8 +1038,7 @@ fn compose_summary_overlay(
             bg_color: Color::rgba(5, 12, 20, 248)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 36,
@@ -1224,7 +1219,7 @@ fn compose_summary_overlay(
                     ) on Tap { expedition.open(30); }
                 }
             }
-        }
+        } on Tap { }
     }
 }
 
@@ -1259,6 +1254,7 @@ where
         &<ExpeditionUiModel as crate::core::model::Model>::Handle,
     ),
 {
+    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view());
     let game = app.add_model(TwinModel::default());

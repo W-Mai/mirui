@@ -1,6 +1,5 @@
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
@@ -37,11 +36,21 @@ fn reactive_if_else_swaps_branch() {
         y: Fixed::ZERO,
         target: btn,
     };
-    GestureHandler::trigger(&mut world, btn, &tap);
+    {
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(branch_text(&world), "now you see me", "if branch mounted");
 
-    GestureHandler::trigger(&mut world, btn, &tap);
+    {
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(
         branch_text(&world),

@@ -13,6 +13,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(EventCapacity::new());
     let model = app.add_model(PinchModel::default());
     app.compose(parent, |cx| build_widgets(cx, model));
 

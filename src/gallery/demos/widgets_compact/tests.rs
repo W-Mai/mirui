@@ -3,7 +3,6 @@ use super::binding::{POOL_SIZE, VIRTUAL_ITEM_COUNT};
 use super::runtime::{automation, install};
 use super::style::CompactTheme;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
@@ -61,17 +60,15 @@ fn compact_progress_tracks_slider_events_without_polling() {
     let old = app.world.get::<Slider>(slider).unwrap().value;
     let new = Fixed::from_int(25);
     app.world.get_mut::<Slider>(slider).unwrap().value = new;
-    let callback = app
-        .world
-        .get::<crate::ui::widgets::slider::SliderHandler>(slider)
-        .unwrap()
-        .on_event
-        .clone_out();
-    callback.call(
-        &mut app.world,
-        slider,
-        &crate::ui::widgets::slider::SliderEvent::ValueChanged { new, old },
-    );
+    {
+        crate::input::event::runtime::emit_widget(
+            &mut app.world,
+            slider,
+            crate::ui::widgets::slider::ValueChanged { new, old },
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut app.world).unwrap();
+    };
     flush_signal_dirty(&mut app.world);
 
     assert_ne!(
@@ -197,15 +194,20 @@ fn compact_theme_buttons_replace_the_active_theme() {
     app.set_root(root);
 
     let light = app.world.find_by_id("compact_theme_light").unwrap();
-    GestureHandler::trigger(
-        &mut app.world,
-        light,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: light,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut app.world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: light,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert_eq!(
         app.world
             .resource::<Theme>()
@@ -215,15 +217,20 @@ fn compact_theme_buttons_replace_the_active_theme() {
     );
 
     let dark = app.world.find_by_id("compact_theme_dark").unwrap();
-    GestureHandler::trigger(
-        &mut app.world,
-        dark,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: dark,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut app.world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: dark,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert_eq!(
         app.world
             .resource::<Theme>()

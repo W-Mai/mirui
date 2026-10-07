@@ -295,9 +295,10 @@ mod tests {
 mod hover_press_e2e {
     extern crate std;
     use super::*;
-    use crate::input::event::GestureHandler;
     use crate::input::event::PointerCursor;
+    use crate::input::event::contract::Event;
     use crate::input::event::gesture::GestureEvent;
+    use crate::input::event::gesture::Tap;
     use crate::types::{Dimension, Fixed};
     use crate::ui::layout::{LayoutStyle, Position};
     use crate::ui::widgets::Text;
@@ -317,7 +318,7 @@ mod hover_press_e2e {
         };
 
         let target = world.get::<Children>(root).unwrap().0[0];
-        assert!(world.has::<GestureHandler>(target));
+        assert!(crate::input::event::runtime::has_entity_listener::<Tap>(&world, target).unwrap());
         assert!(world.has::<HitTarget>(target));
         assert!(!world.has::<InteractionFeedback>(target));
     }
@@ -340,7 +341,9 @@ mod hover_press_e2e {
 
         let shell = world.get::<Children>(root).unwrap().0[0];
         for &target in &world.get::<Children>(shell).unwrap().0 {
-            assert!(world.has::<GestureHandler>(target));
+            assert!(
+                crate::input::event::runtime::has_entity_listener::<Tap>(&world, target).unwrap()
+            );
             assert!(world.has::<HitTarget>(target));
             assert!(!world.has::<InteractionFeedback>(target));
         }
@@ -415,13 +418,15 @@ mod hover_press_e2e {
         child: u8,
     }
 
-    fn parent_tap(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
-        world.resource_mut::<TapCounts>().unwrap().parent += 1;
+    #[crate::event]
+    fn parent_tap(counts: res!(mut TapCounts)) -> bool {
+        counts.parent += 1;
         true
     }
 
-    fn child_tap(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
-        world.resource_mut::<TapCounts>().unwrap().child += 1;
+    #[crate::event]
+    fn child_tap(counts: res!(mut TapCounts)) -> bool {
+        counts.child += 1;
         true
     }
 
@@ -429,7 +434,12 @@ mod hover_press_e2e {
     fn tap_on_text_reaches_its_own_handler_or_bubbles_to_parent() {
         let (mut world, root, child) = make_world_with_text_child();
         world.insert_resource(TapCounts::default());
-        world.insert(root, GestureHandler::from_fn(parent_tap));
+        crate::input::event::binding::install_entity_event(
+            &mut world,
+            root,
+            Tap::EVENT,
+            parent_tap::callback::<Tap, crate::input::event::callback::NodeContext>(),
+        );
         world.insert(root, HitTarget);
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
@@ -441,16 +451,21 @@ mod hover_press_e2e {
             y: probe,
             target,
         };
-        crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
+        crate::input::event::runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCounts>().unwrap().parent, 1);
 
-        world.insert(child, GestureHandler::from_fn(child_tap));
+        crate::input::event::binding::install_entity_event(
+            &mut world,
+            child,
+            Tap::EVENT,
+            child_tap::callback::<Tap, crate::input::event::callback::NodeContext>(),
+        );
         world.insert(child, HitTarget);
         refresh_hit_geometry(&mut world, root);
         let target = crate::input::event::hit_test::hit_test(&world, root, probe, probe, 64, 64)
             .expect("interactive text target");
         assert_eq!(target, child);
-        crate::input::event::bubble_dispatch_at(
+        crate::input::event::runtime::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: probe,
@@ -458,7 +473,8 @@ mod hover_press_e2e {
                 target,
             },
             0,
-        );
+        )
+        .unwrap();
         let counts = world.resource::<TapCounts>().unwrap();
         assert_eq!(counts.child, 1);
         assert_eq!(counts.parent, 1);

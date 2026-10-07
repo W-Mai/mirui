@@ -432,7 +432,7 @@ fn compose_motion_card(model: model!(InteractionModel)) -> Entity {
                     border_radius: 12,
                     font_size: 10,
                     text_color: ColorToken::OnTertiary
-                ) [TouchAction::None] on DragMove { model.set_drag(dx, dy); } on DragEnd { model.reset_drag(); }
+                ) [TouchAction::None] on DragMove { model.set_drag(event.dx, event.dy); } on DragEnd { model.reset_drag(); }
             }
             Row (height: 58, column_gap: 8) {
                 Row (
@@ -527,7 +527,7 @@ fn compose_controls_card(model: model!(InteractionModel)) -> Entity {
                     width: 64,
                     height: 34,
                     on: ${ model.switch_on() }
-                ) on Toggled { model.set_switch(now); }
+                ) on Toggled { model.set_switch(event.now); }
                 Text (
                     "Switch publishes its new value",
                     grow: 1.0,
@@ -542,7 +542,7 @@ fn compose_controls_card(model: model!(InteractionModel)) -> Entity {
                     width: 34,
                     height: 34,
                     checked: ${ model.checkbox_on() }
-                ) on Toggled { model.set_checkbox(now); }
+                ) on Toggled { model.set_checkbox(event.now); }
                 Text (
                     "Checkbox shares the same state",
                     grow: 1.0,

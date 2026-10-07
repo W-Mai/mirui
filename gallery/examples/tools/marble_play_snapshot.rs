@@ -1,7 +1,7 @@
 mod lab_snapshot_support;
 
+use mirui::__macro_support::{dispatch_entity_gesture, flush_entity_events};
 use mirui::gallery::demos::marble_play;
-use mirui::input::event::bubble_dispatch_at;
 use mirui::input::event::gesture::GestureEvent;
 use mirui::types::Fixed;
 
@@ -20,7 +20,7 @@ fn main() {
             .world
             .find_by_id(nav_id)
             .expect("Marble page navigation");
-        bubble_dispatch_at(
+        dispatch_entity_gesture(
             &mut app.world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
@@ -28,6 +28,8 @@ fn main() {
                 target,
             },
             0,
-        );
+        )
+        .expect("dispatch Marble page navigation");
+        flush_entity_events(&mut app.world).expect("flush Marble page navigation");
     });
 }

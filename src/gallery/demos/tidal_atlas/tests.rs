@@ -3,7 +3,6 @@ use super::state::TideSurface;
 use super::{VIEWPORT, setup_app};
 use crate::core::model::ModelHandle;
 use crate::gallery::play::tidal::{BOARD_SIZE, TideModal, TideModel, TideModelHandle};
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::view::ViewRegistry;
@@ -76,18 +75,20 @@ fn board_hit_testing_and_gesture_use_the_bound_model() {
     let x = 14 + (valid % 6) as i32 * 35 + 16;
     let y = 60 + (valid / 6) as i32 * 35 + 16;
     assert_eq!(with_model(&world, TideModel::pending), None);
-    assert_eq!(
-        GestureHandler::trigger(
+    assert!({
+        let decision = crate::__macro_support::dispatch_entity_gesture(
             &mut world,
-            surface,
             &GestureEvent::Tap {
                 x: Fixed::from_int(x),
                 y: Fixed::from_int(y),
                 target: surface,
             },
-        ),
-        Some(true)
-    );
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    });
     assert_eq!(with_model(&world, TideModel::pending), Some(valid as u8));
 }
 

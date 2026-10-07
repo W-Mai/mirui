@@ -3,7 +3,6 @@ use super::state::MossSurface;
 use super::{VIEWPORT, setup_app};
 use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::moss::MossModel;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::view::ViewRegistry;
@@ -26,8 +25,12 @@ fn with_model<R>(world: &World, inspect: impl FnOnce(&MossModel) -> R) -> R {
     crate::core::model::ModelHandle::read(model, inspect)
 }
 
-fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
-    GestureHandler::trigger(world, surface, event).unwrap_or(false)
+fn trigger(world: &mut World, event: &GestureEvent) -> bool {
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    }
 }
 
 fn assert_text(world: &World, id: &'static str, expected: &str) {
@@ -61,33 +64,30 @@ fn cancelled_drag_restores_the_whole_garden_transaction() {
     let before = with_model(&world, |model| *model.cells());
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(18),
             y: Fixed::from_int(68),
             target: surface,
-        },
+        }
     ));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragMove {
             x: Fixed::from_int(350),
             y: Fixed::from_int(265),
             dx: Fixed::from_int(332),
             dy: Fixed::from_int(197),
             target: surface,
-        },
+        }
     ));
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragCancel {
             x: Fixed::from_int(350),
             y: Fixed::from_int(265),
             target: surface,
-        },
+        }
     ));
     assert_eq!(with_model(&world, |model| *model.cells()), before);
 }
@@ -163,46 +163,42 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
 
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::Tap {
             x: Fixed::from_int(18),
             y: Fixed::from_int(68),
             target: surface,
-        },
+        }
     ));
     assert_eq!(with_model(&world, MossModel::history_len), 1);
 
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(35),
             y: Fixed::from_int(68),
             target: surface,
-        },
+        }
     ));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragMove {
             x: Fixed::from_int(69),
             y: Fixed::from_int(68),
             dx: Fixed::from_int(34),
             dy: Fixed::ZERO,
             target: surface,
-        },
+        }
     ));
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragEnd {
             x: Fixed::from_int(69),
             y: Fixed::from_int(68),
             vx: Fixed::ZERO,
             vy: Fixed::ZERO,
             target: surface,
-        },
+        }
     ));
     assert_eq!(with_model(&world, MossModel::history_len), 2);
 

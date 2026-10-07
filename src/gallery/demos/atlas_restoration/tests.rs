@@ -4,7 +4,6 @@ use super::state::PictureSurface;
 use crate::core::model::ModelHandle;
 use crate::gallery::play::expeditions::{ExpeditionModal, ExpeditionUiModelHandle};
 use crate::gallery::play::picture::{PictureModel, PictureModelHandle};
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::dirty::VisualDirty;
@@ -45,8 +44,12 @@ fn editable_cell(model: &PictureModelHandle) -> (u8, i32, i32) {
     })
 }
 
-fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
-    GestureHandler::trigger(world, surface, event).unwrap_or(false)
+fn trigger(world: &mut World, event: &GestureEvent) -> bool {
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    }
 }
 
 fn visible_interactive_descendant(world: &World, entity: Entity) -> bool {
@@ -102,12 +105,11 @@ fn surface_event_uses_the_bound_picture_model() {
 
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::Tap {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     assert_ne!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(model.history_len(), 1);
@@ -138,14 +140,14 @@ fn surface_preserves_consumption_when_layout_is_unavailable() {
         target: surface,
     };
 
-    assert!(!trigger(&mut world, surface, &tap));
-    assert!(!trigger(&mut world, surface, &drag_start));
-    assert!(trigger(&mut world, surface, &drag_move));
+    assert!(!trigger(&mut world, &tap));
+    assert!(!trigger(&mut world, &drag_start));
+    assert!(trigger(&mut world, &drag_move));
 
     expedition.open_rules();
-    assert!(trigger(&mut world, surface, &tap));
-    assert!(trigger(&mut world, surface, &drag_start));
-    assert!(trigger(&mut world, surface, &drag_move));
+    assert!(trigger(&mut world, &tap));
+    assert!(trigger(&mut world, &drag_start));
+    assert!(trigger(&mut world, &drag_move));
 }
 
 #[test]
@@ -161,32 +163,29 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     expedition.open_rules();
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::Tap {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragMove {
             x: Fixed::from_int(x + 10),
             y: Fixed::from_int(y),
             dx: Fixed::from_int(10),
             dy: Fixed::ZERO,
             target: surface,
-        },
+        }
     ));
     crate::input::event::dispatch_input(
         &mut world,
@@ -220,21 +219,19 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     }
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::Tap {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     assert_eq!(ModelHandle::read(&model, PictureModel::cursor), cursor);
     assert_eq!(model.tool(), tool);
@@ -252,23 +249,21 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     expedition.open_rules();
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragCancel {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     assert_eq!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(model.history_len(), 0);
@@ -277,25 +272,23 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     world.insert(surface, ComputedRect(Rect::new(0, 0, 480, 320)));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     expedition.open_rules();
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragEnd {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             vx: Fixed::ZERO,
             vy: Fixed::ZERO,
             target: surface,
-        },
+        }
     ));
     assert_ne!(ModelHandle::read(&model, |model| model.cell(cell)), before);
     assert_eq!(model.history_len(), 1);
@@ -314,12 +307,11 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
 
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             target: surface,
-        },
+        }
     ));
     crate::input::event::dispatch_input(
         &mut world,
@@ -334,14 +326,13 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
 
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragEnd {
             x: Fixed::from_int(x),
             y: Fixed::from_int(y),
             vx: Fixed::ZERO,
             vy: Fixed::ZERO,
             target: surface,
-        },
+        }
     ));
     assert_eq!(model.history_len(), history_len + 1);
     model.undo();

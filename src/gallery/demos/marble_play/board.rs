@@ -399,40 +399,34 @@ pub(super) fn marble_play_page(model: model!(MarbleModel)) -> Entity {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap {
-            let Some(board) = com!(target, MarbleBoard) else {
+        ] on Tap(|event: event!(Tap), rows: query!(MarbleBoard, ComputedRect)| {
+            let Some((board, rect)) = rows.get(event.target) else {
                 return false;
             };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
+            let rect = rect.0;
+            board_tap(board, rect, event.x, event.y)
+        }) on DragStart(|event: event!(DragStart), rows: query!(MarbleBoard, ComputedRect)| {
+            let Some((board, rect)) = rows.get(event.target) else {
                 return false;
             };
-            board_tap(board, rect, x, y)
-        } on DragStart {
-            let Some(board) = com!(target, MarbleBoard) else {
+            let rect = rect.0;
+            board_drag_start(board, rect, event.x, event.y)
+        }) on DragMove(|event: event!(DragMove), rows: query!(MarbleBoard, ComputedRect)| {
+            let Some((board, rect)) = rows.get(event.target) else {
                 return false;
             };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            board_drag_start(board, rect, x, y)
-        } on DragMove {
-            let Some(board) = com!(target, MarbleBoard) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            board_drag_move(board, rect, x, y)
-        } on DragEnd {
-            let Some(board) = com!(target, MarbleBoard) else {
+            let rect = rect.0;
+            board_drag_move(board, rect, event.x, event.y)
+        }) on DragEnd(|event: event!(DragEnd), rows: query!(MarbleBoard)| {
+            let Some(board) = rows.get(event.target) else {
                 return false;
             };
             board_drag_end(board, false)
-        } on DragCancel {
-            let Some(board) = com!(target, MarbleBoard) else {
+        }) on DragCancel(|event: event!(DragCancel), rows: query!(MarbleBoard)| {
+            let Some(board) = rows.get(event.target) else {
                 return false;
             };
             board_drag_end(board, true)
-        }
+        })
     }
 }

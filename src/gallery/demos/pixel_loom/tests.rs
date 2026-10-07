@@ -3,7 +3,6 @@ use super::state::PixelSurface;
 use super::{VIEWPORT, setup_app};
 use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::pixel::PixelModel;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::ComputedRect;
@@ -26,8 +25,12 @@ fn with_model<R>(world: &World, inspect: impl FnOnce(&PixelModel) -> R) -> R {
     crate::core::model::ModelHandle::read(model, inspect)
 }
 
-fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
-    GestureHandler::trigger(world, surface, event).unwrap_or(false)
+fn trigger(world: &mut World, event: &GestureEvent) -> bool {
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    }
 }
 
 #[test]
@@ -93,12 +96,11 @@ fn tap_uses_the_bound_model_and_commits_one_undo_step() {
 
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::Tap {
             x: Fixed::from_int(18),
             y: Fixed::from_int(60),
             target: surface,
-        },
+        }
     ));
     assert_eq!(with_model(&world, PixelModel::history_len), 1);
     assert_ne!(with_model(&world, |model| *model.frames()), before);
@@ -120,33 +122,30 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     let before = with_model(&world, |model| *model.frames());
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(18),
             y: Fixed::from_int(60),
             target: surface,
-        },
+        }
     ));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragMove {
             x: Fixed::from_int(193),
             y: Fixed::from_int(235),
             dx: Fixed::from_int(175),
             dy: Fixed::from_int(175),
             target: surface,
-        },
+        }
     ));
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragCancel {
             x: Fixed::from_int(193),
             y: Fixed::from_int(235),
             target: surface,
-        },
+        }
     ));
     assert_eq!(with_model(&world, |model| *model.frames()), before);
     assert_eq!(with_model(&world, PixelModel::history_len), 0);
@@ -154,24 +153,22 @@ fn stroke_completion_does_not_depend_on_layout_components() {
     world.insert(surface, ComputedRect(rect));
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragStart {
             x: Fixed::from_int(18),
             y: Fixed::from_int(60),
             target: surface,
-        },
+        }
     ));
     world.remove::<ComputedRect>(surface);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::DragEnd {
             x: Fixed::from_int(18),
             y: Fixed::from_int(60),
             vx: Fixed::ZERO,
             vy: Fixed::ZERO,
             target: surface,
-        },
+        }
     ));
     assert_ne!(with_model(&world, |model| *model.frames()), before);
     assert_eq!(with_model(&world, PixelModel::history_len), 1);

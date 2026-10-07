@@ -2,10 +2,10 @@ use mirui::app::App;
 use mirui::core::model::SharedValue;
 use mirui::core::reactive::flush_signal_dirty;
 use mirui::ecs::{Entity, World};
+use mirui::input::event::dispatch_input;
 use mirui::input::event::gesture::{GestureEvent, GestureSystem};
 use mirui::input::event::hit_test::hit_test;
 use mirui::input::event::input::InputEvent;
-use mirui::input::event::{bubble_dispatch_at, dispatch_input};
 use mirui::model;
 use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
 use mirui::surface::FramebufferAccess;
@@ -95,7 +95,10 @@ fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32
         .pop()
         .unwrap();
     assert!(matches!(event, GestureEvent::Tap { target: tapped, .. } if tapped == target));
-    bubble_dispatch_at(world, &event, now_ms + 50);
+    {
+        mirui::__macro_support::dispatch_entity_gesture(world, &event, now_ms + 50).unwrap();
+        mirui::__macro_support::flush_entity_events(world).unwrap();
+    };
     target
 }
 

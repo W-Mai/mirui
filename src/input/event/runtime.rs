@@ -8,18 +8,22 @@ use crate::ecs::world::WorldId;
 use crate::ecs::{CommandCapacity, CommandError, Entity, World};
 use crate::ui::view::ViewRegistry;
 
-use super::callback::{AppContext, EventCallback};
+use super::binding::EntityInstallRoute;
+use super::callback::{AppContext, CallbackContext, EventCallback};
 use super::capacity::{EventCapacity, EventCapacityError, EventLimits};
-use super::contract::{AppEventSource, AppNotification, AppRoute, Event, EventKey, EventRoute};
+use super::contract::{
+    AppEventSource, AppNotification, AppRoute, EntityBubble, EntityEventSource, EntityNotification,
+    Event, EventKey, EventRoute,
+};
 use super::emission::{
     enqueue_app_notice, flush_notifications_with, prepare_runtime_notifications,
 };
-use super::focus::KeyHandler;
+use super::focus::{FocusState, KeyHandler};
 use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
 use super::lifecycle::AppNotice;
 use super::listeners::{
-    EventListeners, ListenerCapacity, ListenerDecision, ListenerError, ListenerSelector,
-    ListenerTarget,
+    EventListeners, InputBranch, ListenerCapacity, ListenerDecision, ListenerError,
+    ListenerSelector, ListenerTarget,
 };
 use super::notification::NotificationFlushError;
 
@@ -122,7 +126,8 @@ impl From<ListenerError> for RuntimeInstallError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RuntimeRunError {
+#[doc(hidden)]
+pub enum RuntimeRunError {
     Listener(ListenerError),
     Command(CommandError),
     Notification(NotificationFlushError<ListenerError>),
@@ -234,6 +239,117 @@ pub(crate) fn prepare(world: &World) -> Result<(), ListenerError> {
     }
 }
 
+pub(crate) fn install_entity<E, C>(
+    world: &mut World,
+    entity: Entity,
+    key: EventKey<E>,
+    callback: EventCallback<E, C>,
+) -> Result<(), RuntimeInstallError>
+where
+    E: Event,
+    C: CallbackContext<E, Target = Entity>,
+    E::Route: EntityInstallRoute<E>,
+    E::Source: EntityEventSource,
+    <E::Route as EventRoute>::Decision: ListenerDecision,
+{
+    initialize(world);
+    let runtime = runtime(world).expect("App event runtime is initialized");
+    runtime.check_owner(world)?;
+    let configuration = runtime.configuration.get();
+    let limits = configuration.limits();
+    let commands = if callback.uses_commands() {
+        limits
+            .commands
+            .ok_or(RuntimeInstallError::MissingCommandCapacity)?
+    } else {
+        CommandCapacity::new()
+    };
+    runtime.prepare(world, 1)?;
+    let app_slot = runtime.listeners.has_app_notifications(world)?;
+    prepare_runtime_notifications(world, limits.notifications, app_slot)
+        .map_err(EventCapacityError::Storage)
+        .map_err(RuntimeInstallError::Capacity)?;
+    runtime
+        .listeners
+        .install_entity(world, entity, E::Route::selector(key), callback, commands)?;
+    if TypeId::of::<E::Route>() == TypeId::of::<EntityBubble>() {
+        world.insert(entity, crate::ui::HitTarget);
+    }
+    runtime.configuration.set(configuration.freeze());
+    Ok(())
+}
+
+pub(crate) fn has_entity_listener<E: Event>(
+    world: &World,
+    entity: Entity,
+) -> Result<bool, ListenerError> {
+    match runtime(world) {
+        Some(runtime) => runtime.listeners.has_entity_listener::<E>(world, entity),
+        None => Ok(false),
+    }
+}
+
+pub(crate) fn emit_widget<E>(
+    world: &mut World,
+    entity: Entity,
+    payload: E,
+) -> Result<(), CommandError>
+where
+    E: Event<Route = EntityNotification>,
+    E::Source: EntityEventSource,
+{
+    if !has_entity_listener::<E>(world, entity).map_err(|error| match error {
+        ListenerError::ForeignOwner => {
+            CommandError::Commit(crate::ecs::CommandCommitError::ForeignOwner {
+                service: "event listeners",
+            })
+        }
+        _ => CommandError::Commit(crate::ecs::CommandCommitError::Busy),
+    })? {
+        return Ok(());
+    }
+    super::emission::submit(world, entity, payload)
+}
+
+/// Dispatch a recognizer gesture through the shared prepared event runtime.
+#[doc(hidden)]
+pub fn dispatch_gesture(
+    world: &mut World,
+    event: &super::gesture::GestureEvent,
+    now_ms: u32,
+) -> Result<super::BubbleControl, ListenerError> {
+    use super::gesture::{
+        DragCancel, DragEnd, DragMove, DragStart, GesturePayload, LongPress, Pinch, Rotate, Tap,
+    };
+    let branch = InputBranch::scan(world, event.target())?;
+    if branch.is_hidden() {
+        return Ok(super::BubbleControl::Allow);
+    }
+    let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+    if matches!(event, super::gesture::GestureEvent::Tap { .. })
+        && let Some(focus) = world.resource_mut::<FocusState>()
+    {
+        focus.focused = branch.focus_target();
+    }
+    super::multi_tap::observe_gesture(world, event, now_ms);
+    initialize(world);
+    let runtime = runtime(world).expect("App event runtime is initialized");
+    runtime.prepare(world, 0)?;
+    macro_rules! project {
+        ($($kind:ident),+ $(,)?) => {
+            match event {
+                $(super::gesture::GestureEvent::$kind { .. } => {
+                    let payload = $kind::project(event).expect("gesture variant matches payload");
+                    runtime.listeners.snapshot_gesture_in_branch(world, &payload, &branch)?.run(world)
+                }),+
+            }
+        };
+    }
+    project!(
+        Tap, LongPress, DragStart, DragMove, DragEnd, DragCancel, Pinch, Rotate
+    )
+}
+
 pub(crate) fn dispatch_input(
     world: &mut World,
     root: Option<Entity>,
@@ -303,7 +419,8 @@ pub(crate) fn dispatch_input(
     Ok(true)
 }
 
-pub(crate) fn flush(world: &mut World) -> Result<usize, RuntimeRunError> {
+#[doc(hidden)]
+pub fn flush(world: &mut World) -> Result<usize, RuntimeRunError> {
     match runtime(world) {
         Some(runtime) => {
             let limit = runtime
@@ -345,10 +462,13 @@ mod tests {
     use super::*;
     use crate::input::event::callback::NodeContext;
     use crate::input::event::contract::{EntityNotification, WidgetSource};
-    use crate::input::event::focus::FocusState;
+    use crate::input::event::focus::Focusable;
+    use crate::input::event::gesture::{DragStart, GestureEvent, Tap};
     use crate::input::event::lifecycle::{Resumed, Started};
+    use crate::input::event::multi_tap::{MultiTapEntry, MultiTapTracker};
     use crate::test_support::tracked_allocations;
     use crate::types::Fixed;
+    use crate::ui::{Hidden, Parent, UserState};
 
     #[derive(Default)]
     struct Trace {
@@ -389,6 +509,246 @@ mod tests {
         world.insert_resource(Trace::default());
         initialize(&mut world);
         world
+    }
+
+    #[crate::event]
+    fn tap_trace(input: event!(Tap), trace: res!(mut Trace)) -> bool {
+        trace.push(input.target.id);
+        false
+    }
+
+    fn tap(target: Entity) -> GestureEvent {
+        Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target,
+        }
+        .into()
+    }
+
+    #[test]
+    fn gesture_cycles_fail_before_focus_tracker_or_callbacks_and_leave_runtime_reusable() {
+        let mut world = world();
+        let parent = world.spawn_empty();
+        let target = world.spawn_empty();
+        world.insert(target, Focusable);
+        world.insert(target, Parent(parent));
+        world.insert_resource(FocusState {
+            focused: Some(parent),
+        });
+        world.insert_resource(MultiTapTracker {
+            last: Some(MultiTapEntry {
+                entity: parent,
+                time_ms: 10,
+                count: 2,
+            }),
+        });
+        install_entity(
+            &mut world,
+            target,
+            Tap::EVENT,
+            tap_trace::callback::<NodeContext>(),
+        )
+        .unwrap();
+        world.insert(parent, Parent(target));
+        let events = [
+            tap(target),
+            DragStart {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            }
+            .into(),
+        ];
+        for flag in 0..4 {
+            match flag {
+                1 => {
+                    world.insert(parent, Hidden);
+                }
+                2 => {
+                    world.insert(parent, UserState::Disabled);
+                }
+                3 => {
+                    world.insert(
+                        parent,
+                        crate::ui::branch::CachedBranchVisibility { selected: false },
+                    );
+                }
+                _ => {}
+            }
+            assert_eq!(
+                tracked_allocations(|| {
+                    for event in &events {
+                        assert!(matches!(
+                            dispatch_gesture(&mut world, event, 100),
+                            Err(ListenerError::CyclicRoute { .. })
+                        ));
+                        assert_eq!(
+                            world.resource::<FocusState>().unwrap().focused,
+                            Some(parent)
+                        );
+                        let previous = world.resource::<MultiTapTracker>().unwrap().last.unwrap();
+                        assert_eq!(
+                            (previous.entity, previous.time_ms, previous.count),
+                            (parent, 10, 2)
+                        );
+                        assert_eq!(world.resource::<Trace>().unwrap().len, 0);
+                    }
+                }),
+                0
+            );
+            world.remove::<Hidden>(parent);
+            world.remove::<UserState>(parent);
+            world.remove::<crate::ui::branch::CachedBranchVisibility>(parent);
+        }
+        world.remove::<Parent>(parent);
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(
+                    dispatch_gesture(&mut world, &tap(target), 200),
+                    Ok(super::super::BubbleControl::Allow)
+                );
+            }),
+            0
+        );
+        assert_eq!(
+            world.resource::<FocusState>().unwrap().focused,
+            Some(target)
+        );
+        let trace = world.resource::<Trace>().unwrap();
+        assert_eq!(&trace.values[..trace.len], &[target.id]);
+    }
+
+    #[test]
+    fn gesture_focus_and_tracker_preserve_disabled_and_nearest_ancestor_semantics() {
+        let mut world = world();
+        let parent = world.spawn_empty();
+        world.insert(parent, Focusable);
+        let target = world.spawn_empty();
+        world.insert(target, Parent(parent));
+        world.insert_resource(FocusState {
+            focused: Some(parent),
+        });
+        world.insert_resource(MultiTapTracker::default());
+        install_entity(
+            &mut world,
+            target,
+            Tap::EVENT,
+            tap_trace::callback::<NodeContext>(),
+        )
+        .unwrap();
+        world.insert(parent, UserState::Disabled);
+        assert_eq!(
+            dispatch_gesture(&mut world, &tap(target), 100),
+            Ok(super::super::BubbleControl::Allow)
+        );
+        assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+        assert_eq!(world.resource::<Trace>().unwrap().len, 0);
+        let entry = world.resource::<MultiTapTracker>().unwrap().last.unwrap();
+        assert_eq!((entry.entity, entry.time_ms, entry.count), (target, 100, 1));
+        world.remove::<UserState>(parent);
+        assert_eq!(
+            dispatch_gesture(&mut world, &tap(target), 200),
+            Ok(super::super::BubbleControl::Allow)
+        );
+        assert_eq!(
+            world.resource::<FocusState>().unwrap().focused,
+            Some(parent)
+        );
+        world.insert(target, Focusable);
+        assert_eq!(
+            dispatch_gesture(&mut world, &tap(target), 300),
+            Ok(super::super::BubbleControl::Allow)
+        );
+        assert_eq!(
+            world.resource::<FocusState>().unwrap().focused,
+            Some(target)
+        );
+        world.insert(target, UserState::Disabled);
+        assert_eq!(
+            dispatch_gesture(&mut world, &tap(target), 400),
+            Ok(super::super::BubbleControl::Allow)
+        );
+        assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+        assert_eq!(world.resource::<Trace>().unwrap().len, 2);
+        let entry = world.resource::<MultiTapTracker>().unwrap().last.unwrap();
+        assert_eq!((entry.entity, entry.time_ms, entry.count), (target, 400, 4));
+        world.remove::<UserState>(target);
+        world.remove::<Focusable>(target);
+        world.remove::<Focusable>(parent);
+        world.resource_mut::<FocusState>().unwrap().focused = Some(parent);
+        let drag: GestureEvent = DragStart {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target,
+        }
+        .into();
+        dispatch_gesture(&mut world, &drag, 500).unwrap();
+        assert_eq!(
+            world.resource::<FocusState>().unwrap().focused,
+            Some(parent)
+        );
+        assert_eq!(
+            world
+                .resource::<MultiTapTracker>()
+                .unwrap()
+                .last
+                .unwrap()
+                .time_ms,
+            400
+        );
+        dispatch_gesture(&mut world, &tap(target), 600).unwrap();
+        assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+    }
+
+    #[test]
+    fn gesture_stale_generations_stop_at_the_live_prefix_without_following_reused_nodes() {
+        let mut world = world();
+        let parent = world.spawn_empty();
+        world.insert(parent, Focusable);
+        let target = world.spawn_empty();
+        world.insert(target, Parent(parent));
+        world.insert_resource(FocusState {
+            focused: Some(parent),
+        });
+        world.insert_resource(MultiTapTracker::default());
+        install_entity(
+            &mut world,
+            target,
+            Tap::EVENT,
+            tap_trace::callback::<NodeContext>(),
+        )
+        .unwrap();
+        world.despawn(parent);
+        let replacement = world.spawn_empty();
+        world.insert(replacement, Focusable);
+        assert_eq!(replacement.id, parent.id);
+        assert_ne!(replacement.generation, parent.generation);
+        world.insert(replacement, UserState::Disabled);
+        assert_eq!(
+            tracked_allocations(|| {
+                for now in [100, 200] {
+                    assert_eq!(
+                        dispatch_gesture(&mut world, &tap(target), now),
+                        Ok(super::super::BubbleControl::Allow)
+                    );
+                }
+            }),
+            0
+        );
+        assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+        let trace = world.resource::<Trace>().unwrap();
+        assert_eq!(&trace.values[..trace.len], &[target.id, target.id]);
+        world.despawn(target);
+        let replacement = world.spawn_empty();
+        world.insert(replacement, Focusable);
+        assert_eq!(replacement.id, target.id);
+        world.resource_mut::<FocusState>().unwrap().focused = Some(replacement);
+        dispatch_gesture(&mut world, &tap(target), 300).unwrap();
+        assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+        assert_eq!(world.resource::<Trace>().unwrap().len, 2);
+        let entry = world.resource::<MultiTapTracker>().unwrap().last.unwrap();
+        assert_eq!((entry.entity, entry.time_ms, entry.count), (target, 300, 3));
     }
 
     #[test]
@@ -513,9 +873,9 @@ mod tests {
         assert_eq!(&trace.values[..trace.len], &[99]);
     }
 
-    fn editing(world: &mut World, node: Entity, _: &InputEvent) -> bool {
+    fn editing(world: &mut World, node: Entity, _: &InputEvent) -> Result<bool, CommandError> {
         world.resource_mut::<Trace>().unwrap().push(40 + node.id);
-        false
+        Ok(false)
     }
 
     #[test]

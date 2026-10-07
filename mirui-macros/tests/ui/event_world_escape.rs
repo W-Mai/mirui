@@ -11,7 +11,7 @@ fn main() {
     {
         let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
         ui! {
-            View () on Tap { let _: &mut World = __mirui_event_world; }
+            View () on Tap(|_: &mut World| {})
         }
     };
 }

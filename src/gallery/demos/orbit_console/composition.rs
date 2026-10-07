@@ -74,8 +74,7 @@ fn compose_orbit_stage(model: model!(ConsoleState)) -> Entity {
             clip_children: true
         ) [
             OrbitInstrument::new(model.clone()),
-        ] on Tap { model.cycle_focus(); }
-        {
+        ] {
             Row (height: 24, align: AlignItems::Center, column_gap: 8) {
                 Text (
                     "ORBIT FIELD : 03 NODES",
@@ -113,7 +112,7 @@ fn compose_orbit_stage(model: model!(ConsoleState)) -> Entity {
                 font_size: 10,
                 text_color: MINT
             )
-        }
+        } on Tap { model.cycle_focus(); }
     }
 }
 
@@ -283,8 +282,8 @@ fn compose_controls(model: model!(ConsoleState)) -> Entity {
                     fill_color: MINT,
                     thumb_color: TEXT
                 ) on ValueChanged {
-                    let _ = old;
-                    model.set_intensity(new);
+                    let _ = event.old;
+                    model.set_intensity(event.new);
                 }
                 Button (
                     id: "orbit_console_pause",

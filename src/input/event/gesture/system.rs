@@ -33,14 +33,15 @@ impl GestureEvents {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum GestureDrainError {
+pub(crate) enum GestureDrainError<E> {
     Busy,
+    Dispatch(E),
 }
 
-pub(crate) fn drain_gestures(
+pub(crate) fn drain_gestures<E>(
     world: &mut World,
-    mut dispatch: impl FnMut(&mut World, &GestureEvent),
-) -> Result<usize, GestureDrainError> {
+    mut dispatch: impl FnMut(&mut World, &GestureEvent) -> Result<(), E>,
+) -> Result<usize, GestureDrainError<E>> {
     let Some(pending) = world
         .resource::<GestureSystem>()
         .map(|system| Rc::clone(&system.pending))
@@ -56,7 +57,7 @@ pub(crate) fn drain_gestures(
     core::mem::swap(&mut *pending, &mut system.events.buffer);
     let count = pending.len();
     for event in pending.drain(..) {
-        dispatch(world, &event);
+        dispatch(world, &event).map_err(GestureDrainError::Dispatch)?;
     }
     Ok(count)
 }

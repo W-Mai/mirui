@@ -2,7 +2,6 @@
 mod tracking_allocator;
 
 use mirui::app::App;
-use mirui::input::event::bubble_dispatch_at;
 use mirui::input::event::gesture::GestureEvent;
 use mirui::input::event::multi_tap::{MultiTapTracker, current_count};
 use mirui::types::Fixed;
@@ -41,7 +40,10 @@ fn installed_tap_options_dispatch_without_allocating_or_reevaluating_arguments()
     };
     for now in [100, 200, 300, 700, 800] {
         assert_eq!(
-            tracked_allocations(|| bubble_dispatch_at(&mut app.world, &tap, now)),
+            tracked_allocations(|| {
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &tap, now).unwrap();
+                mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            }),
             0
         );
     }
@@ -70,7 +72,10 @@ fn first_tap_reuses_tracker_after_owner_initialization() {
         target,
     };
     assert_eq!(
-        tracked_allocations(|| bubble_dispatch_at(&mut app.world, &tap, 100)),
+        tracked_allocations(|| {
+            mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &tap, 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        }),
         0
     );
     assert_eq!(current_count(&app.world, target), 1);

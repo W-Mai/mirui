@@ -4,7 +4,6 @@ use super::state::CircuitSurface;
 use crate::core::model::ModelHandle;
 use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::circuit::{CircuitError, CircuitModel, CircuitModelHandle, CircuitPage};
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::{App, Fixed, Rect, World};
 use crate::ui::dirty::VisualDirty;
@@ -100,10 +99,12 @@ fn gate_drag_cancel_uses_the_bound_model() {
             target: surface,
         },
     ] {
-        assert_eq!(
-            GestureHandler::trigger(&mut world, surface, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                crate::__macro_support::dispatch_entity_gesture(&mut world, &event, 0).unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+            decision == crate::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(
         with_model(&world, |model| model.gate_by_id(1).unwrap()),
@@ -133,10 +134,12 @@ fn gate_drag_end_waits_for_a_valid_surface_rect() {
             target: surface,
         },
     ] {
-        assert_eq!(
-            GestureHandler::trigger(&mut world, surface, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                crate::__macro_support::dispatch_entity_gesture(&mut world, &event, 0).unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+            decision == crate::input::event::BubbleControl::Prevent
+        });
     }
 
     world.insert(surface, ComputedRect(Rect::new(0, 0, 0, 0)));
@@ -145,20 +148,24 @@ fn gate_drag_end_waits_for_a_valid_surface_rect() {
         y: Fixed::from_int(210),
         target: surface,
     };
-    assert_eq!(
-        GestureHandler::trigger(&mut world, surface, &cancel),
-        Some(false)
-    );
+    assert!(!{
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &cancel, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    });
     assert_ne!(
         with_model(&world, |model| model.visual_gate_position(1).unwrap()),
         (before.x, before.y)
     );
 
     world.insert(surface, ComputedRect(rect));
-    assert_eq!(
-        GestureHandler::trigger(&mut world, surface, &cancel),
-        Some(true)
-    );
+    assert!({
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &cancel, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    });
     assert_eq!(
         with_model(&world, |model| model.gate_by_id(1).unwrap()),
         before

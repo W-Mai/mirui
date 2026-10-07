@@ -1545,8 +1545,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Text (
                 text: ${ modal_title(model.modal()) },
                 text_capacity: 48,
@@ -1719,7 +1718,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                 border_radius: 0,
                 visible: ${ modal_button_visible(model.modal(), 5) }
             ) on Tap { let _ = model.select_modal_option(5); }
-        }
+        } on Tap { }
     }
 }
 
@@ -1731,55 +1730,44 @@ pub(super) fn build_widgets(model: model!(CircuitModel)) {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap {
-            let Some(surface) = com!(target, CircuitSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_tap(surface, rect, x, y)
-        } on DragStart {
-            let Some(surface) = com!(target, CircuitSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_drag_start(surface, rect, x, y)
-        } on DragMove {
-            let Some(surface) = com!(target, CircuitSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_drag_move(surface, rect, x, y)
-        } on DragEnd {
-            let Some(surface) = com!(target, CircuitSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_drag_end(surface, rect, x, y, false)
-        } on DragCancel {
-            let Some(surface) = com!(target, CircuitSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_drag_end(surface, rect, x, y, true)
-        }
-        {
+        ] {
             compose_header (model)
             compose_wire_page (model)
             compose_truth_page (model)
             compose_trace_page (model)
             compose_footer (model)
             compose_modal (model)
-        }
+        } on Tap(|event: event!(Tap), rows: query!(CircuitSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_tap(surface, rect, event.x, event.y)
+        }) on DragStart(|event: event!(DragStart), rows: query!(CircuitSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_start(surface, rect, event.x, event.y)
+        }) on DragMove(|event: event!(DragMove), rows: query!(CircuitSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_move(surface, rect, event.x, event.y)
+        }) on DragEnd(|event: event!(DragEnd), rows: query!(CircuitSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_end(surface, rect, event.x, event.y, false)
+        }) on DragCancel(|event: event!(DragCancel), rows: query!(CircuitSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_end(surface, rect, event.x, event.y, true)
+        })
     };
 }
 
@@ -1788,6 +1776,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(EventCapacity::new());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);

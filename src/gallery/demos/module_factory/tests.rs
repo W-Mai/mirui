@@ -6,7 +6,6 @@ use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::factory::{
     FactoryError, FactoryModel, FactoryModelHandle, FactoryTool, ModuleKind,
 };
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::ComputedRect;
@@ -74,18 +73,20 @@ fn surface_places_selected_tool_through_the_bound_model() {
         }),
         Some(23)
     );
-    assert_eq!(
-        GestureHandler::trigger(
+    assert!({
+        let decision = crate::__macro_support::dispatch_entity_gesture(
             &mut world,
-            surface,
             &GestureEvent::Tap {
                 x: Fixed::from_int(183),
                 y: Fixed::from_int(142),
                 target: surface,
             },
-        ),
-        Some(true)
-    );
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    });
     assert_eq!(
         with_model(&world, |model| model.cell(23).unwrap().kind),
         ModuleKind::Belt

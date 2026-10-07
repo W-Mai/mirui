@@ -1,7 +1,6 @@
 #![deny(unused_variables)]
 
 use mirui::core::reactive::flush_signal_dirty;
-use mirui::input::event::GestureHandler;
 use mirui::input::event::gesture::GestureEvent;
 use mirui::prelude::*;
 use mirui::types::Fixed;
@@ -362,7 +361,12 @@ fn unrelated_callbacks_do_not_capture_a_bound_model() {
             y: Fixed::ZERO,
             target: button,
         };
-        GestureHandler::trigger(&mut app.world, button, &event);
+        {
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            assert_eq!(decision, mirui::input::event::BubbleControl::Prevent);
+        };
     }
     assert_eq!(counter.count(), 1);
 }
@@ -381,10 +385,12 @@ fn generated_callbacks_share_only_free_model_references() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(counter.count(), 13);
 }
@@ -405,10 +411,12 @@ fn generated_callbacks_share_implicit_format_captures() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(counter.count(), 13);
     counter.increment();
@@ -462,10 +470,12 @@ fn bound_model_is_shared_across_generated_callbacks() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     flush_signal_dirty(&mut app.world);
     assert_eq!(counter.count(), 2);
@@ -492,10 +502,12 @@ fn bound_model_is_shared_across_child_compose_calls() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(counter.count(), 3);
 }
@@ -517,10 +529,12 @@ fn bound_model_is_shared_across_tree_child_compose_calls() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(counter.count(), 3);
 }
@@ -542,10 +556,12 @@ fn bound_optional_model_is_shared_across_tree_children() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(counter.count(), 2);
 }
@@ -565,10 +581,12 @@ fn qualified_ui_paths_share_bound_models_in_trees_and_children() {
             y: Fixed::ZERO,
             target: button,
         };
-        assert_eq!(
-            GestureHandler::trigger(&mut app.world, button, &event),
-            Some(true)
-        );
+        assert!({
+            let decision =
+                mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            decision == mirui::input::event::BubbleControl::Prevent
+        });
     }
     assert_eq!(counter.count(), 4);
 }

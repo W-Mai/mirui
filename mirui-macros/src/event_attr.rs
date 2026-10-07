@@ -4,8 +4,7 @@ use std::collections::HashSet;
 use syn::{Expr, ExprMacro, FnArg, Ident, ItemFn, LitStr, Pat, ReturnType, Type};
 
 use crate::binding::{
-    BindingCapability, BindingSource, BindingSpec, ComponentTarget, LogicalType, MAX_FETCH_ARITY,
-    ModelSource,
+    BindingCapability, BindingSource, BindingSpec, LogicalType, MAX_FETCH_ARITY, ModelSource,
 };
 use crate::callback_lowering::{lower_fetched_parameter, lower_helper_parameter};
 use crate::child_scope::ChildScope;
@@ -154,6 +153,21 @@ impl InvocationPlan {
             .any(|parameter| matches!(parameter.source, InvocationSource::Commands))
     }
 
+    fn commands_name(&self) -> Option<&Ident> {
+        self.parameters.iter().find_map(|parameter| {
+            matches!(parameter.source, InvocationSource::Commands).then_some(&parameter.name)
+        })
+    }
+
+    fn add_commands(&mut self, name: Ident) -> syn::Result<()> {
+        let ty: Type = syn::parse_quote!(commands!());
+        let binding = BindingSpec::parse_event_parameter(name, &ty)?
+            .expect("commands is an event parameter role");
+        let mut command = Self::new(vec![EventParameter::Binding(Box::new(binding))])?;
+        self.parameters.append(&mut command.parameters);
+        Ok(())
+    }
+
     fn aliases<'a>(
         &'a self,
         payload: &'a Ident,
@@ -196,13 +210,20 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         ));
     }
 
-    let mut parameters = Vec::with_capacity(signature.inputs.len());
-    let mut names = HashSet::with_capacity(signature.inputs.len());
+    let plan = parse_invocation(signature.inputs.iter())?;
+    lower_callback(function, plan)
+}
+
+fn parse_invocation<'input>(
+    inputs: impl IntoIterator<Item = &'input FnArg>,
+) -> syn::Result<InvocationPlan> {
+    let mut parameters = Vec::new();
+    let mut names = HashSet::new();
     let mut payload_seen = false;
     let mut entity_seen = false;
     let mut commands_seen = false;
     let mut fetch_count = 0;
-    for input in &signature.inputs {
+    for input in inputs {
         let FnArg::Typed(parameter) = input else {
             return Err(syn::Error::new_spanned(
                 input,
@@ -271,10 +292,10 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
         }
         parameters.push(EventParameter::Binding(Box::new(binding)));
     }
-    lower_callback(function, InvocationPlan::new(parameters)?)
+    InvocationPlan::new(parameters)
 }
 
-fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenStream> {
+fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<TokenStream> {
     let name = &function.sig.ident;
     let helper_name = format_ident!("__mirui_event_body_{name}", span = Span::mixed_site());
     let context = format_ident!("__MiruiContext", span = Span::mixed_site());
@@ -282,6 +303,14 @@ fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenSt
     let payload_name = format_ident!("__mirui_payload", span = Span::mixed_site());
     let target_name = format_ident!("__mirui_target", span = Span::mixed_site());
     let commands_name = format_ident!("__mirui_commands", span = Span::mixed_site());
+    let body_commands = plan
+        .commands_name()
+        .cloned()
+        .unwrap_or_else(|| format_ident!("__mirui_body_commands", span = Span::mixed_site()));
+    let (body, uses_commands) = lower_body(&function.block, &body_commands)?;
+    if uses_commands && !plan.has_commands() {
+        plan.add_commands(body_commands)?;
+    }
     let helper_parameters = plan.parameters.iter().map(|parameter| &parameter.helper);
     let inputs = plan.parameters.iter().filter_map(|parameter| {
         let name = &parameter.name;
@@ -339,7 +368,7 @@ fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenSt
     let callback_name = LitStr::new(&name.to_string(), name.span());
     let callback = quote! {
         // SAFETY: the generated parameter set matches the complete access plan;
-        // every captured Model is checked before installation.
+        // all declared Model bindings are checked before installation.
         unsafe {
             #constructor::<#payload, #context, (#(#fetched_types,)*), #result>(
                 #callback_name,
@@ -362,7 +391,6 @@ fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenSt
     });
     let visibility = &function.vis;
     let output = &function.sig.output;
-    let body = &function.block;
     let FunctionAttributes {
         helper,
         declaration,
@@ -397,52 +425,189 @@ fn lower_callback(function: ItemFn, plan: InvocationPlan) -> syn::Result<TokenSt
         }
     })
 }
-
-pub(crate) fn fields(names: &[&str]) -> Vec<BindingSpec> {
-    names
-        .iter()
-        .map(|name| BindingSpec::event_field(Ident::new(name, proc_macro2::Span::call_site())))
-        .collect()
-}
-
-pub(crate) fn lower_fields(bindings: &[BindingSpec]) -> TokenStream {
-    let names = bindings.iter().map(|binding| &binding.name);
-    quote! {
-        #(let #names = *#names; let _ = #names;)*
+pub(crate) fn lower_inline_callback(
+    expression: &syn::Expr,
+    key: &Ident,
+    name: &LitStr,
+) -> syn::Result<TokenStream> {
+    let mut literal = expression;
+    loop {
+        literal = match literal {
+            syn::Expr::Paren(paren) if paren.attrs.is_empty() => &paren.expr,
+            syn::Expr::Group(group) if group.attrs.is_empty() => &group.expr,
+            _ => break,
+        };
     }
+    let syn::Expr::Closure(closure) = literal else {
+        return Ok(quote!(#key.__bind_callback(#name, #expression)));
+    };
+    if closure.asyncness.is_some() || closure.constness.is_some() || closure.movability.is_some() {
+        return Err(syn::Error::new_spanned(
+            closure,
+            "event closures are safe synchronous closures",
+        ));
+    }
+    let mut role_closure = false;
+    for input in &closure.inputs {
+        if let Pat::Type(parameter) = input {
+            role_closure |= BindingSpec::parse_event_parameter(
+                format_ident!("__mirui_role", span = Span::mixed_site()),
+                &parameter.ty,
+            )?
+            .is_some();
+        }
+    }
+    let commands = format_ident!("__mirui_inline_commands", span = Span::mixed_site());
+    let body: syn::Block = match &*closure.body {
+        syn::Expr::Block(block) => block.block.clone(),
+        body => syn::parse_quote!({ #body }),
+    };
+    if !role_closure {
+        if closure.inputs.len() != 1 {
+            return Err(syn::Error::new_spanned(
+                &closure.inputs,
+                "plain event closures take one borrowed payload parameter",
+            ));
+        }
+        let (body, deferred) = lower_body(&body, &commands)?;
+        let mut closure = closure.clone();
+        closure.capture = Some(syn::token::Move {
+            span: Span::mixed_site(),
+        });
+        *closure.body = syn::parse_quote!(#body);
+        let method = if deferred {
+            closure.inputs.push(syn::parse_quote!(mut #commands));
+            quote!(__bind_deferred)
+        } else {
+            quote!(__bind_plain)
+        };
+        return Ok(quote! {
+            unsafe {
+                #key.#method::<::mirui::__macro_support::NodeContext, _>(#name, #closure)
+            }
+        });
+    }
+    let inputs = closure
+        .inputs
+        .iter()
+        .map(|input| {
+            let Pat::Type(parameter) = input else {
+                return Err(syn::Error::new_spanned(
+                    input,
+                    "role event closures declare every parameter with an explicit role type",
+                ));
+            };
+            Ok(FnArg::Typed(parameter.clone()))
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+    let mut plan = parse_invocation(inputs.iter())?;
+    if let Some(value) = plan.values().next() {
+        return Err(syn::Error::new_spanned(
+            value,
+            "role event closures use role parameters; ordinary values are lexical captures",
+        ));
+    }
+    if let Some((model, _)) = plan.models().next() {
+        return Err(syn::Error::new_spanned(
+            model,
+            "anonymous event Models use lexical captures; declare Model parameters in a named event factory",
+        ));
+    }
+    let body_commands = plan
+        .commands_name()
+        .cloned()
+        .unwrap_or_else(|| commands.clone());
+    let (body, uses_commands) = lower_body(&body, &body_commands)?;
+    if uses_commands && !plan.has_commands() {
+        plan.add_commands(body_commands)?;
+    }
+    let payload = format_ident!("__mirui_payload", span = Span::mixed_site());
+    let target = format_ident!("__mirui_target", span = Span::mixed_site());
+    let payload_type = plan.payload().map(|ty| quote!(: &#ty));
+    let fetched_names = plan.fetches().map(|(name, _, _)| name);
+    let fetched_types = plan.fetches().map(|(_, marker, _)| marker);
+    let metadata = plan.fetches().flat_map(|(_, _, access)| access);
+    let aliases = plan.parameters.iter().filter_map(|parameter| {
+        let name = &parameter.name;
+        match &parameter.source {
+            InvocationSource::Event(_) => Some(quote!(let #name = #payload;)),
+            InvocationSource::Entity => Some(quote!(let #name = #target;)),
+            InvocationSource::Model { .. } => unreachable!("anonymous Model roles were rejected"),
+            InvocationSource::Commands => {
+                Some(quote!(#[allow(unused_mut)] let mut #name = #commands;))
+            }
+            InvocationSource::Fetch { .. } => {
+                let helper = syn::parse2::<FnArg>(parameter.helper.clone())
+                    .expect("lowered helper parameter is a function argument");
+                let FnArg::Typed(helper) = helper else {
+                    unreachable!("typed helper parameter")
+                };
+                let Pat::Ident(pattern) = *helper.pat else {
+                    unreachable!("plain helper parameter")
+                };
+                pattern
+                    .mutability
+                    .map(|_| quote!(#[allow(unused_mut)] let mut #name = #name;))
+            }
+            InvocationSource::Value(_) => unreachable!("role closure values were rejected"),
+        }
+    });
+    let output = &closure.output;
+    let commands_argument = plan.has_commands().then(|| quote!(, #commands));
+    let method = if plan.has_commands() {
+        quote!(__bind_params_deferred)
+    } else {
+        quote!(__bind_params)
+    };
+    let callback = quote! {
+        unsafe {
+            #key.#method::<::mirui::__macro_support::NodeContext, (#(#fetched_types,)*), _>(
+                #name,
+                const { &[#(#metadata),*] },
+                move |(#(#fetched_names,)*), #payload #payload_type, #target #commands_argument| #output {
+                    #(#aliases)*
+                    #body
+                },
+            )
+        }
+    };
+    Ok(callback)
 }
 
-pub(crate) fn lower_body(body: &syn::Block, scope: &Ident) -> syn::Block {
-    syn::parse2(lower_tokens(quote! { #body }, scope))
-        .expect("event role lowering must preserve the Rust block grammar")
+pub(crate) fn lower_body(body: &syn::Block, commands: &Ident) -> syn::Result<(syn::Block, bool)> {
+    let mut deferred = false;
+    let tokens = lower_tokens(quote! { #body }, commands, &mut deferred)?;
+    Ok((syn::parse2(tokens)?, deferred))
 }
 
-fn lower_tokens(input: TokenStream, scope: &Ident) -> TokenStream {
+fn lower_tokens(
+    input: TokenStream,
+    commands: &Ident,
+    deferred: &mut bool,
+) -> syn::Result<TokenStream> {
     let tokens: Vec<_> = input.into_iter().collect();
     let mut output = TokenStream::new();
     let mut cursor = 0;
-
     while cursor < tokens.len() {
-        if let Some((end, expression)) = event_expression(&tokens, cursor) {
-            match BindingSpec::parse_event_expression(expression) {
-                Ok(Some(binding)) => {
-                    output.extend(lower_expression(binding, scope));
-                    cursor = end;
-                    continue;
+        if let Some((end, expression)) = event_expression(&tokens, cursor)
+            && let Some(binding) = BindingSpec::parse_event_expression(expression)?
+        {
+            match binding.source {
+                BindingSource::Capability(BindingCapability::Commands) => {
+                    *deferred = true;
+                    output.extend(quote! { (&mut #commands) });
                 }
-                Ok(None) => {}
-                Err(error) => {
-                    output.extend(error.to_compile_error());
-                    cursor = end;
-                    continue;
-                }
+                _ => unreachable!("event expression role"),
             }
+            cursor = end;
+            continue;
         }
-
         match &tokens[cursor] {
             TokenTree::Group(group) => {
-                let mut lowered =
-                    Group::new(group.delimiter(), lower_tokens(group.stream(), scope));
+                let mut lowered = Group::new(
+                    group.delimiter(),
+                    lower_tokens(group.stream(), commands, deferred)?,
+                );
                 lowered.set_span(group.span());
                 output.extend([TokenTree::Group(lowered)]);
             }
@@ -450,8 +615,7 @@ fn lower_tokens(input: TokenStream, scope: &Ident) -> TokenStream {
         }
         cursor += 1;
     }
-
-    output
+    Ok(output)
 }
 
 fn event_expression(tokens: &[TokenTree], start: usize) -> Option<(usize, ExprMacro)> {
@@ -462,7 +626,6 @@ fn event_expression(tokens: &[TokenTree], start: usize) -> Option<(usize, ExprMa
             _ => {}
         }
     }
-
     let mut cursor = start;
     if matches!(&tokens[cursor], TokenTree::Punct(punct) if punct.as_char() == ':') {
         if !matches!(tokens.get(cursor + 1), Some(TokenTree::Punct(punct)) if punct.as_char() == ':')
@@ -488,33 +651,13 @@ fn event_expression(tokens: &[TokenTree], start: usize) -> Option<(usize, ExprMa
     {
         return None;
     }
-
     let end = cursor + 2;
     let expression = syn::parse2(tokens[start..end].iter().cloned().collect()).ok()?;
     Some((end, expression))
 }
-
-fn lower_expression(binding: BindingSpec, scope: &Ident) -> TokenStream {
-    match binding.source {
-        BindingSource::Component(component) => {
-            let ComponentTarget::Expression(entity) = component.target else {
-                unreachable!("event component reads retain their entity selector");
-            };
-            let ty = component.ty;
-            let entity = lower_tokens(quote! { #entity }, scope);
-            quote! { #scope.component::<#ty>(#entity) }
-        }
-        BindingSource::Capability(BindingCapability::Commands) => {
-            quote! { #scope.commands() }
-        }
-        _ => unreachable!("event expressions only lower component reads and commands"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::binding::{BindingAccess, BindingCardinality, BindingSyntax, LogicalType};
     use quote::ToTokens;
 
     #[test]
@@ -759,44 +902,149 @@ mod tests {
     }
 
     #[test]
-    fn event_fields_use_generated_shared_bindings() {
-        let bindings = fields(&["x", "target"]);
-        assert_eq!(bindings.len(), 2);
-        assert_eq!(bindings[0].name, "x");
-        assert!(matches!(bindings[0].syntax, BindingSyntax::Generated(_)));
-        assert!(matches!(
-            bindings[0].logical_type,
-            LogicalType::SourceDefined
-        ));
-        assert!(matches!(bindings[0].source, BindingSource::Event));
-        assert_eq!(bindings[0].access, BindingAccess::Read);
-        assert_eq!(bindings[0].cardinality, BindingCardinality::Required);
-    }
-
-    #[test]
-    fn event_expressions_lower_through_binding_sources() {
+    fn event_command_expressions_share_the_deferred_capability() {
         let body: syn::Block = syn::parse_quote!({
-            let marker = mirui::com!(target, Marker);
-            commands!().insert(target, Marker(1));
+            commands!().insert(event.target, Marker(1));
             foreign::commands!();
         });
-        let scope: Ident = syn::parse_quote!(__scope);
-        let lowered = lower_body(&body, &scope).into_token_stream().to_string();
-
-        assert!(lowered.contains("__scope . component :: < Marker > (target)"));
-        assert!(lowered.contains("__scope . commands () . insert"));
+        let commands: Ident = syn::parse_quote!(__commands);
+        let (lowered, deferred) = lower_body(&body, &commands).unwrap();
+        let lowered = lowered.into_token_stream().to_string();
+        assert!(deferred);
+        assert!(lowered.contains("& mut __commands"));
         assert!(lowered.contains("foreign :: commands ! ()"));
     }
 
     #[test]
-    fn nested_component_selectors_lower_every_expression_role() {
+    fn event_expression_lowering_leaves_unrelated_macros_untouched() {
         let body: syn::Block = syn::parse_quote!({
-            let marker = com!(mirui::com!(target, Parent).unwrap().0, Marker);
+            foreign::capability!(event.target);
         });
-        let scope: Ident = syn::parse_quote!(__scope);
-        let lowered = lower_body(&body, &scope).into_token_stream().to_string();
+        let (lowered, deferred) = lower_body(&body, &syn::parse_quote!(__commands)).unwrap();
+        assert!(!deferred);
+        assert_eq!(quote!(#lowered).to_string(), quote!(#body).to_string());
+    }
 
-        assert!(!lowered.contains("com !"));
-        assert_eq!(lowered.matches("__scope . component").count(), 2);
+    #[test]
+    fn inline_role_closures_share_the_named_invocation_plan_without_child_scope_relocation() {
+        let expression =
+            syn::parse_quote!(|input: event!(super::Hit),
+                               count: res!(mut Stats),
+                               rows: query!(Entity, mut Position),
+                               node: entity!(),
+                               pending: commands!()| {
+                pending.insert(node, Position(1));
+                count.0 += input.value;
+                game.increment();
+                for (_, position) in rows {
+                    position.0 += 1;
+                }
+            });
+        let output = lower_inline_callback(
+            &expression,
+            &syn::parse_quote!(__mirui_event_key),
+            &syn::parse_quote!("inline"),
+        )
+        .unwrap()
+        .to_string();
+        assert!(output.contains("__bind_params_deferred"));
+        assert!(output.contains("ResMut < Stats >"));
+        assert!(output.contains("game . increment"));
+        assert!(output.contains("& super :: Hit"));
+        assert!(!output.contains("super :: super :: Hit"));
+        assert!(!output.contains("World"));
+        assert!(!output.contains("event !"));
+        assert!(!output.contains("query !"));
+        assert!(syn::parse2::<syn::Expr>(output.parse().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn literal_payload_closures_keep_the_direct_expected_type_anchor() {
+        let expression = syn::parse_quote!(|input| input.x > Fixed::ZERO);
+        let output = lower_inline_callback(
+            &expression,
+            &syn::parse_quote!(__mirui_event_key),
+            &syn::parse_quote!("plain"),
+        )
+        .unwrap()
+        .to_string();
+        assert!(output.contains("__bind_plain"));
+        assert!(output.contains("move | input |"));
+        assert!(!output.contains("__bind_params"));
+        let grouped = syn::parse_quote!((|input| input.x > Fixed::ZERO));
+        let grouped = lower_inline_callback(
+            &grouped,
+            &syn::parse_quote!(__mirui_event_key),
+            &syn::parse_quote!("grouped"),
+        )
+        .unwrap()
+        .to_string();
+        assert!(grouped.contains("__bind_plain"));
+        for value in [
+            syn::parse_quote!(handler::callback(game.clone())),
+            syn::parse_quote!(fire),
+        ] {
+            assert_eq!(
+                lower_inline_callback(
+                    &value,
+                    &syn::parse_quote!(__mirui_event_key),
+                    &syn::parse_quote!("value")
+                )
+                .unwrap()
+                .to_string(),
+                quote!(__mirui_event_key.__bind_callback("value", #value)).to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn inline_roles_reject_partial_ordinary_and_guessed_model_parameter_lists() {
+        for expression in [
+            syn::parse_quote!(|input, state: res!(State)| {}),
+            syn::parse_quote!(|value: u32, state: res!(State)| {}),
+            syn::parse_quote!(|game: model!(Game)| {}),
+            syn::parse_quote!(|first: event!(Hit), second: event!(Hit)| {}),
+        ] {
+            assert!(
+                lower_inline_callback(
+                    &expression,
+                    &syn::parse_quote!(__mirui_event_key),
+                    &syn::parse_quote!("invalid")
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn inline_roles_share_parameter_attributes_and_fetch_arity_validation() {
+        let expression: syn::Expr = syn::parse_quote!(|#[allow(unused)] input: event!(Hit)| {});
+        assert!(
+            lower_inline_callback(
+                &expression,
+                &syn::parse_quote!(__mirui_event_key),
+                &syn::parse_quote!("invalid")
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("do not accept attributes")
+        );
+        let parameters: Vec<_> = (0..9)
+            .map(|index| {
+                let name = format_ident!("value_{index}");
+                quote!(#name: res!(Clock))
+            })
+            .collect();
+        let expression = syn::parse2(quote!(|#(#parameters),*| {})).unwrap();
+        assert!(
+            lower_inline_callback(
+                &expression,
+                &syn::parse_quote!(__mirui_event_key),
+                &syn::parse_quote!("invalid")
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("at most 8")
+        );
     }
 }

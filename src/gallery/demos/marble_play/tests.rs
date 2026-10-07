@@ -13,7 +13,7 @@ use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::marble::{MarbleModel, MarbleModelHandle, Page, THEMES};
 use crate::gallery::play::paint::PlayPainter;
-use crate::input::event::{GestureHandler, gesture::GestureEvent};
+use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::types::{Fixed64, Transform};
 use crate::ui::ComputedRect;
@@ -70,6 +70,14 @@ fn multi_source_board_render(
 
 fn fixture() -> World {
     let mut world = World::new();
+    crate::input::event::runtime::configure(
+        &mut world,
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
+            .notifications::<crate::ui::widgets::switch::Toggled>(2)
+            .flush_limit(6),
+    )
+    .unwrap();
     let mut registry = ViewRegistry::with_builtins();
     registry.insert(board_render::view());
     registry.insert(scene_board_render::view());
@@ -100,8 +108,12 @@ fn fixture() -> World {
     world
 }
 
-fn trigger_board_event(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    GestureHandler::trigger(world, entity, event).unwrap_or(false)
+fn trigger_board_event(world: &mut World, event: &GestureEvent) -> bool {
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    }
 }
 
 #[test]
@@ -150,6 +162,12 @@ fn composition_uses_real_text_and_button_widgets() {
 #[test]
 fn declared_text_layout_capacity_covers_page_switches() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
+            .notifications::<crate::ui::widgets::switch::Toggled>(2)
+            .flush_limit(6),
+    );
     app.with_default_widgets();
     app.with_text_layout_limits(crate::text::TextLayoutLimits::EMBEDDED);
     #[cfg(feature = "audio")]
@@ -228,6 +246,13 @@ fn first_page_switch_keeps_dirty_storage_capacity_and_updates_output() {
     use crate::ui::dirty::Dirty;
 
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
+            .notifications::<crate::ui::widgets::switch::Toggled>(2)
+            .flush_limit(6),
+    );
     app.with_default_widgets();
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
@@ -313,6 +338,13 @@ fn marble_boards_share_only_their_bound_model_instance() {
     use crate::ui::dirty::VisualDirty;
 
     let mut app = App::headless(480, 320);
+
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
+            .notifications::<crate::ui::widgets::switch::Toggled>(2)
+            .flush_limit(6),
+    );
     app.with_default_widgets();
     app.with_widget(board_render::view());
     let shared = app.add_model(MarbleModel::new());
@@ -586,6 +618,13 @@ fn installed_model_routes_pad_sound_to_the_shared_audio_core() {
     use crate::audio::AudioCommand;
 
     let mut app = App::headless(480, 320);
+
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
+            .notifications::<crate::ui::widgets::switch::Toggled>(2)
+            .flush_limit(6),
+    );
     app.with_default_widgets();
     let core = crate::audio::SharedAudioCore::new(crate::audio::AudioBus::<32>::new());
     app.world
@@ -698,15 +737,19 @@ fn nav_tap_updates_model_and_bound_page() {
     let mut world = fixture();
     let edit = world.find_by_id("marble_nav_edit").unwrap();
     let properties = world.find_by_id("marble_properties").unwrap();
-    crate::input::event::bubble_dispatch_at(
-        &mut world,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: edit,
-        },
-        0,
-    );
+    {
+        crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: edit,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert_eq!(
         world.resource::<MarbleModelHandle>().unwrap().page(),
@@ -724,6 +767,13 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
     use crate::ui::render_system;
 
     let mut app = App::headless(480, 320);
+
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
+            .notifications::<crate::ui::widgets::switch::Toggled>(2)
+            .flush_limit(6),
+    );
     app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
@@ -751,7 +801,10 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
         .drain()
         .collect();
     for gesture in gestures {
-        crate::input::event::bubble_dispatch_at(&mut app.world, &gesture, 50);
+        {
+            crate::__macro_support::dispatch_entity_gesture(&mut app.world, &gesture, 50).unwrap();
+            crate::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        };
     }
     crate::core::reactive::flush_signal_dirty(&mut app.world);
     let properties = app.world.find_by_id("marble_properties").unwrap();
@@ -817,9 +870,15 @@ fn external_mute_updates_shared_state_without_playing_a_pad() {
         y: Fixed::ZERO,
         target: audio_button,
     };
-    crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
+    {
+        crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     assert_eq!(core.pop(), Some(AudioCommand::SetMuted(true)));
-    crate::input::event::bubble_dispatch_at(&mut world, &tap, 0);
+    {
+        crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     assert_eq!(core.pop(), Some(AudioCommand::SetMuted(false)));
     assert!(matches!(core.pop(), Some(AudioCommand::Tone(_))));
 }
@@ -839,7 +898,6 @@ fn drag_cancel_reaches_transactional_model_path() {
         .set_page(Page::Edit);
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::DragStart {
             x: original.x.to_fixed(),
             y: original.y.to_fixed(),
@@ -848,7 +906,6 @@ fn drag_cancel_reaches_transactional_model_path() {
     ));
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::DragMove {
             x: original.x.to_fixed() + Fixed::from_int(30),
             y: original.y.to_fixed(),
@@ -860,7 +917,6 @@ fn drag_cancel_reaches_transactional_model_path() {
     world.remove::<ComputedRect>(board);
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::DragCancel {
             x: original.x.to_fixed() + Fixed::from_int(30),
             y: original.y.to_fixed(),
@@ -891,7 +947,6 @@ fn drag_end_commits_after_layout_component_is_removed() {
         .set_page(Page::Edit);
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::DragStart {
             x: original.x.to_fixed(),
             y: original.y.to_fixed(),
@@ -900,7 +955,6 @@ fn drag_end_commits_after_layout_component_is_removed() {
     ));
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::DragMove {
             x: original.x.to_fixed() + Fixed::from_int(20),
             y: original.y.to_fixed(),
@@ -912,7 +966,6 @@ fn drag_end_commits_after_layout_component_is_removed() {
     world.remove::<ComputedRect>(board);
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::DragEnd {
             x: original.x.to_fixed() + Fixed::from_int(20),
             y: original.y.to_fixed(),
@@ -952,7 +1005,6 @@ fn tap_selects_a_pad_without_crossing_drag_threshold() {
     );
     assert!(trigger_board_event(
         &mut world,
-        board,
         &GestureEvent::Tap {
             x: target.x.to_fixed(),
             y: target.y.to_fixed(),
@@ -977,15 +1029,19 @@ fn scene_card_tap_loads_selected_preset() {
         .set_page(Page::Scenes);
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert!(!is_hidden_in_tree(&world, card));
-    crate::input::event::bubble_dispatch_at(
-        &mut world,
-        &GestureEvent::Tap {
-            x: Fixed::from_int(340),
-            y: Fixed::from_int(120),
-            target: card,
-        },
-        0,
-    );
+    {
+        crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::from_int(340),
+                y: Fixed::from_int(120),
+                target: card,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     let model = world.resource::<MarbleModelHandle>().unwrap();
     assert_eq!(model.scene(), 2);
     assert_eq!(model.page(), Page::Play);

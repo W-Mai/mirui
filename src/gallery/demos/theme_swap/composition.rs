@@ -40,12 +40,12 @@ pub fn build_widgets() {
                 ) [
                     ThemeChoice(ThemeId::new("midnight-amber")),
                     Text::label("Dark"),
-                ] on Tap {
-                    let theme = com!(target, ThemeChoice).map(|choice| choice.0);
+                ] on Tap(|event: event!(Tap), rows: query!(ThemeChoice), commands: commands!()| {
+                    let theme = rows.get(event.target).map(|choice| choice.0);
                     if let Some(theme) = theme {
-                        commands!().set_theme(theme);
+                        commands.set_theme(theme);
                     }
-                }
+                })
                 Button (
                     grow: 1.0,
                     height: 36,
@@ -56,12 +56,12 @@ pub fn build_widgets() {
                 ) [
                     ThemeChoice(ThemeId::new("paper-rose")),
                     Text::label("Light"),
-                ] on Tap {
-                    let theme = com!(target, ThemeChoice).map(|choice| choice.0);
+                ] on Tap(|event: event!(Tap), rows: query!(ThemeChoice), commands: commands!()| {
+                    let theme = rows.get(event.target).map(|choice| choice.0);
                     if let Some(theme) = theme {
-                        commands!().set_theme(theme);
+                        commands.set_theme(theme);
                     }
-                }
+                })
                 Button (
                     id: "theme_custom",
                     grow: 1.0,
@@ -73,12 +73,12 @@ pub fn build_widgets() {
                 ) [
                     ThemeChoice(ThemeId::new("plum")),
                     Text::label("Custom"),
-                ] on Tap {
-                    let theme = com!(target, ThemeChoice).map(|choice| choice.0);
+                ] on Tap(|event: event!(Tap), rows: query!(ThemeChoice), commands: commands!()| {
+                    let theme = rows.get(event.target).map(|choice| choice.0);
                     if let Some(theme) = theme {
-                        commands!().set_theme(theme);
+                        commands.set_theme(theme);
                     }
-                }
+                })
             }
             Row (
                 id: "theme_token_grid",

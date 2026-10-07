@@ -55,6 +55,7 @@ fn batch_swap_reuses_storage_and_defers_callback_events_without_allocation() {
                     if index == 1 {
                         enqueue(world, 4);
                     }
+                    Ok::<(), ()>(())
                 }),
                 Ok(3)
             );
@@ -70,13 +71,19 @@ fn batch_swap_reuses_storage_and_defers_callback_events_without_allocation() {
     assert_eq!(
         tracked_allocations(|| {
             assert_eq!(
-                drain_gestures(&mut world, |_, input| assert_eq!(value(input), 4)),
+                drain_gestures(&mut world, |_, input| {
+                    assert_eq!(value(input), 4);
+                    Ok::<(), ()>(())
+                }),
                 Ok(1)
             );
             for next in 5..13 {
                 enqueue(&mut world, next);
                 assert_eq!(
-                    drain_gestures(&mut world, |_, input| assert_eq!(value(input), next)),
+                    drain_gestures(&mut world, |_, input| {
+                        assert_eq!(value(input), next);
+                        Ok::<(), ()>(())
+                    }),
                     Ok(1)
                 );
             }
@@ -104,15 +111,21 @@ fn recursive_drain_rejects_before_swapping_or_consuming_the_write_buffer() {
                     if index == 1 {
                         enqueue(world, 3);
                         assert_eq!(
-                            drain_gestures(world, |_, _| panic!("recursive callback ran")),
+                            drain_gestures(world, |_, _| -> Result<(), ()> {
+                                panic!("recursive callback ran")
+                            }),
                             Err(GestureDrainError::Busy)
                         );
                     }
+                    Ok::<(), ()>(())
                 }),
                 Ok(2)
             );
             assert_eq!(
-                drain_gestures(&mut world, |_, input| assert_eq!(value(input), 3)),
+                drain_gestures(&mut world, |_, input| {
+                    assert_eq!(value(input), 3);
+                    Ok::<(), ()>(())
+                }),
                 Ok(1)
             );
         }),
@@ -135,7 +148,7 @@ fn unwinding_discards_unread_batch_but_preserves_write_events_and_read_capacity(
         .as_ptr();
     let mut called = 0;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = drain_gestures(&mut world, |world, input| {
+        let _ = drain_gestures(&mut world, |world, input| -> Result<(), ()> {
             called += 1;
             assert_eq!(value(input), 1);
             enqueue(world, 4);
@@ -151,7 +164,10 @@ fn unwinding_discards_unread_batch_but_preserves_write_events_and_read_capacity(
     assert_eq!(
         tracked_allocations(|| {
             assert_eq!(
-                drain_gestures(&mut world, |_, input| assert_eq!(value(input), 4)),
+                drain_gestures(&mut world, |_, input| {
+                    assert_eq!(value(input), 4);
+                    Ok::<(), ()>(())
+                }),
                 Ok(1)
             );
         }),
@@ -176,11 +192,14 @@ fn removing_the_resource_does_not_invalidate_the_active_batch() {
                     if index == 1 {
                         world.remove_resource::<GestureSystem>().unwrap();
                     }
+                    Ok::<(), ()>(())
                 }),
                 Ok(3)
             );
             assert_eq!(
-                drain_gestures(&mut world, |_, _| panic!("absent resource dispatched")),
+                drain_gestures(&mut world, |_, _| -> Result<(), ()> {
+                    panic!("absent resource dispatched")
+                }),
                 Ok(0)
             );
         }),
@@ -209,15 +228,65 @@ fn replacement_keeps_its_events_separate_from_the_active_batch() {
                     if index == 1 {
                         world.insert_resource(replacement.take().unwrap());
                     }
+                    Ok::<(), ()>(())
                 }),
                 Ok(3)
             );
             assert_eq!(
-                drain_gestures(&mut world, |_, input| assert_eq!(value(input), 4)),
+                drain_gestures(&mut world, |_, input| {
+                    assert_eq!(value(input), 4);
+                    Ok::<(), ()>(())
+                }),
                 Ok(1)
             );
         }),
         0
     );
     assert_eq!(seen, [1, 2, 3]);
+}
+
+#[test]
+fn dispatch_failure_clears_the_unread_batch_and_retains_new_events_and_capacity() {
+    let mut world = world();
+    for value in [1, 2, 3] {
+        enqueue(&mut world, value);
+    }
+    let writing = world
+        .resource::<GestureSystem>()
+        .unwrap()
+        .events
+        .buffer
+        .as_ptr();
+    let mut calls = 0;
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                drain_gestures(&mut world, |world, input| {
+                    calls += 1;
+                    assert_eq!(value(input), 1);
+                    enqueue(world, 4);
+                    Err("dispatch failed")
+                }),
+                Err(GestureDrainError::Dispatch("dispatch failed"))
+            );
+        }),
+        0
+    );
+    assert_eq!(calls, 1);
+    let system = world.resource::<GestureSystem>().unwrap();
+    assert!(system.pending.borrow().is_empty());
+    assert_eq!(system.pending.borrow().as_ptr(), writing);
+    assert_eq!(system.pending.borrow().capacity(), 4);
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(
+                drain_gestures(&mut world, |_, input| {
+                    assert_eq!(value(input), 4);
+                    Ok::<(), ()>(())
+                }),
+                Ok(1)
+            );
+        }),
+        0
+    );
 }

@@ -3,7 +3,6 @@ use super::runtime::lumen_tick_system;
 use super::{VIEWPORT, setup_app};
 use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::lumen::{LumenModel, LumenModelHandle};
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::ComputedRect;
@@ -29,8 +28,12 @@ fn scan_phase(model: &LumenModelHandle) -> u16 {
     crate::core::model::ModelHandle::read(model, LumenModel::scan_phase)
 }
 
-fn tap_board(world: &mut World, board: Entity, event: &GestureEvent) -> bool {
-    GestureHandler::trigger(world, board, event).unwrap_or(false)
+fn tap_board(world: &mut World, event: &GestureEvent) -> bool {
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    }
 }
 
 #[test]
@@ -56,7 +59,6 @@ fn tapping_a_mirror_uses_board_local_coordinates() {
     world.insert(board, ComputedRect(Rect::new(40, 80, 564, 408)));
     assert!(tap_board(
         &mut world,
-        board,
         &GestureEvent::Tap {
             x: Fixed::from_int(40 + (27 + 2 * 38) * 2),
             y: Fixed::from_int(80 + (26 + 3 * 38) * 2),
@@ -78,7 +80,6 @@ fn modal_blocks_board_taps_until_a_level_is_selected() {
     let before = model.moves();
     assert!(tap_board(
         &mut world,
-        board,
         &GestureEvent::Tap {
             x: Fixed::from_int(2 * 38 + 27),
             y: Fixed::from_int(3 * 38 + 26),

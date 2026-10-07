@@ -911,12 +911,11 @@ fn compose_modal(model: model!(TideModel)) -> Entity {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             compose_modal_header (model)
             compose_modal_result (model)
             compose_modal_voyage (model)
-        }
+        } on Tap { }
     }
 }
 
@@ -928,16 +927,7 @@ pub(super) fn build_widgets(model: model!(TideModel)) {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap {
-            let Some(surface) = com!(target, TideSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_tap(surface, rect, x, y)
-        }
-        {
+        ] {
             compose_header (model)
             compose_forecast (model)
             compose_offers (model)
@@ -945,7 +935,13 @@ pub(super) fn build_widgets(model: model!(TideModel)) {
             compose_actions (model)
             compose_footer (model)
             compose_modal (model)
-        }
+        } on Tap(|event: event!(Tap), rows: query!(TideSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_tap(surface, rect, event.x, event.y)
+        })
     };
 }
 
@@ -954,6 +950,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());

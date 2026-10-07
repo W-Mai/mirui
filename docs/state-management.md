@@ -153,7 +153,7 @@ expression that uses the model still does.
 This also applies when `ui!` is called as `mirui::ui!`, `::mirui::ui!`, or a
 local `crate::ui!` re-export. Other arguments keep their normal move semantics.
 
-Use `com!(entity, T)` during composition or in an event body to inspect an
+Use `com!(entity, T)` during composition to inspect an
 attached component. The read returns `Option<&T>`, remains valid only for its
 short lexical borrow, and does not subscribe to changes. A typed `#[view]`
 model role with `watch(...)` is the rendering path when model changes must
@@ -226,39 +226,45 @@ Mutable point fetches use the same component-change notification path as
 iteration. Repeated writes to one entity/component pair are coalesced; their
 records fit the query's reserved unique-row budget.
 
-Event bodies receive event fields directly and use capability macros for ECS
-access. `com!(entity, T)` performs a short read. `commands!()` returns the
-handler's reusable deferred-command facade; structural changes are applied in
-source order after all short reads and the event body have ended. Component
-selectors can contain another `com!` read; both use the current event context:
+Event blocks read their payload through `event`. A literal callback or a named `#[event]` function declares entity, query, resource, and command roles in its parameters. Queries use the same access validation and point-fetch rules as systems. Deferred commands apply in source order after parameter borrows end.
 
 ```rust
 use mirui::input::event::BubbleControl;
+use mirui::prelude::*;
 
 #[component]
 struct Selected;
 
+#[event]
+fn toggle_selection(
+    input: event!(Tap),
+    selections: query!(Widget, optional Selected),
+    commands: commands!(),
+) -> BubbleControl {
+    let Some((_, selected)) = selections.get(input.target) else {
+        return BubbleControl::Allow;
+    };
+    if selected.is_some() {
+        commands.remove::<Selected>(input.target);
+    } else {
+        commands.insert(input.target, Selected);
+    }
+    BubbleControl::Allow
+}
+
 #[compose]
 fn selectable() -> Entity {
     ui! {
-        View () on Tap {
-            if com!(target, Selected).is_some() {
-                commands!().remove::<Selected>(target);
-            } else {
-                commands!().insert(target, Selected);
-            }
-            BubbleControl::Allow
-        }
+        View () on Tap(toggle_selection::callback())
     }
 }
+
+app.with_event_capacity(EventCapacity::new().commands(
+    CommandCapacity::new().insert::<Selected>(1).remove::<Selected>(1),
+));
 ```
 
-Returning `()` or `true` consumes the event. Returning `false` or
-`BubbleControl::Allow` continues bubbling. Gesture bodies expose the fields of
-their event variant, such as `target`, `x`, `y`, `dx`, and `dy`; widget
-business events expose their named payload fields. A panic discards that
-invocation's pending commands. The command buffer retains its capacity for the
-next event.
+For consumable input, returning `()` or `true` stops propagation; `false` or `BubbleControl::Allow` continues it. Widget notifications require `()` and notify every selected listener. A gesture payload's `target` is the original recognized target; `entity!()` is the current handler node. A panic discards that invocation's pending commands, retaining the command buffer for reuse.
 
 `#[timer]` declares one schedule and typed callback roles. Model instances are
 provided when the generated timer is registered; entity and deferred-command
@@ -473,6 +479,26 @@ The default Tap key matches every tap. An explicit count matches only that
 multiplicity, so `Tap::EVENT.configure((1,))` differs from `Tap::EVENT`.
 Counts outside 1 through 255 return `TapCountError`. Other gesture keys have no options.
 
+Event blocks, inline callbacks, ordinary Rust payload functions, and named `#[event]` callback factories use the same installer and prepared executor. A block reads its payload through `event`; a single untyped closure parameter receives the payload inferred from the selector. A function passed directly receives `&E` and returns a result permitted by the event's route. Callback parameters use `event!(E)`, `entity!()`, `res!(...)`, `query!(...)`, and `commands!()` for invocation-time access. Models bind through the enclosing composition or a named callback factory.
+
+```rust,ignore
+Button(text: "DROP") on Tap { game.drop_ball(); }
+
+View () on Tap(|input| { game.select_at(input.x, input.y); })
+
+View () on DragMove(|input: event!(DragMove), node: entity!(), items: query!(mut Draggable)| {
+    if let Some(item) = items.get(node) {
+        item.move_by(input.dx, input.dy);
+    }
+})
+
+View () on DragMove(moved::callback(game, step))
+
+View () on Tap(handle_tap)
+```
+
+An event block treats all parenthesized arguments as selector options. Without a block, the last argument is the callback and any preceding arguments are options: `on Tap(2, callback)`. Node children precede trailing callback bindings: `View () { child_panel() } on Tap(callback)`.
+
 `on Tap(n) { ... }` evaluates its `u32` configuration once when installing the handler, using the same validation as a Tap key. Invalid counts log a warning and skip that binding without failing UI construction or suppressing other valid handlers. A node with no valid gesture bindings receives no authored gesture handler or extra hit target. Dispatch compares the observed tap count with the stored options without reevaluating `n` or repeating installation warnings.
 
 Ordinary and counted Tap handlers run in declaration order, stopping at the first consuming handler. An ordinary Tap is not a fallback for counted handlers. All nodes in a bubbling gesture use the original target's count, frozen before internal or authored callbacks run.
@@ -486,10 +512,7 @@ View ()
 The first handler runs on every click and allows the second handler to run
 on a double tap. Returning `()` or `true` instead stops that sequence.
 
-`Key` and `CharInput` carry their platform fields and support entity and App
-input source capabilities. `Wheel` carries its position and deltas; `Rotary`
-carries its device id and delta, without fabricated pointer coordinates.
-Wheel and rotary callback sources are App-only.
+`Key` and `CharInput` carry their platform fields and support entity and App input source capabilities. `InputSelectors` supplies their component-node keys; focused nodes and ancestors run before App fallback. `Wheel` carries its position and deltas; `Rotary` carries its device id and delta, without fabricated pointer coordinates. Wheel and rotary callback sources are App-only.
 
 SDL and WGPU preserve press and release for supported editing keys. Character
 input is produced by text input or key presses, not key releases. Escape retains
@@ -607,9 +630,11 @@ Each count reserves a combination of operations, not a per-type runtime quota. T
 
 Named event factories derive installation inputs, typed invocation parameters, access metadata, and body arguments from one ordered parameter plan. Authored types remain in their declaration scope; relative paths are relocated only when emitting the generated factory module. Model and ordinary value arguments retain their declaration order.
 
-Internal typed callbacks share the system parameter fetch and access validator. Preparation rejects component/resource aliases and foreign, mixed, or retired Model captures with structured installation errors. App logs these errors and skips the affected binding. Successful preparation binds the callback to one App and reserves the current query change-record budget. The prepared callback and its access plan cannot be replaced independently.
+Internal typed callbacks share the system parameter fetch and access validator. Preparation rejects component/resource aliases and foreign, mixed, or retired declared Model bindings with structured installation errors. App logs these errors and skips the affected binding. Successful preparation binds the callback to one App and reserves the current query change-record budget. The prepared callback and its access plan cannot be replaced independently.
 
 Event factories accept the same shared binding values as composition. Optional bindings recursively contribute their registered Model identity; `None` contributes none. Signal, Computed, and audio handles retain their own access rules instead of acquiring a Model registration. Capture requirements merge without retaining Model cells or allocating owner storage. This is an installation identity check, not a new lifetime lease or poison check.
+
+Ordinary Rust captures retain their value semantics. The framework does not inspect or reject manually constructed containers to discover Models inside them. Model access still enforces the registered App and lifetime; an invocation-time failure does not roll back values already changed by the callback.
 
 Invocation checks the App identity and entity generation before fetching
 parameters. Entity contexts receive an `Entity`; App contexts receive no entity.
@@ -694,7 +719,7 @@ reserved step storage, and rejects foreign owners or busy scratch before
 scrolling. App fallback uses this route after scroll acceptance is checked.
 
 Internal hooks and listeners share the reserved step storage and cleanup guard.
-A failed reservation does not raise either logical quota. The pool's ABI is confined to hidden macro support. App installs callbacks into this pool and prepares structural storage; widget `on` syntax is a separate authoring frontend.
+A failed reservation does not raise either logical quota. The pool's ABI is confined to hidden macro support. App callbacks, widget builders, and all three `on` forms install into the same prepared listener pool.
 
 ### Deferred widget notification submission
 
@@ -714,11 +739,11 @@ buffer. Dispatch swaps their storage and drains the selected read batch without
 borrowing the World resource during callbacks or collecting a temporary Vec.
 Events queued by a callback stay in the write buffer, outside that batch.
 
-Recursive draining of the same read buffer returns `Busy`. Unwinding clears its
-unread events while retaining capacity and any newly queued write events.
-Removing or replacing `GestureSystem` does not invalidate the selected batch
-or consume the replacement's events. Standalone `GestureEvents` retains only
-its ordinary output buffer.
+Recursive draining of the same read buffer returns `Busy`. Dispatch errors and unwinding clear unread events while retaining capacity and newly queued write events. Removing or replacing `GestureSystem` does not invalidate the selected batch or consume the replacement's events. Standalone `GestureEvents` retains only its ordinary output buffer.
+
+Each complete gesture route releases its listener snapshot before flushing widget notifications. The next gesture in the retained batch runs afterward; an arbitrary platform poll burst therefore does not accumulate all its widget notices into one business buffer. Inner notification delivery keeps FIFO order and its explicit feedback limit.
+
+Builtin widgets enqueue notifications only when that entity has a listener for the exact payload type. Unsubscribed controls do not need business notification storage. Programmatic property updates do not emit user notifications. Explicit `commands.emit` still validates storage even without a listener; missing or exhausted capacity never triggers hidden growth, and completed state changes are not rolled back.
 
 This handoff allocates no storage during dispatch. Recognizer writes retain
 their existing growth policy. The handoff does not impose a bounded input-burst
@@ -754,13 +779,7 @@ fn moved(
 }
 ```
 
-`moved::callback(game, step)` describes the callback without exposing World or
-generated handle types. `event!(E)` borrows a concrete payload; omitting it
-leaves the event type to the binding site. `entity!()` excludes App-only
-bindings. Notification callbacks return `()`; consumable routes also accept
-`bool` or `BubbleControl`. The declaration shares System resource/query
-lowering and the prepared executor. Listener installation and the `on`
-frontends are separate from this factory facility.
+`moved::callback(game, step)` describes the callback without exposing World or generated handle types. `event!(E)` borrows a concrete payload; omitting it leaves the event type to the binding site. `entity!()` excludes App-only bindings. Notification callbacks return `()`; consumable routes also accept `bool` or `BubbleControl`. Named factories and inline `on` callbacks share System resource/query lowering and the prepared executor.
 
 ## Choosing state and rendering roles
 
@@ -770,10 +789,10 @@ frontends are separate from this factory facility.
 | `Signal<T>` | A standalone reactive value or a value published by another owner | `set` / `update` notify reactive readers |
 | `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `model!(T)` fields retain registered model identity |
 | `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances among generated bindings, callbacks, and direct child calls |
-| `com!(entity, T)` | Read a component in composition or an event | Returns a short-lived `Option<&T>` without subscribing |
+| `com!(entity, T)` | Read a component during composition | Returns a short-lived `Option<&T>` without subscribing; event callbacks use `query!` parameters |
 | `View` / `#[view]` | Register a widget kind; nonempty bodies supply painting and empty bodies omit it | Independent hooks provide painting, attachment, gestures, observation, and systems; typed roles declare model projections and resources |
 | `#[system]` | Scheduled updates | `model!(T)` captures a registered instance; `res!`, `query!`, and `commands!` declare all other runtime access |
-| `on Event { ... }` | Handle gesture and widget business events | Event fields are local bindings; `com!` reads and `commands!()` defers structural changes |
+| `on Event { ... }` | Handle gesture and widget business events | `event` borrows the typed payload; `commands!()` defers structural changes; callback parameters provide resource and query access |
 | `#[timer]` | Run a callback on a time schedule | `model!`, `entity!`, and `commands!` declare callback access |
 | `#[animate]` | Apply a scalar motion to component state | `motion!`, `component!`, `model!`, `entity!`, and `commands!` declare frame access |
 | `AudioHandle` | Shared output controls when the `audio` feature is enabled | Host UI and demo controls read one output state and submit to one bounded bus |
@@ -800,9 +819,7 @@ arguments explicitly, including types used through associated resource types.
 `Slider` input and `prop::SliderValue` use the same clamped value update. A
 programmatic property change invalidates the control without emitting a user
 gesture event.
-`Switch` tap and `prop::SwitchOn` changes also use one animation-seeding path.
-Assigning the current value leaves the running spring untouched; only taps
-emit `SwitchEvent::Toggled`.
+`Switch` tap and `prop::SwitchOn` changes also use one animation-seeding path. Assigning the current value leaves the running spring untouched; only taps emit `switch::Toggled`.
 `Checkbox.checked` can bind a reactive value through `ui!`; it shares its
 checked-state update with taps, while programmatic changes emit no toggle event.
 

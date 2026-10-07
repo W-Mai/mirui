@@ -1,4 +1,5 @@
-use super::contract::{AppSource, Event, InputFallback, InputSource};
+use super::contract::{AppSource, Event, EventKey, InputFallback, InputSource};
+use crate::ecs::Component;
 use crate::types::Fixed;
 
 /// Encoder/Digital Crown press button code.
@@ -89,6 +90,15 @@ typed_inputs! {
     Key(InputSource) { code: u32, pressed: bool },
     CharInput(InputSource) { ch: char },
 }
+
+/// Focused keyboard selectors available on component nodes.
+#[allow(non_upper_case_globals)]
+pub trait InputSelectors: Component {
+    const Key: EventKey<Key> = Key::EVENT;
+    const CharInput: EventKey<CharInput> = CharInput::EVENT;
+}
+
+impl<T: Component> InputSelectors for T {}
 
 impl InputEvent {
     pub(crate) fn is_user_input(&self) -> bool {

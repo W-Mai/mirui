@@ -328,10 +328,7 @@ Plugins package cross-cutting behaviour. Each plugin's docstring lists what it i
 | `InputFeedbackPlugin` | resources: `InputFeedback`, `InputFeedbackInput`; systems: cursor + rotary feedback; views: cursor (pri 90), rotary (pri 91); entities: `OverlayCursor` (lazy), `OverlayRotary` (eager); hooks: `on_event`, `pre_render` |
 | `AudioPlugin` (`audio` feature) | resources: `AudioHandle`, `AudioStateSignal`; hooks: `on_event`, `pre_render`, suspend, resume, quit |
 
-Custom plugins implement `mirui::app::plugin::Plugin` and declare inserted
-resources, systems, Views, entities, and lifecycle hooks in their rustdoc.
-Plugin hooks are the low-level integration boundary; application events use
-`on Event { ... }` bodies instead.
+Custom plugins implement `mirui::app::plugin::Plugin` and declare inserted resources, systems, Views, entities, and lifecycle hooks in their rustdoc. Plugin hooks are the low-level integration boundary. Widget events use `on` blocks or callbacks; lifecycle notifications and input fallback use `App::on_event` with named callback factories.
 
 ## ScrollView
 

@@ -7,15 +7,15 @@ use std::rc::Rc;
 
 use mirui::app::App;
 use mirui::ecs::{Component, Entity, World};
-use mirui::input::event::GestureHandler;
-use mirui::input::event::bubble_dispatch_at;
-use mirui::input::event::gesture::GestureEvent;
+use mirui::input::event::BubbleControl;
+use mirui::input::event::contract::Event;
+use mirui::input::event::gesture::{GestureEvent, Tap};
 use mirui::input::event::multi_tap::MultiTapTracker;
 use mirui::types::Fixed;
 use mirui::ui::IdMap;
 use mirui::ui::builder::WidgetBuilder;
-use mirui::ui::widgets::switch::{Switch, SwitchEvent, SwitchHandler};
-use mirui::{compose, model, ui};
+use mirui::ui::widgets::switch::{Switch, Toggled};
+use mirui::{compose, event, model, ui};
 use tracking_allocator::tracked_allocations;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -46,9 +46,9 @@ impl EventCounter {
 #[compose]
 fn model_event(counter: model!(EventCounter)) {
     ui! {
-        View () on Tap {
+        View (id: "counter_event") on Tap {
             counter.increment();
-            commands!().insert(target, Marker(counter.value()));
+            commands!().insert(event.target, Marker(counter.value()));
         }
     };
 }
@@ -63,8 +63,22 @@ impl Drop for DropMarker {
     }
 }
 
+fn event_capacity() -> mirui::app::EventCapacity {
+    mirui::app::EventCapacity::new()
+        .commands(
+            mirui::ecs::CommandCapacity::new()
+                .insert::<Marker>(2)
+                .insert::<DropMarker>(1),
+        )
+        .notifications::<Toggled>(1)
+        .flush_limit(1)
+}
+
 fn fresh_world() -> (World, Entity) {
-    let mut world = World::new();
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets()
+        .with_event_capacity(event_capacity());
+    let mut world = app.world;
     world.insert_resource(IdMap::new());
     world.insert_resource(MultiTapTracker::new());
     let root = WidgetBuilder::new(&mut world).id();
@@ -79,24 +93,121 @@ fn tap(target: Entity) -> GestureEvent {
     }
 }
 
+fn dispatch(world: &mut World, event: &GestureEvent, now_ms: u32) -> BubbleControl {
+    let decision = mirui::__macro_support::dispatch_entity_gesture(world, event, now_ms).unwrap();
+    mirui::__macro_support::flush_entity_events(world).unwrap();
+    decision
+}
+
+#[event]
+fn registered_model_commands(
+    counter: model!(EventCounter),
+    input: event!(Tap),
+    node: entity!(),
+    commands: commands!(),
+) {
+    assert_eq!(input.target, node);
+    counter.increment();
+    commands.insert(node, Marker(counter.value()));
+}
+
+fn propagate_tap(input: &Tap) -> bool {
+    input.x < Fixed::ZERO
+}
+
+#[event]
+fn aliased_resources(writes: res!(mut CaptureWrites), snapshot: res!(CaptureWrites)) {
+    writes.0 += snapshot.0 + 1;
+}
+
+#[test]
+fn callback_values_accept_functions_and_preserve_descriptor_requirements() {
+    let mut first = App::headless(32, 32);
+    let foreign = first.add_model(EventCounter { value: 0 });
+    let mut app = App::headless(32, 32);
+    app.with_event_capacity(event_capacity());
+    app.add_resource(CaptureWrites::default());
+    let local = app.add_model(EventCounter { value: 0 });
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            Column() {
+                View(id: "function") on Tap(propagate_tap)
+                View(id: "local") on Tap(registered_model_commands::callback(local.clone()))
+                View(id: "foreign") on Tap(registered_model_commands::callback(foreign.clone()))
+                View(id: "alias") on Tap(aliased_resources::callback())
+            }
+        };
+    });
+    let function = app.world.find_by_id("function").unwrap();
+    let local_target = app.world.find_by_id("local").unwrap();
+    let foreign_target = app.world.find_by_id("foreign").unwrap();
+    let alias_target = app.world.find_by_id("alias").unwrap();
+    assert!(app.world.has::<mirui::ui::HitTarget>(function));
+    assert!(app.world.has::<mirui::ui::HitTarget>(local_target));
+    assert!(!app.world.has::<mirui::ui::HitTarget>(foreign_target));
+    assert!(!app.world.has::<mirui::ui::HitTarget>(alias_target));
+    assert_eq!(
+        dispatch(&mut app.world, &tap(function), 100),
+        BubbleControl::Allow
+    );
+    assert_eq!(
+        dispatch(&mut app.world, &tap(local_target), 200),
+        BubbleControl::Prevent
+    );
+    assert_eq!(app.world.get::<Marker>(local_target), Some(&Marker(1)));
+    assert_eq!(local.value(), 1);
+    assert_eq!(foreign.value(), 0);
+    assert_eq!(app.world.resource::<CaptureWrites>().unwrap().0, 0);
+    let allocations = tracked_allocations(|| {
+        dispatch(&mut app.world, &tap(function), 300);
+    });
+    assert_eq!(allocations, 0);
+
+    let mut no_budget = App::headless(32, 32);
+    let model = no_budget.add_model(EventCounter { value: 0 });
+    let root = no_budget.spawn_root().id();
+    no_budget.compose(root, |cx| {
+        ui! { View(id: "commands") on Tap(registered_model_commands::callback(model.clone())) };
+    });
+    let target = no_budget.world.find_by_id("commands").unwrap();
+    assert!(!no_budget.world.has::<mirui::ui::HitTarget>(target));
+    assert_eq!(model.value(), 0);
+}
+
+#[event]
+fn toggled_commands(
+    input: event!(Toggled),
+    recipient: Entity,
+    markers: query!(Marker),
+    commands: commands!(),
+) {
+    assert!(input.now);
+    assert_eq!(markers.get(recipient), Some(&Marker(0)));
+    commands.insert(recipient, Marker(1));
+    assert_eq!(markers.get(recipient), Some(&Marker(0)));
+}
+
 #[test]
 fn event_commands_apply_in_source_order_after_component_reads_end() {
     let (mut world, root) = fresh_world();
     let target = {
         let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
         ui! {
-            View () on Tap {
-                assert_eq!(com!(com!(target, Parent).unwrap().0, Marker) .map(| marker | marker.0), Some(0));
-                commands!().insert(target, Marker(1));
-                commands!().insert(target, Marker(2));
-                assert_eq!(com!(target, Marker) .map(| marker | marker.0), Some(0));
-            }
+            View () on Tap(|input: event!(Tap), parents: query!(Parent), markers: query!(Marker), commands: commands!()| {
+                let target = input.target;
+                let parent = parents.get(target).unwrap().0;
+                assert_eq!(markers.get(parent).map(|marker| marker.0), Some(0));
+                commands.insert(target, Marker(1));
+                commands.insert(target, Marker(2));
+                assert_eq!(markers.get(target).map(|marker| marker.0), Some(0));
+            })
         }
     };
     world.insert(target, Marker(0));
     world.insert(target, Parent(target));
 
-    bubble_dispatch_at(&mut world, &tap(target), 100);
+    dispatch(&mut world, &tap(target), 100);
 
     assert_eq!(world.get::<Marker>(target), Some(&Marker(2)));
 }
@@ -113,25 +224,25 @@ fn panicking_event_discards_commands_and_reuses_its_queue() {
         ui! {
             View () on Tap {
                 if fail_once.replace(false) {
-                    commands!().insert(target, DropMarker(Rc::clone(&payload_drops)));
-                    commands!().insert(target, Marker(1));
+                    commands!().insert(event.target, DropMarker(Rc::clone(&payload_drops)));
+                    commands!().insert(event.target, Marker(1));
                     panic!("event failed");
                 }
-                commands!().insert(target, Marker(2));
+                commands!().insert(event.target, Marker(2));
             }
         }
     };
     world.insert(target, Marker(0));
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        bubble_dispatch_at(&mut world, &tap(target), 100);
+        dispatch(&mut world, &tap(target), 100);
     }));
     assert!(result.is_err());
     assert_eq!(drops.get(), 1);
     assert!(world.get::<DropMarker>(target).is_none());
     assert_eq!(world.get::<Marker>(target), Some(&Marker(0)));
 
-    bubble_dispatch_at(&mut world, &tap(target), 200);
+    dispatch(&mut world, &tap(target), 200);
     assert_eq!(world.get::<Marker>(target), Some(&Marker(2)));
 }
 
@@ -141,14 +252,14 @@ fn warmed_event_commands_do_not_allocate() {
     let target = {
         let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
         ui! {
-            View () on Tap { commands!().insert(target, Marker(7)); }
+            View () on Tap { commands!().insert(event.target, Marker(7)); }
         }
     };
     world.insert(target, Marker(0));
 
-    bubble_dispatch_at(&mut world, &tap(target), 100);
+    dispatch(&mut world, &tap(target), 100);
     let allocations = tracked_allocations(|| {
-        bubble_dispatch_at(&mut world, &tap(target), 200);
+        dispatch(&mut world, &tap(target), 200);
     });
 
     assert_eq!(allocations, 0);
@@ -156,51 +267,98 @@ fn warmed_event_commands_do_not_allocate() {
 }
 
 #[test]
-fn generated_event_handler_cannot_move_between_worlds() {
-    let (mut first, root) = fresh_world();
-    let target = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut first, root);
-        ui! {
-            View () on Tap { commands!().insert(target, Marker(1)); }
-        }
+fn foreign_registered_model_binding_is_skipped_without_blocking_local_bindings() {
+    let mut first = App::headless(32, 32);
+    let foreign = first.add_model(EventCounter { value: 0 });
+    let mut second = App::headless(32, 32);
+    second.with_event_capacity(event_capacity());
+    let local = second.add_model(EventCounter { value: 0 });
+    let target = second.spawn_root().id();
+    second.world.insert(target, Marker(0));
+
+    mirui::__macro_support::install_entity_event(
+        &mut second.world,
+        target,
+        Tap::EVENT,
+        registered_model_commands::callback::<mirui::__macro_support::NodeContext>(foreign.clone()),
+    );
+    assert!(!second.world.has::<mirui::ui::HitTarget>(target));
+    assert_eq!(
+        dispatch(&mut second.world, &tap(target), 100),
+        BubbleControl::Allow
+    );
+    assert_eq!(second.world.get::<Marker>(target), Some(&Marker(0)));
+    assert_eq!(foreign.value(), 0);
+
+    mirui::__macro_support::install_entity_event(
+        &mut second.world,
+        target,
+        Tap::EVENT,
+        registered_model_commands::callback::<mirui::__macro_support::NodeContext>(local.clone()),
+    );
+    assert_eq!(
+        dispatch(&mut second.world, &tap(target), 200),
+        BubbleControl::Prevent
+    );
+    assert_eq!(local.value(), 1);
+    assert_eq!(foreign.value(), 0);
+    assert_eq!(second.world.get::<Marker>(target), Some(&Marker(1)));
+}
+
+#[derive(Default)]
+struct CaptureWrites(u32);
+
+struct CaptureConfig<G> {
+    game: G,
+}
+
+#[test]
+fn ordinary_captures_preserve_value_semantics_and_model_access_guards() {
+    let mut first = App::headless(32, 32);
+    let foreign = first.add_model(EventCounter { value: 0 });
+    let config = CaptureConfig {
+        game: foreign.clone(),
     };
-    let handler = first
-        .remove::<GestureHandler>(target)
-        .expect("generated gesture handler");
-
-    let (mut second, second_root) = fresh_world();
-    second.insert(second_root, handler);
+    let mut second = App::headless(32, 32);
+    second.add_resource(CaptureWrites::default());
+    let root = second.spawn_root().id();
+    second.compose(root, |cx| {
+        ui! {
+            View(id: "foreign_capture") on Tap(|writes: res!(mut CaptureWrites)| {
+                writes.0 += 1;
+                config.game.increment();
+            })
+        };
+    });
+    let target = second.world.find_by_id("foreign_capture").unwrap();
+    assert!(second.world.has::<mirui::ui::HitTarget>(target));
     let result = catch_unwind(AssertUnwindSafe(|| {
-        GestureHandler::trigger(&mut second, second_root, &tap(second_root));
+        dispatch(&mut second.world, &tap(target), 100);
     }));
-
     assert!(result.is_err());
-    assert!(second.get::<Marker>(second_root).is_none());
+    assert_eq!(second.world.resource::<CaptureWrites>().unwrap().0, 1);
+    assert_eq!(foreign.value(), 0);
 }
 
 #[test]
 fn warmed_model_event_and_commands_do_not_allocate() {
     let mut app = App::headless(32, 32);
+    app.with_default_widgets()
+        .with_event_capacity(event_capacity());
     let root = app.spawn_root().id();
     let counter = app.add_model(EventCounter { value: 0 });
     app.compose(root, |cx| model_event(cx, counter.clone()));
-    let target = app
-        .world
-        .query::<GestureHandler>()
-        .iter()
-        .map(|(entity, _)| entity)
-        .next()
-        .expect("generated event target");
+    let target = app.world.find_by_id("counter_event").unwrap();
     let event = tap(target);
 
     assert_eq!(
-        GestureHandler::trigger(&mut app.world, target, &event),
-        Some(true)
+        dispatch(&mut app.world, &event, 100),
+        BubbleControl::Prevent
     );
     let allocations = tracked_allocations(|| {
         assert_eq!(
-            GestureHandler::trigger(&mut app.world, target, &event),
-            Some(true)
+            dispatch(&mut app.world, &event, 200),
+            BubbleControl::Prevent
         );
     });
 
@@ -210,29 +368,24 @@ fn warmed_model_event_and_commands_do_not_allocate() {
 }
 
 #[test]
-fn business_events_preserve_fields_bubbling_and_deferred_commands() {
+fn business_events_preserve_fields_and_deferred_commands() {
     let (mut world, root) = fresh_world();
     let recipient = world.spawn(Marker(0));
     let switch = {
         let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
         ui! {
-            Switch () on Toggled {
-                assert!(now);
-                assert_eq!(com!(recipient, Marker), Some(& Marker(0)));
-                commands!().insert(recipient, Marker(1));
-                assert_eq!(com!(recipient, Marker), Some(& Marker(0)));
-                false
-            }
+            Switch () on Toggled(toggled_commands::callback(recipient))
         }
     };
-    let callback = world
-        .get::<SwitchHandler>(switch)
-        .expect("switch handler")
-        .on_event
-        .clone_out();
-
-    let consumed = callback.call(&mut world, switch, &SwitchEvent::Toggled { now: true });
-
-    assert!(!consumed);
+    assert_eq!(
+        mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(switch), 100).unwrap(),
+        BubbleControl::Prevent
+    );
+    assert!(world.get::<Switch>(switch).unwrap().on);
+    assert_eq!(world.get::<Marker>(recipient), Some(&Marker(0)));
+    assert_eq!(
+        mirui::__macro_support::flush_entity_events(&mut world).unwrap(),
+        1
+    );
     assert_eq!(world.get::<Marker>(recipient), Some(&Marker(1)));
 }

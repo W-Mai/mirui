@@ -45,7 +45,7 @@ pub fn build_widgets() {
                 border_radius: 10
             ) [
                 Placeholder("Your name"),
-            ] on Changed { name_changed.set(len > 0); }
+            ] on Changed { name_changed.set(event.len > 0); }
             Row (
                 width: Dimension::percent(100),
                 max_width: 280,
@@ -53,7 +53,7 @@ pub fn build_widgets() {
                 align: AlignItems::Center,
                 column_gap: 10
             ) {
-                Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(now); }
+                Checkbox (width: 24, height: 24) on Toggled { agreement_changed.set(event.now); }
                 Text ("I agree to continue", grow: 1.0, text_color: ColorToken::OnSurface)
             }
             if $submit_bg {
@@ -94,6 +94,12 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::text_input::Changed>(1)
+            .notifications::<crate::ui::widgets::checkbox::Toggled>(1)
+            .flush_limit(2),
+    );
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
     app.compose(parent, build_widgets);
@@ -110,22 +116,29 @@ mod tests {
     use crate::ui::UiScope;
 
     fn emit_input_changed(world: &mut World, entity: Entity, len: u8) {
-        let callback = world
-            .get::<crate::ui::widgets::TextInputHandler>(entity)
-            .expect("input changed handler")
-            .on_event
-            .clone_out();
-        callback.call(
-            world,
-            entity,
-            &crate::ui::widgets::TextInputEvent::Changed { len },
-        );
+        {
+            crate::input::event::runtime::emit_widget(
+                world,
+                entity,
+                crate::ui::widgets::text_input::Changed { len },
+            )
+            .unwrap();
+            crate::__macro_support::flush_entity_events(world).unwrap();
+        };
         flush_signal_dirty(world);
     }
 
     #[test]
     fn submit_lights_up_only_when_both_set() {
         let mut world = World::new();
+        crate::input::event::runtime::configure(
+            &mut world,
+            EventCapacity::new()
+                .notifications::<crate::ui::widgets::text_input::Changed>(1)
+                .notifications::<crate::ui::widgets::checkbox::Toggled>(1)
+                .flush_limit(2),
+        )
+        .unwrap();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
@@ -152,25 +165,27 @@ mod tests {
         assert_eq!(normal(&world, false), off, "starts disabled");
         emit_input_changed(&mut world, name, 3);
         assert_eq!(normal(&world, false), off, "name alone is not enough");
-
-        let callback = world
-            .get::<crate::ui::widgets::checkbox::CheckboxHandler>(agree)
-            .expect("checkbox handler")
-            .on_event
-            .clone_out();
-        callback.call(
-            &mut world,
-            agree,
-            &crate::ui::widgets::checkbox::CheckboxEvent::Toggled { now: true },
-        );
+        {
+            crate::input::event::runtime::emit_widget(
+                &mut world,
+                agree,
+                crate::ui::widgets::checkbox::Toggled { now: true },
+            )
+            .unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         flush_signal_dirty(&mut world);
         assert_eq!(normal(&world, true), on, "both set -> submit enabled");
 
-        callback.call(
-            &mut world,
-            agree,
-            &crate::ui::widgets::checkbox::CheckboxEvent::Toggled { now: false },
-        );
+        {
+            crate::input::event::runtime::emit_widget(
+                &mut world,
+                agree,
+                crate::ui::widgets::checkbox::Toggled { now: false },
+            )
+            .unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         flush_signal_dirty(&mut world);
         assert_eq!(normal(&world, false), off, "unchecking disables submit");
     }

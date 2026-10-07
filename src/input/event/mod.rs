@@ -1,3 +1,4 @@
+pub(crate) mod binding;
 pub(crate) mod callback;
 pub(crate) mod capacity;
 pub mod contract;
@@ -20,9 +21,8 @@ pub use capacity::EventCapacity;
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::ui::{Parent, UserState};
-use core::cell::RefCell;
 
-use gesture::{GestureEvent, GestureSystem};
+use gesture::GestureSystem;
 use hit_test::hit_test;
 use input::InputEvent;
 use scroll::{ScrollDragState, scroll_system_with_target};
@@ -169,162 +169,6 @@ pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
     false
 }
 
-/// Gesture handler callback. `Fn` is a zero-alloc pointer for internal and
-/// hand-written handlers; `Closure` carries an `Rc` so `ui!` handlers can
-/// capture state (e.g. a `Signal`). Returns `true` to consume the event.
-type GestureFn = fn(&mut World, Entity, &GestureEvent, u8) -> bool;
-type GestureClosure = alloc::rc::Rc<dyn Fn(&mut World, Entity, &GestureEvent, u8) -> bool>;
-
-pub enum GestureCallback {
-    Fn(GestureFn),
-    Closure(GestureClosure),
-}
-
-impl GestureCallback {
-    fn call(&self, world: &mut World, entity: Entity, event: &GestureEvent, tap_count: u8) -> bool {
-        match self {
-            GestureCallback::Fn(f) => f(world, entity, event, tap_count),
-            GestureCallback::Closure(rc) => rc(world, entity, event, tap_count),
-        }
-    }
-}
-
-pub struct GestureHandler {
-    pub on_gesture: GestureCallback,
-}
-
-impl GestureHandler {
-    pub fn from_fn(f: GestureFn) -> Self {
-        GestureHandler {
-            on_gesture: GestureCallback::Fn(f),
-        }
-    }
-
-    /// Look up `entity`'s gesture handler and run it. Clones the callback out
-    /// of the borrow before invoking so the closure may touch the World.
-    pub fn trigger(world: &mut World, entity: Entity, event: &GestureEvent) -> Option<bool> {
-        let tap_count = multi_tap::current_count(world, event.target());
-        Self::trigger_counted(world, entity, event, tap_count)
-    }
-
-    fn trigger_counted(
-        world: &mut World,
-        entity: Entity,
-        event: &GestureEvent,
-        tap_count: u8,
-    ) -> Option<bool> {
-        let cb = world
-            .get::<GestureHandler>(entity)
-            .map(|h| match &h.on_gesture {
-                GestureCallback::Fn(f) => GestureCallback::Fn(*f),
-                GestureCallback::Closure(rc) => GestureCallback::Closure(alloc::rc::Rc::clone(rc)),
-            })?;
-        Some(cb.call(world, entity, event, tap_count))
-    }
-}
-
-/// Business-event callback, generic over the widget's event type. `Closure`
-/// carries an `Rc` so a `ui!` handler can capture state such as a `Signal`.
-pub type BusinessFn<E> = fn(&mut World, Entity, &E) -> bool;
-pub type BusinessClosure<E> = alloc::rc::Rc<dyn Fn(&mut World, Entity, &E) -> bool>;
-
-pub enum BusinessCallback<E> {
-    Fn(BusinessFn<E>),
-    Closure(BusinessClosure<E>),
-}
-
-impl<E> BusinessCallback<E> {
-    pub fn call(&self, world: &mut World, entity: Entity, event: &E) -> bool {
-        match self {
-            BusinessCallback::Fn(f) => f(world, entity, event),
-            BusinessCallback::Closure(rc) => rc(world, entity, event),
-        }
-    }
-
-    /// Clone the callback out of a component borrow so it can run while the
-    /// World is mutably borrowed (same pattern as `GestureHandler::trigger`).
-    pub fn clone_out(&self) -> Self {
-        match self {
-            BusinessCallback::Fn(f) => BusinessCallback::Fn(*f),
-            BusinessCallback::Closure(rc) => BusinessCallback::Closure(alloc::rc::Rc::clone(rc)),
-        }
-    }
-}
-
-impl<E> From<BusinessFn<E>> for BusinessCallback<E> {
-    fn from(f: BusinessFn<E>) -> Self {
-        BusinessCallback::Fn(f)
-    }
-}
-
-/// Reusable deferred-command storage owned by one generated event handler.
-///
-/// This type is public only so `ui!` expansions can cross the crate boundary.
-#[doc(hidden)]
-pub struct EventCommandQueue {
-    owner: crate::ecs::world::WorldId,
-    queue: RefCell<crate::ecs::commands::CommandQueue>,
-}
-
-impl EventCommandQueue {
-    #[doc(hidden)]
-    pub fn new(world: &World) -> Self {
-        Self {
-            owner: world.id(),
-            queue: RefCell::new(crate::ecs::commands::CommandQueue::default()),
-        }
-    }
-
-    /// Run one handler body and apply its structural changes after every
-    /// short-lived event parameter has been released.
-    #[doc(hidden)]
-    pub fn run<R>(
-        &self,
-        world: &mut World,
-        body: impl FnOnce(&mut EventHandlerScope<'_, '_>) -> R,
-    ) -> R {
-        assert_eq!(
-            self.owner,
-            world.id(),
-            "generated event handler belongs to a different App"
-        );
-        let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
-        let mut queue = self.queue.borrow_mut();
-        let mut batch = queue.begin();
-        let result = {
-            let commands = batch.commands();
-            let mut scope = EventHandlerScope { world, commands };
-            body(&mut scope)
-        };
-        batch.finish(world).expect("deferred event commands failed");
-        result
-    }
-}
-
-/// Short-lived capabilities available while a generated event body runs.
-///
-/// This type is public only so `ui!` expansions can cross the crate boundary.
-#[doc(hidden)]
-pub struct EventHandlerScope<'world, 'commands> {
-    world: &'world mut World,
-    commands: crate::ecs::commands::DeferredCommands<'commands>,
-}
-
-impl<'world, 'commands> EventHandlerScope<'world, 'commands> {
-    #[doc(hidden)]
-    pub fn component<T: crate::ecs::Component>(
-        &self,
-        entity: impl core::borrow::Borrow<Entity>,
-    ) -> Option<&T> {
-        self.world.get::<T>(*entity.borrow())
-    }
-
-    #[doc(hidden)]
-    pub fn commands(&mut self) -> &mut crate::ecs::commands::DeferredCommands<'commands> {
-        &mut self.commands
-    }
-}
-
 /// Spelled-out bubble control for `on EventKind` body return values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BubbleControl {
@@ -332,103 +176,32 @@ pub enum BubbleControl {
     Allow,
 }
 
-/// Bridges user `on EventKind` body return types into the dispatch fn's bubble-control bit.
-///
-/// - `()` → `Prevent` (default)
-/// - `bool` → `true = Prevent, false = Allow`
-/// - `BubbleControl` → pass through
-pub trait HandlerReturn {
-    fn into_consumed(self) -> bool;
-}
-
-impl HandlerReturn for () {
-    fn into_consumed(self) -> bool {
-        true
-    }
-}
-
-impl HandlerReturn for bool {
-    fn into_consumed(self) -> bool {
-        self
-    }
-}
-
-impl HandlerReturn for BubbleControl {
-    fn into_consumed(self) -> bool {
-        matches!(self, BubbleControl::Prevent)
-    }
-}
-
-/// Update tap focus and multiplicity, then invoke handlers along the target's Parent chain until consumed. Pass the current clock time in milliseconds, or `0` for a semantic gesture without a clock.
-pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) {
-    if crate::ui::branch::is_hidden_in_tree(world, event.target()) {
-        return;
-    }
-    let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
-    focus::focus_on_tap(world, event);
-    multi_tap::observe_gesture(world, event, now_ms);
-    let tap_count = multi_tap::current_count(world, event.target());
-    let mut current = event.target();
-    loop {
-        let (first, rest) = collect_internal_handlers(world, current);
-        if let Some(f) = first
-            && f(world, current, event)
-        {
-            return;
-        }
-        for f in rest {
-            if f(world, current, event) {
-                return;
-            }
-        }
-        if GestureHandler::trigger_counted(world, current, event, tap_count) == Some(true) {
-            return;
-        }
-        match world.get::<Parent>(current) {
-            Some(p) => current = p.0,
-            None => return,
-        }
-    }
-}
-
-fn collect_internal_handlers(
-    world: &World,
-    entity: Entity,
-) -> (
-    Option<crate::ui::view::ViewInternalGesture>,
-    alloc::vec::Vec<crate::ui::view::ViewInternalGesture>,
-) {
-    let Some(registry) = world.resource::<crate::ui::view::ViewRegistry>() else {
-        return (None, alloc::vec::Vec::new());
-    };
-    let mut first = None;
-    let mut rest = alloc::vec::Vec::new();
-    for handler in registry.iter().filter_map(|v| {
-        let f = v.internal_gesture()?;
-        match v.component_filter() {
-            Some(type_id) if world.has_type(entity, type_id) => Some(f),
-            Some(_) => None,
-            None => Some(f),
-        }
-    }) {
-        if first.is_none() {
-            first = Some(handler);
-        } else {
-            rest.push(handler);
-        }
-    }
-    (first, rest)
-}
-
 #[cfg(test)]
 mod tests {
+    use super::contract::Event;
+    use super::gesture::GestureEvent;
     use super::*;
 
     struct TapCount(u8);
 
-    fn count_tap(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
-        world.resource_mut::<TapCount>().unwrap().0 += 1;
+    #[crate::event]
+    fn count_tap(count: res!(mut TapCount)) -> bool {
+        count.0 += 1;
         true
+    }
+
+    struct ExpectedOwner(crate::ecs::world::WorldId);
+
+    #[crate::event]
+    fn check_owner(expected: res!(ExpectedOwner)) -> bool {
+        assert_eq!(crate::core::reactive::current_world_id(), Some(expected.0));
+        assert!(crate::core::reactive::with_world(|_| ()).is_none());
+        true
+    }
+
+    #[crate::event]
+    fn panic_handler() -> bool {
+        panic!("gesture unwind");
     }
 
     #[test]
@@ -441,25 +214,45 @@ mod tests {
             second: u8,
             user: u8,
         }
-        fn first(world: &mut World, entity: Entity, _: &GestureEvent) -> bool {
+        fn first(
+            world: &mut World,
+            entity: Entity,
+            _: &GestureEvent,
+        ) -> Result<bool, crate::ecs::CommandError> {
             world.remove::<Marker>(entity);
             world.resource_mut::<Calls>().unwrap().first += 1;
-            false
+            Ok(false)
         }
-        fn second(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+        fn second(
+            world: &mut World,
+            _: Entity,
+            _: &GestureEvent,
+        ) -> Result<bool, crate::ecs::CommandError> {
             world.resource_mut::<Calls>().unwrap().second += 1;
-            true
-        }
-        fn user(world: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
-            world.resource_mut::<Calls>().unwrap().user += 1;
-            true
+            Ok(true)
         }
 
         let mut world = World::new();
         let entity = world.spawn_empty();
         world.insert(entity, Marker);
-        world.insert(entity, GestureHandler::from_fn(user));
         world.insert_resource(Calls::default());
+        // SAFETY: this fixture fetches only Calls and captures no Model.
+        let user = unsafe {
+            callback::event_callback::<
+                gesture::Tap,
+                callback::NodeContext,
+                (crate::__macro_support::ResMut<Calls>,),
+                bool,
+            >(
+                "user",
+                const { &[crate::__macro_support::SystemAccess::write_resource::<Calls>()] },
+                |(calls,), _, _| {
+                    calls.user += 1;
+                    true
+                },
+            )
+        };
+        binding::install_entity_event(&mut world, entity, gesture::Tap::EVENT, user);
         let mut registry = crate::ui::view::ViewRegistry::default();
         registry.insert(
             crate::ui::view::View::systems_only("first", &[])
@@ -473,7 +266,7 @@ mod tests {
         );
         world.insert_resource(registry);
 
-        bubble_dispatch_at(
+        runtime::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
@@ -481,7 +274,8 @@ mod tests {
                 target: entity,
             },
             0,
-        );
+        )
+        .unwrap();
         let calls = world.resource::<Calls>().unwrap();
         assert_eq!((calls.first, calls.second, calls.user), (1, 1, 0));
     }
@@ -498,7 +292,12 @@ mod tests {
         let target = world.spawn_empty();
         world.insert(target, Parent(branch));
         world.insert(target, focus::Focusable);
-        world.insert(target, GestureHandler::from_fn(count_tap));
+        binding::install_entity_event(
+            &mut world,
+            target,
+            gesture::Tap::EVENT,
+            count_tap::callback::<gesture::Tap, callback::NodeContext>(),
+        );
         world.insert(
             branch,
             crate::ui::branch::CachedBranchVisibility { selected: false },
@@ -509,8 +308,9 @@ mod tests {
             target,
         };
 
-        bubble_dispatch_at(&mut world, &tap, 0);
+        runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCount>().unwrap().0, 0);
+        assert!(world.resource::<multi_tap::MultiTapTracker>().is_none());
         assert_eq!(
             world.resource::<focus::FocusState>().unwrap().focused,
             Some(previous_focus)
@@ -520,8 +320,17 @@ mod tests {
             .get_mut::<crate::ui::branch::CachedBranchVisibility>(branch)
             .unwrap()
             .selected = true;
-        bubble_dispatch_at(&mut world, &tap, 0);
+        runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
+        let recorded = world
+            .resource::<multi_tap::MultiTapTracker>()
+            .unwrap()
+            .last
+            .unwrap();
+        assert_eq!(
+            (recorded.entity, recorded.time_ms, recorded.count),
+            (target, 0, 1)
+        );
         assert_eq!(
             world.resource::<focus::FocusState>().unwrap().focused,
             Some(target)
@@ -529,8 +338,17 @@ mod tests {
 
         world.insert(branch, crate::ui::Hidden);
         world.resource_mut::<focus::FocusState>().unwrap().focused = Some(previous_focus);
-        bubble_dispatch_at(&mut world, &tap, 0);
+        runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
+        let preserved = world
+            .resource::<multi_tap::MultiTapTracker>()
+            .unwrap()
+            .last
+            .unwrap();
+        assert_eq!(
+            (preserved.entity, preserved.time_ms, preserved.count),
+            (recorded.entity, recorded.time_ms, recorded.count)
+        );
         assert_eq!(
             world.resource::<focus::FocusState>().unwrap().focused,
             Some(previous_focus)
@@ -549,15 +367,16 @@ mod tests {
 
     #[test]
     fn gesture_callback_runs_with_its_world_scope() {
-        fn check_owner(world: &mut World, _entity: Entity, _event: &GestureEvent, _: u8) -> bool {
-            assert_eq!(crate::core::reactive::current_world_id(), Some(world.id()));
-            assert!(crate::core::reactive::with_world(|_| ()).is_none());
-            true
-        }
         let mut world = World::new();
         let entity = world.spawn_empty();
-        world.insert(entity, GestureHandler::from_fn(check_owner));
-        bubble_dispatch_at(
+        world.insert_resource(ExpectedOwner(world.id()));
+        binding::install_entity_event(
+            &mut world,
+            entity,
+            gesture::Tap::EVENT,
+            check_owner::callback::<gesture::Tap, callback::NodeContext>(),
+        );
+        runtime::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
@@ -565,25 +384,23 @@ mod tests {
                 target: entity,
             },
             0,
-        );
+        )
+        .unwrap();
         assert_eq!(crate::core::reactive::current_world_id(), None);
     }
 
     #[test]
     fn gesture_owner_scope_restores_after_callback_unwinds() {
-        fn panic_handler(
-            _world: &mut World,
-            _entity: Entity,
-            _event: &GestureEvent,
-            _: u8,
-        ) -> bool {
-            panic!("gesture unwind");
-        }
         let mut world = World::new();
         let entity = world.spawn_empty();
-        world.insert(entity, GestureHandler::from_fn(panic_handler));
+        binding::install_entity_event(
+            &mut world,
+            entity,
+            gesture::Tap::EVENT,
+            panic_handler::callback::<gesture::Tap, callback::NodeContext>(),
+        );
         let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            bubble_dispatch_at(
+            runtime::dispatch_gesture(
                 &mut world,
                 &GestureEvent::Tap {
                     x: Fixed::ZERO,
@@ -591,7 +408,8 @@ mod tests {
                     target: entity,
                 },
                 0,
-            );
+            )
+            .unwrap();
         }));
         assert!(failed.is_err());
         assert_eq!(crate::core::reactive::current_world_id(), None);
@@ -762,22 +580,31 @@ mod tests {
             USER_FIRES.store(0, Ordering::SeqCst);
         }
 
-        fn internal_consume(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+        fn internal_consume(
+            _w: &mut World,
+            _e: Entity,
+            _ev: &GestureEvent,
+        ) -> Result<bool, crate::ecs::CommandError> {
             INTERNAL_FIRES.fetch_add(1, Ordering::SeqCst);
-            true
+            Ok(true)
         }
 
-        fn internal_passthrough(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+        fn internal_passthrough(
+            _w: &mut World,
+            _e: Entity,
+            _ev: &GestureEvent,
+        ) -> Result<bool, crate::ecs::CommandError> {
             INTERNAL_FIRES.fetch_add(1, Ordering::SeqCst);
-            false
+            Ok(false)
         }
 
-        fn user_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent, _: u8) -> bool {
+        #[crate::event]
+        fn user_handler() -> bool {
             USER_FIRES.fetch_add(1, Ordering::SeqCst);
             true
         }
 
-        fn registry_with(internal: fn(&mut World, Entity, &GestureEvent) -> bool) -> ViewRegistry {
+        fn registry_with(internal: crate::ui::view::ViewInternalGesture) -> ViewRegistry {
             fn dummy_render(_w: &World, _e: Entity, _paint: &mut crate::ui::view::PaintCtx<'_>) {}
             let mut reg = ViewRegistry::default();
             reg.insert(
@@ -803,8 +630,13 @@ mod tests {
             let mut world = World::new();
             world.insert_resource(ViewRegistry::default());
             let e = world.spawn_empty();
-            world.insert(e, GestureHandler::from_fn(user_handler));
-            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            binding::install_entity_event(
+                &mut world,
+                e,
+                gesture::Tap::EVENT,
+                user_handler::callback::<gesture::Tap, callback::NodeContext>(),
+            );
+            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 0);
             assert_eq!(USER_FIRES.load(Ordering::SeqCst), 1);
         }
@@ -817,7 +649,7 @@ mod tests {
             world.insert_resource(registry_with(internal_consume));
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(USER_FIRES.load(Ordering::SeqCst), 0);
         }
@@ -830,8 +662,13 @@ mod tests {
             world.insert_resource(registry_with(internal_consume));
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            world.insert(e, GestureHandler::from_fn(user_handler));
-            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            binding::install_entity_event(
+                &mut world,
+                e,
+                gesture::Tap::EVENT,
+                user_handler::callback::<gesture::Tap, callback::NodeContext>(),
+            );
+            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(
                 USER_FIRES.load(Ordering::SeqCst),
@@ -848,8 +685,13 @@ mod tests {
             world.insert_resource(registry_with(internal_passthrough));
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            world.insert(e, GestureHandler::from_fn(user_handler));
-            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            binding::install_entity_event(
+                &mut world,
+                e,
+                gesture::Tap::EVENT,
+                user_handler::callback::<gesture::Tap, callback::NodeContext>(),
+            );
+            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(
                 USER_FIRES.load(Ordering::SeqCst),

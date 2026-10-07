@@ -1,5 +1,19 @@
-error: `on LongPress` does not take arguments; only `on Tap(n)` accepts one tap-count argument
-  --> tests/ui/on_non_tap_with_args.rs:14:24
+error[E0308]: mismatched types
+  --> tests/ui/on_non_tap_with_args.rs:13:9
    |
-14 |             View () on LongPress(500) { todo!() }
-   |                        ^^^^^^^^^
+13 | /         ui! {
+14 | |             View () on LongPress(500) { }
+15 | |         }
+   | |         ^
+   | |         |
+   | |_________expected `()`, found `({integer},)`
+   |           arguments to this method are incorrect
+   |
+   = note: expected unit type `()`
+                  found tuple `({integer},)`
+note: method defined here
+  --> $WORKSPACE/src/input/event/contract.rs
+   |
+   |     pub fn configure(
+   |            ^^^^^^^^^
+   = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

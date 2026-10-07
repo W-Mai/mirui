@@ -1,6 +1,9 @@
+use crate::__macro_support::{
+    EntityContext, EntityEventBindings, EntityInstallRoute, EventBinding, EventCallback,
+};
 use crate::anim::Tween;
-use crate::ecs::{Entity, World};
-use crate::input::event::BusinessCallback;
+use crate::ecs::{CommandError, Entity, World};
+use crate::input::event::contract::{EntitySourceFor, Event, EventKey, EventRoute};
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Rect};
@@ -10,14 +13,7 @@ use crate::ui::theme::{ColorToken, ThemedColor};
 
 crate::input::event::contract::widget_events! {
     TabBar;
-    #[derive(Clone, Debug)]
-    pub enum TabBarEvent {
-        SelectionChanged { new: u8, old: u8 },
-    }
-}
-
-pub struct TabBarHandler {
-    pub on_event: BusinessCallback<TabBarEvent>,
+    SelectionChanged { new: u8, old: u8 },
 }
 
 pub(crate) const INDICATOR_TWEEN_MS: u16 = 220;
@@ -77,28 +73,39 @@ impl TabBar {
         TabBarBuilder {
             tab_bar: TabBar::new(count),
             style: None,
-            handler: None,
+            bindings: (),
         }
     }
 }
 
-pub struct TabBarBuilder {
+pub struct TabBarBuilder<B = ()> {
     tab_bar: TabBar,
     style: Option<crate::ui::Style>,
-    handler: Option<TabBarHandler>,
+    bindings: B,
 }
 
-impl TabBarBuilder {
+impl<B> TabBarBuilder<B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
 
-    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &TabBarEvent) -> bool) -> Self {
-        self.handler = Some(TabBarHandler {
-            on_event: BusinessCallback::Fn(on_event),
-        });
-        self
+    pub fn on_event<E>(
+        self,
+        key: EventKey<E>,
+        callback: EventCallback<E, EntityContext<TabBar>>,
+    ) -> TabBarBuilder<(B, EventBinding<E, EntityContext<TabBar>>)>
+    where
+        E: Event,
+        E::Route: EntityInstallRoute<E>,
+        <E::Route as EventRoute>::Decision: crate::__macro_support::ListenerDecision,
+        E::Source: EntitySourceFor<TabBar>,
+    {
+        TabBarBuilder {
+            tab_bar: self.tab_bar,
+            style: self.style,
+            bindings: (self.bindings, EventBinding::new(key, callback)),
+        }
     }
 
     pub fn indicator_color(mut self, color: impl Into<ThemedColor>) -> Self {
@@ -111,20 +118,21 @@ impl TabBarBuilder {
         self
     }
 
-    pub fn spawn(self, world: &mut World) -> Entity {
+    pub fn spawn(self, world: &mut World) -> Entity
+    where
+        B: EntityEventBindings,
+    {
         world.spawn(self)
     }
 }
 
-impl crate::ecs::IntoBundle for TabBarBuilder {
+impl<B: EntityEventBindings> crate::ecs::IntoBundle for TabBarBuilder<B> {
     fn spawn_into(self, world: &mut World, entity: Entity) {
         world.insert(entity, self.tab_bar);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
-        if let Some(handler) = self.handler {
-            world.insert(entity, handler);
-        }
+        self.bindings.install(world, entity);
     }
 }
 
@@ -157,20 +165,24 @@ fn tab_bar_render(tb: component!(), theme: res!(crate::ui::Theme), paint: paint!
 /// Tap on a tab: clamp pointer x onto the tab grid, update `selected`,
 /// emit `SelectionChanged`, and start the indicator tween toward the
 /// new index. The tween itself is driven by `tab_pages_system`.
-pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn tabbar_handler(
+    world: &mut World,
+    entity: Entity,
+    event: &GestureEvent,
+) -> Result<bool, CommandError> {
     let x = match event {
         GestureEvent::Tap { x, .. } => *x,
-        _ => return false,
+        _ => return Ok(false),
     };
     let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) else {
-        return false;
+        return Ok(false);
     };
     if rect.w <= Fixed::ZERO {
-        return false;
+        return Ok(false);
     }
     let count = match world.get::<TabBar>(entity) {
         Some(tb) if tb.count > 0 => tb.count,
-        _ => return false,
+        _ => return Ok(false),
     };
     let local = (x - rect.x).max(Fixed::ZERO);
     let tab_w = rect.w / Fixed::from_int(count as i32);
@@ -178,10 +190,10 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
 
     let (old_idx, current_offset) = match world.get::<TabBar>(entity) {
         Some(tb) => (tb.selected, tb.indicator_offset),
-        None => return false,
+        None => return Ok(false),
     };
     if old_idx == idx {
-        return true;
+        return Ok(true);
     }
     if let Some(tb) = world.get_mut::<TabBar>(entity) {
         tb.selected = idx;
@@ -195,24 +207,15 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
     );
     world.insert(entity, TabBarPrev { selected: idx });
     world.insert(entity, Dirty);
-    emit_tabbar_event(
+    crate::input::event::runtime::emit_widget(
         world,
         entity,
-        &TabBarEvent::SelectionChanged {
+        SelectionChanged {
             new: idx,
             old: old_idx,
         },
-    );
-    true
-}
-
-fn emit_tabbar_event(world: &mut World, entity: Entity, event: &TabBarEvent) {
-    let cb = world
-        .get::<TabBarHandler>(entity)
-        .map(|h| h.on_event.clone_out());
-    if let Some(cb) = cb {
-        cb.call(world, entity, event);
-    }
+    )?;
+    Ok(true)
 }
 
 pub use tab_bar_render::view;
@@ -220,6 +223,21 @@ pub use tab_bar_render::view;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::event::{EventCapacity, runtime};
+
+    #[derive(Default)]
+    struct SelectionTrace(Option<SelectionChanged>);
+
+    #[crate::event]
+    fn record_selection(input: event!(SelectionChanged), selected: res!(mut SelectionTrace)) {
+        selected.0 = Some(*input);
+    }
+
+    #[crate::event]
+    fn remove_bar(node: entity!(), bars: query!(TabBar, Dirty), commands: commands!()) {
+        assert!(bars.get(node).is_some());
+        commands.despawn(node);
+    }
 
     #[test]
     fn defaults() {
@@ -246,57 +264,112 @@ mod tests {
     }
 
     #[test]
-    fn builder_inserts_all() {
-        fn h(_: &mut World, _: Entity, _: &TabBarEvent) -> bool {
-            true
-        }
+    fn builder_inserts_style_and_typed_event_binding() {
         let mut world = World::new();
-        let e = TabBar::build(3)
-            .style(crate::ui::Style::default())
-            .on_change(h)
-            .spawn(&mut world);
-        assert!(world.get::<TabBar>(e).is_some());
-        assert!(world.get::<crate::ui::Style>(e).is_some());
-        assert!(world.get::<TabBarHandler>(e).is_some());
-        assert!(world.get::<crate::ui::Widget>(e).is_some());
-    }
-
-    #[test]
-    fn bare_builder_omits_optionals() {
-        let mut world = World::new();
-        let e = TabBar::build(3).spawn(&mut world);
-        assert!(world.get::<TabBar>(e).is_some());
-        assert!(world.get::<crate::ui::Style>(e).is_none());
-        assert!(world.get::<TabBarHandler>(e).is_none());
-    }
-
-    #[test]
-    fn selection_callback_can_remove_tab_bar() {
-        fn remove_bar(world: &mut World, entity: Entity, _: &TabBarEvent) -> bool {
-            assert!(world.has::<Dirty>(entity));
-            world.despawn(entity);
-            true
-        }
-
-        let mut world = World::new();
-        let entity = world.spawn_empty();
-        world.insert(entity, TabBar::new(3));
-        world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
-        world.insert(
-            entity,
-            TabBarHandler {
-                on_event: BusinessCallback::Fn(remove_bar),
-            },
-        );
-        assert!(tabbar_handler(
+        world.insert_resource(SelectionTrace::default());
+        runtime::configure(
             &mut world,
-            entity,
-            &GestureEvent::Tap {
-                x: Fixed::from_int(45),
-                y: Fixed::ZERO,
-                target: entity,
-            },
-        ));
+            EventCapacity::new()
+                .notifications::<SelectionChanged>(1)
+                .flush_limit(1),
+        )
+        .unwrap();
+        let entity = TabBar::build(3)
+            .on_event(TabBar::SelectionChanged, record_selection::callback())
+            .style(crate::ui::Style::default())
+            .spawn(&mut world);
+        world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
+        assert!(world.has::<crate::ui::Style>(entity));
+        assert!(world.has::<crate::ui::Widget>(entity));
+        assert!(
+            tabbar_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: 45.into(),
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(world.get::<TabBar>(entity).unwrap().selected, 1);
+        assert!(world.has::<TabIndicatorTween>(entity));
+        assert!(world.has::<Dirty>(entity));
+        assert_eq!(world.resource::<SelectionTrace>().unwrap().0, None);
+        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(
+            world.resource::<SelectionTrace>().unwrap().0,
+            Some(SelectionChanged { old: 0, new: 1 })
+        );
+        world.resource_mut::<SelectionTrace>().unwrap().0 = None;
+        assert!(
+            tabbar_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: 45.into(),
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(world.resource::<SelectionTrace>().unwrap().0, None);
+    }
+
+    #[test]
+    fn bare_builder_does_not_require_notification_storage() {
+        let mut world = World::new();
+        let entity = TabBar::build(3).spawn(&mut world);
+        world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
+        assert!(!world.has::<crate::ui::Style>(entity));
+        assert!(
+            tabbar_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: 45.into(),
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(world.get::<TabBar>(entity).unwrap().selected, 1);
+        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    }
+
+    #[test]
+    fn selection_callback_can_remove_tab_bar_after_the_input_route() {
+        let mut world = World::new();
+        runtime::configure(
+            &mut world,
+            EventCapacity::new()
+                .notifications::<SelectionChanged>(1)
+                .commands(crate::ecs::CommandCapacity::new().despawn(1))
+                .flush_limit(1),
+        )
+        .unwrap();
+        let entity = TabBar::build(3)
+            .on_event(TabBar::SelectionChanged, remove_bar::callback())
+            .spawn(&mut world);
+        world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
+        assert!(
+            tabbar_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: 45.into(),
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
+        );
+        assert!(world.is_alive(entity));
+        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
         assert!(!world.is_alive(entity));
     }
 }

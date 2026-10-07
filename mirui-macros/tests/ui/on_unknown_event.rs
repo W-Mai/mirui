@@ -11,7 +11,7 @@ fn main() {
     {
         let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
         ui! {
-            View () on Wiggle { todo!() }
+            View () on Wiggle { }
         }
     };
 }

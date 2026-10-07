@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Expr, ExprMacro, FnArg, Ident, Macro, Member, Pat, Type};
+use syn::{ExprMacro, FnArg, Ident, Macro, Member, Pat, Type};
 
 mod keyword {
     syn::custom_keyword!(optional);
@@ -42,7 +42,6 @@ pub(crate) struct BindingSpec {
 pub(crate) enum BindingSyntax {
     TypeRole(syn::TypeMacro),
     ExprRole(syn::ExprMacro),
-    Generated(Span),
 }
 
 impl BindingSyntax {
@@ -50,7 +49,6 @@ impl BindingSyntax {
         match self {
             Self::TypeRole(role) => role.span(),
             Self::ExprRole(role) => role.span(),
-            Self::Generated(span) => *span,
         }
     }
 }
@@ -91,13 +89,6 @@ pub(crate) struct ResourceSource {
 #[derive(Clone)]
 pub(crate) struct ComponentSource {
     pub(crate) ty: Type,
-    pub(crate) target: ComponentTarget,
-}
-
-#[derive(Clone)]
-pub(crate) enum ComponentTarget {
-    CurrentEntity,
-    Expression(Expr),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -321,24 +312,12 @@ pub(crate) enum QueryDriver {
 }
 
 impl BindingSpec {
-    pub(crate) fn event_field(name: Ident) -> Self {
-        Self {
-            syntax: BindingSyntax::Generated(name.span()),
-            name,
-            logical_type: LogicalType::SourceDefined,
-            source: BindingSource::Event,
-            access: BindingAccess::Read,
-            cardinality: BindingCardinality::Required,
-            watch_selectors: Vec::new(),
-            invalidation: None,
-        }
-    }
-
     pub(crate) fn parse_event_expression(expression: ExprMacro) -> syn::Result<Option<Self>> {
-        let Some(role) = event_role_kind(&expression.mac.path) else {
+        if !is_event_commands(&expression.mac.path) {
             return Ok(None);
-        };
+        }
         require_parentheses(&expression.mac)?;
+        expression.mac.parse_body::<EmptyCommandsRole>()?;
         let syntax = BindingSyntax::ExprRole(expression.clone());
         let name = expression
             .mac
@@ -348,38 +327,16 @@ impl BindingSpec {
             .expect("an event role path has a final segment")
             .ident
             .clone();
-
-        match role {
-            EventRoleKind::ComponentRead => {
-                let read = expression.mac.parse_body::<EventComponentRead>()?;
-                Ok(Some(Self {
-                    name,
-                    syntax,
-                    logical_type: LogicalType::Explicit(Box::new(read.component.clone())),
-                    source: BindingSource::Component(ComponentSource {
-                        ty: read.component,
-                        target: ComponentTarget::Expression(read.entity),
-                    }),
-                    access: BindingAccess::Read,
-                    cardinality: BindingCardinality::Optional,
-                    watch_selectors: Vec::new(),
-                    invalidation: None,
-                }))
-            }
-            EventRoleKind::Commands => {
-                expression.mac.parse_body::<EmptyCommandsRole>()?;
-                Ok(Some(Self {
-                    name,
-                    syntax,
-                    logical_type: LogicalType::SourceDefined,
-                    source: BindingSource::Capability(BindingCapability::Commands),
-                    access: BindingAccess::Command,
-                    cardinality: BindingCardinality::Required,
-                    watch_selectors: Vec::new(),
-                    invalidation: None,
-                }))
-            }
-        }
+        Ok(Some(Self {
+            name,
+            syntax,
+            logical_type: LogicalType::SourceDefined,
+            source: BindingSource::Capability(BindingCapability::Commands),
+            access: BindingAccess::Command,
+            cardinality: BindingCardinality::Required,
+            watch_selectors: Vec::new(),
+            invalidation: None,
+        }))
     }
 
     /// Parse a direct `model!(...)` type role for authoring frontends that
@@ -661,41 +618,14 @@ impl BindingSpec {
     }
 }
 
-#[derive(Clone, Copy)]
-enum EventRoleKind {
-    ComponentRead,
-    Commands,
-}
-
-fn event_role_kind(path: &syn::Path) -> Option<EventRoleKind> {
+fn is_event_commands(path: &syn::Path) -> bool {
     let segments = path.segments.iter().collect::<Vec<_>>();
     let name = match segments.as_slice() {
         [name] => &name.ident,
         [root, name] if root.ident == "mirui" || root.ident == "crate" => &name.ident,
-        _ => return None,
+        _ => return false,
     };
-    match name.to_string().as_str() {
-        "com" => Some(EventRoleKind::ComponentRead),
-        "commands" => Some(EventRoleKind::Commands),
-        _ => None,
-    }
-}
-
-struct EventComponentRead {
-    entity: Expr,
-    component: Type,
-}
-
-impl Parse for EventComponentRead {
-    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        let entity = input.parse()?;
-        input.parse::<syn::Token![,]>()?;
-        let component = input.parse()?;
-        if !input.is_empty() {
-            return Err(input.error("`com!` expects exactly an entity and component type"));
-        }
-        Ok(Self { entity, component })
-    }
+    name == "commands"
 }
 
 fn parse_system_model(name: Ident, type_role: syn::TypeMacro) -> syn::Result<BindingSpec> {
@@ -822,10 +752,7 @@ fn parse_animate_component(name: Ident, type_role: syn::TypeMacro) -> syn::Resul
         name,
         syntax: BindingSyntax::TypeRole(type_role),
         logical_type: LogicalType::Explicit(Box::new(parsed.ty.clone())),
-        source: BindingSource::Component(ComponentSource {
-            ty: parsed.ty,
-            target: ComponentTarget::CurrentEntity,
-        }),
+        source: BindingSource::Component(ComponentSource { ty: parsed.ty }),
         access: parsed.access,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),
@@ -1350,7 +1277,6 @@ mod tests {
         match syntax {
             BindingSyntax::TypeRole(role) => tokens(role),
             BindingSyntax::ExprRole(role) => tokens(role),
-            BindingSyntax::Generated(_) => "<generated>".into(),
         }
     }
 

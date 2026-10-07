@@ -69,8 +69,8 @@ pub fn build_widgets() {
                 max: Fixed::from_int(100),
                 value: Fixed::ZERO
             ) on ValueChanged {
-                let new_value = new.to_int();
-                let _ = old;
+                let new_value = event.new.to_int();
+                let _ = event.old;
                 s_value
                     .update(|s| {
                         s.last_value = new_value;
@@ -98,6 +98,11 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(1)
+            .flush_limit(1),
+    );
     app.add_plugin(StdInstantClockPlugin);
     app.compose(parent, build_widgets);
 }

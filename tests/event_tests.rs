@@ -4,29 +4,34 @@ mod tests {
     use mirui::input::event::gesture::{GestureEvent, GestureEvents, GestureRecognizer};
     use mirui::input::event::hit_test::hit_test;
     use mirui::input::event::input::InputEvent;
-    use mirui::input::event::{GestureHandler, bubble_dispatch_at};
     use mirui::types::{Color, Dimension, Fixed, Viewport};
     use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::*;
     use mirui::ui::{HitTarget, render_system};
 
     /// Per-entity tap counter so tests don't share static state.
+    #[mirui::component]
     struct TapHits(u32);
 
-    fn count_handler(world: &mut World, entity: Entity, event: &GestureEvent, _: u8) -> bool {
-        if matches!(event, GestureEvent::Tap { .. }) {
-            if let Some(c) = world.get_mut::<TapHits>(entity) {
-                c.0 += 1;
-            }
-            true
-        } else {
-            false
+    #[mirui::event]
+    fn count_handler(node: entity!(), hits: query!(mut TapHits)) -> bool {
+        if let Some(counter) = hits.get(node) {
+            counter.0 += 1;
         }
+        true
     }
 
     fn attach_counter(world: &mut World, entity: Entity) {
         world.insert(entity, TapHits(0));
-        world.insert(entity, GestureHandler::from_fn(count_handler));
+        mirui::__macro_support::install_entity_event(
+            world,
+            entity,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            count_handler::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
         world.insert(entity, HitTarget);
     }
 
@@ -64,7 +69,10 @@ mod tests {
             &mut events,
         );
         for ev in events.buffer.drain(..) {
-            bubble_dispatch_at(world, &ev, 50);
+            {
+                mirui::__macro_support::dispatch_entity_gesture(world, &ev, 50).unwrap();
+                mirui::__macro_support::flush_entity_events(world).unwrap();
+            };
         }
     }
 

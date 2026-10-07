@@ -22,6 +22,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(EventCapacity::new());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);

@@ -77,7 +77,7 @@ impl Parse for ComponentRead {
     }
 }
 
-/// Read one component from the active `#[compose]` or `on Event` context.
+/// Read one component from the active `#[compose]` context.
 /// The read does not subscribe to later changes.
 #[proc_macro]
 pub fn com(input: TokenStream) -> TokenStream {
@@ -154,277 +154,6 @@ fn classify_widget_name(name: &syn::Ident) -> WidgetKind {
     }
 }
 
-fn is_known_gesture_event(name: &str) -> bool {
-    matches!(
-        name,
-        "Tap"
-            | "LongPress"
-            | "DragStart"
-            | "DragMove"
-            | "DragEnd"
-            | "DragCancel"
-            | "Pinch"
-            | "Rotate"
-    )
-}
-
-struct BusinessEventEntry {
-    widget: &'static str,
-    event: &'static str,
-    handler_component: &'static str,
-    event_path: &'static str,
-    fields: &'static [&'static str],
-}
-
-const FIRST_PARTY_BUSINESS_EVENTS: &[BusinessEventEntry] = &[
-    BusinessEventEntry {
-        widget: "Slider",
-        event: "ValueChanged",
-        handler_component: "::mirui::ui::widgets::slider::SliderHandler",
-        event_path: "::mirui::ui::widgets::slider::SliderEvent::ValueChanged",
-        fields: &["new", "old"],
-    },
-    BusinessEventEntry {
-        widget: "Slider",
-        event: "DragStarted",
-        handler_component: "::mirui::ui::widgets::slider::SliderHandler",
-        event_path: "::mirui::ui::widgets::slider::SliderEvent::DragStarted",
-        fields: &[],
-    },
-    BusinessEventEntry {
-        widget: "Slider",
-        event: "DragEnded",
-        handler_component: "::mirui::ui::widgets::slider::SliderHandler",
-        event_path: "::mirui::ui::widgets::slider::SliderEvent::DragEnded",
-        fields: &[],
-    },
-    BusinessEventEntry {
-        widget: "Switch",
-        event: "Toggled",
-        handler_component: "::mirui::ui::widgets::switch::SwitchHandler",
-        event_path: "::mirui::ui::widgets::switch::SwitchEvent::Toggled",
-        fields: &["now"],
-    },
-    BusinessEventEntry {
-        widget: "Checkbox",
-        event: "Toggled",
-        handler_component: "::mirui::ui::widgets::checkbox::CheckboxHandler",
-        event_path: "::mirui::ui::widgets::checkbox::CheckboxEvent::Toggled",
-        fields: &["now"],
-    },
-    BusinessEventEntry {
-        widget: "ProgressBar",
-        event: "ValueChanged",
-        handler_component: "::mirui::ui::widgets::progress_bar::ProgressBarHandler",
-        event_path: "::mirui::ui::widgets::progress_bar::ProgressBarEvent::ValueChanged",
-        fields: &["new", "old"],
-    },
-    BusinessEventEntry {
-        widget: "TabBar",
-        event: "SelectionChanged",
-        handler_component: "::mirui::ui::widgets::tabbar::TabBarHandler",
-        event_path: "::mirui::ui::widgets::tabbar::TabBarEvent::SelectionChanged",
-        fields: &["new", "old"],
-    },
-    BusinessEventEntry {
-        widget: "TextInput",
-        event: "Changed",
-        handler_component: "::mirui::ui::widgets::text_input::TextInputHandler",
-        event_path: "::mirui::ui::widgets::text_input::TextInputEvent::Changed",
-        fields: &["len"],
-    },
-];
-
-fn lookup_business_event(widget: &str, event: &str) -> Option<&'static BusinessEventEntry> {
-    FIRST_PARTY_BUSINESS_EVENTS
-        .iter()
-        .find(|e| e.widget == widget && e.event == event)
-}
-
-fn gesture_event_fields(name: &str) -> &'static [&'static str] {
-    match name {
-        "Tap" | "LongPress" | "DragStart" | "DragCancel" => &["x", "y", "target"],
-        "DragMove" => &["x", "y", "dx", "dy", "target"],
-        "DragEnd" => &["x", "y", "vx", "vy", "target"],
-        "Pinch" => &["x", "y", "scale_delta", "target"],
-        "Rotate" => &["x", "y", "angle", "target"],
-        _ => &[],
-    }
-}
-
-fn emit_business_handler(
-    widget_var: &syn::Ident,
-    handler_component: &str,
-    group: &[(&'static BusinessEventEntry, &OnCmd)],
-    world: &proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
-    let handler_path: syn::Path = syn::parse_str(handler_component).unwrap();
-    let hidden_span = proc_macro2::Span::mixed_site();
-    let handler_world = syn::Ident::new("__mirui_event_world", hidden_span);
-    let handler_entity = syn::Ident::new("__mirui_event_entity", hidden_span);
-    let handler_event = syn::Ident::new("__mirui_event_value", hidden_span);
-    let handler_scope = syn::Ident::new("__mirui_event_scope", hidden_span);
-    let handler_queue = syn::Ident::new("__mirui_event_commands", hidden_span);
-
-    let mut arms = proc_macro2::TokenStream::new();
-    for (entry, on_cmd) in group {
-        let body = event_attr::lower_body(&on_cmd.body, &handler_scope);
-        let event_path: syn::Path = syn::parse_str(entry.event_path).unwrap();
-        let field_bindings = event_attr::fields(entry.fields);
-        let field_idents = field_bindings.iter().map(|binding| &binding.name);
-        let pattern = if field_bindings.is_empty() {
-            quote! { #event_path }
-        } else {
-            quote! { #event_path { #(#field_idents),* } }
-        };
-        let bindings = event_attr::lower_fields(&field_bindings);
-        arms.extend(quote! {
-            #pattern => {
-                #bindings
-                let __consumed: bool =
-                    ::mirui::input::event::HandlerReturn::into_consumed(#body);
-                __consumed
-            },
-        });
-    }
-
-    let event_ty: syn::Path = {
-        let mut ty: syn::Path = syn::parse_str(group[0].0.event_path).unwrap();
-        ty.segments.pop();
-        if let Some(pair) = ty.segments.pop() {
-            ty.segments.push_value(pair.into_value());
-        }
-        ty
-    };
-
-    quote! {{
-        let #handler_queue = ::mirui::input::event::EventCommandQueue::new(#world);
-        (#world).insert(
-            #widget_var,
-            #handler_path {
-                on_event: ::mirui::input::event::BusinessCallback::Closure(::mirui::__macro_support::__Rc::new(
-                    move |#handler_world: &mut ::mirui::ecs::World,
-                          #handler_entity: ::mirui::ecs::Entity,
-                          #handler_event: &#event_ty|
-                          -> bool {
-                        #handler_queue.run(
-                            #handler_world,
-                            |#handler_scope| match #handler_event {
-                                #arms
-                                #[allow(unreachable_patterns)]
-                                _ => false,
-                            },
-                        )
-                    },
-                )),
-            },
-        );
-    }}
-}
-
-fn emit_event_arm(
-    event_name: &str,
-    group: &[&OnCmd],
-    handler_scope: &syn::Ident,
-    preparations: &mut proc_macro2::TokenStream,
-    configured: &mut Vec<syn::Ident>,
-    tap_count: &syn::Ident,
-) -> proc_macro2::TokenStream {
-    let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
-    let field_bindings = event_attr::fields(gesture_event_fields(event_name));
-    let field_idents = field_bindings.iter().map(|binding| &binding.name);
-
-    if event_name == "Tap" {
-        return emit_tap_handlers(
-            group,
-            &field_bindings,
-            handler_scope,
-            preparations,
-            configured,
-            tap_count,
-        );
-    }
-
-    let bodies = group
-        .iter()
-        .map(|h| event_attr::lower_body(&h.body, handler_scope));
-    let bindings = event_attr::lower_fields(&field_bindings);
-
-    quote! {
-        ::mirui::input::event::gesture::GestureEvent::#event_ident { #(#field_idents),* } => {
-            #bindings
-            #(
-                {
-                    let __consumed: bool =
-                        ::mirui::input::event::HandlerReturn::into_consumed(#bodies);
-                    if __consumed { return true; }
-                }
-            )*
-            false
-        },
-    }
-}
-
-fn emit_tap_handlers(
-    group: &[&OnCmd],
-    field_bindings: &[binding::BindingSpec],
-    handler_scope: &syn::Ident,
-    preparations: &mut proc_macro2::TokenStream,
-    configured: &mut Vec<syn::Ident>,
-    tap_count: &syn::Ident,
-) -> proc_macro2::TokenStream {
-    let mut bodies = proc_macro2::TokenStream::new();
-    for (index, h) in group.iter().enumerate() {
-        let body = event_attr::lower_body(&h.body, handler_scope);
-        let matches = if h.args.is_empty() {
-            quote!(true)
-        } else {
-            let arg = &h.args[0];
-            let options = quote::format_ident!(
-                "__mirui_tap_options_{index}",
-                span = proc_macro2::Span::mixed_site()
-            );
-            preparations.extend(quote! {
-                let #options = match
-                    <::mirui::input::event::gesture::Tap as
-                        ::mirui::input::event::contract::Event>::EVENT
-                        .configure((#arg,))
-                {
-                    ::core::result::Result::Ok(key) =>
-                        ::core::option::Option::Some(key.options()),
-                    ::core::result::Result::Err(error) => {
-                        ::mirui::warn!(
-                            target: "mirui::event::install",
-                            "skipping Tap event binding: {}",
-                            error,
-                        );
-                        ::core::option::Option::None
-                    }
-                };
-            });
-            configured.push(options.clone());
-            quote!(#options.is_some_and(|options| options.matches(#tap_count)))
-        };
-        bodies.extend(quote! {
-            if #matches {
-                let __consumed: bool =
-                    ::mirui::input::event::HandlerReturn::into_consumed(#body);
-                if __consumed { return true; }
-            }
-        });
-    }
-    let field_idents = field_bindings.iter().map(|binding| &binding.name);
-    let bindings = event_attr::lower_fields(field_bindings);
-
-    quote! {
-        ::mirui::input::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
-            #bindings
-            #bodies
-            false
-        },
-    }
-}
-
 #[allow(clippy::large_enum_variant)]
 enum Cmd {
     Widget(WidgetCmd),
@@ -447,8 +176,8 @@ struct ComposeCmd {
 struct OnCmd {
     qualifier: Option<syn::Ident>,
     name: syn::Ident,
-    args: Vec<syn::Expr>,
-    body: syn::Block,
+    options: Vec<syn::Expr>,
+    callback: syn::Expr,
 }
 
 struct NicheCmd {
@@ -1043,198 +772,68 @@ impl MiruiRune {
         widget_var: &syn::Ident,
         world: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
-        let mut errors = proc_macro2::TokenStream::new();
-        let mut gesture_arms: std::collections::BTreeMap<String, Vec<&OnCmd>> =
-            std::collections::BTreeMap::new();
-        let mut business_arms: std::collections::BTreeMap<
-            &'static str,
-            Vec<(&'static BusinessEventEntry, &OnCmd)>,
-        > = std::collections::BTreeMap::new();
-
-        for h in handlers {
-            let event_name = h.name.to_string();
-
-            if let Some(q) = h.qualifier.as_ref() {
-                let q_str = q.to_string();
-                if q_str != widget_name {
-                    errors.extend(
-                        syn::Error::new(
-                            q.span(),
-                            format!(
-                                "qualified `on {q_str}::{event_name}` does not match enclosing \
-                                 widget `{widget_name}`; drop the qualifier or rename the widget"
-                            ),
-                        )
-                        .to_compile_error(),
-                    );
-                    continue;
-                }
-                match lookup_business_event(widget_name, &event_name) {
-                    Some(entry) => {
-                        business_arms
-                            .entry(entry.handler_component)
-                            .or_default()
-                            .push((entry, *h));
-                    }
-                    None => {
-                        errors.extend(
-                            syn::Error::new(
-                                h.name.span(),
-                                format!(
-                                    "no business event named `{event_name}` is registered for \
-                                     widget `{widget_name}`"
-                                ),
-                            )
-                            .to_compile_error(),
-                        );
-                    }
-                }
-                continue;
-            }
-
-            if let Some(entry) = lookup_business_event(widget_name, &event_name) {
-                if !h.args.is_empty() {
-                    errors.extend(
-                        syn::Error::new(
-                            h.name.span(),
-                            format!("business event `{event_name}` does not take arguments"),
-                        )
-                        .to_compile_error(),
-                    );
-                    continue;
-                }
-                business_arms
-                    .entry(entry.handler_component)
-                    .or_default()
-                    .push((entry, *h));
-                continue;
-            }
-
-            if !is_known_gesture_event(&event_name) {
-                errors.extend(
-                    syn::Error::new(
-                        h.name.span(),
-                        format!(
-                            "unknown event `{event_name}` for widget `{widget_name}`; \
-                             expected a GestureEvent variant (Tap, LongPress, DragStart, \
-                             DragMove, DragEnd, DragCancel, Pinch, Rotate) or a business event"
-                        ),
-                    )
-                    .to_compile_error(),
-                );
-                continue;
-            }
-            if !h.args.is_empty() && event_name != "Tap" {
-                errors.extend(
-                    syn::Error::new(
-                        h.name.span(),
-                        format!(
-                            "`on {event_name}` does not take arguments; only `on Tap(n)` accepts \
-                             one tap-count argument"
-                        ),
-                    )
-                    .to_compile_error(),
-                );
-                continue;
-            }
-            if event_name == "Tap" && h.args.len() > 1 {
-                errors.extend(
-                    syn::Error::new(
-                        h.name.span(),
-                        "`on Tap` accepts at most one tap-count argument",
-                    )
-                    .to_compile_error(),
-                );
-                continue;
-            }
-            gesture_arms.entry(event_name).or_default().push(*h);
-        }
-
         let mut tokens = proc_macro2::TokenStream::new();
-        tokens.extend(errors);
-
-        if !gesture_arms.is_empty() {
-            let hidden_span = proc_macro2::Span::mixed_site();
-            let handler_world = syn::Ident::new("__mirui_event_world", hidden_span);
-            let handler_entity = syn::Ident::new("__mirui_event_entity", hidden_span);
-            let handler_event = syn::Ident::new("__mirui_event_value", hidden_span);
-            let handler_scope = syn::Ident::new("__mirui_event_scope", hidden_span);
-            let handler_queue = syn::Ident::new("__mirui_event_commands", hidden_span);
-            let tap_count = syn::Ident::new("__mirui_tap_count", hidden_span);
-            let mut arms = proc_macro2::TokenStream::new();
-            let mut preparations = proc_macro2::TokenStream::new();
-            let mut configured = Vec::new();
-            for (event_name, group) in &gesture_arms {
-                arms.extend(emit_event_arm(
-                    event_name,
-                    group,
-                    &handler_scope,
-                    &mut preparations,
-                    &mut configured,
-                    &tap_count,
-                ));
-            }
-            // A closure (not a fn item) so the body can capture handles like a
-            // Signal from the surrounding scope.
-            let installation = quote! {
-                    let #handler_queue =
-                        ::mirui::input::event::EventCommandQueue::new(#world);
-                    (#world).insert(#widget_var, ::mirui::ui::HitTarget);
-                    (#world).insert(
-                        #widget_var,
-                        ::mirui::input::event::GestureHandler {
-                            on_gesture: ::mirui::input::event::GestureCallback::Closure(
-                                ::mirui::__macro_support::__Rc::new(
-                                    move |#handler_world: &mut ::mirui::ecs::World,
-                                          #handler_entity: ::mirui::ecs::Entity,
-                                          #handler_event: &::mirui::input::event::gesture::GestureEvent,
-                                          #tap_count: u8|
-                                          -> bool {
-                                        #handler_queue.run(
-                                            #handler_world,
-                                            |#handler_scope| match #handler_event {
-                                                #arms
-                                                _ => false,
-                                            },
-                                        )
-                                    },
-                                ),
-                            ),
-                        },
-                    );
+        for handler in handlers {
+            let event = &handler.name;
+            let host = match &handler.qualifier {
+                Some(qualifier) => quote!(#qualifier),
+                None if RESERVED_LAYOUT_NAMES.contains(&widget_name) => quote!(::mirui::ui::Widget),
+                None => {
+                    let component = syn::Ident::new(widget_name, proc_macro2::Span::call_site());
+                    quote!(#component)
+                }
             };
-            let installation = if gesture_arms
-                .iter()
-                .any(|(name, group)| name != "Tap" || group.iter().any(|h| h.args.is_empty()))
-            {
-                installation
+            let key = syn::Ident::new("__mirui_event_key", proc_macro2::Span::mixed_site());
+            let callback_name = syn::LitStr::new(&format!("on {event}"), handler.name.span());
+            let callback =
+                match event_attr::lower_inline_callback(&handler.callback, &key, &callback_name) {
+                    Ok(callback) => callback,
+                    Err(error) => {
+                        tokens.extend(error.to_compile_error());
+                        continue;
+                    }
+                };
+            let install = quote! {
+                let __mirui_callback: ::mirui::__macro_support::EventCallback<
+                    _, ::mirui::__macro_support::NodeContext,
+                > = #callback;
+                ::mirui::__macro_support::install_entity_event(
+                    #world, #widget_var, #key, __mirui_callback,
+                );
+            };
+            let selector = quote!(#host::#event);
+            let options = &handler.options;
+            let binding = if options.is_empty() {
+                quote! {
+                    let #key = #selector;
+                    #install
+                }
             } else {
                 quote! {
-                    if #(#configured.is_some())||* {
-                        #installation
+                    match (#selector).configure((#(#options,)*)) {
+                        ::core::result::Result::Ok(#key) => { #install }
+                        ::core::result::Result::Err(error) => {
+                            ::mirui::warn!(
+                                target: "mirui::event::install",
+                                "skipping event binding: {:?}",
+                                error,
+                            );
+                        }
                     }
                 }
             };
             tokens.extend(quote! {
                 {
-                    #preparations
-                    #installation
+                    #[allow(unused_imports)]
+                    use ::mirui::input::event::gesture::GestureSelectors as _;
+                    #[allow(unused_imports)]
+                    use ::mirui::input::event::input::InputSelectors as _;
+                    #binding
                 }
             });
         }
-
-        for (handler_component, group) in &business_arms {
-            tokens.extend(emit_business_handler(
-                widget_var,
-                handler_component,
-                group,
-                world,
-            ));
-        }
-
         tokens
     }
-
     fn emit_widget(cmd: &WidgetCmd, world: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         let var = &cmd.var;
         let attrs = &cmd.attrs;
@@ -2356,21 +1955,30 @@ impl DsRune for MiruiRune {
 
         let mut collected_on_handlers = Vec::with_capacity(on_handlers.len());
         for handler in on_handlers {
-            let Some(body) = handler.get_body() else {
-                enchant_tokens.push(
-                    syn::Error::new(
-                        handler.get_name().span(),
-                        "event handlers require a block body",
-                    )
-                    .to_compile_error(),
-                );
-                continue;
+            let mut options = handler.get_args().to_vec();
+            let callback = if let Some(body) = handler.get_body() {
+                syn::parse_quote!(move |event| {
+                    let _ = event;
+                    #body
+                })
+            } else {
+                let Some(callback) = options.pop() else {
+                    enchant_tokens.push(
+                        syn::Error::new(
+                            handler.get_name().span(),
+                            "event bindings require a block or callback argument",
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                };
+                callback
             };
             collected_on_handlers.push(OnCmd {
                 qualifier: handler.get_qualifier().cloned(),
                 name: handler.get_name().clone(),
-                args: handler.get_args().to_vec(),
-                body: body.clone(),
+                options,
+                callback,
             });
         }
 
@@ -2799,6 +2407,40 @@ impl BoundCaptureRewriter {
             #original
         });
     }
+
+    fn wrap_event(&self, expr: &mut syn::Expr) {
+        let captures: Vec<_> = self
+            .captures
+            .iter()
+            .filter(|name| FreeCaptureUse::contains(expr, name))
+            .collect();
+        if captures.is_empty() {
+            return;
+        }
+        let owners: Vec<_> = captures
+            .iter()
+            .map(|name| {
+                quote::format_ident!(
+                    "__mirui_capture_owner_{name}",
+                    span = proc_macro2::Span::mixed_site()
+                )
+            })
+            .collect();
+        let original = core::mem::replace(expr, syn::parse_quote!(()));
+        let callback = syn::Ident::new("__mirui_bound_callback", proc_macro2::Span::mixed_site());
+        let registered = owners.iter().fold(
+            quote!(#callback),
+            |value, owner| quote!(#value.require_binding(&#owner)),
+        );
+        *expr = syn::parse_quote!({
+            #(let #owners = ::mirui::core::model::SharedValue::share(&#captures);)*
+            let #callback = {
+                #(let #captures = ::mirui::core::model::SharedValue::share(&#captures);)*
+                #original
+            };
+            #registered
+        });
+    }
 }
 
 struct FreeCaptureUse<'a> {
@@ -3120,20 +2762,15 @@ fn token_stream_uses_ident(stream: proc_macro2::TokenStream, name: &syn::Ident) 
 
 impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
     fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
-        if let syn::Expr::Closure(closure) = expr {
-            syn::visit_mut::visit_expr_closure_mut(self, closure);
-            let generated_event = closure.capture.is_some()
-                && closure.inputs.first().is_some_and(|input| {
-                    matches!(input, syn::Pat::Type(typed)
-                        if matches!(&*typed.pat, syn::Pat::Ident(ident)
-                            if ident.ident == "__mirui_event_world"))
-                });
-            if generated_event {
-                self.wrap(expr);
-            }
-            return;
-        }
         syn::visit_mut::visit_expr_mut(self, expr);
+        let generated_event = matches!(expr, syn::Expr::MethodCall(call)
+            if matches!(call.method.to_string().as_str(),
+                "__bind_callback" | "__bind_plain" | "__bind_deferred" | "__bind_params" | "__bind_params_deferred")
+                && matches!(&*call.receiver, syn::Expr::Path(path)
+                    if path.path.is_ident("__mirui_event_key")));
+        if generated_event {
+            self.wrap_event(expr);
+        }
     }
 
     fn visit_expr_call_mut(&mut self, call: &mut syn::ExprCall) {
@@ -3365,6 +3002,98 @@ pub fn event(args: TokenStream, item: TokenStream) -> TokenStream {
     event_attr::expand(args.into(), item.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
+}
+
+#[cfg(test)]
+mod typed_on_tests {
+    use super::*;
+
+    fn expand_tree(input: proc_macro2::TokenStream) -> syn::Expr {
+        let (captures, input) = strip_bound_captures(input).unwrap();
+        let tree = syn::parse2::<DsTree>(input).unwrap().into_ref();
+        let mut rune = MiruiRune::new();
+        rune.world_expr = quote!(cx.world_mut());
+        rune.parent_expr = quote!(__parent);
+        decipher(&tree, &mut rune);
+        let body = rune.seal();
+        let mut output = syn::parse2(quote!({ #body })).unwrap();
+        BoundCaptureRewriter { captures }.visit_expr_mut(&mut output);
+        output
+    }
+
+    #[test]
+    fn selectors_options_and_callback_forms_use_one_typed_installation_path() {
+        let output = expand_tree(quote! {
+            Column() {
+                Button("Go") on Tap(next_count(), callback::callback())
+                View() [Pad] on Pad::Hit(|input| input.value > 0)
+                Alias() on Tap { event.x > Fixed::ZERO }
+                Row() on Tap(|input: event!(Tap), state: res!(mut State)| {
+                    state.0 += input.x;
+                    false
+                })
+            }
+        });
+        let output = quote!(#output).to_string();
+        assert_eq!(output.matches("install_entity_event").count(), 4);
+        assert_eq!(output.matches("next_count").count(), 1);
+        assert!(output.contains("Button :: Tap"));
+        assert!(output.contains("Pad :: Hit"));
+        assert!(output.contains("Alias :: Tap"));
+        assert!(output.contains("mirui :: ui :: Widget :: Tap"));
+        assert!(output.contains("__bind_plain"));
+        assert!(output.contains("__bind_params"));
+        assert!(output.contains("__bind_callback"));
+        assert!(output.contains("NodeContext"));
+        assert!(output.contains("callback :: callback ()"));
+        assert!(!output.contains("GestureHandler"));
+        assert!(!output.contains("BusinessCallback"));
+        assert!(!output.contains("EventCommandQueue"));
+    }
+
+    #[test]
+    fn declared_lexical_model_captures_are_shared_and_registered_before_invocation() {
+        let output = expand_tree(quote! {
+            __mirui_bind(game, other);
+            Column() {
+                Button("Go") on Tap { game.increment(); }
+                Button("Role") on Tap(|input: event!(Tap), state: res!(mut State)| {
+                    state.0 += input.x;
+                    game.increment();
+                })
+                Button("Shadow") on Tap(|game| { let _ = game; })
+                Button("Named") on Tap(handler::callback(other.clone()))
+            }
+        });
+        let output = quote!(#output).to_string();
+        assert_eq!(output.matches("__mirui_capture_owner_game =").count(), 2);
+        assert_eq!(
+            output
+                .matches("require_binding (& __mirui_capture_owner_game)")
+                .count(),
+            2
+        );
+        assert_eq!(output.matches("__mirui_capture_owner_other =").count(), 1);
+        assert!(output.contains("handler :: callback (other . clone ())"));
+        assert!(!output.contains("__mirui_event_world"));
+    }
+
+    #[test]
+    fn child_blocks_precede_callback_forms_on_the_same_widget() {
+        let output = expand_tree(quote! {
+            View() [Pad] {
+                child_panel()
+            } on Tap(|input: event!(Tap), rows: query!(Pad), node: entity!()| {
+                rows.get(node).is_some() && input.x > Fixed::ZERO
+            }) on DragStart(|input| input.x > Fixed::ZERO)
+        });
+        let output = quote!(#output).to_string();
+        assert_eq!(output.matches("install_entity_event").count(), 2);
+        assert!(output.contains("child_panel"));
+        assert!(output.contains("__bind_params"));
+        assert!(output.contains("__bind_plain"));
+        assert!(!output.contains(". configure"));
+    }
 }
 
 #[cfg(test)]

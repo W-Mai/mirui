@@ -363,7 +363,8 @@ pub type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>);
 
 pub type ViewAttach = fn(world: &mut World, entity: Entity);
 
-pub type ViewInternalGesture = fn(&mut World, Entity, &GestureEvent) -> bool;
+pub type ViewInternalGesture =
+    fn(&mut World, Entity, &GestureEvent) -> Result<bool, crate::ecs::CommandError>;
 
 /// Collects subscriptions for one entity and one View registration.
 #[doc(hidden)]
@@ -449,10 +450,8 @@ pub struct View {
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
     component_filter: Option<fn() -> TypeId>,
-    /// Component-internal gesture handler that runs *before* the user
-    /// `GestureHandler` channel during `bubble_dispatch_at`. Returning
-    /// `true` consumes the event; returning `false` lets bubble walk
-    /// continue (and visit any user-attached `GestureHandler`).
+    /// Component-internal gesture handler selected before authored listeners.
+    /// Returning `true` consumes the input; `false` continues the frozen route.
     internal_gesture: Option<ViewInternalGesture>,
     observe: Option<ViewObserve>,
     observation_count: usize,
@@ -496,9 +495,7 @@ impl View {
         self
     }
 
-    /// Register a component-internal gesture handler. Runs before the
-    /// user `GestureHandler` channel during `bubble_dispatch_at`; return
-    /// `false` to let the user handler also see the event.
+    /// Register an internal gesture hook before authored listeners. Returning `false` continues dispatch; submission errors stop the route and propagate to the input boundary.
     pub const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
         self.internal_gesture = Some(f);
         self
@@ -1318,8 +1315,12 @@ mod tests {
 
     fn options_attach(_: &mut World, _: Entity) {}
 
-    fn options_gesture(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
-        false
+    fn options_gesture(
+        _: &mut World,
+        _: Entity,
+        _: &GestureEvent,
+    ) -> Result<bool, crate::ecs::CommandError> {
+        Ok(false)
     }
 
     fn options_system(_: &mut World) -> Result<(), crate::ecs::CommandError> {

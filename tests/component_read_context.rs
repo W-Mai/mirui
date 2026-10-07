@@ -1,10 +1,8 @@
-use std::cell::Cell;
-use std::rc::Rc;
-
-use mirui::input::event::GestureHandler;
 use mirui::input::event::gesture::GestureEvent;
 use mirui::prelude::*;
 use mirui::ui::widgets::Button;
+use std::cell::Cell;
+use std::rc::Rc;
 
 #[component]
 struct Marker {
@@ -20,14 +18,11 @@ fn marker_panel(source: Entity, seen: Rc<Cell<u32>>) {
     assert_eq!(com!(source, Marker).map(|item| item.value), Some(7));
 
     ui! {
-        Button(text: "READ") on Tap {
-            let marker = mirui::com!(target, Marker).expect("target marker should exist");
-            assert_eq!(
-                mirui::com!(target, Marker).map(|item| item.value),
-                Some(11)
-            );
+        Button(text: "READ") on Tap(|input: event!(Tap), markers: query!(Marker)| {
+            let marker = markers.get(input.target).expect("target marker should exist");
+            assert_eq!(markers.get(input.target).map(|item| item.value), Some(11));
             seen.set(marker.value);
-        }
+        })
     };
 }
 
@@ -48,9 +43,11 @@ fn compose_and_event_component_reads_share_the_same_world() {
         y: Fixed::ZERO,
         target: button,
     };
-    assert_eq!(
-        GestureHandler::trigger(&mut app.world, button, &event),
-        Some(true)
-    );
+    assert!({
+        let decision =
+            mirui::__macro_support::dispatch_entity_gesture(&mut app.world, &event, 0).unwrap();
+        mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        decision == mirui::input::event::BubbleControl::Prevent
+    });
     assert_eq!(seen.get(), 11);
 }

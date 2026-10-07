@@ -3,10 +3,10 @@ use super::state::InteractionModel;
 use super::*;
 use crate::core::model::ModelHandle;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::focus::{FocusState, Focusable, focus_on_tap};
+use crate::input::event::entity_or_ancestor_disabled;
+use crate::input::event::focus::{FocusState, Focusable};
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::TouchAction;
-use crate::input::event::{bubble_dispatch_at, entity_or_ancestor_disabled};
 use crate::input::feedback::{InputFeedback, InputFeedbackInput};
 use crate::prelude::*;
 use crate::ui::Children;
@@ -72,15 +72,19 @@ fn state(world: &World) -> InteractionSnapshot {
 
 fn tap(world: &mut World, id: &'static str, now_ms: u32) {
     let target = world.find_by_id(id).expect("interaction id");
-    bubble_dispatch_at(
-        world,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target,
-        },
-        now_ms,
-    );
+    {
+        crate::__macro_support::dispatch_entity_gesture(
+            world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            },
+            now_ms,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+    };
     flush_signal_dirty(world);
 }
 
@@ -137,15 +141,19 @@ fn gesture_callbacks_call_bound_model_commands() {
     tap(&mut world, "interaction_triple", 2_100);
     tap(&mut world, "interaction_triple", 2_200);
     let target = world.find_by_id("interaction_long").unwrap();
-    bubble_dispatch_at(
-        &mut world,
-        &GestureEvent::LongPress {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target,
-        },
-        3_000,
-    );
+    {
+        crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::LongPress {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            },
+            3_000,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     flush_signal_dirty(&mut world);
 
     let state = state(&world);
@@ -190,17 +198,21 @@ fn unchanged_commands_do_not_dirty_observers() {
 fn drag_and_bubble_policy_update_only_the_model() {
     let mut world = fixture();
     let drag = world.find_by_id("interaction_drag_target").unwrap();
-    bubble_dispatch_at(
-        &mut world,
-        &GestureEvent::DragMove {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            dx: Fixed::from_int(34),
-            dy: Fixed::from_int(18),
-            target: drag,
-        },
-        100,
-    );
+    {
+        crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::DragMove {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                dx: Fixed::from_int(34),
+                dy: Fixed::from_int(18),
+                target: drag,
+            },
+            100,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(
         (state(&world).drag_x, state(&world).drag_y),
@@ -252,14 +264,7 @@ fn observed_model_state_projects_to_user_state_and_focus() {
     let focus = world.find_by_id("interaction_focus_target").unwrap();
     assert!(world.has::<Focusable>(focus));
     world.insert_resource(FocusState::default());
-    focus_on_tap(
-        &mut world,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: focus,
-        },
-    );
+    tap(&mut world, "interaction_focus_target", 1_000);
     assert_eq!(world.resource::<FocusState>().unwrap().focused, Some(focus));
 }
 

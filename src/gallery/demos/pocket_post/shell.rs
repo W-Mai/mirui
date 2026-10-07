@@ -538,22 +538,19 @@ pub(super) fn build_widgets(model: model!(PostModel)) {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap {
-            let Some(surface) = com!(target, PostSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_tap(surface, rect, x, y)
-        }
-        {
+        ] {
             compose_header (model)
             compose_route_summary (model)
             compose_dispatch_queue (model)
             compose_footer (model)
             compose_modal (model)
-        }
+        } on Tap(|event: event!(Tap), rows: query!(PostSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_tap(surface, rect, event.x, event.y)
+        })
     };
 }
 
@@ -574,8 +571,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Text (
                 text: ${ modal_title(model.modal()) },
                 text_capacity: 24,
@@ -809,7 +805,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
                 text_color: ACCENT,
                 paragraph: ParagraphStyle::label()
             )
-        }
+        } on Tap { }
     }
 }
 
@@ -818,6 +814,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(EventCapacity::new());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);

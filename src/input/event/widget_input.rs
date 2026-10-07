@@ -43,11 +43,7 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
         has_internal_gesture |= hook.has_internal_gesture;
     }
 
-    if has_internal_gesture
-        || world
-            .get::<crate::input::event::GestureHandler>(entity)
-            .is_some()
-    {
+    if has_internal_gesture {
         world.insert(entity, crate::ui::HitTarget);
     }
     if has_internal_gesture {
@@ -80,8 +76,9 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::event::GestureHandler;
+    use crate::input::event::contract::Event;
     use crate::input::event::gesture::GestureEvent;
+    use crate::input::event::gesture::Tap;
     use crate::types::{Fixed, Rect};
     use crate::ui::ComputedRect;
     use crate::ui::view::ViewRegistry;
@@ -90,6 +87,15 @@ mod tests {
     use crate::ui::widgets::tabbar::{TabBar, tabbar_handler};
     use crate::ui::widgets::text_input::TextInput;
     use crate::ui::{HitTarget, InteractionFeedback};
+
+    #[derive(Default)]
+    struct UserCalls(usize);
+
+    #[crate::event]
+    fn user_handler(calls: res!(mut UserCalls)) -> bool {
+        calls.0 += 1;
+        false
+    }
 
     #[test]
     fn tabbar_tap_picks_correct_tab() {
@@ -106,7 +112,8 @@ mod tests {
                     y: Fixed::from_int(20),
                     target: e,
                 },
-            );
+            )
+            .unwrap();
             let tb = world.get::<TabBar>(e).unwrap();
             assert_eq!(tb.selected, expected, "x={x} → expected {expected}");
         }
@@ -150,27 +157,31 @@ mod tests {
 
         let e = world.spawn_empty();
         world.insert(e, Button::new());
-        fn user_handler(_: &mut World, _: Entity, _: &GestureEvent, _: u8) -> bool {
-            false
-        }
-        world.insert(e, GestureHandler::from_fn(user_handler));
+        world.insert_resource(UserCalls::default());
+        crate::input::event::binding::install_entity_event(
+            &mut world,
+            e,
+            Tap::EVENT,
+            user_handler::callback::<Tap, crate::input::event::callback::NodeContext>(),
+        );
 
         attach_handlers_for(&mut world, e);
 
         assert!(world.has::<HitTarget>(e));
         assert!(world.has::<InteractionFeedback>(e));
 
-        let h = world.get::<GestureHandler>(e).expect("user handler stays");
-        let installed = match h.on_gesture {
-            crate::input::event::GestureCallback::Fn(f) => f as *const (),
-            crate::input::event::GestureCallback::Closure(_) => {
-                panic!("expected the user fn handler")
-            }
-        };
-        assert!(
-            core::ptr::eq(installed, user_handler as *const ()),
-            "button attachment must preserve the user-supplied GestureHandler"
-        );
+        assert!(crate::input::event::runtime::has_entity_listener::<Tap>(&world, e).unwrap());
+        crate::input::event::runtime::dispatch_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: e,
+            },
+            0,
+        )
+        .unwrap();
+        assert_eq!(world.resource::<UserCalls>().unwrap().0, 1);
     }
 
     #[test]
@@ -178,7 +189,13 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(ViewRegistry::default());
         let entity = world.spawn_empty();
-        world.insert(entity, GestureHandler::from_fn(|_, _, _, _| false));
+        world.insert_resource(UserCalls::default());
+        crate::input::event::binding::install_entity_event(
+            &mut world,
+            entity,
+            Tap::EVENT,
+            user_handler::callback::<Tap, crate::input::event::callback::NodeContext>(),
+        );
 
         attach_handlers_for(&mut world, entity);
 
@@ -272,7 +289,7 @@ mod tests {
                 target: e,
             },
         );
-        assert!(consumed);
+        assert_eq!(consumed, Ok(true));
         assert!(world.get::<Checkbox>(e).unwrap().checked);
     }
 
@@ -293,7 +310,7 @@ mod tests {
                 target: e,
             },
         );
-        assert!(!consumed);
+        assert_eq!(consumed, Ok(false));
         assert_eq!(world.get::<TabBar>(e).unwrap().selected, 0);
     }
 }

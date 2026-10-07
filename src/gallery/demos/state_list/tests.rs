@@ -1,7 +1,6 @@
 use super::composition::build_widgets;
 use super::state::ROW_H;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
@@ -13,15 +12,20 @@ fn row_count(world: &World, list: Entity) -> usize {
 }
 
 fn tap(world: &mut World, e: Entity) {
-    GestureHandler::trigger(
-        world,
-        e,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: e,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: e,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(world);
 }
 

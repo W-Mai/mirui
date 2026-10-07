@@ -70,6 +70,11 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(1)
+            .flush_limit(1),
+    );
     crate::gallery::showcase_theme::install(&mut app.world);
     app.with_widget(orbit_render::view())
         .with_widget(wave_render::view());

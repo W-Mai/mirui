@@ -24,8 +24,7 @@ pub(super) fn pinch_target(model: model!(PinchModel)) -> Entity {
             PinchTarget {
                 model: model.clone(),
             },
-        ] on Pinch { model.apply_pinch(scale_delta); } on Rotate { model.apply_rotation(angle); }
-        {
+        ] {
             Icon (
                 path: ICON_PLUS,
                 color: ThemedColor::Token(ColorToken::OnPrimary),
@@ -33,7 +32,7 @@ pub(super) fn pinch_target(model: model!(PinchModel)) -> Entity {
                 grow: 1.0,
                 width: Dimension::percent(100)
             )
-        }
+        } on Pinch { model.apply_pinch(event.scale_delta); } on Rotate { model.apply_rotation(event.angle); }
     }
     //~focus-end
 }

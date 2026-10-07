@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::input::event::GestureHandler;
-    use mirui::input::event::bubble_dispatch_at;
     use mirui::input::event::gesture::GestureEvent;
     use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::{Fixed, Rect};
@@ -27,13 +25,20 @@ mod tests {
         USER_FIRES.store(0, Ordering::SeqCst);
     }
 
-    fn user_gesture(_w: &mut World, _e: Entity, _ev: &GestureEvent, _: u8) -> bool {
+    #[mirui::event]
+    fn user_gesture() -> bool {
         USER_FIRES.fetch_add(1, Ordering::SeqCst);
         false
     }
 
     fn fresh_world() -> (World, Entity) {
-        let mut world = World::new();
+        let mut app = mirui::app::App::headless(128, 128);
+        app.with_event_capacity(
+            mirui::app::EventCapacity::new()
+                .notifications::<mirui::ui::widgets::tabbar::SelectionChanged>(1)
+                .flush_limit(1),
+        );
+        let mut world = app.world;
         world.insert_resource(IdMap::new());
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(ViewRegistry::with_builtins());
@@ -46,8 +51,8 @@ mod tests {
             let mut cx = ::mirui::ui::UiScope::new(world, root);
             ui! {
                 TabBar (width: 300, height: 40) on SelectionChanged {
-                    LAST_NEW.store(new, Ordering::SeqCst);
-                    LAST_OLD.store(old, Ordering::SeqCst);
+                    LAST_NEW.store(event.new, Ordering::SeqCst);
+                    LAST_OLD.store(event.old, Ordering::SeqCst);
                     FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -82,12 +87,20 @@ mod tests {
         let (mut world, root) = fresh_world();
         let bar = build_tabbar(&mut world, root);
 
-        bubble_dispatch_at(&mut world, &tap(bar, 150), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 150), 100)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(LAST_NEW.load(Ordering::SeqCst), 1);
         assert_eq!(LAST_OLD.load(Ordering::SeqCst), 0);
 
-        bubble_dispatch_at(&mut world, &tap(bar, 270), 600);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 270), 600)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(FIRES.load(Ordering::SeqCst), 2);
         assert_eq!(LAST_NEW.load(Ordering::SeqCst), 2);
         assert_eq!(LAST_OLD.load(Ordering::SeqCst), 1);
@@ -100,11 +113,19 @@ mod tests {
         let (mut world, root) = fresh_world();
         let bar = build_tabbar(&mut world, root);
 
-        bubble_dispatch_at(&mut world, &tap(bar, 50), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 50), 100)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(FIRES.load(Ordering::SeqCst), 0);
         assert_eq!(world.get::<TabBar>(bar).unwrap().selected, 0);
 
-        bubble_dispatch_at(&mut world, &tap(bar, 80), 600);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 80), 600)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(
             FIRES.load(Ordering::SeqCst),
             0,
@@ -118,14 +139,26 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
         let bar = build_tabbar(&mut world, root);
-        world.insert(bar, GestureHandler::from_fn(user_gesture));
+        mirui::__macro_support::install_entity_event(
+            &mut world,
+            bar,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            user_gesture::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
 
-        bubble_dispatch_at(&mut world, &tap(bar, 150), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 150), 100)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
 
         assert_eq!(
             FIRES.load(Ordering::SeqCst),
             1,
-            "TabBar internal still fires under user GestureHandler",
+            "TabBar internal still fires under author gesture binding",
         );
         assert_eq!(
             USER_FIRES.load(Ordering::SeqCst),

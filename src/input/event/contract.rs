@@ -251,20 +251,10 @@ notification_results!(EntityNotification, AppNotification);
 macro_rules! widget_events {
     (
         $widget:ty;
-        $(#[$attribute:meta])*
-        pub enum $carrier:ident {
-            $($(#[$variant_attribute:meta])* $kind:ident
-                $({ $($(#[$field_attribute:meta])* $field:ident: $ty:ty),+ $(,)? })?
-            ),+ $(,)?
-        }
+        $($(#[$variant_attribute:meta])* $kind:ident
+            $({ $($(#[$field_attribute:meta])* $field:ident: $ty:ty),+ $(,)? })?
+        ),+ $(,)?
     ) => {
-        $(#[$attribute])*
-        pub enum $carrier {
-            $($(#[$variant_attribute])* $kind
-                $({ $($(#[$field_attribute])* $field: $ty),+ })?
-            ),+
-        }
-
         $(
             $crate::input::event::contract::widget_events!(
                 @payload

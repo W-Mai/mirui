@@ -1,6 +1,5 @@
 use super::view::diamond_render;
 use super::*;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
@@ -20,6 +19,11 @@ fn diamond_view_keeps_its_dispatch_contract() {
 #[test]
 fn build_widgets_smoke() {
     let mut world = World::new();
+    crate::input::event::runtime::configure(
+        &mut world,
+        EventCapacity::new().commands(CommandCapacity::new().insert::<super::view::Diamond>(1)),
+    )
+    .unwrap();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::with_builtins();
     reg.insert(diamond_render::view());
@@ -42,6 +46,11 @@ fn diamond_geometry_stays_in_static_storage() {
 #[test]
 fn tap_cycles_diamond_color() {
     let mut world = World::new();
+    crate::input::event::runtime::configure(
+        &mut world,
+        EventCapacity::new().commands(CommandCapacity::new().insert::<super::view::Diamond>(1)),
+    )
+    .unwrap();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::with_builtins();
     reg.insert(diamond_render::view());
@@ -53,14 +62,19 @@ fn tap_cycles_diamond_color() {
     let d0 = world.get::<Children>(row).unwrap().0[0];
 
     assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[0]));
-    GestureHandler::trigger(
-        &mut world,
-        d0,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: d0,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: d0,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[1]));
 }

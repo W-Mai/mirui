@@ -6,10 +6,10 @@ mod tracking_allocator;
 use mirui::app::App;
 use mirui::core::reactive::flush_signal_dirty;
 use mirui::ecs::{Entity, World};
+use mirui::input::event::dispatch_input;
 use mirui::input::event::gesture::{GestureEvent, GestureSystem};
 use mirui::input::event::hit_test::hit_test;
 use mirui::input::event::input::InputEvent;
-use mirui::input::event::{bubble_dispatch_at, dispatch_input};
 use mirui::surface::FramebufferAccess;
 use mirui::types::Fixed;
 use mirui::ui::branch::is_effectively_hidden;
@@ -66,7 +66,10 @@ fn try_tap_at(
         GestureEvent::Tap { target, .. } => *target,
         _ => panic!("pointer sequence did not produce a tap: {event:?}"),
     };
-    bubble_dispatch_at(world, &event, now_ms + 50);
+    {
+        mirui::__macro_support::dispatch_entity_gesture(world, &event, now_ms + 50).unwrap();
+        mirui::__macro_support::flush_entity_events(world).unwrap();
+    };
     Some(target)
 }
 
@@ -220,7 +223,15 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
                 gestures.buffer.pop().unwrap()
             };
             assert!(matches!(event, GestureEvent::Tap { target, .. } if target == button));
-            bubble_dispatch_at(&mut app.world, &event, now_ms + 50);
+            {
+                mirui::__macro_support::dispatch_entity_gesture(
+                    &mut app.world,
+                    &event,
+                    now_ms + 50,
+                )
+                .unwrap();
+                mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            };
         });
         let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
         let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
@@ -453,7 +464,15 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
                 gestures.buffer.pop().unwrap()
             };
             assert!(matches!(event, GestureEvent::Tap { target: tapped, .. } if tapped == target));
-            bubble_dispatch_at(&mut app.world, &event, now_ms + 50);
+            {
+                mirui::__macro_support::dispatch_entity_gesture(
+                    &mut app.world,
+                    &event,
+                    now_ms + 50,
+                )
+                .unwrap();
+                mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            };
         });
         let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
         let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
@@ -518,15 +537,19 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
 
     let settings = app.world.find_by_id("marble_nav_settings").unwrap();
     let settings_rect = app.world.get::<ComputedRect>(settings).unwrap().0;
-    bubble_dispatch_at(
-        &mut app.world,
-        &GestureEvent::Tap {
-            x: settings_rect.x + settings_rect.w / Fixed::from_int(2),
-            y: settings_rect.y + settings_rect.h / Fixed::from_int(2),
-            target: settings,
-        },
-        100,
-    );
+    {
+        mirui::__macro_support::dispatch_entity_gesture(
+            &mut app.world,
+            &GestureEvent::Tap {
+                x: settings_rect.x + settings_rect.w / Fixed::from_int(2),
+                y: settings_rect.y + settings_rect.h / Fixed::from_int(2),
+                target: settings,
+            },
+            100,
+        )
+        .unwrap();
+        mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+    };
     flush_signal_dirty(&mut app.world);
     app.render_dirty().unwrap();
 
@@ -569,15 +592,19 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
             Some(slider)
         );
         let model_call_allocations = tracked_allocations(|| {
-            bubble_dispatch_at(
-                &mut app.world,
-                &GestureEvent::Tap {
-                    x,
-                    y,
-                    target: slider,
-                },
-                200 + value as u32,
-            );
+            {
+                mirui::__macro_support::dispatch_entity_gesture(
+                    &mut app.world,
+                    &GestureEvent::Tap {
+                        x,
+                        y,
+                        target: slider,
+                    },
+                    200 + value as u32,
+                )
+                .unwrap();
+                mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            };
         });
         let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
         let render_allocations = tracked_allocations(|| app.render_dirty().unwrap());
@@ -642,15 +669,19 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
     {
         let target = app.world.find_by_id(id).unwrap();
         let rect = app.world.get::<ComputedRect>(target).unwrap().0;
-        bubble_dispatch_at(
-            &mut app.world,
-            &GestureEvent::Tap {
-                x: rect.x + rect.w / Fixed::from_int(2),
-                y: rect.y + rect.h / Fixed::from_int(2),
-                target,
-            },
-            index as u32 * 100 + 100,
-        );
+        {
+            mirui::__macro_support::dispatch_entity_gesture(
+                &mut app.world,
+                &GestureEvent::Tap {
+                    x: rect.x + rect.w / Fixed::from_int(2),
+                    y: rect.y + rect.h / Fixed::from_int(2),
+                    target,
+                },
+                index as u32 * 100 + 100,
+            )
+            .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+        };
         flush_signal_dirty(&mut app.world);
         app.render_dirty().unwrap();
     }
@@ -713,7 +744,15 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
                 gestures.buffer.pop().unwrap()
             };
             assert!(matches!(event, GestureEvent::Tap { target: tapped, .. } if tapped == target));
-            bubble_dispatch_at(&mut app.world, &event, now_ms + 50);
+            {
+                mirui::__macro_support::dispatch_entity_gesture(
+                    &mut app.world,
+                    &event,
+                    now_ms + 50,
+                )
+                .unwrap();
+                mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+            };
         });
         let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
         let mut render_result = Ok(());

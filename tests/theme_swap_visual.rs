@@ -2,9 +2,6 @@ extern crate alloc;
 
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::World;
-    use mirui::input::event::GestureHandler;
-    use mirui::input::event::gesture::GestureEvent;
     use mirui::prelude::*;
     use mirui::render::sw::SwRenderer;
     use mirui::render::texture::ColorFormat;
@@ -17,10 +14,6 @@ mod tests {
     use mirui::ui::widgets::{
         Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput,
     };
-
-    fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent, _: u8) -> bool {
-        false
-    }
 
     #[test]
     fn theme_swap_chooser_paints_buttons() {
@@ -54,11 +47,9 @@ mod tests {
                         text_color: ColorToken::OnPrimary,
                         normal_color: Color::rgb(40, 50, 70),
                         pressed_color: Color::rgb(20, 25, 35)
-                    ) [
-                        GestureHandler::from_fn(dummy_handler),
-                    ] {
+                    ) {
                         Text ("Dark")
-                    }
+                    } on Tap(|_| false)
                     Button (
                         grow: 1.0,
                         height: 36,
@@ -66,11 +57,9 @@ mod tests {
                         text_color: ColorToken::OnPrimary,
                         normal_color: Color::rgb(0, 100, 200),
                         pressed_color: Color::rgb(0, 70, 150)
-                    ) [
-                        GestureHandler::from_fn(dummy_handler),
-                    ] {
+                    ) {
                         Text ("Light")
-                    }
+                    } on Tap(|_| false)
                     Button (
                         grow: 1.0,
                         height: 36,
@@ -78,11 +67,9 @@ mod tests {
                         text_color: ColorToken::OnPrimary,
                         normal_color: Color::rgb(255, 105, 180),
                         pressed_color: Color::rgb(200, 70, 140)
-                    ) [
-                        GestureHandler::from_fn(dummy_handler),
-                    ] {
+                    ) {
                         Text ("Custom")
-                    }
+                    } on Tap(|_| false)
                 }
             }
         };

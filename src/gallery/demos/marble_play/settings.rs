@@ -119,7 +119,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 track_color: Color::rgb(69, 87, 70),
                 fill_color: Color::rgb(217, 248, 138),
                 thumb_color: Color::rgb(225, 233, 214)
-            ) on ValueChanged { model.set_gravity(Fixed64::from_fixed(new)); }
+            ) on ValueChanged { model.set_gravity(Fixed64::from_fixed(event.new)); }
             Slider (
                 id: "marble_setting_bpm_control",
                 position: Position::Absolute,
@@ -133,7 +133,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 track_color: Color::rgb(69, 87, 70),
                 fill_color: Color::rgb(198, 176, 239),
                 thumb_color: Color::rgb(225, 233, 214)
-            ) on ValueChanged { model.set_bpm(Fixed64::from_fixed(new)); }
+            ) on ValueChanged { model.set_bpm(Fixed64::from_fixed(event.new)); }
             Switch (
                 id: "marble_setting_trails_control",
                 position: Position::Absolute,
@@ -146,7 +146,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 off_color: Color::rgb(69, 87, 70),
                 thumb_color: Color::rgb(23, 34, 28)
             ) on Toggled {
-                if model.trails() != now {
+                if model.trails() != event.now {
                     model.toggle_trails();
                 }
             }
@@ -162,7 +162,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
                 off_color: Color::rgb(69, 87, 70),
                 thumb_color: Color::rgb(23, 34, 28)
             ) on Toggled {
-                if model.feedback() != now {
+                if model.feedback() != event.now {
                     model.toggle_feedback();
                 }
             }

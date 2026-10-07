@@ -28,7 +28,6 @@ use super::visuals::{ActivityPlot, OrbitInstrument, SignalMeter, UNIT_CIRCLE};
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
 use crate::ecs::SystemScheduler;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
@@ -37,7 +36,6 @@ use crate::ui::ComputedRect;
 use crate::ui::Parent;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::ViewRegistry;
-use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
 use crate::ui::widgets::{Button, Slider, Text};
 
 type ConsoleHandle = <ConsoleState as crate::core::model::Model>::Handle;
@@ -285,15 +283,20 @@ fn controls_update_shared_state_and_visual_style() {
         .find_by_id(ConsoleNodes::ACTIVITY)
         .expect("activity id");
     clear_canvas_dirty(&mut world, [stage, signal, activity]);
-    GestureHandler::trigger(
-        &mut world,
-        pulse,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: pulse,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: pulse,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert_eq!(state(&world).mode, ConsoleMode::Pulse);
     flush_signal_dirty(&mut world);
     assert_eq!(
@@ -334,15 +337,20 @@ fn shell_and_instruments_resolve_the_active_theme() {
 fn stage_tap_cycles_focus_without_allocation_state() {
     let (mut world, _) = fixture();
     let stage = world.find_by_id(ConsoleNodes::STAGE).expect("stage id");
-    GestureHandler::trigger(
-        &mut world,
-        stage,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: stage,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: stage,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert_eq!(state(&world).focused_node, 2);
     flush_signal_dirty(&mut world);
     let focus_label = world
@@ -363,19 +371,18 @@ fn intensity_and_pause_handlers_update_visible_state() {
         .find_by_id(ConsoleNodes::INTENSITY_LABEL)
         .expect("intensity label id");
     let pause = world.find_by_id(ConsoleNodes::PAUSE).expect("pause id");
-    let callback = world
-        .get::<SliderHandler>(slider)
-        .expect("slider handler")
-        .on_event
-        .clone_out();
-    callback.call(
-        &mut world,
-        slider,
-        &SliderEvent::ValueChanged {
-            new: Fixed::from_int(42),
-            old: Fixed::from_int(78),
-        },
-    );
+    {
+        crate::input::event::runtime::emit_widget(
+            &mut world,
+            slider,
+            crate::ui::widgets::slider::ValueChanged {
+                new: Fixed::from_int(42),
+                old: Fixed::from_int(78),
+            },
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+    };
     assert_eq!(state(&world).intensity, 42);
     flush_signal_dirty(&mut world);
     assert!(
@@ -384,15 +391,20 @@ fn intensity_and_pause_handlers_update_visible_state() {
             .is_some_and(|text| text.resolve(&world) == "42")
     );
 
-    GestureHandler::trigger(
-        &mut world,
-        pause,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: pause,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: pause,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     assert!(state(&world).paused);
     flush_signal_dirty(&mut world);
     assert!(

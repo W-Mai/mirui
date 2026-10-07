@@ -9,8 +9,8 @@ use syn::{Expr, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type
 
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
-    BindingSpec, BindingSyntax, ComponentSource, ComponentTarget, LogicalType, ModelSource,
-    RoleKind, VIEW_ROLES, parse_resource_role,
+    BindingSpec, BindingSyntax, ComponentSource, LogicalType, ModelSource, RoleKind, VIEW_ROLES,
+    parse_resource_role,
 };
 use crate::child_scope::ChildScope;
 use crate::function_attrs::{FunctionAttributes, classify_function_attributes};
@@ -306,10 +306,7 @@ fn parse_component(
         name,
         syntax: BindingSyntax::TypeRole(type_role),
         logical_type: LogicalType::Explicit(Box::new(ty.clone())),
-        source: BindingSource::Component(ComponentSource {
-            ty,
-            target: ComponentTarget::CurrentEntity,
-        }),
+        source: BindingSource::Component(ComponentSource { ty }),
         access: BindingAccess::Read,
         cardinality: BindingCardinality::Required,
         watch_selectors: Vec::new(),

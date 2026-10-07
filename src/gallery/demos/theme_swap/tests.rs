@@ -1,6 +1,5 @@
 use super::composition::build_widgets;
 use super::state::{ACCENT, custom_theme, dark_with_accent, light_with_accent};
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::theme;
@@ -9,6 +8,11 @@ use crate::ui::{IdMap, UiScope};
 #[test]
 fn build_widgets_smoke() {
     let mut world = World::new();
+    crate::input::event::runtime::configure(
+        &mut world,
+        EventCapacity::new().commands(CommandCapacity::new().set_theme(1)),
+    )
+    .unwrap();
     world.insert_resource(IdMap::new());
     theme::set_theme(&mut world, dark_with_accent()).unwrap();
     theme::register(&mut world, light_with_accent());
@@ -27,6 +31,11 @@ fn build_widgets_smoke() {
 #[test]
 fn tap_button_swaps_global_theme() {
     let mut world = World::new();
+    crate::input::event::runtime::configure(
+        &mut world,
+        EventCapacity::new().commands(CommandCapacity::new().set_theme(1)),
+    )
+    .unwrap();
     world.insert_resource(IdMap::new());
     theme::set_theme(&mut world, dark_with_accent()).unwrap();
     theme::register(&mut world, light_with_accent());
@@ -37,15 +46,20 @@ fn tap_button_swaps_global_theme() {
     drop(cx);
     let custom_btn = world.find_by_id("theme_custom").unwrap();
 
-    GestureHandler::trigger(
-        &mut world,
-        custom_btn,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: custom_btn,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: custom_btn,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     let theme = world.resource::<Theme>().unwrap();
     assert_eq!(theme.resolve(ACCENT), Color::rgb(140, 200, 220));
 }
@@ -58,6 +72,7 @@ fn token_grid_stays_inside_landscape_and_portrait_viewports() {
 
     for (width, height) in [(480, 320), (320, 480)] {
         let mut app = App::headless(width, height);
+        app.with_event_capacity(EventCapacity::new().commands(CommandCapacity::new().set_theme(1)));
         app.with_default_widgets()
             .with_default_systems()
             .with_theme(dark_with_accent());

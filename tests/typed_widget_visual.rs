@@ -2,9 +2,6 @@ extern crate alloc;
 
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::World;
-    use mirui::input::event::GestureHandler;
-    use mirui::input::event::gesture::GestureEvent;
     use mirui::prelude::*;
     use mirui::render::sw::SwRenderer;
     use mirui::render::texture::ColorFormat;
@@ -15,10 +12,6 @@ mod tests {
     use mirui::ui::layout::FlexDirection;
     use mirui::ui::render_system;
     use mirui::ui::widgets::{Button, Text};
-
-    fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent, _: u8) -> bool {
-        false
-    }
 
     fn count_non_bg_pixels(
         buf: &[u8],
@@ -70,11 +63,9 @@ mod tests {
                         text_color: ColorToken::OnPrimary,
                         normal_color: Color::rgb(40, 50, 70),
                         pressed_color: Color::rgb(20, 25, 35)
-                    ) [
-                        GestureHandler::from_fn(dummy_handler),
-                    ] {
+                    ) {
                         Text ("Dark")
-                    }
+                    } on Tap(|_| false)
                 }
             }
         };

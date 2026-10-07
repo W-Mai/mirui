@@ -4,14 +4,12 @@ use super::state::TypographyModel;
 use super::style::BACKGROUND;
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::scroll_bounds;
 use crate::prelude::*;
 use crate::render::font::FontManager;
 use crate::types::Viewport;
 use crate::ui::view::ViewRegistry;
-use crate::ui::widgets::slider::{SliderEvent, SliderHandler};
 use crate::ui::widgets::{LanguageTag, Text, TextAlign, TextDirection, TextOverflow, TextWrap};
 use crate::ui::{ComputedRect, Parent};
 
@@ -31,15 +29,20 @@ fn fixture() -> World {
 
 fn tap(world: &mut World, id: &'static str) {
     let entity = world.find_by_id(id).expect("control id");
-    GestureHandler::trigger(
-        world,
-        entity,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: entity,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: entity,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(world);
 }
 
@@ -240,15 +243,20 @@ fn path_tap_updates_the_probe_and_subscribed_caret_views() {
     world.remove::<crate::ui::dirty::VisualDirty>(overlay);
     world.remove::<crate::ui::dirty::VisualDirty>(live_overlay);
 
-    GestureHandler::trigger(
-        &mut world,
-        sample,
-        &GestureEvent::Tap {
-            x: Fixed::from_int(42),
-            y: Fixed::from_int(55),
-            target: sample,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::Tap {
+                x: Fixed::from_int(42),
+                y: Fixed::from_int(55),
+                target: sample,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
 
     assert_eq!(
@@ -259,17 +267,22 @@ fn path_tap_updates_the_probe_and_subscribed_caret_views() {
     assert!(world.has::<crate::ui::dirty::VisualDirty>(live_overlay));
     world.remove::<crate::ui::dirty::VisualDirty>(overlay);
 
-    GestureHandler::trigger(
-        &mut world,
-        sample,
-        &GestureEvent::DragMove {
-            x: Fixed::from_int(70),
-            y: Fixed::from_int(60),
-            dx: Fixed::from_int(28),
-            dy: Fixed::from_int(5),
-            target: sample,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            &mut world,
+            &GestureEvent::DragMove {
+                x: Fixed::from_int(70),
+                y: Fixed::from_int(60),
+                dx: Fixed::from_int(28),
+                dy: Fixed::from_int(5),
+                target: sample,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(
         with_model(&world, |model| model.path_probe),
@@ -383,19 +396,18 @@ fn controls_publish_into_the_live_paragraph() {
     let width = world.find_by_id("typography_width").expect("width id");
 
     for (slider, new) in [(ppem, 42), (width, 320)] {
-        let callback = world
-            .get::<SliderHandler>(slider)
-            .expect("slider handler")
-            .on_event
-            .clone_out();
-        callback.call(
-            &mut world,
-            slider,
-            &SliderEvent::ValueChanged {
-                new: Fixed::from_int(new),
-                old: Fixed::ZERO,
-            },
-        );
+        {
+            crate::input::event::runtime::emit_widget(
+                &mut world,
+                slider,
+                crate::ui::widgets::slider::ValueChanged {
+                    new: Fixed::from_int(new),
+                    old: Fixed::ZERO,
+                },
+            )
+            .unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
     }
     flush_signal_dirty(&mut world);
     tap(&mut world, "typography_wrap");

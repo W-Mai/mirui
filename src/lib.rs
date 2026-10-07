@@ -129,18 +129,24 @@ pub mod __macro_support {
     pub use crate::ecs::system::param::{
         OptionalRes, QueryParam, Res, ResMut, SystemParam, fetch_system_params,
     };
+    pub use crate::input::event::binding::{
+        EntityEventBindings, EntityInstallRoute, EventBinding, install_entity_event,
+    };
     pub use crate::input::event::callback::{
         AppContext, CallbackContext, EntityContext, EventCallback, NodeContext, PreparationError,
         PreparedEvent, deferred_event_callback, event_callback,
     };
     pub use crate::input::event::emission::{flush_notifications, prepare_notifications};
     pub use crate::input::event::listeners::{
-        EventListeners, ListenerCapacity, ListenerError, ListenerId, ListenerSelector,
-        ListenerSnapshot, ListenerTarget,
+        EventListeners, ListenerCapacity, ListenerDecision, ListenerError, ListenerId,
+        ListenerSelector, ListenerSnapshot, ListenerTarget,
     };
     pub use crate::input::event::notification::{
         Notification, NotificationCapacity, NotificationError, NotificationFlushError,
         NotificationQueue,
+    };
+    pub use crate::input::event::runtime::{
+        RuntimeRunError, dispatch_gesture as dispatch_entity_gesture, flush as flush_entity_events,
     };
     pub use ::core::cell::{Cell as __Cell, RefCell as __RefCell};
     pub use alloc::borrow::Cow as __Cow;
@@ -174,7 +180,7 @@ pub mod prelude {
     pub use crate::input::event::gesture::{
         DragCancel, DragEnd, DragMove, DragStart, GestureSelectors, LongPress, Pinch, Rotate, Tap,
     };
-    pub use crate::input::event::input::{CharInput, Key, Rotary, Wheel};
+    pub use crate::input::event::input::{CharInput, InputSelectors, Key, Rotary, Wheel};
     pub use crate::input::event::lifecycle::{
         HostInteraction, MemoryWarning, Quit, Resumed, Started, Suspended,
     };

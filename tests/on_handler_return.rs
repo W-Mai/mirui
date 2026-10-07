@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::input::event::GestureHandler;
-    use mirui::input::event::bubble_dispatch_at;
     use mirui::input::event::gesture::GestureEvent;
     use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::Fixed;
@@ -21,7 +19,8 @@ mod tests {
         PARENT_FIRES.store(0, Ordering::SeqCst);
     }
 
-    fn parent_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent, _: u8) -> bool {
+    #[mirui::event]
+    fn parent_handler() -> bool {
         PARENT_FIRES.fetch_add(1, Ordering::SeqCst);
         true
     }
@@ -47,7 +46,15 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(root, GestureHandler::from_fn(parent_handler));
+        mirui::__macro_support::install_entity_event(
+            &mut world,
+            root,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            parent_handler::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
 
         let child = {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
@@ -56,7 +63,10 @@ mod tests {
             }
         };
 
-        bubble_dispatch_at(&mut world, &tap(child), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(child), 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(
             PARENT_FIRES.load(Ordering::SeqCst),
@@ -70,7 +80,15 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(root, GestureHandler::from_fn(parent_handler));
+        mirui::__macro_support::install_entity_event(
+            &mut world,
+            root,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            parent_handler::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
 
         let child = {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
@@ -82,7 +100,10 @@ mod tests {
             }
         };
 
-        bubble_dispatch_at(&mut world, &tap(child), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(child), 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(
             PARENT_FIRES.load(Ordering::SeqCst),
@@ -96,7 +117,15 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(root, GestureHandler::from_fn(parent_handler));
+        mirui::__macro_support::install_entity_event(
+            &mut world,
+            root,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            parent_handler::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
 
         let child = {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
@@ -108,7 +137,10 @@ mod tests {
             }
         };
 
-        bubble_dispatch_at(&mut world, &tap(child), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(child), 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(PARENT_FIRES.load(Ordering::SeqCst), 0);
     }
@@ -118,7 +150,15 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(root, GestureHandler::from_fn(parent_handler));
+        mirui::__macro_support::install_entity_event(
+            &mut world,
+            root,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            parent_handler::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
 
         let child = {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
@@ -130,7 +170,10 @@ mod tests {
             }
         };
 
-        bubble_dispatch_at(&mut world, &tap(child), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(child), 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(
             PARENT_FIRES.load(Ordering::SeqCst),
@@ -144,7 +187,15 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(root, GestureHandler::from_fn(parent_handler));
+        mirui::__macro_support::install_entity_event(
+            &mut world,
+            root,
+            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
+            parent_handler::callback::<
+                mirui::input::event::gesture::Tap,
+                mirui::__macro_support::NodeContext,
+            >(),
+        );
 
         let child = {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
@@ -156,7 +207,10 @@ mod tests {
             }
         };
 
-        bubble_dispatch_at(&mut world, &tap(child), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(child), 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(
             PARENT_FIRES.load(Ordering::SeqCst),

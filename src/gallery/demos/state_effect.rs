@@ -77,7 +77,6 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
@@ -109,7 +108,12 @@ mod tests {
             y: Fixed::ZERO,
             target: btn,
         };
-        GestureHandler::trigger(&mut world, btn, &tap);
+        {
+            let decision =
+                crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+            assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+        };
         flush_signal_dirty(&mut world);
         assert_eq!(label_text(&world, runs_label), "effect observed 2 updates");
     }

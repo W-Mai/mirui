@@ -242,18 +242,15 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
             ) [
                 LumenBoard { model: model.clone() },
                 TouchAction::None,
-            ] on Tap {
-                let Some(board) = com!(target, LumenBoard) else {
-                    return false;
-                };
-                let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                    return false;
-                };
-                board_tap(board, rect, x, y)
-            }
-            {
+            ] {
                 mirror_labels (model)
-            }
+            } on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
+                let Some((board, rect)) = rows.get(event.target) else {
+                    return false;
+                };
+                let rect = rect.0;
+                board_tap(board, rect, event.x, event.y)
+            })
             Column (width: 163, height: 204, row_gap: 6) {
                 Column (
                     height: 102,
@@ -436,8 +433,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
             bg_color: Color::rgba(8, 14, 13, 224)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 24,
@@ -600,7 +596,7 @@ fn compose_level_modal(model: model!(LumenModel)) -> Entity {
                     paragraph: ParagraphStyle::label()
                 )
             }
-        }
+        } on Tap { }
     }
 }
 

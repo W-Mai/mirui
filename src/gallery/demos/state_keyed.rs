@@ -116,22 +116,26 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::UiScope;
 
     fn tap(world: &mut World, e: Entity) {
-        GestureHandler::trigger(
-            world,
-            e,
-            &GestureEvent::Tap {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                target: e,
-            },
-        );
+        {
+            let decision = crate::__macro_support::dispatch_entity_gesture(
+                world,
+                &GestureEvent::Tap {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    target: e,
+                },
+                0,
+            )
+            .unwrap();
+            crate::__macro_support::flush_entity_events(world).unwrap();
+            assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+        };
         flush_signal_dirty(world);
     }
 

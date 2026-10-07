@@ -60,15 +60,7 @@ pub fn build_widgets() {
                 clip_children: true,
                 count: 3,
                 indicator_height: Fixed::from_int(3)
-            ) on SelectionChanged {
-                selection_action
-                    .update(|state| {
-                        state.current = new;
-                        state.previous = old;
-                        state.changes = state.changes.saturating_add(1);
-                    });
-            }
-            {
+            ) {
                 Text (
                     "Home",
                     text_color: ColorToken::OnSurfaceVariant,
@@ -90,6 +82,13 @@ pub fn build_widgets() {
                     height: Dimension::percent(100),
                     paragraph: ParagraphStyle::label()
                 )
+            } on SelectionChanged {
+                selection_action
+                    .update(|state| {
+                        state.current = event.new;
+                        state.previous = event.old;
+                        state.changes = state.changes.saturating_add(1);
+                    });
             }
             View (
                 width: Dimension::percent(100),
@@ -194,6 +193,11 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::tabbar::SelectionChanged>(1)
+            .flush_limit(1),
+    );
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
     app.compose(parent, build_widgets);
@@ -205,18 +209,23 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::input::event::bubble_dispatch_at;
     use crate::input::event::gesture::GestureEvent;
     use crate::input::event::multi_tap::MultiTapTracker;
     use crate::ui::Children;
     use crate::ui::ComputedRect;
     use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
-    use crate::ui::widgets::tabbar::TabBarHandler;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
+        crate::input::event::runtime::configure(
+            &mut world,
+            EventCapacity::new()
+                .notifications::<crate::ui::widgets::tabbar::SelectionChanged>(1)
+                .flush_limit(1),
+        )
+        .unwrap();
         world.insert_resource(IdMap::new());
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(ViewRegistry::with_builtins());
@@ -229,7 +238,12 @@ mod tests {
                 .is_some_and(|c| !c.0.is_empty()),
         );
         let tabs = world.find_by_id("tabbar_demo_tabs").unwrap();
-        assert!(world.has::<TabBarHandler>(tabs));
+        assert!(
+            crate::input::event::runtime::has_entity_listener::<
+                crate::ui::widgets::tabbar::SelectionChanged,
+            >(&world, tabs)
+            .unwrap()
+        );
         world.insert(
             tabs,
             ComputedRect(Rect {
@@ -239,15 +253,19 @@ mod tests {
                 h: Fixed::from_int(40),
             }),
         );
-        bubble_dispatch_at(
-            &mut world,
-            &GestureEvent::Tap {
-                x: Fixed::from_int(150),
-                y: Fixed::ZERO,
-                target: tabs,
-            },
-            100,
-        );
+        {
+            crate::__macro_support::dispatch_entity_gesture(
+                &mut world,
+                &GestureEvent::Tap {
+                    x: Fixed::from_int(150),
+                    y: Fixed::ZERO,
+                    target: tabs,
+                },
+                100,
+            )
+            .unwrap();
+            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         flush_signal_dirty(&mut world);
         let status = world.find_by_id("tabbar_selection_status").unwrap();
         let status_text = world.get::<Text>(status).unwrap().resolve(&world);

@@ -1,7 +1,6 @@
 use mirui::anim::ease;
 use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-use mirui::input::event::GestureHandler;
-use mirui::input::event::gesture::GestureEvent;
+use mirui::input::event::gesture::DragMove;
 use mirui::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
@@ -9,57 +8,64 @@ use mirui::types::{Color, DimPoint, Dimension, Fixed};
 
 extern crate alloc;
 
+#[component]
 struct TapCount(u32);
 
-fn tap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    if let GestureEvent::Tap { .. } = event {
-        let count = world
-            .get_mut::<TapCount>(entity)
-            .map(|c| {
-                c.0 += 1;
-                c.0
-            })
-            .unwrap_or(0);
-        let colors = [
-            Color::rgb(63, 185, 80),
-            Color::rgb(248, 81, 73),
-            Color::rgb(210, 168, 255),
-            Color::rgb(88, 166, 255),
-            Color::rgb(255, 200, 50),
-        ];
-        if let Some(style) = world.get_mut::<mirui::ui::Style>(entity) {
-            style.set_bg_color(colors[(count as usize) % colors.len()]);
-        }
-        world.invalidate(entity);
-        true
-    } else {
-        false
-    }
+#[event]
+fn tap_handler(entity: entity!(), counters: query!(mut TapCount), commands: commands!()) -> bool {
+    let count = counters
+        .get(entity)
+        .map(|c| {
+            c.0 += 1;
+            c.0
+        })
+        .unwrap_or(0);
+    let colors = [
+        Color::rgb(63, 185, 80),
+        Color::rgb(248, 81, 73),
+        Color::rgb(210, 168, 255),
+        Color::rgb(88, 166, 255),
+        Color::rgb(255, 200, 50),
+    ];
+    commands.set::<mirui::ui::property::prop::BackgroundColor>(
+        entity,
+        colors[(count as usize) % colors.len()].into(),
+    );
+    true
 }
 
-fn drag_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    match event {
-        GestureEvent::DragMove { dx, dy, .. } => {
-            mirui::ui::set_position(
-                world,
-                entity,
-                Fixed::from_int(140) + *dx,
-                Fixed::from_int(90) + *dy,
-            );
-            true
-        }
-        GestureEvent::DragEnd { .. } => {
-            mirui::ui::set_position(world, entity, Fixed::from_int(140), Fixed::from_int(90));
-            true
-        }
-        _ => false,
-    }
+#[event]
+fn drag_move(entity: entity!(), input: event!(DragMove), commands: commands!()) -> bool {
+    commands.set::<mirui::ui::property::prop::Left>(
+        entity,
+        Dimension::Px(Fixed::from_int(140) + input.dx),
+    );
+    commands.set::<mirui::ui::property::prop::Top>(
+        entity,
+        Dimension::Px(Fixed::from_int(90) + input.dy),
+    );
+    true
+}
+
+#[event]
+fn drag_end(entity: entity!(), commands: commands!()) -> bool {
+    commands.set::<mirui::ui::property::prop::Left>(entity, Dimension::px(140));
+    commands.set::<mirui::ui::property::prop::Top>(entity, Dimension::px(90));
+    true
 }
 
 fn main() {
     let backend = SdlSurface::new("mirui - simulated input demo", 320, 240);
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
+    app.with_event_capacity(
+        EventCapacity::new().commands(
+            CommandCapacity::new()
+                .set::<mirui::ui::property::prop::BackgroundColor>(1)
+                .set::<mirui::ui::property::prop::Left>(1)
+                .set::<mirui::ui::property::prop::Top>(1),
+        ),
+    );
 
     app.add_system(sim_timeline_system::system());
 
@@ -83,12 +89,11 @@ fn main() {
                 width: 80,
                 height: 80,
                 border_radius: 10
-            )
+            ) [
+                TapCount(0),
+            ] on Tap(tap_handler::callback())
         }
     };
-    app.world.insert(tap_box, TapCount(0));
-    app.world
-        .insert(tap_box, GestureHandler::from_fn(tap_handler));
 
     let drag_box = {
         let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
@@ -101,11 +106,9 @@ fn main() {
                 width: 60,
                 height: 60,
                 border_radius: 30
-            )
+            ) on DragMove(drag_move::callback()) on DragEnd(drag_end::callback())
         }
     };
-    app.world
-        .insert(drag_box, GestureHandler::from_fn(drag_handler));
 
     app.world.insert_resource(
         SimTimeline::new(vec![

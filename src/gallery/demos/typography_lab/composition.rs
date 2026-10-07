@@ -445,7 +445,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                     model: model.clone(),
                                     follows_probe: true,
                                 },
-                            ] on Tap { model.set_path_probe(Point { x, y }); } on DragMove { model.set_path_probe(Point { x, y }); }
+                            ] on Tap { model.set_path_probe(Point { x: event.x, y: event.y }); } on DragMove { model.set_path_probe(Point { x: event.x, y: event.y }); }
                         }
                         View (id: "typography_projective_frame", height: 48, clip_children: true) [
                             WidgetTransform3D(
@@ -553,8 +553,8 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 fill_color: CYAN,
                                 thumb_color: TEXT
                             ) on ValueChanged {
-                                let _ = old;
-                                model.set_ppem(new);
+                                let _ = event.old;
+                                model.set_ppem(event.new);
                             }
                             Text (
                                 id: "typography_ppem_value",
@@ -579,8 +579,8 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 fill_color: BLUE,
                                 thumb_color: TEXT
                             ) on ValueChanged {
-                                let _ = old;
-                                model.set_width(new);
+                                let _ = event.old;
+                                model.set_width(event.new);
                             }
                             Text (
                                 id: "typography_width_value",
@@ -653,6 +653,11 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(2)
+            .flush_limit(2),
+    );
     crate::gallery::showcase_theme::install(&mut app.world);
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());

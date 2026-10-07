@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Node event callbacks.** Event blocks, typed inline callbacks, and named factories share source validation, prepared execution, and deferred commands. Widget builders install typed event bindings after their components are attached.
 - **Resource setup API.** `App::add_resource` installs values immediately through the existing World resource storage, retaining same-type replacement and deferred resource changes inside callbacks.
 - **App event callbacks.** Named callbacks handle lifecycle notifications and input fallback through the shared executor. Typed event capacities declare notification and deferred-command storage; rejected configuration changes and bindings log warnings without failing application construction.
 - **Typed command capacities.** Const operation-count declarations calculate deferred payload sizes, mixed-alignment storage, and apply-function layout without exposing byte limits or allocating a type catalog.
@@ -27,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Widget notification delivery.** Slider, Switch, Checkbox, ProgressBar, TabBar, and TextInput enqueue typed notifications for delivery after the input route releases its borrows. Unsubscribed widget events do not require notification storage.
+- **Event payload access.** Event blocks read fields through `event`; callback parameters provide component queries and resource access without a World callback.
 - **Game keyboard bindings.** Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark use named Model-bound App callbacks; focused text editing takes precedence over their character shortcuts. Twin Beacons and Folding Ark borrow their installed hint services through typed resource parameters.
 - **App input and notification routing.** Keyboard editing and scroll handling precede App fallback without duplicate dispatch. Lifecycle notifications follow completed hooks in the same FIFO as widget notifications, and startup and quit run once across loop entrypoints.
 - **Notification service ownership.** The runtime retains a private notification service, prepares capacity in place, and exposes no service handle for generic resource replacement.
@@ -43,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gesture parent cycles.** Shared bounded branch checks validate cycles before focus and tap tracking, preserve hidden and disabled behavior, and stop at stale entity generations.
 - **Simulated tap dispatch.** Scheduled input and timelines update focus before callbacks and use the actual tick time for tap-count tracking. Hidden gesture targets leave focus unchanged.
 - **Shared event captures.** Named callback factories accept optional Model bindings and other shared values while validating registered Model owners through one capture contract.
 - **Input feedback View filters.** Cursor and rotary overlays declare their component filters and invocation-time feedback resources through typed Views. Overlay marker changes participate in visual invalidation, and paint ordering is checked independently of registration order.
@@ -56,7 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Rotary target validation.** Retired scroll targets and targets without a scroll offset are ignored without marking recycled entities dirty.
 - **Native key release events.** SDL and WGPU forward both states of supported editing keys without repeating character input or quit requests on release.
 - **Lifecycle requests during simulation.** Active input simulation suppresses real interaction without discarding suspend, resume, or quit requests.
-- **Nested event component reads.** Component selectors containing another `com!` read use the current event context at every nesting level.
 
 ## [0.47.0] - 2026-09-29
 

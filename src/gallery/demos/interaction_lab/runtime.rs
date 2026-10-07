@@ -16,6 +16,12 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(
+        EventCapacity::new()
+            .notifications::<crate::ui::widgets::switch::Toggled>(1)
+            .notifications::<crate::ui::widgets::checkbox::Toggled>(1)
+            .flush_limit(2),
+    );
     crate::gallery::showcase_theme::install(&mut app.world);
     let model = app.add_model(InteractionModel::default());
     app.add_plugin(InputFeedbackPlugin::new());

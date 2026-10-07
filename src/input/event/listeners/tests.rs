@@ -120,7 +120,11 @@ struct RouteTrace {
     author_stop: Option<Entity>,
 }
 
-fn route_first(world: &mut World, node: Entity, event: &GestureEvent) -> bool {
+fn route_first(
+    world: &mut World,
+    node: Entity,
+    event: &GestureEvent,
+) -> Result<bool, CommandError> {
     let trace = world.resource::<RouteTrace>().unwrap();
     assert_eq!(event.target(), trace.origin);
     trace.trace.borrow_mut().record(100 + node.id);
@@ -130,17 +134,17 @@ fn route_first(world: &mut World, node: Entity, event: &GestureEvent) -> bool {
         world.insert(node, Parent(alternate));
         world.remove::<RouteMarker>(old_parent);
     }
-    stop
+    Ok(stop)
 }
 
-fn route_second(world: &mut World, node: Entity, _: &GestureEvent) -> bool {
+fn route_second(world: &mut World, node: Entity, _: &GestureEvent) -> Result<bool, CommandError> {
     world
         .resource::<RouteTrace>()
         .unwrap()
         .trace
         .borrow_mut()
         .record(200 + node.id);
-    false
+    Ok(false)
 }
 
 #[crate::event]
@@ -308,6 +312,38 @@ fn gesture_route_rejects_cycles_and_capacity_before_any_partial_execution() {
         .run(&mut fixture.world)
         .unwrap();
     assert_eq!(fixture.trace.borrow().len, 9);
+}
+
+#[test]
+fn gesture_owner_and_busy_checks_precede_branch_cycle_validation() {
+    let mut fixture = RouteFixture::new(9);
+    let event = fixture.event();
+    let snapshot = fixture
+        .pool
+        .snapshot_gesture(&fixture.world, &event)
+        .unwrap();
+    fixture.world.insert(fixture.root, Parent(fixture.leaf));
+    assert!(matches!(
+        fixture.pool.snapshot_gesture(&fixture.world, &event),
+        Err(ListenerError::Busy)
+    ));
+    let mut foreign = World::new();
+    let parent = foreign.spawn_empty();
+    let child = foreign.spawn_empty();
+    foreign.insert(parent, Parent(child));
+    foreign.insert(child, Parent(parent));
+    let mut foreign_event = event;
+    foreign_event.target = child;
+    assert!(matches!(
+        fixture.pool.snapshot_gesture(&foreign, &foreign_event),
+        Err(ListenerError::ForeignOwner)
+    ));
+    drop(snapshot);
+    assert!(matches!(
+        fixture.pool.snapshot_gesture(&fixture.world, &event),
+        Err(ListenerError::CyclicRoute { .. })
+    ));
+    assert!(fixture.pool.scratch.borrow().steps.is_empty());
 }
 
 #[test]
@@ -516,9 +552,9 @@ struct Widget;
 
 #[test]
 fn internal_only_gesture_routes_prepare_and_restore_reactive_owner_without_allocation() {
-    fn internal(world: &mut World, _: Entity, _: &GestureEvent) -> bool {
+    fn internal(world: &mut World, _: Entity, _: &GestureEvent) -> Result<bool, CommandError> {
         assert_eq!(crate::core::reactive::current_world_id(), Some(world.id()));
-        true
+        Ok(true)
     }
     let mut world = World::new();
     let node = world.spawn_empty();
@@ -573,10 +609,10 @@ fn keyboard_app(trace: res!(KeyboardTrace)) -> bool {
     false
 }
 
-fn keyboard_default(world: &mut World, node: Entity, _: &InputEvent) -> bool {
+fn keyboard_default(world: &mut World, node: Entity, _: &InputEvent) -> Result<bool, CommandError> {
     let trace = world.resource::<KeyboardTrace>().unwrap();
     trace.trace.borrow_mut().record(200 + node.id);
-    trace.internal_stop == Some(node)
+    Ok(trace.internal_stop == Some(node))
 }
 
 struct KeyboardFixture {
@@ -835,7 +871,7 @@ fn keyboard_snapshot_skips_destroyed_generations_without_retargeting_replacement
 
 #[test]
 fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
-    use crate::ui::widgets::text_input::{TextInput, TextInputHandler};
+    use crate::ui::widgets::text_input::TextInput;
     let mut fixture = KeyboardFixture::new(5);
     fixture.world.insert(fixture.leaf, TextInput::new());
     let view = crate::ui::widgets::text_input::view();
@@ -843,14 +879,18 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     view.auto_attach().unwrap()(&mut fixture.world, fixture.leaf);
     let changes = Rc::new(Cell::new(0));
     let called = changes.clone();
-    fixture.world.insert(
+    // SAFETY: the only capture is an independent test counter, not a Model.
+    let changed = unsafe {
+        TextInput::Changed
+            .__bind_plain::<super::super::callback::NodeContext, ()>("changed", move |_| {
+                called.set(called.get() + 1)
+            })
+    };
+    super::super::binding::install_entity_event(
+        &mut fixture.world,
         fixture.leaf,
-        TextInputHandler {
-            on_event: super::super::BusinessCallback::Closure(Rc::new(move |_, _, _| {
-                called.set(called.get() + 1);
-                true
-            })),
-        },
+        TextInput::Changed,
+        changed,
     );
     for code in [
         super::super::input::KEY_BACKSPACE,

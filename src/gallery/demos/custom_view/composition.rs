@@ -50,12 +50,12 @@ pub fn build_widgets() {
                     height: 88,
                     bg_color: ColorToken::SurfaceVariant,
                     border_radius: 18
-                ) on Tap {
-                    let next = com!(target, Diamond).copied().map(Diamond::next_color);
+                ) on Tap(|event: event!(Tap), rows: query!(Diamond), commands: commands!()| {
+                    let next = rows.get(event.target).copied().map(Diamond::next_color);
                     if let Some(next) = next {
-                        commands!().insert(target, next);
+                        commands.insert(event.target, next);
                     }
-                }
+                })
                 Diamond (
                     color: PALETTE[1],
                     line_width: Fixed::from_int(3),
@@ -63,12 +63,12 @@ pub fn build_widgets() {
                     height: 88,
                     bg_color: ColorToken::SurfaceVariant,
                     border_radius: 18
-                ) on Tap {
-                    let next = com!(target, Diamond).copied().map(Diamond::next_color);
+                ) on Tap(|event: event!(Tap), rows: query!(Diamond), commands: commands!()| {
+                    let next = rows.get(event.target).copied().map(Diamond::next_color);
                     if let Some(next) = next {
-                        commands!().insert(target, next);
+                        commands.insert(event.target, next);
                     }
-                }
+                })
                 Diamond (
                     color: PALETTE[2],
                     line_width: Fixed::from_int(4),
@@ -76,12 +76,12 @@ pub fn build_widgets() {
                     height: 88,
                     bg_color: ColorToken::SurfaceVariant,
                     border_radius: 18
-                ) on Tap {
-                    let next = com!(target, Diamond).copied().map(Diamond::next_color);
+                ) on Tap(|event: event!(Tap), rows: query!(Diamond), commands: commands!()| {
+                    let next = rows.get(event.target).copied().map(Diamond::next_color);
                     if let Some(next) = next {
-                        commands!().insert(target, next);
+                        commands.insert(event.target, next);
                     }
-                }
+                })
             }
         }
     };

@@ -13,8 +13,8 @@ use crate::ecs::world::WorldId;
 use crate::ecs::{Component, Entity, World};
 
 use super::contract::{
-    AppEventSource, AppRoute, EntityEventSource, EntityRoute, EntitySourceFor, Event, EventResult,
-    EventRoute,
+    AppEventSource, AppRoute, EntityEventSource, EntityRoute, EntitySourceFor, Event, EventKey,
+    EventResult, EventRoute,
 };
 
 mod sealed {
@@ -99,6 +99,130 @@ where
 }
 
 type Decision<E> = <<E as Event>::Route as EventRoute>::Decision;
+
+/// Typed callback values accepted by generated event bindings.
+#[doc(hidden)]
+pub trait CallbackValue<E: Event, C: CallbackContext<E>> {
+    fn into_callback(self, name: &'static str) -> EventCallback<E, C>;
+}
+
+impl<E: Event, C: CallbackContext<E>> CallbackValue<E, C> for EventCallback<E, C> {
+    fn into_callback(self, _name: &'static str) -> EventCallback<E, C> {
+        self
+    }
+}
+
+impl<E, C, F, R> CallbackValue<E, C> for F
+where
+    E: Event,
+    C: CallbackContext<E>,
+    F: for<'event> Fn(&'event E) -> R + 'static,
+    R: EventResult<E::Route>,
+{
+    fn into_callback(self, name: &'static str) -> EventCallback<E, C> {
+        // SAFETY: no World parameters are fetched; generated bindings record
+        // declared Model requirements, while ordinary captures remain opaque.
+        unsafe { event_callback::<E, C, (), R>(name, &[], move |(), event, _| self(event)) }
+    }
+}
+
+impl<E: Event> EventKey<E> {
+    /// Preserve a descriptor or bind an already typed payload callback.
+    #[doc(hidden)]
+    pub fn __bind_callback<C, V>(self, name: &'static str, value: V) -> EventCallback<E, C>
+    where
+        C: CallbackContext<E>,
+        V: CallbackValue<E, C>,
+    {
+        value.into_callback(name)
+    }
+
+    /// Anchor a generated payload closure to this selector's event type.
+    ///
+    /// # Safety
+    /// Model bindings declared through framework roles or generated factories must record their ownership requirements before installation.
+    #[doc(hidden)]
+    pub unsafe fn __bind_plain<C, R>(
+        self,
+        name: &'static str,
+        body: impl for<'event> Fn(&'event E) -> R + 'static,
+    ) -> EventCallback<E, C>
+    where
+        C: CallbackContext<E>,
+        R: EventResult<E::Route>,
+    {
+        // SAFETY: the macro records all declared Model bindings on the result.
+        unsafe { event_callback::<E, C, (), R>(name, &[], move |(), event, _| body(event)) }
+    }
+
+    /// Anchor a generated deferred payload closure to this selector.
+    ///
+    /// # Safety
+    /// Model bindings declared through framework roles or generated factories must record their ownership requirements before installation.
+    #[doc(hidden)]
+    pub unsafe fn __bind_deferred<C, R>(
+        self,
+        name: &'static str,
+        body: impl for<'event, 'commands> Fn(&'event E, DeferredCommands<'commands>) -> R + 'static,
+    ) -> EventCallback<E, C>
+    where
+        C: CallbackContext<E>,
+        R: EventResult<E::Route>,
+    {
+        // SAFETY: the macro records all declared Model bindings on the result.
+        unsafe {
+            deferred_event_callback::<E, C, (), R>(name, &[], move |(), event, _, commands| {
+                body(event, commands)
+            })
+        }
+    }
+
+    /// Build a generated closure with a complete typed invocation plan.
+    ///
+    /// # Safety
+    /// The metadata must describe every fetched parameter. Declared Model bindings must record their ownership requirements before installation.
+    #[doc(hidden)]
+    pub unsafe fn __bind_params<C, P, R>(
+        self,
+        name: &'static str,
+        metadata: &'static [SystemAccess],
+        body: impl for<'world, 'event> Fn(P::Item<'world>, &'event E, C::Target) -> R + 'static,
+    ) -> EventCallback<E, C>
+    where
+        C: CallbackContext<E>,
+        P: SystemParamSet + 'static,
+        R: EventResult<E::Route>,
+    {
+        // SAFETY: delegated from the generated invocation plan.
+        unsafe { event_callback::<E, C, P, R>(name, metadata, body) }
+    }
+
+    /// Build a generated closure with typed parameters and deferred commands.
+    ///
+    /// # Safety
+    /// The metadata and declared Model requirements must cover the complete generated invocation plan.
+    #[doc(hidden)]
+    pub unsafe fn __bind_params_deferred<C, P, R>(
+        self,
+        name: &'static str,
+        metadata: &'static [SystemAccess],
+        body: impl for<'world, 'event, 'commands> Fn(
+            P::Item<'world>,
+            &'event E,
+            C::Target,
+            DeferredCommands<'commands>,
+        ) -> R
+        + 'static,
+    ) -> EventCallback<E, C>
+    where
+        C: CallbackContext<E>,
+        P: SystemParamSet + 'static,
+        R: EventResult<E::Route>,
+    {
+        // SAFETY: delegated from the generated invocation plan.
+        unsafe { deferred_event_callback::<E, C, P, R>(name, metadata, body) }
+    }
+}
 type Run<E, C> = dyn Fn(&mut World, &E, <C as CallbackContext<E>>::Target) -> Decision<E>;
 type DeferredRun<E, C> = dyn for<'commands> Fn(
     &mut World,
@@ -254,8 +378,8 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
 ///
 /// # Safety
 ///
-/// `metadata` must describe every component/resource access in `P`. Every
-/// captured binding must be declared with `require_binding` before preparation.
+/// `metadata` must describe every component/resource access in `P`.
+/// Model bindings declared through framework roles or generated factories must record their ownership requirements with `require_binding` before preparation.
 /// The body must not obtain another World window through an external pointer.
 #[doc(hidden)]
 pub unsafe fn event_callback<E, C, P, R>(
@@ -287,7 +411,7 @@ where
 ///
 /// # Safety
 ///
-/// The same access and captured-Model requirements as [`event_callback`] apply.
+/// The same access and declared-Model requirements as [`event_callback`] apply.
 #[doc(hidden)]
 pub unsafe fn deferred_event_callback<E, C, P, R>(
     name: &'static str,

@@ -555,8 +555,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Text (
                 text: ${
                     if model.modal() == PixelModal::Templates {
@@ -702,7 +701,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                 text_color: TEXT,
                 border_radius: 7
             ) on Tap { model.close_modal(); }
-        }
+        } on Tap { }
     }
 }
 
@@ -719,49 +718,42 @@ pub(super) fn build_widgets(model: model!(PixelModel)) {
                 model: model.clone(),
             },
             TouchAction::None,
-        ] on Tap {
-            let Some(surface) = com!(target, PixelSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_tap(surface, rect, x, y)
-        } on DragStart {
-            let Some(surface) = com!(target, PixelSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_drag_start(surface, rect, x, y)
-        } on DragMove {
-            let Some(surface) = com!(target, PixelSurface) else {
-                return false;
-            };
-            let Some(rect) = com!(target, ComputedRect).map(|rect| rect.0) else {
-                return false;
-            };
-            surface_drag_move(surface, rect, x, y)
-        } on DragEnd {
-            let Some(surface) = com!(target, PixelSurface) else {
-                return false;
-            };
-            surface_drag_end(surface, false)
-        } on DragCancel {
-            let Some(surface) = com!(target, PixelSurface) else {
-                return false;
-            };
-            surface_drag_end(surface, true)
-        }
-        {
+        ] {
             compose_header (model)
             compose_frame_selector (model)
             compose_tool_controls (model)
             compose_edit_actions (model)
             compose_footer (model)
             compose_modal (model)
-        }
+        } on Tap(|event: event!(Tap), rows: query!(PixelSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_tap(surface, rect, event.x, event.y)
+        }) on DragStart(|event: event!(DragStart), rows: query!(PixelSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_start(surface, rect, event.x, event.y)
+        }) on DragMove(|event: event!(DragMove), rows: query!(PixelSurface, ComputedRect)| {
+            let Some((surface, rect)) = rows.get(event.target) else {
+                return false;
+            };
+            let rect = rect.0;
+            surface_drag_move(surface, rect, event.x, event.y)
+        }) on DragEnd(|event: event!(DragEnd), rows: query!(PixelSurface)| {
+            let Some(surface) = rows.get(event.target) else {
+                return false;
+            };
+            surface_drag_end(surface, false)
+        }) on DragCancel(|event: event!(DragCancel), rows: query!(PixelSurface)| {
+            let Some(surface) = rows.get(event.target) else {
+                return false;
+            };
+            surface_drag_end(surface, true)
+        })
     };
 }
 
@@ -770,6 +762,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());

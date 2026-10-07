@@ -43,8 +43,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { model.toggle_paused(); }
-                {
+                ) {
                     Text (
                         text: ${ if model.paused() { "HOLD" } else { "LIVE" } },
                         grow: 1.0,
@@ -55,7 +54,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     ) [
                         IgnoreHitTest,
                     ]
-                }
+                } on Tap { model.toggle_paused(); }
             }
             Column (
                 id: "kinetic_console_instrument",
@@ -109,8 +108,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { model.select_mode(ConsoleMode::Orbit); }
-                {
+                ) {
                     Text (
                         "ORB",
                         grow: 1.0,
@@ -121,7 +119,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     ) [
                         IgnoreHitTest,
                     ]
-                }
+                } on Tap { model.select_mode(ConsoleMode::Orbit); }
                 Button (
                     id: "kinetic_console_flow",
                     grow: 1.0,
@@ -134,8 +132,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { model.select_mode(ConsoleMode::Flow); }
-                {
+                ) {
                     Text (
                         "FLOW",
                         grow: 1.0,
@@ -146,7 +143,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     ) [
                         IgnoreHitTest,
                     ]
-                }
+                } on Tap { model.select_mode(ConsoleMode::Flow); }
                 Button (
                     id: "kinetic_console_pulse",
                     grow: 1.0,
@@ -159,8 +156,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     border_radius: 6,
                     justify: JustifyContent::Center,
                     align: AlignItems::Center
-                ) on Tap { model.select_mode(ConsoleMode::Pulse); }
-                {
+                ) {
                     Text (
                         "PLS",
                         grow: 1.0,
@@ -171,7 +167,7 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                     ) [
                         IgnoreHitTest,
                     ]
-                }
+                } on Tap { model.select_mode(ConsoleMode::Pulse); }
             }
             Slider (
                 id: "kinetic_console_intensity",
@@ -183,8 +179,8 @@ pub(super) fn build_widgets(model: model!(ConsoleModel), motion: model!(ConsoleM
                 fill_color: CYAN,
                 thumb_color: TEXT
             ) on ValueChanged {
-                let _ = old;
-                model.set_intensity(new);
+                let _ = event.old;
+                model.set_intensity(event.new);
             }
         }
     };

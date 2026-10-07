@@ -1,8 +1,5 @@
 use crate::ecs::{Entity, World};
 use crate::surface::InputEvent;
-use crate::ui::Parent;
-
-use super::gesture::GestureEvent;
 
 /// Marker component: this entity can receive keyboard/char input.
 pub struct Focusable;
@@ -20,8 +17,9 @@ pub struct FocusState {
 }
 
 /// Handler component for receiving Key/CharInput events on focused entities.
-pub struct KeyHandler {
-    pub on_key: fn(&mut World, Entity, &InputEvent) -> bool,
+pub(crate) struct KeyHandler {
+    pub(crate) on_key:
+        fn(&mut World, Entity, &InputEvent) -> Result<bool, crate::ecs::CommandError>,
 }
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
@@ -32,69 +30,9 @@ pub(crate) fn text_input_requested(world: &World) -> bool {
         .is_some_and(|entity| world.get::<TextEditable>(entity).is_some())
 }
 
-/// On Tap gesture, walk from target upward looking for a `Focusable`
-/// entity. If found, set focus to it; otherwise blur.
-pub fn focus_on_tap(world: &mut World, event: &GestureEvent) {
-    let target = match event {
-        GestureEvent::Tap { target, .. } => *target,
-        _ => return,
-    };
-
-    let focused_entity = find_focusable(world, target);
-
-    if let Some(fs) = world.resource_mut::<FocusState>() {
-        fs.focused = focused_entity;
-    }
-}
-
-fn find_focusable(world: &World, entity: Entity) -> Option<Entity> {
-    if super::entity_or_ancestor_disabled(world, entity) {
-        return None;
-    }
-    let mut cur = entity;
-    loop {
-        if world.get::<Focusable>(cur).is_some() {
-            return Some(cur);
-        }
-        let p = world.get::<Parent>(cur)?;
-        cur = p.0;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::UserState;
-
-    #[test]
-    fn focus_skips_disabled_subtree() {
-        let mut world = World::new();
-        let parent = world.spawn_empty();
-        let child = world.spawn_empty();
-        world.insert(child, Parent(parent));
-        world.insert(child, Focusable);
-        world.insert(parent, UserState::Disabled);
-        assert_eq!(find_focusable(&world, child), None);
-    }
-
-    #[test]
-    fn focus_ignores_disabled_self() {
-        let mut world = World::new();
-        let e = world.spawn_empty();
-        world.insert(e, Focusable);
-        world.insert(e, UserState::Disabled);
-        assert_eq!(find_focusable(&world, e), None);
-    }
-
-    #[test]
-    fn focus_walks_through_non_disabled() {
-        let mut world = World::new();
-        let parent = world.spawn_empty();
-        let child = world.spawn_empty();
-        world.insert(child, Parent(parent));
-        world.insert(parent, Focusable);
-        assert_eq!(find_focusable(&world, child), Some(parent));
-    }
 
     #[test]
     fn native_text_input_requires_a_focused_editable() {

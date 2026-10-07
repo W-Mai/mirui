@@ -2,7 +2,6 @@ use super::composition::build_widgets;
 use super::model::CounterModel;
 use crate::core::reactive::Effect;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
@@ -41,12 +40,22 @@ fn tap_increments_and_reactive_text_updates() {
         y: Fixed::ZERO,
         target: inc,
     };
-    GestureHandler::trigger(&mut world, inc, &tap);
+    {
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(label_text(&world, label), "COUNT  1");
     assert_eq!(counter.count(), 1);
 
-    GestureHandler::trigger(&mut world, inc, &tap);
+    {
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(label_text(&world, label), "COUNT  2");
     assert_eq!(counter.count(), 2);
@@ -56,7 +65,12 @@ fn tap_increments_and_reactive_text_updates() {
         y: Fixed::ZERO,
         target: dec,
     };
-    GestureHandler::trigger(&mut world, dec, &dec_tap);
+    {
+        let decision =
+            crate::__macro_support::dispatch_entity_gesture(&mut world, &dec_tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(&mut world);
     assert_eq!(label_text(&world, label), "COUNT  1");
     assert_eq!(counter.count(), 1);

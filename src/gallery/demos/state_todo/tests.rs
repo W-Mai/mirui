@@ -1,7 +1,6 @@
 use super::composition::build_widgets;
 use super::model::TodoModel;
 use crate::core::reactive::flush_signal_dirty;
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
@@ -34,15 +33,20 @@ fn todo_world() -> (World, Entity, [Entity; 3]) {
 }
 
 fn tap_row(world: &mut World, row: Entity) {
-    GestureHandler::trigger(
-        world,
-        row,
-        &GestureEvent::Tap {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            target: row,
-        },
-    );
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(
+            world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: row,
+            },
+            0,
+        )
+        .unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
+    };
     flush_signal_dirty(world);
 }
 

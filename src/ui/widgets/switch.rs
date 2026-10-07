@@ -1,7 +1,10 @@
+use crate::__macro_support::{
+    EntityContext, EntityEventBindings, EntityInstallRoute, EventBinding, EventCallback,
+};
 use crate::anim::Spring;
 use crate::ecs::query::system::{ComponentDriver, OptionalRead, Read, SystemQuery};
-use crate::ecs::{Entity, World};
-use crate::input::event::BusinessCallback;
+use crate::ecs::{CommandError, Entity, World};
+use crate::input::event::contract::{EntitySourceFor, Event, EventKey, EventRoute};
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::types::{Color, Fixed, Rect};
@@ -13,14 +16,7 @@ use crate::ui::view::{PaintCtx, View};
 
 crate::input::event::contract::widget_events! {
     Switch;
-    #[derive(Clone, Debug)]
-    pub enum SwitchEvent {
-        Toggled { now: bool },
-    }
-}
-
-pub struct SwitchHandler {
-    pub on_event: BusinessCallback<SwitchEvent>,
+    Toggled { now: bool },
 }
 
 #[crate::component]
@@ -70,28 +66,39 @@ impl Switch {
         SwitchBuilder {
             switch: Switch::new(),
             style: None,
-            handler: None,
+            bindings: (),
         }
     }
 }
 
-pub struct SwitchBuilder {
+pub struct SwitchBuilder<B = ()> {
     switch: Switch,
     style: Option<crate::ui::Style>,
-    handler: Option<SwitchHandler>,
+    bindings: B,
 }
 
-impl SwitchBuilder {
+impl<B> SwitchBuilder<B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
 
-    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &SwitchEvent) -> bool) -> Self {
-        self.handler = Some(SwitchHandler {
-            on_event: BusinessCallback::Fn(on_event),
-        });
-        self
+    pub fn on_event<E>(
+        self,
+        key: EventKey<E>,
+        callback: EventCallback<E, EntityContext<Switch>>,
+    ) -> SwitchBuilder<(B, EventBinding<E, EntityContext<Switch>>)>
+    where
+        E: Event,
+        E::Route: EntityInstallRoute<E>,
+        <E::Route as EventRoute>::Decision: crate::__macro_support::ListenerDecision,
+        E::Source: EntitySourceFor<Switch>,
+    {
+        SwitchBuilder {
+            switch: self.switch,
+            style: self.style,
+            bindings: (self.bindings, EventBinding::new(key, callback)),
+        }
     }
 
     pub fn on_color(mut self, color: impl Into<ThemedColor>) -> Self {
@@ -109,20 +116,21 @@ impl SwitchBuilder {
         self
     }
 
-    pub fn spawn(self, world: &mut World) -> Entity {
+    pub fn spawn(self, world: &mut World) -> Entity
+    where
+        B: EntityEventBindings,
+    {
         world.spawn(self)
     }
 }
 
-impl crate::ecs::IntoBundle for SwitchBuilder {
+impl<B: EntityEventBindings> crate::ecs::IntoBundle for SwitchBuilder<B> {
     fn spawn_into(self, world: &mut World, entity: Entity) {
         world.insert(entity, self.switch);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
-        if let Some(handler) = self.handler {
-            world.insert(entity, handler);
-        }
+        self.bindings.install(world, entity);
     }
 }
 
@@ -254,22 +262,26 @@ fn switch_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     });
 }
 
-pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn switch_handler(
+    world: &mut World,
+    entity: Entity,
+    event: &GestureEvent,
+) -> Result<bool, CommandError> {
     if !matches!(event, GestureEvent::Tap { .. }) {
-        return false;
+        return Ok(false);
     }
 
     let Some(on_now) = world.get::<Switch>(entity).map(|s| !s.on) else {
-        return false;
+        return Ok(false);
     };
     let Some(update) = set_switch_on(world, entity, on_now) else {
-        return false;
+        return Ok(false);
     };
     if update.old != update.new {
         invalidate_for_change(world, entity, update.change);
-        emit_switch_event(world, entity, &SwitchEvent::Toggled { now: update.new });
+        crate::input::event::runtime::emit_widget(world, entity, Toggled { now: update.new })?;
     }
-    true
+    Ok(true)
 }
 
 pub(crate) fn set_switch_on(
@@ -331,15 +343,6 @@ pub(crate) fn set_switch_on(
         new: on_now,
         change: PropertyChange::Visual,
     })
-}
-
-fn emit_switch_event(world: &mut World, entity: Entity, event: &SwitchEvent) {
-    let cb = world
-        .get::<SwitchHandler>(entity)
-        .map(|h| h.on_event.clone_out());
-    if let Some(cb) = cb {
-        cb.call(world, entity, event);
-    }
 }
 
 fn switch_attach(world: &mut World, entity: Entity) {
@@ -601,30 +604,80 @@ mod tests {
         }
     }
 
-    fn h(_: &mut World, _: Entity, _: &SwitchEvent) -> bool {
-        true
+    #[derive(Default)]
+    struct ToggleTrace {
+        calls: usize,
+        on: bool,
+    }
+
+    #[crate::event]
+    fn record_toggle(input: event!(Toggled), trace: res!(mut ToggleTrace)) {
+        trace.calls += 1;
+        trace.on = input.now;
+    }
+
+    #[crate::event]
+    fn remove_switch(node: entity!(), values: query!(Switch, VisualDirty), commands: commands!()) {
+        assert!(values.get(node).is_some());
+        commands.despawn(node);
     }
 
     #[test]
-    fn build_spawns_switch_with_style_and_handler() {
+    fn build_spawns_switch_with_style_and_typed_event_binding() {
         let mut world = World::new();
-        let e = Switch::build()
+        world.insert_resource(ToggleTrace::default());
+        crate::input::event::runtime::configure(
+            &mut world,
+            crate::input::event::EventCapacity::new()
+                .notifications::<Toggled>(1)
+                .flush_limit(1),
+        )
+        .unwrap();
+        let entity = Switch::build()
+            .on_event(Switch::Toggled, record_toggle::callback())
             .style(crate::ui::Style::default())
-            .on_change(h)
             .spawn(&mut world);
-        assert!(world.has::<Switch>(e));
-        assert!(world.has::<crate::ui::Style>(e));
-        assert!(world.has::<SwitchHandler>(e));
-        assert!(world.has::<crate::ui::Widget>(e));
+        assert!(world.has::<Switch>(entity));
+        assert!(world.has::<crate::ui::Style>(entity));
+        assert!(world.has::<crate::ui::Widget>(entity));
+        assert!(
+            switch_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
+        );
+        assert_eq!(world.resource::<ToggleTrace>().unwrap().calls, 0);
+        assert_eq!(crate::input::event::runtime::flush(&mut world).unwrap(), 1);
+        let trace = world.resource::<ToggleTrace>().unwrap();
+        assert_eq!(trace.calls, 1);
+        assert!(trace.on);
     }
 
     #[test]
-    fn build_without_handler_omits_it() {
+    fn bare_builder_does_not_require_notification_storage() {
         let mut world = World::new();
-        let e = Switch::build().spawn(&mut world);
-        assert!(world.has::<Switch>(e));
-        assert!(!world.has::<SwitchHandler>(e));
-        assert!(!world.has::<crate::ui::Style>(e));
+        let entity = Switch::build().spawn(&mut world);
+        assert!(!world.has::<crate::ui::Style>(entity));
+        assert!(
+            switch_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
+        );
+        assert!(world.get::<Switch>(entity).unwrap().on);
+        assert_eq!(crate::input::event::runtime::flush(&mut world).unwrap(), 0);
     }
 
     #[test]
@@ -647,35 +700,6 @@ mod tests {
             world.get::<AnimateSwitchBgT>(entity).unwrap().0.value(),
             progressed
         );
-    }
-
-    #[test]
-    fn tap_callback_can_remove_switch_after_invalidation() {
-        fn remove_switch(world: &mut World, entity: Entity, _: &SwitchEvent) -> bool {
-            assert!(world.has::<VisualDirty>(entity));
-            world.despawn(entity);
-            true
-        }
-
-        let mut world = World::new();
-        let entity = world.spawn_empty();
-        world.insert(entity, Switch::new());
-        world.insert(
-            entity,
-            SwitchHandler {
-                on_event: BusinessCallback::Fn(remove_switch),
-            },
-        );
-        assert!(switch_handler(
-            &mut world,
-            entity,
-            &GestureEvent::Tap {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                target: entity,
-            },
-        ));
-        assert!(!world.is_alive(entity));
     }
 
     #[test]
@@ -719,30 +743,52 @@ mod tests {
     }
 
     #[test]
-    fn closure_handler_captures_and_updates_state() {
-        use crate::core::reactive::Signal;
-
+    fn tap_callback_can_remove_switch_after_invalidation_and_input() {
         let mut world = World::new();
-        let switched = Signal::new(false);
-        let captured = switched.clone();
-        let e = world.spawn_empty();
-        world.insert(
-            e,
-            SwitchHandler {
-                on_event: BusinessCallback::Closure(alloc::rc::Rc::new(
-                    move |_w, _e, ev: &SwitchEvent| {
-                        let SwitchEvent::Toggled { now } = ev;
-                        captured.set(*now);
-                        true
-                    },
-                )),
-            },
-        );
-
-        emit_switch_event(&mut world, e, &SwitchEvent::Toggled { now: true });
+        crate::input::event::runtime::configure(
+            &mut world,
+            crate::input::event::EventCapacity::new()
+                .notifications::<Toggled>(1)
+                .commands(crate::ecs::CommandCapacity::new().despawn(1))
+                .flush_limit(1),
+        )
+        .unwrap();
+        let entity = Switch::build()
+            .on_event(Switch::Toggled, remove_switch::callback())
+            .spawn(&mut world);
         assert!(
-            switched.get(),
-            "closure handler updated the captured Signal"
+            switch_handler(
+                &mut world,
+                entity,
+                &GestureEvent::Tap {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            )
+            .unwrap()
         );
+        assert!(world.is_alive(entity));
+        assert_eq!(crate::input::event::runtime::flush(&mut world).unwrap(), 1);
+        assert!(!world.is_alive(entity));
+    }
+
+    #[test]
+    fn programmatic_value_does_not_publish_user_toggled_notification() {
+        let mut world = World::new();
+        world.insert_resource(ToggleTrace::default());
+        crate::input::event::runtime::configure(
+            &mut world,
+            crate::input::event::EventCapacity::new()
+                .notifications::<Toggled>(1)
+                .flush_limit(1),
+        )
+        .unwrap();
+        let entity = Switch::build()
+            .on_event(Switch::Toggled, record_toggle::callback())
+            .spawn(&mut world);
+        set_switch_on(&mut world, entity, true).unwrap();
+        assert_eq!(crate::input::event::runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(world.resource::<ToggleTrace>().unwrap().calls, 0);
     }
 }

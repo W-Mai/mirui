@@ -1,20 +1,19 @@
 //! End-to-end smoke test of the public API surface a third-party
 //! crate uses to wire up Tap → state. No SDL window, no ESP flash.
 //! Builds a 3-tab demo (TabBar + Slider + Switch), drives synthetic
-//! InputEvents through the same `dispatch_input` + `bubble_dispatch_at`
+//! InputEvents through the same `dispatch_input` + `dispatch_entity_gesture`
 //! pipeline `App::run` uses, and asserts state changes the user
 //! would observe.
 //!
-//! If any of Slider, Switch, TabBar, dispatch_input, bubble_dispatch_at,
-//! attach_widget_input_handlers, ViewRegistry::with_builtins, or
+//! If any of Slider, Switch, TabBar, dispatch_input, //! attach_widget_input_handlers, ViewRegistry::with_builtins, or
 //! render_system::update_layout stops being reachable from `tests/`,
 //! this build breaks — that's the point.
 
 use mirui::ecs::{Entity, World};
+use mirui::input::event::dispatch_input;
 use mirui::input::event::gesture::{GestureEvent, GestureSystem};
 use mirui::input::event::input::InputEvent;
 use mirui::input::event::widget_input::attach_widget_input_handlers;
-use mirui::input::event::{bubble_dispatch_at, dispatch_input};
 use mirui::types::{Dimension, Fixed, Viewport};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::{FlexDirection, LayoutStyle, Position};
@@ -169,7 +168,10 @@ fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, mut now_ms: u32) -> u
         .map(|gs| gs.events.drain().collect())
         .unwrap_or_default();
     for g in &pending {
-        bubble_dispatch_at(world, g, now_ms);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(world, g, now_ms).unwrap();
+            mirui::__macro_support::flush_entity_events(world).unwrap();
+        };
     }
     now_ms + 100
 }

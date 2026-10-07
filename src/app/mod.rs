@@ -7,11 +7,11 @@ use alloc::vec::Vec;
 
 use crate::app::plugin::Plugin;
 use crate::ecs::{Entity, System, SystemScheduler, World};
+use crate::input::event::PointerCursor;
 use crate::input::event::focus::FocusState;
 use crate::input::event::gesture::GestureSystem;
 use crate::input::event::multi_tap::MultiTapTracker;
 use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
-use crate::input::event::{PointerCursor, bubble_dispatch_at};
 use crate::render::canvas::Canvas;
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
@@ -804,7 +804,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if let Err(error) = crate::input::event::gesture::system::drain_gestures(
             &mut self.world,
             |world, gesture| {
-                bubble_dispatch_at(world, gesture, now_ms);
+                crate::input::event::runtime::dispatch_gesture(world, gesture, now_ms)?;
+                crate::input::event::runtime::flush(world).map(|_| ())
             },
         ) {
             crate::warn!("gesture batch dispatch failed: {:?}", error);
@@ -1745,9 +1746,9 @@ mod multi_tap_initialization_tests {
             target,
         };
 
-        bubble_dispatch_at(&mut app.world, &tap, 100);
+        crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 100).unwrap();
         assert_eq!(current_count(&app.world, target), 1);
-        bubble_dispatch_at(&mut app.world, &tap, 200);
+        crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 200).unwrap();
         assert_eq!(current_count(&app.world, target), 2);
     }
 }
@@ -2580,8 +2581,8 @@ mod queued_surface {
 mod fractional_scale_input_check {
     use super::queued_surface::QueuedSurface;
     use super::*;
-    use crate::input::event::GestureHandler;
-    use crate::input::event::gesture::GestureEvent;
+    use crate::input::event::contract::Event;
+    use crate::input::event::gesture::Tap;
     use crate::types::{Dimension, Fixed};
     use crate::ui::builder::WidgetBuilder;
     use crate::ui::layout::LayoutStyle;
@@ -2590,10 +2591,9 @@ mod fractional_scale_input_check {
     #[derive(Default)]
     struct TapCount(u8);
 
-    fn count_tap(world: &mut World, _: Entity, event: &GestureEvent, _: u8) -> bool {
-        if matches!(event, GestureEvent::Tap { .. }) {
-            world.resource_mut::<TapCount>().unwrap().0 += 1;
-        }
+    #[crate::event]
+    fn count_tap(count: res!(mut TapCount)) -> bool {
+        count.0 += 1;
         true
     }
 
@@ -2612,7 +2612,12 @@ mod fractional_scale_input_check {
             })
             .id();
         app.world.insert(target, HitTarget);
-        app.world.insert(target, GestureHandler::from_fn(count_tap));
+        crate::input::event::binding::install_entity_event(
+            &mut app.world,
+            target,
+            Tap::EVENT,
+            count_tap::callback::<Tap, crate::input::event::callback::NodeContext>(),
+        );
         app.world.insert(target, Parent(root));
         app.world.get_mut::<Children>(root).unwrap().0.push(target);
 

@@ -223,8 +223,8 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                     fill_color: CYAN,
                     thumb_color: TEXT
                 ) on ValueChanged {
-                    let _ = old;
-                    model.set_amplitude(new);
+                    let _ = event.old;
+                    model.set_amplitude(event.new);
                 }
                 Text (
                     id: "curve_text_amplitude_value",
@@ -251,8 +251,8 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                     fill_color: VIOLET,
                     thumb_color: TEXT
                 ) on ValueChanged {
-                    let _ = old;
-                    model.set_speed(new);
+                    let _ = event.old;
+                    model.set_speed(event.new);
                 }
                 Text (
                     id: "curve_text_speed_value",

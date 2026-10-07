@@ -250,7 +250,7 @@ pub fn build_widgets() {
                             max: Fixed::from_int(100),
                             value: Fixed::from_int(62)
                         ) on ValueChanged {
-                            progress_from_slider.set(new / Fixed::from_int(100));
+                            progress_from_slider.set(event.new / Fixed::from_int(100));
                         }
                         ProgressBar (
                             id: "compact_widgets_progress",
@@ -341,14 +341,7 @@ pub fn build_widgets() {
                                 text_color: ColorToken::OnPrimary
                             ) [
                                 CompactTheme(Theme::light()),
-                            ] on Tap {
-                                let theme = com!(target, CompactTheme)
-                                    .map(|choice| choice.0.clone());
-                                if let Some(theme) = theme {
-                                    commands!().set_theme(theme);
-                                }
-                            }
-                            {
+                            ] {
                                 Text (
                                     "LIGHT",
                                     grow: 1.0,
@@ -358,7 +351,13 @@ pub fn build_widgets() {
                                     text_color: ColorToken::OnPrimary,
                                     paragraph: bitmap_label(TextAlign::Center)
                                 )
-                            }
+                            } on Tap(|event: event!(Tap), rows: query!(CompactTheme), commands: commands!()| {
+                                let theme = rows.get(event.target)
+                                    .map(|choice| choice.0.clone());
+                                if let Some(theme) = theme {
+                                    commands.set_theme(theme);
+                                }
+                            })
                             Button (
                                 id: "compact_theme_dark",
                                 size: ButtonSize::Custom,
@@ -370,14 +369,7 @@ pub fn build_widgets() {
                                 text_color: ColorToken::OnSurface
                             ) [
                                 CompactTheme(Theme::dark()),
-                            ] on Tap {
-                                let theme = com!(target, CompactTheme)
-                                    .map(|choice| choice.0.clone());
-                                if let Some(theme) = theme {
-                                    commands!().set_theme(theme);
-                                }
-                            }
-                            {
+                            ] {
                                 Text (
                                     "DARK",
                                     grow: 1.0,
@@ -387,7 +379,13 @@ pub fn build_widgets() {
                                     text_color: ColorToken::OnSurface,
                                     paragraph: bitmap_label(TextAlign::Center)
                                 )
-                            }
+                            } on Tap(|event: event!(Tap), rows: query!(CompactTheme), commands: commands!()| {
+                                let theme = rows.get(event.target)
+                                    .map(|choice| choice.0.clone());
+                                if let Some(theme) = theme {
+                                    commands.set_theme(theme);
+                                }
+                            })
                         }
                     }
                 }

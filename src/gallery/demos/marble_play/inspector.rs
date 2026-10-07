@@ -28,8 +28,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
             bg_color: Color::rgba(6, 12, 8, 150)
         ) [
             TouchAction::None,
-        ] on Tap { }
-        {
+        ] {
             Column (
                 position: Position::Absolute,
                 left: 213,
@@ -202,7 +201,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     track_color: Color::rgb(69, 87, 70),
                     fill_color: Color::rgb(217, 248, 138),
                     thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(new)); }
+                ) on ValueChanged { model.set_bounce(Fixed64::from_fixed(event.new)); }
                 Text (
                     "RADIUS",
                     height: 12,
@@ -219,8 +218,8 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     track_color: Color::rgb(69, 87, 70),
                     fill_color: Color::rgb(217, 248, 138),
                     thumb_color: Color::rgb(225, 233, 214)
-                ) on ValueChanged { model.set_radius(Fixed64::from_fixed(new)); }
+                ) on ValueChanged { model.set_radius(Fixed64::from_fixed(event.new)); }
             }
-        }
+        } on Tap { }
     }
 }

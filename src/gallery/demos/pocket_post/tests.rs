@@ -2,7 +2,6 @@ use super::state::PostSurface;
 use super::{VIEWPORT, setup_app};
 use crate::ecs::{DeltaTimeMs, SystemScheduler};
 use crate::gallery::play::post::{PostModel, PostModelHandle};
-use crate::input::event::GestureHandler;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::view::ViewRegistry;
@@ -76,8 +75,12 @@ fn is_hidden(world: &World, id: &'static str) -> bool {
     world.has::<Hidden>(world.find_by_id(id).unwrap())
 }
 
-fn trigger(world: &mut World, surface: Entity, event: &GestureEvent) -> bool {
-    GestureHandler::trigger(world, surface, event).unwrap_or(false)
+fn trigger(world: &mut World, event: &GestureEvent) -> bool {
+    {
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, event, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
+        decision == crate::input::event::BubbleControl::Prevent
+    }
 }
 
 #[test]
@@ -141,12 +144,11 @@ fn switch_hit_targets_map_through_the_surface_geometry() {
     assert_eq!(with_model(&world, |model| model.switch(0)), 0);
     assert!(trigger(
         &mut world,
-        surface,
         &GestureEvent::Tap {
             x,
             y,
             target: surface,
-        },
+        }
     ));
     assert_eq!(with_model(&world, |model| model.switch(0)), 1);
 }

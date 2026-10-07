@@ -3,9 +3,6 @@
 
 extern crate alloc;
 
-use mirui::ecs::World;
-use mirui::input::event::GestureHandler;
-use mirui::input::event::gesture::GestureEvent;
 use mirui::prelude::*;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
@@ -28,10 +25,6 @@ const ACCENT: ColorToken = ColorToken::Custom("accent");
 
 fn dark_with_accent() -> Theme {
     Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
-}
-
-fn dummy_handler(_: &mut World, _: mirui::ecs::Entity, _: &GestureEvent) -> bool {
-    false
 }
 
 fn main() {
@@ -72,11 +65,9 @@ fn main() {
                     text_color: ColorToken::OnPrimary,
                     normal_color: Color::rgb(40, 50, 70),
                     pressed_color: Color::rgb(20, 25, 35)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
+                ) {
                     Text ("Dark")
-                }
+                } on Tap(|_| false)
                 Button (
                     grow: 1.0,
                     height: 36,
@@ -84,11 +75,9 @@ fn main() {
                     text_color: ColorToken::OnPrimary,
                     normal_color: Color::rgb(0, 100, 200),
                     pressed_color: Color::rgb(0, 70, 150)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
+                ) {
                     Text ("Light")
-                }
+                } on Tap(|_| false)
                 Button (
                     grow: 1.0,
                     height: 36,
@@ -96,11 +85,9 @@ fn main() {
                     text_color: ColorToken::OnPrimary,
                     normal_color: Color::rgb(255, 105, 180),
                     pressed_color: Color::rgb(200, 70, 140)
-                ) [
-                    GestureHandler::from_fn(dummy_handler),
-                ] {
+                ) {
                     Text ("Custom")
-                }
+                } on Tap(|_| false)
             }
         }
     };

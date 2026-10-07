@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::input::event::bubble_dispatch_at;
     use mirui::input::event::gesture::GestureEvent;
     use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::{Fixed, Rect};
@@ -31,7 +30,15 @@ mod tests {
     }
 
     fn fresh_world() -> (World, Entity) {
-        let mut world = World::new();
+        let mut app = mirui::app::App::headless(128, 128);
+        app.with_event_capacity(
+            mirui::app::EventCapacity::new()
+                .notifications::<mirui::ui::widgets::switch::Toggled>(1)
+                .notifications::<mirui::ui::widgets::checkbox::Toggled>(1)
+                .notifications::<mirui::ui::widgets::progress_bar::ValueChanged>(1)
+                .flush_limit(3),
+        );
+        let mut world = app.world;
         world.insert_resource(IdMap::new());
         world.insert_resource(MultiTapTracker::new());
         world.insert_resource(ViewRegistry::with_builtins());
@@ -56,7 +63,7 @@ mod tests {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
             ui! {
                 Switch (width: 60, height: 32) on Toggled {
-                    SWITCH_LAST_NOW.store(now, Ordering::SeqCst);
+                    SWITCH_LAST_NOW.store(event.now, Ordering::SeqCst);
                     SWITCH_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -70,11 +77,19 @@ mod tests {
                 h: Fixed::from_int(32),
             }),
         );
-        bubble_dispatch_at(&mut world, &tap(switch, 30), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(switch, 30), 100)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(SWITCH_FIRES.load(Ordering::SeqCst), 1);
         assert!(SWITCH_LAST_NOW.load(Ordering::SeqCst));
 
-        bubble_dispatch_at(&mut world, &tap(switch, 30), 600);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(switch, 30), 600)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(SWITCH_FIRES.load(Ordering::SeqCst), 2);
         assert!(!SWITCH_LAST_NOW.load(Ordering::SeqCst));
     }
@@ -88,7 +103,7 @@ mod tests {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
             ui! {
                 Checkbox (width: 32, height: 32) on Toggled {
-                    CHECKBOX_LAST_NOW.store(now, Ordering::SeqCst);
+                    CHECKBOX_LAST_NOW.store(event.now, Ordering::SeqCst);
                     CHECKBOX_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -102,7 +117,11 @@ mod tests {
                 h: Fixed::from_int(32),
             }),
         );
-        bubble_dispatch_at(&mut world, &tap(checkbox, 16), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(checkbox, 16), 100)
+                .unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(CHECKBOX_FIRES.load(Ordering::SeqCst), 1);
         assert!(CHECKBOX_LAST_NOW.load(Ordering::SeqCst));
     }
@@ -116,8 +135,8 @@ mod tests {
             let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
             ui! {
                 ProgressBar (width: 100, height: 16) on ValueChanged {
-                    let _ = old;
-                    PROGRESS_LAST_NEW.store((new * 100.0) as i64, Ordering::SeqCst);
+                    let _ = event.old;
+                    PROGRESS_LAST_NEW.store((event.new * 100.0) as i64, Ordering::SeqCst);
                     PROGRESS_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -131,7 +150,10 @@ mod tests {
                 h: Fixed::from_int(16),
             }),
         );
-        bubble_dispatch_at(&mut world, &tap(pb, 50), 100);
+        {
+            mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(pb, 50), 100).unwrap();
+            mirui::__macro_support::flush_entity_events(&mut world).unwrap();
+        };
         assert_eq!(PROGRESS_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(PROGRESS_LAST_NEW.load(Ordering::SeqCst), 50);
     }

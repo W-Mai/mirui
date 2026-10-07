@@ -194,7 +194,7 @@ impl crate::ecs::CommandCapacity {
     }
 }
 
-fn submit<E>(world: &mut World, entity: Entity, payload: E) -> Result<(), CommandError>
+pub(crate) fn submit<E>(world: &mut World, entity: Entity, payload: E) -> Result<(), CommandError>
 where
     E: Event<Route = EntityNotification>,
     E::Source: EntityEventSource,

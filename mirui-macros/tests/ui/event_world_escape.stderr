@@ -1,14 +1,22 @@
-error[E0425]: cannot find value `__mirui_event_world` in this scope
-  --> tests/ui/event_world_escape.rs:14:50
-   |
-14 |             View () on Tap { let _: &mut World = __mirui_event_world; }
-   |                                                  ^^^^^^^^^^^^^^^^^^^ not found in this scope
-   |
-help: an identifier with the same name is defined here, but is not accessible due to macro hygiene
+error[E0631]: type mismatch in closure arguments
   --> tests/ui/event_world_escape.rs:13:9
    |
 13 | /         ui! {
-14 | |             View () on Tap { let _: &mut World = __mirui_event_world; }
+14 | |             View () on Tap(|_: &mut World| {})
 15 | |         }
-   | |_________^
+   | |         ^
+   | |         |
+   | |_________expected due to this
+   |           found signature defined here
+   |
+   = note: expected closure signature `for<'event> fn(&'event mirui::prelude::Tap) -> _`
+              found closure signature `fn(&mut World) -> _`
+note: required by a bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
+  --> $WORKSPACE/src/input/event/callback.rs
+   |
+   |     pub unsafe fn __bind_plain<C, R>(
+   |                   ------------ required by a bound in this associated function
+...
+   |         body: impl for<'event> Fn(&'event E) -> R + 'static,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)
