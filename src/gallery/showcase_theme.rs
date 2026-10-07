@@ -1,8 +1,9 @@
 //! Shared presentation palettes for the Gallery showcase family.
 
-use crate::ecs::World;
+use crate::app::{App, RendererFactory};
+use crate::surface::Surface;
 use crate::types::Color;
-use crate::ui::theme::{self, ColorToken, Theme, ThemeInfo};
+use crate::ui::theme::{ColorToken, Theme, ThemeInfo};
 
 pub const DARK_ID: &str = "showcase-dark";
 pub const LIGHT_ID: &str = "showcase-light";
@@ -57,15 +58,30 @@ pub fn light() -> Theme {
         ])
 }
 
-pub fn install(world: &mut World) {
-    theme::register(world, dark());
-    theme::register(world, light());
-    theme::set_theme(world, DARK_ID).expect("showcase theme registered");
+/// Register the showcase palettes and select the dark theme.
+pub fn install<B, F>(app: &mut App<B, F>)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.register_theme(dark());
+    app.register_theme(light());
+    app.set_theme(DARK_ID).expect("showcase theme registered");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn showcase_installation_registers_both_palettes_and_selects_dark() {
+        let mut app = App::headless(1, 1);
+        install(&mut app);
+
+        assert!(app.themes().get(DARK_ID).is_some());
+        assert!(app.themes().get(LIGHT_ID).is_some());
+        assert_eq!(app.theme().id().as_str(), DARK_ID);
+    }
 
     #[test]
     fn showcase_palettes_have_stable_ids_and_contrast() {

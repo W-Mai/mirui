@@ -24,7 +24,7 @@ where
             .notifications::<crate::ui::widgets::slider::ValueChanged>(2)
             .flush_limit(2),
     );
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     app.with_widget(stage::curve_stage_background_render::view())
         .with_widget(stage::curve_paths_view());
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);

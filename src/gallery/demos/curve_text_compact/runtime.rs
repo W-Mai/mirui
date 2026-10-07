@@ -32,7 +32,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     let path = app
         .world
         .resource_mut::<PathStore>()

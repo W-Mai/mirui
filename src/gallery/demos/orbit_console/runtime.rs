@@ -58,7 +58,7 @@ where
             .notifications::<crate::ui::widgets::slider::ValueChanged>(1)
             .flush_limit(1),
     );
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     let initial_state = match run_mode {
         DemoRunMode::Live => ConsoleState::live(),
         DemoRunMode::Capture => ConsoleState::capture(),

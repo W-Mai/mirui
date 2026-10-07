@@ -75,7 +75,7 @@ where
             .notifications::<crate::ui::widgets::slider::ValueChanged>(1)
             .flush_limit(1),
     );
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     app.with_widget(orbit_render::view())
         .with_widget(wave_render::view());
     let model = app.add_model(ConsoleModel::default());

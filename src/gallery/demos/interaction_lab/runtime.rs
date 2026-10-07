@@ -22,7 +22,7 @@ where
             .notifications::<crate::ui::widgets::checkbox::Toggled>(1)
             .flush_limit(2),
     );
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     let model = app.add_model(InteractionModel::default());
     app.add_plugin(InputFeedbackPlugin::new());
     app.compose(parent, |cx| build_widgets(cx, model.clone()));

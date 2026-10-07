@@ -23,7 +23,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     register_fonts(&mut app.world);
     app.world.insert_resource(ScopeWaveScratch::default());
     let model = app.add_model(ScopeModel::default());

@@ -658,7 +658,7 @@ where
             .notifications::<crate::ui::widgets::slider::ValueChanged>(2)
             .flush_limit(2),
     );
-    crate::gallery::showcase_theme::install(&mut app.world);
+    crate::gallery::showcase_theme::install(app);
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
