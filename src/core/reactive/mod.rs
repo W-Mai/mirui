@@ -7,6 +7,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
+use core::ptr::NonNull;
 
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
@@ -47,11 +48,17 @@ pub struct ComputedId(SlotId);
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct SourceId(SlotId);
 
+#[derive(Clone, Copy)]
+struct WorldWindow {
+    pointer: NonNull<World>,
+    owner: WorldId,
+}
+
 struct Reactive {
     scope: Option<Subscriber>,
     scope_graph_consumer: Option<ConsumerKey>,
-    // non-null only while an effect runs; lets a Fn() closure reach the World
-    world: *mut World,
+    // The structural window belongs to WorldGuard, not to owner-only scopes.
+    world_window: Option<WorldWindow>,
     world_id: Option<WorldId>,
     world_lifetime: Option<Weak<()>>,
     borrowed_worlds: [Option<WorldId>; 8],
@@ -73,7 +80,7 @@ impl Reactive {
         Reactive {
             scope: None,
             scope_graph_consumer: None,
-            world: core::ptr::null_mut(),
+            world_window: None,
             world_id: None,
             world_lifetime: None,
             borrowed_worlds: [None; 8],
@@ -482,14 +489,18 @@ impl Drop for OwnerGuard {
 }
 
 pub(crate) struct WorldGuard {
-    prev: *mut World,
+    prev: Option<WorldWindow>,
     _owner: OwnerGuard,
 }
 
 impl WorldGuard {
     pub(crate) fn enter(world: &mut World) -> Self {
         let owner = OwnerGuard::enter(world);
-        let prev = with_reactive(|r| core::mem::replace(&mut r.world, world as *mut World));
+        let window = WorldWindow {
+            owner: world.id(),
+            pointer: NonNull::from(world),
+        };
+        let prev = with_reactive(|r| r.world_window.replace(window));
         Self {
             prev,
             _owner: owner,
@@ -528,7 +539,7 @@ impl Drop for WorldBorrowGuard {
 
 impl Drop for WorldGuard {
     fn drop(&mut self) {
-        with_reactive(|r| r.world = self.prev);
+        with_reactive(|r| r.world_window = self.prev);
     }
 }
 
@@ -536,7 +547,7 @@ impl Drop for WorldGuard {
 // first. Hide that ambient World until the Effect reads a model and binds to
 // the model's owner; no user closure runs under the runtime borrow.
 struct WorldlessEffectGuard {
-    previous_world: *mut World,
+    previous_world: Option<WorldWindow>,
     previous_owner: Option<WorldId>,
     previous_lifetime: Option<Weak<()>>,
 }
@@ -545,7 +556,7 @@ impl WorldlessEffectGuard {
     fn enter() -> Self {
         let (previous_world, previous_owner, previous_lifetime) = with_reactive(|r| {
             (
-                core::mem::replace(&mut r.world, core::ptr::null_mut()),
+                r.world_window.take(),
                 r.world_id.take(),
                 r.world_lifetime.take(),
             )
@@ -561,7 +572,7 @@ impl WorldlessEffectGuard {
 impl Drop for WorldlessEffectGuard {
     fn drop(&mut self) {
         with_reactive(|r| {
-            r.world = self.previous_world;
+            r.world_window = self.previous_world;
             r.world_id = self.previous_owner;
             r.world_lifetime = self.previous_lifetime.take();
         });
@@ -576,23 +587,21 @@ pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
     f()
 }
 
-/// Reach the World the running effect is under; None outside a flush window.
-/// An ownerless Effect returns None even when a World flushes it. The run that
-/// binds it to a model also remains ownerless; later runs in the model's World
-/// can access that World.
-/// Public so `ui!`-generated reactive control flow can reach it from user crates.
+/// Reach the structural World window associated with the current reactive owner; return None when no matching window exists. An owner-only scope for another World cannot inherit that window.
+///
+/// An ownerless Effect returns None even when a World flushes it. The run that binds it to a model also remains ownerless; later runs in the model's World can access that World.
+///
+/// This entry point supports `ui!`-generated reactive control flow in user crates.
 pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
-    // Copy the pointer out before deref so `f` may re-enter with_reactive.
-    let (ptr, id) = with_reactive(|r| (r.world, r.world_id));
-    if ptr.is_null() {
-        return None;
-    }
-    let _borrow = WorldBorrowGuard::enter(id.expect("scoped World has an identity"));
-    // SAFETY: non-null only within flush_signal_dirty / with_world_scope, which
+    // Copy the window before deref so `f` may re-enter with_reactive.
+    let (window, owner) = with_reactive(|r| (r.world_window, r.world_id));
+    let window = window.filter(|window| Some(window.owner) == owner)?;
+    let _borrow = WorldBorrowGuard::enter(window.owner);
+    // SAFETY: a window exists only within flush_signal_dirty / with_world_scope, which
     // hold a live &mut World; single-threaded. Windows may nest (a reactive
     // walk/if/match re-run enters another scope); WorldGuard saves/restores the
     // previous pointer LIFO, so the innermost live &mut World always wins.
-    Some(f(unsafe { &mut *ptr }))
+    Some(f(unsafe { &mut *window.pointer.as_ptr() }))
 }
 
 // An effect re-running may set signals that enqueue more effects/widgets in the
@@ -1546,7 +1555,7 @@ mod tests {
     fn reset() {
         let effects = with_reactive(|r| {
             r.scope = None;
-            r.world = core::ptr::null_mut();
+            r.world_window = None;
             r.world_id = None;
             r.world_lifetime = None;
             r.borrowed_worlds = [None; 8];
@@ -2339,6 +2348,87 @@ mod tests {
             );
         });
         assert!(with_world(|_| ()).is_none(), "no world outside any scope");
+    }
+
+    #[test]
+    fn foreign_compose_owner_cannot_inherit_an_outer_world_window() {
+        reset();
+        let mut outer = World::new();
+        let outer_id = outer.id();
+        let mut inner = crate::app::App::headless(1, 1);
+        let inner_id = inner.world.id();
+        let root = inner.spawn_root().id();
+        with_world_scope(&mut outer, || {
+            assert_eq!(with_world(|world| world.id()), Some(outer_id));
+            inner.compose(root, |cx| {
+                assert_eq!(current_world_id(), Some(inner_id));
+                assert!(model_writes_allowed());
+                assert_eq!(with_world(|world| world.id()), None);
+                with_world_scope(cx.world_mut(), || {
+                    assert_eq!(with_world(|world| world.id()), Some(inner_id));
+                });
+                assert_eq!(with_world(|world| world.id()), None);
+            });
+            assert_eq!(with_world(|world| world.id()), Some(outer_id));
+            with_world(|_| {
+                inner.compose(root, |_| {
+                    assert_eq!(with_world(|world| world.id()), None);
+                });
+                let reentrant = std::panic::catch_unwind(|| with_world(|_| ()));
+                assert!(reentrant.is_err());
+            });
+        });
+        assert_eq!(with_world(|world| world.id()), None);
+    }
+
+    #[test]
+    fn escaping_owner_scope_does_not_revive_an_ended_world_window() {
+        reset();
+        let mut outer = World::new();
+        let mut inner = World::new();
+        let root = inner.spawn_empty();
+        let inner_ref = &mut inner;
+        let scope = with_world_scope(&mut outer, move || crate::ui::UiScope::new(inner_ref, root));
+        let moved_outer = Box::new(outer);
+        assert!(with_reactive(|runtime| runtime.world_window.is_none()));
+        drop(scope);
+        assert!(with_reactive(|runtime| runtime.world_window.is_none()));
+        drop(moved_outer);
+    }
+
+    #[test]
+    fn owner_window_validation_does_not_allocate_after_owner_preparation() {
+        reset();
+        let mut outer = World::new();
+        let mut inner = World::new();
+        drop(OwnerGuard::enter(&mut inner));
+        let outer_id = outer.id();
+        with_world_scope(&mut outer, || {
+            let allocations = crate::test_support::tracked_allocations(|| {
+                for _ in 0..64 {
+                    {
+                        let _owner = OwnerGuard::enter(&mut inner);
+                        assert_eq!(with_world(|world| world.id()), None);
+                    }
+                    assert_eq!(with_world(|world| world.id()), Some(outer_id));
+                }
+            });
+            assert_eq!(allocations, 0);
+        });
+    }
+
+    #[test]
+    fn computed_world_access_matches_its_registration_owner() {
+        reset();
+        let ownerless = Computed::new(|| with_world(|world| world.id()));
+        let mut world = World::new();
+        let id = world.id();
+        with_world_scope(&mut world, || {
+            assert_eq!(ownerless.get(), None);
+            let owned = Computed::new(|| with_world(|world| world.id()));
+            assert_eq!(owned.get(), Some(id));
+            assert_eq!(with_world(|world| world.id()), Some(id));
+        });
     }
 
     #[test]

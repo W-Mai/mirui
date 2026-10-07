@@ -1068,6 +1068,7 @@ separately when targeting a bounded-memory device.
   It cannot read models from two Apps. While unbound, `with_world()` returns
   `None` even when a World flush triggers the effect; the binding run remains
   worldless and later runs use the bound App.
+- **Structural World access**: the internal ambient window is paired with its actual World identity. An owner-only composition scope cannot inherit another World's window; leaving that scope restores owner context without recreating an ended structural window. Generated reactive tree updates use explicit matching windows and retain the existing mutable-borrow checks.
 - **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
   events. Consumers cannot start another model write during delivery.
 - **Reactive `if` branches**: every branch body is constructed once when

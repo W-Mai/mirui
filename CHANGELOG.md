@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reactive World windows.** Ambient structural access checks the window's World identity independently of the current model owner, preventing foreign composition scopes from inheriting another World's mutable access.
+
 - **Gesture parent cycles.** Shared bounded branch checks validate cycles before focus and tap tracking, preserve hidden and disabled behavior, and stop at stale entity generations.
 - **Simulated tap dispatch.** Scheduled input and timelines update focus before callbacks and use the actual tick time for tap-count tracking. Hidden gesture targets leave focus unchanged.
 - **Shared event captures.** Named callback factories accept optional Model bindings and other shared values while validating registered Model owners through one capture contract.
