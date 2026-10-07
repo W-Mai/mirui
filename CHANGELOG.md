@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Authoring prelude.** `World` is available through `mirui::ecs::World` rather than the default prelude. Generated authoring adapters resolve their internal ECS types without caller imports.
 - **Widget notification delivery.** Slider, Switch, Checkbox, ProgressBar, TabBar, and TextInput enqueue typed notifications for delivery after the input route releases its borrows. Unsubscribed widget events do not require notification storage.
 - **Event payload access.** Event blocks read fields through `event`; callback parameters provide component queries and resource access without a World callback.
 - **Game keyboard bindings.** Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark use named Model-bound App callbacks; focused text editing takes precedence over their character shortcuts. Twin Beacons and Folding Ark borrow their installed hint services through typed resource parameters.

@@ -1,7 +1,8 @@
 use alloc::format;
 
 use super::state::{FormProgress, FormSlider};
-use crate::prelude::{Entity, World};
+use crate::ecs::World;
+use crate::prelude::Entity;
 use crate::ui::Children;
 use crate::ui::property::prop;
 use crate::ui::widgets::{ProgressBar, Slider, Text};

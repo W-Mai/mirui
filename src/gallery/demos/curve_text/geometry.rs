@@ -1,4 +1,5 @@
 use super::state::{BASE_STAGE_HEIGHT, BASE_STAGE_WIDTH};
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::path::{Path, PathCmd, PathId};
 

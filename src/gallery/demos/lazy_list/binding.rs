@@ -1,3 +1,4 @@
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::widgets::Text;
 

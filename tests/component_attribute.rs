@@ -1,5 +1,6 @@
 use mirui::core::model::{BindType, SharedValue};
 use mirui::core::reactive::{Computed, Signal};
+use mirui::ecs::World;
 use mirui::prelude::*;
 
 #[component]

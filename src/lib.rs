@@ -174,7 +174,7 @@ pub use mirui_macros::{
 pub mod prelude {
     pub use crate::app::{App, EventCapacity, RendererFactory};
     pub use crate::core::reactive::{Computed, Effect, Signal};
-    pub use crate::ecs::{CommandCapacity, Component, Entity, IntoBundle, MonoClock, World};
+    pub use crate::ecs::{CommandCapacity, Component, Entity, IntoBundle, MonoClock};
     pub use crate::input::event::contract::{Event, EventKey};
     pub use crate::input::event::focus::{Focusable, TextEditable};
     pub use crate::input::event::gesture::{

@@ -2,6 +2,7 @@ use alloc::vec;
 
 use super::composition::build_widgets;
 use crate::anim::ease;
+use crate::ecs::World;
 use crate::input::event::sim::{SimAction, SimTimeline};
 use crate::prelude::*;
 use crate::types::DimPoint;

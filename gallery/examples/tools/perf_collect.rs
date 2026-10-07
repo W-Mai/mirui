@@ -11,6 +11,7 @@
 
 use mirui::anim::ease;
 use mirui::app::plugins::{PerfReportPlugin, StdInstantClockPlugin};
+use mirui::ecs::World;
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::prelude::*;
@@ -45,7 +46,7 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    app.add_plugin(StdInstantClockPlugin::default());
+    app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PerfReportPlugin::new(60).with_perfetto_writer("/tmp/mirui-perf.ndjson"));
 
     app.add_system(sim_timeline_system::system());

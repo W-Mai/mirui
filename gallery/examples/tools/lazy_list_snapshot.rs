@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::ecs::SystemScheduler;
+use mirui::ecs::{SystemScheduler, World};
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;

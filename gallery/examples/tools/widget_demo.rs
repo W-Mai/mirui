@@ -1,3 +1,4 @@
+use mirui::ecs::World;
 use mirui::prelude::*;
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui::render::{Renderer, SwRenderer};

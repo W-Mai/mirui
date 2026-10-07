@@ -1,4 +1,5 @@
 use super::{ARABIC_FONT, CJK_FONT, DEVANAGARI_FONT, ELLIPSIS_FONT, THAI_FONT, UI_FONT};
+use crate::ecs::World;
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::render::font::FontStack;

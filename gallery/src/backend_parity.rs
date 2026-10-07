@@ -1,3 +1,4 @@
+use mirui::ecs::World;
 use mirui::prelude::draw::*;
 use mirui::prelude::*;
 use mirui::render::font::{Font, FontManager, FontToken};

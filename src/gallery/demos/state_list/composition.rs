@@ -1,4 +1,5 @@
 use super::state::{PALETTE, ROW_H};
+use crate::ecs::World;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};

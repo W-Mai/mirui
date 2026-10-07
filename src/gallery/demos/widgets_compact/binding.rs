@@ -1,4 +1,5 @@
-use crate::prelude::{Entity, World};
+use crate::ecs::World;
+use crate::prelude::Entity;
 use crate::ui::Children;
 use crate::ui::widgets::Text;
 

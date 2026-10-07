@@ -5,7 +5,7 @@ use super::render::{orbit_render, wave_render};
 use super::state::{ConsoleModel, ConsoleMotion};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, World};
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 use crate::types::DimPoint;

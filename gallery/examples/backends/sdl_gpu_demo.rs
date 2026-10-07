@@ -11,6 +11,7 @@
 use mirui::app::plugin::Plugin;
 use mirui::app::plugins::{CacheReportPlugin, FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
+use mirui::ecs::World;
 use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 use mirui::surface::{InputEvent, Surface};

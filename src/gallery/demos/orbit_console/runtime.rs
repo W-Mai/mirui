@@ -13,6 +13,8 @@ use super::visuals::{activity_render, backdrop_render, orbit_render, signal_rend
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 #[cfg(any(feature = "std", test))]
+use crate::ecs::World;
+#[cfg(any(feature = "std", test))]
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::render::font::{Font, FontManager};

@@ -1,5 +1,6 @@
 use super::state::TypographyModel;
 use super::style::{BLUE, BORDER, CYAN, GOLD, VIOLET};
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
 use crate::render::font::ResolvedFontStack;

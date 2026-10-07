@@ -1,4 +1,5 @@
 use crate::core::i18n::{Locale, Translation};
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager};
 

@@ -247,21 +247,28 @@ The effect retains the path allocation and command capacity. Prefer `set_command
 
 ## Edit a path from a handler
 
-Event handlers receive the same scoped path access API. Editing by `PathId` preserves entity identity and updates all consumers of the path.
+Event callbacks borrow the path store through `res!(mut PathStore)`. Editing by `PathId` preserves entity identity and updates all consumers of the path.
 
 ```rust
-ui! {
-    Text("Tap to bend", path: path, height: 72) on Tap {
-        let _ = ctx.paths().edit(path, |geometry| {
-            geometry
-                .set_command(1, mirui::render::path::PathCmd::QuadTo {
-                    ctrl: Point::new(80, 4),
-                    end: Point::new(160, 48),
-                })
-                .expect("stable command shape");
-        });
-    }
-};
+use mirui::prelude::*;
+use mirui::render::path::PathStore;
+use mirui::ui::widgets::Text;
+
+#[compose]
+fn bendable_label(path: PathId) {
+    ui! {
+        Text("Tap to bend", path: path, height: 72) on Tap(|paths: res!(mut PathStore)| {
+            paths.edit(path, |geometry| {
+                geometry
+                    .set_command(1, mirui::render::path::PathCmd::QuadTo {
+                        ctrl: Point::new(80, 4),
+                        end: Point::new(160, 48),
+                    })
+                    .expect("stable command shape");
+            }).expect("mutable path");
+        })
+    };
+}
 ```
 
 ## Query caret and selection geometry
@@ -271,6 +278,7 @@ scroll offsets, and accumulated 2D or projective transform. Caret hit testing
 and selection ribbons therefore use the same placed geometry as rendering.
 
 ```rust
+use mirui::ecs::World;
 use mirui::prelude::*;
 
 fn inspect_path_text(

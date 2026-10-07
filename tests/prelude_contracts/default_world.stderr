@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `mirui::prelude::World`
+ --> tests/prelude_contracts/default_world.rs:1:5
+  |
+1 | use mirui::prelude::World;
+  |     ^^^^^^^^^^^^^^^^^^^^^ no `World` in `prelude`
