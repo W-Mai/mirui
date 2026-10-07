@@ -2,6 +2,7 @@ use super::input::local_cell;
 use super::render::{cell_origin, map_box};
 use super::setup_app;
 use super::state::EchoSurface;
+use crate::ecs::World;
 use crate::gallery::play::echo::{Direction, EchoModal, EchoModel, EchoModelHandle};
 #[cfg(feature = "persistence")]
 use crate::gallery::play::storage::{EchoReplayLog, ReplayKind};

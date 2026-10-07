@@ -230,7 +230,7 @@ pub mod prelude {
     /// Custom widget / view authorship — emitting `DrawCommand`s.
     pub mod draw {
         pub use crate::render::path::Path;
-        pub use crate::render::{Canvas, CompositeMode, DrawCommand, FillRule, Renderer};
-        pub use crate::ui::view::{PaintCtx, View, ViewInvalidation, ViewRegistry};
+        pub use crate::render::{CompositeMode, DrawCommand, FillRule};
+        pub use crate::ui::view::{PaintCtx, ViewInvalidation};
     }
 }

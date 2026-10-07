@@ -2,6 +2,7 @@ use super::geometry::board_geometry;
 use super::setup_app;
 use super::state::PictureSurface;
 use crate::core::model::ModelHandle;
+use crate::ecs::World;
 use crate::gallery::play::expeditions::{ExpeditionModal, ExpeditionUiModelHandle};
 use crate::gallery::play::picture::{PictureModel, PictureModelHandle};
 use crate::input::event::gesture::GestureEvent;

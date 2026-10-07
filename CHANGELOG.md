@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Drawing prelude.** Drawing commands and paint-context types remain in `prelude::draw`; backend traits and low-level View descriptors use their explicit render and UI paths.
+- **Backend parity composition.** The calibration scene uses a typed paint View, an App-managed root, and declarative transform attachment.
 - **Authoring prelude.** `World` is available through `mirui::ecs::World` rather than the default prelude. Generated authoring adapters resolve their internal ECS types without caller imports.
 - **Widget notification delivery.** Slider, Switch, Checkbox, ProgressBar, TabBar, and TextInput enqueue typed notifications for delivery after the input route releases its borrows. Unsubscribed widget events do not require notification storage.
 - **Event payload access.** Event blocks read fields through `event`; callback parameters provide component queries and resource access without a World callback.

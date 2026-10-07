@@ -1,7 +1,9 @@
 use super::render::{ClipPath, clip_path_view};
 use super::scene::{CLIP_CIRCLE, LOGICAL_SIZE};
+use crate::ecs::World;
 use crate::prelude::draw::*;
 use crate::prelude::*;
+use crate::render::Renderer;
 use crate::render::renderer::{DrawRequest, RenderError, RenderRoute};
 use crate::types::Transform;
 use crate::ui::theme::WidgetState;

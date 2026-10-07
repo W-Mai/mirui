@@ -4,7 +4,7 @@ use super::state::{ConsoleMode, ConsoleModel, ConsoleMotion};
 use super::style::BACKGROUND;
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::change::ChangeSet;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;

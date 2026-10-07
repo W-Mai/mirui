@@ -1,7 +1,7 @@
 use super::input::{local_cell, moss_tick_system};
 use super::state::MossSurface;
 use super::{VIEWPORT, setup_app};
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::moss::MossModel;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;

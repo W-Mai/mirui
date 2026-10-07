@@ -4,7 +4,7 @@ use super::composition::build_widgets;
 use super::state::{
     ACCENT, FormProgress, FormSlider, ThemeCycle, cycle, dark_with_accent, light_with_accent,
 };
-use crate::ecs::SystemScheduler;
+use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::widgets::{Button, Checkbox, Image, ProgressBar, Slider, Text};

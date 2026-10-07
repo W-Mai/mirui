@@ -27,7 +27,7 @@ use super::style::VIOLET;
 use super::visuals::{ActivityPlot, OrbitInstrument, SignalMeter, UNIT_CIRCLE};
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::SystemScheduler;
+use crate::ecs::{SystemScheduler, World};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;

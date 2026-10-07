@@ -1,6 +1,6 @@
 use super::composition::build_widgets;
 use super::motion::spring_system;
-use crate::ecs::SystemScheduler;
+use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::Children;

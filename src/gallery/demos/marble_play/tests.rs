@@ -8,7 +8,7 @@ use super::style::{BOARD_HEIGHT, BOARD_WIDTH};
 use super::{TEXT_LAYOUT_CAPACITY, VIEWPORT, marble_tick_system, setup_app};
 #[cfg(feature = "audio")]
 use crate::audio::{AudioHandle, AudioOutputState};
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::fit_logical_canvas;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::marble::{MarbleModel, MarbleModelHandle, Page, THEMES};

@@ -1,6 +1,7 @@
 use super::composition::build_widgets;
 use super::render::vector_mandala_view;
 use super::scene::{EMBLEM_MIRX, decode_emblem, rebuild_frame};
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::scene::{Scene, SceneOp};
 use crate::ui::Children;

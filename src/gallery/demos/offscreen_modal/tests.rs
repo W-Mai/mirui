@@ -1,7 +1,7 @@
 use super::animation::{fps_readout_system, modal_slide_system};
 use super::composition::build_widgets;
 use super::state::{FpsReadout, MODAL_H, MODAL_W, ModalAnim, UPDATE_EVERY};
-use crate::ecs::{FrameTimings, SystemScheduler};
+use crate::ecs::{FrameTimings, SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::render_system::update_layout;

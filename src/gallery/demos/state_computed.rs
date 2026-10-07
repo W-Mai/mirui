@@ -64,6 +64,7 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
+    use crate::ecs::World;
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;

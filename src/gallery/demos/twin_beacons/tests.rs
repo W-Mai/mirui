@@ -1,6 +1,7 @@
 use super::shell;
 use super::state::{TwinHintService, TwinSurface, select_map_level};
 use crate::core::model::{Model, ModelHandle};
+use crate::ecs::World;
 use crate::gallery::play::change::ChangeSet;
 use crate::gallery::play::expeditions::{
     Direction4, ExpeditionHintWorkspace, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel,

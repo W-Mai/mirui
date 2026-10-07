@@ -4,6 +4,7 @@ use super::state::TypographyModel;
 use super::style::BACKGROUND;
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
+use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::scroll_bounds;
 use crate::prelude::*;

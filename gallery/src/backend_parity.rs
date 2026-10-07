@@ -1,4 +1,3 @@
-use mirui::ecs::World;
 use mirui::prelude::draw::*;
 use mirui::prelude::*;
 use mirui::render::font::{Font, FontManager, FontToken};
@@ -36,7 +35,8 @@ fn sample_textures() -> [Texture<'static>; 3] {
     [rgba, rgb565, swapped]
 }
 
-fn texture_parity_render(_world: &World, _entity: Entity, paint: &mut PaintCtx<'_>) {
+#[view(component = TextureParity, name = "TextureParity", priority = 60)]
+fn texture_parity_render(paint: paint!()) {
     let rect = paint.rect();
     let textures = sample_textures();
     for (index, texture) in textures.iter().enumerate() {
@@ -65,9 +65,7 @@ where
     F: RendererFactory<B>,
 {
     app.with_default_widgets().with_default_systems();
-    app.with_widget(
-        View::new("TextureParity", 60, texture_parity_render).with_filter::<TextureParity>(),
-    );
+    app.with_widget(texture_parity_render::view());
     let font = Font::from_mirx(
         "MiSans UI",
         16,
@@ -80,7 +78,9 @@ where
         .expect("FontManager")
         .add_static(FONT.cache_key(), font);
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(16, 18, 27))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -91,55 +91,49 @@ where
         })
         .id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            Column (grow: 1.0, row_gap: 10) {
-                Text (
-                    "14 px coverage · Ag AVATAR 0123",
-                    height: 30,
-                    font: FONT,
-                    font_size: 14,
-                    text_color: Color::rgb(146, 204, 255)
-                )
-                Text (
-                    "48 px SDF · Ag AVATAR",
-                    height: 68,
-                    font: FONT,
-                    font_size: 48,
-                    text_color: Color::rgb(255, 220, 140)
-                )
-                Text (
-                    id: "text_backend_affine",
-                    "36 px affine · mirui",
-                    height: 58,
-                    font: FONT,
-                    font_size: 36,
-                    text_color: Color::rgb(174, 246, 214)
-                )
-                Row (height: 30, column_gap: 20) {
-                    Text ("RGBA reference", width: 180, height: 30, font: FONT, font_size: 14)
-                    Text ("RGB565 · stride 8", width: 180, height: 30, font: FONT, font_size: 14)
-                    Text ("RGB565 swapped", width: 180, height: 30, font: FONT, font_size: 14)
-                }
-                TextureParity (height: 80)
+    app.compose(root, parity_content);
+    root
+}
+
+#[compose]
+fn parity_content() {
+    ui! {
+        Column (grow: 1.0, row_gap: 10) {
+            Text (
+                "14 px coverage · Ag AVATAR 0123",
+                height: 30,
+                font: FONT,
+                font_size: 14,
+                text_color: Color::rgb(146, 204, 255)
+            )
+            Text (
+                "48 px SDF · Ag AVATAR",
+                height: 68,
+                font: FONT,
+                font_size: 48,
+                text_color: Color::rgb(255, 220, 140)
+            )
+            Text (
+                id: "text_backend_affine",
+                "36 px affine · mirui",
+                height: 58,
+                font: FONT,
+                font_size: 36,
+                text_color: Color::rgb(174, 246, 214)
+            ) [
+                WidgetTransform(
+                    Transform::translate(Fixed::from_int(8), Fixed::from_int(2))
+                        .compose(&Transform::rotate_deg(Fixed::from_int(-3))),
+                ),
+            ]
+            Row (height: 30, column_gap: 20) {
+                Text ("RGBA reference", width: 180, height: 30, font: FONT, font_size: 14)
+                Text ("RGB565 · stride 8", width: 180, height: 30, font: FONT, font_size: 14)
+                Text ("RGB565 swapped", width: 180, height: 30, font: FONT, font_size: 14)
             }
+            TextureParity (height: 80)
         }
     };
-
-    let affine = app
-        .world
-        .find_by_id("text_backend_affine")
-        .expect("affine text id");
-    app.world.insert(
-        affine,
-        WidgetTransform(
-            Transform::translate(Fixed::from_int(8), Fixed::from_int(2))
-                .compose(&Transform::rotate_deg(Fixed::from_int(-3))),
-        ),
-    );
-    app.set_root(root);
-    root
 }
 
 #[cfg(test)]

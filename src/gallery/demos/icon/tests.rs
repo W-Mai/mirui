@@ -1,5 +1,6 @@
 use super::catalog::icons;
 use super::composition::build_widgets;
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::Children;

@@ -3,7 +3,7 @@ use super::geometry::{TEXT_WINDOW, WAVE};
 use super::runtime::{compact_curve_animation_system, install};
 use super::style::BACKGROUND;
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::prelude::*;
 use crate::render::font::FontToken;
 use crate::render::path::PathCmd;

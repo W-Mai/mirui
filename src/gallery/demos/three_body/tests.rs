@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use super::simulation::BODY_SIZE;
 use super::state::LayoutOrigin;
 use super::*;
-use crate::ecs::SystemScheduler;
+use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::Children;

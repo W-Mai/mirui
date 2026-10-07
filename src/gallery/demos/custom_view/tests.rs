@@ -1,5 +1,6 @@
 use super::view::diamond_render;
 use super::*;
+use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;

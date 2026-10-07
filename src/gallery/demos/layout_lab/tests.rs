@@ -2,6 +2,7 @@ use super::chips::CHIPS;
 #[cfg(feature = "std")]
 use super::setup_app;
 use super::{VIEWPORT, build_widgets};
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::widgets::Image;
 use crate::ui::{Children, IdMap, Style, UiScope};

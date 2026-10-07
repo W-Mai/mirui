@@ -102,6 +102,7 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::World;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::UiScope;

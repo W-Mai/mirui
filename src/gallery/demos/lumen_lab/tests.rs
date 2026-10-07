@@ -1,7 +1,7 @@
 use super::board::{LumenBoard, cell_center};
 use super::runtime::lumen_tick_system;
 use super::{VIEWPORT, setup_app};
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::lumen::{LumenModel, LumenModelHandle};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;

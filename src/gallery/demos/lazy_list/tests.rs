@@ -1,5 +1,6 @@
 use super::binding::row_binder;
 use super::composition::build_widgets;
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::Children;
 use crate::ui::IdMap;

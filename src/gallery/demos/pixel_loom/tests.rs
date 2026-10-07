@@ -1,7 +1,7 @@
 use super::input::{local_cell, pixel_tick_system};
 use super::state::PixelSurface;
 use super::{VIEWPORT, setup_app};
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::pixel::PixelModel;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;

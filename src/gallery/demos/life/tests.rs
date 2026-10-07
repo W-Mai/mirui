@@ -4,6 +4,7 @@ use super::composition::build_widgets;
 use super::render::life_render;
 use super::runtime::{LifeStepDue, dims_from_px, life_step_system};
 use super::state::{GLIDER, GOSPER_GUN, LifeBoard, MAX_GRID_EDGE};
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::ComputedRect;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::ecs::SystemScheduler;
+use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
 use crate::ui::{Children, ComputedRect, IdMap, UiScope};
 

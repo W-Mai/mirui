@@ -5,7 +5,7 @@ use super::state::{BASE_STAGE_HEIGHT, BASE_STAGE_WIDTH, CurveModel, CurveStageSi
 use super::style::BACKGROUND;
 use super::{VIEWPORT, install};
 use crate::core::reactive::flush_signal_dirty;
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::render::path::PathStore;

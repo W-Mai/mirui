@@ -1,6 +1,6 @@
 use super::state::PostSurface;
 use super::{VIEWPORT, setup_app};
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::post::{PostModel, PostModelHandle};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;

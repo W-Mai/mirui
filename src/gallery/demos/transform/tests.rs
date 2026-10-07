@@ -1,4 +1,5 @@
 use super::composition::build_widgets;
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::{Children, IdMap, UiScope};
 

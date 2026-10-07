@@ -2,7 +2,7 @@ use super::DEFAULT_VIEW;
 use super::animation::BlurPan;
 use super::composition::build_widgets;
 use super::runtime::setup_app;
-use crate::ecs::DeltaTimeMs;
+use crate::ecs::{DeltaTimeMs, World};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::render_system::update_layout;

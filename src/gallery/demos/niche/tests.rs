@@ -1,4 +1,5 @@
 use super::*;
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
 use crate::ui::UiScope;

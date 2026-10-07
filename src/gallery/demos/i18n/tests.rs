@@ -1,5 +1,6 @@
 use super::composition::build_widgets;
 use crate::core::i18n::I18n;
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::Children;
 use crate::ui::IdMap;

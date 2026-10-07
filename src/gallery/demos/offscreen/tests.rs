@@ -1,7 +1,7 @@
 use super::composition::build_widgets;
 use super::state::FpsReadout;
 use super::systems::{UPDATE_EVERY, fps_readout_system};
-use crate::ecs::{FrameTimings, SystemScheduler};
+use crate::ecs::{FrameTimings, SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::dirty::{Dirty, VisualDirty};

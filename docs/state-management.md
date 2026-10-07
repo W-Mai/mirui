@@ -25,6 +25,8 @@ the State demos in the gallery.
 
 The default `mirui::prelude` supplies the authoring macros and their common types without importing `World`. Low-level ECS setup and diagnostics can import `mirui::ecs::World` explicitly; generated authoring adapters resolve their internal World paths independently of the user's imports.
 
+`mirui::prelude::draw` supplies drawing commands, path values, and paint-context types. Backend traits use the explicit `mirui::render::{Canvas, Renderer}` paths; low-level View descriptors and registries use `mirui::ui::view::{View, ViewRegistry}`.
+
 `App::add_resource(value)` immediately installs a resource in the application's existing World storage. Values move into storage without a `Clone` or `Copy` requirement; adding the same type replaces and drops its previous value. Callbacks borrow the current value through `res!(T)` or `res!(mut T)`. Structural changes during a callback continue to use deferred `commands.insert_resource(value)` and `commands.remove_resource::<T>()` after parameter borrows end. Resource installation does not create model observations or a second resource registry.
 
 Place `#[model]` on a struct and one inherent impl to generate its instance

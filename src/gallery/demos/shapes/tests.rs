@@ -1,5 +1,6 @@
 use super::composition::build_widgets;
 use super::view::shapes_view;
+use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::Children;
 use crate::ui::IdMap;

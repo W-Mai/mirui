@@ -6,6 +6,7 @@ use super::state::CoverFlowBounds;
 use super::state::{Carousel, CarouselCard};
 #[cfg(feature = "std")]
 use crate::ecs::SystemScheduler;
+use crate::ecs::World;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::types::Dimension;

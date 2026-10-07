@@ -3,6 +3,7 @@ use super::state::InteractionModel;
 use super::*;
 use crate::core::model::ModelHandle;
 use crate::core::reactive::flush_signal_dirty;
+use crate::ecs::World;
 use crate::input::event::entity_or_ancestor_disabled;
 use crate::input::event::focus::{FocusState, Focusable};
 use crate::input::event::gesture::GestureEvent;

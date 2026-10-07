@@ -2,6 +2,7 @@ use super::input::local_cell;
 use super::state::TideSurface;
 use super::{VIEWPORT, setup_app};
 use crate::core::model::ModelHandle;
+use crate::ecs::World;
 use crate::gallery::play::tidal::{BOARD_SIZE, TideModal, TideModel, TideModelHandle};
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;

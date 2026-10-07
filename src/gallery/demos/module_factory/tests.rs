@@ -2,7 +2,7 @@ use super::input::{factory_tick_system, local_cell};
 use super::setup_app;
 use super::state::FactorySurface;
 use crate::core::model::ModelHandle;
-use crate::ecs::{DeltaTimeMs, SystemScheduler};
+use crate::ecs::{DeltaTimeMs, SystemScheduler, World};
 use crate::gallery::play::factory::{
     FactoryError, FactoryModel, FactoryModelHandle, FactoryTool, ModuleKind,
 };

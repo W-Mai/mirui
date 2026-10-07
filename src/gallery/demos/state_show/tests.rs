@@ -1,5 +1,6 @@
 use super::*;
 use crate::core::reactive::flush_signal_dirty;
+use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;

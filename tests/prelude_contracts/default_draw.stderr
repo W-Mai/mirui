@@ -1,0 +1,9 @@
+error[E0432]: unresolved imports `mirui::prelude::draw::Canvas`, `mirui::prelude::draw::Renderer`, `mirui::prelude::draw::View`, `mirui::prelude::draw::ViewRegistry`
+ --> tests/prelude_contracts/default_draw.rs:1:28
+  |
+1 | use mirui::prelude::draw::{Canvas, Renderer, View, ViewRegistry};
+  |                            ^^^^^^  ^^^^^^^^  ^^^^  ^^^^^^^^^^^^ no `ViewRegistry` in `prelude::draw`
+  |                            |       |         |
+  |                            |       |         no `View` in `prelude::draw`
+  |                            |       no `Renderer` in `prelude::draw`
+  |                            no `Canvas` in `prelude::draw`

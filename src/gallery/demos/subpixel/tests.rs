@@ -2,7 +2,7 @@ use super::composition::build_widgets;
 use super::motion::bar_move_system;
 use super::runtime::setup_app;
 use super::state::{BAR_MARGIN, BAR_W, BarState, START_Y};
-use crate::ecs::SystemScheduler;
+use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::dirty::{Dirty, VisualDirty};

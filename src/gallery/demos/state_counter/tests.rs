@@ -2,6 +2,7 @@ use super::composition::build_widgets;
 use super::model::CounterModel;
 use crate::core::reactive::Effect;
 use crate::core::reactive::flush_signal_dirty;
+use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
