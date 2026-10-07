@@ -29,8 +29,8 @@ where
         .with_widget(stage::curve_paths_view());
     crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
     let model = app.add_model(state::CurveModel::default());
-    let paths = geometry::register_paths(&mut app.world);
-    app.world.insert_resource(paths);
+    let paths = geometry::register_paths(app.paths());
+    app.add_resource(paths);
     app.add_system(runtime::curve_text_animation_system::system());
     app.compose(parent, |cx| composition::build_widgets(cx, model, paths));
 }

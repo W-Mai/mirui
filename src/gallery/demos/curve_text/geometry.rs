@@ -1,7 +1,7 @@
 use super::state::{BASE_STAGE_HEIGHT, BASE_STAGE_WIDTH};
-use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::path::{Path, PathCmd, PathId};
+use crate::text::PathAccess;
 
 #[derive(Clone, Copy)]
 pub(super) struct CurvePaths {
@@ -111,8 +111,7 @@ pub(super) fn update_lane_for_stage(
     }
 }
 
-pub(super) fn register_paths(world: &mut World) -> CurvePaths {
-    let mut paths = world.paths();
+pub(super) fn register_paths(mut paths: PathAccess<'_>) -> CurvePaths {
     CurvePaths {
         ids: [
             paths.insert(make_lane(0)).expect("first curve path"),

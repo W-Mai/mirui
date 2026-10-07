@@ -5,7 +5,6 @@ use super::state::{CompactCurveMotion, CompactCurveNodes};
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
-use crate::render::path::PathStore;
 use crate::ui::property::prop;
 
 #[mirui_macros::system(order = Animation)]
@@ -34,19 +33,17 @@ where
 {
     crate::gallery::showcase_theme::install(app);
     let path = app
-        .world
-        .resource_mut::<PathStore>()
-        .expect("path store")
+        .paths()
         .insert_static(WAVE.commands())
         .expect("compact curve path");
-    app.world.insert_resource(CompactCurveMotion::default());
+    app.add_resource(CompactCurveMotion::default());
     app.add_system(compact_curve_animation_system::system());
     app.compose(parent, |cx| build_widgets(cx, path));
     let text = app
         .world
         .find_by_id("compact_curve_text_primary")
         .expect("compact curve text");
-    app.world.insert_resource(CompactCurveNodes { path, text });
+    app.add_resource(CompactCurveNodes { path, text });
 }
 
 #[cfg(feature = "std")]

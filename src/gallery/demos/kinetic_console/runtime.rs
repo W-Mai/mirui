@@ -87,7 +87,7 @@ where
     app.compose(parent, |cx| build_widgets(cx, model, motion));
 
     if autoplay && let Some(timeline) = build_sim_timeline(&app.world) {
-        app.world.insert_resource(timeline);
+        app.add_resource(timeline);
         app.add_system(sim_timeline_system::system());
     }
 }
