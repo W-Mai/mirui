@@ -372,38 +372,52 @@ The default field owns the target. Every other field implements `RenderEngine<Ta
 
 ## ECS
 
+Attach typed components to UI nodes and access their data through system parameters:
+
 ```rust
-// Spawn
-let e = world.spawn();
-world.insert(e, MyComponent { ... });
+use mirui::prelude::*;
 
-// Query
-let mut buf = Vec::new();
-world.query::<PhysicsBody>().and::<Velocity>().collect_into(&mut buf);
+#[component]
+struct PhysicsBody {
+    position: Fixed,
+}
 
-// Resources
-world.insert_resource(GameSeed(42));
-let seed = world.resource::<GameSeed>().unwrap().0;
+#[component]
+struct Velocity(Fixed);
 
-// Systems
-#[mirui::system(order = Animation)]
-fn physics_system(
-    seed: res!(GameSeed),
-    bodies: query!(mut PhysicsBody, optional Velocity),
-) {
+struct MotionStep(Fixed);
+
+#[compose]
+fn build_scene() {
+    ui! {
+        View (width: 100, height: 100) [
+            PhysicsBody {
+                position: Fixed::ZERO,
+            },
+            Velocity(Fixed::ONE),
+        ]
+    };
+}
+
+#[system(order = Animation)]
+fn physics_system(step: res!(MotionStep), bodies: query!(mut PhysicsBody, optional Velocity)) {
     for (body, velocity) in bodies {
-        // Update `body` from `seed` and the optional `velocity`.
+        if let Some(velocity) = velocity {
+            body.position += velocity.0 * step.0;
+        }
     }
 }
 
-app.add_system(physics_system::system());
+fn main() {
+    let mut app = App::headless(320, 240);
+    app.add_resource(MotionStep(Fixed::from_ratio(1, 60)));
+    let root = app.spawn_root().id();
+    app.compose(root, build_scene)
+        .add_system(physics_system::system());
+}
 ```
 
-System parameters declare their role with `model!`, `res!`, `query!`, or
-`commands!`; application systems do not receive `World`. `SystemSlot` names
-the standard scheduling positions (`SimInput / DeltaTime / InteractionState /
-Animation / Timer / ScrollInertia / LazyList / TabPages / Normal / PreRender`).
-Lower values run earlier; user systems default to `Normal`.
+System parameters declare their role with `model!`, `res!`, `query!`, or `commands!`; application systems do not receive `World`. `SystemSlot` names the standard scheduling positions (`SimInput / DeltaTime / InteractionState / Animation / Timer / ScrollInertia / LazyList / TabPages / Normal / PreRender`). Lower values run earlier; user systems default to `Normal`.
 
 Typed queries support both iteration and `rows.get(entity)`. Point fetches
 return `None` for missing or filtered rows and validate entity generations.
