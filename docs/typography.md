@@ -175,13 +175,18 @@ ui! {
 
 `with_offset` leaves a fixed-point leading inset inside the selected range. Wrapping, alignment, ellipsis, glyphs, and carets use the remaining path length.
 
-The builder API accepts the same value:
+Pass the same placement value to a composition:
 
 ```rust
-let label = Text::build("Status")
-    .font_size(24)
-    .path(placement)
-    .spawn(cx.world_mut());
+use mirui::prelude::*;
+use mirui::ui::widgets::Text;
+
+#[compose]
+fn status_label(placement: TextPath) {
+    ui! {
+        Text("Status", font_size: 24, path: placement)
+    };
+}
 ```
 
 ## Switch paths reactively
