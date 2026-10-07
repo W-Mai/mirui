@@ -662,7 +662,7 @@ where
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());
     register_fonts(&mut app.world);
-    let wave_path = register_path(&mut app.world);
+    let wave_path = register_path(app.paths());
     let model = app.add_model(TypographyModel::default());
     app.compose(parent, |cx| build_widgets(cx, model, wave_path));
 }

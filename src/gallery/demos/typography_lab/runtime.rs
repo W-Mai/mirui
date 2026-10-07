@@ -45,9 +45,8 @@ pub(crate) fn register_fonts(world: &mut World) {
 }
 
 #[cfg(any(feature = "std", test))]
-pub(super) fn register_path(world: &mut World) -> PathId {
-    world
-        .paths()
+pub(super) fn register_path(mut paths: crate::text::PathAccess<'_>) -> PathId {
+    paths
         .insert_static(WAVE_BASELINE.commands())
         .expect("static typography path")
 }
