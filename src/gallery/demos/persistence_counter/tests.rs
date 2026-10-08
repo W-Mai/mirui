@@ -12,7 +12,7 @@ fn build_widgets_smoke() {
     let parent = WidgetBuilder::new(&mut world).id();
     let count = Signal::new(0i32);
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, count);
+    build_widgets(count)(&mut cx);
     drop(cx);
     assert!(
         world

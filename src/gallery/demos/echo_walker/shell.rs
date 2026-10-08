@@ -679,5 +679,5 @@ where
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     app.on_event(CharInput::EVENT, keyboard::callback(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

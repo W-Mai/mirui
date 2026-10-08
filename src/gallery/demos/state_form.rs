@@ -96,7 +96,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(360, 280);
@@ -137,7 +137,7 @@ mod tests {
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx);
+        build_widgets()(&mut cx);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let name = world.find_by_id("state_form_name").unwrap();

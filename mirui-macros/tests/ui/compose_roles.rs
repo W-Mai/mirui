@@ -78,7 +78,7 @@ fn main() {
     let counter = app.add_model(Counter { value: 1 });
     let optional = app.add_model(Counter { value: 2 });
     app.compose(root, |cx| {
-        assert_eq!(generic_passthrough(cx, 7_u8), 7);
-        counter_panel(cx, counter, Some(optional), "count");
+        assert_eq!(generic_passthrough(7_u8)(cx), 7);
+        counter_panel(counter, Some(optional), "count")(cx);
     });
 }

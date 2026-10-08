@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `#[compose]` creates stack-held composition factories. Application entry points execute them through `app.compose(parent, panel(arguments))`; direct child and Niche syntax remains unchanged. Parameters are retained until execution, and Model validation and resource access run in the construction scope.
 - Declarative construction connects parents and registers final widget IDs before View attachment and reactive initialization. Tree, conditional, list, and Niche construction share the same node-finalization path.
 - `App::compose` returns the composition output while retaining reactive ownership and dirty-storage preparation. Backend examples construct their roots through App.
 - Per-node widget attachment reuses registration-time hook snapshots instead of allocating a hook list on each invocation.

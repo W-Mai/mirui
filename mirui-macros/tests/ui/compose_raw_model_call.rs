@@ -16,5 +16,5 @@ fn panel(counter: model!(Counter)) {
 fn main() {
     let mut app = App::headless(16, 16);
     let root = app.spawn_root().id();
-    app.compose(root, |cx| panel(cx, Counter { value: 0 }));
+    app.compose(root, panel(Counter { value: 0 }));
 }

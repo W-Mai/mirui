@@ -14,7 +14,7 @@ where
     F: RendererFactory<B>,
 {
     let model = app.add_model(PinchModel::default());
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 
     let target = app
         .world

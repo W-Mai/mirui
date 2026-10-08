@@ -12,7 +12,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }
 
 pub(super) fn automation(world: &World) -> Option<SimTimeline> {

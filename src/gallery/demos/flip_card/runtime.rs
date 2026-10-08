@@ -9,5 +9,5 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(flip_system::system());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

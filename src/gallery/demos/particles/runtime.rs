@@ -14,5 +14,5 @@ where
     app.add_system(particle_system::system());
     app.add_system(pulse_ring_system::system());
     app.add_system(bar_system::system());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

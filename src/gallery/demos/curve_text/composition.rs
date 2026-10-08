@@ -341,7 +341,14 @@ pub(super) fn build_widgets(model: model!(CurveModel), paths: CurvePaths) {
         .world_mut()
         .find_by_id("curve_text_caption")
         .expect("Curve Text caption");
-    bind_curve_paths(cx, stage, paths, model.clone());
-    bind_stage_layout(cx, stage, primary, multiscript, caption, paths, model);
+    ui!(bind_curve_paths(stage, paths, model.clone()));
+    ui!(bind_stage_layout(
+        stage,
+        primary,
+        multiscript,
+        caption,
+        paths,
+        model
+    ));
     //~focus-end
 }

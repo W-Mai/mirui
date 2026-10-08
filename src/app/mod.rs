@@ -911,7 +911,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// The application activates its reactive owner for construction and prepares dirty storage after the composition returns.
     ///
     /// ```ignore
-    /// let panel = app.compose(root, build_panel);
+    /// let panel = app.compose(root, build_panel());
     /// ```
     pub fn compose<R>(
         &mut self,

@@ -7,5 +7,5 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(ui!(compose Card));
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

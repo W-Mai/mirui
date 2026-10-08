@@ -55,10 +55,12 @@ fn configured_panel() {
 }
 
 app.add_resource(PanelConfig { gap: 8 });
-app.compose(root, configured_panel);
+app.compose(root, configured_panel());
 ```
 
 `App::compose` returns the composition's result, including entity IDs and owned values. Its construction scope does not escape the call; reactive ownership is restored and dirty storage is prepared before the result is returned.
+
+Calling a `#[compose]` function prepares a stack-held composition without executing its body. All arguments remain owned or borrowed by that value until it is executed or dropped. Model validation, resource access, bindings, and widget creation run inside `App::compose`; preparing a composition does not require an active application owner. Composition outputs use concrete Rust types, including generics. Returned references may borrow application data supplied as arguments, but not the construction scope or its resources.
 
 Compute resource-backed arguments before passing them to `ui!`, `format!`, or another macro; the composition attribute does not rewrite another macro's tokens. Required resources report missing values as programming errors, while optional reads receive `None`. Composition inserts and removals are immediate; structural changes during System or Event callbacks continue through deferred `commands!`. Resource access adds no heap storage; registering a new resource type still uses the existing resource store's allocation.
 
@@ -210,7 +212,7 @@ parameter accepts the value returned by `App::add_model`:
 ```rust
 let root = app.spawn_root().id();
 let counter = app.add_model(Counter { count: 0 });
-app.compose(root, |cx| counter_controls(cx, counter.clone()));
+app.compose(root, counter_controls(counter.clone()));
 ```
 
 The model owns business state; `#[component]` model fields attach specific

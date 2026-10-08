@@ -44,7 +44,7 @@ fn attachment_model_move_preserves_binding_capture_and_updates() {
     app.with_default_widgets();
     let root = app.spawn_root().id();
     let game = app.add_model(AttachmentModel { value: 7 });
-    app.compose(root, |cx| moved_model_attachment(cx, game.clone()));
+    app.compose(root, moved_model_attachment(game.clone()));
     let entity = app
         .world
         .query::<ModelAttachment>()
@@ -103,9 +103,10 @@ fn static_bounded_value_precedes_consuming_binding_capture() {
     let mut app = mirui::app::App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    app.compose(root, |cx| {
-        static_label_with_consuming_capture(cx, "label".to_owned())
-    });
+    app.compose(
+        root,
+        static_label_with_consuming_capture("label".to_owned()),
+    );
     let entity = app.world.query::<Text>().iter().next().unwrap().0;
     assert_eq!(
         app.world.get::<Text>(entity).unwrap().resolve(&app.world),
@@ -163,7 +164,7 @@ fn static_attachments_initialize_once_before_reactive_values() {
     app.add_resource(MountProbe::default());
     let root = app.spawn_root().id();
     let flag = mirui::core::reactive::Signal::new(true);
-    app.compose(root, |cx| static_attachment_tree(cx, flag));
+    app.compose(root, static_attachment_tree(flag));
 
     let probe = app.world.resource::<MountProbe>().unwrap();
     assert_eq!(probe.count, 2);
@@ -280,9 +281,9 @@ fn reactive_row_roots_connect_once_and_keep_nested_children() {
         let items = mirui::core::reactive::Signal::new(vec![1_u8, 2]);
         let list = app.compose(root, |cx| {
             if keyed {
-                keyed_rows(cx, items.clone())
+                keyed_rows(items.clone())(cx)
             } else {
-                indexed_rows(cx, items.clone())
+                indexed_rows(items.clone())(cx)
             }
         });
         let original = app.world.get::<Children>(list).unwrap().0.clone();
@@ -338,7 +339,7 @@ fn lowercase_compose_calls_remain_bare_tree_children() {
     let root = WidgetBuilder::new(&mut world).id();
 
     let mut cx = UiScope::new(&mut world, root);
-    let column = parent_with_lowercase_children(&mut cx);
+    let column = parent_with_lowercase_children()(&mut cx);
 
     let children = &world
         .get::<Children>(column)

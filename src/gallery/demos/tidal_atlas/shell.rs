@@ -956,5 +956,5 @@ where
     let model = app.add_model(TideModel::default());
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

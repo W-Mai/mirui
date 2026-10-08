@@ -362,7 +362,7 @@ fn warmed_model_event_and_commands_do_not_allocate() {
         .with_event_capacity(event_capacity());
     let root = app.spawn_root().id();
     let counter = app.add_model(EventCounter { value: 0 });
-    app.compose(root, |cx| model_event(cx, counter.clone()));
+    app.compose(root, model_event(counter.clone()));
     let target = app.world.find_by_id("counter_event").unwrap();
     let event = tap(target);
 

@@ -38,7 +38,7 @@ where
         .expect("compact curve path");
     app.add_resource(CompactCurveMotion::default());
     app.add_system(compact_curve_animation_system::system());
-    app.compose(parent, |cx| build_widgets(cx, path));
+    app.compose(parent, build_widgets(path));
     let text = app
         .world
         .find_by_id("compact_curve_text_primary")

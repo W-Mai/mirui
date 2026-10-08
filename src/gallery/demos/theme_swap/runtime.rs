@@ -15,5 +15,5 @@ where
         .register_theme(light_with_accent())
         .register_theme(custom_theme());
     app.set_theme("midnight-amber").expect("registered theme");
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

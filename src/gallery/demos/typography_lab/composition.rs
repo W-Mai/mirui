@@ -659,5 +659,5 @@ where
     register_fonts(&mut app.world);
     let wave_path = register_path(app.paths());
     let model = app.add_model(TypographyModel::default());
-    app.compose(parent, |cx| build_widgets(cx, model, wave_path));
+    app.compose(parent, build_widgets(model, wave_path));
 }

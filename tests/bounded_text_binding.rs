@@ -251,7 +251,7 @@ fn composed_bounded_binding_tracks_its_model() {
     app.with_default_widgets();
     let root = app.spawn_root().id();
     let reading = app.add_model(Reading { value: 5 });
-    app.compose(root, |cx| bounded_panel(cx, reading.clone()));
+    app.compose(root, bounded_panel(reading.clone()));
 
     let entity = app.world.find_by_id("composed").unwrap();
     assert_eq!(

@@ -38,7 +38,7 @@ where
     let theme_cycle = app.add_model(ThemeCycle::default());
     app.add_timer(cycle::timer(theme_cycle));
 
-    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
+    app.compose(parent, build_widgets(info.width, info.height));
 
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
         return;

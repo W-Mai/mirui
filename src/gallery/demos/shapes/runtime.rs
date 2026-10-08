@@ -12,5 +12,5 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(shapes_view());
     app.add_system(shapes_anim_system::system());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

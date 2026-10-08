@@ -15,7 +15,7 @@ fn build_widgets_smoke() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     assert!(
         world
             .get::<Children>(parent)
@@ -29,7 +29,7 @@ fn cards_stay_inside_portrait_landscape_and_desktop_viewports() {
         let mut app = App::headless(width, height);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
-        app.compose(root, build_widgets);
+        app.compose(root, build_widgets());
         app.set_root(root);
         update_layout(
             &mut app.world,
@@ -82,7 +82,7 @@ fn blur_motion_updates_only_the_visual_transform() {
     let mut app = App::headless(480, 320);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    app.compose(root, build_widgets);
+    app.compose(root, build_widgets());
     app.set_root(root);
     update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE));
 

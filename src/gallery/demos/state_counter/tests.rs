@@ -26,7 +26,7 @@ fn tap_increments_and_reactive_text_updates() {
     world.insert(registration, cell);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, counter.clone());
+    build_widgets(counter.clone())(&mut cx);
 
     let col = world.get::<Children>(parent).unwrap().0[0];
     let label = world.get::<Children>(col).unwrap().0[0];

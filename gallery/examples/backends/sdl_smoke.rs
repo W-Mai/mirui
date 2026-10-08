@@ -23,7 +23,7 @@ fn main() {
         })
         .ignore_safe_area()
         .id();
-    app.compose(root, smoke_scene);
+    app.compose(root, smoke_scene());
     app.run();
 }
 

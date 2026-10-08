@@ -822,5 +822,5 @@ where
     let model = app.add_model(PostModel::default());
     app.on_event(CharInput::EVENT, keyboard::callback(model.clone()));
     app.add_system(post_tick_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

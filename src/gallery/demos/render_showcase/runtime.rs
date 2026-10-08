@@ -10,5 +10,5 @@ where
 {
     app.add_plugin(crate::gallery::SceneReplayWorkspacePlugin);
     app.with_widget(showcase_view());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

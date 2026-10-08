@@ -10,7 +10,7 @@ fn build_widgets_smoke() {
     world.insert_resource(ParticleBounds { w: 1, h: 1 });
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
     let bounds = world.resource::<ParticleBounds>().unwrap();
     assert_eq!(

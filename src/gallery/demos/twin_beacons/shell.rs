@@ -1267,7 +1267,7 @@ where
         CharInput::EVENT,
         keyboard::callback(game.clone(), expedition.clone()),
     );
-    app.compose(parent, |cx| build_widgets(cx, game, expedition, hints));
+    app.compose(parent, build_widgets(game, expedition, hints));
 }
 
 pub(super) fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)

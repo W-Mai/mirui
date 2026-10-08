@@ -21,5 +21,5 @@ where
     app.add_system(spring_system::system());
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

@@ -28,7 +28,7 @@ where
     app.with_widget(board_render::view());
     let model = app.add_model(LumenModel::new());
     app.add_system(lumen_tick_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 320);

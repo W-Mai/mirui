@@ -760,8 +760,9 @@ impl MiruiRune {
             let #var: mirui::ecs::Entity = {
                 #(#id_lookups)*
                 let __compose_parent = #parent_var;
+                let __compose_factory = #function(#(#args),*);
                 let mut __compose_cx = mirui::ui::UiScope::new(#world, __compose_parent);
-                #function(&mut __compose_cx #(, #args)*)
+                __compose_factory(&mut __compose_cx)
             };
         }
     }
@@ -2101,18 +2102,13 @@ impl DsRune for MiruiRune {
 /// }
 /// ```
 ///
-/// Ordinary parameters, generic parameters, bounds, and return types retain
-/// their Rust meaning. A function used as a child node must return its root
-/// `Entity`; `ui!(helper(...))` forwards other return types unchanged.
+/// Calling the function creates a stack-owned composition closure without executing its body. Use `app.compose(parent, counter_panel(counter))` to execute it in the application's construction scope. Parameter patterns, generic bounds, and concrete result types belong to the execution body. A function used as a child node must return its root `Entity`; `ui!(helper(...))` executes the closure in the current scope and forwards its result.
 ///
 /// Resource expressions borrow the current application's storage through `res!(T).with(...)`, `res!(optional T).with(...)`, or `res!(mut T).with(...)`. Closure outputs cannot retain resource references. `res!().insert(value)` and `res!().remove::<T>()` perform immediate setup operations; callback `commands!` remains deferred.
 ///
 /// Compute resource-backed values in the Rust body before passing them to `ui!` or another macro. Resource expressions do not expand inside another macro's token stream.
 ///
-/// The attribute takes no arguments and applies only to synchronous free
-/// functions. The parameter name `cx` is reserved for the generated scope.
-/// Use `ui!(compose Name { ... })` to declare a reusable Niche widget instead
-/// of a composition function.
+/// The attribute takes no arguments and applies to synchronous functions without a receiver. The parameter name `cx` is reserved for the generated scope. Use `ui!(compose Name { ... })` to declare a reusable Niche widget instead of a composition function.
 #[proc_macro_attribute]
 pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
     compose_attr::expand(attr.into(), item.into()).into()
@@ -2656,6 +2652,32 @@ fn token_stream_uses_ident(stream: proc_macro2::TokenStream, name: &syn::Ident) 
 }
 
 impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
+    fn visit_local_mut(&mut self, local: &mut syn::Local) {
+        syn::visit_mut::visit_local_mut(self, local);
+        if !matches!(&local.pat, syn::Pat::Ident(pattern)
+            if pattern.ident == "__compose_factory")
+        {
+            return;
+        }
+        let Some(initializer) = &mut local.init else {
+            return;
+        };
+        let syn::Expr::Call(call) = &mut *initializer.expr else {
+            return;
+        };
+        for argument in &mut call.args {
+            let syn::Expr::Path(path) = argument else {
+                continue;
+            };
+            let Some(name) = path.path.get_ident() else {
+                continue;
+            };
+            if self.captures.contains(name) {
+                *argument = syn::parse_quote!(::mirui::core::model::SharedValue::share(&#name));
+            }
+        }
+    }
+
     fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
         syn::visit_mut::visit_expr_mut(self, expr);
         let generated_event = matches!(expr, syn::Expr::MethodCall(call)
@@ -2670,26 +2692,6 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
 
     fn visit_expr_call_mut(&mut self, call: &mut syn::ExprCall) {
         syn::visit_mut::visit_expr_call_mut(self, call);
-        let generated_compose_call = call.args.first().is_some_and(|arg| {
-            matches!(arg, syn::Expr::Reference(reference)
-                if reference.mutability.is_some()
-                    && matches!(&*reference.expr, syn::Expr::Path(path)
-                        if path.path.is_ident("__compose_cx")))
-        });
-        if generated_compose_call {
-            for arg in call.args.iter_mut().skip(1) {
-                let syn::Expr::Path(path) = arg else {
-                    continue;
-                };
-                let Some(name) = path.path.get_ident() else {
-                    continue;
-                };
-                if self.captures.contains(name) {
-                    *arg = syn::parse_quote!(::mirui::core::model::SharedValue::share(&#name));
-                }
-            }
-            return;
-        }
         let syn::Expr::Path(path) = &*call.func else {
             return;
         };
@@ -2735,7 +2737,7 @@ fn expand_ui_fn_call(call: syn::ExprCall) -> proc_macro2::TokenStream {
     let func = &call.func;
     let args = &call.args;
     quote! {
-        #func(cx, #args)
+        (#func(#args))(cx)
     }
 }
 
@@ -2985,6 +2987,42 @@ mod typed_on_tests {
         assert!(output.contains("__bind_params"));
         assert!(output.contains("__bind_plain"));
         assert!(!output.contains(". configure"));
+    }
+
+    #[test]
+    fn compose_children_share_declared_models_before_factory_execution() {
+        let output = expand_tree(quote! {
+            __mirui_bind(game);
+            Column() {
+                child_panel(game, label)
+                child_panel(game, label)
+            }
+        });
+        let output = quote!(#output).to_string();
+        assert_eq!(
+            output
+                .matches("__compose_factory = child_panel (:: mirui :: core :: model :: SharedValue :: share (& game) , label)")
+                .count(),
+            2,
+        );
+        assert_eq!(
+            output
+                .matches("__compose_factory (& mut __compose_cx)")
+                .count(),
+            2,
+        );
+        assert!(!output.contains("child_panel (& mut __compose_cx"));
+    }
+
+    #[test]
+    fn compose_call_form_executes_factory_and_preserves_result_expression() {
+        let call = syn::parse2(quote!(helpers::value::<u8>(source, 7))).unwrap();
+        let output = expand_ui_fn_call(call);
+        let expression: syn::Expr = syn::parse2(output).unwrap();
+        assert_eq!(
+            quote!(#expression).to_string(),
+            quote!((helpers::value::<u8>(source, 7))(cx)).to_string(),
+        );
     }
 }
 

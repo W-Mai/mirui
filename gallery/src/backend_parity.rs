@@ -91,7 +91,7 @@ where
         })
         .id();
 
-    app.compose(root, parity_content);
+    app.compose(root, parity_content());
     root
 }
 

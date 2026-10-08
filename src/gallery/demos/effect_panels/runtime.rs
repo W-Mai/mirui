@@ -18,5 +18,5 @@ where
         .add_system(BlurPan::system())
         .add_system(ShadowOffset::system())
         .add_system(GlowPulse::system());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

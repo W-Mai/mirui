@@ -126,7 +126,7 @@ where
     use crate::app::plugins::{ImageResourcesPlugin, StdInstantClockPlugin};
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(ImageResourcesPlugin::default());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(720, 360);
@@ -143,7 +143,7 @@ mod tests {
         let mut app = App::headless(720, 360);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
-        app.compose(root, build_widgets);
+        app.compose(root, build_widgets());
 
         assert_eq!(app.world.query::<Image>().iter().count(), MODES.len());
     }
@@ -154,7 +154,7 @@ mod tests {
             let mut app = App::headless(width, height);
             app.with_default_widgets().with_default_systems();
             let root = app.spawn_root().id();
-            app.compose(root, build_widgets);
+            app.compose(root, build_widgets());
             app.set_root(root);
             update_layout(
                 &mut app.world,
@@ -185,7 +185,7 @@ mod tests {
             let mut app = App::headless(width, height);
             app.with_default_widgets().with_default_systems();
             let root = app.spawn_root().id();
-            app.compose(root, build_widgets);
+            app.compose(root, build_widgets());
             app.set_root(root);
             update_layout(
                 &mut app.world,

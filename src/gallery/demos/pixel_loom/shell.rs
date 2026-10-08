@@ -769,5 +769,5 @@ where
     app.add_plugin(StdInstantClockPlugin);
     let model = app.add_model(PixelModel::default());
     app.add_system(pixel_tick_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

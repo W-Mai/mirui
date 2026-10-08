@@ -71,7 +71,7 @@ where
         app.add_plugin(StdInstantClockPlugin);
     }
     app.add_system(console_animation_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }
 
 #[cfg(feature = "std")]

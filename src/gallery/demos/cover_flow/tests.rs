@@ -19,7 +19,7 @@ fn build_widgets_smoke() {
     world.insert_resource(CoverFlowBounds::for_view(320, 180));
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, 640, 360);
+    build_widgets(640, 360)(&mut cx);
     drop(cx);
     let bounds = world.resource::<CoverFlowBounds>().unwrap();
     assert_eq!((bounds.view_w, bounds.view_h), (640, 360));
@@ -39,7 +39,7 @@ fn layout_system_tracks_live_viewport() {
     let mut app = crate::app::App::headless(640, 360);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    app.compose(root, |cx| build_widgets(cx, 640, 360));
+    app.compose(root, build_widgets(640, 360));
     app.set_root(root);
 
     let carousel = app.world.query::<Carousel>().collect()[0];

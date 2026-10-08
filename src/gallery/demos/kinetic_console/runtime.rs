@@ -79,7 +79,7 @@ where
         model.clone(),
         motion.clone(),
     ));
-    app.compose(parent, |cx| build_widgets(cx, model, motion));
+    app.compose(parent, build_widgets(model, motion));
 
     if autoplay && let Some(timeline) = build_sim_timeline(&app.world) {
         app.add_resource(timeline);

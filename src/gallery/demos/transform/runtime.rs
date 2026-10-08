@@ -10,5 +10,5 @@ where
 {
     app.add_system(spin_system::system());
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

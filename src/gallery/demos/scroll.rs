@@ -94,7 +94,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 320);
@@ -113,7 +113,7 @@ mod tests {
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx);
+        build_widgets()(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

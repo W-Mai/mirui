@@ -17,5 +17,5 @@ fn main() {
     let _ = world.spawn(Style::default());
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    app.compose(root, panel);
+    app.compose(root, panel());
 }

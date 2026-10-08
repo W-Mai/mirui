@@ -14,7 +14,7 @@ fn all_demos_build_widgets_smoke() {
             world.insert_resource(mirui::ui::IdMap::new());
             let parent = WidgetBuilder::new(&mut world).id();
             let mut cx = UiScope::new(&mut world, parent);
-            $demo(&mut cx);
+            $demo()(&mut cx);
             assert!(
                 world
                     .get::<Children>(parent)
@@ -68,7 +68,7 @@ fn custom_view_demo_smoke() {
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::custom_view::build_widgets(&mut cx);
+    mirui::gallery::demos::custom_view::build_widgets()(&mut cx);
     assert_demo_built(&world, parent);
 }
 
@@ -79,7 +79,7 @@ fn widgets_demo_smoke() {
     world.insert_resource(mirui::ui::IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::widgets::build_widgets(&mut cx, w, h);
+    mirui::gallery::demos::widgets::build_widgets(w, h)(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -89,7 +89,7 @@ fn flip_card_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::flip_card::build_widgets(&mut cx);
+    mirui::gallery::demos::flip_card::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -100,7 +100,7 @@ fn cover_flow_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::cover_flow::build_widgets(&mut cx, w, h);
+    mirui::gallery::demos::cover_flow::build_widgets(w, h)(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -111,7 +111,7 @@ fn effect_panels_demo_smoke() {
     world.insert_resource(mirui::ui::IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::effect_panels::build_widgets(&mut cx);
+    mirui::gallery::demos::effect_panels::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -121,7 +121,7 @@ fn effect_glass_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::effect_glass::build_widgets(&mut cx);
+    mirui::gallery::demos::effect_glass::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -132,7 +132,7 @@ fn three_body_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::three_body::build_widgets(&mut cx, 128, 128, 3, Fixed::from_int(30));
+    mirui::gallery::demos::three_body::build_widgets(128, 128, 3, Fixed::from_int(30))(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -142,7 +142,7 @@ fn particles_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::particles::build_widgets(&mut cx);
+    mirui::gallery::demos::particles::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -152,7 +152,7 @@ fn subpixel_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::subpixel::build_widgets(&mut cx);
+    mirui::gallery::demos::subpixel::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -166,7 +166,7 @@ fn shapes_demo_smoke() {
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::shapes::build_widgets(&mut cx);
+    mirui::gallery::demos::shapes::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }
@@ -180,7 +180,7 @@ fn butterfly_demo_smoke() {
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::butterfly::build_widgets(&mut cx);
+    mirui::gallery::demos::butterfly::build_widgets()(&mut cx);
     drop(cx);
     assert_demo_built(&world, parent);
 }

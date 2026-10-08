@@ -116,7 +116,7 @@ fn main() {
         })
         .ignore_safe_area()
         .id();
-    app.compose(root, drifting_scene);
+    app.compose(root, drifting_scene());
 
     // StdInstantClockPlugin feeds the post_render hook real ns via
     // std::Instant; FpsSummaryPlugin consumes those ns and prints avg

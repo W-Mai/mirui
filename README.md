@@ -50,7 +50,7 @@ fn main() {
     // Root fills the viewport with a Surface bg + Column layout by default.
     let root = app.spawn_root().id();
 
-    app.compose(root, build_root);
+    app.compose(root, build_root());
 
     app.run();
 }
@@ -77,7 +77,7 @@ fn build_root() {
 
 `mirui::prelude` brings `App`, layout types, `Color` / `Dimension` / `Fixed`, ECS roles, theme tokens, and the `ui!` / authoring macros. Surface backends, plugins, and individual widget kinds stay on their canonical paths so the prelude doesn't pin a platform or feature choice.
 
-`#[compose]` supplies the composition scope to generated code; authored parameters only describe application data. Call another compose function directly inside a widget tree, such as `status_row(model, "ready")`. Use `ui!(status_row(model, "ready"))` when invoking the same compose function from ordinary Rust code that already has a composition scope. `ui!(compose Name { ... })` defines a reusable niche-based View kind; it does not invoke a compose function.
+`#[compose]` creates a stack-held composition from application data. `app.compose(root, build_root())` executes it and returns its output. Call another compose function directly inside a widget tree, such as `status_row(model, "ready")`. Use `ui!(status_row(model, "ready"))` when invoking the same compose function from a composition body. `ui!(compose Name { ... })` defines a reusable niche-based View kind; it does not invoke a compose function.
 
 ### Other targets
 
@@ -225,7 +225,7 @@ where
     F: RendererFactory<B>,
 {
     let counter = app.add_model(Counter { value: 0 });
-    app.compose(root, |cx| counter_panel(cx, counter));
+    app.compose(root, counter_panel(counter));
 }
 ```
 
@@ -412,7 +412,7 @@ fn main() {
     let mut app = App::headless(320, 240);
     app.add_resource(MotionStep(Fixed::from_ratio(1, 60)));
     let root = app.spawn_root().id();
-    app.compose(root, build_scene);
+    app.compose(root, build_scene());
     app.add_system(physics_system::system());
 }
 ```

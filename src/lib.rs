@@ -45,7 +45,7 @@
 //! app.with_default_widgets().with_default_systems();
 //!
 //! let root = app.spawn_root().id();
-//! app.compose(root, build_ui);
+//! app.compose(root, build_ui());
 //!
 //! app.run();
 //! ```

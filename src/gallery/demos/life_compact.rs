@@ -134,7 +134,7 @@ where
     F: RendererFactory<B>,
 {
     let info = app.backend.display_info();
-    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
+    app.compose(parent, build_widgets(info.width, info.height));
 }
 
 #[cfg(feature = "std")]

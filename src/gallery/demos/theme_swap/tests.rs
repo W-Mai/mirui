@@ -20,7 +20,7 @@ fn build_widgets_smoke() {
     theme::register(&mut world, custom_theme());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
     assert!(
         world
@@ -69,7 +69,7 @@ fn token_grid_stays_inside_landscape_and_portrait_viewports() {
             .with_default_systems()
             .with_theme(dark_with_accent());
         let root = app.spawn_root().id();
-        app.compose(root, build_widgets);
+        app.compose(root, build_widgets());
         app.set_root(root);
         update_layout(
             &mut app.world,

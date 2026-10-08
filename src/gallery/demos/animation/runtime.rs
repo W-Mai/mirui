@@ -19,5 +19,5 @@ where
     app.add_system(AnimateColor::system());
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

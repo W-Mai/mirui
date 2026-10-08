@@ -97,7 +97,7 @@ fn main() {
     app.with_default_widgets().with_default_systems();
 
     let root = app.spawn_root().id();
-    app.compose(root, build_ui);
+    app.compose(root, build_ui());
 
     app.run();
 }
@@ -277,7 +277,7 @@ pub fn build_ui() -> Entity {
 `targets/esp32c3/Cargo.toml` keeps both at `default-features = false`
 and adds the esp-hal stack. Each target's `main.rs` opens a Surface,
 constructs `App`, then registers the shared composition with
-`app.compose(root, app::build_ui)`.
+`app.compose(root, app::build_ui())`.
 
 ### Adding a new target
 

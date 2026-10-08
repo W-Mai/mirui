@@ -1,3 +1,4 @@
+use crate::function_attrs::cfg_attrs;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::Parser;
@@ -17,41 +18,6 @@ struct EffectExtractor {
     event: Type,
     array: Type,
     cfg_attrs: Vec<Attribute>,
-}
-
-fn cfg_attrs(attrs: &[Attribute]) -> Vec<Attribute> {
-    fn presence_meta(meta: &syn::Meta) -> Option<syn::Meta> {
-        if meta.path().is_ident("cfg") {
-            return Some(meta.clone());
-        }
-        if !meta.path().is_ident("cfg_attr") {
-            return None;
-        }
-        let syn::Meta::List(list) = meta else {
-            return Some(meta.clone());
-        };
-        let Ok(nested) =
-            list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
-        else {
-            return Some(meta.clone());
-        };
-        let mut nested = nested.into_iter();
-        let Some(condition) = nested.next() else {
-            return Some(meta.clone());
-        };
-        let presence: Vec<_> = nested.filter_map(|meta| presence_meta(&meta)).collect();
-        if presence.is_empty() {
-            None
-        } else {
-            Some(parse_quote!(cfg_attr(#condition, #(#presence),*)))
-        }
-    }
-
-    attrs
-        .iter()
-        .filter_map(|attr| presence_meta(&attr.meta))
-        .map(|meta| parse_quote!(#[#meta]))
-        .collect()
 }
 
 fn may_be_cfg_removed(attrs: &[Attribute]) -> bool {

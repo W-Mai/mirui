@@ -19,7 +19,7 @@ fn ui_scope_alone_spawns_widget_under_cx_parent() {
     let root = WidgetBuilder::new(&mut world).id();
 
     let mut cx = UiScope::new(&mut world, root);
-    hello_only(&mut cx);
+    hello_only()(&mut cx);
 
     let texts: Vec<Entity> = world.query::<Text>().collect();
     assert_eq!(texts.len(), 1);
@@ -60,7 +60,7 @@ fn ui_fn_call_form_injects_cx() {
     let root = WidgetBuilder::new(&mut world).id();
 
     let mut cx = UiScope::new(&mut world, root);
-    call_helper(&mut cx);
+    call_helper()(&mut cx);
 
     let texts: Vec<Entity> = world.query::<Text>().collect();
     assert_eq!(
@@ -81,7 +81,7 @@ fn compose_functions_are_tree_nodes() {
     let root = WidgetBuilder::new(&mut world).id();
 
     let mut cx = UiScope::new(&mut world, root);
-    let column = nested_helpers(&mut cx);
+    let column = nested_helpers()(&mut cx);
 
     assert_eq!(world.get::<Parent>(column).unwrap().0, root);
     let children = &world.get::<mirui::ui::Children>(column).unwrap().0;

@@ -27,7 +27,7 @@ where
     let paths = geometry::register_paths(app.paths());
     app.add_resource(paths);
     app.add_system(runtime::curve_text_animation_system::system());
-    app.compose(parent, |cx| composition::build_widgets(cx, model, paths));
+    app.compose(parent, composition::build_widgets(model, paths));
 }
 
 #[cfg(feature = "std")]

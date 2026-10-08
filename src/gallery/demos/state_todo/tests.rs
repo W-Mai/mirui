@@ -22,7 +22,7 @@ fn todo_world() -> (World, Entity, [Entity; 3]) {
     world.insert(registration, cell);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, todo);
+    build_widgets(todo)(&mut cx);
     drop(cx);
 
     let root = world.get::<Children>(parent).unwrap().0[0];

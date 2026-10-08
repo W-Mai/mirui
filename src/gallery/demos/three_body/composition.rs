@@ -164,13 +164,13 @@ where
     app.add_system(physics_tick_system::system());
     app.add_system(kick_system::system());
     app.add_system(sync_layout_system::system());
-    app.compose(parent, |cx| {
+    app.compose(
+        parent,
         build_widgets(
-            cx,
             info.width,
             info.height,
             3,
             Fixed::from_int((info.width.min(info.height) as i32 * 22 / 100).max(30)),
-        )
-    });
+        ),
+    );
 }

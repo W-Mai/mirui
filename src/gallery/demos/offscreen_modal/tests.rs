@@ -14,7 +14,7 @@ fn build_widgets_smoke() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
     assert!(
         world
@@ -29,7 +29,7 @@ fn modal_is_centered_and_contained_across_supported_viewports() {
         let mut app = App::headless(width, height);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
-        app.compose(root, build_widgets);
+        app.compose(root, build_widgets());
         app.set_root(root);
         update_layout(
             &mut app.world,
@@ -80,7 +80,7 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     });
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
 
     let readout = world.find_by_id("offscreen_modal_readout").unwrap();

@@ -26,12 +26,12 @@ fn build_widgets_smoke() {
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
     world.insert_resource(MonoClock::new(|| 12_000_000));
     {
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx);
+        build_widgets()(&mut cx);
     }
     assert!(
         world

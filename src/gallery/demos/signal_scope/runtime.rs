@@ -38,5 +38,5 @@ where
         .with_widget(scope_grid_render::view())
         .with_widget(scope_view())
         .add_system(scope_animation_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

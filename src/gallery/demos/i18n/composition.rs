@@ -79,5 +79,5 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

@@ -31,7 +31,7 @@ fn build_widgets_smoke() {
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     assert!(
         world
             .get::<Children>(parent)
@@ -58,7 +58,7 @@ fn tap_cycles_diamond_color() {
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     let row = world.find_by_id("custom_view_tiles").unwrap();
     let d0 = world.get::<Children>(row).unwrap().0[0];
 

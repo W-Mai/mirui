@@ -19,7 +19,7 @@ where
     crate::gallery::showcase_theme::install(app);
     let model = app.add_model(InteractionModel::default());
     app.add_plugin(InputFeedbackPlugin::new());
-    app.compose(parent, |cx| build_widgets(cx, model.clone()));
+    app.compose(parent, build_widgets(model.clone()));
     model
 }
 

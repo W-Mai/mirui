@@ -34,7 +34,7 @@ fn compose_and_event_component_reads_share_the_same_world() {
     app.world.insert(target, Marker { value: 7 });
     let seen = Rc::new(Cell::new(0));
 
-    app.compose(root, |cx| marker_panel(cx, target, seen.clone()));
+    app.compose(root, marker_panel(target, seen.clone()));
 
     let button = app.world.query::<Button>().iter().next().expect("button").0;
     app.world.insert(button, Marker { value: 11 });

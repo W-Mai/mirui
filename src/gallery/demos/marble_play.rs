@@ -74,12 +74,10 @@ where
     #[cfg(feature = "audio")]
     {
         let audio = app.audio();
-        app.compose(parent, |cx| {
-            shell::build_widgets(cx, model.clone(), audio.clone())
-        });
+        app.compose(parent, shell::build_widgets(model.clone(), audio.clone()));
     }
     #[cfg(not(feature = "audio"))]
-    app.compose(parent, |cx| shell::build_widgets(cx, model.clone()));
+    app.compose(parent, shell::build_widgets(model.clone()));
     #[cfg(feature = "audio")]
     if let Some(audio) = app.audio() {
         let _ = audio.set_master_gain(107);

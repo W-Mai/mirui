@@ -16,7 +16,7 @@ fn build_widgets_smoke() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, 128, 128, 3, Fixed::from_int(30));
+    build_widgets(128, 128, 3, Fixed::from_int(30))(&mut cx);
     drop(cx);
     assert!(
         world
@@ -31,7 +31,7 @@ fn animation_systems_reuse_body_entities() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, 128, 128, 3, Fixed::from_int(30));
+    build_widgets(128, 128, 3, Fixed::from_int(30))(&mut cx);
     drop(cx);
 
     let mut entities = Vec::new();
@@ -99,9 +99,7 @@ fn viewport_resize_recenters_bodies_and_orbit_guides() {
     let mut app = App::headless(480, 320);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    app.compose(root, |cx| {
-        build_widgets(cx, 480, 320, 3, Fixed::from_int(70))
-    });
+    app.compose(root, build_widgets(480, 320, 3, Fixed::from_int(70)));
     app.set_root(root);
     app.world.insert_resource(MonoClock::new(stopped_clock));
 

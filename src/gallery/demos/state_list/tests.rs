@@ -36,7 +36,7 @@ fn list_grows_and_shrinks_by_signal() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
 
     let col = world.get::<Children>(parent).unwrap().0[0];

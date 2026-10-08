@@ -24,5 +24,5 @@ where
         .autosave_every_ms(2000);
     app.add_plugin(plugin);
 
-    app.compose(parent, |cx| build_widgets(cx, count));
+    app.compose(parent, build_widgets(count));
 }

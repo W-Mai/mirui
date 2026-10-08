@@ -20,5 +20,5 @@ where
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
         .add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
+    app.compose(parent, build_widgets(info.width, info.height));
 }

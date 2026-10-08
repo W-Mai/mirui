@@ -66,7 +66,7 @@ fn build_widgets_smoke() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+    build_widgets(DEFAULT_VIEW.0, DEFAULT_VIEW.1)(&mut cx);
     drop(cx);
     assert!(
         world
@@ -85,7 +85,7 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+    build_widgets(DEFAULT_VIEW.0, DEFAULT_VIEW.1)(&mut cx);
     drop(cx);
 
     let list = world.find_by_id("widgets_list").expect("widgets list id");
@@ -119,7 +119,7 @@ fn portrait_layout_keeps_the_workbench_inside_the_viewport() {
     let mut app = App::headless(320, 480);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    app.compose(root, |cx| build_widgets(cx, 320, 480));
+    app.compose(root, build_widgets(320, 480));
     app.set_root(root);
     update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE));
 

@@ -3,7 +3,7 @@ use crate::binding::{
     ComposeResourceExpression, LogicalType, ModelSource, RoleKind,
 };
 use proc_macro2::TokenStream;
-use quote::{quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 
@@ -142,11 +142,6 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         captures.push(binding.name);
     }
 
-    let cx_parameter: syn::FnArg = syn::parse_quote! {
-        cx: &mut ::mirui::ui::scope::UiScope<'_>
-    };
-    function.sig.inputs.insert(0, cx_parameter);
-
     if !captures.is_empty() {
         let checks = captures
             .iter()
@@ -162,6 +157,39 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
         return error.to_compile_error();
     }
 
+    let inputs = function.sig.inputs.clone();
+    let output = function.sig.output.clone();
+    let block = &function.block;
+    let block = if function.sig.unsafety.is_some() {
+        quote!({ unsafe { #block } })
+    } else {
+        quote!(#block)
+    };
+    let execution = quote! {
+        |cx: &mut ::mirui::ui::scope::UiScope<'_>, #inputs| #output #block
+    };
+
+    let mut arguments = Vec::with_capacity(function.sig.inputs.len());
+    for (index, input) in function.sig.inputs.iter_mut().enumerate() {
+        let syn::FnArg::Typed(parameter) = input else {
+            unreachable!("compose receiver validation already completed");
+        };
+        let argument = format_ident!(
+            "__mirui_compose_arg_{index}",
+            span = proc_macro2::Span::mixed_site(),
+        );
+        parameter.pat = syn::parse_quote!(#argument);
+        let attributes = crate::function_attrs::cfg_attrs(&parameter.attrs);
+        arguments.push(quote!(#(#attributes)* #argument));
+    }
+    function.sig.output = syn::parse_quote! {
+        -> impl ::core::ops::FnOnce(&mut ::mirui::ui::scope::UiScope<'_>) #output
+    };
+    function.block = syn::parse_quote! {
+        {
+            move |cx| (#execution)(cx, #(#arguments),*)
+        }
+    };
     quote! { #function }
 }
 
@@ -294,6 +322,71 @@ mod tests {
         tokens.to_string().contains("compile_error")
     }
 
+    fn execution_body(factory: &syn::ItemFn) -> &syn::ExprClosure {
+        let syn::Stmt::Expr(syn::Expr::Closure(factory), _) = &factory.block.stmts[0] else {
+            panic!("the factory must return a closure");
+        };
+        let syn::Expr::Call(call) = &*factory.body else {
+            panic!("the factory must invoke its execution closure");
+        };
+        let syn::Expr::Paren(function) = &*call.func else {
+            panic!("the execution closure must be parenthesized");
+        };
+        let syn::Expr::Closure(body) = &*function.expr else {
+            panic!("the execution body must retain its lexical scope");
+        };
+        body
+    }
+
+    fn execution_block(factory: &syn::ItemFn) -> &syn::Block {
+        let syn::Expr::Block(body) = &*execution_body(factory).body else {
+            panic!("the execution body must be a block");
+        };
+        &body.block
+    }
+
+    #[test]
+    fn returns_a_stack_factory_with_execution_local_parameters() {
+        let output = expand(
+            quote! {},
+            quote! {
+                fn build<T, const N: usize>(
+                    _unused: T,
+                    (left, right): (u8, u8),
+                    mut total: u8,
+                    ref label: String,
+                    entered: &Cell<bool>,
+                ) -> [u8; N] {
+                    entered.set(true);
+                    total += left + right;
+                    let _ = label;
+                    [total; N]
+                }
+            },
+        );
+        let factory: syn::ItemFn = syn::parse2(output).unwrap();
+        assert_eq!(factory.sig.inputs.len(), 5);
+        let body = execution_body(&factory);
+        assert_eq!(body.inputs.len(), 6);
+        let body = quote!(#body).to_string();
+        assert!(body.contains("_unused : T"));
+        assert!(body.contains("(left , right) : (u8 , u8)"));
+        assert!(body.contains("mut total : u8"));
+        assert!(body.contains("ref label : String"));
+        assert_eq!(factory.sig.generics.params.len(), 2);
+        let factory = quote!(#factory).to_string();
+        assert!(factory.contains("impl :: core :: ops :: FnOnce"));
+        assert!(factory.contains("move | cx |"));
+        for index in 0..5 {
+            assert_eq!(
+                factory
+                    .matches(&format!("__mirui_compose_arg_{index}"))
+                    .count(),
+                2,
+            );
+        }
+    }
+
     #[test]
     fn injects_cx_on_simple_function() {
         let output = expand(quote! {}, quote! { fn build() {} });
@@ -317,7 +410,7 @@ mod tests {
             },
         );
         let function: syn::ItemFn = syn::parse2(output).unwrap();
-        let body = function.block;
+        let body = execution_block(&function);
         assert_eq!(
             quote!(#body).to_string(),
             quote!({
@@ -330,7 +423,8 @@ mod tests {
             .to_string(),
         );
         assert_eq!(function.sig.generics.params.len(), 1);
-        assert_eq!(function.sig.inputs.len(), 2);
+        assert_eq!(function.sig.inputs.len(), 1);
+        assert_eq!(execution_body(&function).inputs.len(), 2);
     }
 
     #[test]
@@ -387,7 +481,7 @@ mod tests {
             },
         );
         let function: syn::ItemFn = syn::parse2(output).unwrap();
-        let first = &function.block.stmts[0];
+        let first = &execution_block(&function).stmts[0];
         assert_eq!(
             quote!(#first).to_string(),
             quote!(cx.assert_binding(&game);).to_string()
@@ -458,13 +552,14 @@ mod tests {
             },
         );
         let function: syn::ItemFn = syn::parse2(output).unwrap();
-        assert_eq!(function.block.stmts.len(), 3);
-        let checks = &function.block.stmts[..2];
+        let block = execution_block(&function);
+        assert_eq!(block.stmts.len(), 3);
+        let checks = &block.stmts[..2];
         assert_eq!(
             quote!(#(#checks)*).to_string(),
             quote!(cx.assert_binding(&game); cx.assert_binding(&other);).to_string(),
         );
-        let body = &function.block.stmts[2];
+        let body = &block.stmts[2];
         assert_eq!(
             quote!(#body).to_string(),
             quote!(body(game, other, plain);).to_string()

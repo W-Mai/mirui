@@ -113,5 +113,5 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

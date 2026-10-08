@@ -62,7 +62,7 @@ fn responsive_shell_contains_the_board_at_supported_viewports() {
             .with_default_systems()
             .with_widget(life_render::view());
         let root = app.spawn_root().id();
-        app.compose(root, |cx| build_widgets(cx, width, height));
+        app.compose(root, build_widgets(width, height));
         app.set_root(root);
         update_layout(
             &mut app.world,

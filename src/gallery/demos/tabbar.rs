@@ -191,7 +191,7 @@ where
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_most(480, 320);
@@ -215,15 +215,15 @@ mod tests {
             (
                 |cx| {
                     let (width, height) = crate::gallery::demos::widgets::DEFAULT_VIEW;
-                    crate::gallery::demos::widgets::build_widgets(cx, width, height);
+                    crate::gallery::demos::widgets::build_widgets(width, height)(cx);
                 },
                 "widgets_list",
             ),
             (
-                crate::gallery::demos::widgets_compact::build_widgets,
+                |cx| crate::gallery::demos::widgets_compact::build_widgets()(cx),
                 "compact_widgets_list",
             ),
-            (build_widgets, "tabbar_demo_tabs"),
+            (|cx| build_widgets()(cx), "tabbar_demo_tabs"),
         ];
         for (compose, id) in demos {
             let mut app = App::headless(480, 320);
@@ -267,7 +267,7 @@ mod tests {
         world.insert_resource(ViewRegistry::with_builtins());
         let parent = WidgetBuilder::new(&mut world).id();
         let mut cx = UiScope::new(&mut world, parent);
-        build_widgets(&mut cx);
+        build_widgets()(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

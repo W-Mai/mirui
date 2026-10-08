@@ -29,5 +29,5 @@ where
     app.add_system(mode_toggle_system::system());
     app.add_system(fps_readout_system::system());
     app.add_plugin(StdInstantClockPlugin);
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

@@ -1650,5 +1650,5 @@ where
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
     app.with_widget(surface_render::view());
-    app.compose(parent, |cx| build_widgets(cx, model, expedition));
+    app.compose(parent, build_widgets(model, expedition));
 }

@@ -67,9 +67,10 @@ macro_rules! render_persistence_counter {
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
         let count = Signal::new(0_i32);
-        app.compose(root, |cx| {
-            mirui::gallery::demos::persistence_counter::build_widgets(cx, count)
-        });
+        app.compose(
+            root,
+            mirui::gallery::demos::persistence_counter::build_widgets(count),
+        );
         app.set_root(root);
         app.set_theme($theme).unwrap();
         app.systems.run_all(&mut app.world).unwrap();

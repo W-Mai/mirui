@@ -10,7 +10,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(bar_move_system::system());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
     let arena = app
         .world
         .find_by_id("subpixel_arena")

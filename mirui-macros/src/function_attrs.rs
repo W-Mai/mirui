@@ -1,6 +1,41 @@
 //! Attribute routing for callback bodies, declarations, and conditional items.
 use syn::{Attribute, Meta, Token};
 
+pub(crate) fn cfg_attrs(attrs: &[Attribute]) -> Vec<Attribute> {
+    fn presence_meta(meta: &Meta) -> Option<Meta> {
+        if meta.path().is_ident("cfg") {
+            return Some(meta.clone());
+        }
+        if !meta.path().is_ident("cfg_attr") {
+            return None;
+        }
+        let Meta::List(list) = meta else {
+            return Some(meta.clone());
+        };
+        let Ok(nested) =
+            list.parse_args_with(syn::punctuated::Punctuated::<Meta, Token![,]>::parse_terminated)
+        else {
+            return Some(meta.clone());
+        };
+        let mut nested = nested.into_iter();
+        let Some(condition) = nested.next() else {
+            return Some(meta.clone());
+        };
+        let presence: Vec<_> = nested.filter_map(|meta| presence_meta(&meta)).collect();
+        if presence.is_empty() {
+            None
+        } else {
+            Some(syn::parse_quote!(cfg_attr(#condition, #(#presence),*)))
+        }
+    }
+
+    attrs
+        .iter()
+        .filter_map(|attr| presence_meta(&attr.meta))
+        .map(|meta| syn::parse_quote!(#[#meta]))
+        .collect()
+}
+
 pub(crate) struct FunctionAttributes {
     pub(crate) helper: Vec<Attribute>,
     pub(crate) declaration: Vec<Attribute>,

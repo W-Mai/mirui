@@ -99,9 +99,9 @@ fn fixture() -> World {
     let audio = world.resource::<AudioHandle>().cloned();
     let mut cx = UiScope::new(&mut world, root);
     #[cfg(feature = "audio")]
-    build_widgets(&mut cx, model.clone(), audio);
+    build_widgets(model.clone(), audio)(&mut cx);
     #[cfg(not(feature = "audio"))]
-    build_widgets(&mut cx, model.clone());
+    build_widgets(model.clone())(&mut cx);
     world.insert_resource(model);
     crate::core::reactive::flush_signal_dirty(&mut world);
     assert!(world.get::<Children>(root).is_some());

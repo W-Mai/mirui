@@ -124,5 +124,5 @@ where
 {
     let info = app.backend.display_info();
     install_runtime(app);
-    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
+    app.compose(parent, build_widgets(info.width, info.height));
 }

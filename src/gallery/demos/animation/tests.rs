@@ -12,7 +12,7 @@ fn build_widgets_smoke() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
     assert!(
         world
@@ -27,7 +27,7 @@ fn phone_header_stays_inside_the_animation_stage() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
 
     update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));

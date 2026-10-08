@@ -579,5 +579,5 @@ where
         .with_widget(modal_render::view());
     let model = app.add_model(MossModel::default());
     app.add_system(moss_tick_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

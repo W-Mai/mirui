@@ -9,5 +9,5 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(fill_rules_view());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

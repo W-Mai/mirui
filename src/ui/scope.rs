@@ -15,10 +15,7 @@ pub struct UiScope<'w> {
 impl<'w> UiScope<'w> {
     /// Bind a fresh `UiScope` to a specific world and parent entity.
     ///
-    /// Application startup builds one of these once (typically after
-    /// `spawn_root()`) and hands it to a top-level `#[compose]` function.
-    /// Later widgets read through the injected `cx` parameter instead of
-    /// touching this constructor themselves.
+    /// `App::compose` creates the scope for a prepared composition. Generated widget code uses the scope during that execution window.
     pub fn new(world: &'w mut World, parent: Entity) -> Self {
         let scope = crate::core::reactive::OwnerGuard::enter(world);
         Self {

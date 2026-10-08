@@ -35,7 +35,7 @@
 //! app.with_offscreen_pool_budget(64 * 1024);
 //!
 //! // 2. Compose the node carrying the offscreen marker.
-//! app.compose(root, cached_panel);
+//! app.compose(root, cached_panel());
 //! ```
 //!
 //! # When it pays off

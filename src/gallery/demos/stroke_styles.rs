@@ -176,7 +176,7 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(stroke_styles_view());
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(480, 360);

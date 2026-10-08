@@ -112,7 +112,7 @@ macro_rules! basic_demo_scoped {
         fn $name() {
             let cs = render_demo($w, $h, |world, parent| {
                 let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets(&mut cx);
+                mirui::gallery::demos::$name::build_widgets()(&mut cx);
             });
             assert_renders(stringify!($name), cs);
         }
@@ -125,7 +125,7 @@ macro_rules! viewport_demo_scoped {
         fn $name() {
             let cs = render_demo($w, $h, |world, parent| {
                 let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets(&mut cx, $w, $h);
+                mirui::gallery::demos::$name::build_widgets($w, $h)(&mut cx);
             });
             assert_renders(stringify!($name), cs);
         }
@@ -145,7 +145,7 @@ macro_rules! viewport_demo_ignored_scoped {
         fn $name() {
             let cs = render_demo($w, $h, |world, parent| {
                 let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets(&mut cx, $w, $h);
+                mirui::gallery::demos::$name::build_widgets($w, $h)(&mut cx);
             });
             assert_renders(stringify!($name), cs);
         }
@@ -159,7 +159,7 @@ macro_rules! viewport_demo_ignored_noargs_scoped {
         fn $name() {
             let cs = render_demo($w, $h, |world, parent| {
                 let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets(&mut cx);
+                mirui::gallery::demos::$name::build_widgets()(&mut cx);
             });
             assert_renders(stringify!($name), cs);
         }
@@ -202,7 +202,7 @@ fn themed_demos_render_in_light_palette() {
     let layout = render_demo(320, 568, |world, parent| {
         world.insert_resource(mirui::ui::Theme::light());
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::layout_lab::build_widgets(&mut cx);
+        mirui::gallery::demos::layout_lab::build_widgets()(&mut cx);
     });
     assert_renders("layout_lab_light", layout);
 
@@ -216,28 +216,28 @@ fn themed_demos_render_in_light_palette() {
     let scroll = render_demo(320, 568, |world, parent| {
         world.insert_resource(mirui::ui::Theme::light());
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::scroll::build_widgets(&mut cx);
+        mirui::gallery::demos::scroll::build_widgets()(&mut cx);
     });
     assert_renders("scroll_light", scroll);
 
     let tabs = render_demo(320, 568, |world, parent| {
         world.insert_resource(mirui::ui::Theme::light());
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::tabbar::build_widgets(&mut cx);
+        mirui::gallery::demos::tabbar::build_widgets()(&mut cx);
     });
     assert_renders("tabbar_light", tabs);
 
     let book = render_demo(320, 568, |world, parent| {
         world.insert_resource(mirui::ui::Theme::light());
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::book_flip::build_widgets(&mut cx);
+        mirui::gallery::demos::book_flip::build_widgets()(&mut cx);
     });
     assert_renders("book_flip_light", book);
 
     let card = render_demo(320, 568, |world, parent| {
         world.insert_resource(mirui::ui::Theme::light());
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::flip_card::build_widgets(&mut cx);
+        mirui::gallery::demos::flip_card::build_widgets()(&mut cx);
         drop(cx);
         world.insert_resource(mirui::ecs::DeltaTimeMs(16));
         let mut systems = mirui::ecs::SystemScheduler::new();
@@ -249,7 +249,7 @@ fn themed_demos_render_in_light_palette() {
     let image = render_demo(320, 568, |world, parent| {
         world.insert_resource(mirui::ui::Theme::light());
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::image_flip::build_widgets(&mut cx);
+        mirui::gallery::demos::image_flip::build_widgets()(&mut cx);
     });
     assert_renders("image_flip_light", image);
 }
@@ -265,7 +265,7 @@ basic_demo_scoped!(widgets_compact, 128, 128);
 fn life_compact() {
     let cs = render_demo(128, 128, |world, parent| {
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::life_compact::build_widgets(&mut cx, 128, 128);
+        mirui::gallery::demos::life_compact::build_widgets(128, 128)(&mut cx);
     });
     assert_renders("life_compact", cs);
 }
@@ -304,7 +304,7 @@ fn typography_lab_renders_in_light_palette() {
 fn three_body_renders() {
     let cs = render_demo(480, 320, |world, parent| {
         let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::three_body::build_widgets(&mut cx, 480, 320, 3, Fixed::from_int(30));
+        mirui::gallery::demos::three_body::build_widgets(480, 320, 3, Fixed::from_int(30))(&mut cx);
     });
     assert_renders("three_body", cs);
 }
@@ -321,7 +321,7 @@ fn custom_view_renders() {
 
     let parent = WidgetBuilder::new(&mut app.world).id();
     let mut cx = mirui::ui::UiScope::new(&mut app.world, parent);
-    mirui::gallery::demos::custom_view::build_widgets(&mut cx);
+    mirui::gallery::demos::custom_view::build_widgets()(&mut cx);
     drop(cx);
 
     let viewport = Viewport::new(480, 200, Fixed::ONE);

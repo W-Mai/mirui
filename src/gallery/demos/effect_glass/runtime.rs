@@ -17,5 +17,5 @@ where
     app.add_system(GlassX::system());
     app.add_system(GaussRadius::system());
     app.with_offscreen_pool_budget(8 * 1024);
-    app.compose(parent, build_widgets);
+    app.compose(parent, build_widgets());
 }

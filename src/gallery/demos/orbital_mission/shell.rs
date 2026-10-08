@@ -961,5 +961,5 @@ where
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     app.add_system(orbit_tick_system::system(model.clone()));
-    app.compose(parent, |cx| build_widgets(cx, model));
+    app.compose(parent, build_widgets(model));
 }

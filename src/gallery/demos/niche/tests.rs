@@ -48,7 +48,7 @@ fn build_widgets_smoke() {
     let parent = WidgetBuilder::new(&mut world).id();
 
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
 
     let cards: Vec<Entity> = world.query::<Card>().collect();

@@ -11,5 +11,5 @@ where
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
     let todo = app.add_model(TodoModel::default());
-    app.compose(parent, |cx| build_widgets(cx, todo));
+    app.compose(parent, build_widgets(todo));
 }

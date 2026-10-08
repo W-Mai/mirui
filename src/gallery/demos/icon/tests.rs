@@ -13,7 +13,7 @@ fn build_widgets_smoke() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     assert!(
         world
             .get::<Children>(parent)
@@ -32,7 +32,7 @@ fn icon_grid_stays_inside_phone_shell() {
     world.insert_resource(IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
+    build_widgets()(&mut cx);
     drop(cx);
 
     update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
