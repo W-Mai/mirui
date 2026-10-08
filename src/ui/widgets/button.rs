@@ -89,16 +89,20 @@ impl Button {
         ButtonBuilder {
             button: Button::new(),
             style: None,
+            properties: (),
+            bindings: (),
         }
     }
 }
 
-pub struct ButtonBuilder {
+pub struct ButtonBuilder<P = (), B = ()> {
     button: Button,
     style: Option<crate::ui::Style>,
+    properties: P,
+    bindings: B,
 }
 
-impl ButtonBuilder {
+impl<P, B> ButtonBuilder<P, B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
@@ -118,18 +122,22 @@ impl ButtonBuilder {
         self.button.pressed_color = color.into();
         self
     }
-
-    pub fn spawn(self, world: &mut World) -> Entity {
-        world.spawn(self)
-    }
 }
 
-impl crate::ecs::IntoBundle for ButtonBuilder {
-    fn spawn_into(self, world: &mut World, entity: Entity) {
+crate::ui::recipe::widget_builder_bindings!(ButtonBuilder, Button, button, style);
+
+impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
+    crate::ui::recipe::WidgetRecipe for ButtonBuilder<P, B>
+{
+    type Properties = P;
+    type Events = B;
+
+    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
         world.insert(entity, self.button);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
+        (self.properties, self.bindings)
     }
 }
 
@@ -201,20 +209,21 @@ mod tests {
     #[test]
     fn build_spawns_button_with_style() {
         let mut world = World::new();
-        let e = Button::build()
-            .style(crate::ui::Style::default())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let e = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(Button::build().style(crate::ui::Style::default()));
         assert!(world.has::<Button>(e));
         assert!(world.has::<crate::ui::Style>(e));
         assert!(world.has::<crate::ui::Widget>(e));
     }
 
     #[test]
-    fn build_without_style_omits_it() {
+    fn build_without_style_initializes_default_style() {
         let mut world = World::new();
-        let e = Button::build().spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let e = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Button::build());
         assert!(world.has::<Button>(e));
-        assert!(!world.has::<crate::ui::Style>(e));
+        assert!(world.has::<crate::ui::Style>(e));
     }
 
     #[test]

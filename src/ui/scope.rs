@@ -1,11 +1,8 @@
 use crate::ecs::{Entity, World};
 
-/// The single value every `ui!` macro invocation reads from to spawn widgets.
+/// A construction scope supplied by `App::compose`.
 ///
-/// A `UiScope` holds the ECS `World` and parent `Entity` used to attach widgets.
-/// It also activates that World's reactive owner for the scope's lifetime.
-/// The `#[compose]` attribute injects it as `cx`, which `ui!` uses for widget
-/// creation.
+/// Use `spawn` for components and typed widget builders, `children` for nested composition, and `on_event` for callbacks on completed nodes. `#[compose]` and `ui!` use the same construction lifecycle without an explicit scope parameter in author code.
 pub struct UiScope<'w> {
     world: &'w mut World,
     parent: Entity,
@@ -13,6 +10,48 @@ pub struct UiScope<'w> {
 }
 
 impl<'w> UiScope<'w> {
+    /// Construct a child from static components and typed widget builders.
+    ///
+    /// Tuples insert their static components in order. Parent and ID registration precede View attachment, initial property bindings, and event installation. Every node receives default `Widget`, `Style`, and `Children` components.
+    pub fn spawn(&mut self, recipe: impl super::recipe::WidgetRecipe) -> Entity {
+        use super::recipe::PropertyBindings;
+        use crate::input::event::binding::EntityEventBindings;
+
+        let entity = super::construction::spawn_widget(self.world);
+        let (properties, events) = recipe.insert(self.world, entity);
+        super::construction::finish_widget_static(self.world, self.parent, entity);
+        properties.install(self.world, entity);
+        events.install(self.world, entity);
+        entity
+    }
+
+    /// Construct a child container and return its entity together with the child composition's result.
+    pub fn children<R>(
+        &mut self,
+        recipe: impl super::recipe::WidgetRecipe,
+        build: impl FnOnce(&mut UiScope<'_>) -> R,
+    ) -> (Entity, R) {
+        let entity = self.spawn(recipe);
+        let output = build(&mut self.with_parent(entity));
+        (entity, output)
+    }
+
+    /// Install a callback on a constructed node, validating its attached event source.
+    pub fn on_event<E>(
+        &mut self,
+        entity: Entity,
+        key: crate::input::event::contract::EventKey<E>,
+        callback: crate::__macro_support::EventCallback<E, crate::__macro_support::NodeContext>,
+    ) where
+        E: crate::input::event::contract::Event,
+        E::Route: crate::__macro_support::EntityInstallRoute<E>,
+        E::Source: crate::input::event::contract::EntityEventSource,
+        <E::Route as crate::input::event::contract::EventRoute>::Decision:
+            crate::__macro_support::ListenerDecision,
+    {
+        crate::input::event::binding::install_entity_event(self.world, entity, key, callback);
+    }
+
     /// Bind a fresh `UiScope` to a specific world and parent entity.
     ///
     /// `App::compose` creates the scope for a prepared composition. Generated widget code uses the scope during that execution window.
@@ -83,11 +122,7 @@ impl<'w> UiScope<'w> {
         entity: Entity,
         read: impl Fn() -> P::Value + 'static,
     ) {
-        crate::core::reactive::with_world_scope(self.world, || {
-            crate::core::reactive::effect_with_widget(entity, move || {
-                crate::ui::property::apply::<P>(entity, read());
-            });
-        });
+        super::recipe::bind_property::<P>(self.world, entity, read);
     }
 
     pub fn bind_layout(

@@ -21,6 +21,7 @@ pub mod layout_binding;
 pub mod niche;
 pub mod offscreen;
 pub mod property;
+pub(crate) mod recipe;
 pub mod render_system;
 #[doc(hidden)]
 pub mod resource_access;
@@ -231,147 +232,87 @@ pub struct Parent(pub crate::ecs::Entity);
 
 impl crate::ecs::Component for Parent {}
 
-/// Holds the world's only `&mut` for a [`spawn_children`] closure, so child
-/// spawns are sequential — two child handles can never be live at once.
-pub struct ChildSpawner<'w> {
-    world: &'w mut crate::ecs::World,
-    parent: crate::ecs::Entity,
-}
-
-impl ChildSpawner<'_> {
-    pub fn spawn<B: crate::ecs::IntoBundle>(&mut self, bundle: B) -> crate::ecs::Entity {
-        let child = self.world.spawn(bundle);
-        self.attach(child);
-        child
-    }
-
-    pub fn children<B: crate::ecs::IntoBundle>(
-        &mut self,
-        bundle: B,
-        f: impl FnOnce(&mut ChildSpawner),
-    ) -> crate::ecs::Entity {
-        let child = spawn_children(self.world, bundle, f);
-        self.attach(child);
-        child
-    }
-
-    fn attach(&mut self, child: crate::ecs::Entity) {
-        self.world.insert(child, Parent(self.parent));
-        if let Some(children) = self.world.get_mut::<Children>(self.parent) {
-            children.0.push(child);
-        }
-    }
-}
-
-/// Spawn `parent` from a bundle, then run `f` to populate its children.
-/// `f` receives a [`ChildSpawner`] holding the world's only mutable borrow,
-/// which `spawn_children` reclaims when `f` returns.
-pub fn spawn_children<B: crate::ecs::IntoBundle>(
-    world: &mut crate::ecs::World,
-    bundle: B,
-    f: impl FnOnce(&mut ChildSpawner),
-) -> crate::ecs::Entity {
-    let parent = world.spawn(bundle);
-    if !world.has::<Children>(parent) {
-        world.insert(parent, Children(Vec::new()));
-    }
-    let mut spawner = ChildSpawner { world, parent };
-    f(&mut spawner);
-    parent
-}
-
 #[cfg(test)]
-mod child_spawner_tests {
+mod construction_tests {
     use super::*;
-    use crate::ecs::{IntoBundle, World};
+    use crate::app::App;
+    use crate::ecs::Component;
 
     struct Tag(u32);
-    struct TagBundle(u32);
-    impl IntoBundle for TagBundle {
-        fn spawn_into(self, world: &mut World, entity: crate::ecs::Entity) {
-            world.insert(entity, Tag(self.0));
-        }
-    }
+    impl Component for Tag {}
 
     #[test]
     fn closure_children_wire_parent_and_children() {
-        let mut world = World::default();
-        let root = spawn_children(&mut world, TagBundle(0), |c| {
-            c.spawn(TagBundle(1));
-            c.spawn(TagBundle(2));
+        let mut app = App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let (panel, ()) = app.compose(root, |tree| {
+            tree.children(Tag(0), |c| {
+                c.spawn(Tag(1));
+                c.spawn(Tag(2));
+            })
         });
-
-        let kids = &world.get::<Children>(root).unwrap().0;
+        let world = &app.world;
+        let kids = &world.get::<Children>(panel).unwrap().0;
         assert_eq!(kids.len(), 2);
         assert_eq!(world.get::<Tag>(kids[0]).unwrap().0, 1);
         assert_eq!(world.get::<Tag>(kids[1]).unwrap().0, 2);
-        assert_eq!(world.get::<Parent>(kids[0]).unwrap().0, root);
-        assert_eq!(world.get::<Parent>(kids[1]).unwrap().0, root);
-        assert!(world.has::<Widget>(root));
+        assert_eq!(world.get::<Parent>(kids[0]).unwrap().0, panel);
+        assert_eq!(world.get::<Parent>(kids[1]).unwrap().0, panel);
+        assert!(world.has::<Widget>(panel));
     }
 
     #[test]
-    fn nested_closure_children() {
-        let mut world = World::default();
-        let mut grandchild = None;
-        let root = spawn_children(&mut world, TagBundle(0), |c| {
-            grandchild = Some(c.children(TagBundle(2), |gc| {
-                gc.spawn(TagBundle(3));
-            }));
+    fn nested_closure_children_return_their_results() {
+        let mut app = App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let (panel, (child, leaf)) = app.compose(root, |tree| {
+            tree.children(Tag(0), |c| c.children(Tag(2), |gc| gc.spawn(Tag(3))))
         });
-        let grandchild = grandchild.unwrap();
-        assert_eq!(world.get::<Children>(root).unwrap().0.len(), 1);
-        assert_eq!(world.get::<Tag>(grandchild).unwrap().0, 2);
-        assert_eq!(world.get::<Children>(grandchild).unwrap().0.len(), 1);
-        assert_eq!(world.get::<Parent>(grandchild).unwrap().0, root);
+        let world = &app.world;
+        assert_eq!(world.get::<Children>(panel).unwrap().0, [child]);
+        assert_eq!(world.get::<Tag>(child).unwrap().0, 2);
+        assert_eq!(world.get::<Children>(child).unwrap().0, [leaf]);
+        assert_eq!(world.get::<Parent>(child).unwrap().0, panel);
     }
 
     #[test]
     fn despawn_subtree_recurses_and_unlinks_parent() {
-        let mut world = World::default();
-        let mut child0 = None;
-        let mut grandchild = None;
-        let root = spawn_children(&mut world, TagBundle(0), |c| {
-            child0 = Some(c.children(TagBundle(1), |gc| {
-                grandchild = Some(gc.spawn(TagBundle(9)));
-            }));
-            c.spawn(TagBundle(2));
+        let mut app = App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let (panel, (child, leaf)) = app.compose(root, |tree| {
+            tree.children(Tag(0), |c| {
+                let branch = c.children(Tag(1), |gc| gc.spawn(Tag(9)));
+                c.spawn(Tag(2));
+                branch
+            })
         });
-        let child0 = child0.unwrap();
-        let grandchild = grandchild.unwrap();
-        assert_eq!(world.get::<Children>(root).unwrap().0.len(), 2);
-
-        despawn_subtree(&mut world, child0);
-
-        assert!(!world.is_alive(child0), "subtree root despawned");
-        assert!(
-            !world.is_alive(grandchild),
-            "descendant despawned recursively"
-        );
-        let kids = &world.get::<Children>(root).unwrap().0;
-        assert_eq!(kids.len(), 1, "unlinked from parent's Children");
-        assert!(!kids.contains(&child0));
+        assert_eq!(app.world.get::<Children>(panel).unwrap().0.len(), 2);
+        despawn_subtree(&mut app.world, child);
+        assert!(!app.world.is_alive(child));
+        assert!(!app.world.is_alive(leaf));
+        let kids = &app.world.get::<Children>(panel).unwrap().0;
+        assert_eq!(kids.len(), 1);
+        assert!(!kids.contains(&child));
     }
 
     #[test]
     fn despawn_subtree_clears_named_id() {
-        let mut world = World::default();
-        world.insert_resource(IdMap::new());
-        let e = spawn_children(&mut world, TagBundle(0), |_| {});
-        world.insert(e, NamedId("panel"));
-        world.resource_mut::<IdMap>().unwrap().insert("panel", e);
-
-        despawn_subtree(&mut world, e);
-        assert!(world.resource::<IdMap>().unwrap().get("panel").is_none());
+        let mut app = App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let entity = app.compose(root, |tree| tree.spawn((Tag(0), NamedId("panel"))));
+        assert_eq!(app.world.find_by_id("panel"), Some(entity));
+        despawn_subtree(&mut app.world, entity);
+        assert!(app.world.find_by_id("panel").is_none());
     }
 
     #[test]
     fn despawn_subtree_on_dead_entity_is_noop() {
-        let mut world = World::default();
-        let e = spawn_children(&mut world, TagBundle(0), |_| {});
-        despawn_subtree(&mut world, e);
-        despawn_subtree(&mut world, e); // second call must not panic
-        assert!(!world.is_alive(e));
+        let mut app = App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let entity = app.compose(root, |tree| tree.spawn(Tag(0)));
+        despawn_subtree(&mut app.world, entity);
+        despawn_subtree(&mut app.world, entity);
+        assert!(!app.world.is_alive(entity));
     }
 }
 

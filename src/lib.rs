@@ -150,6 +150,7 @@ pub mod __macro_support {
         RuntimeRunError, dispatch_gesture as dispatch_entity_gesture, flush as flush_entity_events,
     };
     pub use crate::ui::construction::finish_widget_static;
+    pub use crate::ui::recipe::{PropertyBindings, WidgetRecipe};
     pub use ::core::cell::{Cell as __Cell, RefCell as __RefCell};
     pub use alloc::borrow::Cow as __Cow;
     pub use alloc::rc::{Rc as __Rc, Weak as __Weak};

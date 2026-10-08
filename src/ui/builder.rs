@@ -80,16 +80,12 @@ impl<'a> WidgetBuilder<'a> {
     }
 
     pub fn text_path(self, path: impl Into<crate::text::TextPath>) -> Self {
-        self.world
-            .widget_mut(self.entity)
-            .expect("WidgetBuilder entity is alive")
-            .text_path(path);
+        self.world.insert(self.entity, path.into());
         self
     }
 
     pub fn image(self, img: crate::ui::widgets::image::Image) -> Self {
         self.world.insert(self.entity, img);
-        crate::ui::widgets::image::attach_image_resource(self.world, self.entity);
         self
     }
 

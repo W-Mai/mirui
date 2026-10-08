@@ -4,6 +4,8 @@ use crate::ecs::{Entity, World};
 
 pub struct NamedId(pub &'static str);
 
+impl crate::ecs::Component for NamedId {}
+
 pub struct IdMap {
     map: BTreeMap<&'static str, Entity>,
 }

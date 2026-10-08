@@ -65,9 +65,29 @@ impl EntityEventBindings for () {
     fn install(self, _world: &mut World, _entity: Entity) {}
 }
 
-impl<B, E, C> EntityEventBindings for (B, EventBinding<E, C>)
+macro_rules! binding_tuple {
+    ($($item:ident),+) => {
+        impl<$($item: EntityEventBindings),+> EntityEventBindings for ($($item,)+) {
+            fn install(self, world: &mut World, entity: Entity) {
+                #[allow(non_snake_case)]
+                let ($($item,)+) = self;
+                $($item.install(world, entity);)+
+            }
+        }
+    };
+}
+
+binding_tuple!(A);
+binding_tuple!(A, B);
+binding_tuple!(A, B, C);
+binding_tuple!(A, B, C, D);
+binding_tuple!(A, B, C, D, E);
+binding_tuple!(A, B, C, D, E, F);
+binding_tuple!(A, B, C, D, E, F, G);
+binding_tuple!(A, B, C, D, E, F, G, H);
+
+impl<E, C> EntityEventBindings for EventBinding<E, C>
 where
-    B: EntityEventBindings,
     E: Event,
     C: CallbackContext<E, Target = Entity>,
     E::Route: EntityInstallRoute<E>,
@@ -75,8 +95,7 @@ where
     <E::Route as EventRoute>::Decision: ListenerDecision,
 {
     fn install(self, world: &mut World, entity: Entity) {
-        self.0.install(world, entity);
-        install_entity_event(world, entity, self.1.key, self.1.callback);
+        install_entity_event(world, entity, self.key, self.callback);
     }
 }
 

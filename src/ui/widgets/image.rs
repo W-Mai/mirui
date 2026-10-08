@@ -112,13 +112,17 @@ impl Image {
         ImageBuilder {
             image: Image::new(src),
             style: None,
+            properties: (),
+            bindings: (),
         }
     }
 }
 
-pub struct ImageBuilder {
+pub struct ImageBuilder<P = (), B = ()> {
     image: Image,
     style: Option<crate::ui::Style>,
+    properties: P,
+    bindings: B,
 }
 
 #[crate::component]
@@ -204,7 +208,7 @@ pub(crate) fn vector_transform(
     )
 }
 
-impl ImageBuilder {
+impl<P, B> ImageBuilder<P, B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
@@ -219,19 +223,22 @@ impl ImageBuilder {
         self.image.radius = radius.into();
         self
     }
-
-    pub fn spawn(self, world: &mut World) -> Entity {
-        world.spawn(self)
-    }
 }
 
-impl crate::ecs::IntoBundle for ImageBuilder {
-    fn spawn_into(self, world: &mut World, entity: Entity) {
+crate::ui::recipe::widget_builder_bindings!(ImageBuilder, Image, image, style);
+
+impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
+    crate::ui::recipe::WidgetRecipe for ImageBuilder<P, B>
+{
+    type Properties = P;
+    type Events = B;
+
+    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
         world.insert(entity, self.image);
-        attach_image_resource(world, entity);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
+        (self.properties, self.bindings)
     }
 }
 
@@ -318,10 +325,13 @@ mod tests {
 
     #[test]
     fn build_spawns_image_with_style() {
-        let mut world = World::new();
-        let e = Image::build("thumbs_up")
-            .style(crate::ui::Style::default())
-            .spawn(&mut world);
+        let mut app = crate::app::App::headless(32, 32);
+        app.with_widget(view());
+        let parent = app.spawn_root().id();
+        let e = app.compose(parent, |tree| {
+            tree.spawn(Image::build("thumbs_up").style(crate::ui::Style::default()))
+        });
+        let world = &app.world;
         assert!(world.has::<Image>(e));
         assert!(world.has::<ImageResource>(e));
         assert!(world.has::<crate::ui::Style>(e));
@@ -329,12 +339,32 @@ mod tests {
     }
 
     #[test]
-    fn build_without_style_omits_it() {
-        let mut world = World::new();
-        let e = Image::build("thumbs_up").spawn(&mut world);
+    fn build_without_style_initializes_default_style() {
+        let mut app = crate::app::App::headless(32, 32);
+        app.with_widget(view());
+        let parent = app.spawn_root().id();
+        let e = app.compose(parent, |tree| tree.spawn(Image::build("thumbs_up")));
+        let world = &app.world;
         assert!(world.has::<Image>(e));
         assert!(world.has::<ImageResource>(e));
-        assert!(!world.has::<crate::ui::Style>(e));
+        assert!(world.has::<crate::ui::Style>(e));
+    }
+
+    #[test]
+    fn static_sources_are_final_before_loading() {
+        let mut app = crate::app::App::headless(32, 32);
+        app.with_widget(view());
+        app.add_resource(image_manager());
+        let root = app.spawn_root().id();
+        let (dsl, builder) = app.compose(root, |cx| {
+            let dsl = crate::ui! { Image("unused") [Image::new("blue")] };
+            let builder = cx.spawn((Image::build("unused"), Image::new("blue")));
+            (dsl, builder)
+        });
+        for entity in [dsl, builder] {
+            let resource = app.world.get::<ImageResource>(entity).unwrap().0.borrow();
+            assert_eq!(resource.as_ref().unwrap().token(), "blue");
+        }
     }
 
     #[test]

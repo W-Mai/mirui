@@ -62,6 +62,33 @@ app.compose(root, configured_panel());
 
 Calling a `#[compose]` function prepares a stack-held composition without executing its body. All arguments remain owned or borrowed by that value until it is executed or dropped. Model validation, resource access, bindings, and widget creation run inside `App::compose`; preparing a composition does not require an active application owner. Composition outputs use concrete Rust types, including generics. Returned references may borrow application data supplied as arguments, but not the construction scope or its resources.
 
+For construction without the UI DSL, pass a closure to `App::compose`. Its scope accepts components, typed widget builders, and tuples of both. `children` returns the container entity and the closure's result. No manual parent wiring is required.
+
+```rust
+let (panel, slider) = app.compose(root, |tree| {
+    tree.children(panel_style(), |column| {
+        column.spawn(Text::build("Level").style(label_style()));
+        let source = controls.clone();
+        let slider = column.spawn(
+            Slider::build(0, 100)
+                .bind_property::<prop::SliderValue>(move || source.level())
+                .fill_color(ColorToken::Primary)
+                .style(slider_style())
+                .on_event(Slider::ValueChanged, level_changed::callback(controls.clone())),
+        );
+        column.spawn((
+            Button::build().on_event(Tap::EVENT, reset::callback(controls.clone())),
+            Text::label("Reset"),
+        ));
+        slider
+    })
+});
+```
+
+Typed builders retain their widget type across `bind_property`, `on_event`, and style configuration. Properties use the existing reactive effects and property setters; programmatic updates do not emit widget input notifications. `tree.on_event(entity, key, callback)` installs a callback on an already constructed node and validates its attached source. Typed builder callbacks retain compile-time widget-source constraints. See `builder_form` for the complete Model, event callbacks, and layout.
+
+Static tuple components are inserted before any attachment or binding executes, with the last component of a given type taking precedence. Pending properties and events use stack-held tuples rather than an allocated container. Entity storage and effect and callback registration retain their existing construction-time allocations; installed bindings add no allocation to repeated Model updates or event execution.
+
 Compute resource-backed arguments before passing them to `ui!`, `format!`, or another macro; the composition attribute does not rewrite another macro's tokens. Required resources report missing values as programming errors, while optional reads receive `None`. Composition inserts and removals are immediate; structural changes during System or Event callbacks continue through deferred `commands!`. Resource access adds no heap storage; registering a new resource type still uses the existing resource store's allocation.
 
 CoverFlow and Particles install their bounds from within their compositions through `res!().insert(...)`. Shapes, Butterfly, and Vector Mandala read an optional MonoClock before building their trees, retaining zero start time when the clock is absent.

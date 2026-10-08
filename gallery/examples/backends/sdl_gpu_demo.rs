@@ -1,164 +1,124 @@
-//! SDL GPU backend demo — hardware-accelerated rendering with a
-//! drag-to-move widget. The flex-laid children (solid, rounded, label,
-//! blit) stack vertically centred; the orange "DRAG ME" box is
-//! `Position::Absolute` and follows the mouse while the left button is
-//! held.
-//!
-//! Runs through `App::run`. The SDL GPU backend reports its backbuffer
-//! as `Transient`, so the run loop redraws every frame automatically —
-//! no manual loop here.
+//! SDL GPU rendering with static panels, an image, and a draggable label.
+//! The label uses Model-bound position properties and typed drag callbacks.
 
-use mirui::app::plugin::Plugin;
 use mirui::app::plugins::{CacheReportPlugin, FpsSummaryPlugin, StdInstantClockPlugin};
-use mirui::app::{App, RendererFactory};
-use mirui::ecs::World;
 use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
-use mirui::surface::{InputEvent, Surface};
-use mirui::ui::widgets::Image;
+use mirui::ui::property::prop;
 use mirui::ui::widgets::assets::*;
-use mirui::ui::{Children, Parent};
+use mirui::ui::widgets::{Image, Text};
 
-const DRAG_W: i32 = 160;
-const DRAG_H: i32 = 60;
+#[model]
+struct DragPosition {
+    #[observe]
+    left: Fixed,
+    #[observe]
+    top: Fixed,
+    offset: (Fixed, Fixed),
+}
+
+#[model]
+impl DragPosition {
+    fn begin_drag(&mut self, x: Fixed, y: Fixed) {
+        self.offset = (x - self.left, y - self.top);
+    }
+
+    fn drag_to(&mut self, x: Fixed, y: Fixed) {
+        self.left = x - self.offset.0;
+        self.top = y - self.offset.1;
+    }
+}
+
+#[event]
+fn begin_drag(input: event!(DragStart), position: model!(DragPosition)) {
+    position.begin_drag(input.x, input.y);
+}
+
+#[event]
+fn move_drag(input: event!(DragMove), position: model!(DragPosition)) {
+    position.drag_to(input.x, input.y);
+}
+
+fn sized(width: i32, height: i32) -> Style {
+    Style {
+        layout: LayoutStyle {
+            width: Dimension::px(width),
+            height: Dimension::px(height),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
 
 fn main() {
     let backend = SdlGpuSurface::new("mirui SDL GPU — drag me", 640, 480);
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
-    app.with_default_widgets();
-
-    let root = WidgetBuilder::new(&mut app.world)
+    app.with_default_widgets()
+        .add_plugin(StdInstantClockPlugin)
+        .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(mirui::app::plugins::ImageResourcesPlugin::default())
+        .add_plugin(CacheReportPlugin::new(120));
+    let root = app
+        .spawn_root()
         .bg_color(Color::rgba(30, 30, 46, 255))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::percent(100),
-            height: Dimension::percent(100),
+            grow: Fixed::ONE,
             justify: JustifyContent::Center,
             align: AlignItems::Center,
             ..Default::default()
         })
         .id();
+    let position = app.add_model(DragPosition {
+        left: Fixed::from_int(240),
+        top: Fixed::from_int(30),
+        offset: (Fixed::ZERO, Fixed::ZERO),
+    });
 
-    let solid = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgba(32, 160, 240, 255))
-        .border(Color::rgba(240, 240, 255, 255), 1)
-        .layout(LayoutStyle {
-            width: Dimension::px(200),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let translucent = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgba(80, 240, 160, 128))
-        .layout(LayoutStyle {
-            width: Dimension::px(200),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let label = WidgetBuilder::new(&mut app.world)
-        .text("SDL GPU BACKEND")
-        .text_color(Color::rgba(255, 255, 255, 255))
-        .layout(LayoutStyle {
-            width: Dimension::px(200),
-            height: Dimension::px(20),
-            ..Default::default()
-        })
-        .id();
-
-    let img = WidgetBuilder::new(&mut app.world)
-        .layout(LayoutStyle {
-            width: Dimension::px(IMG_THUMBS_UP.width as i32),
-            height: Dimension::px(IMG_THUMBS_UP.height as i32),
-            ..Default::default()
-        })
-        .id();
-    app.world.insert(img, Image::new("thumbs_up"));
-
-    let drag = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgba(240, 120, 60, 230))
-        .border(Color::rgba(255, 255, 255, 255), 2)
-        .border_radius(12)
-        .text("DRAG ME")
-        .text_color(Color::rgba(255, 255, 255, 255))
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            width: Dimension::px(DRAG_W),
-            height: Dimension::px(DRAG_H),
-            left: Dimension::px(240),
-            top: Dimension::px(30),
-            ..Default::default()
-        })
-        .id();
-
-    for child in [solid, translucent, label, img, drag] {
-        app.world.insert(child, Parent(root));
-        if let Some(children) = app.world.get_mut::<Children>(root) {
-            children.0.push(child);
-        }
-    }
-
-    app.set_root(root);
-    app.add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default())
-        .add_plugin(mirui::app::plugins::ImageResourcesPlugin::default())
-        .add_plugin(CacheReportPlugin::new(120))
-        .add_plugin(DragPlugin {
-            target: drag,
-            pos: (Fixed::from_int(240), Fixed::from_int(30)),
-            offset: None,
+    app.compose(root, |tree| {
+        tree.spawn(Style {
+            bg_color: Some(Color::rgba(32, 160, 240, 255).into()),
+            border_color: Some(Color::rgba(240, 240, 255, 255).into()),
+            border_width: Fixed::ONE,
+            ..sized(200, 80)
         });
+        tree.spawn(Style {
+            bg_color: Some(Color::rgba(80, 240, 160, 128).into()),
+            ..sized(200, 80)
+        });
+        tree.spawn(Text::build("SDL GPU BACKEND").style(Style {
+            text_color: Color::rgba(255, 255, 255, 255).into(),
+            ..sized(200, 20)
+        }));
+        tree.spawn(Image::build("thumbs_up").style(sized(
+            IMG_THUMBS_UP.width as i32,
+            IMG_THUMBS_UP.height as i32,
+        )));
+
+        let horizontal = position.clone();
+        let vertical = position.clone();
+        tree.spawn(
+            Text::build("DRAG ME")
+                .style(Style {
+                    bg_color: Some(Color::rgba(240, 120, 60, 230).into()),
+                    border_color: Some(Color::rgba(255, 255, 255, 255).into()),
+                    border_width: Fixed::from_int(2),
+                    border_radius: Fixed::from_int(12),
+                    text_color: Color::rgba(255, 255, 255, 255).into(),
+                    layout: LayoutStyle {
+                        position: Position::Absolute,
+                        width: Dimension::px(160),
+                        height: Dimension::px(60),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .bind_property::<prop::Left>(move || Dimension::Px(horizontal.left()))
+                .bind_property::<prop::Top>(move || Dimension::Px(vertical.top()))
+                .on_event(DragStart::EVENT, begin_drag::callback(position.clone()))
+                .on_event(DragMove::EVENT, move_drag::callback(position)),
+        );
+    });
 
     app.run();
-}
-
-/// Drag `target` around by its top-left corner while the mouse button is
-/// held. Runs entirely off `on_event`; consumes Touch / TouchMove /
-/// Release to keep them out of the widget dispatch path.
-struct DragPlugin {
-    target: Entity,
-    pos: (Fixed, Fixed),
-    offset: Option<(Fixed, Fixed)>,
-}
-
-impl<B, F> Plugin<B, F> for DragPlugin
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    fn build(&mut self, _app: &mut App<B, F>) {}
-
-    fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
-        let w = Fixed::from_int(DRAG_W);
-        let h = Fixed::from_int(DRAG_H);
-        match *event {
-            InputEvent::PointerDown { x, y, .. } => {
-                let (dx, dy) = self.pos;
-                if x >= dx && x < dx + w && y >= dy && y < dy + h {
-                    self.offset = Some((x - dx, y - dy));
-                    return true;
-                }
-                false
-            }
-            InputEvent::PointerMove { x, y, .. } => {
-                if let Some((ox, oy)) = self.offset {
-                    let nx = x - ox;
-                    let ny = y - oy;
-                    self.pos = (nx, ny);
-                    mirui::ui::set_position(world, self.target, nx, ny);
-                    return true;
-                }
-                false
-            }
-            InputEvent::PointerUp { .. } => {
-                if self.offset.take().is_some() {
-                    return true;
-                }
-                false
-            }
-            _ => false,
-        }
-    }
 }

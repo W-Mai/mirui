@@ -1,8 +1,4 @@
-use crate::__macro_support::{
-    EntityContext, EntityEventBindings, EntityInstallRoute, EventBinding, EventCallback,
-};
 use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::contract::{EntitySourceFor, Event, EventKey, EventRoute};
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Rect};
@@ -95,39 +91,23 @@ impl Slider {
         SliderBuilder {
             slider: Slider::new(min.into(), max.into()),
             style: None,
+            properties: (),
             bindings: (),
         }
     }
 }
 
-pub struct SliderBuilder<B = ()> {
+pub struct SliderBuilder<P = (), B = ()> {
     slider: Slider,
     style: Option<crate::ui::Style>,
+    properties: P,
     bindings: B,
 }
 
-impl<B> SliderBuilder<B> {
+impl<P, B> SliderBuilder<P, B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
-    }
-
-    pub fn on_event<E>(
-        self,
-        key: EventKey<E>,
-        callback: EventCallback<E, EntityContext<Slider>>,
-    ) -> SliderBuilder<(B, EventBinding<E, EntityContext<Slider>>)>
-    where
-        E: Event,
-        E::Route: EntityInstallRoute<E>,
-        <E::Route as EventRoute>::Decision: crate::__macro_support::ListenerDecision,
-        E::Source: EntitySourceFor<Slider>,
-    {
-        SliderBuilder {
-            slider: self.slider,
-            style: self.style,
-            bindings: (self.bindings, EventBinding::new(key, callback)),
-        }
     }
 
     pub fn track_color(mut self, color: impl Into<ThemedColor>) -> Self {
@@ -144,22 +124,22 @@ impl<B> SliderBuilder<B> {
         self.slider.thumb_color = color.into();
         self
     }
-
-    pub fn spawn(self, world: &mut World) -> Entity
-    where
-        B: EntityEventBindings,
-    {
-        world.spawn(self)
-    }
 }
 
-impl<B: EntityEventBindings> crate::ecs::IntoBundle for SliderBuilder<B> {
-    fn spawn_into(self, world: &mut World, entity: Entity) {
+crate::ui::recipe::widget_builder_bindings!(SliderBuilder, Slider, slider, style);
+
+impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
+    crate::ui::recipe::WidgetRecipe for SliderBuilder<P, B>
+{
+    type Properties = P;
+    type Events = B;
+
+    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
         world.insert(entity, self.slider);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
-        self.bindings.install(world, entity);
+        (self.properties, self.bindings)
     }
 }
 
@@ -368,11 +348,13 @@ mod tests {
                 .flush_limit(4),
         )
         .unwrap();
-        let entity = Slider::build(Fixed::ZERO, Fixed::from_int(100))
-            .on_event(Slider::ValueChanged, record_value::callback())
-            .on_event(Slider::DragStarted, record_start::callback())
-            .on_event(Slider::DragEnded, record_end::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(
+            Slider::build(Fixed::ZERO, Fixed::from_int(100))
+                .on_event(Slider::ValueChanged, record_value::callback())
+                .on_event(Slider::DragStarted, record_start::callback())
+                .on_event(Slider::DragEnded, record_end::callback()),
+        );
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         (world, entity)
     }
@@ -506,9 +488,9 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = Slider::build(0, 100)
-            .on_event(Slider::ValueChanged, remove_slider::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(Slider::build(0, 100).on_event(Slider::ValueChanged, remove_slider::callback()));
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
             slider_handler(
@@ -538,10 +520,12 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = Slider::build(0, 100)
-            .on_event(Slider::ValueChanged, record_value::callback())
-            .style(crate::ui::Style::default())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(
+            Slider::build(0, 100)
+                .on_event(Slider::ValueChanged, record_value::callback())
+                .style(crate::ui::Style::default()),
+        );
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
@@ -570,10 +554,12 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = Slider::build(0, 100)
-            .on_event(Slider::ValueChanged, record_second::callback())
-            .on_event(Slider::ValueChanged, record_value::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(
+            Slider::build(0, 100)
+                .on_event(Slider::ValueChanged, record_second::callback())
+                .on_event(Slider::ValueChanged, record_value::callback()),
+        );
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
             slider_handler(
@@ -608,7 +594,8 @@ mod tests {
     #[test]
     fn bare_builder_does_not_require_notification_storage() {
         let mut world = World::new();
-        let entity = Slider::build(0, 1).spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Slider::build(0, 1));
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
             slider_handler(
@@ -624,7 +611,7 @@ mod tests {
         );
         assert_eq!(world.get::<Slider>(entity).unwrap().value, Fixed::ONE);
         assert_eq!(runtime::flush(&mut world).unwrap(), 0);
-        assert!(!world.has::<crate::ui::Style>(entity));
+        assert!(world.has::<crate::ui::Style>(entity));
     }
 
     #[test]
@@ -638,10 +625,12 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let subscribed = Slider::build(0, 100)
-            .on_event(Slider::DragStarted, record_start::callback())
-            .spawn(&mut world);
-        let other = Slider::build(0, 100).spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let subscribed = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(Slider::build(0, 100).on_event(Slider::DragStarted, record_start::callback()));
+        let builder_parent = world.spawn_empty();
+        let other =
+            crate::ui::UiScope::new(&mut world, builder_parent).spawn(Slider::build(0, 100));
         world.insert(subscribed, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
             slider_handler(
@@ -686,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn subscribed_input_preserves_updates_when_notification_budget_is_missing_or_zero() {
+    fn input_preserves_updates_when_notification_budget_is_missing_or_zero() {
         for (capacity, explicit_zero) in [
             (EventCapacity::new(), false),
             (EventCapacity::new().notifications::<ValueChanged>(0), true),
@@ -694,9 +683,10 @@ mod tests {
             let mut world = World::new();
             world.insert_resource(EventLog::default());
             runtime::configure(&mut world, capacity).unwrap();
-            let entity = Slider::build(0, 100)
-                .on_event(Slider::ValueChanged, record_value::callback())
-                .spawn(&mut world);
+            let builder_parent = world.spawn_empty();
+            let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(
+                Slider::build(0, 100).on_event(Slider::ValueChanged, record_value::callback()),
+            );
             world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
             let error = slider_handler(
                 &mut world,
@@ -708,12 +698,8 @@ mod tests {
                 },
             );
             if explicit_zero {
-                assert!(matches!(
-                    error,
-                    Err(CommandError::Commit(
-                        crate::ecs::CommandCommitError::RecordCapacity { available: 0 }
-                    ))
-                ));
+                assert!(!runtime::has_entity_listener::<ValueChanged>(&world, entity).unwrap());
+                assert_eq!(error, Ok(true));
             } else {
                 assert!(matches!(
                     error,

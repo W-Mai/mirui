@@ -435,6 +435,8 @@ impl Text {
             text: source.into(),
             style: None,
             path: None,
+            properties: (),
+            bindings: (),
         }
     }
 
@@ -608,13 +610,15 @@ impl From<Localized> for Text {
     }
 }
 
-pub struct TextBuilder {
+pub struct TextBuilder<P = (), B = ()> {
     text: Text,
     style: Option<crate::ui::Style>,
     path: Option<crate::text::TextPath>,
+    properties: P,
+    bindings: B,
 }
 
-impl TextBuilder {
+impl<P, B> TextBuilder<P, B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
@@ -644,28 +648,29 @@ impl TextBuilder {
         self.style.get_or_insert_default().set_font_size(size);
         self
     }
-
-    pub fn spawn(self, world: &mut World) -> Entity {
-        world.spawn(self)
-    }
 }
 
-impl crate::ecs::IntoBundle for TextBuilder {
-    fn spawn_into(self, world: &mut World, entity: Entity) {
+crate::ui::recipe::widget_builder_bindings!(TextBuilder, Text, text, style, path);
+
+impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
+    crate::ui::recipe::WidgetRecipe for TextBuilder<P, B>
+{
+    type Properties = P;
+    type Events = B;
+
+    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
         world.insert(entity, self.text);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
         if let Some(path) = self.path {
-            world
-                .widget_mut(entity)
-                .expect("TextBuilder entity is alive")
-                .text_path(path);
+            world.insert(entity, path);
         }
+        (self.properties, self.bindings)
     }
 }
 
-#[crate::view(component = Text, name = "Text", priority = 80, invalidation = Layout)]
+#[crate::view(component = Text, name = "Text", priority = 80, invalidation = Layout, attach = crate::text::path::attach_text_path)]
 #[allow(
     clippy::too_many_arguments,
     reason = "Each parameter declares an independent paint dependency."
@@ -1876,7 +1881,7 @@ mod tests {
             descriptor.invalidation(),
             crate::ui::ViewInvalidation::Layout
         );
-        assert!(descriptor.auto_attach().is_none());
+        assert!(descriptor.auto_attach().is_some());
         assert!(descriptor.internal_gesture().is_none());
         let render = descriptor.render().unwrap();
         let style = Style::default();
@@ -2028,9 +2033,9 @@ mod tests {
     #[test]
     fn build_spawns_text_with_style() {
         let mut world = World::new();
-        let e = Text::build("hi")
-            .style(crate::ui::Style::default())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let e = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(Text::build("hi").style(crate::ui::Style::default()));
         let text = world.get::<Text>(e).unwrap();
         assert_eq!(text.resolve(&world), "hi");
         assert!(world.has::<crate::ui::Style>(e));
@@ -2038,11 +2043,12 @@ mod tests {
     }
 
     #[test]
-    fn build_without_style_omits_it() {
+    fn build_without_style_initializes_default_style() {
         let mut world = World::new();
-        let e = Text::build("hi").spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let e = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Text::build("hi"));
         assert!(world.has::<Text>(e));
-        assert!(!world.has::<crate::ui::Style>(e));
+        assert!(world.has::<crate::ui::Style>(e));
     }
 
     #[test]

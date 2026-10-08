@@ -1,8 +1,4 @@
-use crate::__macro_support::{
-    EntityContext, EntityEventBindings, EntityInstallRoute, EventBinding, EventCallback,
-};
 use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::contract::{EntitySourceFor, Event, EventKey, EventRoute};
 use crate::input::event::focus::{FocusState, Focusable, KeyHandler, TextEditable};
 use crate::input::event::gesture::GestureEvent;
 use crate::input::event::input::{
@@ -182,6 +178,7 @@ impl TextInput {
             text_input: TextInput::new(),
             style: None,
             placeholder: None,
+            properties: (),
             bindings: (),
         }
     }
@@ -197,14 +194,15 @@ impl Default for TextInput {
     }
 }
 
-pub struct TextInputBuilder<B = ()> {
+pub struct TextInputBuilder<P = (), B = ()> {
     text_input: TextInput,
     style: Option<crate::ui::Style>,
     placeholder: Option<&'static str>,
+    properties: P,
     bindings: B,
 }
 
-impl<B> TextInputBuilder<B> {
+impl<P, B> TextInputBuilder<P, B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
@@ -249,36 +247,23 @@ impl<B> TextInputBuilder<B> {
         self.text_input.focus_border_color = color.into();
         self
     }
-
-    pub fn on_event<E>(
-        self,
-        key: EventKey<E>,
-        callback: EventCallback<E, EntityContext<TextInput>>,
-    ) -> TextInputBuilder<(B, EventBinding<E, EntityContext<TextInput>>)>
-    where
-        E: Event,
-        E::Route: EntityInstallRoute<E>,
-        <E::Route as EventRoute>::Decision: crate::__macro_support::ListenerDecision,
-        E::Source: EntitySourceFor<TextInput>,
-    {
-        TextInputBuilder {
-            text_input: self.text_input,
-            style: self.style,
-            placeholder: self.placeholder,
-            bindings: (self.bindings, EventBinding::new(key, callback)),
-        }
-    }
-
-    pub fn spawn(self, world: &mut World) -> Entity
-    where
-        B: EntityEventBindings,
-    {
-        world.spawn(self)
-    }
 }
 
-impl<B: EntityEventBindings> crate::ecs::IntoBundle for TextInputBuilder<B> {
-    fn spawn_into(self, world: &mut World, entity: Entity) {
+crate::ui::recipe::widget_builder_bindings!(
+    TextInputBuilder,
+    TextInput,
+    text_input,
+    style,
+    placeholder
+);
+
+impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
+    crate::ui::recipe::WidgetRecipe for TextInputBuilder<P, B>
+{
+    type Properties = P;
+    type Events = B;
+
+    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
         world.insert(entity, self.text_input);
         if let Some(style) = self.style {
             world.insert(entity, style);
@@ -286,7 +271,7 @@ impl<B: EntityEventBindings> crate::ecs::IntoBundle for TextInputBuilder<B> {
         if let Some(ph) = self.placeholder {
             world.insert(entity, Placeholder(ph));
         }
-        self.bindings.install(world, entity);
+        (self.properties, self.bindings)
     }
 }
 
@@ -1005,11 +990,13 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = TextInput::build()
-            .on_event(TextInput::Changed, record_changed::callback())
-            .style(crate::ui::Style::default())
-            .placeholder("hi")
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(
+            TextInput::build()
+                .on_event(TextInput::Changed, record_changed::callback())
+                .style(crate::ui::Style::default())
+                .placeholder("hi"),
+        );
         assert!(world.has::<TextInput>(entity));
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<Placeholder>(entity));
@@ -1022,11 +1009,12 @@ mod tests {
     }
 
     #[test]
-    fn bare_builder_omits_optionals() {
+    fn bare_builder_initializes_style_without_placeholder() {
         let mut world = World::new();
-        let e = TextInput::build().spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let e = crate::ui::UiScope::new(&mut world, builder_parent).spawn(TextInput::build());
         assert!(world.get::<TextInput>(e).is_some());
-        assert!(world.get::<crate::ui::Style>(e).is_none());
+        assert!(world.get::<crate::ui::Style>(e).is_some());
         assert!(world.get::<Placeholder>(e).is_none());
     }
 
@@ -1065,9 +1053,9 @@ mod tests {
                 .flush_limit(2),
         )
         .unwrap();
-        let entity = TextInput::build()
-            .on_event(TextInput::Changed, record_changed::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(TextInput::build().on_event(TextInput::Changed, record_changed::callback()));
         (world, entity)
     }
 
@@ -1107,9 +1095,9 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = TextInput::build()
-            .on_event(TextInput::Changed, remove_input::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(TextInput::build().on_event(TextInput::Changed, remove_input::callback()));
         assert!(
             textinput_key_handler(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap()
         );
@@ -1149,7 +1137,8 @@ mod tests {
     #[test]
     fn unsubscribed_editing_does_not_require_notification_storage() {
         let mut world = World::new();
-        let entity = TextInput::build().spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(TextInput::build());
         text_input_attach(&mut world, entity);
         assert!(world.has::<Focusable>(entity));
         assert!(world.has::<TextEditable>(entity));

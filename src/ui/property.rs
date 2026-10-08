@@ -533,23 +533,8 @@ pub mod prop {
                 }
             }
 
-            let owner = world.id();
-            let subscription = world
-                .resource_mut::<crate::render::path::PathStore>()
-                .and_then(|store| {
-                    store
-                        .subscribe(path.path(), owner, entity, path.end().is_some())
-                        .ok()
-                        .flatten()
-                })
-                .map(|inner| crate::text::path::TextPathSubscription { _inner: inner });
-
             world.insert(entity, path);
-            if let Some(subscription) = subscription {
-                world.insert(entity, subscription);
-            } else {
-                world.remove::<crate::text::path::TextPathSubscription>(entity);
-            }
+            crate::text::path::subscribe_text_path(world, entity, path);
             PropertyChange::Layout
         }
     }

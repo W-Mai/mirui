@@ -145,6 +145,33 @@ pub(crate) struct TextPathSubscription {
     pub(crate) _inner: crate::render::path::PathSubscription,
 }
 
+pub(crate) fn attach_text_path(world: &mut World, entity: crate::ecs::Entity) {
+    if !world.has::<TextPathSubscription>(entity)
+        && let Some(path) = world.get::<TextPath>(entity).copied()
+    {
+        subscribe_text_path(world, entity, path);
+    }
+}
+
+pub(crate) fn subscribe_text_path(world: &mut World, entity: crate::ecs::Entity, path: TextPath) {
+    let owner = world.id();
+    let subscription = world
+        .resource_mut::<PathStore>()
+        .and_then(|store| {
+            store
+                .subscribe(path.path(), owner, entity, path.end().is_some())
+                .ok()
+                .flatten()
+        })
+        .map(|inner| TextPathSubscription { _inner: inner });
+
+    if let Some(subscription) = subscription {
+        world.insert(entity, subscription);
+    } else {
+        world.remove::<TextPathSubscription>(entity);
+    }
+}
+
 impl World {
     pub fn paths(&mut self) -> PathAccess<'_> {
         PathAccess::new(self)

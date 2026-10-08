@@ -1,8 +1,4 @@
-use crate::__macro_support::{
-    EntityContext, EntityEventBindings, EntityInstallRoute, EventBinding, EventCallback,
-};
 use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::contract::{EntitySourceFor, Event, EventKey, EventRoute};
 use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
@@ -68,39 +64,23 @@ impl Checkbox {
         CheckboxBuilder {
             checkbox: Checkbox::new(),
             style: None,
+            properties: (),
             bindings: (),
         }
     }
 }
 
-pub struct CheckboxBuilder<B = ()> {
+pub struct CheckboxBuilder<P = (), B = ()> {
     checkbox: Checkbox,
     style: Option<crate::ui::Style>,
+    properties: P,
     bindings: B,
 }
 
-impl<B> CheckboxBuilder<B> {
+impl<P, B> CheckboxBuilder<P, B> {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
-    }
-
-    pub fn on_event<E>(
-        self,
-        key: EventKey<E>,
-        callback: EventCallback<E, EntityContext<Checkbox>>,
-    ) -> CheckboxBuilder<(B, EventBinding<E, EntityContext<Checkbox>>)>
-    where
-        E: Event,
-        E::Route: EntityInstallRoute<E>,
-        <E::Route as EventRoute>::Decision: crate::__macro_support::ListenerDecision,
-        E::Source: EntitySourceFor<Checkbox>,
-    {
-        CheckboxBuilder {
-            checkbox: self.checkbox,
-            style: self.style,
-            bindings: (self.bindings, EventBinding::new(key, callback)),
-        }
     }
 
     pub fn checked(mut self, v: bool) -> Self {
@@ -117,22 +97,22 @@ impl<B> CheckboxBuilder<B> {
         self.checkbox.unchecked_color = color.into();
         self
     }
-
-    pub fn spawn(self, world: &mut World) -> Entity
-    where
-        B: EntityEventBindings,
-    {
-        world.spawn(self)
-    }
 }
 
-impl<B: EntityEventBindings> crate::ecs::IntoBundle for CheckboxBuilder<B> {
-    fn spawn_into(self, world: &mut World, entity: Entity) {
+crate::ui::recipe::widget_builder_bindings!(CheckboxBuilder, Checkbox, checkbox, style);
+
+impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::EntityEventBindings>
+    crate::ui::recipe::WidgetRecipe for CheckboxBuilder<P, B>
+{
+    type Properties = P;
+    type Events = B;
+
+    fn insert(self, world: &mut World, entity: Entity) -> (P, B) {
         world.insert(entity, self.checkbox);
         if let Some(style) = self.style {
             world.insert(entity, style);
         }
-        self.bindings.install(world, entity);
+        (self.properties, self.bindings)
     }
 }
 
@@ -216,10 +196,12 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = Checkbox::build()
-            .on_event(Checkbox::Toggled, record_toggle::callback())
-            .style(crate::ui::Style::default())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(
+            Checkbox::build()
+                .on_event(Checkbox::Toggled, record_toggle::callback())
+                .style(crate::ui::Style::default()),
+        );
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
         assert!(
@@ -244,8 +226,9 @@ mod tests {
     #[test]
     fn bare_builder_does_not_require_notification_storage() {
         let mut world = World::new();
-        let entity = Checkbox::build().spawn(&mut world);
-        assert!(!world.has::<crate::ui::Style>(entity));
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Checkbox::build());
+        assert!(world.has::<crate::ui::Style>(entity));
         assert!(
             checkbox_handler(
                 &mut world,
@@ -309,9 +292,9 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = Checkbox::build()
-            .on_event(Checkbox::Toggled, remove_checkbox::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(Checkbox::build().on_event(Checkbox::Toggled, remove_checkbox::callback()));
         assert!(
             checkbox_handler(
                 &mut world,
@@ -340,9 +323,9 @@ mod tests {
                 .flush_limit(1),
         )
         .unwrap();
-        let entity = Checkbox::build()
-            .on_event(Checkbox::Toggled, record_toggle::callback())
-            .spawn(&mut world);
+        let builder_parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, builder_parent)
+            .spawn(Checkbox::build().on_event(Checkbox::Toggled, record_toggle::callback()));
         crate::ui::property::apply_to_world::<crate::ui::property::prop::CheckboxChecked>(
             &mut world, entity, true,
         );
