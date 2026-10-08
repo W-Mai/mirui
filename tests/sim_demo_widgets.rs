@@ -1,28 +1,18 @@
-//! End-to-end smoke test of the public API surface a third-party
-//! crate uses to wire up Tap → state. No SDL window, no ESP flash.
-//! Builds a 3-tab demo (TabBar + Slider + Switch), drives synthetic
-//! InputEvents through the same `dispatch_input` + `dispatch_entity_gesture`
-//! pipeline `App::run` uses, and asserts state changes the user
-//! would observe.
-//!
-//! If any of Slider, Switch, TabBar, dispatch_input, //! attach_widget_input_handlers, ViewRegistry::with_builtins, or
-//! render_system::update_layout stops being reachable from `tests/`,
-//! this build breaks — that's the point.
+//! Build a tabbed control scene through App composition and exercise its input routing.
+//! Synthetic pointer events verify Slider and Switch state after selecting their pages.
 
 use mirui::ecs::{Entity, World};
 use mirui::input::event::dispatch_input;
 use mirui::input::event::gesture::{GestureEvent, GestureSystem};
 use mirui::input::event::input::InputEvent;
-use mirui::input::event::widget_input::attach_widget_input_handlers;
 use mirui::types::{Dimension, Fixed, Viewport};
-use mirui::ui::builder::WidgetBuilder;
+use mirui::ui;
 use mirui::ui::layout::{FlexDirection, LayoutStyle, Position};
 use mirui::ui::render_system;
 use mirui::ui::widgets::slider::Slider;
 use mirui::ui::widgets::switch::Switch;
 use mirui::ui::widgets::tab_pages::{TabContent, tab_pages_system};
 use mirui::ui::widgets::tabbar::TabBar;
-use mirui::ui::{Children, Parent};
 
 const W: u16 = 128;
 const H: u16 = 128;
@@ -43,9 +33,8 @@ const SLIDER_Y: i32 = 47;
 fn build() -> (World, Entity, Entity, Entity, Entity) {
     let mut app = mirui::app::App::headless(W, H);
     app.with_default_widgets();
-    let mut world = app.world;
-
-    let root = WidgetBuilder::new(&mut world)
+    let root = app
+        .spawn_root()
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(W as i32),
@@ -53,85 +42,63 @@ fn build() -> (World, Entity, Entity, Entity, Entity) {
             ..Default::default()
         })
         .id();
-
-    let tab_bar = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            width: Dimension::px(W as i32),
-            height: Dimension::px(14),
-            ..Default::default()
-        })
-        .id();
-    world.insert(tab_bar, TabBar::new(3));
-    attach(&mut world, root, tab_bar);
-
-    let mk_page = |w: &mut World, idx: u8| {
-        let p = WidgetBuilder::new(w)
-            .layout(LayoutStyle {
-                width: Dimension::px(W as i32),
-                height: Dimension::px((H - 14) as i32),
-                ..Default::default()
-            })
-            .id();
-        w.insert(
-            p,
-            TabContent {
-                tab_bar,
-                index: idx,
-            },
-        );
-        p
-    };
-    let list_page = mk_page(&mut world, 0);
-    let slide_page = mk_page(&mut world, 1);
-    let sw_page = mk_page(&mut world, 2);
-    attach(&mut world, root, list_page);
-    attach(&mut world, root, slide_page);
-    attach(&mut world, root, sw_page);
-
-    // Absolutely positioned so the test can predict each handler's
-    // ComputedRect without depending on flex justify/align defaults.
-    let slider = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px(SLIDER_X),
-            top: Dimension::px(SLIDER_Y),
-            width: Dimension::px(SLIDER_W),
-            height: Dimension::px(SLIDER_H),
-            ..Default::default()
-        })
-        .id();
-    world.insert(slider, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
-    attach(&mut world, slide_page, slider);
-
-    let switch = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px(SWITCH_X),
-            top: Dimension::px(SWITCH_Y),
-            width: Dimension::px(SWITCH_W),
-            height: Dimension::px(SWITCH_H),
-            ..Default::default()
-        })
-        .id();
-    world.insert(switch, Switch::default());
-    attach(&mut world, sw_page, switch);
-
-    // Order matters: pages must have correct Hidden state before
-    // update_layout runs, so handlers see ComputedRect for the
-    // visible tab only. attach_widget_input_handlers also needs
-    // the registry to be installed (done above).
+    app.compose(root, |cx| {
+        ui! {
+            TabBar (id: "tabs", count: 3, width: W, height: 14)
+        };
+        ui! {
+            View (width: W, height: H - 14) [
+                TabContent {
+                    tab_bar: id("tabs"),
+                    index: 0,
+                },
+            ]
+        };
+        ui! {
+            View (width: W, height: H - 14) [
+                TabContent {
+                    tab_bar: id("tabs"),
+                    index: 1,
+                },
+            ] {
+                Slider (
+                    id: "slider",
+                    min: 0,
+                    max: 100,
+                    position: Position::Absolute,
+                    left: SLIDER_X,
+                    top: SLIDER_Y,
+                    width: SLIDER_W,
+                    height: SLIDER_H
+                )
+            }
+        };
+        ui! {
+            View (width: W, height: H - 14) [
+                TabContent {
+                    tab_bar: id("tabs"),
+                    index: 2,
+                },
+            ] {
+                Switch (
+                    id: "switch",
+                    position: Position::Absolute,
+                    left: SWITCH_X,
+                    top: SWITCH_Y,
+                    width: SWITCH_W,
+                    height: SWITCH_H
+                )
+            }
+        };
+    });
+    let mut world = app.world;
+    let slider = world.find_by_id("slider").unwrap();
+    let switch = world.find_by_id("switch").unwrap();
+    let tab_bar = world.find_by_id("tabs").unwrap();
     tab_pages_system(&mut world).unwrap();
-    attach_widget_input_handlers(&mut world, root);
     let viewport = Viewport::new(W, H, Fixed::ONE);
     render_system::update_layout(&mut world, root, &viewport);
     (world, root, slider, switch, tab_bar)
-}
-
-fn attach(world: &mut World, parent: Entity, child: Entity) {
-    world.insert(child, Parent(parent));
-    if let Some(c) = world.get_mut::<Children>(parent) {
-        c.0.push(child);
-    }
 }
 
 /// Drive a single Tap (Down + Up + drain + bubble) at (x, y).

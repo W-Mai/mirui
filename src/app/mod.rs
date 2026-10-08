@@ -862,10 +862,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .unwrap_or_else(crate::core::time::clock_now_ns)
     }
 
+    /// Select a constructed root without rebuilding or reattaching its descendants.
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
         self.world.insert_resource(crate::ui::WidgetRoot(root));
-        crate::input::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
         crate::input::event::sim::set_sim_root(&mut self.world, root);
         self.world.reserve_dirty_traversal_stack();
     }
@@ -1597,8 +1597,9 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
         self
     }
 
-    /// Register the root via [`App::set_root`] and return its entity.
+    /// Initialize the completed root, select it via [`App::set_root`], and return its entity.
     pub fn id(self) -> Entity {
+        crate::input::event::widget_input::attach_handlers_for(&mut self.app.world, self.entity);
         self.app.set_root(self.entity);
         self.entity
     }

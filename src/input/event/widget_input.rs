@@ -48,27 +48,8 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
     }
 }
 
-pub fn attach_handlers_for(world: &mut World, entity: Entity) {
+pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
     if let Some(plan) = input_attach_plan(world) {
-        apply_input_attach_plan(world, entity, &plan);
-    }
-}
-
-/// Walk the widget tree from `root` and auto-install gesture/key
-/// handlers on built-in widgets that don't already have one. Call once
-/// after building the tree.
-pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
-    let Some(plan) = input_attach_plan(world) else {
-        return;
-    };
-    let mut stack = alloc::vec::Vec::with_capacity(16);
-    stack.push(root);
-    while let Some(entity) = stack.pop() {
-        if let Some(children) = world.get::<crate::ui::Children>(entity) {
-            for &child in &children.0 {
-                stack.push(child);
-            }
-        }
         apply_input_attach_plan(world, entity, &plan);
     }
 }

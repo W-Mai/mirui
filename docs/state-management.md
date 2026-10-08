@@ -91,6 +91,8 @@ Typed builders retain their widget type across `bind_property`, `on_event`, and 
 
 Static tuple components are inserted before any attachment or binding executes, with the last component of a given type taking precedence. Pending properties and events use stack-held tuples rather than an allocated container. Entity storage and effect and callback registration retain their existing construction-time allocations; installed bindings add no allocation to repeated Model updates or event execution.
 
+The root builder initializes its attachment hooks when `id()` completes, after style and safe-area overrides. `App::set_root` selects an already constructed tree; it does not repeat attachment hooks or rebuild descendant widgets. Register widget Views before constructing their nodes.
+
 Compute resource-backed arguments before passing them to `ui!`, `format!`, or another macro; the composition attribute does not rewrite another macro's tokens. Required resources report missing values as programming errors, while optional reads receive `None`. Composition inserts and removals are immediate; structural changes during System or Event callbacks continue through deferred `commands!`. Resource access adds no heap storage; registering a new resource type still uses the existing resource store's allocation.
 
 CoverFlow and Particles install their bounds from within their compositions through `res!().insert(...)`. Shapes, Butterfly, and Vector Mandala read an optional MonoClock before building their trees, retaining zero start time when the clock is absent.

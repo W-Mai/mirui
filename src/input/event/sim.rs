@@ -2004,14 +2004,11 @@ mod tests {
     use crate::ui::widgets::switch::Switch;
     use crate::ui::widgets::tab_pages::{TabContent, tab_pages_system};
     use crate::ui::widgets::tabbar::TabBar;
-    use crate::ui::{Children, Parent};
-
     fn build_widget_world() -> (World, Entity, Entity, Entity) {
         let mut app = crate::app::App::headless(128, 128);
         app.with_default_widgets();
-        let mut world = app.world;
-
-        let root = WidgetBuilder::new(&mut world)
+        let root = app
+            .spawn_root()
             .layout(LayoutStyle {
                 direction: FlexDirection::Column,
                 width: Dimension::px(128),
@@ -2019,77 +2016,57 @@ mod tests {
                 ..Default::default()
             })
             .id();
-
-        let tab_bar = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                width: Dimension::px(128),
-                height: Dimension::px(14),
-                ..Default::default()
-            })
-            .id();
-        world.insert(tab_bar, TabBar::new(3));
-        world.insert(tab_bar, Parent(root));
-        if let Some(rc) = world.get_mut::<Children>(root) {
-            rc.0.push(tab_bar);
-        }
-
-        let make_page = |world: &mut World, idx: u8| -> Entity {
-            let p = WidgetBuilder::new(world)
-                .layout(LayoutStyle {
-                    width: Dimension::px(128),
-                    height: Dimension::px(114),
+        app.compose(root, |cx| {
+            crate::ui! {
+                TabBar (id: "tabs", count: 3, width: 128, height: 14)
+            };
+            crate::ui! {
+                View (
+                    width: 128,
+                    height: 114,
                     align: AlignItems::Center,
-                    justify: JustifyContent::Center,
-                    ..Default::default()
-                })
-                .id();
-            world.insert(
-                p,
-                TabContent {
-                    tab_bar,
-                    index: idx,
-                },
-            );
-            world.insert(p, Parent(root));
-            if let Some(rc) = world.get_mut::<Children>(root) {
-                rc.0.push(p);
-            }
-            p
-        };
-
-        let _list_page = make_page(&mut world, 0);
-
-        let slide_page = make_page(&mut world, 1);
-        let slider = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                width: Dimension::px(108),
-                height: Dimension::px(12),
-                ..Default::default()
-            })
-            .id();
-        world.insert(slider, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
-        world.insert(slider, Parent(slide_page));
-        if let Some(rc) = world.get_mut::<Children>(slide_page) {
-            rc.0.push(slider);
-        }
-
-        let switch_page = make_page(&mut world, 2);
-        let switch = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                width: Dimension::px(50),
-                height: Dimension::px(26),
-                ..Default::default()
-            })
-            .id();
-        world.insert(switch, Switch::new());
-        world.insert(switch, Parent(switch_page));
-        if let Some(rc) = world.get_mut::<Children>(switch_page) {
-            rc.0.push(switch);
-        }
-
-        crate::input::event::widget_input::attach_widget_input_handlers(&mut world, root);
-        super::set_sim_root(&mut world, root);
-
+                    justify: JustifyContent::Center
+                ) [
+                    TabContent {
+                        tab_bar: id("tabs"),
+                        index: 0,
+                    },
+                ]
+            };
+            crate::ui! {
+                View (
+                    width: 128,
+                    height: 114,
+                    align: AlignItems::Center,
+                    justify: JustifyContent::Center
+                ) [
+                    TabContent {
+                        tab_bar: id("tabs"),
+                        index: 1,
+                    },
+                ] {
+                    Slider (id: "slider", min: 0, max: 100, width: 108, height: 12)
+                }
+            };
+            crate::ui! {
+                View (
+                    width: 128,
+                    height: 114,
+                    align: AlignItems::Center,
+                    justify: JustifyContent::Center
+                ) [
+                    TabContent {
+                        tab_bar: id("tabs"),
+                        index: 2,
+                    },
+                ] {
+                    Switch (id: "switch", width: 50, height: 26)
+                }
+            };
+        });
+        let world = app.world;
+        let slider = world.find_by_id("slider").unwrap();
+        let switch = world.find_by_id("switch").unwrap();
         (world, root, slider, switch)
     }
 

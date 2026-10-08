@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Root attachment runs when the root builder completes. Selecting an existing root does not repeat attachment hooks or traverse descendants for initialization.
 - Typed widget builders construct through `App::compose` with nested child scopes, component tuples, reactive property bindings, and typed events. Static components finish before attachment, property initialization, and callback installation. The builder form and SDL GPU example use Model-bound controls without direct World access.
 - `#[compose]` creates stack-held composition factories. Application entry points execute them through `app.compose(parent, panel(arguments))`; direct child and Niche syntax remains unchanged. Parameters are retained until execution, and Model validation and resource access run in the construction scope.
 - Declarative construction connects parents and registers final widget IDs before View attachment and reactive initialization. Tree, conditional, list, and Niche construction share the same node-finalization path.
