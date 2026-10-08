@@ -1,9 +1,7 @@
 use mirui::compose;
-use mirui::ecs::World;
 use mirui::ui;
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::widgets::Text;
-use mirui::ui::{Children, IdMap, NicheMap, ViewRegistry};
+use mirui::ui::{Children, NicheMap};
 
 #[compose]
 fn composed_middle() -> mirui::ecs::Entity {
@@ -30,19 +28,16 @@ ui!(compose OrderedCard {
 
 #[test]
 fn compose_roots_attach_in_declaration_order() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut registry = ViewRegistry::default();
-    registry.insert(ui!(compose OrderedCard));
-    world.insert_resource(registry);
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose OrderedCard));
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             OrderedCard ()
         }
-    };
+    });
+    let world = &app.world;
 
     let card = world.get::<Children>(root).unwrap().0[0];
     let middle = world.get::<NicheMap>(card).unwrap().get("middle").unwrap();

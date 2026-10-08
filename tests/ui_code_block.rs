@@ -1,21 +1,17 @@
-use mirui::ecs::{Entity, World};
+use mirui::ecs::Entity;
 use mirui::ui;
-use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::Parent;
 use mirui::ui::widgets::Text;
-use mirui::ui::{IdMap, Parent, ViewRegistry};
 
 #[test]
 fn ui_macro_splices_code_block() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::default());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(64, 64);
+    let root = app.spawn_root().id();
 
     let mut side_effect = 0u32;
     let label = "middle";
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             View () {
                 Text ("before")
@@ -26,14 +22,15 @@ fn ui_macro_splices_code_block() {
                 Text ("after")
             }
         }
-    };
+    });
+    let world = &app.world;
 
     assert_eq!(side_effect, 42, "code block executed exactly once");
 
     let texts: Vec<Entity> = world.query::<Text>().collect();
     let contents: Vec<String> = texts
         .iter()
-        .map(|&t| world.get::<Text>(t).unwrap().resolve(&world).to_string())
+        .map(|&t| world.get::<Text>(t).unwrap().resolve(world).to_string())
         .collect();
     assert!(contents.iter().any(|s| s == "before"));
     assert!(contents.iter().any(|s| s == "after"));

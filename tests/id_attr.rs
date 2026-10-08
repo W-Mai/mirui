@@ -1,23 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::World;
     use mirui::ui;
-    use mirui::ui::IdMap;
-    use mirui::ui::builder::WidgetBuilder;
 
     #[test]
     fn id_attr_registers_in_idmap() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
+        let mut app = mirui::app::App::headless(64, 64);
 
-        let root = WidgetBuilder::new(&mut world).id();
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 slot (id: "src")
             }
-        };
+        });
+        let world = &app.world;
 
         let found = world.find_by_id("src").expect("id 'src' must register");
         assert_ne!(found, root);
@@ -27,17 +23,16 @@ mod tests {
     fn id_attr_attaches_named_id_marker() {
         use mirui::ui::NamedId;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
+        let mut app = mirui::app::App::headless(64, 64);
 
-        let root = WidgetBuilder::new(&mut world).id();
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 slot (id: "hero")
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world.find_by_id("hero").expect("registered");
         let marker = world.get::<NamedId>(entity).expect("NamedId attached");
@@ -48,12 +43,10 @@ mod tests {
     fn id_lookup_supports_bare_ident() {
         struct LinkTo(mirui::ecs::Entity);
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = mirui::app::App::headless(64, 64);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 container (direction: mirui::ui::layout::FlexDirection::Row) {
                     src (id: "anchor")
@@ -62,7 +55,8 @@ mod tests {
                     ]
                 }
             }
-        };
+        });
+        let world = &app.world;
 
         let anchor = world.find_by_id("anchor").expect("anchor registered");
         let entities = world.query::<LinkTo>().collect();
@@ -74,12 +68,10 @@ mod tests {
     fn id_lookup_in_enchant_resolves_to_entity() {
         struct LinkTo(mirui::ecs::Entity);
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = mirui::app::App::headless(64, 64);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 container (direction: mirui::ui::layout::FlexDirection::Row) {
                     src (id: "anchor")
@@ -88,7 +80,8 @@ mod tests {
                     ]
                 }
             }
-        };
+        });
+        let world = &app.world;
 
         let anchor = world.find_by_id("anchor").expect("anchor registered");
 
@@ -104,19 +97,17 @@ mod tests {
     #[test]
     #[should_panic(expected = "widget id `shared` is already bound to another entity")]
     fn duplicate_id_attributes_are_rejected() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
+        let mut app = mirui::app::App::headless(64, 64);
 
-        let root = WidgetBuilder::new(&mut world).id();
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 row (direction: mirui::ui::layout::FlexDirection::Row) {
                     first (id: "shared")
                     second (id: "shared")
                 }
             }
-        };
+        });
     }
 }

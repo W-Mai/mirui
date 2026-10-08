@@ -1,12 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::World;
     use mirui::ui;
-    use mirui::ui::IdMap;
     use mirui::ui::NicheMap;
     use mirui::ui::Parent;
-    use mirui::ui::ViewRegistry;
-    use mirui::ui::builder::WidgetBuilder;
 
     ui!(compose Card {
         @@header @@body @@footer
@@ -16,16 +12,12 @@ mod tests {
     fn niche_resolves_to_anchor() {
         use mirui::ui::widgets::Text;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let mut reg = ViewRegistry::default();
-        reg.insert(ui!(compose Card));
-        world.insert_resource(reg);
+        let mut app = mirui::app::App::headless(64, 64);
+        app.with_widget(ui!(compose Card));
 
-        let root = WidgetBuilder::new(&mut world).id();
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Card () {
                     @body {
@@ -36,7 +28,8 @@ mod tests {
                     }
                 }
             }
-        };
+        });
+        let world = &app.world;
 
         let cards = world.query::<Card>().collect();
         assert_eq!(cards.len(), 1);
@@ -53,7 +46,7 @@ mod tests {
         for &t in &text_entities {
             let parent = world.get::<Parent>(t).unwrap().0;
             let text = world.get::<Text>(t).unwrap();
-            let bytes = text.resolve(&world);
+            let bytes = text.resolve(world);
             if &*bytes == "body content" {
                 assert_eq!(parent, body);
             } else if &*bytes == "footer text" {

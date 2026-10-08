@@ -1,8 +1,7 @@
-use mirui::ecs::{Entity, World};
+use mirui::ecs::Entity;
 use mirui::ui;
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::widgets::Text;
-use mirui::ui::{IdMap, NicheMap, Parent, ViewRegistry};
+use mirui::ui::{NicheMap, Parent};
 
 ui!(compose MoldCard {
     @@header @@body @@footer
@@ -21,16 +20,12 @@ ui!(compose NestedCard {
 
 #[test]
 fn mold_generates_niche_map_via_attach() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::default();
-    reg.insert(ui!(compose MoldCard));
-    world.insert_resource(reg);
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose MoldCard));
 
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             MoldCard () {
                 @body {
@@ -41,7 +36,8 @@ fn mold_generates_niche_map_via_attach() {
                 }
             }
         }
-    };
+    });
+    let world = &app.world;
 
     let cards: Vec<Entity> = world.query::<MoldCard>().collect();
     assert_eq!(cards.len(), 1, "mold spawns exactly one MoldCard entity");
@@ -60,7 +56,7 @@ fn mold_generates_niche_map_via_attach() {
     for &t in &texts {
         let parent = world.get::<Parent>(t).expect("text has Parent").0;
         let text_val = world.get::<Text>(t).expect("text has Text");
-        let bytes = text_val.resolve(&world);
+        let bytes = text_val.resolve(world);
         match &*bytes {
             "body content" => assert_eq!(parent, body),
             "footer text" => assert_eq!(parent, footer),
@@ -81,16 +77,12 @@ fn mold_generates_niche_map_via_attach() {
 
 #[test]
 fn mold_body_expands_nested_widget_tree() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::default();
-    reg.insert(ui!(compose NestedCard));
-    world.insert_resource(reg);
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose NestedCard));
 
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             NestedCard () {
                 @header {
@@ -101,7 +93,8 @@ fn mold_body_expands_nested_widget_tree() {
                 }
             }
         }
-    };
+    });
+    let world = &app.world;
 
     let cards: Vec<Entity> = world.query::<NestedCard>().collect();
     assert_eq!(cards.len(), 1);
@@ -157,7 +150,7 @@ fn mold_body_expands_nested_widget_tree() {
     for &t in &texts {
         let parent = world.get::<Parent>(t).unwrap().0;
         let text_val = world.get::<Text>(t).unwrap();
-        let bytes = text_val.resolve(&world);
+        let bytes = text_val.resolve(world);
         match &*bytes {
             "title" => assert_eq!(parent, header_slot),
             "content" => assert_eq!(parent, body_slot),
@@ -177,20 +170,17 @@ ui!(compose FallbackCard {
 
 #[test]
 fn mold_unfilled_slot_keeps_fallback() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::default();
-    reg.insert(ui!(compose FallbackCard));
-    world.insert_resource(reg);
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose FallbackCard));
 
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             FallbackCard ()
         }
-    };
+    });
+    let world = &app.world;
 
     let cards: Vec<Entity> = world.query::<FallbackCard>().collect();
     assert_eq!(cards.len(), 1);
@@ -203,7 +193,7 @@ fn mold_unfilled_slot_keeps_fallback() {
     assert_eq!(texts.len(), 2, "both slots keep their fallback text");
     for &t in &texts {
         let parent = world.get::<Parent>(t).unwrap().0;
-        let bytes = world.get::<Text>(t).unwrap().resolve(&world);
+        let bytes = world.get::<Text>(t).unwrap().resolve(world);
         match &*bytes {
             "Default header" => assert_eq!(parent, header),
             "Default body" => assert_eq!(parent, body),
@@ -214,16 +204,12 @@ fn mold_unfilled_slot_keeps_fallback() {
 
 #[test]
 fn mold_filled_slot_despawns_fallback() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::default();
-    reg.insert(ui!(compose FallbackCard));
-    world.insert_resource(reg);
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose FallbackCard));
 
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             FallbackCard () {
                 @body {
@@ -231,7 +217,8 @@ fn mold_filled_slot_despawns_fallback() {
                 }
             }
         }
-    };
+    });
+    let world = &app.world;
 
     let cards: Vec<Entity> = world.query::<FallbackCard>().collect();
     assert_eq!(cards.len(), 1);
@@ -243,7 +230,7 @@ fn mold_filled_slot_despawns_fallback() {
     let texts: Vec<Entity> = world.query::<Text>().collect();
     let contents: Vec<String> = texts
         .iter()
-        .map(|&t| (t, world.get::<Text>(t).unwrap().resolve(&world).to_string()))
+        .map(|&t| (t, world.get::<Text>(t).unwrap().resolve(world).to_string()))
         .map(|(_, s)| s)
         .collect();
 
@@ -262,7 +249,7 @@ fn mold_filled_slot_despawns_fallback() {
 
     for &t in &texts {
         let parent = world.get::<Parent>(t).unwrap().0;
-        let bytes = world.get::<Text>(t).unwrap().resolve(&world);
+        let bytes = world.get::<Text>(t).unwrap().resolve(world);
         match &*bytes {
             "Default header" => assert_eq!(parent, header),
             "Custom body" => assert_eq!(parent, body),
@@ -285,16 +272,12 @@ ui!(compose SizedCard(pad: Fixed, radius: Fixed) {
 
 #[test]
 fn mold_param_values_flow_into_body_attrs() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::default();
-    reg.insert(ui!(compose SizedCard));
-    world.insert_resource(reg);
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose SizedCard));
 
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             SizedCard (
                 pad: Fixed::from_int(8),
@@ -305,7 +288,8 @@ fn mold_param_values_flow_into_body_attrs() {
                 }
             }
         }
-    };
+    });
+    let world = &app.world;
 
     let cards: Vec<Entity> = world.query::<SizedCard>().collect();
     assert_eq!(cards.len(), 1);

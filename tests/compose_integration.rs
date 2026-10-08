@@ -1,25 +1,23 @@
-use mirui::ecs::{Entity, World};
-use mirui::ui::builder::WidgetBuilder;
+use mirui::app::App;
+use mirui::ecs::Entity;
+use mirui::ui::Parent;
 use mirui::ui::widgets::Text;
-use mirui::ui::{IdMap, Parent, UiScope, ViewRegistry};
 use mirui::{compose, ui};
 
 #[compose]
 fn hello_only() {
     ui! {
-        Text("scoped hello") {}
+        Text ("scoped hello")
     };
 }
 
 #[test]
-fn ui_scope_alone_spawns_widget_under_cx_parent() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::default());
-    let root = WidgetBuilder::new(&mut world).id();
+fn composition_spawns_widgets_under_app_parent() {
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
 
-    let mut cx = UiScope::new(&mut world, root);
-    hello_only()(&mut cx);
+    app.compose(root, hello_only());
+    let world = &app.world;
 
     let texts: Vec<Entity> = world.query::<Text>().collect();
     assert_eq!(texts.len(), 1);
@@ -36,7 +34,7 @@ fn call_helper() {
 fn titled_row(title: &'static str) -> Entity {
     ui! {
         Row () {
-            Text(title)
+            Text (title)
         }
     }
 }
@@ -45,22 +43,20 @@ fn titled_row(title: &'static str) -> Entity {
 fn nested_helpers() -> Entity {
     ui! {
         Column () {
-            titled_row("alpha")
-            Text("middle")
-            titled_row("beta")
+            titled_row ("alpha")
+            Text ("middle")
+            titled_row ("beta")
         }
     }
 }
 
 #[test]
-fn ui_fn_call_form_injects_cx() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::default());
-    let root = WidgetBuilder::new(&mut world).id();
+fn ui_call_executes_compositions_in_the_current_scope() {
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
 
-    let mut cx = UiScope::new(&mut world, root);
-    call_helper()(&mut cx);
+    app.compose(root, call_helper());
+    let world = &app.world;
 
     let texts: Vec<Entity> = world.query::<Text>().collect();
     assert_eq!(
@@ -75,13 +71,11 @@ fn ui_fn_call_form_injects_cx() {
 
 #[test]
 fn compose_functions_are_tree_nodes() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::default());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
 
-    let mut cx = UiScope::new(&mut world, root);
-    let column = nested_helpers()(&mut cx);
+    let column = app.compose(root, nested_helpers());
+    let world = &app.world;
 
     assert_eq!(world.get::<Parent>(column).unwrap().0, root);
     let children = &world.get::<mirui::ui::Children>(column).unwrap().0;
@@ -91,10 +85,10 @@ fn compose_functions_are_tree_nodes() {
     }
     let first = world.get::<mirui::ui::Children>(children[0]).unwrap().0[0];
     let last = world.get::<mirui::ui::Children>(children[2]).unwrap().0[0];
-    assert_eq!(world.get::<Text>(first).unwrap().resolve(&world), "alpha");
+    assert_eq!(world.get::<Text>(first).unwrap().resolve(world), "alpha");
     assert_eq!(
-        world.get::<Text>(children[1]).unwrap().resolve(&world),
+        world.get::<Text>(children[1]).unwrap().resolve(world),
         "middle"
     );
-    assert_eq!(world.get::<Text>(last).unwrap().resolve(&world), "beta");
+    assert_eq!(world.get::<Text>(last).unwrap().resolve(world), "beta");
 }

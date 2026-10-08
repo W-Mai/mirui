@@ -2,10 +2,9 @@ use std::cell::RefCell;
 
 use mirui::ecs::{Entity, World};
 use mirui::types::Fixed;
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::Padding;
 use mirui::ui::widgets::{Switch, Text};
-use mirui::ui::{Children, IdMap, NicheMap, Parent, Style, UiScope, ViewRegistry};
+use mirui::ui::{Children, NicheMap, Parent, Style};
 use mirui::{compose, ui};
 
 #[mirui::component]
@@ -209,20 +208,19 @@ fn ordered_attachment(order: &RefCell<Vec<u8>>, value: u8) -> OrderedAttachment 
 
 #[test]
 fn attachment_expressions_keep_source_order_and_same_type_last_wins() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(64, 64);
+    let root = app.spawn_root().id();
     let order = RefCell::new(Vec::new());
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             View () [
                 ordered_attachment(&order, 1),
                 ordered_attachment(&order, 2),
             ]
         }
-    };
+    });
+    let world = &app.world;
 
     assert_eq!(&*order.borrow(), &[1, 2]);
     let entities: Vec<_> = world.query::<OrderedAttachment>().collect();
@@ -279,13 +277,11 @@ fn reactive_row_roots_connect_once_and_keep_nested_children() {
         let mut app = mirui::app::App::headless(32, 32);
         let root = app.spawn_root().id();
         let items = mirui::core::reactive::Signal::new(vec![1_u8, 2]);
-        let list = app.compose(root, |cx| {
-            if keyed {
-                keyed_rows(items.clone())(cx)
-            } else {
-                indexed_rows(items.clone())(cx)
-            }
-        });
+        let list = if keyed {
+            app.compose(root, keyed_rows(items.clone()))
+        } else {
+            app.compose(root, indexed_rows(items.clone()))
+        };
         let original = app.world.get::<Children>(list).unwrap().0.clone();
         assert_eq!(original.len(), 2);
         items.set(if keyed { vec![2, 1, 3] } else { vec![1, 2, 3] });
@@ -333,13 +329,11 @@ fn parent_with_lowercase_children() -> Entity {
 
 #[test]
 fn lowercase_compose_calls_remain_bare_tree_children() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(ViewRegistry::default());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(64, 64);
+    let root = app.spawn_root().id();
 
-    let mut cx = UiScope::new(&mut world, root);
-    let column = parent_with_lowercase_children()(&mut cx);
+    let column = app.compose(root, parent_with_lowercase_children());
+    let world = &app.world;
 
     let children = &world
         .get::<Children>(column)
@@ -349,11 +343,11 @@ fn lowercase_compose_calls_remain_bare_tree_children() {
     assert_eq!(world.get::<Parent>(children[0]).unwrap().0, column);
     assert_eq!(world.get::<Parent>(children[1]).unwrap().0, column);
     assert_eq!(
-        world.get::<Text>(children[0]).unwrap().resolve(&world),
+        world.get::<Text>(children[0]).unwrap().resolve(world),
         "first"
     );
     assert_eq!(
-        world.get::<Text>(children[1]).unwrap().resolve(&world),
+        world.get::<Text>(children[1]).unwrap().resolve(world),
         "second"
     );
 }
@@ -403,15 +397,11 @@ fn assert_wrapper_style(world: &World, niche: Entity, pad: Fixed, radius: Fixed)
 
 #[test]
 fn parameterized_niche_instances_keep_independent_fallback_and_fill() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut registry = ViewRegistry::default();
-    registry.insert(ui!(compose ParameterizedNicheCard));
-    world.insert_resource(registry);
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(64, 64);
+    app.with_widget(ui!(compose ParameterizedNicheCard));
+    let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 ParameterizedNicheCard (
@@ -434,10 +424,11 @@ fn parameterized_niche_instances_keep_independent_fallback_and_fill() {
                 }
             }
         }
-    };
+    });
+    let world = &app.world;
 
-    let first = tagged_entity(&world, 1);
-    let second = tagged_entity(&world, 2);
+    let first = tagged_entity(world, 1);
+    let second = tagged_entity(world, 2);
     let first_body = world
         .get::<NicheMap>(first)
         .expect("first NicheMap")
@@ -450,8 +441,8 @@ fn parameterized_niche_instances_keep_independent_fallback_and_fill() {
         .expect("second body Niche");
 
     assert_ne!(first_body, second_body);
-    assert_eq!(single_text_child(&world, first_body), "first fallback");
-    assert_eq!(single_text_child(&world, second_body), "second fill");
-    assert_wrapper_style(&world, first_body, Fixed::from_int(3), Fixed::from_int(5));
-    assert_wrapper_style(&world, second_body, Fixed::from_int(7), Fixed::from_int(11));
+    assert_eq!(single_text_child(world, first_body), "first fallback");
+    assert_eq!(single_text_child(world, second_body), "second fill");
+    assert_wrapper_style(world, first_body, Fixed::from_int(3), Fixed::from_int(5));
+    assert_wrapper_style(world, second_body, Fixed::from_int(7), Fixed::from_int(11));
 }
