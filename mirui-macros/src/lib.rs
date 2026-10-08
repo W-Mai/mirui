@@ -318,7 +318,7 @@ struct WidgetCmd {
     text_tuple_value: Option<proc_macro2::TokenStream>,
     text_capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
-    id_registrations: Vec<proc_macro2::TokenStream>,
+    id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
     layout_binds: Vec<LayoutBind>,
@@ -334,7 +334,7 @@ struct ParsedAttrs {
     text_tuple_value: Option<proc_macro2::TokenStream>,
     text_capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
-    id_registrations: Vec<proc_macro2::TokenStream>,
+    id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
     reactive_binds: Vec<ReactiveBind>,
     layout_binds: Vec<LayoutBind>,
@@ -411,7 +411,7 @@ impl MiruiRune {
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut text_capacity: Option<proc_macro2::TokenStream> = None;
         let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
-        let mut id_registrations = Vec::new();
+        let mut id = None;
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
         let mut reactive_binds: Vec<ReactiveBind> = Vec::new();
         let mut layout_binds = Vec::new();
@@ -649,7 +649,7 @@ impl MiruiRune {
                 "top" => layout_fields.push(quote! { top: mirui::types::Dimension::from(#value) }),
                 "image" => builder_calls.push(quote! { .image(#value) }),
                 "id" => match Self::extract_id_str(value) {
-                    Some(s) => id_registrations.push(quote! { #s }),
+                    Some(s) => id = Some(s),
                     None => errors.push(
                         syn::Error::new_spanned(
                             value,
@@ -687,7 +687,7 @@ impl MiruiRune {
             text_tuple_value,
             text_capacity,
             text_paragraph_value,
-            id_registrations,
+            id,
             id_lookups,
             reactive_binds,
             layout_binds,
@@ -728,9 +728,10 @@ impl MiruiRune {
         cmd: &Cmd,
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
+        reserved: Option<&syn::Ident>,
     ) -> proc_macro2::TokenStream {
         match cmd {
-            Cmd::Widget(w) => Self::emit_widget(w, world, parent_var),
+            Cmd::Widget(w) => Self::emit_widget(w, world, parent_var, reserved),
             Cmd::Compose(c) => Self::emit_compose(c, world, parent_var),
             Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
@@ -738,6 +739,65 @@ impl MiruiRune {
             Cmd::Match(m) => Self::emit_match(m, world, parent_var),
             Cmd::CodeBlock(ts) => quote! { #ts },
         }
+    }
+
+    fn references_id(cmd: &Cmd, key: &str) -> bool {
+        let body_references = |body: &[Cmd]| body.iter().any(|cmd| Self::references_id(cmd, key));
+        match cmd {
+            Cmd::Widget(w) => {
+                w.id_lookups.iter().any(|(_, name)| name == key) || body_references(&w.children)
+            }
+            Cmd::Compose(c) => c.id_lookups.iter().any(|(_, name)| name == key),
+            Cmd::Iter(i) => body_references(&i.body),
+            Cmd::If(i) => i
+                .branches
+                .iter()
+                .any(|branch| body_references(&branch.body)),
+            Cmd::Niche(n) => body_references(&n.body),
+            Cmd::Match(m) => m.arms.iter().any(|arm| body_references(&arm.body)),
+            Cmd::CodeBlock(_) => false,
+        }
+    }
+
+    fn emit_siblings<'a>(
+        body: &'a [Cmd],
+        world: &'a proc_macro2::TokenStream,
+        parent_var: &'a proc_macro2::TokenStream,
+    ) -> impl Iterator<Item = proc_macro2::TokenStream> + 'a {
+        let mut declarations = proc_macro2::TokenStream::new();
+        let reserved: Vec<_> = body
+            .iter()
+            .enumerate()
+            .map(|(index, cmd)| {
+                let Cmd::Widget(widget) = cmd else {
+                    return None;
+                };
+                let id = widget.id.as_ref()?;
+                let key = id.value();
+                if !body[..index]
+                    .iter()
+                    .any(|cmd| Self::references_id(cmd, &key))
+                {
+                    return None;
+                }
+                let var = quote::format_ident!("__reserved_{}", widget.var);
+                declarations.extend(quote! {
+                    let #var = ::mirui::__macro_support::ReservedWidget::new(#world, #id);
+                });
+                Some(var)
+            })
+            .collect();
+        body.iter()
+            .zip(reserved)
+            .enumerate()
+            .map(move |(index, (cmd, reserved))| {
+                let stmt = Self::emit_cmd(cmd, world, parent_var, reserved.as_ref());
+                if index == 0 {
+                    quote! { #declarations #stmt }
+                } else {
+                    stmt
+                }
+            })
     }
 
     fn emit_compose(
@@ -839,6 +899,7 @@ impl MiruiRune {
         cmd: &WidgetCmd,
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
+        reserved: Option<&syn::Ident>,
     ) -> proc_macro2::TokenStream {
         let var = &cmd.var;
         let attrs = &cmd.attrs;
@@ -865,8 +926,12 @@ impl MiruiRune {
             quote! { .layout(mirui::ui::layout::LayoutStyle { #(#layout_fields,)* ..Default::default() }) }
         };
 
+        let builder = match reserved {
+            Some(reserved) => quote! { #reserved.build(#world) },
+            None => quote! { mirui::ui::builder::WidgetBuilder::new(#world) },
+        };
         tokens.extend(quote! {
-            let #var = mirui::ui::builder::WidgetBuilder::new(#world)
+            let #var = #builder
                 #(#attrs)*
                 #layout_call
                 .id();
@@ -1030,7 +1095,7 @@ impl MiruiRune {
                 (#world).insert(#var, #enchant);
             });
         }
-        for id_lit in &cmd.id_registrations {
+        if let Some(id_lit) = &cmd.id {
             tokens.extend(quote! {
                 (#world).insert(#var, mirui::ui::NamedId(#id_lit));
             });
@@ -1102,9 +1167,10 @@ impl MiruiRune {
         }
 
         let var_ts = quote! { #var };
-        for child in &cmd.children {
-            tokens.extend(Self::emit_cmd(child, world, &var_ts));
-        }
+        tokens.extend(
+            Self::emit_siblings(&cmd.children, world, &var_ts)
+                .collect::<proc_macro2::TokenStream>(),
+        );
 
         tokens
     }
@@ -1301,10 +1367,8 @@ impl MiruiRune {
         let scrutinee = &cmd.scrutinee;
         let arm_tokens = cmd.arms.iter().map(|arm| {
             let pat = &arm.pat;
-            let mut body_tokens = proc_macro2::TokenStream::new();
-            for child in &arm.body {
-                body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-            }
+            let body_tokens: proc_macro2::TokenStream =
+                Self::emit_siblings(&arm.body, world, parent_var).collect();
             quote! { #pat => { #body_tokens } }
         });
 
@@ -1324,10 +1388,8 @@ impl MiruiRune {
             if let Some(slot_var) = &cmd.mold_slot_var {
                 let slot_name = cmd.name.to_string();
                 let slot_var_ts = quote! { #slot_var };
-                let mut fallback = proc_macro2::TokenStream::new();
-                for child in &cmd.body {
-                    fallback.extend(Self::emit_cmd(child, world, &slot_var_ts));
-                }
+                let fallback: proc_macro2::TokenStream =
+                    Self::emit_siblings(&cmd.body, world, &slot_var_ts).collect();
                 return quote! {
                     let __slot_parent = #parent_var;
                     let #slot_var = ::mirui::ui::builder::WidgetBuilder::new(#world).id();
@@ -1361,10 +1423,8 @@ impl MiruiRune {
             quote! {}
         };
 
-        let mut body_tokens = proc_macro2::TokenStream::new();
-        for child in &cmd.body {
-            body_tokens.extend(Self::emit_cmd(child, world, &niche_var_ts));
-        }
+        let body_tokens: proc_macro2::TokenStream =
+            Self::emit_siblings(&cmd.body, world, &niche_var_ts).collect();
 
         let widget_label = quote! { stringify!(#parent_var) };
         quote! {
@@ -1416,10 +1476,8 @@ impl MiruiRune {
         let iterable = &cmd.iterable;
         let variable = &cmd.variable;
 
-        let mut body_tokens = proc_macro2::TokenStream::new();
-        for child in &cmd.body {
-            body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-        }
+        let body_tokens: proc_macro2::TokenStream =
+            Self::emit_siblings(&cmd.body, world, parent_var).collect();
 
         quote! {
             for #variable in #iterable {
@@ -1445,11 +1503,7 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
-        let mut body_tokens = proc_macro2::TokenStream::new();
-        for child in body {
-            body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-        }
-        body_tokens
+        Self::emit_siblings(body, world, parent_var).collect()
     }
 
     fn emit_if_static(
@@ -1484,8 +1538,8 @@ impl MiruiRune {
         let p = quote! { __parent };
         let mut stmts = proc_macro2::TokenStream::new();
         let mut root: Option<proc_macro2::TokenStream> = None;
-        for child in body {
-            stmts.extend(Self::emit_cmd(child, &w, &p));
+        for (child, statement) in body.iter().zip(Self::emit_siblings(body, &w, &p)) {
+            stmts.extend(statement);
             let child_var = match child {
                 Cmd::Widget(cw) => Some(&cw.var),
                 Cmd::Compose(compose) => Some(&compose.var),
@@ -1911,7 +1965,7 @@ impl DsRune for MiruiRune {
             text_tuple_value: parsed.text_tuple_value,
             text_capacity: parsed.text_capacity,
             text_paragraph_value: parsed.text_paragraph_value,
-            id_registrations: parsed.id_registrations,
+            id: parsed.id,
             id_lookups,
             reactive_binds: parsed.reactive_binds,
             layout_binds: parsed.layout_binds,
@@ -2048,8 +2102,12 @@ impl DsRune for MiruiRune {
 
         let root_cmds = &self.stack[0];
         let mut last_var = None;
-        for cmd in root_cmds {
-            tokens.extend(Self::emit_cmd(cmd, world, parent_entity));
+        for (cmd, statement) in
+            root_cmds
+                .iter()
+                .zip(Self::emit_siblings(root_cmds, world, parent_entity))
+        {
+            tokens.extend(statement);
             match cmd {
                 Cmd::Widget(w) => {
                     last_var = Some(w.var.clone());

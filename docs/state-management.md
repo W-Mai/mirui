@@ -101,6 +101,17 @@ The I18n composition borrows an optional FontManager to register its font and in
 
 Application creation supplies the named-widget ID registry. Compositions declare `id: ...` without initializing that registry, and existing named entries remain available to later compositions.
 
+`id("source")` and `id(source)` can reference a later named widget in the same static sibling sequence, including references inside an earlier sibling's children or child-composition arguments. The macro reserves that widget's identity before executing the sequence; it initializes components, attaches the widget, and appends children in declaration order. A forward reference supplies an `Entity`, not an already initialized component set. IDs declared inside a conditional branch, loop body, child composition, or Niche are not reserved outside that scope. Names remain unique across the application.
+
+```rust,ignore
+ui! {
+    View () {
+        View () [DropShadow::new(id("source"))]
+        View (id: "source", width: 80, height: 40)
+    }
+}
+```
+
 Declarative nodes connect to their parent and register their final `NamedId` after static components are installed and before matching View attachment hooks run. Reactive property initialization and event installation follow attachment. Each node has one named identity; declaring another name for the same node replaces that marker, not an alias. Layout containers gain input feedback only when a matching widget View provides it.
 
 Place `#[model]` on a struct and one inherent impl to generate its instance

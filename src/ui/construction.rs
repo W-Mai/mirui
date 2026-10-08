@@ -4,10 +4,33 @@ use super::{Children, IdMap, NamedId, Parent, Style, Widget};
 
 pub(crate) fn spawn_widget(world: &mut World) -> Entity {
     let entity = world.spawn_empty();
+    initialize_widget(world, entity);
+    entity
+}
+
+fn initialize_widget(world: &mut World, entity: Entity) {
     world.insert(entity, Widget);
     world.insert(entity, Style::default());
     world.insert(entity, Children(alloc::vec::Vec::new()));
-    entity
+}
+
+#[doc(hidden)]
+pub struct ReservedWidget(Entity);
+
+impl ReservedWidget {
+    pub fn new(world: &mut World, name: &'static str) -> Self {
+        let entity = world.spawn_empty();
+        world
+            .resource_mut::<IdMap>()
+            .expect("widget construction requires an ID registry")
+            .insert(name, entity);
+        Self(entity)
+    }
+
+    pub fn build(self, world: &mut World) -> super::builder::WidgetBuilder<'_> {
+        initialize_widget(world, self.0);
+        super::builder::WidgetBuilder::from_entity(world, self.0)
+    }
 }
 
 #[doc(hidden)]

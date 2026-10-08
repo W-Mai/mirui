@@ -200,7 +200,23 @@ pub fn build_widgets() {
                                 top: Dimension::percent(22),
                                 width: Dimension::percent(70),
                                 height: Dimension::percent(56)
-                            )
+                            ) [
+                                DropShadow::new(id("effect_shadow_src"))
+                                    .with_blur_radius(6)
+                                    .with_offset(4, 4)
+                                    .with_color(ColorToken::Shadow)
+                                    .with_opacity(160),
+                                ShadowOffset(
+                                    Tween::new(
+                                            Fixed::from_int(2),
+                                            Fixed::from_int(8),
+                                            1500,
+                                            ease::ease_in_out_cubic,
+                                            PlayMode::PingPong,
+                                        )
+                                        .into(),
+                                ),
+                            ]
                             View (
                                 id: "effect_shadow_src",
                                 position: Position::Absolute,
@@ -220,7 +236,22 @@ pub fn build_widgets() {
                                 top: Dimension::percent(22),
                                 width: Dimension::percent(70),
                                 height: Dimension::percent(56)
-                            )
+                            ) [
+                                DropGlow::new(id("effect_glow_src"))
+                                    .with_blur_radius(12)
+                                    .with_color(ColorToken::Primary)
+                                    .with_opacity(180),
+                                GlowPulse(
+                                    Tween::new(
+                                            Fixed::from_int(6),
+                                            Fixed::from_int(18),
+                                            1800,
+                                            ease::ease_in_out_cubic,
+                                            PlayMode::PingPong,
+                                        )
+                                        .into(),
+                                ),
+                            ]
                             View (
                                 id: "effect_glow_src",
                                 position: Position::Absolute,
@@ -237,63 +268,4 @@ pub fn build_widgets() {
             }
         }
     };
-
-    let sh_fx = cx
-        .world_mut()
-        .find_by_id("effect_shadow_fx")
-        .expect("shadow effect");
-    let sh_src = cx
-        .world_mut()
-        .find_by_id("effect_shadow_src")
-        .expect("shadow source");
-    cx.world_mut().insert(
-        sh_fx,
-        DropShadow::new(sh_src)
-            .with_blur_radius(6)
-            .with_offset(4, 4)
-            .with_color(ColorToken::Shadow)
-            .with_opacity(160),
-    );
-    cx.world_mut().insert(
-        sh_fx,
-        ShadowOffset(
-            Tween::new(
-                Fixed::from_int(2),
-                Fixed::from_int(8),
-                1500,
-                ease::ease_in_out_cubic,
-                PlayMode::PingPong,
-            )
-            .into(),
-        ),
-    );
-
-    let gl_fx = cx
-        .world_mut()
-        .find_by_id("effect_glow_fx")
-        .expect("glow effect");
-    let gl_src = cx
-        .world_mut()
-        .find_by_id("effect_glow_src")
-        .expect("glow source");
-    cx.world_mut().insert(
-        gl_fx,
-        DropGlow::new(gl_src)
-            .with_blur_radius(12)
-            .with_color(ColorToken::Primary)
-            .with_opacity(180),
-    );
-    cx.world_mut().insert(
-        gl_fx,
-        GlowPulse(
-            Tween::new(
-                Fixed::from_int(6),
-                Fixed::from_int(18),
-                1800,
-                ease::ease_in_out_cubic,
-                PlayMode::PingPong,
-            )
-            .into(),
-        ),
-    );
 }

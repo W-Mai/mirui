@@ -14,6 +14,10 @@ pub struct WidgetBuilder<'a> {
 impl<'a> WidgetBuilder<'a> {
     pub fn new(world: &'a mut World) -> Self {
         let entity = super::construction::spawn_widget(world);
+        Self::from_entity(world, entity)
+    }
+
+    pub(crate) fn from_entity(world: &'a mut World, entity: Entity) -> Self {
         Self { world, entity }
     }
 

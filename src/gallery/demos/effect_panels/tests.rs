@@ -1,25 +1,48 @@
 use super::DEFAULT_VIEW;
-use super::animation::BlurPan;
+use super::animation::{BlurPan, GlowPulse, ShadowOffset};
 use super::composition::build_widgets;
 use super::runtime::setup_app;
-use crate::ecs::{DeltaTimeMs, World};
+use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::render_system::update_layout;
-use crate::ui::widgets::WidgetTransform;
-use crate::ui::{Children, ComputedRect, IdMap, Theme, UiScope};
+use crate::ui::widgets::{DropGlow, DropShadow, WidgetTransform};
+use crate::ui::{Children, ComputedRect, OffscreenRender, Parent, Theme, WidgetTextureRef};
 
 #[test]
-fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    assert!(
-        world
-            .get::<Children>(parent)
-            .is_some_and(|c| !c.0.is_empty()),
+fn effect_attachments_preserve_source_identity_and_paint_order() {
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, build_widgets());
+    let world = &app.world;
+    for (effect_id, source_id) in [
+        ("effect_shadow_fx", "effect_shadow_src"),
+        ("effect_glow_fx", "effect_glow_src"),
+    ] {
+        let effect = world.find_by_id(effect_id).unwrap();
+        let source = world.find_by_id(source_id).unwrap();
+        let parent = world.get::<Parent>(effect).unwrap().0;
+        assert_eq!(world.get::<Parent>(source).unwrap().0, parent);
+        assert_eq!(world.get::<Children>(parent).unwrap().0, [effect, source]);
+        assert_eq!(world.get::<WidgetTextureRef>(effect).unwrap().0, source);
+        assert!(world.has::<OffscreenRender>(source));
+    }
+    let shadow = world.find_by_id("effect_shadow_fx").unwrap();
+    let glow = world.find_by_id("effect_glow_fx").unwrap();
+    assert!(world.has::<ShadowOffset>(shadow));
+    assert!(world.has::<GlowPulse>(glow));
+    assert_eq!(
+        world.get::<DropShadow>(shadow).unwrap().blur_radius,
+        Fixed::from_int(6)
+    );
+    assert_eq!(
+        world.get::<DropShadow>(shadow).unwrap().offset,
+        (Fixed::from_int(4), Fixed::from_int(4))
+    );
+    assert_eq!(
+        world.get::<DropGlow>(glow).unwrap().blur_radius,
+        Fixed::from_int(12)
     );
 }
 
