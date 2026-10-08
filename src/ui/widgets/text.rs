@@ -678,7 +678,7 @@ fn text_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     };
     let face_limit = resource.borrow().limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
-        world,
+        world.resource::<crate::render::font::FontManager>(),
         &paint.style().font_stack,
         paint.style().font_size,
         face_limit,
@@ -878,7 +878,7 @@ pub(crate) fn path_text_ink_bounds(
     let layouts = world.resource::<crate::text::layout::TextLayoutResource>()?;
     let face_limit = layouts.borrow().limits().fallback_faces;
     let fonts = crate::render::font::ResolvedFontStack::resolve(
-        world,
+        world.resource::<crate::render::font::FontManager>(),
         &style.font_stack,
         style.font_size,
         face_limit,
@@ -1198,7 +1198,7 @@ impl<'a> PathTextGeometry<'a> {
             .resource::<crate::text::layout::TextLayoutResource>()?;
         let face_limit = layouts.borrow().limits().fallback_faces;
         let fonts = crate::render::font::ResolvedFontStack::resolve(
-            self.world,
+            self.world.resource::<crate::render::font::FontManager>(),
             &style.font_stack,
             style.font_size,
             face_limit,

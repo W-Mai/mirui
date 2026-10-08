@@ -12,7 +12,6 @@ use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
@@ -294,18 +293,35 @@ impl<B: EntityEventBindings> crate::ecs::IntoBundle for TextInputBuilder<B> {
 /// Optional placeholder text rendered when the buffer is empty. Stored
 /// as a separate component so the common case (no placeholder) doesn't
 /// pay 32 extra bytes inside `TextInput`.
+#[crate::component]
 pub struct Placeholder(pub &'static str);
 
-fn text_input_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(ti) = world.get::<TextInput>(entity) else {
+#[crate::view(
+    component = TextInput,
+    name = "TextInput",
+    priority = 70,
+    attach = text_input_attach,
+    gesture = textinput_gesture_handler,
+    systems = [cursor_blink_system::system()]
+)]
+fn text_input_render(
+    rows: query!(TextInput, optional Placeholder),
+    entity: entity!(),
+    layouts: res!(optional crate::text::layout::TextLayoutResource),
+    manager: res!(optional crate::render::font::FontManager),
+    theme: res!(optional crate::ui::Theme),
+    phase: res!(optional CursorBlinkPhase),
+    paint: paint!(),
+) {
+    let Some((ti, placeholder)) = rows.get(entity) else {
         return;
     };
-    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
+    let Some(resource) = layouts else {
         return;
     };
     let face_limit = resource.borrow().limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
-        world,
+        manager,
         &paint.style().font_stack,
         paint.style().font_size,
         face_limit,
@@ -313,9 +329,8 @@ fn text_input_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
         return;
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let theme =
+        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
     let text_color = ti.text_color.resolve_in(theme, state);
@@ -347,10 +362,7 @@ fn text_input_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     };
     let (content, color) = if ti.len == 0 {
         (
-            world
-                .get::<Placeholder>(entity)
-                .map(|placeholder| placeholder.0)
-                .unwrap_or(""),
+            placeholder.map(|placeholder| placeholder.0).unwrap_or(""),
             placeholder_color,
         )
     } else {
@@ -406,10 +418,7 @@ fn text_input_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     );
 
     if ti.focused {
-        let blink_on = world
-            .resource::<CursorBlinkPhase>()
-            .map(|p| p.0)
-            .unwrap_or(true);
+        let blink_on = phase.map(|phase| phase.0).unwrap_or(true);
         if blink_on {
             paint.draw_clipped(
                 &DrawCommand::Fill {
@@ -567,13 +576,7 @@ fn text_input_attach(world: &mut World, entity: Entity) {
     }
 }
 
-pub fn view() -> View {
-    View::new("TextInput", 70, text_input_render)
-        .with_filter::<TextInput>()
-        .with_attach(text_input_attach)
-        .with_internal_gesture(textinput_gesture_handler)
-        .with_systems(const { &[cursor_blink_system::system()] })
-}
+pub use text_input_render::view;
 
 #[cfg(test)]
 mod tests {
@@ -588,6 +591,7 @@ mod tests {
     use crate::types::Transform;
     use crate::ui::Style;
     use crate::ui::theme::{Theme, WidgetState};
+    use crate::ui::view::PaintCtx;
 
     #[test]
     fn focus_sync_reuses_stable_storage_and_only_dirties_changed_inputs() {
@@ -747,7 +751,7 @@ mod tests {
             WidgetState::Enabled,
         );
 
-        text_input_render(&world, entity, &mut paint);
+        view().render().unwrap()(&world, entity, &mut paint);
         drop(paint);
         renderer
     }
@@ -760,6 +764,117 @@ mod tests {
         assert_eq!(renderer.fills.len(), 1);
         assert_eq!(renderer.fills[0].x, Fixed::from_int(15));
         assert_eq!(renderer.fills[0].h, Fixed::from_int(12));
+    }
+
+    #[test]
+    fn typed_paint_prepares_optional_dependencies_and_preserves_early_returns_without_allocating() {
+        struct Trace(usize);
+        impl Renderer for Trace {
+            fn submit(
+                &mut self,
+                _: &crate::render::DrawRequest<'_, '_>,
+            ) -> Result<(), crate::render::RenderError> {
+                self.0 += 1;
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let descriptor = view();
+        assert_eq!(descriptor.name(), "TextInput");
+        assert_eq!(descriptor.priority(), Some(70));
+        assert!(core::ptr::fn_addr_eq(
+            descriptor.auto_attach().unwrap(),
+            text_input_attach as crate::ui::view::ViewAttach
+        ));
+        assert!(descriptor.internal_gesture().is_some());
+        let mut systems = 0;
+        descriptor.install(&mut world, |_| systems += 1);
+        assert_eq!(systems, 1);
+        let render = descriptor.render().unwrap();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 100, 20);
+        for stage in 0..3 {
+            match stage {
+                1 => world.insert(entity, TextInput::new()),
+                2 => world.insert_resource(crate::text::layout::TextLayoutResource::new(
+                    crate::text::TextLayoutLimits::EMBEDDED,
+                )),
+                _ => {}
+            }
+            let mut trace = Trace(0);
+            {
+                let mut paint = PaintCtx::new(
+                    &mut trace,
+                    &style,
+                    &rect,
+                    &rect,
+                    Transform::IDENTITY,
+                    None,
+                    WidgetState::Enabled,
+                );
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| {
+                        let _ = view();
+                        render(&world, entity, &mut paint);
+                    }),
+                    0
+                );
+                assert_eq!(paint.error(), None);
+            }
+            assert_eq!(trace.0, 0);
+        }
+        world.insert_resource(crate::render::font::default_font_manager());
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut trace = Trace(0);
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            render(&world, entity, &mut paint);
+        }));
+        assert!(rejected.is_err(), "a drawable input requires Theme");
+        world.insert_resource(Theme::default());
+        world.get_mut::<TextInput>(entity).unwrap().focused = true;
+        world.insert(entity, Placeholder("A"));
+        let mut trace = Trace(0);
+        {
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            render(&world, entity, &mut paint);
+            assert_eq!(paint.error(), None);
+        }
+        assert!(trace.0 > 0);
+        for _ in 0..2 {
+            let mut trace = Trace(0);
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| render(&world, entity, &mut paint)),
+                0
+            );
+            assert_eq!(paint.error(), None);
+        }
     }
 
     #[test]

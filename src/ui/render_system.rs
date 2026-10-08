@@ -773,7 +773,7 @@ fn layout_text(
     };
     let face_limit = resource.borrow().limits().fallback_faces;
     let Some(fonts) = ResolvedFontStack::resolve(
-        world,
+        world.resource::<crate::render::font::FontManager>(),
         &style.font_stack,
         style.font_size,
         face_limit,
@@ -1076,17 +1076,20 @@ pub(crate) fn apply_text_intrinsic(
         return Ok(());
     };
     let face_limit = cache.borrow().limits().fallback_faces;
-    let Some(fonts) =
-        ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit).map_err(
-            |error| {
-                TextLayoutFailure::font_stack(
-                    entity,
-                    TextLayoutStage::Measure,
-                    error.required,
-                    error.limit,
-                )
-            },
-        )?
+    let Some(fonts) = ResolvedFontStack::resolve(
+        world.resource::<crate::render::font::FontManager>(),
+        &style.font_stack,
+        style.font_size,
+        face_limit,
+    )
+    .map_err(|error| {
+        TextLayoutFailure::font_stack(
+            entity,
+            TextLayoutStage::Measure,
+            error.required,
+            error.limit,
+        )
+    })?
     else {
         return Ok(());
     };

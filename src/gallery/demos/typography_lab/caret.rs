@@ -38,9 +38,12 @@ fn caret_overlay_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>)
         return;
     };
     let face_limit = resource.borrow().limits().fallback_faces;
-    let Ok(Some(fonts)) =
-        ResolvedFontStack::resolve(world, &style.font_stack, style.font_size, face_limit)
-    else {
+    let Ok(Some(fonts)) = ResolvedFontStack::resolve(
+        world.resource::<crate::render::font::FontManager>(),
+        &style.font_stack,
+        style.font_size,
+        face_limit,
+    ) else {
         return;
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);

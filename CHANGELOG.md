@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **TextInput paint dependencies.** Input Views query placeholder data and borrow layout, font, theme, and cursor resources. Font-stack resolution accepts its manager directly while retaining fallback validation and cache behavior.
 - **Image paint dependencies.** Image Views query their optional resource lease and borrow texture-manager and theme resources while preserving cached lease identity and borrowed vector and pixel data.
 - **Showcase theme setup.** Palette installation uses the App theme-registration API without exposing World to its callers.
 - **Drawing prelude.** Drawing commands and paint-context types remain in `prelude::draw`; backend traits and low-level View descriptors use their explicit render and UI paths.

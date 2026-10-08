@@ -865,7 +865,7 @@ pub(crate) struct FontStackCapacityError {
 
 impl ResolvedFontStack {
     pub(crate) fn resolve(
-        world: &World,
+        manager: Option<&FontManager>,
         stack: &FontStack,
         font_size: Option<u16>,
         limit: usize,
@@ -878,7 +878,7 @@ impl ResolvedFontStack {
                 limit,
             });
         }
-        let Some(manager) = world.resource::<FontManager>() else {
+        let Some(manager) = manager else {
             return Ok(None);
         };
         let primary = manager.resolve(stack.primary().cache_key());
@@ -1248,6 +1248,40 @@ mod tests {
         let f = mgr.resolve(FontToken::Default.cache_key());
         assert_eq!(f.family, "bitmap8x8");
         assert_eq!(f.size, 8);
+    }
+
+    #[test]
+    fn resolved_stack_validates_capacity_before_an_optional_manager() {
+        static FALLBACKS: &[FontToken] = &[FontToken::Heading];
+        let stack = FontStack::default().with_fallbacks(Cow::Borrowed(FALLBACKS));
+        let result = ResolvedFontStack::resolve(None, &stack, None, 1);
+        assert!(matches!(
+            result,
+            Err(FontStackCapacityError {
+                required: 2,
+                limit: 1
+            })
+        ));
+        assert!(
+            ResolvedFontStack::resolve(None, &stack, None, 2)
+                .unwrap()
+                .is_none()
+        );
+        let manager = default_font_manager();
+        manager.prefetch(FontToken::Default.cache_key());
+        manager.prefetch(FontToken::Heading.cache_key());
+        for _ in 0..2 {
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    let fonts = ResolvedFontStack::resolve(Some(&manager), &stack, Some(14), 2)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(fonts.len, 2);
+                    assert_eq!(fonts.primary().size, 14);
+                }),
+                0
+            );
+        }
     }
 
     #[test]
