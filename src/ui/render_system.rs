@@ -1782,51 +1782,36 @@ fn try_draw_offscreen(
         Some(f) => f,
         None => return Ok(false),
     };
-    let needs_alpha = world
+    let clear_transparent = world
         .get::<super::OffscreenAlphaMode>(entity)
         .is_some_and(|m| m.clear_transparent);
-    let format = if needs_alpha
-        && !matches!(
-            backend_format,
-            crate::render::texture::ColorFormat::RGBA8888
-        ) {
-        crate::render::texture::ColorFormat::RGBA8888
-    } else {
-        backend_format
-    };
 
     // Caller's cull already used the transform-applied bbox; reusing
     // shifted_rect (untransformed) here would skip render when the
     // entity's transform moved it inside clip but its logical layout
     // rect did not.
 
-    // Buffer dimensions: ComputedRect × off.scale, clamped so neither
-    // axis rounds to 0. Scale below 1/8 collapses the buffer too far
-    // for any meaningful visual; clamp at that floor.
     let scale = off.scale.max(Fixed::ONE / 8);
-    let buf_w_f = Fixed::from_int(shifted_rect.w.to_int().max(1)) * scale;
-    let buf_h_f = Fixed::from_int(shifted_rect.h.to_int().max(1)) * scale;
-    let buf_w = buf_w_f.to_int().max(1).min(u16::MAX as i32) as u16;
-    let buf_h = buf_h_f.to_int().max(1).min(u16::MAX as i32) as u16;
-
     let generation = world
         .get::<super::OffscreenGeneration>(entity)
         .map(|g| g.0)
         .unwrap_or(0);
 
-    let key = super::offscreen::BufferKey {
+    let key = super::offscreen::BufferKey::for_widget(
         entity,
-        w: buf_w,
-        h: buf_h,
-        format,
+        *shifted_rect,
+        off,
         generation,
-    };
+        backend_format,
+        clear_transparent,
+    );
+    let (buf_w, buf_h) = (key.w, key.h);
 
     let pool = match world.resource::<super::OffscreenBufferPool>() {
         Some(p) => p,
         None => return Ok(false),
     };
-    pool.last_format.set(Some(format));
+    pool.backend_format.set(Some(backend_format));
 
     crate::trace_span!("draw.offscreen");
 
@@ -1834,11 +1819,6 @@ fn try_draw_offscreen(
         Ok((h, status)) => (h, status == crate::core::cache::factory::EntryStatus::Hit),
         Err(_) => return Ok(false),
     };
-
-    let clear_transparent = world
-        .get::<super::OffscreenAlphaMode>(entity)
-        .map(|m| m.clear_transparent)
-        .unwrap_or(false);
 
     if !was_hit {
         let mut tex_ref = handle.get().borrow_mut();
@@ -1865,7 +1845,7 @@ fn try_draw_offscreen(
         let draw_result = (|| -> Result<(), RenderError> {
             let mut tex_ref = handle.get().borrow_mut();
             let buf_slice = tex_ref.buf.as_mut_slice();
-            let inner_tex = Texture::new(buf_slice, buf_w, buf_h, format);
+            let inner_tex = Texture::new(buf_slice, buf_w, buf_h, key.format);
             // Buffers cleared to transparent need source-over alpha
             // accumulation so the silhouette stays meaningful for
             // downstream samplers (DropShadow, Mirror, etc).
@@ -7221,6 +7201,100 @@ mod offscreen_render_check {
 
         assert!(app.world.get::<OffscreenRender>(panel).is_none());
         assert!(app.world.get::<OffscreenAutoAdded>(panel).is_none());
+    }
+
+    #[test]
+    fn mixed_offscreen_formats_resolve_each_source_and_its_previous_generation() {
+        use super::super::offscreen::{
+            OffscreenAlphaMode, OffscreenGeneration, WidgetTextureAccess,
+        };
+
+        for (transparent_first, backend_format) in [
+            (false, ColorFormat::RGB565),
+            (true, ColorFormat::RGB565),
+            (false, ColorFormat::RGB565Swapped),
+            (true, ColorFormat::RGB565Swapped),
+            (false, ColorFormat::RGBA8888),
+            (true, ColorFormat::RGBA8888),
+        ] {
+            let mut world = make_world();
+            let transparent = spawn(
+                &mut world,
+                None,
+                Style {
+                    bg_color: Some(Color::rgb(255, 0, 0).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::px(8),
+                        height: Dimension::px(8),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            let opaque = spawn(
+                &mut world,
+                None,
+                Style {
+                    bg_color: Some(Color::rgb(0, 255, 0).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::px(8),
+                        height: Dimension::px(8),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            world.insert(transparent, OffscreenRender::default());
+            world.insert(transparent, OffscreenAlphaMode::clear_transparent());
+            world.insert(opaque, OffscreenRender::default());
+            let order = if transparent_first {
+                [transparent, opaque]
+            } else {
+                [opaque, transparent]
+            };
+            let viewport = Viewport::new(8, 8, Fixed::ONE);
+            let mut target = [0_u8; 8 * 8 * 4];
+            let texture = Texture::new(&mut target, 8, 8, backend_format);
+            let mut renderer = SwRenderer::new(texture);
+            for generation in 0..2 {
+                for entity in order {
+                    world.insert(entity, OffscreenGeneration(generation));
+                    super::update_layout(&mut world, entity, &viewport);
+                    super::render(&world, entity, &viewport, &mut renderer).unwrap();
+                }
+                for (entity, format) in [
+                    (transparent, ColorFormat::RGBA8888),
+                    (opaque, backend_format),
+                ] {
+                    let current = world
+                        .texture_of(entity)
+                        .expect("source-specific current buffer");
+                    assert_eq!(current.borrow().format, format);
+                    assert_eq!(
+                        current.borrow().get_pixel(1, 1),
+                        if entity == transparent {
+                            Color::rgb(255, 0, 0)
+                        } else {
+                            Color::rgb(0, 255, 0)
+                        }
+                    );
+                    let previous = world.prev_texture_of(entity);
+                    assert_eq!(previous.is_some(), generation != 0);
+                    if let Some(previous) = previous {
+                        assert_eq!(previous.borrow().format, format);
+                    }
+                }
+            }
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    for entity in order {
+                        assert!(world.texture_of(entity).is_some());
+                        assert!(world.prev_texture_of(entity).is_some());
+                    }
+                }),
+                0
+            );
+        }
     }
 
     /// Across consecutive dirty renders driven through render_region

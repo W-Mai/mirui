@@ -17,14 +17,25 @@
 //! Two pieces opt the app in:
 //!
 //! ```ignore
+//! use mirui::prelude::*;
+//! use mirui::ui::OffscreenRender;
+//!
+//! #[compose]
+//! fn cached_panel() {
+//!     ui! { View (width: 128, height: 64) [OffscreenRender::new()] {} };
+//! }
+//!
+//! let mut app = App::headless(128, 64);
+//! app.with_default_widgets();
+//! let root = app.spawn_root().id();
 //! // 1. Size the pool. Default is `Bytes(0)` (disabled), so the cache
 //! //    never grows and OffscreenRender silently falls through to
 //! //    inline. Pick a budget that fits a couple of buffers:
 //! //    `width × height × bytes_per_pixel`. RGB565 is 2, RGBA8888 is 4.
 //! app.with_offscreen_pool_budget(64 * 1024);
 //!
-//! // 2. Tag the entity whose subtree should be cached.
-//! world.insert(panel, OffscreenRender::default());
+//! // 2. Compose the node carrying the offscreen marker.
+//! app.compose(root, cached_panel);
 //! ```
 //!
 //! # When it pays off
@@ -176,13 +187,33 @@ pub(crate) struct BufferKey {
     pub generation: u32,
 }
 
-/// LRU pool of offscreen buffers, sized by total byte budget rather
-/// than entry count: the cap reflects the heap held by all live
-/// Texture allocations, not just the slot count. Inserted into the
-/// `World` as a resource by `App::with_factory` with budget `0`,
-/// which disables the cache and routes every `OffscreenRender` entity
-/// through inline rendering; set a real value via
-/// [`crate::app::App::with_offscreen_pool_budget`].
+impl BufferKey {
+    pub(crate) fn for_widget(
+        entity: Entity,
+        rect: crate::types::Rect,
+        offscreen: OffscreenRender,
+        generation: u32,
+        backend_format: ColorFormat,
+        clear_transparent: bool,
+    ) -> Self {
+        let scale = offscreen.scale.max(Fixed::ONE / 8);
+        let width = Fixed::from_int(rect.w.to_int().max(1)) * scale;
+        let height = Fixed::from_int(rect.h.to_int().max(1)) * scale;
+        Self {
+            entity,
+            w: width.to_int().max(1).min(u16::MAX as i32) as u16,
+            h: height.to_int().max(1).min(u16::MAX as i32) as u16,
+            format: if clear_transparent {
+                ColorFormat::RGBA8888
+            } else {
+                backend_format
+            },
+            generation,
+        }
+    }
+}
+
+/// LRU pool limited by the bytes held by its cached texture entries rather than their count. Evicted payloads retained by external snapshots are no longer counted against this cache budget. `App::with_factory` installs a zero-budget pool, disabling caching; configure it through [`crate::app::App::with_offscreen_pool_budget`].
 pub struct OffscreenBufferPool {
     // RefCell so render_system can borrow the pool mutably while
     // holding `&World`. Each cached value is itself a RefCell<Texture>
@@ -191,10 +222,8 @@ pub struct OffscreenBufferPool {
     pub(crate) cache:
         RefCell<WithFactory<LruCache<BufferKey, RefCell<Texture<'static>>>, BufferCtor>>,
     next_cache_revision: core::cell::Cell<u64>,
-    // Format used by the most recent buffer write. `None` until the
-    // first render. Effect widgets / `World::texture_of` read this to
-    // reconstruct the BufferKey without holding a Renderer reference.
-    pub(crate) last_format: core::cell::Cell<Option<ColorFormat>>,
+    // Parent target format; transparent sources select RGBA independently.
+    pub(crate) backend_format: core::cell::Cell<Option<ColorFormat>>,
 }
 
 pub(crate) type BufferCtor = fn(&BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocError>;
@@ -218,7 +247,7 @@ impl OffscreenBufferPool {
         Self {
             cache: RefCell::new(WithFactory::new(cache, make_buffer as BufferCtor)),
             next_cache_revision: core::cell::Cell::new(1),
-            last_format: core::cell::Cell::new(None),
+            backend_format: core::cell::Cell::new(None),
         }
     }
 
@@ -230,7 +259,7 @@ impl OffscreenBufferPool {
 
     pub(crate) fn trim_memory(&self) {
         self.cache.borrow_mut().cache_mut().clear();
-        self.last_format.set(None);
+        self.backend_format.set(None);
     }
 }
 
@@ -244,11 +273,7 @@ impl Default for OffscreenBufferPool {
     }
 }
 
-/// Borrow guard for an entity's rendered texture cached in the
-/// [`OffscreenBufferPool`]. Holding it keeps the buffer alive in the
-/// pool (it counts as a live reference for LRU eviction). Drop
-/// before the next render so the cache can advance generations
-/// normally.
+/// Retains a cached texture payload even if its entry is evicted from [`OffscreenBufferPool`]. A snapshot does not pin cache membership or guarantee that a later lookup finds the same generation.
 #[derive(Clone)]
 pub struct TextureSnapshot {
     handle: Handle<RefCell<Texture<'static>>>,
@@ -257,9 +282,7 @@ pub struct TextureSnapshot {
 impl TextureSnapshot {
     /// Borrow the underlying texture immutably.
     ///
-    /// Panics if the texture is concurrently borrowed mutably (this
-    /// only happens if user code retains a snapshot across the next
-    /// render — drop snapshots before the frame ends).
+    /// Panics if this payload is currently borrowed mutably.
     pub fn borrow(&self) -> Ref<'_, Texture<'static>> {
         self.handle.get().borrow()
     }
@@ -267,14 +290,12 @@ impl TextureSnapshot {
 
 fn texture_for(world: &World, entity: Entity, generation_offset: i64) -> Option<TextureSnapshot> {
     let pool = world.resource::<OffscreenBufferPool>()?;
-    let format = pool.last_format.get()?;
+    let backend_format = pool.backend_format.get()?;
     let off = world.get::<OffscreenRender>(entity)?;
     let rect = world.get::<super::ComputedRect>(entity)?.0;
-    let scale = off.scale.max(Fixed::ONE / 8);
-    let buf_w_f = Fixed::from_int(rect.w.to_int().max(1)) * scale;
-    let buf_h_f = Fixed::from_int(rect.h.to_int().max(1)) * scale;
-    let w = buf_w_f.to_int().max(1).min(u16::MAX as i32) as u16;
-    let h = buf_h_f.to_int().max(1).min(u16::MAX as i32) as u16;
+    let clear_transparent = world
+        .get::<OffscreenAlphaMode>(entity)
+        .is_some_and(|mode| mode.clear_transparent);
 
     let g_now = world
         .get::<OffscreenGeneration>(entity)
@@ -286,13 +307,7 @@ fn texture_for(world: &World, entity: Entity, generation_offset: i64) -> Option<
         g_now.checked_sub((-generation_offset) as u32)?
     };
 
-    let key = BufferKey {
-        entity,
-        w,
-        h,
-        format,
-        generation: g,
-    };
+    let key = BufferKey::for_widget(entity, rect, *off, g, backend_format, clear_transparent);
     let handle = pool.cache.borrow_mut().acquire(&key)?;
     Some(TextureSnapshot { handle })
 }
@@ -300,18 +315,10 @@ fn texture_for(world: &World, entity: Entity, generation_offset: i64) -> Option<
 /// Extension trait that lives on `World` for ergonomic access to
 /// rendered widget textures from inside an effect widget's view fn.
 pub trait WidgetTextureAccess {
-    /// The entity's rendered texture from the current frame.
-    /// Returns `None` until at least one render happens after the
-    /// source got `OffscreenRender` (user-explicit or auto-added via
-    /// [`WidgetTextureRef`]).
+    /// The entity's cached current generation at its current dimensions and format. Returns `None` when it has not been rendered, the entry has been evicted, or its configuration no longer matches the cached key.
     fn texture_of(&self, entity: Entity) -> Option<TextureSnapshot>;
 
-    /// The entity's rendered texture from the previous frame. For
-    /// effects that mix two frames (TemporalMix) or run before the
-    /// source in z-order.
-    ///
-    /// Returns `None` on the first frame after opt-in (no prev
-    /// buffer yet) or when the prev buffer has been evicted.
+    /// The preceding cached generation at the entity's current dimensions and format. It is not necessarily the previous display frame. Returns `None` before a preceding generation exists or when that key is absent from the cache.
     fn prev_texture_of(&self, entity: Entity) -> Option<TextureSnapshot>;
 }
 
