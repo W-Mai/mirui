@@ -189,11 +189,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::tabbar::SelectionChanged>(1)
-            .flush_limit(1),
-    );
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
     app.compose(parent, build_widgets);

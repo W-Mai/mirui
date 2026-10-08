@@ -1640,7 +1640,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     let model = app.add_model(PictureModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());

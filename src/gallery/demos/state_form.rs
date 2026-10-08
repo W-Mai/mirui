@@ -94,12 +94,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::text_input::Changed>(1)
-            .notifications::<crate::ui::widgets::checkbox::Toggled>(1)
-            .flush_limit(2),
-    );
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
     app.compose(parent, build_widgets);

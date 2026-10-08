@@ -32,12 +32,7 @@ mod tests {
     }
 
     fn fresh_world() -> (World, Entity) {
-        let mut app = mirui::app::App::headless(128, 128);
-        app.with_event_capacity(
-            mirui::app::EventCapacity::new()
-                .notifications::<mirui::ui::widgets::tabbar::SelectionChanged>(1)
-                .flush_limit(1),
-        );
+        let app = mirui::app::App::headless(128, 128);
         let mut world = app.world;
         world.insert_resource(IdMap::new());
         world.insert_resource(MultiTapTracker::new());

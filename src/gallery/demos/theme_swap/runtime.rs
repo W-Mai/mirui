@@ -11,7 +11,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(EventCapacity::new().commands(CommandCapacity::new().set_theme(1)));
     app.register_theme(dark_with_accent())
         .register_theme(light_with_accent())
         .register_theme(custom_theme());

@@ -267,6 +267,8 @@ Mutable point fetches use the same component-change notification path as
 iteration. Repeated writes to one entity/component pair are coalesced; their
 records fit the query's reserved unique-row budget.
 
+With the default widget Views registered, `query!(mut Style)` records the entity's component write access and the render boundary applies the Style View's layout invalidation policy. Fetching a mutable row is conservative: it records a change even without a field assignment, and a color-only assignment also requests layout. Reactive properties and typed property commands compare old and new values and distinguish unchanged, visual, and layout updates; arbitrary low-level mutable references do not provide the same entity-level tracking.
+
 Event blocks read their payload through `event`. A literal callback or a named `#[event]` function declares entity, query, resource, and command roles in its parameters. Queries use the same access validation and point-fetch rules as systems. Deferred commands apply in source order after parameter borrows end.
 
 ```rust
@@ -299,10 +301,6 @@ fn selectable() -> Entity {
         View () on Tap(toggle_selection::callback())
     }
 }
-
-app.with_event_capacity(EventCapacity::new().commands(
-    CommandCapacity::new().insert::<Selected>(1).remove::<Selected>(1),
-));
 ```
 
 For consumable input, returning `()` or `true` stops propagation; `false` or `BubbleControl::Allow` continues it. Widget notifications require `()` and notify every selected listener. A gesture payload's `target` is the original recognized target; `entity!()` is the current handler node. A panic discards that invocation's pending commands, retaining the command buffer for reuse.
@@ -639,7 +637,11 @@ Twin Beacons and Folding Ark install their hint services with `App::add_resource
 
 `Started` follows the startup hooks once, including applications driven directly by `tick`. Suspend and resume notify only after an actual state change and their plugin hooks; suspension and quit cancel active pointer, scroll, and gesture state. Memory warnings and host interactions notify after their hooks. Quit hooks and notifications run once even if `tick` is called again. These notifications join the same FIFO as previously submitted widget notifications.
 
-`EventCapacity` is available from `mirui::app` and the ordinary prelude. Configure it before installing the first callback:
+App provides a bounded event preset automatically. Ordinary widget notifications and short deferred callbacks need no capacity declaration. The preset reserves 8 business notification records and 64 payload bytes per buffer, 4 deferred command records per callback, and at most 16 notification deliveries in one outer flush. Notification storage supports the alignment of built-in widget payloads; the command payload budget is calculated from one theme change and three transform changes.
+
+The automatic preset prepares storage only when installation needs it. Without an explicit override, applications using only direct input and Model callbacks without deferred commands do not allocate business notification storage; callbacks without `commands!()` do not allocate command queues. A deferred callback prepares notification storage because commands can emit notifications. An explicit capacity declaration prepares its requested notification storage immediately. Notification buffers are shared by the App, while each deferred callback owns a separate reusable command queue. The command quota applies to one callback invocation, not the sum of commands from every callback in a frame.
+
+`EventCapacity::default()` selects that preset. `EventCapacity::new()` starts an explicit empty declaration; it does not inherit the preset. Applications needing larger payloads, longer notification chains, or batches of commands can replace the preset through `App::with_event_capacity` before installing the first callback. `EventCapacity` is available from `mirui::app` and the ordinary prelude:
 
 ```rust,ignore
 app.with_event_capacity(
@@ -650,9 +652,9 @@ app.with_event_capacity(
 );
 ```
 
-Notification counts describe combined pending payload storage, not per-type runtime quotas. A nonzero business notification requirement needs an explicit flush limit. Undeclared storage differs from explicitly declared zero capacity; neither supplies an automatic budget. Deferred event callbacks require command capacity and each retain a separate prepared command queue. Plain callbacks have no command queue. Total command memory therefore grows with the number of deferred callbacks, not just the size of the shared declaration.
+Explicit notification counts describe combined pending payload storage, not per-type runtime quotas. A nonzero notification declaration needs an explicit flush limit. Omitted notification or command storage in an explicit declaration does not inherit the corresponding preset budget. An explicitly declared zero quota supplies no storage for that operation.
 
-The first successfully installed callback freezes the capacity configuration. Reapplying the same configuration is a no-op; an invalid or different configuration logs a warning and preserves the installed configuration. A rejected binding logs a warning and skips that binding. Runtime submission and flush failures retain their structured error contract internally and are logged by App; completed data changes are not rolled back.
+The first successfully installed callback freezes the capacity configuration. Reapplying the same configuration is a no-op; an invalid or different configuration logs a warning and preserves the installed configuration. A rejected binding logs a warning and skips that binding. Dispatch never grows the prepared buffers. Runtime submission and flush failures retain their structured error contract internally and are logged by App; completed data changes are not rolled back, and failed work is not automatically retried. An interrupted notification flush discards its remaining notifications and callback writes.
 
 App lifecycle listeners reserve one additional unit-notification slot, independent of business storage. Business notifications cannot borrow that slot. Listener and route scratch storage are prepared from actual installed listeners, matching gesture hooks, and keyboard handlers at structural boundaries. Stable dispatch does not grow those buffers; route snapshots and callback borrows finish before further preparation.
 
@@ -797,7 +799,7 @@ The internal command facade records `emit(entity, payload)` without reading the 
 
 After callback borrows end, submission checks the entity generation, actual source component, and notification storage owner. The owning payload moves from command storage into the pending notification arena without cloning. Missing sources, missing storage, and storage limits return structured errors through the prepared event executor. Source removal earlier in the command batch is visible to a later submission. Already completed data changes are not rolled back.
 
-Pending storage is retained by an owner-bound shared runtime resource. Draining retains a shared reference before acquiring the World, so callbacks can submit further notifications without removing that resource. The listener pool drains the queue in FIFO order with stable read payloads and separate write storage. App prepares business storage from `EventCapacity` and flushes at input, system, render-hook, and lifecycle boundaries without choosing implicit business capacity defaults.
+Pending storage is retained by an owner-bound shared runtime resource. Draining retains a shared reference before acquiring the World, so callbacks can submit further notifications without removing that resource. The listener pool drains the queue in FIFO order with stable read payloads and separate write storage. App prepares business storage from the automatic preset or an explicit `EventCapacity` and flushes at input, system, render-hook, and lifecycle boundaries.
 
 ### Recognized gesture batches
 

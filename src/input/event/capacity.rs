@@ -7,6 +7,7 @@ use super::notification::{NotificationCapacity, NotificationError};
 /// Application-wide storage requirements for event callbacks and notifications.
 ///
 /// Notification counts describe combined storage requirements, not individual runtime quotas. A nonzero notification requirement needs an explicit flush limit.
+/// [`Default`] supplies the bounded UI preset used by [`crate::app::App`]; [`Self::new`] starts an explicit declaration without that preset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventCapacity {
     notifications: Option<NotificationRequirements>,
@@ -112,8 +113,16 @@ impl EventCapacity {
 }
 
 impl Default for EventCapacity {
+    /// 8 notification records per buffer, 4 commands per callback, and 16 deliveries per flush. Payload storage uses the actual layouts of 8 Slider value changes and a combination of one theme change and 3 transform updates.
     fn default() -> Self {
         Self::new()
+            .notifications::<crate::ui::widgets::slider::ValueChanged>(8)
+            .commands(
+                CommandCapacity::new()
+                    .set_theme(1)
+                    .set::<crate::ui::property::prop::Transform>(3),
+            )
+            .flush_limit(16)
     }
 }
 
@@ -171,6 +180,39 @@ mod tests {
     }
 
     notification!(Small, Large, Empty);
+
+    #[test]
+    fn default_preset_uses_typed_layouts_and_explicit_empty_remains_empty() {
+        assert_eq!(
+            tracked_allocations(|| {
+                let preset = EventCapacity::default().resolve().unwrap();
+                let payload = PayloadRequirements::new()
+                    .include::<crate::ui::widgets::slider::ValueChanged>(8)
+                    .unwrap()
+                    .limits()
+                    .unwrap();
+                assert_eq!(
+                    preset.notifications,
+                    Some(NotificationCapacity {
+                        records: 8,
+                        payload_bytes: payload.0,
+                        payload_alignment: payload.1,
+                    })
+                );
+                assert_eq!(
+                    preset.commands,
+                    Some(
+                        CommandCapacity::new()
+                            .set_theme(1)
+                            .set::<crate::ui::property::prop::Transform>(3)
+                    )
+                );
+                assert_eq!(preset.flush_limit, Some(16));
+                assert_ne!(preset, EventCapacity::new().resolve().unwrap());
+            }),
+            0
+        );
+    }
 
     #[test]
     fn requirements_are_const_and_resolve_without_allocating() {

@@ -31,20 +31,11 @@ fn build_widgets_smoke() {
 
 #[test]
 fn tap_button_swaps_global_theme() {
-    let mut world = World::new();
-    crate::input::event::runtime::configure(
-        &mut world,
-        EventCapacity::new().commands(CommandCapacity::new().set_theme(1)),
-    )
-    .unwrap();
-    world.insert_resource(IdMap::new());
-    theme::set_theme(&mut world, dark_with_accent()).unwrap();
-    theme::register(&mut world, light_with_accent());
-    theme::register(&mut world, custom_theme());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(&mut cx);
-    drop(cx);
+    let mut app = App::headless(480, 320);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    super::setup_app(&mut app, root);
+    let mut world = app.world;
     let custom_btn = world.find_by_id("theme_custom").unwrap();
 
     {

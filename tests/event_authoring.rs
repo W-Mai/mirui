@@ -164,7 +164,22 @@ fn callback_values_accept_functions_and_preserve_descriptor_requirements() {
     });
     assert_eq!(allocations, 0);
 
+    let mut default_budget = App::headless(32, 32);
+    let default_model = default_budget.add_model(EventCounter { value: 0 });
+    let root = default_budget.spawn_root().id();
+    default_budget.compose(root, |cx| {
+        ui! { View(id: "commands") on Tap(registered_model_commands::callback(default_model.clone())) };
+    });
+    let target = default_budget.world.find_by_id("commands").unwrap();
+    assert_eq!(
+        dispatch(&mut default_budget.world, &tap(target), 100),
+        BubbleControl::Prevent
+    );
+    assert_eq!(default_budget.world.get::<Marker>(target), Some(&Marker(1)));
+    assert_eq!(default_model.value(), 1);
+
     let mut no_budget = App::headless(32, 32);
+    no_budget.with_event_capacity(mirui::app::EventCapacity::new());
     let model = no_budget.add_model(EventCounter { value: 0 });
     let root = no_budget.spawn_root().id();
     no_budget.compose(root, |cx| {

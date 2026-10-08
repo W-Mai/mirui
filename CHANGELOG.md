@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Default event storage.** App prepares a small bounded notification and deferred-command preset on demand, with explicit typed overrides for larger payloads and batches.
 - **Read-only View queries.** Paint callbacks use shared typed queries with point fetches, iteration, optional items, and presence filters. Static component-type dependencies drive visual or layout invalidation without per-fetch subscriptions.
 - **Composition resource access.** `res!` expressions provide short-lived required, optional, and mutable resource access inside compositions, with immediate resource installation and removal through the existing application storage.
 - **Node event callbacks.** Event blocks, typed inline callbacks, and named factories share source validation, prepared execution, and deferred commands. Widget builders install typed event bindings after their components are attached.

@@ -1254,7 +1254,6 @@ where
         &<ExpeditionUiModel as crate::core::model::Model>::Handle,
     ),
 {
-    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view());
     let game = app.add_model(TwinModel::default());

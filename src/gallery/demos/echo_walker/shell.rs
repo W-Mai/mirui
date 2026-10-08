@@ -672,7 +672,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     let model = app.add_model(EchoModel::default());
     #[cfg(feature = "persistence")]

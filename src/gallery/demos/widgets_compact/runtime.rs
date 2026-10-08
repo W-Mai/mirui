@@ -12,12 +12,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(1)
-            .commands(CommandCapacity::new().set_theme(1))
-            .flush_limit(1),
-    );
     app.compose(parent, build_widgets);
 }
 

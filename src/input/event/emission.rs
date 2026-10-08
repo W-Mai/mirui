@@ -122,6 +122,12 @@ pub(crate) fn prepare_runtime_notifications(
     Ok(())
 }
 
+pub(crate) fn has_business_storage(world: &World) -> bool {
+    world
+        .resource::<Rc<PendingNotifications>>()
+        .is_some_and(|pending| pending.business.get().is_some())
+}
+
 pub(crate) fn enqueue_app_notice<E: AppNotice>(
     world: &mut World,
     payload: E,

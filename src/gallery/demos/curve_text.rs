@@ -19,11 +19,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(2)
-            .flush_limit(2),
-    );
     crate::gallery::showcase_theme::install(app);
     app.with_widget(stage::curve_stage_background_render::view())
         .with_widget(stage::curve_paths_view());

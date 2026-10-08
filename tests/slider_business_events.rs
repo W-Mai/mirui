@@ -37,14 +37,7 @@ mod tests {
     }
 
     fn fresh_world_with_slider() -> (World, Entity) {
-        let mut app = mirui::app::App::headless(128, 128);
-        app.with_event_capacity(
-            mirui::app::EventCapacity::new()
-                .notifications::<mirui::ui::widgets::slider::ValueChanged>(1)
-                .notifications::<mirui::ui::widgets::slider::DragStarted>(1)
-                .notifications::<mirui::ui::widgets::slider::DragEnded>(1)
-                .flush_limit(3),
-        );
+        let app = mirui::app::App::headless(128, 128);
         let mut world = app.world;
         world.insert_resource(IdMap::new());
         world.insert_resource(MultiTapTracker::new());
@@ -213,14 +206,7 @@ mod tests {
     fn qualified_on_slider_value_changed_compiles() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let mut app = mirui::app::App::headless(128, 128);
-        app.with_event_capacity(
-            mirui::app::EventCapacity::new()
-                .notifications::<mirui::ui::widgets::slider::ValueChanged>(1)
-                .notifications::<mirui::ui::widgets::slider::DragStarted>(1)
-                .notifications::<mirui::ui::widgets::slider::DragEnded>(1)
-                .flush_limit(3),
-        );
+        let app = mirui::app::App::headless(128, 128);
         let mut world = app.world;
         world.insert_resource(IdMap::new());
         world.insert_resource(MultiTapTracker::new());

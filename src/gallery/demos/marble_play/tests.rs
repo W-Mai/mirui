@@ -160,6 +160,54 @@ fn composition_uses_real_text_and_button_widgets() {
 }
 
 #[test]
+fn default_event_storage_routes_controls_through_real_setup() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    let board = app.world.find_by_id("marble_play_board").unwrap();
+    let model = app.world.get::<MarbleBoard>(board).unwrap().model.clone();
+    model.set_page(Page::Settings);
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    let bpm = app.world.find_by_id("marble_setting_bpm_control").unwrap();
+    let trails = app
+        .world
+        .find_by_id("marble_setting_trails_control")
+        .unwrap();
+    let previous = model.bpm();
+    let previous_trails = model.trails();
+    crate::input::event::runtime::emit_widget(
+        &mut app.world,
+        bpm,
+        crate::ui::widgets::slider::ValueChanged {
+            old: Fixed::from_int(i32::from(previous)),
+            new: Fixed::from_int(128),
+        },
+    )
+    .unwrap();
+    crate::input::event::runtime::emit_widget(
+        &mut app.world,
+        trails,
+        crate::ui::widgets::switch::Toggled {
+            now: !previous_trails,
+        },
+    )
+    .unwrap();
+    assert_eq!(crate::input::event::runtime::flush(&mut app.world), Ok(2));
+    assert_eq!(model.bpm(), 128);
+    assert_eq!(model.trails(), !previous_trails);
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(
+        app.world.get::<Slider>(bpm).unwrap().value,
+        Fixed::from_int(128)
+    );
+    assert_eq!(
+        app.world.get::<Switch>(trails).unwrap().on,
+        !previous_trails
+    );
+}
+
+#[test]
 fn declared_text_layout_capacity_covers_page_switches() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
     app.with_event_capacity(

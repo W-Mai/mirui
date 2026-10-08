@@ -209,7 +209,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::core::model::register_effect(self.world.id(), model, handler)
     }
 
-    /// Prepare typed event storage before installing callbacks. Invalid changes log a warning and retain the installed configuration.
+    /// Override the bounded UI event preset before installing callbacks. Invalid changes log a warning and retain the installed configuration.
+    ///
+    /// Ordinary callbacks use [`EventCapacity::default`] automatically. Supply an explicit declaration for larger payloads, operation batches, or smaller limits; dispatch never expands these capacities.
     pub fn with_event_capacity(&mut self, capacity: EventCapacity) -> &mut Self {
         if let Err(error) = crate::input::event::runtime::configure(&mut self.world, capacity) {
             crate::warn!(target: "mirui::event::install", "event capacity ignored: {:?}", error);

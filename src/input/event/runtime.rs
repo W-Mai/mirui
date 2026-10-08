@@ -1,8 +1,9 @@
 //! App-owned event installation, structural preparation, and dispatch.
 
 use alloc::rc::Rc;
-use core::any::TypeId;
+use core::any::{TypeId, type_name};
 use core::cell::Cell;
+use core::mem::{align_of, size_of};
 
 use crate::ecs::world::WorldId;
 use crate::ecs::{CommandCapacity, CommandError, Entity, World};
@@ -16,7 +17,8 @@ use super::contract::{
     Event, EventKey, EventRoute,
 };
 use super::emission::{
-    enqueue_app_notice, flush_notifications_with, prepare_runtime_notifications,
+    enqueue_app_notice, flush_notifications_with, has_business_storage,
+    prepare_runtime_notifications,
 };
 use super::focus::{FocusState, KeyHandler};
 use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
@@ -25,24 +27,19 @@ use super::listeners::{
     EventListeners, InputBranch, ListenerCapacity, ListenerDecision, ListenerError,
     ListenerSelector, ListenerTarget,
 };
-use super::notification::NotificationFlushError;
+use super::notification::{NotificationError, NotificationFlushError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Configuration {
-    Open(Option<EventLimits>),
-    Frozen(Option<EventLimits>),
+    Open(EventLimits),
+    Frozen(EventLimits),
 }
 
 impl Configuration {
     fn limits(self) -> EventLimits {
-        let limits = match self {
+        match self {
             Self::Open(limits) | Self::Frozen(limits) => limits,
-        };
-        limits.unwrap_or(EventLimits {
-            notifications: None,
-            commands: None,
-            flush_limit: None,
-        })
+        }
     }
 
     fn freeze(self) -> Self {
@@ -110,6 +107,47 @@ impl EventRuntime {
             }
         }
     }
+
+    fn prepare_notifications<E: Event>(
+        &self,
+        world: &mut World,
+        uses_commands: bool,
+        app_slot: bool,
+    ) -> Result<(), RuntimeInstallError> {
+        let limits = self.configuration.get().limits();
+        let is_business = TypeId::of::<E::Route>() == TypeId::of::<EntityNotification>();
+        if is_business && let Some(capacity) = limits.notifications {
+            let error = if capacity.records == 0 {
+                Some(NotificationError::RecordCapacity { available: 0 })
+            } else if size_of::<E>() > 0 && align_of::<E>() > capacity.payload_alignment {
+                Some(NotificationError::PayloadAlignment {
+                    required: align_of::<E>(),
+                    available: capacity.payload_alignment,
+                })
+            } else if size_of::<E>() > capacity.payload_bytes {
+                Some(NotificationError::PayloadCapacity {
+                    required: size_of::<E>(),
+                    available: capacity.payload_bytes,
+                })
+            } else {
+                None
+            };
+            if let Some(error) = error {
+                return Err(RuntimeInstallError::NotificationPayload {
+                    event: type_name::<E>(),
+                    error,
+                });
+            }
+        }
+        let business = if is_business || uses_commands || has_business_storage(world) {
+            limits.notifications
+        } else {
+            None
+        };
+        prepare_runtime_notifications(world, business, app_slot)
+            .map_err(EventCapacityError::Storage)
+            .map_err(RuntimeInstallError::Capacity)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,6 +155,10 @@ pub(crate) enum RuntimeInstallError {
     Capacity(EventCapacityError),
     Listener(ListenerError),
     MissingCommandCapacity,
+    NotificationPayload {
+        event: &'static str,
+        error: NotificationError,
+    },
 }
 
 impl From<ListenerError> for RuntimeInstallError {
@@ -154,7 +196,11 @@ pub(crate) fn initialize(world: &mut World) {
     world.insert_resource(Rc::new(EventRuntime {
         owner: world.id(),
         listeners,
-        configuration: Cell::new(Configuration::Open(None)),
+        configuration: Cell::new(Configuration::Open(
+            EventCapacity::default()
+                .resolve()
+                .expect("valid UI event preset"),
+        )),
     }));
 }
 
@@ -189,7 +235,7 @@ pub(crate) fn configure(
         })?;
     prepare_runtime_notifications(world, limits.notifications, app_slot)
         .map_err(EventCapacityError::Storage)?;
-    runtime.configuration.set(Configuration::Open(Some(limits)));
+    runtime.configuration.set(Configuration::Open(limits));
     Ok(())
 }
 
@@ -219,9 +265,7 @@ where
     runtime.prepare(world, 1)?;
     let app_slot = runtime.listeners.has_app_notifications(world)?
         || TypeId::of::<E::Route>() == TypeId::of::<AppNotification>();
-    prepare_runtime_notifications(world, limits.notifications, app_slot)
-        .map_err(EventCapacityError::Storage)
-        .map_err(RuntimeInstallError::Capacity)?;
+    runtime.prepare_notifications::<E>(world, callback.uses_commands(), app_slot)?;
     runtime.listeners.install_app(
         world,
         ListenerSelector::new(key, |(), _| true),
@@ -266,9 +310,7 @@ where
     };
     runtime.prepare(world, 1)?;
     let app_slot = runtime.listeners.has_app_notifications(world)?;
-    prepare_runtime_notifications(world, limits.notifications, app_slot)
-        .map_err(EventCapacityError::Storage)
-        .map_err(RuntimeInstallError::Capacity)?;
+    runtime.prepare_notifications::<E>(world, callback.uses_commands(), app_slot)?;
     runtime
         .listeners
         .install_entity(world, entity, E::Route::selector(key), callback, commands)?;
@@ -754,6 +796,7 @@ mod tests {
     #[test]
     fn first_successful_binding_freezes_configuration_but_failed_binding_does_not() {
         let mut world = world();
+        configure(&mut world, EventCapacity::new()).unwrap();
         let target = world.spawn(Marker(0));
         assert_eq!(
             install_app(&mut world, Key::EVENT, deferred::callback(target)),
@@ -798,7 +841,12 @@ mod tests {
         prepare(&world).unwrap();
         assert_eq!(
             tracked_allocations(|| {
-                configure(&mut world, EventCapacity::new()).unwrap();
+                configure(&mut world, EventCapacity::default()).unwrap();
+                let runtime = runtime(&world).unwrap();
+                assert!(
+                    super::super::emission::flush_notifications(&mut world, &runtime.listeners, 0,)
+                        .is_none()
+                );
                 for code in [1, 2] {
                     assert_eq!(
                         dispatch_input(
@@ -951,6 +999,268 @@ mod tests {
     #[crate::event]
     fn hit(input: event!(Hit), trace: res!(mut Trace)) {
         trace.push(input.0);
+    }
+
+    #[test]
+    fn default_storage_is_lazy_and_later_binding_preserves_business_capacity() {
+        let mut world = world();
+        let target = world.spawn(Pad);
+        install_app(&mut world, Key::EVENT, key::callback()).unwrap();
+        assert!(!has_business_storage(&world));
+        install_app(&mut world, Started::EVENT, started::callback()).unwrap();
+        assert!(!has_business_storage(&world));
+        install_entity(
+            &mut world,
+            target,
+            Hit::EVENT,
+            hit::callback::<NodeContext>(),
+        )
+        .unwrap();
+        assert!(has_business_storage(&world));
+        install_entity(
+            &mut world,
+            target,
+            Tap::EVENT,
+            tap_trace::callback::<NodeContext>(),
+        )
+        .unwrap();
+        install_app(&mut world, Resumed::EVENT, started::callback()).unwrap();
+        assert!(has_business_storage(&world));
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..2 {
+                    world.resource_mut::<Trace>().unwrap().len = 0;
+                    for n in 0..8 {
+                        emit_widget(&mut world, target, Hit(n)).unwrap();
+                    }
+                    assert!(matches!(
+                        emit_widget(&mut world, target, Hit(9)),
+                        Err(CommandError::Commit(
+                            crate::ecs::CommandCommitError::RecordCapacity { available: 8 }
+                        ))
+                    ));
+                    assert_eq!(flush(&mut world), Ok(8));
+                    let trace = world.resource::<Trace>().unwrap();
+                    assert_eq!(&trace.values[..trace.len], &[0, 1, 2, 3, 4, 5, 6, 7]);
+                }
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn default_commands_install_without_configuration_and_reuse_bounded_storage() {
+        let mut world = world();
+        let target = world.spawn(Marker(0));
+        install_app(&mut world, Key::EVENT, deferred::callback(target)).unwrap();
+        assert!(has_business_storage(&world));
+        assert_eq!(
+            tracked_allocations(|| {
+                for code in [3, 7] {
+                    assert_eq!(
+                        dispatch_input(
+                            &mut world,
+                            None,
+                            &InputEvent::Key {
+                                code,
+                                pressed: true
+                            },
+                            0,
+                            0
+                        ),
+                        Ok(true)
+                    );
+                    assert_eq!(world.get::<Marker>(target), Some(&Marker(code)));
+                    assert_eq!(flush(&mut world), Ok(0));
+                }
+            }),
+            0
+        );
+        let capacity = runtime(&world)
+            .unwrap()
+            .configuration
+            .get()
+            .limits()
+            .commands
+            .unwrap();
+        let mut queue = crate::ecs::commands::CommandQueue::bounded(capacity).unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..2 {
+                    let mut batch = queue.begin();
+                    for n in 0..5 {
+                        batch.commands().insert(target, Marker(n));
+                    }
+                    assert_eq!(
+                        batch.finish(&mut world),
+                        Err(CommandError::RecordCapacity { available: 4 })
+                    );
+                    assert_eq!(world.get::<Marker>(target), Some(&Marker(7)));
+                }
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn explicit_small_notification_capacity_is_not_replaced_by_preset() {
+        let mut world = world();
+        let target = world.spawn(Pad);
+        configure(
+            &mut world,
+            EventCapacity::new().notifications::<Hit>(1).flush_limit(1),
+        )
+        .unwrap();
+        install_entity(
+            &mut world,
+            target,
+            Hit::EVENT,
+            hit::callback::<NodeContext>(),
+        )
+        .unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..2 {
+                    emit_widget(&mut world, target, Hit(1)).unwrap();
+                    assert!(matches!(
+                        emit_widget(&mut world, target, Hit(2)),
+                        Err(CommandError::Commit(
+                            crate::ecs::CommandCommitError::RecordCapacity { available: 1 }
+                        ))
+                    ));
+                    assert_eq!(flush(&mut world), Ok(1));
+                }
+            }),
+            0
+        );
+    }
+
+    #[crate::event]
+    fn feedback(input: event!(Hit), node: entity!(), commands: commands!()) {
+        commands.emit(node, Hit(input.0 + 1));
+    }
+
+    #[test]
+    fn default_feedback_limit_discards_pending_writes_and_storage_remains_reusable() {
+        let mut world = world();
+        let target = world.spawn(Pad);
+        install_entity(
+            &mut world,
+            target,
+            Hit::EVENT,
+            feedback::callback::<NodeContext>(),
+        )
+        .unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..2 {
+                    emit_widget(&mut world, target, Hit(0)).unwrap();
+                    assert_eq!(
+                        flush(&mut world),
+                        Err(RuntimeRunError::Notification(
+                            NotificationFlushError::Storage(NotificationError::FlushLimit {
+                                limit: 16
+                            })
+                        ))
+                    );
+                    assert_eq!(flush(&mut world), Ok(0));
+                }
+            }),
+            0
+        );
+    }
+
+    struct Oversized([u8; 65]);
+
+    #[repr(align(64))]
+    struct Aligned(u8);
+
+    macro_rules! custom_events {
+        ($($event:ty),+ $(,)?) => {
+            $(impl Event for $event {
+                type Route = EntityNotification;
+                type Source = WidgetSource<Pad>;
+                type Options = ();
+            })+
+        };
+    }
+    custom_events!(Oversized, Aligned);
+
+    #[test]
+    fn oversized_payloads_fail_before_freezing_and_explicit_layout_allows_installation() {
+        let mut world = world();
+        let target = world.spawn(Pad);
+        assert_eq!(
+            install_entity(
+                &mut world,
+                target,
+                Oversized::EVENT,
+                Oversized::EVENT.__bind_callback::<NodeContext, _>("large", |value: &Oversized| {
+                    assert_eq!(value.0[0], 5);
+                })
+            ),
+            Err(RuntimeInstallError::NotificationPayload {
+                event: type_name::<Oversized>(),
+                error: NotificationError::PayloadCapacity {
+                    required: 65,
+                    available: 64
+                },
+            })
+        );
+        assert_eq!(
+            install_entity(
+                &mut world,
+                target,
+                Aligned::EVENT,
+                Aligned::EVENT.__bind_callback::<NodeContext, _>("aligned", |value: &Aligned| {
+                    assert_eq!(value.0, 7);
+                })
+            ),
+            Err(RuntimeInstallError::NotificationPayload {
+                event: type_name::<Aligned>(),
+                error: NotificationError::PayloadAlignment {
+                    required: 64,
+                    available: 4
+                },
+            })
+        );
+        assert!(!has_business_storage(&world));
+        configure(
+            &mut world,
+            EventCapacity::new()
+                .notifications::<Oversized>(1)
+                .notifications::<Aligned>(1)
+                .flush_limit(2),
+        )
+        .unwrap();
+        install_entity(
+            &mut world,
+            target,
+            Oversized::EVENT,
+            Oversized::EVENT.__bind_callback::<NodeContext, _>("large", |value: &Oversized| {
+                assert_eq!(value.0[0], 5);
+            }),
+        )
+        .unwrap();
+        install_entity(
+            &mut world,
+            target,
+            Aligned::EVENT,
+            Aligned::EVENT.__bind_callback::<NodeContext, _>("aligned", |value: &Aligned| {
+                assert_eq!(value.0, 7);
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..2 {
+                    emit_widget(&mut world, target, Oversized([5; 65])).unwrap();
+                    emit_widget(&mut world, target, Aligned(7)).unwrap();
+                    assert_eq!(flush(&mut world), Ok(2));
+                }
+            }),
+            0
+        );
     }
 
     #[test]

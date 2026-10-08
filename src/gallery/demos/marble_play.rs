@@ -49,12 +49,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.require_text_layout_capacity(TEXT_LAYOUT_CAPACITY)
         .expect("register Marble text layout capacity");
     #[cfg(all(target_arch = "wasm32", feature = "web-canvas"))]

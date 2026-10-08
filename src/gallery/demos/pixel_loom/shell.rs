@@ -762,7 +762,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_event_capacity(EventCapacity::new());
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
