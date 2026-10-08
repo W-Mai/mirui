@@ -1,23 +1,20 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::World;
+    use mirui::app::App;
     use mirui::ui;
-    use mirui::ui::IdMap;
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::widgets::{Button, Checkbox};
 
     #[test]
     fn capital_name_inserts_component() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Button (normal_color: mirui::ui::ColorToken::Surface)
             }
-        };
+        });
+        let world = &app.world;
 
         let entities = world.query::<Button>().collect();
         assert_eq!(entities.len(), 1, "exactly one Button entity");
@@ -32,66 +29,63 @@ mod tests {
     fn button_accepts_positional_and_named_labels() {
         use mirui::ui::widgets::Text;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Row () {
                     Button ("Save")
                     Button (text: "Cancel")
                 }
             }
-        };
+        });
+        let world = &app.world;
 
         let entities = world.query::<Text>().collect();
         let labels: Vec<_> = entities
             .into_iter()
-            .map(|entity| world.get::<Text>(entity).unwrap().resolve(&world))
+            .map(|entity| world.get::<Text>(entity).unwrap().resolve(world))
             .collect();
         assert_eq!(labels, ["Save", "Cancel"]);
     }
 
     #[test]
     fn capital_name_uses_default_for_omitted_fields() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Checkbox ()
             }
-        };
+        });
+        let world = &app.world;
 
         let entities = world.query::<Checkbox>().collect();
         assert_eq!(entities.len(), 1);
         let cb = world.get::<Checkbox>(entities[0]).unwrap();
-        assert_eq!(cb.checked, false);
+        assert!(!cb.checked);
     }
 
     #[test]
     fn text_widget_uses_tuple_init() {
         use mirui::ui::widgets::Text;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Text (text: "Hello")
             }
-        };
+        });
+        let world = &app.world;
 
         let entities = world.query::<Text>().collect();
         assert_eq!(entities.len(), 1);
         let text = world.get::<Text>(entities[0]).unwrap();
-        assert_eq!(text.resolve(&world), "Hello");
+        assert_eq!(text.resolve(world), "Hello");
     }
 
     #[test]
@@ -99,12 +93,10 @@ mod tests {
         use mirui::ui::Style;
         use mirui::ui::widgets::Text;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Text (
                     "Hello",
@@ -113,7 +105,8 @@ mod tests {
                     font_size: 18
                 )
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world.query::<Text>().collect()[0];
         let style = world.get::<Style>(entity).unwrap();
@@ -134,9 +127,8 @@ mod tests {
             FontToken::Custom("fallback-arabic"),
         ];
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
         let paragraph = ParagraphStyle {
             wrap: TextWrap::NoWrap,
             direction: TextDirection::RightToLeft,
@@ -145,8 +137,7 @@ mod tests {
         };
         let expected_paragraph = paragraph.clone();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Text (
                     "مرحبا",
@@ -154,7 +145,8 @@ mod tests {
                     paragraph: paragraph
                 )
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world.query::<Text>().collect()[0];
         let style = world.get::<Style>(entity).unwrap();
@@ -169,21 +161,20 @@ mod tests {
         use mirui::core::reactive::{Signal, flush_signal_dirty};
         use mirui::ui::widgets::{ParagraphStyle, Text, TextAlign, TextOverflow, TextWrap};
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
         let paragraph = Signal::new(ParagraphStyle::default());
         let paragraph_view = paragraph.clone();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Text (
                     "responsive text",
                     paragraph: ${ paragraph_view.get() }
                 )
             }
-        };
+        });
+        let world = &mut app.world;
 
         let entity = world.query::<Text>().collect()[0];
         paragraph.set(ParagraphStyle {
@@ -193,7 +184,7 @@ mod tests {
             max_lines: Some(2),
             ..ParagraphStyle::default()
         });
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
 
         let actual = world.get::<Text>(entity).unwrap().paragraph();
         assert_eq!(actual.wrap, TextWrap::Grapheme);
@@ -206,16 +197,15 @@ mod tests {
     fn text_input_text_color_routes_to_field() {
         use mirui::ui::widgets::TextInput;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 TextInput (text_color: mirui::ui::ColorToken::Primary)
             }
-        };
+        });
+        let world = &app.world;
 
         let entities = world.query::<TextInput>().collect();
         assert_eq!(entities.len(), 1);
@@ -230,21 +220,20 @@ mod tests {
     fn text_widget_supports_positional_arg() {
         use mirui::ui::widgets::Text;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Text ("Positional")
             }
-        };
+        });
+        let world = &app.world;
 
         let entities = world.query::<Text>().collect();
         assert_eq!(entities.len(), 1);
         let text = world.get::<Text>(entities[0]).unwrap();
-        assert_eq!(text.resolve(&world), "Positional");
+        assert_eq!(text.resolve(world), "Positional");
     }
 
     #[test]
@@ -261,17 +250,16 @@ mod tests {
             }),
         ];
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
         let icon = Path::from_static(ICON);
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Image (icon)
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world.query::<Image>().collect()[0];
         assert!(matches!(
@@ -285,19 +273,18 @@ mod tests {
         use mirui::ui::icons::ICON_HOME;
         use mirui::ui::widgets::{Icon, Image, ImageSource};
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Column () {
                     Image (ICON_HOME)
                     Icon (path: ICON_HOME)
                 }
             }
-        };
+        });
+        let world = &app.world;
 
         let image_entity = world.query::<Image>().collect()[0];
         let icon_entity = world.query::<Icon>().collect()[0];
@@ -324,30 +311,19 @@ mod tests {
         use mirui::ui::Style;
         use mirui::ui::layout::FlexDirection;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let entity = app.compose(root, |cx| {
             ui! {
                 Row (width: 100)
             }
-        };
+        });
+        let world = &app.world;
 
-        let entities = world.query::<Style>().collect();
-        let row_count = entities
-            .iter()
-            .filter(|&&e| {
-                world
-                    .get::<Style>(e)
-                    .map(|s| matches!(s.layout.direction, FlexDirection::Row))
-                    .unwrap_or(false)
-            })
-            .count();
-        assert!(
-            row_count >= 1,
-            "Row widget must default to FlexDirection::Row"
+        assert_eq!(
+            world.get::<Style>(entity).unwrap().layout.direction,
+            FlexDirection::Row,
         );
     }
 
@@ -356,30 +332,19 @@ mod tests {
         use mirui::ui::Style;
         use mirui::ui::layout::FlexDirection;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let entity = app.compose(root, |cx| {
             ui! {
                 Column (width: 100)
             }
-        };
+        });
+        let world = &app.world;
 
-        let entities = world.query::<Style>().collect();
-        let col_count = entities
-            .iter()
-            .filter(|&&e| {
-                world
-                    .get::<Style>(e)
-                    .map(|s| matches!(s.layout.direction, FlexDirection::Column))
-                    .unwrap_or(false)
-            })
-            .count();
-        assert!(
-            col_count >= 1,
-            "Column widget must default to FlexDirection::Column"
+        assert_eq!(
+            world.get::<Style>(entity).unwrap().layout.direction,
+            FlexDirection::Column,
         );
     }
 
@@ -388,16 +353,15 @@ mod tests {
         use mirui::types::Dimension;
         use mirui::ui::Style;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Column (gap: 12)
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world
             .query::<Style>()
@@ -415,12 +379,10 @@ mod tests {
         use mirui::types::Dimension;
         use mirui::ui::Style;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 View (
                     min_width: 120,
@@ -429,7 +391,8 @@ mod tests {
                     max_height: 240
                 )
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world
             .query::<Style>()
@@ -449,16 +412,15 @@ mod tests {
         use mirui::types::Fixed;
         use mirui::ui::Style;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 View (shrink: 0.5)
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world
             .query::<Style>()
@@ -475,16 +437,15 @@ mod tests {
         use mirui::ui::Style;
         use mirui::ui::layout::FlexWrap;
 
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 Row (wrap: FlexWrap::Wrap)
             }
-        };
+        });
+        let world = &app.world;
 
         let entity = world
             .query::<Style>()
@@ -498,19 +459,18 @@ mod tests {
 
     #[test]
     fn lowercase_name_stays_layout_fallback() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let root = WidgetBuilder::new(&mut world).id();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 row (
                     direction: mirui::ui::layout::FlexDirection::Row,
                     width: 100
                 )
             }
-        };
+        });
+        let world = &app.world;
 
         let buttons = world.query::<Button>().collect();
         assert!(

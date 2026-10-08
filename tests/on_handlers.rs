@@ -1,12 +1,11 @@
 #[cfg(test)]
 mod tests {
+    use mirui::app::App;
     use mirui::ecs::{Entity, World};
     use mirui::input::event::gesture::GestureEvent;
     use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::{Color, Fixed};
     use mirui::ui;
-    use mirui::ui::IdMap;
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::widgets::Button;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicI64, Ordering};
@@ -14,6 +13,21 @@ mod tests {
     static COUNTER: AtomicI64 = AtomicI64::new(0);
     static SUM_X: AtomicI64 = AtomicI64::new(0);
     static SERIAL: Mutex<()> = Mutex::new(());
+
+    #[mirui::component]
+    struct ResetCount;
+
+    fn reset_tap_count(
+        world: &mut World,
+        _: Entity,
+        _: &GestureEvent,
+    ) -> Result<bool, mirui::ecs::CommandError> {
+        world.remove_resource::<MultiTapTracker>();
+        Ok(false)
+    }
+
+    #[mirui::view(component = ResetCount, gesture = reset_tap_count)]
+    fn reset_count_view() {}
 
     fn reset() {
         COUNTER.store(0, Ordering::SeqCst);
@@ -26,14 +40,6 @@ mod tests {
 
     fn fired() -> i64 {
         COUNTER.load(Ordering::SeqCst)
-    }
-
-    fn fresh_world() -> (World, Entity) {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        world.insert_resource(MultiTapTracker::new());
-        let root = WidgetBuilder::new(&mut world).id();
-        (world, root)
     }
 
     fn tap_event(target: Entity) -> GestureEvent {
@@ -59,17 +65,18 @@ mod tests {
     fn trailing_tap_block_installs_a_callable_listener() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap { fire(); }
             }
-        };
+        });
+        let world = &mut app.world;
 
         assert_eq!(
-            dispatch(&mut world, &tap_event(target), 100),
+            dispatch(world, &tap_event(target), 100),
             mirui::input::event::BubbleControl::Prevent
         );
         assert_eq!(fired(), 1);
@@ -79,20 +86,21 @@ mod tests {
     fn inferred_payload_closure_installs_a_callable_listener() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap(|input| {
                     assert_eq!(input.x, Fixed::ZERO);
                     fire();
                 })
             }
-        };
+        });
+        let world = &mut app.world;
 
         assert_eq!(
-            dispatch(&mut world, &tap_event(target), 100),
+            dispatch(world, &tap_event(target), 100),
             mirui::input::event::BubbleControl::Prevent
         );
         assert_eq!(fired(), 1);
@@ -102,16 +110,17 @@ mod tests {
     fn form_b_body_runs_on_dispatch() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap { fire(); }
             }
-        };
+        });
+        let world = &mut app.world;
 
-        dispatch(&mut world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 100);
 
         assert_eq!(fired(), 1, "on Tap body must fire once per Tap");
     }
@@ -120,19 +129,20 @@ mod tests {
     fn form_b_chained_on_distinct_events() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap { fire(); } on LongPress {
                     fire();
                     fire();
                 }
             }
-        };
+        });
+        let world = &mut app.world;
 
-        dispatch(&mut world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 100);
         assert_eq!(fired(), 1);
 
         let lp = GestureEvent::LongPress {
@@ -140,7 +150,7 @@ mod tests {
             y: Fixed::ZERO,
             target,
         };
-        dispatch(&mut world, &lp, 1000);
+        dispatch(world, &lp, 1000);
         assert_eq!(
             fired(),
             3,
@@ -152,17 +162,18 @@ mod tests {
     fn drag_cancel_is_available_to_dsl_handlers() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on DragCancel { fire(); }
             }
-        };
+        });
+        let world = &mut app.world;
 
         dispatch(
-            &mut world,
+            world,
             &GestureEvent::DragCancel {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -177,21 +188,22 @@ mod tests {
     fn form_b_payload_fields_are_in_scope() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap { SUM_X.fetch_add(event.x.to_int() as i64, Ordering::SeqCst); }
             }
-        };
+        });
+        let world = &mut app.world;
 
         let event = GestureEvent::Tap {
             x: Fixed::from_int(7),
             y: Fixed::ZERO,
             target,
         };
-        dispatch(&mut world, &event, 100);
+        dispatch(world, &event, 100);
         assert_eq!(SUM_X.load(Ordering::SeqCst), 7);
     }
 
@@ -199,17 +211,18 @@ mod tests {
     fn component_widget_runs_its_typed_tap_listener() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 Button (normal_color: Color::rgb(100, 100, 100)) on Tap { fire(); }
             }
-        };
+        });
+        let world = &mut app.world;
 
         assert!(world.has::<Button>(target));
-        dispatch(&mut world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 100);
         assert_eq!(
             fired(),
             1,
@@ -221,18 +234,19 @@ mod tests {
     fn form_c_on_tap_count_two_only_triggers_on_double() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap(2) { fire(); }
             }
-        };
+        });
+        let world = &mut app.world;
 
-        dispatch(&mut world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 100);
         assert_eq!(fired(), 0, "single Tap with only on Tap(2) must not fire");
-        dispatch(&mut world, &tap_event(target), 200);
+        dispatch(world, &tap_event(target), 200);
         assert_eq!(fired(), 1, "second Tap within window fires on Tap(2)");
     }
 
@@ -265,49 +279,56 @@ mod tests {
         }
 
         let warnings = Arc::new(AtomicUsize::new(0));
-        log::install_sink(Box::new(Warnings {
+        let mut app = App::headless(128, 128);
+        app.with_log(Warnings {
             count: Arc::clone(&warnings),
             thread: std::thread::current().id(),
-        }));
+        });
         for count in [0, 256, u32::MAX] {
-            let (mut world, root) = fresh_world();
-            let target = {
-                let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+            let mut app = App::headless(128, 128);
+            let root = app.spawn_root().id();
+            let target = app.compose(root, |cx| {
                 ui! {
                     View () on Tap(count) { }
                 }
-            };
+            });
+            let world = &mut app.world;
             assert!(world.is_alive(target));
             assert!(!world.has::<HitTarget>(target));
             for now in [100, 200, 300] {
-                dispatch(&mut world, &tap_event(target), now);
+                dispatch(world, &tap_event(target), now);
             }
         }
         assert_eq!(warnings.load(Ordering::SeqCst), 3);
 
-        let (mut world, root) = fresh_world();
+        let root = app.spawn_root().id();
         let calls = Rc::new(Cell::new(0));
         let invalid_called = Rc::clone(&calls);
         let plain_called = Rc::clone(&calls);
         let counted_called = Rc::clone(&calls);
         let long_pressed = Rc::clone(&calls);
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
-                View ()
-                    on Tap(0) { invalid_called.set(1000); true }
-                    on Tap { plain_called.set(plain_called.get() + 1); false }
-                    on Tap(2) { counted_called.set(counted_called.get() + 10); false }
-                    on LongPress { long_pressed.set(long_pressed.get() + 100); }
+                View () on Tap(0) {
+                    invalid_called.set(1000);
+                    true
+                } on Tap {
+                    plain_called.set(plain_called.get() + 1);
+                    false
+                } on Tap(2) {
+                    counted_called.set(counted_called.get() + 10);
+                    false
+                } on LongPress { long_pressed.set(long_pressed.get() + 100); }
             }
-        };
+        });
+        let world = &mut app.world;
         assert!(world.has::<HitTarget>(target));
         for now in [100, 200, 300] {
-            dispatch(&mut world, &tap_event(target), now);
+            dispatch(world, &tap_event(target), now);
         }
         assert_eq!(calls.get(), 13);
         dispatch(
-            &mut world,
+            world,
             &GestureEvent::LongPress {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -324,26 +345,27 @@ mod tests {
         use std::cell::Cell;
         use std::rc::Rc;
 
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
         let configured = Rc::new(Cell::new(2_u32));
         let evaluations = Rc::new(Cell::new(0_u32));
         let calls = Rc::new(Cell::new(0_u32));
         let count = Rc::clone(&configured);
         let evaluated = Rc::clone(&evaluations);
         let called = Rc::clone(&calls);
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap({
                     evaluated.set(evaluated.get() + 1);
                     count.get()
                 }) { called.set(called.get() + 1); }
             }
-        };
+        });
+        let world = &mut app.world;
         assert_eq!(evaluations.get(), 1);
         configured.set(3);
         for now in [100, 200, 300] {
-            dispatch(&mut world, &tap_event(target), now);
+            dispatch(world, &tap_event(target), now);
         }
         assert_eq!(evaluations.get(), 1);
         assert_eq!(
@@ -357,17 +379,18 @@ mod tests {
     fn form_b_on_tap_count_resets_after_window() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap(2) { fire(); }
             }
-        };
+        });
+        let world = &mut app.world;
 
-        dispatch(&mut world, &tap_event(target), 100);
-        dispatch(&mut world, &tap_event(target), 500);
+        dispatch(world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 500);
         assert_eq!(fired(), 0, "second Tap past 300ms window resets count");
     }
 
@@ -375,10 +398,10 @@ mod tests {
     fn form_b_on_tap_mixed_single_and_double_routes_by_count() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap {
                     fire();
@@ -388,11 +411,12 @@ mod tests {
                     fire();
                 }
             }
-        };
+        });
+        let world = &mut app.world;
 
-        dispatch(&mut world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 100);
         assert_eq!(fired(), 1, "first Tap fires single");
-        dispatch(&mut world, &tap_event(target), 200);
+        dispatch(world, &tap_event(target), 200);
         assert_eq!(
             fired(),
             4,
@@ -404,7 +428,8 @@ mod tests {
     fn mixed_tap_handlers_preserve_all_declarations_and_order() {
         use std::cell::RefCell;
         use std::rc::Rc;
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
         let trace = Rc::new(RefCell::new(([0_u8; 8], 0_usize)));
         let record = {
             let trace = trace.clone();
@@ -420,8 +445,7 @@ mod tests {
         let second_counted = record.clone();
         let second_plain = record.clone();
         let single = record;
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 View (id: "ordered_taps") on Tap(2) {
                     first_counted(1);
@@ -440,7 +464,8 @@ mod tests {
                     false
                 }
             };
-        }
+        });
+        let world = &mut app.world;
         let target = world.find_by_id("ordered_taps").unwrap();
         for (time, expected) in [
             (100, &[2, 4, 5][..]),
@@ -448,7 +473,7 @@ mod tests {
             (250, &[2, 4][..]),
         ] {
             trace.borrow_mut().1 = 0;
-            dispatch(&mut world, &tap_event(target), time);
+            dispatch(world, &tap_event(target), time);
             let trace = trace.borrow();
             assert_eq!(&trace.0[..trace.1], expected);
         }
@@ -458,19 +483,20 @@ mod tests {
     fn consuming_plain_tap_stops_later_counted_handlers() {
         use std::cell::Cell;
         use std::rc::Rc;
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
         let plain = Rc::new(Cell::new(0));
         let exact = Rc::new(Cell::new(0));
         let (plain_body, exact_body) = (plain.clone(), exact.clone());
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
                 View (id: "consuming_taps") on Tap { plain_body.set(plain_body.get() + 1); } on Tap(2) { exact_body.set(exact_body.get() + 1); }
             };
-        }
+        });
+        let world = &mut app.world;
         let target = world.find_by_id("consuming_taps").unwrap();
         for time in [100, 200] {
-            dispatch(&mut world, &tap_event(target), time);
+            dispatch(world, &tap_event(target), time);
         }
         assert_eq!(plain.get(), 2);
         assert_eq!(exact.get(), 0);
@@ -479,51 +505,34 @@ mod tests {
     #[test]
     fn tap_count_is_frozen_from_the_origin_before_internal_and_parent_callbacks() {
         use mirui::input::event::multi_tap::MultiTapEntry;
-        use mirui::ui::view::View;
         use std::cell::Cell;
         use std::rc::Rc;
 
-        #[mirui::component]
-        struct ResetCount;
-        fn reset(
-            world: &mut World,
-            _: Entity,
-            _: &GestureEvent,
-        ) -> Result<bool, mirui::ecs::CommandError> {
-            world.remove_resource::<MultiTapTracker>();
-            Ok(false)
-        }
-        let (mut world, root) = fresh_world();
-        let mut registry = mirui::ui::view::ViewRegistry::default();
-        registry.insert(
-            View::systems_only("ResetCount", &[])
-                .with_filter::<ResetCount>()
-                .with_internal_gesture(reset),
-        );
-        world.insert_resource(registry);
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
+        app.with_widget(reset_count_view::view());
         let seen = Rc::new(Cell::new(0));
         let parent_seen = seen.clone();
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        app.compose(root, |cx| {
             ui! {
-                View (id: "tap_parent") on Tap(2) { parent_seen.set(parent_seen.get() + 1); }
-                {
+                View (id: "tap_parent") {
                     View (id: "tap_child") [
                         ResetCount,
                     ] on Tap(2) {
                         assert_eq!(event.x, Fixed::ZERO);
                         false
                     }
-                }
+                } on Tap(2) { parent_seen.set(parent_seen.get() + 1); }
             };
-        }
+        });
+        let world = &mut app.world;
         let target = world.find_by_id("tap_child").unwrap();
         world.resource_mut::<MultiTapTracker>().unwrap().last = Some(MultiTapEntry {
             entity: target,
             time_ms: 100,
             count: 1,
         });
-        dispatch(&mut world, &tap_event(target), 200);
+        dispatch(world, &tap_event(target), 200);
         assert!(world.resource::<MultiTapTracker>().is_none());
         assert_eq!(seen.get(), 1);
     }
@@ -532,26 +541,27 @@ mod tests {
     fn form_b_plus_c_mixed_on_same_widget() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
+        let mut app = App::headless(128, 128);
+        let root = app.spawn_root().id();
 
-        let target = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let target = app.compose(root, |cx| {
             ui! {
                 View () on Tap { fire(); } on LongPress {
                     fire();
                     fire();
                 }
             }
-        };
+        });
+        let world = &mut app.world;
 
-        dispatch(&mut world, &tap_event(target), 100);
+        dispatch(world, &tap_event(target), 100);
         assert_eq!(fired(), 1, "Form C Tap arm fires");
         let lp = GestureEvent::LongPress {
             x: Fixed::ZERO,
             y: Fixed::ZERO,
             target,
         };
-        dispatch(&mut world, &lp, 1000);
+        dispatch(world, &lp, 1000);
         assert_eq!(fired(), 3, "Form B LongPress arm fires twice");
     }
 }
