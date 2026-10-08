@@ -8,7 +8,7 @@ use crate::render::path::Path;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
+use crate::ui::view::PaintCtx;
 
 #[derive(Clone, Debug)]
 pub enum ImageSource {
@@ -121,6 +121,7 @@ pub struct ImageBuilder {
     style: Option<crate::ui::Style>,
 }
 
+#[crate::component]
 struct ImageResource(RefCell<Option<ResourceHandle<Texture<'static>>>>);
 
 pub(crate) fn attach_image_resource(world: &mut World, entity: Entity) {
@@ -139,14 +140,14 @@ pub(crate) fn attach_image_resource(world: &mut World, entity: Entity) {
 }
 
 fn resolve_image(
-    world: &World,
-    entity: Entity,
     image: &Image,
+    cache: Option<&ImageResource>,
+    manager: Option<&ResourceManager<Texture<'static>>>,
 ) -> Option<alloc::rc::Rc<Texture<'static>>> {
     let ImageSource::Texture(token) = &image.src else {
         return None;
     };
-    if let Some(cache) = world.get::<ImageResource>(entity) {
+    if let Some(cache) = cache {
         let mut handle = cache.0.borrow_mut();
         if let Some(current) = handle.as_ref()
             && current.token() == token.as_ref()
@@ -154,7 +155,7 @@ fn resolve_image(
         {
             return Some(texture);
         }
-        let manager = world.resource::<ResourceManager<Texture<'static>>>()?;
+        let manager = manager?;
         if handle
             .as_ref()
             .is_none_or(|current| current.token() != token.as_ref())
@@ -163,9 +164,7 @@ fn resolve_image(
         }
         return handle.as_ref().map(ResourceHandle::get);
     }
-    world
-        .resource::<ResourceManager<Texture<'static>>>()
-        .map(|manager| manager.resolve(token))
+    manager.map(|manager| manager.resolve(token))
 }
 
 pub(crate) fn draw_vector_transformed(
@@ -236,10 +235,17 @@ impl crate::ecs::IntoBundle for ImageBuilder {
     }
 }
 
-fn image_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
+#[crate::view(component = Image, name = "Image", priority = 70, attach = attach_image_resource)]
+fn image_render(
+    rows: query!(Image, optional ImageResource),
+    entity: entity!(),
+    manager: res!(optional ResourceManager<Texture<'static>>),
+    theme: res!(optional crate::ui::Theme),
+    paint: paint!(),
+) {
     crate::trace_span!("image.render", {
-        let img = crate::trace_span!("image.world_get", { world.get::<Image>(entity) });
-        let Some(img) = img else { return };
+        let row = crate::trace_span!("image.query_get", { rows.get(entity) });
+        let Some((img, cache)) = row else { return };
         let rect = paint.rect();
         if let ImageSource::Vector(path) = &img.src {
             let size = rect.w.min(rect.h) * img.scale;
@@ -247,8 +253,7 @@ fn image_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
             else {
                 return;
             };
-            let theme = world
-                .resource::<crate::ui::Theme>()
+            let theme = theme
                 .expect("App::new must insert Theme; missing means a test fixture skipped App");
             draw_vector_transformed(
                 paint,
@@ -258,7 +263,7 @@ fn image_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
             );
             return;
         }
-        let rc = crate::trace_span!("image.resolve", { resolve_image(world, entity, img) });
+        let rc = crate::trace_span!("image.resolve", { resolve_image(img, cache, manager) });
         let Some(rc) = rc else { return };
         crate::trace_span!("image.blit", {
             paint.draw(&DrawCommand::Blit {
@@ -282,17 +287,20 @@ fn image_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     });
 }
 
-pub fn view() -> View {
-    View::new("Image", 70, image_render)
-        .with_filter::<Image>()
-        .with_attach(attach_image_resource)
-}
+pub use image_render::view;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::cache::MaxSize;
+    use crate::render::command::Paint;
+    use crate::render::path::PathCmd;
+    use crate::render::raster::FillRule;
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
     use crate::render::texture::ColorFormat;
+    use crate::test_support::tracked_allocations;
+    use crate::ui::theme::WidgetState;
+    use crate::ui::{Style, Theme};
 
     static RED: [u8; 4] = [255, 0, 0, 255];
     static BLUE: [u8; 4] = [0, 0, 255, 255];
@@ -346,14 +354,21 @@ mod tests {
         attach_image_resource(&mut world, entity);
 
         let image = world.get::<Image>(entity).unwrap();
-        let first = resolve_image(&world, entity, image).unwrap();
-        let second = resolve_image(&world, entity, image).unwrap();
+        let cache = world.get::<ImageResource>(entity);
+        let manager = world.resource::<ResourceManager<Texture<'static>>>();
+        let first = resolve_image(image, cache, manager).unwrap();
+        let second = resolve_image(image, cache, manager).unwrap();
         assert!(alloc::rc::Rc::ptr_eq(&first, &second));
         assert_eq!(first.buf.as_slice(), &BLUE);
 
         world.get_mut::<Image>(entity).unwrap().src = ImageSource::from("missing");
         let image = world.get::<Image>(entity).unwrap();
-        let fallback = resolve_image(&world, entity, image).unwrap();
+        let fallback = resolve_image(
+            image,
+            world.get::<ImageResource>(entity),
+            world.resource::<ResourceManager<Texture<'static>>>(),
+        )
+        .unwrap();
         assert_eq!(fallback.buf.as_slice(), &RED);
         assert_eq!(
             world
@@ -392,8 +407,369 @@ mod tests {
 
         let image = world.get::<Image>(entity).unwrap();
         assert_eq!(
-            resolve_image(&world, entity, image).unwrap().buf.as_slice(),
+            resolve_image(
+                image,
+                None,
+                world.resource::<ResourceManager<Texture<'static>>>(),
+            )
+            .unwrap()
+            .buf
+            .as_slice(),
             &BLUE
         );
+    }
+
+    #[test]
+    fn resource_leases_keep_their_manager_and_cached_values_across_replacement() {
+        let original = image_manager();
+        let replacement = ResourceManager::new(
+            MaxSize::Bytes(64),
+            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888),
+        )
+        .with_static(
+            "blue",
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+        )
+        .with_static(
+            "other",
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+        );
+        let mut image = Image::new("blue");
+        let cache = ImageResource(RefCell::new(Some(original.load("blue"))));
+        assert!(resolve_image(&image, Some(&cache), None).is_none());
+        let first = resolve_image(&image, Some(&cache), Some(&original)).unwrap();
+        assert_eq!(first.buf.as_slice(), &BLUE);
+        assert!(alloc::rc::Rc::ptr_eq(
+            &first,
+            &resolve_image(&image, Some(&cache), None).unwrap()
+        ));
+        original.add_static(
+            "blue",
+            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888),
+        );
+        assert!(resolve_image(&image, Some(&cache), None).is_none());
+        assert_eq!(
+            resolve_image(&image, Some(&cache), Some(&replacement))
+                .unwrap()
+                .buf
+                .as_slice(),
+            &BLUE
+        );
+        drop(original);
+        assert_eq!(
+            resolve_image(&image, Some(&cache), None)
+                .unwrap()
+                .buf
+                .as_slice(),
+            &BLUE
+        );
+        assert_eq!(
+            resolve_image(&image, None, Some(&replacement))
+                .unwrap()
+                .buf
+                .as_slice(),
+            &RED
+        );
+        image.src = ImageSource::from("other");
+        assert!(resolve_image(&image, Some(&cache), None).is_none());
+        assert_eq!(
+            resolve_image(&image, Some(&cache), Some(&replacement))
+                .unwrap()
+                .buf
+                .as_slice(),
+            &RED
+        );
+        assert_eq!(cache.0.borrow().as_ref().unwrap().token(), "other");
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Request {
+        Texture {
+            ptr: *const u8,
+            pos: Point,
+            size: Point,
+            transform: Transform,
+            quad: Option<[Point; 4]>,
+            clip: Rect,
+            radius: Fixed,
+            composite: CompositeMode,
+            opa: u8,
+        },
+        Path {
+            ptr: *const PathCmd,
+            transform: Transform,
+            clip: Rect,
+            color: Color,
+            rule: FillRule,
+            opa: u8,
+        },
+    }
+
+    #[derive(Default)]
+    struct Trace {
+        request: Option<Request>,
+        calls: usize,
+        fail: bool,
+    }
+
+    impl Renderer for Trace {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            self.request = Some(match *request.command {
+                DrawCommand::Blit {
+                    pos,
+                    size,
+                    transform,
+                    quad,
+                    texture,
+                    radius,
+                    composite,
+                    opa,
+                } => Request::Texture {
+                    ptr: texture.buf.as_slice().as_ptr(),
+                    pos,
+                    size,
+                    transform,
+                    quad,
+                    clip: request.clip,
+                    radius,
+                    composite,
+                    opa,
+                },
+                DrawCommand::FillPath {
+                    path,
+                    transform,
+                    paint: Paint::Color(color),
+                    fill_rule,
+                    opa,
+                } => Request::Path {
+                    ptr: path.cmds.as_ptr(),
+                    transform,
+                    clip: request.clip,
+                    color: (*color).into(),
+                    rule: fill_rule,
+                    opa,
+                },
+                _ => panic!("unexpected Image request"),
+            });
+            self.calls += 1;
+            if self.fail {
+                Err(RenderError::BackendFailure)
+            } else {
+                Ok(())
+            }
+        }
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn typed_paint_retains_borrowed_requests_early_returns_and_first_error_without_allocating() {
+        static COMMANDS: &[PathCmd] = &[PathCmd::Close];
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let descriptor = view();
+        assert_eq!(descriptor.name(), "Image");
+        assert_eq!(descriptor.priority(), Some(70));
+        assert_eq!(
+            descriptor.component_filter(),
+            Some(core::any::TypeId::of::<Image>())
+        );
+        assert!(core::ptr::fn_addr_eq(
+            descriptor.auto_attach().unwrap(),
+            attach_image_resource as crate::ui::view::ViewAttach,
+        ));
+        let render = descriptor.render().unwrap();
+        let style = Style::default();
+        let rect = Rect::new(5, 7, 40, 20);
+        let clip = Rect::new(7, 9, 12, 13);
+        let transform = Transform::translate(Fixed::from_int(3), Fixed::from_int(11));
+        let quad = Some([
+            Point::new(5, 7),
+            Point::new(45, 7),
+            Point::new(45, 27),
+            Point::new(5, 27),
+        ]);
+        for _ in 0..2 {
+            let mut trace = Trace::default();
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &clip,
+                transform,
+                quad,
+                WidgetState::Enabled,
+            );
+            assert_eq!(
+                tracked_allocations(|| {
+                    let _ = view();
+                    render(&world, entity, &mut paint);
+                }),
+                0
+            );
+            assert_eq!(paint.error(), None);
+            assert_eq!(trace.calls, 0);
+        }
+        world.insert(
+            entity,
+            Image::new(Path::from_static(COMMANDS)).with_viewbox(Fixed::ZERO),
+        );
+        let mut trace = Trace::default();
+        {
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &clip,
+                transform,
+                quad,
+                WidgetState::Enabled,
+            );
+            render(&world, entity, &mut paint);
+            assert_eq!(paint.error(), None);
+        }
+        assert_eq!(trace.calls, 0);
+
+        world.insert(entity, Image::new(Path::from_static(COMMANDS)));
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut trace = Trace::default();
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &clip,
+                transform,
+                quad,
+                WidgetState::Enabled,
+            );
+            render(&world, entity, &mut paint);
+        }));
+        assert!(rejected.is_err(), "a drawable vector requires Theme");
+
+        world.insert_resource(image_manager());
+        world.insert(
+            entity,
+            Image::new("blue")
+                .with_radius(3)
+                .with_composite(CompositeMode::Screen),
+        );
+        world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .prefetch("blue");
+        let expected = Request::Texture {
+            ptr: BLUE.as_ptr(),
+            pos: Point::new(5, 7),
+            size: Point::new(40, 20),
+            transform,
+            quad,
+            clip,
+            radius: Fixed::from_int(3),
+            composite: CompositeMode::Screen,
+            opa: 255,
+        };
+        for cached in [false, true] {
+            if cached {
+                attach_image_resource(&mut world, entity);
+                let image = world.get::<Image>(entity).unwrap();
+                resolve_image(
+                    image,
+                    world.get::<ImageResource>(entity),
+                    world.resource::<ResourceManager<Texture<'static>>>(),
+                );
+                world.remove_resource::<ResourceManager<Texture<'static>>>();
+            }
+            for fail in [false, true] {
+                for _ in 0..2 {
+                    let mut trace = Trace {
+                        fail,
+                        ..Trace::default()
+                    };
+                    {
+                        let mut paint = PaintCtx::new(
+                            &mut trace,
+                            &style,
+                            &rect,
+                            &clip,
+                            transform,
+                            quad,
+                            WidgetState::Disabled,
+                        );
+                        assert_eq!(
+                            tracked_allocations(|| render(&world, entity, &mut paint)),
+                            0
+                        );
+                        assert_eq!(paint.error(), fail.then_some(RenderError::BackendFailure));
+                        if fail {
+                            render(&world, entity, &mut paint);
+                        }
+                    }
+                    assert_eq!(trace.calls, 1);
+                    assert_eq!(trace.request, Some(expected));
+                }
+            }
+        }
+        world.insert(entity, Image::new(Path::from_static(COMMANDS)));
+        world.insert_resource(Theme::light());
+        let color = world
+            .resource::<Theme>()
+            .unwrap()
+            .resolve_in(ColorToken::OnSurface, WidgetState::Disabled);
+        let expected = Request::Path {
+            ptr: COMMANDS.as_ptr(),
+            transform: vector_transform(&rect, Fixed::from_int(24), Fixed::from_int(20), transform)
+                .unwrap(),
+            clip,
+            color,
+            rule: FillRule::EvenOdd,
+            opa: 255,
+        };
+        for _ in 0..2 {
+            let mut trace = Trace::default();
+            {
+                let mut paint = PaintCtx::new(
+                    &mut trace,
+                    &style,
+                    &rect,
+                    &clip,
+                    transform,
+                    None,
+                    WidgetState::Disabled,
+                );
+                assert_eq!(
+                    tracked_allocations(|| render(&world, entity, &mut paint)),
+                    0
+                );
+                assert_eq!(paint.error(), None);
+            }
+            assert_eq!(trace.calls, 1);
+            assert_eq!(trace.request, Some(expected));
+        }
+    }
+
+    #[test]
+    fn source_writes_and_cache_membership_repaint_in_the_actual_app() {
+        use crate::surface::FramebufferAccess;
+        let mut app = crate::app::App::headless(8, 8);
+        app.with_widget(view());
+        app.add_resource(image_manager().with_static(
+            "red",
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+        ));
+        let root = app.spawn_root().id();
+        app.world.insert(root, Image::new("blue"));
+        app.render_dirty().unwrap();
+        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &BLUE);
+        app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("red");
+        app.render_dirty().unwrap();
+        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &RED);
+        attach_image_resource(&mut app.world, root);
+        app.render_dirty().unwrap();
+        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &RED);
+        app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("blue");
+        app.render_dirty().unwrap();
+        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &BLUE);
+        app.world.remove::<ImageResource>(root);
+        app.render_dirty().unwrap();
+        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &BLUE);
     }
 }

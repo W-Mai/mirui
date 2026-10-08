@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Image paint dependencies.** Image Views query their optional resource lease and borrow texture-manager and theme resources while preserving cached lease identity and borrowed vector and pixel data.
 - **Showcase theme setup.** Palette installation uses the App theme-registration API without exposing World to its callers.
 - **Drawing prelude.** Drawing commands and paint-context types remain in `prelude::draw`; backend traits and low-level View descriptors use their explicit render and UI paths.
 - **Backend parity composition.** The calibration scene uses a typed paint View, an App-managed root, and declarative transform attachment.
