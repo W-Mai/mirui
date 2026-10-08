@@ -1,5 +1,5 @@
 error: `on EventKind` must follow a widget; place it after a `Widget()` form, or between attrs and children as `Widget() on EventKind {} {}`
-  --> tests/ui/on_form_a_inside_body.rs:15:20
+  --> tests/ui/on_form_a_inside_body.rs:10:20
    |
-15 |                 on Tap { todo!() }
+10 |                 on Tap { todo!() }
    |                    ^^^

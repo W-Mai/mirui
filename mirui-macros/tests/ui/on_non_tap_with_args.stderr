@@ -1,9 +1,9 @@
 error[E0308]: mismatched types
-  --> tests/ui/on_non_tap_with_args.rs:13:9
+  --> tests/ui/on_non_tap_with_args.rs:8:9
    |
-13 | /         ui! {
-14 | |             View () on LongPress(500) { }
-15 | |         }
+ 8 | /         ui! {
+ 9 | |             View () on LongPress(500) { }
+10 | |         }
    | |         ^
    | |         |
    | |_________expected `()`, found `({integer},)`

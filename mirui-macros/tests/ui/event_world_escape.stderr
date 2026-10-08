@@ -1,9 +1,9 @@
 error[E0631]: type mismatch in closure arguments
-  --> tests/ui/event_world_escape.rs:13:9
+  --> tests/ui/event_world_escape.rs:9:9
    |
-13 | /         ui! {
-14 | |             View () on Tap(|_: &mut World| {})
-15 | |         }
+ 9 | /         ui! {
+10 | |             View () on Tap(|_: &mut World| {})
+11 | |         }
    | |         ^
    | |         |
    | |_________expected due to this

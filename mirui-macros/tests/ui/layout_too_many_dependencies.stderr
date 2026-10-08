@@ -1,5 +1,5 @@
 error: layout-responsive properties on one widget use more than four distinct dependencies
-  --> tests/ui/layout_too_many_dependencies.rs:15:17
+  --> tests/ui/layout_too_many_dependencies.rs:10:17
    |
-15 |                 width: @(width, height, id(a).width, id(b).width) { width },
+10 |                 width: @(width, height, id(a).width, id(b).width) { width },
    |                 ^^^^^

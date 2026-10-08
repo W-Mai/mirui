@@ -1,5 +1,5 @@
 error: `container` only accepts `true`
-  --> tests/ui/layout_container_false.rs:14:30
-   |
-14 |             View (container: false)
-   |                              ^^^^^
+ --> tests/ui/layout_container_false.rs:9:30
+  |
+9 |             View (container: false)
+  |                              ^^^^^

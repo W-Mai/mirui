@@ -2,8 +2,6 @@ use mirui::app::{App, EventCapacity};
 use mirui::ecs::{CommandCapacity, Component};
 use mirui::input::event::gesture::Tap;
 use mirui::ui;
-use mirui::ui::IdMap;
-use mirui::ui::builder::WidgetBuilder;
 
 struct Marker(u8);
 
@@ -28,20 +26,18 @@ fn main() {
     app.with_event_capacity(
         EventCapacity::new().commands(CommandCapacity::new().insert::<Marker>(1)),
     );
-    let mut world = app.world;
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().id();
 
-    let target = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
-            View () on Tap(|input: event!(Tap), markers: query!(Marker), commands: commands!()| {
+            View () [
+                Marker(0),
+            ] on Tap(|input: event!(Tap), markers: query!(Marker), commands: commands!()| {
                 let _ = foreign::com!();
                 foreign::commands!();
                 let value = markers.get(input.target).map(|marker| marker.0);
                 commands.insert(input.target, Marker(value.unwrap_or(0) + 1));
             })
         }
-    };
-    world.insert(target, Marker(0));
+    });
 }

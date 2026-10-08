@@ -1,25 +1,18 @@
 use mirui::core::reactive::Signal;
-use mirui::ecs::World;
 use mirui::ui;
-use mirui::ui::builder::WidgetBuilder;
-use mirui::ui::{IdMap, ViewRegistry};
 
 ui!(compose Card {
     @@body
 });
 
 fn main() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut registry = ViewRegistry::default();
-    registry.insert(ui!(compose Card));
-    world.insert_resource(registry);
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(32, 32);
+    app.with_widget(ui!(compose Card));
+    let root = app.spawn_root().id();
     let signal = Signal::new(true);
     let condition = signal.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             View () {
                 if $condition {
@@ -37,5 +30,5 @@ fn main() {
                 }
             }
         }
-    };
+    });
 }

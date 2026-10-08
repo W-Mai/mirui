@@ -1,17 +1,14 @@
 use mirui::core::reactive::Signal;
-use mirui::ecs::World;
 use mirui::ui;
-use mirui::ui::builder::WidgetBuilder;
 
 fn main() {
-    let mut world = World::new();
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(32, 32);
+    let root = app.spawn_root().id();
     let signal = Signal::new(true);
     let selection = signal.clone();
     let inner = signal.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             View () {
                 match $selection {
@@ -25,5 +22,5 @@ fn main() {
                 }
             }
         }
-    };
+    });
 }

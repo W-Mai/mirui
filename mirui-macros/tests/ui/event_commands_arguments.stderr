@@ -1,5 +1,5 @@
 error: `commands!` does not accept arguments; use `commands!()`
-  --> tests/ui/event_commands_arguments.rs:14:48
-   |
-14 |             View () on Tap { let _ = commands!(World); }
-   |                                                ^^^^^
+ --> tests/ui/event_commands_arguments.rs:9:48
+  |
+9 |             View () on Tap { let _ = commands!(World); }
+  |                                                ^^^^^

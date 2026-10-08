@@ -1,8 +1,8 @@
 error[E0599]: no associated function or constant named `Wiggle` found for struct `mirui::ui::Widget` in the current scope
-  --> tests/ui/on_unknown_event.rs:14:24
-   |
-13 | /         ui! {
-14 | |             View () on Wiggle { }
-   | |                       -^^^^^^ associated function or constant not found in `mirui::ui::Widget`
-   | |_______________________|
-   |
+ --> tests/ui/on_unknown_event.rs:9:24
+  |
+8 | /         ui! {
+9 | |             View () on Wiggle { }
+  | |                       -^^^^^^ associated function or constant not found in `mirui::ui::Widget`
+  | |_______________________|
+  |
