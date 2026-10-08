@@ -1,7 +1,7 @@
 //! Render a string with the prebuilt MiSans SDF atlas to PNG.
 //!
 //! Usage:
-//!   cargo run --release -p gallery --example sdf_label_snapshot -- \
+//!   cargo run --release -p gallery --example sdf_cjk_snapshot -- \
 //!     [text] [out.png]
 //!
 //! Defaults to "我是中国人 Hello!" → `.local/screenshots/sdf-cjk.png`.
@@ -33,6 +33,18 @@ fn load_misans_font() -> Font {
     .expect("parse font")
 }
 
+#[compose]
+fn font_panel(text: String, font: Font) {
+    res!(FontManager).with(|manager| manager.add_static(FontToken::Heading.cache_key(), font));
+    ui! {
+        Text (
+            text,
+            font: FontToken::Heading,
+            text_color: Color::rgb(255, 220, 140)
+        )
+    };
+}
+
 fn main() {
     let mut args = env::args().skip(1);
     let text: String = args.next().unwrap_or_else(|| "我是中国人 Hello!".into());
@@ -51,15 +63,9 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    // Register the SDF MiSans atlas under FontToken::Heading so the
-    // Text widget asks for it explicitly. FontToken::Default keeps
-    // the bundled bitmap path so untagged labels still render.
-    {
-        let mgr = app.world.resource::<FontManager>().expect("FontManager");
-        mgr.add_static(FontToken::Heading.cache_key(), load_misans_font());
-    }
-
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(20, 20, 30))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -71,18 +77,7 @@ fn main() {
         })
         .id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            Text (
-                text.clone(),
-                font: FontToken::Heading,
-                text_color: Color::rgb(255, 220, 140)
-            )
-        }
-    };
-
-    app.set_root(root);
+    app.compose(root, font_panel(text, load_misans_font()));
 
     use mirui::render::sw::SwRenderer;
     use mirui::types::Viewport;
@@ -95,7 +90,7 @@ fn main() {
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = viewport;
-        render_system::render(&mut app.world, root, &viewport, &mut renderer).unwrap();
+        render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
     }
 
     use mirui::surface::FramebufferAccess;

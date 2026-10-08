@@ -54,6 +54,36 @@ fn drag_end(entity: entity!(), commands: commands!()) -> bool {
     true
 }
 
+#[compose]
+fn input_targets() -> (Entity, Entity) {
+    let tap_box = ui! {
+        View (
+            bg_color: Color::rgb(63, 185, 80),
+            position: Position::Absolute,
+            left: 30,
+            top: 30,
+            width: 80,
+            height: 80,
+            border_radius: 10
+        ) [
+            TapCount(0),
+        ] on Tap(tap_handler::callback())
+    };
+
+    let drag_box = ui! {
+        View (
+            bg_color: Color::rgb(88, 166, 255),
+            position: Position::Absolute,
+            left: 140,
+            top: 90,
+            width: 60,
+            height: 60,
+            border_radius: 30
+        ) on DragMove(drag_move::callback()) on DragEnd(drag_end::callback())
+    };
+    (tap_box, drag_box)
+}
+
 fn main() {
     let backend = SdlSurface::new("mirui - simulated input demo", 320, 240);
     let mut app = App::new(backend);
@@ -69,7 +99,9 @@ fn main() {
 
     app.add_system(sim_timeline_system::system());
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             width: Dimension::px(320),
@@ -78,39 +110,9 @@ fn main() {
         })
         .id();
 
-    let tap_box = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(63, 185, 80),
-                position: Position::Absolute,
-                left: 30,
-                top: 30,
-                width: 80,
-                height: 80,
-                border_radius: 10
-            ) [
-                TapCount(0),
-            ] on Tap(tap_handler::callback())
-        }
-    };
+    let (tap_box, drag_box) = app.compose(root, input_targets());
 
-    let drag_box = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(88, 166, 255),
-                position: Position::Absolute,
-                left: 140,
-                top: 90,
-                width: 60,
-                height: 60,
-                border_radius: 30
-            ) on DragMove(drag_move::callback()) on DragEnd(drag_end::callback())
-        }
-    };
-
-    app.world.insert_resource(
+    app.add_resource(
         SimTimeline::new(vec![
             SimAction::tap(DimPoint::CENTER).on(tap_box),
             SimAction::wait(300),
@@ -127,8 +129,7 @@ fn main() {
         .looping(true),
     );
 
-    app.set_root(root);
-    app.add_plugin(StdInstantClockPlugin::default())
+    app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
     app.run();
 }

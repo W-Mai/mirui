@@ -20,7 +20,7 @@ use mirui::app::App;
 use mirui::app::plugin::Plugin;
 use mirui::app::plugins::{AutoSuspendPlugin, StdInstantClockPlugin};
 use mirui::core::reactive::Signal;
-use mirui::ecs::{Entity, World};
+use mirui::ecs::World;
 use mirui::input::event::input::{InputEvent, KEY_ESCAPE, KEY_RETURN};
 use mirui::prelude::*;
 use mirui::render::factory::RendererFactory;
@@ -70,46 +70,44 @@ where
     }
 }
 
-fn build_ui(world: &mut World, parent: Entity, counters: LifecycleCounters) {
+#[compose]
+fn build_ui(counters: LifecycleCounters) {
     let state_label = counters.suspended.clone();
     let ticks_label = counters.ticks.clone();
     let suspend_label = counters.on_suspend.clone();
     let resume_label = counters.on_resume.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(world, parent);
-        ui! {
-            Column (
-                grow: 1.0,
-                padding: Padding::all(16),
-                justify: JustifyContent::Center,
-                align: AlignItems::Center
-            ) {
-                Text (
-                    height: 40,
-                    text: ${
-                        if state_label.get() {
-                            alloc::string::String::from("State: SUSPENDED")
-                        } else {
-                            alloc::string::String::from("State: running")
-                        }
+    ui! {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(16),
+            justify: JustifyContent::Center,
+            align: AlignItems::Center
+        ) {
+            Text (
+                height: 40,
+                text: ${
+                    if state_label.get() {
+                        alloc::string::String::from("State: SUSPENDED")
+                    } else {
+                        alloc::string::String::from("State: running")
                     }
-                )
-                Text (
-                    height: 32,
-                    text: ${ alloc::format!("Ticks: {}", ticks_label.get()) }
-                )
-                Text (
-                    height: 32,
-                    text: ${ alloc::format!("on_suspend: {}", suspend_label.get()) }
-                )
-                Text (
-                    height: 32,
-                    text: ${ alloc::format!("on_resume: {}", resume_label.get()) }
-                )
-                Text ("ENTER toggle suspend, ESC quit", height: 24)
-                Text ("alt-tab / minimize to test AutoSuspendPlugin", height: 24)
-            }
+                }
+            )
+            Text (
+                height: 32,
+                text: ${ alloc::format!("Ticks: {}", ticks_label.get()) }
+            )
+            Text (
+                height: 32,
+                text: ${ alloc::format!("on_suspend: {}", suspend_label.get()) }
+            )
+            Text (
+                height: 32,
+                text: ${ alloc::format!("on_resume: {}", resume_label.get()) }
+            )
+            Text ("ENTER toggle suspend, ESC quit", height: 24)
+            Text ("alt-tab / minimize to test AutoSuspendPlugin", height: 24)
         }
     };
 }
@@ -127,7 +125,7 @@ fn main() {
     });
 
     let parent = app.spawn_root().id();
-    build_ui(&mut app.world, parent, counters);
+    app.compose(parent, build_ui(counters));
 
     loop {
         if let Some(event) = app.backend.poll_event() {

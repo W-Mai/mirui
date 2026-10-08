@@ -6,7 +6,7 @@
 //!
 //! fn main() {
 //!     gallery::run("my demo", 480, 320, |setup| {
-//!         let root = WidgetBuilder::new(&mut setup.app.world)
+//!         let root = setup.app.spawn_root()
 //!             .bg_color(Color::rgb(30, 30, 46))
 //!             .id();
 //!         // optional plugins/systems on the App:

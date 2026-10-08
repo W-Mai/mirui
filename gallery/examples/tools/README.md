@@ -15,3 +15,14 @@ The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `
 For a regression check, capture before and after a change with identical arguments into separate directories. Compare corresponding files and inspect the images for clipping, layering, and animation artifacts. These snapshots support manual visual checks; they do not replace unit tests for layout, event, or lifecycle contracts. Keep generated images under `.local/screenshots/` or a temporary directory, outside version control.
 
 Scene construction belongs in `#[compose]` functions called through `App::compose`. Tools that inspect render internals keep those diagnostics outside the composition body.
+
+## Interactive diagnostics
+
+```sh
+cargo run -p gallery --example sim_input_demo --features sdl
+cargo run -p gallery --example lifecycle_suspend --features sdl
+cargo run -p gallery --example zorder_baseline --features sdl
+cargo run -p gallery --example perf_collect --features sdl,perf
+```
+
+The input demo repeatedly taps and drags its composed targets. In the lifecycle demo, Enter toggles suspension and Escape exits. The z-order diagnostic displays overlapping squares and reports their child order. The performance collector drives list scrolling and writes `/tmp/mirui-perf.ndjson`; it is a host-side diagnostic, not a hardware performance measurement.

@@ -21,6 +21,34 @@ const FONT_BYTES: &[u8] = include_bytes!("../../../src/gallery/demos/assets/misa
 const FONT: FontToken = FontToken::Custom("real_font_snapshot");
 const SIZES: [u16; 8] = [10, 12, 14, 18, 24, 36, 48, 96];
 
+#[compose]
+fn font_panel(font: Font) {
+    res!(FontManager).with(|manager| manager.add_static(FONT.cache_key(), font));
+    ui! {
+        walk SIZES.iter() with size {
+            Row (
+                height: i32::from((*size).max(24)) + 10,
+                align: AlignItems::Center,
+                column_gap: 18
+            ) {
+                Text (
+                    format!("{:>2} px", size),
+                    width: 58,
+                    font: FONT,
+                    font_size: 14,
+                    text_color: Color::rgb(112, 126, 150)
+                )
+                Text (
+                    "Ag AVATAR mirui 0123",
+                    font: FONT,
+                    font_size: *size,
+                    text_color: Color::rgb(255, 220, 140)
+                )
+            }
+        }
+    };
+}
+
 fn main() {
     let out_path = env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
         let mut path = PathBuf::from(".local/screenshots");
@@ -40,12 +68,10 @@ fn main() {
         &mirx::reader::PayloadLimits::HOST,
     )
     .expect("parse production UI font");
-    app.world
-        .resource::<FontManager>()
-        .expect("FontManager")
-        .add_static(FONT.cache_key(), font);
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(16, 18, 27))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -57,41 +83,15 @@ fn main() {
         })
         .id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            walk SIZES.iter() with size {
-                Row (
-                    height: i32::from((*size).max(24)) + 10,
-                    align: AlignItems::Center,
-                    column_gap: 18
-                ) {
-                    Text (
-                        format!("{:>2} px", size),
-                        width: 58,
-                        font: FONT,
-                        font_size: 14,
-                        text_color: Color::rgb(112, 126, 150)
-                    )
-                    Text (
-                        "Ag AVATAR mirui 0123",
-                        font: FONT,
-                        font_size: *size,
-                        text_color: Color::rgb(255, 220, 140)
-                    )
-                }
-            }
-        }
-    };
+    app.compose(root, font_panel(font));
 
-    app.set_root(root);
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(&mut app.world, root, &viewport);
     {
         let texture = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(texture);
         renderer.viewport = viewport;
-        render_system::render(&mut app.world, root, &viewport, &mut renderer).unwrap();
+        render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
     }
 
     let texture = app.backend.framebuffer();
