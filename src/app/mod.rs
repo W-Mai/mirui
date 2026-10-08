@@ -354,6 +354,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::text::layout::TextLayoutResource::new(limits)
         };
         self.world.insert_resource(resource);
+        self.world
+            .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
         Ok(self)
     }
 
@@ -759,6 +761,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .resource::<crate::text::layout::TextLayoutResource>()
         {
             layouts.trim_memory();
+            self.world
+                .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
         }
         if let Some(paths) = self
             .world

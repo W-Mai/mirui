@@ -385,7 +385,7 @@ app.with_widget(paint_counter::view());
 
 Cursor and rotary feedback Views use their overlay marker as the descriptor filter and borrow `res!(optional InputFeedback)` on each paint call. Replacing or removing that resource affects subsequent calls; inserting, replacing, or removing the marker uses the descriptor's visual invalidation policy.
 
-Button, Slider, Switch, Checkbox, ProgressBar, TabBar, TextInput, Icon, Image, and BackgroundBlur use this declaration for built-in paint callbacks. Their widget modules export the generated `view` factory directly; component filters, paint priorities, and internal gesture hooks remain part of the descriptor.
+Button, Slider, Switch, Checkbox, ProgressBar, TabBar, Text, TextInput, Icon, Image, and BackgroundBlur use this declaration for built-in paint callbacks. Their widget modules export the generated `view` factory directly; component filters, paint priorities, and internal gesture hooks remain part of the descriptor.
 
 StaticGlyphRun declares its component filter, paint priority 80, and layout invalidation through `#[view]`. It submits its borrowed positioned glyph slice without runtime shaping or a layout workspace. FontManager and Theme are borrowed as optional resources, retaining the empty-run and missing-font-manager early returns; a run that reaches painting requires a Theme.
 
@@ -431,6 +431,8 @@ Switch queries its component together with optional background and thumb-animati
 Image queries its component together with its optional resource lease and borrows the texture manager and Theme as optional resources. A cached lease can be used without a manager; replacing a manager affects direct resolutions and newly created leases rather than retargeting an existing lease. Vector paths remain borrowed, and a drawable vector requires Theme only after its geometry is validated.
 
 TextInput queries its optional Placeholder and borrows layout, font, theme, and blink resources. Font-stack resolution receives the font manager directly, validates fallback capacity before handling a missing manager, and retains the existing font selection and layout cache. Attachment, input hooks, cursor animation, and paint priority remain part of its generated descriptor.
+
+Text queries its optional layout handle and TextPath and borrows font, layout, theme, and path resources. Linear and path text retain their borrowed glyph data, draw clipping, text-run identity, and layout invalidation policy. Layout publishes a handle only when its identity changes, so unrelated layout work does not publish a same-value query change. Cache replacement and memory-pressure resets explicitly invalidate handle dependencies because a new cache can reuse the same handle numbers.
 
 Shapes and Butterfly borrow optional Theme and MonoClock resources; Vector
 Mandala borrows an optional MonoClock. Their generated paint adapters retain

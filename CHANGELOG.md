@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Text paint dependencies.** Text Views query their layout handle and optional path and borrow font, layout, theme, and path resources while retaining glyph placement, clipping, and text-run identity. Unchanged layout handles do not publish query changes.
 - **TextInput paint dependencies.** Input Views query placeholder data and borrow layout, font, theme, and cursor resources. Font-stack resolution accepts its manager directly while retaining fallback validation and cache behavior.
 - **Image paint dependencies.** Image Views query their optional resource lease and borrow texture-manager and theme resources while preserving cached lease identity and borrowed vector and pixel data.
 - **Showcase theme setup.** Palette installation uses the App theme-registration API without exposing World to its callers.

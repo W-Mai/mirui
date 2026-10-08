@@ -452,6 +452,11 @@ impl World {
         }
     }
 
+    /// Invalidates references whose backing data changed without replacing their component values.
+    pub(crate) fn invalidate_query_dependency<T: 'static>(&mut self) {
+        record_query_dependency_change(&mut self.watched_component_types, TypeId::of::<T>());
+    }
+
     pub fn get<T: 'static>(&self, entity: Entity) -> Option<&T> {
         self.storage::<T>()?.get(entity)
     }

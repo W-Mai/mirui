@@ -900,7 +900,9 @@ fn layout_text_tree(
         intrinsic_changed =
             node.intrinsic_width != Some(width) || node.intrinsic_height != Some(height);
         node.set_intrinsic_size(width, height);
-        world.insert(entity, layout.handle);
+        if world.get::<crate::text::TextLayoutHandle>(entity) != Some(&layout.handle) {
+            world.insert(entity, layout.handle);
+        }
     }
     for child in &mut node.children {
         intrinsic_changed |= layout_text_tree(child, world, entities, index)?;

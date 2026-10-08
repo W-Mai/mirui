@@ -8,7 +8,7 @@ use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Fixed64, Point, Rect, Transform, Transform3D};
-use crate::ui::view::{PaintCtx, View};
+use crate::ui::view::PaintCtx;
 
 pub use textflow::shaping::FontFeature;
 
@@ -665,39 +665,51 @@ impl crate::ecs::IntoBundle for TextBuilder {
     }
 }
 
-fn text_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(text) = world.get::<Text>(entity) else {
+#[crate::view(component = Text, name = "Text", priority = 80, invalidation = Layout)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Each parameter declares an independent paint dependency."
+)]
+fn text_render(
+    rows: query!(Text, optional crate::text::TextLayoutHandle, optional crate::text::TextPath),
+    entity: entity!(),
+    theme: res!(optional crate::ui::Theme),
+    layouts: res!(optional crate::text::layout::TextLayoutResource),
+    manager: res!(optional crate::render::font::FontManager),
+    paths: res!(optional crate::render::path::PathStore),
+    path_cache: res!(optional crate::text::baseline::PathBaselineResource),
+    paint: paint!(),
+) {
+    let Some((text, handle, path)) = rows.get(entity) else {
         return;
     };
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
+    let theme =
+        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let color = paint.style().text_color.resolve_in(theme, paint.state());
-    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
+    let Some(resource) = layouts else {
         return;
     };
     let face_limit = resource.borrow().limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
-        world.resource::<crate::render::font::FontManager>(),
+        manager,
         &paint.style().font_stack,
         paint.style().font_size,
         face_limit,
     ) else {
         return;
     };
-    let Some(handle) = world.get::<crate::text::TextLayoutHandle>(entity).copied() else {
+    let Some(handle) = handle.copied() else {
         return;
     };
     let cache = resource.borrow();
     let Some(layout) = cache.get(handle) else {
         return;
     };
-    if let Some(path) = world.get::<crate::text::TextPath>(entity).copied() {
-        let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
+    if let Some(path) = path.copied() {
+        let Some(paths) = paths else {
             return;
         };
-        let Some(path_cache) = world.resource::<crate::text::baseline::PathBaselineResource>()
-        else {
+        let Some(path_cache) = path_cache else {
             return;
         };
         let rect = paint.rect();
@@ -1531,11 +1543,7 @@ fn static_glyph_run_render(
     });
 }
 
-pub fn view() -> View {
-    View::new("Text", 80, text_render)
-        .with_filter::<Text>()
-        .with_invalidation(crate::ui::ViewInvalidation::Layout)
-}
+pub use text_render::view;
 
 pub use static_glyph_run_render::view as static_glyph_run_view;
 
@@ -1554,6 +1562,22 @@ mod tests {
     #[derive(Default)]
     struct RecordingRenderer {
         glyph_runs: Vec<(Point, usize)>,
+    }
+
+    #[crate::component]
+    struct LayoutFollower {
+        source: Entity,
+    }
+
+    #[crate::view(component = LayoutFollower)]
+    fn follow_layout(
+        follower: component!(),
+        handles: query!(crate::text::TextLayoutHandle),
+        calls: res!(core::cell::Cell<usize>),
+    ) {
+        if handles.get(follower.source).is_some() {
+            calls.set(calls.get() + 1);
+        }
     }
 
     impl Renderer for RecordingRenderer {
@@ -1835,6 +1859,170 @@ mod tests {
             );
         }
         assert!(renderer.glyph_runs.is_empty());
+    }
+
+    #[test]
+    fn typed_paint_preserves_missing_dependencies_and_theme_validation() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let descriptor = view();
+        assert_eq!(descriptor.name(), "Text");
+        assert_eq!(descriptor.priority(), Some(80));
+        assert_eq!(
+            descriptor.component_filter(),
+            Some(core::any::TypeId::of::<Text>())
+        );
+        assert_eq!(
+            descriptor.invalidation(),
+            crate::ui::ViewInvalidation::Layout
+        );
+        assert!(descriptor.auto_attach().is_none());
+        assert!(descriptor.internal_gesture().is_none());
+        let render = descriptor.render().unwrap();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 20, 10);
+        let mut recorder = RecordingRenderer::default();
+        {
+            let mut paint = PaintCtx::new(
+                &mut recorder,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    let _ = view();
+                    render(&world, entity, &mut paint);
+                }),
+                0
+            );
+            assert_eq!(paint.error(), None);
+        }
+        world.insert(entity, Text::new("A"));
+        let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut paint = PaintCtx::new(
+                &mut recorder,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            render(&world, entity, &mut paint);
+        }));
+        assert!(
+            rejected.is_err(),
+            "Text requires Theme even before layout is available"
+        );
+        world.insert_resource(Theme::default());
+        for stage in 0..3 {
+            match stage {
+                1 => world.insert_resource(crate::text::layout::TextLayoutResource::new(
+                    crate::text::TextLayoutLimits::EMBEDDED,
+                )),
+                2 => {
+                    let fonts = default_font_manager();
+                    fonts.prefetch(crate::render::font::FontToken::Default.cache_key());
+                    world.insert_resource(fonts);
+                }
+                _ => {}
+            }
+            let mut paint = PaintCtx::new(
+                &mut recorder,
+                &style,
+                &rect,
+                &rect,
+                Transform::IDENTITY,
+                None,
+                WidgetState::Enabled,
+            );
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| render(&world, entity, &mut paint)),
+                0
+            );
+            assert_eq!(paint.error(), None);
+        }
+        assert!(recorder.glyph_runs.is_empty());
+    }
+
+    #[test]
+    fn unchanged_layout_handles_do_not_publish_query_changes() {
+        use crate::surface::Surface;
+
+        let mut app = crate::app::App::headless(32, 16);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| {
+            crate::ui! { Text ("A", id: "handle_consumer", width: 20, height: 10) };
+        });
+        let label = app.world.find_by_id("handle_consumer").unwrap();
+        app.render_dirty().unwrap();
+        let handle = *app
+            .world
+            .get::<crate::text::TextLayoutHandle>(label)
+            .unwrap();
+        app.world.insert(root, crate::ui::dirty::Dirty);
+        crate::ui::render_system::try_update_layout(&mut app.world, root, &app.backend.viewport())
+            .unwrap();
+        assert_eq!(
+            app.world.get::<crate::text::TextLayoutHandle>(label),
+            Some(&handle)
+        );
+        assert!(!app.world.has::<crate::ui::dirty::Dirty>(label));
+        app.world.get_mut::<Text>(label).unwrap().set_content("B");
+        crate::ui::render_system::try_update_layout(&mut app.world, root, &app.backend.viewport())
+            .unwrap();
+        assert_ne!(
+            app.world.get::<crate::text::TextLayoutHandle>(label),
+            Some(&handle)
+        );
+        assert!(app.world.has::<crate::ui::dirty::Dirty>(label));
+    }
+
+    #[test]
+    fn replacing_the_layout_cache_repaints_queries_when_handle_numbers_are_reused() {
+        let mut app = crate::app::App::headless(32, 16);
+        app.with_default_widgets();
+        app.with_widget(follow_layout::view());
+        app.add_resource(core::cell::Cell::new(0_usize));
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| {
+            crate::ui! { Text ("A", id: "reused_handle", width: 20, height: 10) };
+        });
+        let label = app.world.find_by_id("reused_handle").unwrap();
+        app.compose(root, |cx| {
+            crate::ui! { View (width: 8, height: 6) [LayoutFollower { source: label }] };
+        });
+        app.render_dirty().unwrap();
+        let handle = *app
+            .world
+            .get::<crate::text::TextLayoutHandle>(label)
+            .unwrap();
+        let calls = app
+            .world
+            .resource::<core::cell::Cell<usize>>()
+            .unwrap()
+            .get();
+        assert!(calls > 0);
+        app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
+            .unwrap();
+        app.world.get_mut::<Text>(label).unwrap().set_content("B");
+        app.render_dirty().unwrap();
+        assert_eq!(
+            app.world.get::<crate::text::TextLayoutHandle>(label),
+            Some(&handle)
+        );
+        assert!(
+            app.world
+                .resource::<core::cell::Cell<usize>>()
+                .unwrap()
+                .get()
+                > calls
+        );
     }
 
     #[test]
