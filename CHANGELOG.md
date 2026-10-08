@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Offscreen texture lookups retain source-specific pixel formats when transparent RGBA and opaque RGB565 buffers share a cache.
+- Texture-reference invalidation tracks the full source identity and initializes new references even when pixel revisions match.
 - **Reactive World windows.** Ambient structural access checks the window's World identity independently of the current model owner, preventing foreign composition scopes from inheriting another World's mutable access.
 
 - **Gesture parent cycles.** Shared bounded branch checks validate cycles before focus and tap tracking, preserve hidden and disabled behavior, and stop at stale entity generations.

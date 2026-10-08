@@ -40,7 +40,6 @@ pub use niche::NicheMap;
 pub use offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, OffscreenBufferPool, OffscreenGeneration,
     OffscreenRender, TextureSnapshot, WidgetTextureAccess, WidgetTextureRef,
-    WidgetTextureRefPrevGen,
 };
 pub use property::WidgetMut;
 pub use scope::UiScope;

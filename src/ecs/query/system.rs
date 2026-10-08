@@ -1150,7 +1150,7 @@ mod tests {
         assert_component::<crate::ui::offscreen::OffscreenGeneration>();
         assert_component::<crate::ui::offscreen::WidgetTextureRef>();
         assert_component::<crate::ui::offscreen::OffscreenAutoAdded>();
-        assert_component::<crate::ui::offscreen::WidgetTextureRefPrevGen>();
+        assert_component::<crate::ui::offscreen::WidgetTextureRefState>();
         assert_component::<crate::ui::widgets::tabbar::TabIndicatorTween>();
         assert_component::<crate::ui::widgets::tabbar::TabBarPrev>();
         assert_component::<crate::ui::widgets::TabBar>();

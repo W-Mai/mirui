@@ -129,6 +129,8 @@ impl crate::ecs::Component for OffscreenGeneration {}
 /// Effect widgets typically attach this via the view registry's
 /// `auto_attach` mechanism, so user code only inserts the effect's
 /// main component.
+///
+/// Maintenance invalidates a consumer on its first reference, a change of source entity or pixel generation, or source dirtiness. Source identity includes the entity generation. A reference absent during maintenance loses its tracking state; reattaching it afterward starts a new observation. Removal and reinsertion before maintenance are coalesced into the final reference.
 #[derive(Clone, Copy, Debug)]
 pub struct WidgetTextureRef(pub Entity);
 
@@ -167,13 +169,13 @@ impl OffscreenAlphaMode {
     }
 }
 
-/// Internal marker on a consumer entity tracking the source's last-
-/// seen `OffscreenGeneration`, so the consumer can be marked Dirty
-/// when the source's buffer changes.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct WidgetTextureRefPrevGen(pub u32);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WidgetTextureRefState {
+    source: Entity,
+    generation: u32,
+}
 
-impl crate::ecs::Component for WidgetTextureRefPrevGen {}
+impl crate::ecs::Component for WidgetTextureRefState {}
 
 /// Cache key for [`OffscreenBufferPool`]. `entity` is part of the key so
 /// each offscreen entity owns its own slot — sharing buffers across
@@ -339,6 +341,20 @@ pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs:
     use alloc::vec::Vec;
     use hashbrown::HashMap;
 
+    let mut state_index = 0;
+    while let Some(consumer) = world
+        .storage::<WidgetTextureRefState>()
+        .and_then(|storage| storage.entities().get(state_index))
+        .copied()
+    {
+        if world.has::<WidgetTextureRef>(consumer) {
+            state_index += 1;
+        } else {
+            // Sparse removal moves the last entry into the current index.
+            world.remove::<WidgetTextureRefState>(consumer);
+        }
+    }
+
     // Cheap path: if neither component is in use, the system has
     // nothing to do — common until any effect widget gets attached.
     let any_ref = world.query::<WidgetTextureRef>().iter().next().is_some();
@@ -382,9 +398,6 @@ pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs:
         }
     }
 
-    // Generation-change detection: mark consumer Dirty when source's
-    // OffscreenGeneration moved since last frame, so the consumer's
-    // view fn re-runs against the fresh source texture.
     let pairs: Vec<(Entity, Entity)> = world
         .query::<WidgetTextureRef>()
         .iter()
@@ -395,24 +408,19 @@ pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs:
             .get::<OffscreenGeneration>(source)
             .map(|g| g.0)
             .unwrap_or(0);
-        let g_prev = world
-            .get::<WidgetTextureRefPrevGen>(consumer)
-            .map(|g| g.0)
-            .unwrap_or(0);
+        let state = WidgetTextureRefState {
+            source,
+            generation: g_now,
+        };
+        let changed = world.get::<WidgetTextureRefState>(consumer) != Some(&state);
         let source_dirty = world.get::<super::dirty::Dirty>(source).is_some();
         let source_transform = world
             .get::<crate::ui::widgets::WidgetTransform>(source)
             .copied();
-        if g_now != g_prev || source_dirty {
-            // `g_now != g_prev` catches buffer-content changes; the
-            // `source_dirty` clause catches translation / rotation
-            // animations on the source — those re-render at a new
-            // screen position without bumping the buffer's
-            // generation, so consumers that compose the source's
-            // transform onto their blit need to repaint even when
-            // the source's pixels haven't changed.
+        // Source movement can change composed geometry without changing pixel generation.
+        if changed || source_dirty {
             world.insert(consumer, super::dirty::Dirty);
-            world.insert(consumer, WidgetTextureRefPrevGen(g_now));
+            world.insert(consumer, state);
             // Mirror the source's WidgetTransform onto the consumer
             // so the dirty walker computes the consumer's screen
             // bbox at the source's actual painted position, not at
@@ -433,7 +441,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs:
 crate::ecs::system::framework_system!(
     pub maintain_widget_texture_refs,
     PreRender,
-    expect = [WidgetTextureRef, OffscreenAutoAdded],
+    expect = [WidgetTextureRef, OffscreenAutoAdded, WidgetTextureRefState],
 );
 
 #[cfg(test)]
@@ -738,5 +746,129 @@ mod tests {
         world.remove::<WidgetTextureRef>(consumer);
         run_refs(&mut world);
         assert!(world.get::<OffscreenRender>(source).is_some());
+    }
+
+    #[test]
+    fn texture_reference_identity_drives_invalidation_and_transform() {
+        use crate::types::Transform;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::WidgetTransform;
+
+        for generation in [0, 7] {
+            let mut world = World::default();
+            let first = world.spawn_empty();
+            let second = world.spawn_empty();
+            let consumer = world.spawn_empty();
+            let first_transform = Transform::translate(3.into(), 5.into());
+            let second_transform = Transform::translate(11.into(), 13.into());
+            world.insert(first, OffscreenGeneration(generation));
+            world.insert(second, OffscreenGeneration(generation));
+            world.insert(first, WidgetTransform(first_transform));
+            world.insert(second, WidgetTransform(second_transform));
+            world.insert(consumer, WidgetTextureRef(first));
+
+            run_refs(&mut world);
+            assert!(world.has::<Dirty>(consumer));
+            assert_eq!(
+                world.get::<WidgetTransform>(consumer).unwrap().0,
+                first_transform
+            );
+            world.remove::<Dirty>(consumer);
+            run_refs(&mut world);
+            assert!(!world.has::<Dirty>(consumer));
+
+            world.insert(consumer, WidgetTextureRef(second));
+            run_refs(&mut world);
+            assert!(world.has::<Dirty>(consumer));
+            assert_eq!(
+                world.get::<WidgetTransform>(consumer).unwrap().0,
+                second_transform
+            );
+            assert!(!world.has::<OffscreenRender>(first));
+            assert!(world.has::<OffscreenRender>(second));
+            world.remove::<Dirty>(consumer);
+            run_refs(&mut world);
+            assert!(!world.has::<Dirty>(consumer));
+
+            world.insert(consumer, WidgetTextureRef(first));
+            world.remove::<WidgetTransform>(first);
+            run_refs(&mut world);
+            assert!(world.has::<Dirty>(consumer));
+            assert!(!world.has::<WidgetTransform>(consumer));
+        }
+    }
+
+    #[test]
+    fn retired_reference_state_is_reclaimed_without_allocating() {
+        use crate::test_support::tracked_allocations;
+        use crate::ui::dirty::Dirty;
+
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        world.insert(source, OffscreenRender::default());
+        world.insert(first, WidgetTextureRef(source));
+        world.insert(second, WidgetTextureRef(source));
+        run_refs(&mut world);
+        world.remove::<Dirty>(first);
+        world.remove::<Dirty>(second);
+        world.remove::<WidgetTextureRef>(first);
+        world.remove::<WidgetTextureRef>(second);
+
+        let allocations = tracked_allocations(|| run_refs(&mut world));
+        assert_eq!(allocations, 0);
+        assert!(!world.has::<WidgetTextureRefState>(first));
+        assert!(!world.has::<WidgetTextureRefState>(second));
+        assert!(world.has::<OffscreenRender>(source));
+
+        world.insert(first, WidgetTextureRef(source));
+        run_refs(&mut world);
+        assert!(world.has::<Dirty>(first));
+    }
+
+    #[test]
+    fn recycled_source_id_has_a_distinct_texture_reference_identity() {
+        use crate::ui::dirty::Dirty;
+
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let consumer = world.spawn_empty();
+        world.insert(consumer, WidgetTextureRef(source));
+        run_refs(&mut world);
+        world.remove::<Dirty>(consumer);
+        assert!(world.despawn(source));
+        let replacement = world.spawn_empty();
+        assert_eq!(source.id, replacement.id);
+        assert_ne!(source.generation, replacement.generation);
+
+        world.insert(consumer, WidgetTextureRef(replacement));
+        run_refs(&mut world);
+        assert!(world.has::<Dirty>(consumer));
+        assert_eq!(
+            world.get::<WidgetTextureRefState>(consumer).unwrap().source,
+            replacement
+        );
+    }
+
+    #[test]
+    fn unchanged_texture_revision_propagates_dirty_source_transform() {
+        use crate::types::Transform;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::WidgetTransform;
+
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let consumer = world.spawn_empty();
+        world.insert(consumer, WidgetTextureRef(source));
+        run_refs(&mut world);
+        world.remove::<Dirty>(consumer);
+        let transform = Transform::translate(17.into(), 19.into());
+        world.insert(source, WidgetTransform(transform));
+        world.insert(source, Dirty);
+
+        run_refs(&mut world);
+        assert!(world.has::<Dirty>(consumer));
+        assert_eq!(world.get::<WidgetTransform>(consumer).unwrap().0, transform);
     }
 }
