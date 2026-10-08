@@ -12,7 +12,7 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
     let card_h = bounds.card_h;
     let content_width = bounds.content_width();
     let initial_offset = (content_width - vw) / 2 - card_w / 4;
-    cx.world_mut().insert_resource(bounds);
+    res!().insert(bounds);
 
     let card_colors = [
         Color::rgb(255, 107, 107),

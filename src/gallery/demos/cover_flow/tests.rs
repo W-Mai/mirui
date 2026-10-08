@@ -16,10 +16,13 @@ use crate::ui::{Children, IdMap, UiScope};
 fn build_widgets_smoke() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
+    world.insert_resource(CoverFlowBounds::for_view(320, 180));
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
     build_widgets(&mut cx, 640, 360);
     drop(cx);
+    let bounds = world.resource::<CoverFlowBounds>().unwrap();
+    assert_eq!((bounds.view_w, bounds.view_h), (640, 360));
     assert!(
         world
             .get::<Children>(parent)

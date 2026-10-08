@@ -35,8 +35,7 @@ struct ParticleSeed {
 pub fn build_widgets() {
     let bw = DEFAULT_VIEW.0 as i32;
     let bh = DEFAULT_VIEW.1 as i32;
-    cx.world_mut()
-        .insert_resource(ParticleBounds { w: bw, h: bh });
+    res!().insert(ParticleBounds { w: bw, h: bh });
 
     let ring_seeds = [
         RingSeed {

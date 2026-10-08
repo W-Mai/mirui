@@ -3,11 +3,7 @@ use crate::prelude::*;
 
 #[compose]
 pub fn build_widgets() {
-    let now_ms = cx
-        .world_mut()
-        .resource::<MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0);
+    let now_ms = res!(optional MonoClock).with(|clock| clock.map_or(0, |clock| clock.now_ms()));
 
     ui! {
         VectorMandala (

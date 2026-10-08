@@ -60,6 +60,8 @@ app.compose(root, configured_panel);
 
 Compute resource-backed arguments before passing them to `ui!`, `format!`, or another macro; the composition attribute does not rewrite another macro's tokens. Required resources report missing values as programming errors, while optional reads receive `None`. Composition inserts and removals are immediate; structural changes during System or Event callbacks continue through deferred `commands!`. Resource access adds no heap storage; registering a new resource type still uses the existing resource store's allocation.
 
+CoverFlow and Particles install their bounds from within their compositions through `res!().insert(...)`. Shapes, Butterfly, and Vector Mandala read an optional MonoClock before building their trees, retaining zero start time when the clock is absent.
+
 Place `#[model]` on a struct and one inherent impl to generate its instance
 handle and forwarded methods. Each `App::add_model` call registers an independent
 instance; cloning a handle refers to the same instance without cloning its data.

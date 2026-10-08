@@ -18,6 +18,18 @@ fn build_widgets_smoke() {
     let mut cx = UiScope::new(&mut world, parent);
     build_widgets(&mut cx);
     drop(cx);
+    world.insert_resource(MonoClock::new(|| 12_000_000));
+    {
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+    }
+    assert!(
+        world
+            .query::<Butterfly>()
+            .iter()
+            .map(|(_, state)| state.start_ms)
+            .eq([0_u32, 12])
+    );
     assert!(
         world
             .get::<Children>(parent)

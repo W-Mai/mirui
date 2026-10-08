@@ -7,10 +7,16 @@ use crate::ui::{Children, ComputedRect, IdMap, UiScope};
 fn build_widgets_smoke() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
+    world.insert_resource(ParticleBounds { w: 1, h: 1 });
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
     build_widgets(&mut cx);
     drop(cx);
+    let bounds = world.resource::<ParticleBounds>().unwrap();
+    assert_eq!(
+        (bounds.w, bounds.h),
+        (DEFAULT_VIEW.0 as i32, DEFAULT_VIEW.1 as i32)
+    );
     assert!(
         world
             .get::<Children>(parent)
