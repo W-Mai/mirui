@@ -13,7 +13,7 @@ use mirui::types::{Color, Dimension, Fixed, Transform};
 use mirui::ui::dirty::Dirty;
 use mirui::ui::theme::ColorToken;
 use mirui::ui::widgets::WidgetTransform;
-use mirui::ui::{Children, OffscreenRender, Theme};
+use mirui::ui::{OffscreenRender, Theme};
 use mirui_macros::ui;
 use std::cell::RefCell;
 use std::fs::File;
@@ -81,6 +81,25 @@ fn tile_color(idx: i32) -> ColorToken {
     }
 }
 
+#[compose]
+fn modal_tiles() {
+    ui! {
+        walk 0..(GRID_COLS * GRID_ROWS) with i {
+            View (
+                bg_color: tile_color(i),
+                border_color: ColorToken::OnSurface,
+                border_width: Fixed::ONE,
+                border_radius: Fixed::from_int(6),
+                position: Position::Absolute,
+                left: TILE_PAD + (i % GRID_COLS) * (TILE_W + TILE_GAP),
+                top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
+                width: TILE_W,
+                height: TILE_H
+            )
+        }
+    };
+}
+
 fn run(out_dir: &str, offscreen: bool) {
     std::fs::create_dir_all(out_dir).ok();
 
@@ -101,7 +120,9 @@ fn run(out_dir: &str, offscreen: bool) {
         .with_offscreen_pool_budget(256 * 1024);
     app.add_system(slide::system());
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(20, 22, 28))
         .layout(LayoutStyle {
             width: Dimension::px(WIN_W),
@@ -110,43 +131,28 @@ fn run(out_dir: &str, offscreen: bool) {
         })
         .id();
 
-    let modal = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: ColorToken::Surface,
-                border_radius: Fixed::from_int(12),
-                position: Position::Absolute,
-                left: MODAL_LEFT_FINAL,
-                top: 30,
-                width: MODAL_W,
-                height: MODAL_H
-            ) [
-                Anim { t: Fixed::ZERO },
-            ] {
-                walk 0..(GRID_COLS * GRID_ROWS) with i {
-                    View (
-                        bg_color: tile_color(i),
-                        border_color: ColorToken::OnSurface,
-                        border_width: Fixed::ONE,
-                        border_radius: Fixed::from_int(6),
-                        position: Position::Absolute,
-                        left: TILE_PAD + (i % GRID_COLS) * (TILE_W + TILE_GAP),
-                        top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
-                        width: TILE_W,
-                        height: TILE_H
-                    )
-                }
-            }
-        }
+    let modal_style = Style {
+        bg_color: Some(ColorToken::Surface.into()),
+        border_radius: Fixed::from_int(12),
+        layout: LayoutStyle {
+            position: Position::Absolute,
+            left: Dimension::px(MODAL_LEFT_FINAL),
+            top: Dimension::px(30),
+            width: Dimension::px(MODAL_W),
+            height: Dimension::px(MODAL_H),
+            ..Default::default()
+        },
+        ..Default::default()
     };
-
-    if offscreen {
-        app.world.insert(modal, OffscreenRender::default());
-    }
-
-    app.world.insert(root, Children(alloc::vec![modal]));
-    app.set_root(root);
+    app.compose(root, |tree| {
+        let animation = Anim { t: Fixed::ZERO };
+        let tiles = modal_tiles();
+        if offscreen {
+            tree.children((modal_style, animation, OffscreenRender::default()), tiles);
+        } else {
+            tree.children((modal_style, animation), tiles);
+        }
+    });
 
     let prefix = if offscreen { "off" } else { "inl" };
 

@@ -1,5 +1,4 @@
-//! Renders the theme_swap layout off-screen and saves a PNG so we can
-//! eyeball the result without going through SDL.
+//! Renders the theme_swap layout to a PNG without opening an SDL window.
 
 extern crate alloc;
 
@@ -10,10 +9,8 @@ use mirui::surface::FramebufferAccess;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Viewport;
 use mirui::ui::Theme;
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::FlexDirection;
 use mirui::ui::render_system;
-use mirui::ui::theme;
 use mirui::ui::widgets::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 
 use std::env;
@@ -25,6 +22,94 @@ const ACCENT: ColorToken = ColorToken::Custom("accent");
 
 fn dark_with_accent() -> Theme {
     Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
+}
+
+#[compose]
+fn theme_panel() {
+    ui! {
+        Row (height: 44) {
+            Button (
+                grow: 1.0,
+                height: 36,
+                border_radius: 6,
+                text_color: ColorToken::OnPrimary,
+                normal_color: Color::rgb(40, 50, 70),
+                pressed_color: Color::rgb(20, 25, 35)
+            ) {
+                Text ("Dark")
+            } on Tap(|_| false)
+            Button (
+                grow: 1.0,
+                height: 36,
+                border_radius: 6,
+                text_color: ColorToken::OnPrimary,
+                normal_color: Color::rgb(0, 100, 200),
+                pressed_color: Color::rgb(0, 70, 150)
+            ) {
+                Text ("Light")
+            } on Tap(|_| false)
+            Button (
+                grow: 1.0,
+                height: 36,
+                border_radius: 6,
+                text_color: ColorToken::OnPrimary,
+                normal_color: Color::rgb(255, 105, 180),
+                pressed_color: Color::rgb(200, 70, 140)
+            ) {
+                Text ("Custom")
+            } on Tap(|_| false)
+        }
+    };
+
+    ui! {
+        Column (grow: 1.0) {
+            Row (height: 28, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Slider")
+                }
+                Slider (
+                    min: Fixed::ZERO,
+                    max: Fixed::from_int(100),
+                    grow: 1.0,
+                    height: 20
+                )
+            }
+            Row (height: 36, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Switch")
+                }
+                Switch (width: 56, height: 28)
+            }
+            Row (height: 36, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Checkbox")
+                }
+                Checkbox (width: 24, height: 24, border_radius: 4)
+            }
+            Row (height: 28, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Progress")
+                }
+                ProgressBar (value: 0.6, grow: 1.0, height: 12, border_radius: 6)
+            }
+            Row (height: 36, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Input")
+                }
+                TextInput (grow: 1.0, height: 28)
+            }
+            Row (height: 24, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Tabs")
+                }
+                TabBar (count: 3, grow: 1.0, height: 24) {
+                    View (grow: 1.0)
+                    View (grow: 1.0)
+                    View (grow: 1.0)
+                }
+            }
+        }
+    };
 }
 
 fn main() {
@@ -43,7 +128,9 @@ fn main() {
     let mut app: App<_, _> = App::new(backend);
     app.with_theme(dark_with_accent()).with_default_widgets();
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(ColorToken::Surface)
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -54,106 +141,7 @@ fn main() {
         })
         .id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            Row (height: 44) {
-                Button (
-                    grow: 1.0,
-                    height: 36,
-                    border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(40, 50, 70),
-                    pressed_color: Color::rgb(20, 25, 35)
-                ) {
-                    Text ("Dark")
-                } on Tap(|_| false)
-                Button (
-                    grow: 1.0,
-                    height: 36,
-                    border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(0, 100, 200),
-                    pressed_color: Color::rgb(0, 70, 150)
-                ) {
-                    Text ("Light")
-                } on Tap(|_| false)
-                Button (
-                    grow: 1.0,
-                    height: 36,
-                    border_radius: 6,
-                    text_color: ColorToken::OnPrimary,
-                    normal_color: Color::rgb(255, 105, 180),
-                    pressed_color: Color::rgb(200, 70, 140)
-                ) {
-                    Text ("Custom")
-                } on Tap(|_| false)
-            }
-        }
-    };
-
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            Column (grow: 1.0) {
-                Row (height: 28, align: AlignItems::Center) {
-                    View (width: 90) {
-                        Text ("Slider")
-                    }
-                    Slider (
-                        min: Fixed::ZERO,
-                        max: Fixed::from_int(100),
-                        grow: 1.0,
-                        height: 20
-                    )
-                }
-                Row (height: 36, align: AlignItems::Center) {
-                    View (width: 90) {
-                        Text ("Switch")
-                    }
-                    Switch (width: 56, height: 28)
-                }
-                Row (height: 36, align: AlignItems::Center) {
-                    View (width: 90) {
-                        Text ("Checkbox")
-                    }
-                    Checkbox (width: 24, height: 24, border_radius: 4)
-                }
-                Row (height: 28, align: AlignItems::Center) {
-                    View (width: 90) {
-                        Text ("Progress")
-                    }
-                    ProgressBar (grow: 1.0, height: 12, border_radius: 6)
-                }
-                Row (height: 36, align: AlignItems::Center) {
-                    View (width: 90) {
-                        Text ("Input")
-                    }
-                    TextInput (grow: 1.0, height: 28)
-                }
-                Row (height: 24, align: AlignItems::Center) {
-                    View (width: 90) {
-                        Text ("Tabs")
-                    }
-                    TabBar (count: 3, grow: 1.0, height: 24) {
-                        View (grow: 1.0)
-                        View (grow: 1.0)
-                        View (grow: 1.0)
-                    }
-                }
-            }
-        }
-    };
-
-    let pbs: Vec<mirui::ecs::Entity> = app.world.query::<ProgressBar>().collect();
-    for pb in pbs {
-        if let Some(p) = app.world.get_mut::<ProgressBar>(pb) {
-            p.value = 0.6;
-        }
-    }
-
-    let _ = theme::Theme::dark();
-    app.set_root(root);
+    app.compose(root, theme_panel());
 
     let world = &mut app.world;
     let viewport = Viewport::new(width, height, Fixed::ONE);

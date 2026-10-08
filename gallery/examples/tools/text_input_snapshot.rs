@@ -41,6 +41,21 @@ fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16,
     let _ = std::fs::remove_file(&ppm_path);
 }
 
+#[compose]
+fn input_panel(input: TextInput) {
+    ui! {
+        View (
+            bg_color: Color::rgb(40, 40, 56),
+            border_color: Color::rgb(80, 80, 100),
+            width: 288,
+            height: 28
+        ) [
+            input,
+            Placeholder("type something..."),
+        ]
+    };
+}
+
 fn main() {
     let scenario = env::args().nth(1).unwrap_or_else(|| "empty".into());
     let dir = std::env::var("MIRUI_SNAPSHOT_DIR").unwrap_or_else(|_| ".".into());
@@ -75,7 +90,9 @@ fn main() {
         _ => panic!("unknown scenario: {scenario}"),
     }
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(20, 20, 30))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -91,27 +108,11 @@ fn main() {
         })
         .id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(40, 40, 56),
-                border_color: Color::rgb(80, 80, 100),
-                width: 288,
-                height: 28
-            ) [
-                ti,
-                Placeholder("type something..."),
-            ]
-        }
-    };
+    app.compose(root, input_panel(ti));
 
     // Deterministic cursor: pin the blink phase ON so the snapshot
     // doesn't flicker by wall-clock timing.
-    app.world
-        .insert_resource(mirui::ui::widgets::text_input::CursorBlinkPhase(true));
-
-    app.set_root(root);
+    app.add_resource(mirui::ui::widgets::text_input::CursorBlinkPhase(true));
 
     use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;

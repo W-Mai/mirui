@@ -58,6 +58,42 @@ fn write_png(path: &std::path::Path, pixels: &[u8], stride: usize) {
     let _ = std::fs::remove_file(&ppm);
 }
 
+#[compose]
+fn list_panel(scroll_y_int: i32) {
+    ui! {
+        View (
+            bg_color: Color::rgb(28, 28, 40),
+            width: W as i32,
+            height: H as i32
+        ) [
+            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+            LazyListBinder { bind: row_binder },
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(scroll_y_int),
+            },
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: false,
+                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
+                content_width: Fixed::ZERO,
+            },
+        ] {
+            walk 0..POOL_SIZE with _i {
+                Row (
+                    bg_color: Color::rgb(40, 40, 56),
+                    text_color: Color::rgb(220, 220, 230),
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: W as i32,
+                    height: ROW_H
+                )
+            }
+        }
+    };
+}
+
 fn main() {
     let scenario = env::args().nth(1).unwrap_or_else(|| "top".into());
     // scroll_y is positive: lazy_list_system computes
@@ -78,7 +114,9 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(20, 20, 30))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -88,53 +126,7 @@ fn main() {
         })
         .id();
 
-    let list = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(28, 28, 40),
-                width: W as i32,
-                height: H as i32
-            ) [
-                LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
-                LazyListBinder { bind: row_binder },
-                ScrollOffset {
-                    x: Fixed::ZERO,
-                    y: Fixed::from_int(scroll_y_int),
-                },
-                ScrollConfig {
-                    direction: ScrollAxis::Vertical,
-                    elastic: false,
-                    content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-                    content_width: Fixed::ZERO,
-                },
-            ] {
-                walk 0..POOL_SIZE with _i {
-                    Row (
-                        bg_color: Color::rgb(40, 40, 56),
-                        text_color: Color::rgb(220, 220, 230),
-                        position: Position::Absolute,
-                        left: 0,
-                        top: 0,
-                        width: W as i32,
-                        height: ROW_H
-                    )
-                }
-            }
-        }
-    };
-
-    app.world.insert(
-        list,
-        ScrollConfig {
-            direction: ScrollAxis::Vertical,
-            elastic: false,
-            content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-            content_width: Fixed::ZERO,
-        },
-    );
-
-    app.set_root(root);
+    app.compose(root, list_panel(scroll_y_int));
 
     use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;

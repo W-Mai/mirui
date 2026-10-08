@@ -155,3 +155,40 @@ fn conditional_parameters_and_forwarded_arguments_have_the_same_presence() {
     let root = app.spawn_root().id();
     assert_eq!(app.compose(root, conditional(7, 9)), 7);
 }
+
+#[component]
+struct Source(Entity);
+
+#[compose]
+fn linked_nodes() -> (Entity, Entity) {
+    let source = ui! {
+        View (width: 8, height: 8)
+    };
+    let target = ui! {
+        View (width: 8, height: 8) [
+            Source(source),
+        ]
+    };
+    (source, target)
+}
+
+#[test]
+fn macro_factories_return_linked_entities_from_builder_children() {
+    use mirui::ui::{Children, Parent, Style};
+
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let (panel, (source, target)) =
+        app.compose(root, |tree| tree.children(Style::default(), linked_nodes()));
+
+    assert_eq!(app.world.get::<Children>(root).unwrap().0, [panel]);
+    assert_eq!(
+        app.world.get::<Children>(panel).unwrap().0,
+        [source, target]
+    );
+    assert_eq!(app.world.get::<Parent>(panel).unwrap().0, root);
+    assert_eq!(app.world.get::<Parent>(source).unwrap().0, panel);
+    assert_eq!(app.world.get::<Parent>(target).unwrap().0, panel);
+    assert_eq!(app.world.get::<Source>(target).unwrap().0, source);
+}

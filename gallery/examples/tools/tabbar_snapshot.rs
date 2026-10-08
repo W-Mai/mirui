@@ -10,6 +10,84 @@ use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::ui::widgets::{ParagraphStyle, TabBar, TabContent, Text};
 
+#[compose]
+fn tab_panel(selected: u8) {
+    let mut bar = TabBar::new(3).with_indicator_height(3);
+    bar.selected = selected.min(2);
+    let tabs = ui! {
+        View (
+            bg_color: Color::rgb(40, 40, 56),
+            width: 480,
+            height: 40
+        ) [
+            bar,
+        ] {
+            Text (
+                "Home",
+                text_color: Color::rgb(220, 220, 230),
+                grow: 1.0,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                "Search",
+                text_color: Color::rgb(220, 220, 230),
+                grow: 1.0,
+                paragraph: ParagraphStyle::label()
+            )
+            Text (
+                "Profile",
+                text_color: Color::rgb(220, 220, 230),
+                grow: 1.0,
+                paragraph: ParagraphStyle::label()
+            )
+        }
+    };
+
+    ui! {
+        View (width: 480, height: 160) {
+            Text (
+                "Home page",
+                bg_color: Color::rgb(63, 185, 80),
+                text_color: Color::rgb(255, 255, 255),
+                width: 480,
+                height: 160,
+                paragraph: ParagraphStyle::label()
+            ) [
+                TabContent {
+                    tab_bar: tabs,
+                    index: 0,
+                },
+            ]
+            Text (
+                "Search page",
+                bg_color: Color::rgb(255, 165, 80),
+                text_color: Color::rgb(255, 255, 255),
+                width: 480,
+                height: 160,
+                paragraph: ParagraphStyle::label()
+            ) [
+                TabContent {
+                    tab_bar: tabs,
+                    index: 1,
+                },
+            ]
+            Text (
+                "Profile page",
+                bg_color: Color::rgb(210, 168, 255),
+                text_color: Color::rgb(40, 40, 56),
+                width: 480,
+                height: 160,
+                paragraph: ParagraphStyle::label()
+            ) [
+                TabContent {
+                    tab_bar: tabs,
+                    index: 2,
+                },
+            ]
+        }
+    };
+}
+
 fn main() {
     let mut args = env::args().skip(1);
     let selected_arg: u8 = args.next().and_then(|a| a.parse().ok()).unwrap_or(1);
@@ -27,7 +105,9 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(20, 20, 30))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -37,90 +117,7 @@ fn main() {
         })
         .id();
 
-    let tabs = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(40, 40, 56),
-                width: 480,
-                height: 40
-            ) [
-                TabBar::new(3).with_indicator_height(3),
-            ] {
-                Text (
-                    "Home",
-                    text_color: Color::rgb(220, 220, 230),
-                    grow: 1.0,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
-                    "Search",
-                    text_color: Color::rgb(220, 220, 230),
-                    grow: 1.0,
-                    paragraph: ParagraphStyle::label()
-                )
-                Text (
-                    "Profile",
-                    text_color: Color::rgb(220, 220, 230),
-                    grow: 1.0,
-                    paragraph: ParagraphStyle::label()
-                )
-            }
-        }
-    };
-
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (width: 480, height: 160) {
-                Text (
-                    "Home page",
-                    bg_color: Color::rgb(63, 185, 80),
-                    text_color: Color::rgb(255, 255, 255),
-                    width: 480,
-                    height: 160,
-                    paragraph: ParagraphStyle::label()
-                ) [
-                    TabContent {
-                        tab_bar: tabs,
-                        index: 0,
-                    },
-                ]
-                Text (
-                    "Search page",
-                    bg_color: Color::rgb(255, 165, 80),
-                    text_color: Color::rgb(255, 255, 255),
-                    width: 480,
-                    height: 160,
-                    paragraph: ParagraphStyle::label()
-                ) [
-                    TabContent {
-                        tab_bar: tabs,
-                        index: 1,
-                    },
-                ]
-                Text (
-                    "Profile page",
-                    bg_color: Color::rgb(210, 168, 255),
-                    text_color: Color::rgb(40, 40, 56),
-                    width: 480,
-                    height: 160,
-                    paragraph: ParagraphStyle::label()
-                ) [
-                    TabContent {
-                        tab_bar: tabs,
-                        index: 2,
-                    },
-                ]
-            }
-        }
-    };
-
-    if let Some(tb) = app.world.get_mut::<TabBar>(tabs) {
-        tb.selected = selected_arg.min(2);
-    }
-
-    app.set_root(root);
+    app.compose(root, tab_panel(selected_arg));
 
     use mirui::render::sw::SwRenderer;
     use mirui::types::Viewport;

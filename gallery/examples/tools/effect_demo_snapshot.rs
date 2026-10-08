@@ -98,6 +98,136 @@ fn tile_color(idx: i32) -> Color {
     }
 }
 
+#[compose]
+fn effects_panel() {
+    let m_source = ui! {
+        View (
+            bg_color: ColorToken::Primary,
+            border_radius: Fixed::from_int(8),
+            position: Position::Absolute,
+            left: 30,
+            top: 30,
+            width: 180,
+            height: 50
+        ) {
+            Text (
+                "MirrorOf",
+                text_color: ColorToken::OnPrimary,
+                position: Position::Absolute,
+                left: 12,
+                top: 16,
+                width: 160,
+                height: 20
+            )
+        }
+    };
+    ui! {
+        View (
+            position: Position::Absolute,
+            left: 30,
+            top: 90,
+            width: 180,
+            height: 50
+        ) [
+            MirrorOf::new(m_source).with_fade(160),
+        ]
+    };
+
+    ui! {
+        View (
+            bg_color: Color::rgb(220, 60, 60),
+            border_radius: Fixed::from_int(8),
+            position: Position::Absolute,
+            left: 50,
+            top: HALF_H + 60,
+            width: 50,
+            height: 50
+        ) [
+            ColorFlash { frame: 0 },
+        ]
+    };
+    let tm_source = ui! {
+        View (
+            bg_color: Color::rgb(220, 60, 60),
+            border_radius: Fixed::from_int(8),
+            position: Position::Absolute,
+            left: 160,
+            top: HALF_H + 60,
+            width: 50,
+            height: 50
+        ) [
+            ColorFlash { frame: 0 },
+        ]
+    };
+    ui! {
+        View (
+            position: Position::Absolute,
+            left: 160,
+            top: HALF_H + 60,
+            width: 50,
+            height: 50
+        ) [
+            TemporalMix::new(tm_source).with_mix(230),
+        ]
+    };
+    ui! {
+        Text (
+            "raw flash       TemporalMix",
+            text_color: ColorToken::OnSurface,
+            position: Position::Absolute,
+            left: 30,
+            top: HALF_H + 20,
+            width: 220,
+            height: 20
+        )
+    };
+
+    ui! {
+        View (
+            position: Position::Absolute,
+            left: HALF_W + 20,
+            top: HALF_H + 20,
+            width: 220,
+            height: 140
+        ) {
+            walk 0..12 with i {
+                View (
+                    bg_color: tile_color(i),
+                    position: Position::Absolute,
+                    left: (i % 4) * 55,
+                    top: (i / 4) * 47,
+                    width: 55,
+                    height: 47
+                )
+            }
+        }
+    };
+    ui! {
+        View (
+            bg_color: Color::rgba(255, 255, 255, 50),
+            border_radius: Fixed::from_int(10),
+            position: Position::Absolute,
+            left: HALF_W + 50,
+            top: HALF_H + 50,
+            width: 160,
+            height: 80
+        ) [
+            BackgroundBlur::new(10),
+        ]
+    };
+    ui! {
+        Text (
+            "BackgroundBlur",
+            text_color: ColorToken::OnSurface,
+            position: Position::Absolute,
+            left: HALF_W + 30,
+            top: HALF_H + 165,
+            width: 200,
+            height: 20
+        )
+    };
+}
+
 fn main() {
     let out_path = std::env::args()
         .nth(1)
@@ -121,7 +251,9 @@ fn main() {
     app.add_system(animate_x::system());
     app.add_system(animate_color_flash::system());
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(20, 22, 28))
         .layout(LayoutStyle {
             width: Dimension::px(WIN_W),
@@ -130,161 +262,7 @@ fn main() {
         })
         .id();
 
-    let m_source = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: ColorToken::Primary,
-                border_radius: Fixed::from_int(8),
-                position: Position::Absolute,
-                left: 30,
-                top: 30,
-                width: 180,
-                height: 50
-            ) {
-                Text (
-                    "MirrorOf",
-                    text_color: ColorToken::OnPrimary,
-                    position: Position::Absolute,
-                    left: 12,
-                    top: 16,
-                    width: 160,
-                    height: 20
-                )
-            }
-        }
-    };
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                position: Position::Absolute,
-                left: 30,
-                top: 90,
-                width: 180,
-                height: 50
-            ) [
-                MirrorOf::new(m_source).with_fade(160),
-            ]
-        }
-    };
-
-    let _bare = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(220, 60, 60),
-                border_radius: Fixed::from_int(8),
-                position: Position::Absolute,
-                left: 50,
-                top: HALF_H + 60,
-                width: 50,
-                height: 50
-            ) [
-                ColorFlash { frame: 0 },
-            ]
-        }
-    };
-    let tm_source = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgb(220, 60, 60),
-                border_radius: Fixed::from_int(8),
-                position: Position::Absolute,
-                left: 160,
-                top: HALF_H + 60,
-                width: 50,
-                height: 50
-            ) [
-                ColorFlash { frame: 0 },
-            ]
-        }
-    };
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                position: Position::Absolute,
-                left: 160,
-                top: HALF_H + 60,
-                width: 50,
-                height: 50
-            ) [
-                TemporalMix::new(tm_source).with_mix(230),
-            ]
-        }
-    };
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            Text (
-                "raw flash       TemporalMix",
-                text_color: ColorToken::OnSurface,
-                position: Position::Absolute,
-                left: 30,
-                top: HALF_H + 20,
-                width: 220,
-                height: 20
-            )
-        }
-    };
-
-    let _backdrop = {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                position: Position::Absolute,
-                left: HALF_W + 20,
-                top: HALF_H + 20,
-                width: 220,
-                height: 140
-            ) {
-                walk 0..12 with i {
-                    View (
-                        bg_color: tile_color(i),
-                        position: Position::Absolute,
-                        left: (i % 4) * 55,
-                        top: (i / 4) * 47,
-                        width: 55,
-                        height: 47
-                    )
-                }
-            }
-        }
-    };
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (
-                bg_color: Color::rgba(255, 255, 255, 50),
-                border_radius: Fixed::from_int(10),
-                position: Position::Absolute,
-                left: HALF_W + 50,
-                top: HALF_H + 50,
-                width: 160,
-                height: 80
-            ) [
-                BackgroundBlur::new(10),
-            ]
-        }
-    };
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            Text (
-                "BackgroundBlur",
-                text_color: ColorToken::OnSurface,
-                position: Position::Absolute,
-                left: HALF_W + 30,
-                top: HALF_H + 165,
-                width: 200,
-                height: 20
-            )
-        }
-    };
-
-    app.set_root(root);
+    app.compose(root, effects_panel());
 
     // Initial full render so OffscreenRender entities allocate buffers
     // and DropShadow / TemporalMix have a previous-frame texture to

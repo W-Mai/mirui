@@ -1,0 +1,17 @@
+# Snapshot tools
+
+Run these commands from the repository root. Headless tools use the software framebuffer and do not open a window. PNG tools that convert PPM files require Pillow in the `python3` environment; the effect and modal tools write PPM directly.
+
+```sh
+mkdir -p .local/screenshots
+cargo run -p gallery --example tabbar_snapshot --no-default-features --features snapshot -- 1 .local/screenshots/tabs.png
+MIRUI_SNAPSHOT_DIR=.local/screenshots cargo run -p gallery --example lazy_list_snapshot --no-default-features --features snapshot -- mid
+cargo run -p gallery --example effect_demo_snapshot --no-default-features --features snapshot -- .local/screenshots/effects.ppm
+cargo run -p gallery --example offscreen_modal_snapshot --no-default-features --features snapshot -- .local/screenshots/modal
+```
+
+The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `mid`, or `bottom`. The modal tool captures 30 frames for each of the inline (`inl-*.ppm`) and offscreen (`off-*.ppm`) rendering modes.
+
+For a regression check, capture before and after a change with identical arguments into separate directories. Compare corresponding files and inspect the images for clipping, layering, and animation artifacts. These snapshots support manual visual checks; they do not replace unit tests for layout, event, or lifecycle contracts. Keep generated images under `.local/screenshots/` or a temporary directory, outside version control.
+
+Scene construction belongs in `#[compose]` functions called through `App::compose`. Tools that inspect render internals keep those diagnostics outside the composition body.

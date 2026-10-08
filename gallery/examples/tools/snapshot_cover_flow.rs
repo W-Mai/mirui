@@ -83,6 +83,68 @@ fn write_ppm(path: &str, buf: &[u8], w: u32, h: u32) -> std::io::Result<()> {
     Ok(())
 }
 
+#[compose]
+fn cover_flow_panel(scroll_x_raw: i32) {
+    let card_colors = [
+        Color::rgb(255, 107, 107),
+        Color::rgb(255, 206, 84),
+        Color::rgb(136, 216, 176),
+        Color::rgb(118, 209, 244),
+        Color::rgb(178, 148, 255),
+    ];
+
+    mirui_macros::ui! {
+        View (
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: WINDOW_W,
+            height: WINDOW_H
+        ) [
+            Carousel,
+            ScrollOffset {
+                x: Fixed::from_ratio(scroll_x_raw, 256),
+                y: Fixed::ZERO,
+            },
+            ScrollConfig {
+                direction: ScrollAxis::Horizontal,
+                elastic: true,
+                content_width: Fixed::from_int(
+                    WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
+                ),
+                content_height: Fixed::ZERO,
+            },
+        ] {
+            walk card_colors.iter().enumerate() with item {
+                View (
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: CARD_W,
+                    height: CARD_H,
+                    bg_color: *item.1,
+                    border_radius: 8,
+                    border_color: Color::rgb(0, 0, 0),
+                    border_width: 5
+                ) [
+                    CarouselCard { index: item.0 },
+                ] {
+                    if item.0 % 2 == 1 {
+                        View (
+                            position: Position::Absolute,
+                            left: (CARD_W - 64) / 2,
+                            top: (CARD_H - 64) / 2,
+                            width: 64,
+                            height: 64,
+                            image: Image::new("thumbs_up")
+                        )
+                    }
+                }
+            }
+        }
+    };
+}
+
 fn render_at(scroll_x_raw: i32) -> Vec<u8> {
     let capture: Rc<RefCell<Vec<u8>>> = Rc::new(RefCell::new(Vec::new()));
     let cap_cb = capture.clone();
@@ -96,15 +158,9 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
 
     app.add_system(layout_system::system());
 
-    let card_colors = [
-        Color::rgb(255, 107, 107),
-        Color::rgb(255, 206, 84),
-        Color::rgb(136, 216, 176),
-        Color::rgb(118, 209, 244),
-        Color::rgb(178, 148, 255),
-    ];
-
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(24, 26, 34))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -114,63 +170,8 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
         })
         .id();
 
-    let world = &mut app.world;
-    let card_colors_ref = &card_colors;
-    {
-        let mut cx = ::mirui::ui::UiScope::new(world, root);
-        mirui_macros::ui! {
-            View (
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: WINDOW_W,
-                height: WINDOW_H
-            ) [
-                Carousel,
-                ScrollOffset {
-                    x: Fixed::from_ratio(scroll_x_raw, 256),
-                    y: Fixed::ZERO,
-                },
-                ScrollConfig {
-                    direction: ScrollAxis::Horizontal,
-                    elastic: true,
-                    content_width: Fixed::from_int(
-                        WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
-                    ),
-                    content_height: Fixed::ZERO,
-                },
-            ] {
-                walk card_colors_ref.iter().enumerate() with item {
-                    View (
-                        position: Position::Absolute,
-                        left: 0,
-                        top: 0,
-                        width: CARD_W,
-                        height: CARD_H,
-                        bg_color: *item.1,
-                        border_radius: 8,
-                        border_color: Color::rgb(0, 0, 0),
-                        border_width: 5
-                    ) [
-                        CarouselCard { index: item.0 },
-                    ] {
-                        if item.0 % 2 == 1 {
-                            View (
-                                position: Position::Absolute,
-                                left: (CARD_W - 64) / 2,
-                                top: (CARD_H - 64) / 2,
-                                width: 64,
-                                height: 64,
-                                image: Image::new("thumbs_up")
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    };
+    app.compose(root, cover_flow_panel(scroll_x_raw));
 
-    app.set_root(root);
     app.systems.run_all(&mut app.world).unwrap();
     app.render().unwrap();
     capture.borrow().clone()
@@ -243,7 +244,10 @@ fn main() {
     }
 }
 
-fn diff(a: &[u8], b: &[u8]) -> Vec<(u32, u32, (u8, u8, u8), (u8, u8, u8))> {
+type Rgb = (u8, u8, u8);
+type PixelDifference = (u32, u32, Rgb, Rgb);
+
+fn diff(a: &[u8], b: &[u8]) -> Vec<PixelDifference> {
     let w = WINDOW_W as u32;
     let h = WINDOW_H as u32;
     let mut out = Vec::new();
