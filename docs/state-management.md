@@ -68,6 +68,8 @@ The I18n composition borrows an optional FontManager to register its font and in
 
 Application creation supplies the named-widget ID registry. Compositions declare `id: ...` without initializing that registry, and existing named entries remain available to later compositions.
 
+Declarative nodes connect to their parent and register their final `NamedId` after static components are installed and before matching View attachment hooks run. Reactive property initialization and event installation follow attachment. Each node has one named identity; declaring another name for the same node replaces that marker, not an alias. Layout containers gain input feedback only when a matching widget View provides it.
+
 Place `#[model]` on a struct and one inherent impl to generate its instance
 handle and forwarded methods. Each `App::add_model` call registers an independent
 instance; cloning a handle refers to the same instance without cloning its data.

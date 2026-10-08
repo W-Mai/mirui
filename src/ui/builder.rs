@@ -4,7 +4,7 @@ use crate::ui::layout::LayoutStyle;
 use crate::ui::widgets::transform::WidgetTransform;
 use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 
-use super::{Children, Parent, Style, Widget};
+use super::{Children, Parent, Style};
 
 pub struct WidgetBuilder<'a> {
     world: &'a mut World,
@@ -13,10 +13,7 @@ pub struct WidgetBuilder<'a> {
 
 impl<'a> WidgetBuilder<'a> {
     pub fn new(world: &'a mut World) -> Self {
-        let entity = world.spawn_empty();
-        world.insert(entity, Widget);
-        world.insert(entity, Style::default());
-        world.insert(entity, Children(alloc::vec::Vec::new()));
+        let entity = super::construction::spawn_widget(world);
         Self { world, entity }
     }
 

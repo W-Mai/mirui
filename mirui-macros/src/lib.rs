@@ -730,7 +730,7 @@ impl MiruiRune {
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
         match cmd {
-            Cmd::Widget(w) => Self::emit_widget(w, world),
+            Cmd::Widget(w) => Self::emit_widget(w, world, parent_var),
             Cmd::Compose(c) => Self::emit_compose(c, world, parent_var),
             Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
@@ -834,7 +834,11 @@ impl MiruiRune {
         }
         tokens
     }
-    fn emit_widget(cmd: &WidgetCmd, world: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    fn emit_widget(
+        cmd: &WidgetCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         let var = &cmd.var;
         let attrs = &cmd.attrs;
         let layout_fields = &cmd.layout_fields;
@@ -1025,11 +1029,15 @@ impl MiruiRune {
                 (#world).insert(#var, #enchant);
             });
         }
-        if cmd.kind == WidgetKind::Component || !enchants.is_empty() {
+        for id_lit in &cmd.id_registrations {
             tokens.extend(quote! {
-                mirui::input::event::widget_input::attach_handlers_for(#world, #var);
+                (#world).insert(#var, mirui::ui::NamedId(#id_lit));
             });
         }
+        tokens.extend(quote! {
+            let __widget_parent = #parent_var;
+            ::mirui::__macro_support::finish_widget_static(#world, __widget_parent, #var);
+        });
 
         for prepared in prepared_bindings {
             tokens.extend(quote! { #prepared.install(#world); });
@@ -1092,30 +1100,9 @@ impl MiruiRune {
             ));
         }
 
-        for id_lit in &cmd.id_registrations {
-            tokens.extend(quote! {
-                (#world).insert(#var, mirui::ui::NamedId(#id_lit));
-                if let Some(__map) = (#world).resource_mut::<mirui::ui::IdMap>() {
-                    __map.insert(#id_lit, #var);
-                }
-            });
-        }
-
         let var_ts = quote! { #var };
         for child in &cmd.children {
             tokens.extend(Self::emit_cmd(child, world, &var_ts));
-            if let Cmd::Widget(widget) = child {
-                let child_var = &widget.var;
-                tokens.extend(quote! {
-                    {
-                        use mirui::ui::{Children, Parent};
-                        (#world).insert(#child_var, Parent(#var));
-                        if let Some(children) = (#world).get_mut::<Children>(#var) {
-                            children.0.push(#child_var);
-                        }
-                    }
-                });
-            }
         }
 
         tokens
@@ -1316,18 +1303,6 @@ impl MiruiRune {
             let mut body_tokens = proc_macro2::TokenStream::new();
             for child in &arm.body {
                 body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-                if let Cmd::Widget(w) = child {
-                    let child_var = &w.var;
-                    body_tokens.extend(quote! {
-                        {
-                            use mirui::ui::{Children, Parent};
-                            (#world).insert(#child_var, Parent(#parent_var));
-                            if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
-                                children.0.push(#child_var);
-                            }
-                        }
-                    });
-                }
             }
             quote! { #pat => { #body_tokens } }
         });
@@ -1351,28 +1326,11 @@ impl MiruiRune {
                 let mut fallback = proc_macro2::TokenStream::new();
                 for child in &cmd.body {
                     fallback.extend(Self::emit_cmd(child, world, &slot_var_ts));
-                    if let Cmd::Widget(w) = child {
-                        let child_var = &w.var;
-                        fallback.extend(quote! {
-                            {
-                                use mirui::ui::{Children, Parent};
-                                (#world).insert(#child_var, Parent(#slot_var_ts));
-                                if let Some(children) = (#world).get_mut::<Children>(#slot_var_ts) {
-                                    children.0.push(#child_var);
-                                }
-                            }
-                        });
-                    }
                 }
                 return quote! {
                     let __slot_parent = #parent_var;
                     let #slot_var = ::mirui::ui::builder::WidgetBuilder::new(#world).id();
-                    (#world).insert(#slot_var, ::mirui::ui::Parent(__slot_parent));
-                    if let Some(children) = (#world).get_mut::<::mirui::ui::Children>(__slot_parent) {
-                        children.0.push(#slot_var);
-                    } else {
-                        (#world).insert(__slot_parent, ::mirui::ui::Children(::mirui::__macro_support::__Vec::from([#slot_var])));
-                    }
+                    ::mirui::__macro_support::finish_widget_static(#world, __slot_parent, #slot_var);
                     __mold_niche_map.insert(#slot_name, #slot_var);
                     #fallback
                 };
@@ -1405,18 +1363,6 @@ impl MiruiRune {
         let mut body_tokens = proc_macro2::TokenStream::new();
         for child in &cmd.body {
             body_tokens.extend(Self::emit_cmd(child, world, &niche_var_ts));
-            if let Cmd::Widget(w) = child {
-                let child_var = &w.var;
-                body_tokens.extend(quote! {
-                    {
-                        use mirui::ui::{Children, Parent};
-                        (#world).insert(#child_var, Parent(#niche_var_ts));
-                        if let Some(children) = (#world).get_mut::<Children>(#niche_var_ts) {
-                            children.0.push(#child_var);
-                        }
-                    }
-                });
-            }
         }
 
         let widget_label = quote! { stringify!(#parent_var) };
@@ -1472,18 +1418,6 @@ impl MiruiRune {
         let mut body_tokens = proc_macro2::TokenStream::new();
         for child in &cmd.body {
             body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-            if let Cmd::Widget(w) = child {
-                let child_var = &w.var;
-                body_tokens.extend(quote! {
-                    {
-                        use mirui::ui::{Children, Parent};
-                        (#world).insert(#child_var, Parent(#parent_var));
-                        if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
-                            children.0.push(#child_var);
-                        }
-                    }
-                });
-            }
         }
 
         quote! {
@@ -1513,18 +1447,6 @@ impl MiruiRune {
         let mut body_tokens = proc_macro2::TokenStream::new();
         for child in body {
             body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-            if let Cmd::Widget(w) = child {
-                let child_var = &w.var;
-                body_tokens.extend(quote! {
-                    {
-                        use mirui::ui::{Children, Parent};
-                        (#world).insert(#child_var, Parent(#parent_var));
-                        if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
-                            children.0.push(#child_var);
-                        }
-                    }
-                });
-            }
         }
         body_tokens
     }
@@ -1564,37 +1486,21 @@ impl MiruiRune {
         for child in body {
             stmts.extend(Self::emit_cmd(child, &w, &p));
             let child_var = match child {
-                Cmd::Widget(cw) => Some((&cw.var, false)),
-                Cmd::Compose(compose) => Some((&compose.var, true)),
+                Cmd::Widget(cw) => Some(&cw.var),
+                Cmd::Compose(compose) => Some(&compose.var),
                 _ => None,
             };
-            if let Some((cv, already_attached)) = child_var {
-                if root.is_none() {
-                    let detach = already_attached.then(|| {
-                        quote! {
-                            if let Some(children) = (#w).get_mut::<mirui::ui::Children>(#p) {
-                                if let Some(index) = children.0.iter().position(|entity| *entity == #cv) {
-                                    children.0.remove(index);
-                                }
-                            }
+            if let Some(cv) = child_var
+                && root.is_none()
+            {
+                stmts.extend(quote! {
+                    if let Some(children) = (#w).get_mut::<mirui::ui::Children>(#p) {
+                        if let Some(index) = children.0.iter().position(|entity| *entity == #cv) {
+                            children.0.remove(index);
                         }
-                    });
-                    stmts.extend(quote! {
-                        #detach
-                        (#w).insert(#cv, mirui::ui::Parent(#p));
-                    });
-                    root = Some(quote! { #cv });
-                } else if !already_attached {
-                    stmts.extend(quote! {
-                        {
-                            use mirui::ui::{Children, Parent};
-                            (#w).insert(#cv, Parent(#p));
-                            if let Some(children) = (#w).get_mut::<Children>(#p) {
-                                children.0.push(#cv);
-                            }
-                        }
-                    });
-                }
+                    }
+                });
+                root = Some(quote! { #cv });
             }
         }
         let ret = match root {
@@ -2145,18 +2051,7 @@ impl DsRune for MiruiRune {
             tokens.extend(Self::emit_cmd(cmd, world, parent_entity));
             match cmd {
                 Cmd::Widget(w) => {
-                    let var = &w.var;
-                    last_var = Some(var.clone());
-                    tokens.extend(quote! {
-                        {
-                            use mirui::ui::{Children, Parent};
-                            let __seal_parent = #parent_entity;
-                            (#world).insert(#var, Parent(__seal_parent));
-                            if let Some(children) = (#world).get_mut::<Children>(__seal_parent) {
-                                children.0.push(#var);
-                            }
-                        }
-                    });
+                    last_var = Some(w.var.clone());
                 }
                 Cmd::Compose(compose) => last_var = Some(compose.var.clone()),
                 _ => {}

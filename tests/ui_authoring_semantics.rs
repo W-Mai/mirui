@@ -32,8 +32,9 @@ struct ModelAttachment {
 #[compose]
 fn moved_model_attachment(game: model!(AttachmentModel)) {
     ui! {
-        View (width: ${ mirui::types::Dimension::px(i32::from(game.value())) })
-            [ModelAttachment { game }]
+        View (width: ${ mirui::types::Dimension::px(i32::from(game.value())) }) [
+            ModelAttachment { game },
+        ]
     };
 }
 
@@ -73,8 +74,17 @@ fn attachment_model_move_preserves_binding_capture_and_updates() {
 
 #[derive(Default)]
 struct MountProbe {
-    entries: [Option<(u8, Option<bool>, Entity)>; 2],
+    entries: [Option<MountEntry>; 2],
     count: usize,
+}
+
+#[derive(Clone, Copy)]
+struct MountEntry {
+    seed: u8,
+    on: Option<bool>,
+    entity: Entity,
+    parent: Option<Entity>,
+    registered: bool,
 }
 
 #[compose]
@@ -112,8 +122,18 @@ fn inspect_static_attachment(world: &mut World, entity: Entity) {
     let on = world
         .get::<mirui::ui::widgets::Switch>(entity)
         .map(|switch| switch.on);
+    let parent = world.get::<Parent>(entity).map(|parent| parent.0);
+    let registered = world
+        .get::<mirui::ui::NamedId>(entity)
+        .is_some_and(|id| world.find_by_id(id.0) == Some(entity));
     let probe = world.resource_mut::<MountProbe>().unwrap();
-    probe.entries[probe.count] = Some((seed, on, entity));
+    probe.entries[probe.count] = Some(MountEntry {
+        seed,
+        on,
+        entity,
+        parent,
+        registered,
+    });
     probe.count += 1;
 }
 
@@ -124,8 +144,12 @@ fn mount_seed_view() {}
 fn static_attachment_tree(flag: mirui::core::reactive::Signal<bool>) {
     ui! {
         Column () {
-            Switch (on: ${ flag.get() }) [MountSeed(7)]
-            View () [MountSeed(9)]
+            Switch (on: ${ flag.get() }, id: "mounted-switch") [
+                MountSeed(7),
+            ]
+            View (id: "mounted-container") [
+                MountSeed(9),
+            ]
             Row ()
         }
     };
@@ -143,18 +167,35 @@ fn static_attachments_initialize_once_before_reactive_values() {
 
     let probe = app.world.resource::<MountProbe>().unwrap();
     assert_eq!(probe.count, 2);
-    let (seed, on, switch) = probe.entries[0].unwrap();
-    assert_eq!((seed, on), (7, Some(false)));
+    let first = probe.entries[0].unwrap();
+    assert_eq!((first.seed, first.on), (7, Some(false)));
+    let switch = first.entity;
     assert!(
         app.world
             .get::<mirui::ui::widgets::Switch>(switch)
             .unwrap()
             .on
     );
-    let (seed, on, container) = probe.entries[1].unwrap();
-    assert_eq!((seed, on), (9, None));
+    let second = probe.entries[1].unwrap();
+    assert_eq!((second.seed, second.on), (9, None));
+    let container = second.entity;
     assert!(!app.world.has::<mirui::ui::HitTarget>(container));
     assert!(!app.world.has::<mirui::ui::InteractionFeedback>(container));
+    let parent = app.world.get::<Parent>(switch).unwrap().0;
+    assert_eq!(first.parent, Some(parent));
+    assert_eq!(second.parent, Some(parent));
+    assert!(first.registered && second.registered);
+    assert_eq!(app.world.get::<Parent>(parent).unwrap().0, root);
+    assert_eq!(
+        app.world
+            .get::<Children>(parent)
+            .unwrap()
+            .0
+            .iter()
+            .filter(|child| **child == switch)
+            .count(),
+        1
+    );
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -189,6 +230,87 @@ fn attachment_expressions_keep_source_order_and_same_type_last_wins() {
         world.get::<OrderedAttachment>(entities[0]),
         Some(&OrderedAttachment(2))
     );
+}
+
+#[mirui::component]
+struct RowTag(u8);
+
+#[compose]
+fn indexed_rows(items: mirui::core::reactive::Signal<Vec<u8>>) -> Entity {
+    ui! {
+        Column () {
+            walk ${ items.get() } with item {
+                View () [
+                    RowTag(item),
+                ] {
+                    View ()
+                }
+            }
+        }
+    }
+}
+
+#[compose]
+fn keyed_rows(items: mirui::core::reactive::Signal<Vec<u8>>) -> Entity {
+    ui! {
+        Column () {
+            walk ${ items.get() } with item by item {
+                lowercase_row (item)
+            }
+        }
+    }
+}
+
+#[compose]
+fn lowercase_row(value: u8) -> Entity {
+    ui! {
+        View () [
+            RowTag(value),
+        ] {
+            View ()
+        }
+    }
+}
+
+#[test]
+fn reactive_row_roots_connect_once_and_keep_nested_children() {
+    for keyed in [false, true] {
+        let mut app = mirui::app::App::headless(32, 32);
+        let root = app.spawn_root().id();
+        let items = mirui::core::reactive::Signal::new(vec![1_u8, 2]);
+        let list = app.compose(root, |cx| {
+            if keyed {
+                keyed_rows(cx, items.clone())
+            } else {
+                indexed_rows(cx, items.clone())
+            }
+        });
+        let original = app.world.get::<Children>(list).unwrap().0.clone();
+        assert_eq!(original.len(), 2);
+        items.set(if keyed { vec![2, 1, 3] } else { vec![1, 2, 3] });
+        mirui::core::reactive::flush_signal_dirty(&mut app.world);
+        let rows = app.world.get::<Children>(list).unwrap().0.clone();
+        assert_eq!(rows.len(), 3);
+        let expected = if keyed {
+            [original[1], original[0]]
+        } else {
+            [original[0], original[1]]
+        };
+        assert_eq!(&rows[..2], &expected);
+        for (index, entity) in rows.iter().enumerate() {
+            assert!(!rows[..index].contains(entity));
+            assert_eq!(app.world.get::<Parent>(*entity).unwrap().0, list);
+            let nested = &app.world.get::<Children>(*entity).unwrap().0;
+            assert_eq!(nested.len(), 1);
+            assert_eq!(app.world.get::<Parent>(nested[0]).unwrap().0, *entity);
+        }
+        assert_eq!(app.world.get::<RowTag>(rows[2]).unwrap().0, 3);
+        let removed = rows[2];
+        items.set(vec![1, 2]);
+        mirui::core::reactive::flush_signal_dirty(&mut app.world);
+        assert_eq!(app.world.get::<Children>(list).unwrap().0, original);
+        assert!(!app.world.is_alive(removed));
+    }
 }
 
 #[compose]
