@@ -1,31 +1,28 @@
 use crate::ecs::{Entity, World};
 
-// Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
-// drops before each fn gets &mut World. The mut-borrow conflict
-// is the reason for the two-step copy instead of streaming.
 #[derive(Clone, Copy)]
-struct InputAttach {
+pub(crate) struct InputAttach {
     component_filter: Option<core::any::TypeId>,
     attach: Option<crate::ui::view::ViewAttach>,
     has_internal_gesture: bool,
 }
 
-fn input_attach_plan(world: &World) -> alloc::vec::Vec<InputAttach> {
-    let mut pending = alloc::vec::Vec::new();
-    if let Some(reg) = world.resource::<crate::ui::view::ViewRegistry>() {
-        for view in reg.iter() {
-            let attach = view.auto_attach();
-            let has_internal_gesture = view.internal_gesture().is_some();
-            if attach.is_some() || has_internal_gesture {
-                pending.push(InputAttach {
-                    component_filter: view.component_filter(),
-                    attach,
-                    has_internal_gesture,
-                });
-            }
-        }
+impl InputAttach {
+    pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
+        let attach = view.auto_attach();
+        let has_internal_gesture = view.internal_gesture().is_some();
+        (attach.is_some() || has_internal_gesture).then(|| Self {
+            component_filter: view.component_filter(),
+            attach,
+            has_internal_gesture,
+        })
     }
-    pending
+}
+
+fn input_attach_plan(world: &World) -> Option<alloc::rc::Rc<alloc::vec::Vec<InputAttach>>> {
+    world
+        .resource::<crate::ui::view::ViewRegistry>()?
+        .input_attach_plan()
 }
 
 fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) {
@@ -52,15 +49,18 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
 }
 
 pub fn attach_handlers_for(world: &mut World, entity: Entity) {
-    let plan = input_attach_plan(world);
-    apply_input_attach_plan(world, entity, &plan);
+    if let Some(plan) = input_attach_plan(world) {
+        apply_input_attach_plan(world, entity, &plan);
+    }
 }
 
 /// Walk the widget tree from `root` and auto-install gesture/key
 /// handlers on built-in widgets that don't already have one. Call once
 /// after building the tree.
 pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
-    let plan = input_attach_plan(world);
+    let Some(plan) = input_attach_plan(world) else {
+        return;
+    };
     let mut stack = alloc::vec::Vec::with_capacity(16);
     stack.push(root);
     while let Some(entity) = stack.pop() {
@@ -312,5 +312,66 @@ mod tests {
         );
         assert_eq!(consumed, Ok(false));
         assert_eq!(world.get::<TabBar>(e).unwrap().selected, 0);
+    }
+
+    #[test]
+    fn registered_attach_plan_is_allocation_free_and_frozen_during_invocation() {
+        use crate::test_support::tracked_allocations;
+        use crate::ui::view::{View, ViewRegistry};
+
+        #[derive(Default)]
+        struct Calls {
+            first: u32,
+            second: u32,
+            third: u32,
+            append: bool,
+            replace: bool,
+        }
+        fn first(world: &mut World, _: Entity) {
+            let calls = world.resource_mut::<Calls>().unwrap();
+            calls.first += 1;
+            if calls.replace {
+                world.insert_resource(ViewRegistry::default());
+            } else if calls.append {
+                calls.append = false;
+                world
+                    .resource_mut::<ViewRegistry>()
+                    .unwrap()
+                    .insert(View::systems_only("third", &[]).with_attach(third));
+            }
+        }
+        fn second(world: &mut World, _: Entity) {
+            world.resource_mut::<Calls>().unwrap().second += 1;
+        }
+        fn third(world: &mut World, _: Entity) {
+            world.resource_mut::<Calls>().unwrap().third += 1;
+        }
+        let mut world = World::default();
+        let node = world.spawn_empty();
+        let mut registry = ViewRegistry::default();
+        registry.insert(View::systems_only("first", &[]).with_attach(first));
+        registry.insert(View::systems_only("second", &[]).with_attach(second));
+        world.insert_resource(registry);
+        world.insert_resource(Calls::default());
+        assert_eq!(
+            tracked_allocations(|| attach_handlers_for(&mut world, node)),
+            0
+        );
+        assert_eq!(world.resource::<Calls>().unwrap().first, 1);
+        assert_eq!(world.resource::<Calls>().unwrap().second, 1);
+        world.resource_mut::<Calls>().unwrap().append = true;
+        attach_handlers_for(&mut world, node);
+        assert_eq!(world.resource::<Calls>().unwrap().first, 2);
+        assert_eq!(world.resource::<Calls>().unwrap().second, 2);
+        assert_eq!(world.resource::<Calls>().unwrap().third, 0);
+        attach_handlers_for(&mut world, node);
+        assert_eq!(world.resource::<Calls>().unwrap().third, 1);
+        world.resource_mut::<Calls>().unwrap().replace = true;
+        attach_handlers_for(&mut world, node);
+        assert_eq!(world.resource::<Calls>().unwrap().first, 4);
+        assert_eq!(world.resource::<Calls>().unwrap().second, 4);
+        assert_eq!(world.resource::<Calls>().unwrap().third, 2);
+        attach_handlers_for(&mut world, node);
+        assert_eq!(world.resource::<Calls>().unwrap().first, 4);
     }
 }

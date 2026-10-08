@@ -4,6 +4,7 @@
 //! and system capabilities. Paint priority affects only the paint traversal;
 //! per-entity hooks retain registration order, and systems keep their scheduling slots.
 
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::TypeId;
 
@@ -594,6 +595,7 @@ impl View {
 #[derive(Default)]
 pub struct ViewRegistry {
     views: Vec<View>,
+    input_attach_plan: Option<Rc<Vec<crate::input::event::widget_input::InputAttach>>>,
     paint_order: Vec<usize>,
     next_registration: u64,
     bindings: Vec<ViewBinding>,
@@ -766,6 +768,12 @@ impl ViewRegistry {
             .expect("View registration identity exhausted");
         let index = self.views.len();
         let paint_priority = view.priority();
+        if let Some(hook) = crate::input::event::widget_input::InputAttach::for_view(&view) {
+            let plan = self
+                .input_attach_plan
+                .get_or_insert_with(|| Rc::new(Vec::new()));
+            Rc::make_mut(plan).push(hook);
+        }
         self.views.push(view);
         if let Some(priority) = paint_priority {
             let pos = self
@@ -780,6 +788,12 @@ impl ViewRegistry {
     /// Iterate all descriptors in registration order, including those without paint.
     pub fn iter(&self) -> impl Iterator<Item = &View> {
         self.views.iter()
+    }
+
+    pub(crate) fn input_attach_plan(
+        &self,
+    ) -> Option<Rc<Vec<crate::input::event::widget_input::InputAttach>>> {
+        self.input_attach_plan.as_ref().map(Rc::clone)
     }
 
     pub(crate) fn paint_iter(&self) -> impl Iterator<Item = &View> {

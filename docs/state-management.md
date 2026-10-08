@@ -468,6 +468,9 @@ removal update bindings before the next paint.
 
 A View describes a widget kind, not just its paint function. Paint, attach,
 gesture, observation, and systems are independent capabilities.
+
+Registration retains a shared snapshot of attachment and internal-gesture hooks in registration order. Per-node attachment reuses that snapshot without allocating a hook list. Hooks that replace or extend the registry do not change the active invocation; the next invocation uses the updated registry. Registration can allocate metadata, and whole-tree attachment still uses its traversal stack.
+
 An empty `#[view]` function declares a widget without a paint hook:
 
 ```rust,ignore
