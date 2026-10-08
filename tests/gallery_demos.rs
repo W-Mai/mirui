@@ -11,6 +11,7 @@ fn all_demos_build_widgets_smoke() {
     macro_rules! smoke_scoped {
         ($demo:path) => {{
             let mut world = World::new();
+            world.insert_resource(mirui::ui::IdMap::new());
             let parent = WidgetBuilder::new(&mut world).id();
             let mut cx = UiScope::new(&mut world, parent);
             $demo(&mut cx);
@@ -75,6 +76,7 @@ fn custom_view_demo_smoke() {
 fn widgets_demo_smoke() {
     let (w, h) = mirui::gallery::demos::widgets::DEFAULT_VIEW;
     let mut world = World::new();
+    world.insert_resource(mirui::ui::IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
     mirui::gallery::demos::widgets::build_widgets(&mut cx, w, h);

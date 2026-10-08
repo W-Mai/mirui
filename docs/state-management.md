@@ -64,6 +64,8 @@ CoverFlow and Particles install their bounds from within their compositions thro
 
 The I18n composition borrows an optional FontManager to register its font and installs its translation resource through `res!().insert(...)`. Its locale Signal is captured before installation and remains the language button's state source.
 
+Application creation supplies the named-widget ID registry. Compositions declare `id: ...` without initializing that registry, and existing named entries remain available to later compositions.
+
 Place `#[model]` on a struct and one inherent impl to generate its instance
 handle and forwarded methods. Each `App::add_model` call registers an independent
 instance; cloning a handle refers to the same instance without cloning its data.

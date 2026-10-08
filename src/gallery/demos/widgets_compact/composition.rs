@@ -7,13 +7,10 @@ use crate::ui::widgets::{
     Button, ButtonSize, LazyList, LazyListBinder, LazyListPool, ProgressBar, Slider, Switch,
     TabBar, TabContent, Text, TextAlign,
 };
-use crate::ui::{Children, IdMap, Theme};
+use crate::ui::{Children, Theme};
 
 #[compose]
 pub fn build_widgets() {
-    if cx.world_mut().resource::<IdMap>().is_none() {
-        cx.world_mut().insert_resource(IdMap::new());
-    }
     let progress = Signal::new(Fixed::from_ratio(62, 100));
     let progress_from_slider = progress.clone();
 

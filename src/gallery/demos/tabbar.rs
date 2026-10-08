@@ -5,7 +5,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
-use crate::ui::IdMap;
 use crate::ui::widgets::{ParagraphStyle, TabBar, TabContent, Text, TextAlign};
 use alloc::format;
 
@@ -18,9 +17,6 @@ struct SelectionState {
 
 #[compose]
 pub fn build_widgets() {
-    if cx.world_mut().resource::<IdMap>().is_none() {
-        cx.world_mut().insert_resource(IdMap::new());
-    }
     let selection = Signal::new(SelectionState::default());
     let selection_text = selection.clone();
     let selection_action = selection.clone();
@@ -212,10 +208,54 @@ mod tests {
     use crate::ecs::World;
     use crate::input::event::gesture::GestureEvent;
     use crate::input::event::multi_tap::MultiTapTracker;
-    use crate::ui::Children;
     use crate::ui::ComputedRect;
     use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
+    use crate::ui::{Children, IdMap};
+
+    #[test]
+    fn compositions_register_ids_without_replacing_the_application_map() {
+        type Composition = fn(&mut UiScope<'_>);
+        let demos: [(Composition, &str); 3] = [
+            (
+                |cx| {
+                    let (width, height) = crate::gallery::demos::widgets::DEFAULT_VIEW;
+                    crate::gallery::demos::widgets::build_widgets(cx, width, height);
+                },
+                "widgets_list",
+            ),
+            (
+                crate::gallery::demos::widgets_compact::build_widgets,
+                "compact_widgets_list",
+            ),
+            (build_widgets, "tabbar_demo_tabs"),
+        ];
+        for (compose, id) in demos {
+            let mut app = App::headless(480, 320);
+            app.with_default_widgets();
+            let root = app.spawn_root().id();
+            let sentinel = app.world.spawn_empty();
+            app.world
+                .resource_mut::<IdMap>()
+                .unwrap()
+                .insert("existing_composition_id", sentinel);
+            app.compose(root, compose);
+            assert_eq!(
+                app.world.find_by_id("existing_composition_id"),
+                Some(sentinel)
+            );
+            assert!(
+                app.world
+                    .find_by_id(id)
+                    .is_some_and(|entity| app.world.is_alive(entity))
+            );
+            assert!(
+                app.world
+                    .get::<Children>(root)
+                    .is_some_and(|children| !children.0.is_empty())
+            );
+        }
+    }
 
     #[test]
     fn build_widgets_smoke() {

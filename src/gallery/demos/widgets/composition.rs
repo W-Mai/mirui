@@ -8,7 +8,7 @@ use crate::ui::widgets::{
     Button, Checkbox, Image, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
     Slider, Switch, TabBar, TabContent, Text, TextAlign,
 };
-use crate::ui::{Children, IdMap, OffscreenRender};
+use crate::ui::{Children, OffscreenRender};
 
 const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 50;
@@ -16,10 +16,6 @@ const ITEM_COUNT: u32 = 50;
 #[compose]
 pub fn build_widgets(_view_w: u16, _view_h: u16) {
     const ROW_HEIGHT: i32 = 38;
-    if cx.world_mut().resource::<IdMap>().is_none() {
-        cx.world_mut().insert_resource(IdMap::new());
-    }
-
     //~focus-start
     ui! {
         Column (
