@@ -1063,6 +1063,8 @@ all branches when its parent is built and toggles visibility when signals
 change. A `match` with patterns that do not bind values also caches its arms;
 `walk` builds rows as its input changes.
 
+For a retained scrolling list, leave `ScrollConfig` content dimensions at zero to derive scroll bounds from the laid-out children. Adding and removing rows then updates the range without an effect that copies row counts into the scroll configuration. Explicit content dimensions are for virtualized content whose full extent is not present in the tree. Set `clip_children: true` on the scrolling container.
+
 ```rust
 let show = Signal::new(true);
 let other = Signal::new(false);

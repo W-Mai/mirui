@@ -1,6 +1,5 @@
 use super::state::{PALETTE, ROW_H};
-use crate::ecs::World;
-use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
@@ -13,7 +12,6 @@ pub fn build_widgets() {
     ]);
     let (dec, inc, label) = (fruits.clone(), fruits.clone(), fruits.clone());
     let rows = fruits.clone();
-    let content = fruits.clone();
 
     //~focus-start
     ui! {
@@ -76,20 +74,13 @@ pub fn build_widgets() {
                 width: Dimension::percent(100),
                 max_width: 260,
                 max_height: 180,
+                clip_children: true,
                 border_radius: 12,
                 padding: Padding::all(6),
                 row_gap: 4
             ) [
-                ScrollOffset {
-                    x: Fixed::ZERO,
-                    y: Fixed::ZERO,
-                },
-                ScrollConfig {
-                    direction: ScrollAxis::Vertical,
-                    elastic: true,
-                    content_height: Fixed::from_int(3 * ROW_H),
-                    content_width: Fixed::ZERO,
-                },
+                ScrollOffset::default(),
+                ScrollConfig::default(),
             ] {
                 walk ${ rows.get() } with fruit {
                     View (
@@ -106,17 +97,4 @@ pub fn build_widgets() {
         }
     };
     //~focus-end
-
-    let scroll = World::find_by_id(cx.world_mut(), "state_list_scroll")
-        .expect("scroll container id registered");
-    crate::core::reactive::with_world_scope(cx.world_mut(), || {
-        crate::core::reactive::effect_with_widget(scroll, move || {
-            let n = content.with(|f| f.len()) as i32;
-            crate::core::reactive::with_world(|w| {
-                if let Some(cfg) = w.get_mut::<ScrollConfig>(scroll) {
-                    cfg.content_height = Fixed::from_int(n * ROW_H);
-                }
-            });
-        });
-    });
 }

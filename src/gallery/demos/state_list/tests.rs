@@ -1,12 +1,12 @@
 use super::composition::build_widgets;
-use super::state::ROW_H;
 use crate::core::reactive::flush_signal_dirty;
 use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
+use crate::input::event::scroll::{ScrollConfig, scroll_bounds};
 use crate::prelude::*;
-use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
+use crate::types::Viewport;
+use crate::ui::render_system::update_layout;
+use crate::ui::{Children, ComputedRect};
 
 fn row_count(world: &World, list: Entity) -> usize {
     world.get::<Children>(list).map(|c| c.0.len()).unwrap_or(0)
@@ -32,12 +32,11 @@ fn tap(world: &mut World, e: Entity) {
 
 #[test]
 fn list_grows_and_shrinks_by_signal() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let mut app = App::headless(320, 320);
+    app.with_default_widgets();
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
+    let mut world = app.world;
 
     let col = world.get::<Children>(parent).unwrap().0[0];
     let list = world.get::<Children>(col).unwrap().0[2];
@@ -58,39 +57,45 @@ fn list_grows_and_shrinks_by_signal() {
 
     assert_eq!(row_count(&world, list), 3, "starts with 3 rows");
 
-    let content_h = |w: &World| {
-        w.get::<crate::input::event::scroll::ScrollConfig>(list)
-            .unwrap()
-            .content_height
-    };
-    assert_eq!(
-        content_h(&world),
-        Fixed::from_int(3 * ROW_H),
-        "scroll content height tracks 3 rows"
-    );
-
     let first_before = world.get::<Children>(list).unwrap().0[0];
     tap(&mut world, inc);
     assert_eq!(row_count(&world, list), 4, "tap + appends one row");
     let first_after = world.get::<Children>(list).unwrap().0[0];
     assert_eq!(first_before, first_after, "surviving row keeps its entity");
+    for _ in 0..8 {
+        tap(&mut world, inc);
+    }
+    update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE));
+    let bounds = scroll_bounds(&world, list).unwrap();
+    let last = *world.get::<Children>(list).unwrap().0.last().unwrap();
+    let last_rect = world.get::<ComputedRect>(last).unwrap().0;
+    let list_rect = world.get::<ComputedRect>(list).unwrap().0;
+    assert!(bounds.max_y > Fixed::ZERO, "overflowing rows can scroll");
     assert_eq!(
-        content_h(&world),
-        Fixed::from_int(4 * ROW_H),
-        "scroll content height grows with rows"
+        bounds.content_height,
+        last_rect.y + last_rect.h - list_rect.y,
+        "scroll bounds include row spacing and leading padding"
     );
+    assert_eq!(
+        world.get::<ScrollConfig>(list).unwrap().content_height,
+        Fixed::ZERO
+    );
+    assert!(world.get::<Style>(list).unwrap().clip_children);
 
-    tap(&mut world, dec);
-    tap(&mut world, dec);
-    assert_eq!(row_count(&world, list), 2, "two taps - drop two tail rows");
+    for _ in 0..10 {
+        tap(&mut world, dec);
+    }
+    assert_eq!(row_count(&world, list), 2, "remove tail rows");
     assert_eq!(
         world.get::<Children>(list).unwrap().0[0],
         first_before,
         "row 0 survives shrink"
     );
-    assert_eq!(
-        content_h(&world),
-        Fixed::from_int(2 * ROW_H),
-        "scroll content height shrinks with rows"
-    );
+    update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE));
+    assert_eq!(scroll_bounds(&world, list).unwrap().max_y, Fixed::ZERO);
+    tap(&mut world, dec);
+    tap(&mut world, dec);
+    update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE));
+    assert_eq!(row_count(&world, list), 0);
+    assert_eq!(scroll_bounds(&world, list).unwrap().max_y, Fixed::ZERO);
 }
