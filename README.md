@@ -412,8 +412,8 @@ fn main() {
     let mut app = App::headless(320, 240);
     app.add_resource(MotionStep(Fixed::from_ratio(1, 60)));
     let root = app.spawn_root().id();
-    app.compose(root, build_scene)
-        .add_system(physics_system::system());
+    app.compose(root, build_scene);
+    app.add_system(physics_system::system());
 }
 ```
 

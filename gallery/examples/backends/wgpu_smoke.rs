@@ -16,7 +16,8 @@ fn main() {
     app.with_default_widgets().with_default_systems();
     app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -24,54 +25,54 @@ fn main() {
             height: Dimension::px(320),
             ..Default::default()
         })
+        .ignore_safe_area()
         .id();
+    app.compose(root, smoke_scene);
+    app.run();
+}
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (direction: FlexDirection::Column, grow: 1.0) {
-                Text (
-                    "Hello wgpu!",
-                    bg_color: Color::rgb(88, 166, 255),
-                    height: 40,
-                    border_radius: 8,
-                    border_color: Color::rgb(255, 255, 255)
+#[compose]
+fn smoke_scene() {
+    ui! {
+        View (direction: FlexDirection::Column, grow: 1.0) {
+            Text (
+                "Hello wgpu!",
+                bg_color: Color::rgb(88, 166, 255),
+                height: 40,
+                border_radius: 8,
+                border_color: Color::rgb(255, 255, 255)
+            )
+            Row (direction: FlexDirection::Row, grow: 1.0) {
+                Button (
+                    "OK",
+                    normal_color: Color::rgb(63, 185, 80),
+                    grow: 1.0,
+                    border_radius: 6
                 )
-                Row (direction: FlexDirection::Row, grow: 1.0) {
-                    Button (
-                        "OK",
-                        normal_color: Color::rgb(63, 185, 80),
-                        grow: 1.0,
-                        border_radius: 6
-                    )
-                    Button (
-                        "Cancel",
-                        normal_color: Color::rgb(248, 81, 73),
-                        grow: 1.0,
-                        border_radius: 6
-                    )
-                    Button (
-                        "Maybe",
-                        normal_color: Color::rgb(210, 168, 255),
-                        grow: 1.0,
-                        border_radius: 6
-                    )
-                }
-                View (
-                    width: IMG_THUMBS_UP.width as i32 * 4,
-                    height: IMG_THUMBS_UP.height as i32 * 4
-                ) [
-                    Image::new("thumbs_up"),
-                ]
-                Text (
-                    "wgpu backend",
-                    bg_color: Color::rgb(50, 50, 70),
-                    height: 30
+                Button (
+                    "Cancel",
+                    normal_color: Color::rgb(248, 81, 73),
+                    grow: 1.0,
+                    border_radius: 6
+                )
+                Button (
+                    "Maybe",
+                    normal_color: Color::rgb(210, 168, 255),
+                    grow: 1.0,
+                    border_radius: 6
                 )
             }
+            View (
+                width: IMG_THUMBS_UP.width as i32 * 4,
+                height: IMG_THUMBS_UP.height as i32 * 4
+            ) [
+                Image::new("thumbs_up"),
+            ]
+            Text (
+                "wgpu backend",
+                bg_color: Color::rgb(50, 50, 70),
+                height: 30
+            )
         }
     };
-
-    app.set_root(root);
-    app.run();
 }

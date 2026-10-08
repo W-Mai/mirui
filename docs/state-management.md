@@ -58,6 +58,8 @@ app.add_resource(PanelConfig { gap: 8 });
 app.compose(root, configured_panel);
 ```
 
+`App::compose` returns the composition's result, including entity IDs and owned values. Its construction scope does not escape the call; reactive ownership is restored and dirty storage is prepared before the result is returned.
+
 Compute resource-backed arguments before passing them to `ui!`, `format!`, or another macro; the composition attribute does not rewrite another macro's tokens. Required resources report missing values as programming errors, while optional reads receive `None`. Composition inserts and removals are immediate; structural changes during System or Event callbacks continue through deferred `commands!`. Resource access adds no heap storage; registering a new resource type still uses the existing resource store's allocation.
 
 CoverFlow and Particles install their bounds from within their compositions through `res!().insert(...)`. Shapes, Butterfly, and Vector Mandala read an optional MonoClock before building their trees, retaining zero start time when the clock is absent.

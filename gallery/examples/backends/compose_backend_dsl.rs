@@ -105,7 +105,8 @@ fn main() {
     app.with_default_widgets();
     app.add_system(drift_system::system());
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -113,8 +114,24 @@ fn main() {
             height: Dimension::px(H as i32),
             ..Default::default()
         })
+        .ignore_safe_area()
         .id();
+    app.compose(root, drifting_scene);
 
+    // StdInstantClockPlugin feeds the post_render hook real ns via
+    // std::Instant; FpsSummaryPlugin consumes those ns and prints avg
+    // render cost every 60 frames.
+    app.add_plugin(StdInstantClockPlugin)
+        .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
+
+    app.run();
+
+    eprintln!("[final] routed blits: {}", calls.borrow());
+}
+
+#[compose]
+fn drifting_scene() {
     let iw = IMG_THUMBS_UP.width as i32;
     let ih = IMG_THUMBS_UP.height as i32;
     let drifters: [(i32, i32, f32); 8] = [
@@ -128,49 +145,33 @@ fn main() {
         (340, 180, 2.55),
     ];
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
-        ui! {
-            View (grow: 1.0) {
+    ui! {
+        View (grow: 1.0) {
+            View (
+                bg_color: Color::rgb(88, 166, 255),
+                height: 40,
+                border_radius: 6
+            ) {
+                Text ("compose_backend DSL demo", paragraph: ParagraphStyle::label())
+            }
+            walk drifters.iter() with d {
                 View (
-                    bg_color: Color::rgb(88, 166, 255),
-                    height: 40,
-                    border_radius: 6
-                ) {
-                    Text ("compose_backend DSL demo", paragraph: ParagraphStyle::label())
-                }
-                walk drifters.iter() with d {
-                    View (
-                        position: Position::Absolute,
-                        left: d.0,
-                        top: d.1,
-                        width: iw,
-                        height: ih,
-                        image: Image::new("thumbs_up")
-                    ) [
-                        Drift {
-                            t: 0.0,
-                            start_x: Fixed::from_int(d.0),
-                            start_y: Fixed::from_int(d.1),
-                            speed: d.2,
-                            amplitude: Fixed::from_int(60),
-                        },
-                    ]
-                }
+                    position: Position::Absolute,
+                    left: d.0,
+                    top: d.1,
+                    width: iw,
+                    height: ih,
+                    image: Image::new("thumbs_up")
+                ) [
+                    Drift {
+                        t: 0.0,
+                        start_x: Fixed::from_int(d.0),
+                        start_y: Fixed::from_int(d.1),
+                        speed: d.2,
+                        amplitude: Fixed::from_int(60),
+                    },
+                ]
             }
         }
     };
-
-    app.set_root(root);
-
-    // StdInstantClockPlugin feeds the post_render hook real ns via
-    // std::Instant; FpsSummaryPlugin consumes those ns and prints avg
-    // render cost every 60 frames.
-    app.add_plugin(StdInstantClockPlugin::default())
-        .add_plugin(FpsSummaryPlugin::default())
-        .add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
-
-    app.run();
-
-    eprintln!("[final] routed blits: {}", calls.borrow());
 }
