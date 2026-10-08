@@ -1144,7 +1144,7 @@ impl MiruiRune {
                 tokens.extend(quote! {
                     (#world).insert(
                         #var,
-                        ::mirui::ui::LayoutBinding::new(
+                        ::mirui::__macro_support::LayoutBinding::new(
                             const { &[#(#emitted_dependencies),*] },
                             |__layout_world, __layout_target, __layout_values| {
                                 let mut __layout_changed = false;

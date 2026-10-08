@@ -1,0 +1,23 @@
+error[E0432]: unresolved import `mirui::ui::LayoutBinding`
+ --> tests/prelude_contracts/raw_layout.rs:1:5
+  |
+1 | use mirui::ui::LayoutBinding;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^ no `LayoutBinding` in `ui`
+  |
+help: a similar name exists in the module
+  |
+1 - use mirui::ui::LayoutBinding;
+1 + use mirui::ui::layout_binding;
+  |
+
+error[E0603]: module `layout_binding` is private
+ --> tests/prelude_contracts/raw_layout.rs:2:16
+  |
+2 | use mirui::ui::layout_binding;
+  |                ^^^^^^^^^^^^^^ private module
+  |
+note: the module `layout_binding` is defined here
+ --> src/ui/mod.rs
+  |
+  | pub(crate) mod layout_binding;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

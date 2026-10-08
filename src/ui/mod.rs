@@ -17,7 +17,7 @@ pub mod dirty;
 pub mod icons;
 pub mod id;
 pub mod layout;
-pub mod layout_binding;
+pub(crate) mod layout_binding;
 pub mod niche;
 pub mod offscreen;
 pub mod property;
@@ -35,8 +35,8 @@ pub mod widgets;
 
 pub use id::{IdMap, NamedId};
 pub use layout_binding::{
-    LayoutAxis, LayoutBinding, LayoutContainer, LayoutDependency, LayoutSource, LayoutValues,
-    SharedLayoutBinding,
+    LAYOUT_DEPENDENCY_CAPACITY, LayoutAxis, LayoutContainer, LayoutDependency, LayoutSource,
+    LayoutValues, SharedLayoutBinding,
 };
 pub use niche::NicheMap;
 pub use offscreen::{

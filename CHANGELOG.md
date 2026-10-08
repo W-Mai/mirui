@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Generated layout property callbacks are confined to macro support. Layout dependency descriptors and the dependency capacity remain available from `mirui::ui`.
 - State List derives its scroll extent from retained children, including row spacing and padding, and clips overflow to the list viewport. Its composition no longer writes scroll configuration through a World callback.
 - Root attachment runs when the root builder completes. Selecting an existing root does not repeat attachment hooks or traverse descendants for initialization.
 - Typed widget builders construct through `App::compose` with nested child scopes, component tuples, reactive property bindings, and typed events. Static components finish before attachment, property initialization, and callback installation. The builder form and SDL GPU example use Model-bound controls without direct World access.
