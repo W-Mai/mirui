@@ -471,6 +471,8 @@ gesture, observation, and systems are independent capabilities.
 
 Registration retains a shared snapshot of attachment and internal-gesture hooks in registration order. Per-node attachment reuses that snapshot without allocating a hook list. Hooks that replace or extend the registry do not change the active invocation; the next invocation uses the updated registry. Registration can allocate metadata, and whole-tree attachment still uses its traversal stack.
 
+`ui!` seeds the primary component and static text content, prepares binding captures, inserts static component attachments in source order, and invokes matching attachment hooks once before running reactive initial values. Preparing captures does not evaluate reactive expressions or register effects. Layout containers with component attachments participate in the same initialization; plain containers without a matching gesture capability do not gain input feedback. Prepared callbacks stay on the construction stack until installation and reuse the existing effect runtime.
+
 An empty `#[view]` function declares a widget without a paint hook:
 
 ```rust,ignore

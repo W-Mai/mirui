@@ -4,9 +4,158 @@ use mirui::ecs::{Entity, World};
 use mirui::types::Fixed;
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::Padding;
-use mirui::ui::widgets::Text;
+use mirui::ui::widgets::{Switch, Text};
 use mirui::ui::{Children, IdMap, NicheMap, Parent, Style, UiScope, ViewRegistry};
 use mirui::{compose, ui};
+
+#[mirui::component]
+struct MountSeed(u8);
+
+#[mirui::model]
+struct AttachmentModel {
+    #[observe]
+    value: u16,
+}
+
+#[mirui::model]
+impl AttachmentModel {
+    fn set(&mut self, value: u16) {
+        self.value = value;
+    }
+}
+
+#[mirui::component]
+struct ModelAttachment {
+    game: model!(AttachmentModel),
+}
+
+#[compose]
+fn moved_model_attachment(game: model!(AttachmentModel)) {
+    ui! {
+        View (width: ${ mirui::types::Dimension::px(i32::from(game.value())) })
+            [ModelAttachment { game }]
+    };
+}
+
+#[test]
+fn attachment_model_move_preserves_binding_capture_and_updates() {
+    let mut app = mirui::app::App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let game = app.add_model(AttachmentModel { value: 7 });
+    app.compose(root, |cx| moved_model_attachment(cx, game.clone()));
+    let entity = app
+        .world
+        .query::<ModelAttachment>()
+        .iter()
+        .next()
+        .unwrap()
+        .0;
+    assert_eq!(
+        app.world
+            .get::<ModelAttachment>(entity)
+            .unwrap()
+            .game
+            .value(),
+        7
+    );
+    assert_eq!(
+        app.world.get::<Style>(entity).unwrap().layout.width,
+        mirui::types::Dimension::px(7)
+    );
+    game.set(11);
+    mirui::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(
+        app.world.get::<Style>(entity).unwrap().layout.width,
+        mirui::types::Dimension::px(11)
+    );
+}
+
+#[derive(Default)]
+struct MountProbe {
+    entries: [Option<(u8, Option<bool>, Entity)>; 2],
+    count: usize,
+}
+
+#[compose]
+fn static_label_with_consuming_capture(label: String) {
+    ui! {
+        Text (
+            text: label,
+            text_capacity: 32,
+            width: ${ mirui::types::Dimension::px(label.len() as i32) }
+        )
+    };
+}
+
+#[test]
+fn static_bounded_value_precedes_consuming_binding_capture() {
+    let mut app = mirui::app::App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        static_label_with_consuming_capture(cx, "label".to_owned())
+    });
+    let entity = app.world.query::<Text>().iter().next().unwrap().0;
+    assert_eq!(
+        app.world.get::<Text>(entity).unwrap().resolve(&app.world),
+        "label"
+    );
+    assert_eq!(
+        app.world.get::<Style>(entity).unwrap().layout.width,
+        mirui::types::Dimension::px(5)
+    );
+}
+
+fn inspect_static_attachment(world: &mut World, entity: Entity) {
+    let seed = world.get::<MountSeed>(entity).unwrap().0;
+    let on = world
+        .get::<mirui::ui::widgets::Switch>(entity)
+        .map(|switch| switch.on);
+    let probe = world.resource_mut::<MountProbe>().unwrap();
+    probe.entries[probe.count] = Some((seed, on, entity));
+    probe.count += 1;
+}
+
+#[mirui::view(component = MountSeed, name = "MountSeed", attach = inspect_static_attachment)]
+fn mount_seed_view() {}
+
+#[compose]
+fn static_attachment_tree(flag: mirui::core::reactive::Signal<bool>) {
+    ui! {
+        Column () {
+            Switch (on: ${ flag.get() }) [MountSeed(7)]
+            View () [MountSeed(9)]
+            Row ()
+        }
+    };
+}
+
+#[test]
+fn static_attachments_initialize_once_before_reactive_values() {
+    let mut app = mirui::app::App::headless(32, 32);
+    app.with_default_widgets()
+        .with_widget(mount_seed_view::view());
+    app.add_resource(MountProbe::default());
+    let root = app.spawn_root().id();
+    let flag = mirui::core::reactive::Signal::new(true);
+    app.compose(root, |cx| static_attachment_tree(cx, flag));
+
+    let probe = app.world.resource::<MountProbe>().unwrap();
+    assert_eq!(probe.count, 2);
+    let (seed, on, switch) = probe.entries[0].unwrap();
+    assert_eq!((seed, on), (7, Some(false)));
+    assert!(
+        app.world
+            .get::<mirui::ui::widgets::Switch>(switch)
+            .unwrap()
+            .on
+    );
+    let (seed, on, container) = probe.entries[1].unwrap();
+    assert_eq!((seed, on), (9, None));
+    assert!(!app.world.has::<mirui::ui::HitTarget>(container));
+    assert!(!app.world.has::<mirui::ui::InteractionFeedback>(container));
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct OrderedAttachment(u8);

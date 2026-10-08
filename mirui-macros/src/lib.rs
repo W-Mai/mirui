@@ -948,10 +948,6 @@ impl MiruiRune {
                     }
                 }
             }
-
-            tokens.extend(quote! {
-                mirui::input::event::widget_input::attach_handlers_for(#world, #var);
-            });
         }
 
         if let Some(capacity) = &cmd.text_capacity
@@ -983,52 +979,60 @@ impl MiruiRune {
             });
         }
 
-        if !cmd.reactive_binds.is_empty() {
-            let injections: Vec<proc_macro2::TokenStream> = cmd
-                .reactive_binds
-                .iter()
-                .map(|b| {
-                    let property = &b.property;
-                    let expr = &b.expr;
-                    if property == "TextContent"
-                        && let Some(capacity) = &cmd.text_capacity
-                    {
-                        let apply = direct_format_args_call(
-                            &b.format_expr,
-                            &quote! { #var },
-                            capacity,
-                        )
-                        .unwrap_or_else(|| quote! {
+        // Capture bindings before attachments may move their declared Models.
+        let mut prepared_bindings = Vec::new();
+        for (index, binding) in cmd.reactive_binds.iter().enumerate() {
+            let prepared = syn::Ident::new(
+                &format!("{var}_binding_{index}"),
+                proc_macro2::Span::mixed_site(),
+            );
+            let property = &binding.property;
+            let expr = &binding.expr;
+            let body = if property == "TextContent"
+                && let Some(capacity) = &cmd.text_capacity
+            {
+                direct_format_args_call(&binding.format_expr, &quote! { #var }, capacity)
+                    .unwrap_or_else(|| {
+                        quote! {
                             mirui::ui::property::apply_bounded_text::<{ #capacity }>(
                                 #var,
                                 ::core::format_args!("{}", #expr),
                             );
-                        });
-                        quote! {
-                            mirui::core::reactive::effect_with_widget(#var, move || {
-                                #apply
-                            });
                         }
-                    } else {
-                        let value = if property == "TextContent" {
-                            quote! { mirui::ui::property::IntoText::into_text(__v) }
-                        } else {
-                            quote! { ::core::convert::Into::into(__v) }
-                        };
-                        quote! {
-                            mirui::core::reactive::effect_with_widget(#var, move || {
-                                let __v = #expr;
-                                mirui::ui::property::apply::<mirui::ui::property::prop::#property>(#var, #value);
-                            });
-                        }
-                    }
-                })
-                .collect();
-            // with_world_scope makes the effects' first run apply the initial
-            // value now, at construction (outside the per-frame flush).
+                    })
+            } else {
+                let value = if property == "TextContent" {
+                    quote! { mirui::ui::property::IntoText::into_text(__v) }
+                } else {
+                    quote! { ::core::convert::Into::into(__v) }
+                };
+                quote! {
+                    let __v = #expr;
+                    mirui::ui::property::apply::<mirui::ui::property::prop::#property>(#var, #value);
+                }
+            };
             tokens.extend(quote! {
-                mirui::core::reactive::with_world_scope(#world, || { #(#injections)* });
+                let #prepared = mirui::__macro_support::prepare_widget_effect(#var, move || {
+                    #body
+                });
             });
+            prepared_bindings.push(prepared);
+        }
+
+        let enchants = &cmd.enchants;
+        for enchant in enchants {
+            tokens.extend(quote! {
+                (#world).insert(#var, #enchant);
+            });
+        }
+        if cmd.kind == WidgetKind::Component || !enchants.is_empty() {
+            tokens.extend(quote! {
+                mirui::input::event::widget_input::attach_handlers_for(#world, #var);
+            });
+        }
+
+        for prepared in prepared_bindings {
+            tokens.extend(quote! { #prepared.install(#world); });
         }
 
         if !cmd.layout_binds.is_empty() {
@@ -1077,14 +1081,6 @@ impl MiruiRune {
                     );
                 });
             }
-        }
-
-        // Emit enchants — insert components
-        let enchants = &cmd.enchants;
-        for enchant in enchants {
-            tokens.extend(quote! {
-                (#world).insert(#var, #enchant);
-            });
         }
 
         if !on_handlers.is_empty() {
@@ -2802,12 +2798,9 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
         let syn::Expr::Path(path) = &*call.func else {
             return;
         };
-        if !path
-            .path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "effect_with_widget")
-        {
+        if !path.path.segments.last().is_some_and(|segment| {
+            segment.ident == "effect_with_widget" || segment.ident == "prepare_widget_effect"
+        }) {
             return;
         }
         if let Some(closure @ syn::Expr::Closure(_)) = call.args.last_mut() {

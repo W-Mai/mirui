@@ -1345,6 +1345,28 @@ pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) {
     core::mem::forget(Effect::spawn(f, Some(entity)));
 }
 
+pub(crate) mod widget_binding {
+    use super::{Entity, World, effect_with_widget, with_world_scope};
+
+    pub struct PreparedWidgetEffect<F> {
+        entity: Entity,
+        run: F,
+    }
+
+    pub fn prepare_widget_effect<F: Fn() + 'static>(
+        entity: Entity,
+        run: F,
+    ) -> PreparedWidgetEffect<F> {
+        PreparedWidgetEffect { entity, run }
+    }
+
+    impl<F: Fn() + 'static> PreparedWidgetEffect<F> {
+        pub fn install(self, world: &mut World) {
+            with_world_scope(world, || effect_with_widget(self.entity, self.run));
+        }
+    }
+}
+
 // Clone the closure Rc out under the lock, then run it OUTSIDE — running user
 // code while holding the no_std critical_section would re-enter and deadlock.
 fn run_effect(id: EffectId) {
@@ -1615,6 +1637,33 @@ mod tests {
                 run_effect(id);
             }
         }
+    }
+
+    #[test]
+    fn prepared_widget_effect_delays_execution_without_allocating() {
+        reset();
+        let mut world = World::default();
+        let entity = world.spawn_empty();
+        let signal = Signal::new(0_u8);
+        let observed = signal.clone();
+        let calls = Rc::new(core::cell::Cell::new(0_u8));
+        let counted = Rc::clone(&calls);
+        let mut prepared = None;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                prepared = Some(widget_binding::prepare_widget_effect(entity, move || {
+                    let _ = observed.get();
+                    counted.set(counted.get() + 1);
+                }));
+            }),
+            0
+        );
+        assert_eq!(calls.get(), 0);
+        prepared.unwrap().install(&mut world);
+        assert_eq!(calls.get(), 1);
+        signal.set(1);
+        flush_signal_dirty(&mut world);
+        assert_eq!(calls.get(), 2);
     }
 
     #[test]
