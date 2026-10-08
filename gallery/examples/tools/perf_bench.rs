@@ -28,7 +28,6 @@ use mirui::types::{Point, Rect, Transform, Viewport};
 use mirui::ui::render_system;
 use mirui::ui::widgets::Image;
 use mirui::ui::widgets::assets::*;
-use mirui::ui::{Children, Parent};
 
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -105,8 +104,14 @@ where
     print_aggregate(label, &events);
 }
 
-fn build_image_heavy<B: Surface + FramebufferAccess>(app: &mut App<B>, count: u32) -> Entity {
-    let root = WidgetBuilder::new(&mut app.world)
+fn build_tiles<B: Surface + FramebufferAccess>(
+    app: &mut App<B>,
+    count: u32,
+    with_images: bool,
+) -> Entity {
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgba(18, 18, 28, 255))
         .layout(LayoutStyle {
             width: Dimension::percent(100),
@@ -117,69 +122,29 @@ fn build_image_heavy<B: Surface + FramebufferAccess>(app: &mut App<B>, count: u3
     let iw = IMG_THUMBS_UP.width as i32;
     let ih = IMG_THUMBS_UP.height as i32;
     let cols = (W as i32) / (iw + 2);
-    let mut children = Vec::new();
-    for n in 0..(count as i32) {
-        let col = n % cols;
-        let row = n / cols;
-        let c = WidgetBuilder::new(&mut app.world)
-            .layout(LayoutStyle {
-                position: mirui::ui::layout::Position::Absolute,
-                left: Dimension::px(col * (iw + 2) + 2),
-                top: Dimension::px(row * (ih + 2) + 2),
-                width: Dimension::px(iw),
-                height: Dimension::px(ih),
+    app.compose(root, |tree| {
+        for n in 0..(count as i32) {
+            let style = Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::px((n % cols) * (iw + 2) + 2),
+                    top: Dimension::px((n / cols) * (ih + 2) + 2),
+                    width: Dimension::px(iw),
+                    height: Dimension::px(ih),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
-        app.world.insert(c, Image::new("thumbs_up"));
-        children.push(c);
-    }
-    for child in &children {
-        app.world.insert(*child, Parent(root));
-        if let Some(cs) = app.world.get_mut::<Children>(root) {
-            cs.0.push(*child);
+            };
+            if with_images {
+                tree.spawn((style, Image::new("thumbs_up")));
+            } else {
+                tree.spawn(Style {
+                    bg_color: Some(Color::rgba(80, 120, 200, 255).into()),
+                    ..style
+                });
+            }
         }
-    }
-    app.set_root(root);
-    root
-}
-
-fn build_no_image<B: Surface + FramebufferAccess>(app: &mut App<B>, count: u32) -> Entity {
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgba(18, 18, 28, 255))
-        .layout(LayoutStyle {
-            width: Dimension::percent(100),
-            height: Dimension::percent(100),
-            ..Default::default()
-        })
-        .id();
-    let iw = IMG_THUMBS_UP.width as i32;
-    let ih = IMG_THUMBS_UP.height as i32;
-    let cols = (W as i32) / (iw + 2);
-    let mut children = Vec::new();
-    for n in 0..(count as i32) {
-        let col = n % cols;
-        let row = n / cols;
-        let c = WidgetBuilder::new(&mut app.world)
-            .bg_color(Color::rgba(80, 120, 200, 255))
-            .layout(LayoutStyle {
-                position: mirui::ui::layout::Position::Absolute,
-                left: Dimension::px(col * (iw + 2) + 2),
-                top: Dimension::px(row * (ih + 2) + 2),
-                width: Dimension::px(iw),
-                height: Dimension::px(ih),
-                ..Default::default()
-            })
-            .id();
-        children.push(c);
-    }
-    for child in &children {
-        app.world.insert(*child, Parent(root));
-        if let Some(cs) = app.world.get_mut::<Children>(root) {
-            cs.0.push(*child);
-        }
-    }
-    app.set_root(root);
+    });
     root
 }
 
@@ -190,7 +155,7 @@ fn run_scene_image_heavy(count: u32, label: &str) {
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
-    let root = build_image_heavy(&mut app, count);
+    let root = build_tiles(&mut app, count, true);
     let info = app.backend.display_info();
     let viewport = Viewport::new(info.width, info.height, Fixed::ONE);
 
@@ -212,7 +177,7 @@ fn run_scene_no_image(count: u32, label: &str) {
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.add_plugin(StdInstantClockPlugin);
-    let root = build_no_image(&mut app, count);
+    let root = build_tiles(&mut app, count, false);
     let info = app.backend.display_info();
     let viewport = Viewport::new(info.width, info.height, Fixed::ONE);
 

@@ -22,7 +22,10 @@ Scene construction belongs in `#[compose]` functions called through `App::compos
 cargo run -p gallery --example sim_input_demo --features sdl
 cargo run -p gallery --example lifecycle_suspend --features sdl
 cargo run -p gallery --example zorder_baseline --features sdl
+cargo run -p gallery --example widget_demo --features sdl
 cargo run -p gallery --example perf_collect --features sdl,perf
 ```
 
 The input demo repeatedly taps and drags its composed targets. In the lifecycle demo, Enter toggles suspension and Escape exits. The z-order diagnostic displays overlapping squares and reports their child order. The performance collector drives list scrolling and writes `/tmp/mirui-perf.ndjson`; it is a host-side diagnostic, not a hardware performance measurement.
+
+`widget_demo` constructs and renders through a headless App, then presents the framebuffer in an SDL texture. `perf_bench` builds image and solid-color tile scenes through the same construction path; run it with `cargo run -p gallery --example perf_bench --no-default-features --features snapshot,perf --release` to collect host-side rendering and resource lookup timings.

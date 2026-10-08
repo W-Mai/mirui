@@ -1,9 +1,6 @@
-use mirui::ecs::World;
 use mirui::prelude::*;
-use mirui::render::texture::{ColorFormat, Texture};
-use mirui::render::{Renderer, SwRenderer};
-use mirui::types::{Color, Dimension, Fixed, Viewport};
-use mirui::ui::render_system;
+use mirui::surface::FramebufferAccess;
+use mirui::types::{Color, Dimension};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -11,39 +8,22 @@ use sdl2::pixels::PixelFormatEnum;
 const W: u32 = 480;
 const H: u32 = 320;
 
+#[compose]
+fn colored_tiles() {
+    ui! {
+        walk [Color::rgb(88, 166, 255), Color::rgb(63, 185, 80), Color::rgb(248, 81, 73)] with color {
+            View (bg_color: color, width: 120, height: 80)
+        }
+    };
+}
+
 fn main() {
-    let mut world = World::new();
+    let mut app = App::headless(W as u16, H as u16);
+    app.with_default_widgets();
 
-    // Create child widgets
-    let c1 = WidgetBuilder::new(&mut world)
-        .bg_color(Color::rgb(88, 166, 255))
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let c2 = WidgetBuilder::new(&mut world)
-        .bg_color(Color::rgb(63, 185, 80))
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let c3 = WidgetBuilder::new(&mut world)
-        .bg_color(Color::rgb(248, 81, 73))
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    // Create root container
-    let root = WidgetBuilder::new(&mut world)
+    let root = app
+        .spawn_root()
+        .ignore_safe_area()
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Row,
@@ -59,22 +39,10 @@ fn main() {
             },
             ..Default::default()
         })
-        .child(c1)
-        .child(c2)
-        .child(c3)
         .id();
 
-    // Render via ECS
-    let mut buf = vec![0u8; (W * H * 4) as usize];
-    let mut renderer = SwRenderer::new(Texture::new(
-        &mut buf,
-        W as u16,
-        H as u16,
-        ColorFormat::RGBA8888,
-    ));
-    let transform = Viewport::new(W as u16, H as u16, Fixed::ONE);
-    render_system::render(&world, root, &transform, &mut renderer).unwrap();
-    renderer.flush();
+    app.compose(root, colored_tiles());
+    app.render().unwrap();
 
     // SDL display
     let sdl = sdl2::init().unwrap();
@@ -89,7 +57,10 @@ fn main() {
     let mut texture = tc
         .create_texture_streaming(PixelFormatEnum::RGBA32, W, H)
         .unwrap();
-    texture.update(None, &buf, (W * 4) as usize).unwrap();
+    let frame = app.backend.framebuffer();
+    texture
+        .update(None, frame.buf.as_slice(), frame.stride)
+        .unwrap();
     canvas.copy(&texture, None, None).unwrap();
     canvas.present();
 
