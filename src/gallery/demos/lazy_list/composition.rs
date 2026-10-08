@@ -3,11 +3,11 @@ use super::binding::{ITEM_COUNT, POOL_SIZE, ROW_H, row_binder};
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-use crate::ui::widgets::{LazyList, LazyListBinder, LazyListPool, ParagraphStyle, Text, TextAlign};
+use crate::ui::widgets::{LazyList, LazyListBinder, ParagraphStyle, Text, TextAlign};
 
 #[compose]
 fn compose_list() -> Entity {
-    let list_entity = ui! {
+    ui! {
         LazyList (
             id: "lazy_list_view",
             bg_color: ColorToken::SurfaceVariant,
@@ -65,14 +65,7 @@ fn compose_list() -> Entity {
                 }
             }
         }
-    };
-    let pool: alloc::vec::Vec<Entity> = cx
-        .world_mut()
-        .get::<crate::ui::Children>(list_entity)
-        .map(|c| c.0.clone())
-        .unwrap_or_default();
-    cx.world_mut().insert(list_entity, LazyListPool::new(pool));
-    list_entity
+    }
 }
 
 #[compose]

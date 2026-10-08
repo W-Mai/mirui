@@ -158,6 +158,11 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
         .collect();
     pages.sort_unstable();
     let list = app.world.find_by_id("compact_widgets_list").unwrap();
+    assert_eq!(
+        app.world.get::<crate::ui::Children>(list).unwrap().0.len(),
+        POOL_SIZE
+    );
+    crate::ui::widgets::lazy_list::lazy_list_system(&mut app.world).unwrap();
     let list_state = app.world.get::<LazyList>(list).unwrap();
     let pool = app.world.get::<LazyListPool>(list).unwrap();
     let light = app.world.find_by_id("compact_theme_light").unwrap();

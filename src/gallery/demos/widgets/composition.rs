@@ -1,14 +1,12 @@
-use alloc::vec::Vec;
-
 use super::binding::row_binder;
 use super::state::{ACCENT, FormProgress, FormSlider};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
+use crate::ui::OffscreenRender;
 use crate::ui::widgets::{
-    Button, Checkbox, Image, LazyList, LazyListBinder, LazyListPool, ParagraphStyle, ProgressBar,
-    Slider, Switch, TabBar, TabContent, Text, TextAlign,
+    Button, Checkbox, Image, LazyList, LazyListBinder, ParagraphStyle, ProgressBar, Slider, Switch,
+    TabBar, TabContent, Text, TextAlign,
 };
-use crate::ui::{Children, OffscreenRender};
 
 const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 50;
@@ -300,15 +298,4 @@ pub fn build_widgets(_view_w: u16, _view_h: u16) {
         }
     };
     //~focus-end
-
-    let list = cx
-        .world_mut()
-        .find_by_id("widgets_list")
-        .expect("widgets list id");
-    let pool: Vec<Entity> = cx
-        .world_mut()
-        .get::<Children>(list)
-        .map(|children| children.0.clone())
-        .unwrap_or_default();
-    cx.world_mut().insert(list, LazyListPool::new(pool));
 }

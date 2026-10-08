@@ -14,7 +14,7 @@ use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::ui::widgets::Text;
-use mirui::ui::widgets::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
+use mirui::ui::widgets::lazy_list::{LazyList, LazyListBinder, lazy_list_system};
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;
@@ -124,12 +124,6 @@ fn main() {
         }
     };
 
-    let pool: alloc::vec::Vec<Entity> = app
-        .world
-        .get::<mirui::ui::Children>(list)
-        .map(|c| c.0.clone())
-        .unwrap_or_default();
-    app.world.insert(list, LazyListPool::new(pool));
     app.world.insert(
         list,
         ScrollConfig {

@@ -18,9 +18,8 @@ use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::surface::slow::SlowSurface;
 use mirui::types::{Color, DimPoint, Dimension, Fixed};
-use mirui::ui::Children;
 use mirui::ui::widgets::Text;
-use mirui::ui::widgets::{LazyList, LazyListBinder, LazyListPool};
+use mirui::ui::widgets::{LazyList, LazyListBinder};
 
 const ROW_H: i32 = 24;
 const POOL_SIZE: usize = 16; // 320 / 24 = 13.3 visible, +3 buffer
@@ -95,13 +94,6 @@ fn main() {
             }
         }
     };
-
-    let pool: alloc::vec::Vec<Entity> = app
-        .world
-        .get::<Children>(list)
-        .map(|c| c.0.clone())
-        .unwrap_or_default();
-    app.world.insert(list, LazyListPool::new(pool));
 
     // Scroll halfway down, scroll back, repeat. Slow drags so spring
     // tail dominates a chunk of frames; fast flicks so inertia gets

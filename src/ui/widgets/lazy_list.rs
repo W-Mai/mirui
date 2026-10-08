@@ -7,14 +7,7 @@ use alloc::vec::Vec;
 
 /// Virtual scroll over a fixed-height row list.
 ///
-/// The user pre-spawns a small `pool_size` of widget entities (typically
-/// `ceil(visible_h / item_height) + 2`) and registers them as the list
-/// entity's children plus inside `LazyListPool`. Each frame
-/// `lazy_list_system` figures out which row indices the pool should be
-/// bound to, calls the user's binder for slots whose index changed, and
-/// rewrites the pool entities' positions so they line up at
-/// `index * item_height` in the parent's coordinate space. The scroll
-/// system handles the rest via `ScrollOffset`.
+/// Pre-spawn `pool_size` widget entities (typically `ceil(visible_h / item_height) + 2`) as the list entity's children. The first system run snapshots those children into `LazyListPool` unless an explicit pool is already installed. Each frame `lazy_list_system` binds slots whose row index changed and positions them at `index * item_height`. The scroll system applies `ScrollOffset`.
 #[crate::component]
 pub struct LazyList {
     pub item_count: u32,
@@ -47,9 +40,9 @@ impl LazyList {
     }
 }
 
-/// Owned by the list entity. `items.len() == pool_size` after setup;
-/// `bound_indices[i]` is the row index slot `i` is currently displaying
-/// (`u32::MAX` means unbound).
+/// Owned by the list entity. `items.len() >= pool_size` is required; `bound_indices[i]` is the row index slot `i` is currently displaying (`u32::MAX` means unbound).
+///
+/// An explicit pool selects its slots independently of `Children`. Automatically created pools retain the initial child order and do not follow subsequent changes to `Children`.
 pub struct LazyListPool {
     pub items: Vec<Entity>,
     pub bound_indices: Vec<u32>,
@@ -95,6 +88,27 @@ struct ListContext {
     items: Vec<Entity>,
     bound_indices: Vec<u32>,
     binder: ItemBinder,
+}
+
+fn ensure_missing_pool(world: &mut World, entity: Entity) {
+    if world.has::<LazyListPool>(entity) {
+        return;
+    }
+    let Some(list) = world.get::<LazyList>(entity) else {
+        return;
+    };
+    let pool_size = list.pool_size as usize;
+    if pool_size == 0 || list.item_height <= Fixed::ZERO {
+        return;
+    }
+    let Some(children) = world.get::<crate::ui::Children>(entity) else {
+        return;
+    };
+    if children.0.len() < pool_size {
+        return;
+    }
+    let items = children.0.clone();
+    world.insert(entity, LazyListPool::new(items));
 }
 
 /// Read the list's components into a snapshot used by `apply_bindings`.
@@ -194,6 +208,7 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
 pub fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let lists: Vec<Entity> = world.query::<LazyList>().collect();
     for entity in lists {
+        ensure_missing_pool(world, entity);
         let Some(ctx) = collect_list_context(world, entity) else {
             continue;
         };
@@ -362,6 +377,124 @@ mod tests {
 
         let bound = &world.get::<LazyListPool>(list).unwrap().bound_indices;
         assert_eq!(bound, &alloc::vec![0u32, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn missing_pool_snapshots_children_and_binds_on_first_run() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        let children: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, LazyList::new(100, 40, 3));
+        world.insert(list, crate::ui::Children(children.clone()));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(Vec::new()));
+
+        lazy_list_system(&mut world).unwrap();
+
+        let pool = world.get::<LazyListPool>(list).unwrap();
+        assert_eq!(pool.items, children);
+        assert_eq!(pool.bound_indices, [0, 1, 2, u32::MAX, u32::MAX]);
+        assert_eq!(world.resource::<BindTrace>().unwrap().0, [0, 1, 2]);
+    }
+
+    #[test]
+    fn explicit_pool_preserves_custom_slots_and_existing_bindings() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        let children: Vec<Entity> = (0..3).map(|_| make_slot(&mut world, list)).collect();
+        let custom_slots: Vec<Entity> = (0..3).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, LazyList::new(100, 40, 3));
+        world.insert(list, crate::ui::Children(children));
+        let mut pool = LazyListPool::new(custom_slots.clone());
+        pool.bound_indices.copy_from_slice(&[0, 1, 2]);
+        let items_ptr = pool.items.as_ptr();
+        let bindings_ptr = pool.bound_indices.as_ptr();
+        world.insert(list, pool);
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(Vec::new()));
+
+        lazy_list_system(&mut world).unwrap();
+
+        let pool = world.get::<LazyListPool>(list).unwrap();
+        assert_eq!(pool.items, custom_slots);
+        assert_eq!(pool.bound_indices, [0, 1, 2]);
+        assert_eq!(pool.items.as_ptr(), items_ptr);
+        assert_eq!(pool.bound_indices.as_ptr(), bindings_ptr);
+        assert!(world.resource::<BindTrace>().unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn initialized_pool_is_retained_when_children_change() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        let children: Vec<Entity> = (0..3).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, LazyList::new(100, 40, 3));
+        world.insert(list, crate::ui::Children(children.clone()));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(Vec::new()));
+        lazy_list_system(&mut world).unwrap();
+        let pool = world.get::<LazyListPool>(list).unwrap();
+        let items_ptr = pool.items.as_ptr();
+        let bindings_ptr = pool.bound_indices.as_ptr();
+        world.resource_mut::<BindTrace>().unwrap().0.clear();
+        let replacement = make_slot(&mut world, list);
+        world.insert(list, crate::ui::Children(alloc::vec![replacement]));
+
+        for _ in 0..2 {
+            lazy_list_system(&mut world).unwrap();
+            let pool = world.get::<LazyListPool>(list).unwrap();
+            assert_eq!(pool.items, children);
+            assert_eq!(pool.bound_indices, [0, 1, 2]);
+            assert_eq!(pool.items.as_ptr(), items_ptr);
+            assert_eq!(pool.bound_indices.as_ptr(), bindings_ptr);
+        }
+        assert!(world.resource::<BindTrace>().unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn missing_pool_waits_for_enough_children() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        world.insert(list, LazyList::new(100, 40, 3));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(Vec::new()));
+
+        lazy_list_system(&mut world).unwrap();
+        assert!(!world.has::<LazyListPool>(list));
+        let mut children: Vec<Entity> = (0..2).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, crate::ui::Children(children.clone()));
+        lazy_list_system(&mut world).unwrap();
+        assert!(!world.has::<LazyListPool>(list));
+        assert!(world.resource::<BindTrace>().unwrap().0.is_empty());
+        children.push(make_slot(&mut world, list));
+        world.insert(list, crate::ui::Children(children.clone()));
+
+        lazy_list_system(&mut world).unwrap();
+
+        let pool = world.get::<LazyListPool>(list).unwrap();
+        assert_eq!(pool.items, children);
+        assert_eq!(pool.bound_indices, [0, 1, 2]);
+        assert_eq!(world.resource::<BindTrace>().unwrap().0, [0, 1, 2]);
     }
 
     #[test]

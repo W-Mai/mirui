@@ -5,7 +5,7 @@ use crate::prelude::*;
 use crate::ui::Children;
 use crate::ui::IdMap;
 use crate::ui::UiScope;
-use crate::ui::widgets::{LazyListPool, Text};
+use crate::ui::widgets::Text;
 
 #[test]
 fn build_widgets_smoke() {
@@ -21,7 +21,7 @@ fn build_widgets_smoke() {
             .is_some_and(|c| !c.0.is_empty()),
     );
     let list = world.find_by_id("lazy_list_view").unwrap();
-    let row = world.get::<LazyListPool>(list).unwrap().items[0];
+    let row = world.get::<Children>(list).unwrap().0[0];
     assert!(!world.has::<Text>(row));
     let label = world.get::<Children>(row).unwrap().0[0];
     let paragraph = world.get::<Text>(label).unwrap().paragraph().clone();

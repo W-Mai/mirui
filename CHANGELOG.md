@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- LazyList initializes its runtime pool from declared children on first use, preserving explicit pools and removing manual pool installation from demos and snapshot tools.
 - Static component attachments are available during widget initialization, including attachments on layout Views. Reactive captures are prepared before attachment values can move Models, while static bounded content is seeded before consuming ordinary captures.
 - Offscreen texture lookups retain source-specific pixel formats when transparent RGBA and opaque RGB565 buffers share a cache.
 - Texture-reference invalidation tracks the full source identity and initializes new references even when pixel revisions match.

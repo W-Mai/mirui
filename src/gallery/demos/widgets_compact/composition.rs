@@ -3,11 +3,11 @@ use super::style::{CompactTheme, bitmap_label};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::render::font::FontToken;
+use crate::ui::Theme;
 use crate::ui::widgets::{
-    Button, ButtonSize, LazyList, LazyListBinder, LazyListPool, ProgressBar, Slider, Switch,
-    TabBar, TabContent, Text, TextAlign,
+    Button, ButtonSize, LazyList, LazyListBinder, ProgressBar, Slider, Switch, TabBar, TabContent,
+    Text, TextAlign,
 };
-use crate::ui::{Children, Theme};
 
 #[compose]
 pub fn build_widgets() {
@@ -389,15 +389,4 @@ pub fn build_widgets() {
             }
         }
     };
-
-    let list = cx
-        .world_mut()
-        .find_by_id("compact_widgets_list")
-        .expect("compact list");
-    let pool = cx
-        .world_mut()
-        .get::<Children>(list)
-        .map(|children| children.0.clone())
-        .unwrap_or_default();
-    cx.world_mut().insert(list, LazyListPool::new(pool));
 }
