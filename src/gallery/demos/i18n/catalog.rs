@@ -1,5 +1,4 @@
 use crate::core::i18n::{Locale, Translation};
-use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager};
 
@@ -17,8 +16,8 @@ pub(super) const TRANSLATIONS: &[Translation] = &[
     (Locale::ZhCn, "toggle", "切换语言"),
 ];
 
-pub(super) fn register_font(world: &mut World) {
-    let Some(mgr) = world.resource::<FontManager>() else {
+pub(super) fn register_font(manager: Option<&FontManager>) {
+    let Some(mgr) = manager else {
         return;
     };
     let font = Font::from_mirx("MiSans UI", 14, UI_FONT, &mirx::reader::PayloadLimits::HOST)

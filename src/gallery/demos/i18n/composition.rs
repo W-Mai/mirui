@@ -1,15 +1,16 @@
 use super::catalog::{TOKEN_CJK, TRANSLATIONS, register_font};
 use crate::core::i18n::{I18n, Locale};
 use crate::prelude::*;
+use crate::render::font::FontManager;
 use crate::t;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets() {
-    register_font(cx.world_mut());
+    res!(optional FontManager).with(register_font);
     let i18n = I18n::new(Locale::EnUs).with_translations(TRANSLATIONS);
     let locale = i18n.locale_signal();
-    cx.world_mut().insert_resource(i18n);
+    res!().insert(i18n);
 
     //~focus-start
     ui! {
