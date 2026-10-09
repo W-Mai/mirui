@@ -1754,6 +1754,10 @@ mod tests {
             publish(&world, source, 0);
             ViewRegistry::reconcile_observations(&mut world);
             assert!(world.remove::<VisualDirty>(owner).is_some());
+            world
+                .resource::<crate::ui::outputs::relations::OutputRelations>()
+                .unwrap()
+                .acknowledge(&world, owner);
             ViewRegistry::reconcile_observations(&mut world);
             assert!(!world.has::<VisualDirty>(owner));
         }

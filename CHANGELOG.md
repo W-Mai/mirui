@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Widget outputs are prepared in dependency order, including nested captures and dependencies inside captured subtrees. Full and dirty rendering share prepared results across damage regions. Cyclic dependencies skip affected output callbacks; successful consumers acknowledge published versions without an extra redraw. All widget outputs use local transparent RGBA pixels; `OffscreenAlphaMode` and parent-target initialization are removed.
 - Wheel displacement uses logical pixels across Web, WGPU, SDL, and integer device adapters. Web honors pixel, line, and page units; pixel deltas follow CSS or window scaling once. Subpixel motion is retained through backend conversion, and wheel input keeps platform momentum without additional inertia.
 - LazyList reuses list and cell snapshots across updates. Hidden-cell storage is prepared during creation; warmed scrolling and property updates reuse capacity. Callback-driven deletions remain generation-checked, and recursive updates cannot replace an active batch.
 - Structural World access for generated reactive branches and lists is confined to hidden macro support; `core::reactive::with_world` is no longer a public authoring API.

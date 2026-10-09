@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::any::TypeId;
+use core::cell::Cell;
 
 use crate::ecs::{Entity, World};
 use crate::ui::dirty::{Dirty, VisualDirty};
@@ -23,7 +24,7 @@ struct Binding {
     dependency: &'static OutputDependency,
     active: bool,
     visible: bool,
-    version: Option<u64>,
+    version: Cell<Option<u64>>,
 }
 
 struct Demand {
@@ -97,7 +98,7 @@ impl OutputRelations {
                 let binding = &mut self.bindings[index];
                 binding.source = source;
                 binding.visible = false;
-                binding.version = None;
+                binding.version.set(None);
             }
             return;
         }
@@ -109,7 +110,7 @@ impl OutputRelations {
             dependency,
             active: true,
             visible: false,
-            version: None,
+            version: Cell::new(None),
         };
         if let Some(inactive) = self.bindings.iter_mut().find(|binding| !binding.active) {
             *inactive = binding;
@@ -123,6 +124,38 @@ impl OutputRelations {
             if binding.consumer == consumer && binding.registration == registration {
                 binding.active = false;
             }
+        }
+    }
+
+    pub(crate) fn visit_current_dependencies(
+        &self,
+        mut visit: impl FnMut(Entity, Entity, &'static OutputDescriptor),
+    ) {
+        for binding in &self.bindings {
+            if !binding.active || !binding.visible || binding.dependency.retain_previous {
+                continue;
+            }
+            if let Some(source) = binding.source {
+                visit(binding.consumer, source, &binding.dependency.descriptor);
+            }
+        }
+    }
+
+    pub(crate) fn acknowledge(&self, world: &World, consumer: Entity) {
+        if !world.is_alive(consumer) {
+            return;
+        }
+        for binding in &self.bindings {
+            if !binding.active || binding.consumer != consumer || binding.dependency.retain_previous
+            {
+                continue;
+            }
+            let version = binding
+                .source
+                .filter(|&source| world.is_alive(source))
+                .filter(|&source| !crate::ui::branch::is_hidden_in_tree(world, source))
+                .and_then(|source| (binding.dependency.descriptor.version)(world, source));
+            binding.version.set(version);
         }
     }
 
@@ -214,9 +247,9 @@ impl OutputRelations {
                 let version = source
                     .filter(|_| visible)
                     .and_then(|source| (binding.dependency.descriptor.version)(world, source));
-                let changed = binding.visible != visible || binding.version != version || dirty;
+                let changed =
+                    binding.visible != visible || binding.version.get() != version || dirty;
                 binding.visible = visible;
-                binding.version = version;
                 if changed && !world.has::<VisualDirty>(binding.consumer) {
                     world.invalidate_visual(binding.consumer);
                     propagated = true;
@@ -244,6 +277,93 @@ fn source_is_dirty(world: &World, source: Entity) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CURRENT: OutputDependency = OutputDependency {
+        descriptor: OutputDescriptor {
+            kind: TypeId::of::<u64>,
+            install: |_| {},
+            set_demand: |_, _, _, _| {},
+            invalidate: |_, _| {},
+            reset: |_, _| {},
+            version: |world, source| world.get::<u64>(source).copied(),
+            reconcile: |_| {},
+        },
+        source: |world, consumer| world.get::<Entity>(consumer).copied(),
+        retain_previous: false,
+    };
+
+    const HISTORY: OutputDependency = OutputDependency {
+        retain_previous: true,
+        ..CURRENT
+    };
+
+    #[test]
+    fn publication_versions_require_each_consumers_acknowledgement() {
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        world.insert(source, 7_u64);
+        let mut relations = OutputRelations::default();
+        for consumer in [first, second] {
+            world.insert(consumer, source);
+            relations.bind(&world, consumer, 0, 0, &CURRENT);
+        }
+
+        relations.propagate_invalidations(&mut world);
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| binding.version.get().is_none())
+        );
+        world.remove::<VisualDirty>(first);
+        world.remove::<VisualDirty>(second);
+
+        relations.acknowledge(&world, first);
+        relations.propagate_invalidations(&mut world);
+        assert!(!world.has::<VisualDirty>(first));
+        assert!(world.has::<VisualDirty>(second));
+        assert_eq!(relations.bindings[0].version.get(), Some(7));
+        assert_eq!(relations.bindings[1].version.get(), None);
+
+        world.insert(source, 8_u64);
+        relations.propagate_invalidations(&mut world);
+        assert!(world.has::<VisualDirty>(first));
+        assert_eq!(relations.bindings[0].version.get(), Some(7));
+
+        world.insert(source, crate::ui::Hidden);
+        relations.acknowledge(&world, first);
+        assert_eq!(relations.bindings[0].version.get(), None);
+    }
+
+    #[test]
+    fn current_dependency_visitor_excludes_inactive_hidden_and_history_bindings() {
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let consumer = world.spawn_empty();
+        world.insert(consumer, source);
+        let mut relations = OutputRelations::default();
+        for (slot, dependency) in [&CURRENT, &CURRENT, &CURRENT, &HISTORY]
+            .into_iter()
+            .enumerate()
+        {
+            relations.bind(&world, consumer, 0, slot, dependency);
+        }
+        relations.propagate_invalidations(&mut world);
+        relations.bindings[1].visible = false;
+        relations.bindings[2].active = false;
+        relations.bindings[3].visible = true;
+
+        let mut count = 0;
+        relations.visit_current_dependencies(|actual_consumer, actual_source, descriptor| {
+            assert_eq!(actual_consumer, consumer);
+            assert_eq!(actual_source, source);
+            assert_eq!((descriptor.kind)(), TypeId::of::<u64>());
+            count += 1;
+        });
+        assert_eq!(count, 1);
+    }
 
     #[test]
     fn relationship_metadata_borrows_static_descriptors() {

@@ -1673,9 +1673,7 @@ impl SwRenderer<'_> {
             return Ok(());
         }
 
-        // Same-format fast path: row-wise byte memcpy. Both callers
-        // (`try_draw_offscreen` pre-seed, `sample_target_region`)
-        // allocate dst at the target's format, so this normally hits.
+        // Same-format reads can copy complete pixel rows.
         if self.target.format == dst.format {
             let bpp = dst.format.bytes_per_pixel();
             let target_buf = self.target.buf.as_slice();

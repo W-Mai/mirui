@@ -9,6 +9,7 @@ use crate::ecs::Entity;
 mod dependency;
 pub(crate) use dependency::OutputDescriptor;
 pub use dependency::{OutputDependency, OutputSource};
+pub(crate) mod graph;
 pub(crate) mod relations;
 
 pub(crate) mod private {
@@ -90,6 +91,7 @@ pub struct Outputs<T: Output> {
     records: RefCell<HashMap<Entity, OutputState<T::Record>>>,
     next_publication: Cell<u64>,
     batch_depth: Cell<usize>,
+    batch_id: Cell<u64>,
 }
 
 impl<T: Output> Outputs<T> {
@@ -135,6 +137,7 @@ impl<T: Output> Outputs<T> {
             records: RefCell::new(HashMap::new()),
             next_publication: Cell::new(1),
             batch_depth: Cell::new(0),
+            batch_id: Cell::new(0),
         }
     }
 
@@ -246,6 +249,7 @@ impl<T: Output> Outputs<T> {
     pub(crate) fn begin_batch(&self) -> OutputBatch<'_, T> {
         let depth = self.batch_depth.get();
         if depth == 0 {
+            self.batch_id.set(self.batch_id.get().wrapping_add(1));
             for state in self.records.borrow_mut().values_mut() {
                 let previous = if state.retained { state.current } else { None };
                 if state.previous.map(|output| output.version)
@@ -258,6 +262,10 @@ impl<T: Output> Outputs<T> {
         }
         self.batch_depth.set(depth + 1);
         OutputBatch { outputs: self }
+    }
+
+    pub(crate) fn batch_id(&self) -> u64 {
+        self.batch_id.get()
     }
 
     /// Remove the entity's records; its adapter releases the returned payload references.

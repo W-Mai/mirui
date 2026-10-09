@@ -40,9 +40,7 @@ pub use layout_binding::{
     LayoutValues,
 };
 pub use niche::NicheMap;
-pub use offscreen::{
-    OffscreenAlphaMode, OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureRead,
-};
+pub use offscreen::{OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureRead};
 pub use outputs::{Output, Outputs};
 pub use property::WidgetMut;
 pub use scope::UiScope;

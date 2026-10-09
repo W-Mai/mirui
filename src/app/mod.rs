@@ -559,7 +559,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, and writable slots. A 128×64 RGB565 texture occupies 16 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
+    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, and writable slots. A 128×64 RGBA texture occupies 32 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
     ///
     /// Replaces the existing output storage, so configure it before constructing widgets that request retained history or rendering an [`crate::ui::OffscreenRender`] entity.
     pub fn with_offscreen_pool_budget(&mut self, budget_bytes: usize) -> &mut Self {
@@ -1426,9 +1426,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 if root_hidden {
                     clear_hidden_root(&self.world, &transform, &mut renderer);
                     Ok(())
-                } else if plan.prefers_split_redraw()
-                    && !crate::ui::offscreen::has_texture_requests(&self.world)
-                {
+                } else if plan.prefers_split_redraw() {
                     let mut result = Ok(());
                     for rect in &plan.rects {
                         result = if let Some(snapshot) = snapshot {
@@ -1485,6 +1483,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 self.dirty_plan = plan;
                 return Err(error);
             }
+
+            render_system::acknowledge_rendered_outputs(&self.world);
 
             let render_end = self.clock_ns();
             self.last_render_ns = render_end.saturating_sub(layout_end);

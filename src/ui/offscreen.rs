@@ -27,7 +27,7 @@
 //! app.with_default_widgets();
 //! let root = app.spawn_root().id();
 //! // Include every concurrently retained pixel slot in the budget.
-//! // RGB565 uses two bytes per pixel; RGBA8888 uses four.
+//! // Local RGBA output uses four bytes per pixel.
 //! app.with_offscreen_pool_budget(64 * 1024);
 //!
 //! app.compose(root, cached_panel());
@@ -41,7 +41,7 @@
 //!
 //! The outer renderer must provide an offscreen pixel format and accept texture composition. Subtree production uses the CPU software renderer, including when the outer backend uses a GPU. An explicit `OffscreenRender` node renders inline when output storage is unavailable.
 //!
-//! A source's [`OffscreenAlphaMode`] selects transparent clearing or initialization from the parent target. Nested `OffscreenRender` and a source carrying `WidgetTransform3D` are unsupported.
+//! Outputs contain local transparent pixels, independently of the parent framebuffer. Nested outputs and current dependencies are prepared in dependency order before composition; cyclic output dependencies are unavailable.
 
 use crate::ecs::{Entity, World};
 use crate::render::texture::ColorFormat;
@@ -103,30 +103,6 @@ pub struct OffscreenGeneration(pub u32);
 
 impl crate::ecs::Component for OffscreenGeneration {}
 
-/// Mark on an `OffscreenRender` source so its buffer initialises to
-/// fully-transparent black instead of a copy of the framebuffer
-/// underneath. Effect widgets that need the buffer's alpha channel
-/// to encode the source's actual silhouette (zero outside the
-/// widget's drawn pixels) attach this — without it, alpha
-/// extraction sees the framebuffer's alpha bleeding through and
-/// produces a rectangular silhouette that ignores `border_radius`.
-#[derive(Clone, Copy, Debug)]
-pub struct OffscreenAlphaMode {
-    /// `true` ⇒ buffer is cleared to RGBA `(0, 0, 0, 0)` before the
-    /// subtree renders. `false` ⇒ buffer is pre-seeded from the
-    /// framebuffer (default — keeps anti-aliased edges blending against
-    /// the existing background).
-    pub clear_transparent: bool,
-}
-
-impl OffscreenAlphaMode {
-    pub const fn clear_transparent() -> Self {
-        Self {
-            clear_transparent: true,
-        }
-    }
-}
-
 /// Input identity for one widget texture. Entity identity, pixel dimensions, format, and content generation determine whether the published result can be reused; historical output selection is independent of this key.
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) struct BufferKey {
@@ -143,21 +119,23 @@ impl BufferKey {
         rect: crate::types::Rect,
         offscreen: OffscreenRender,
         generation: u32,
-        backend_format: ColorFormat,
-        clear_transparent: bool,
     ) -> Self {
         let scale = offscreen.scale.max(Fixed::ONE / 8);
         let width = Fixed::from_int(rect.w.to_int().max(1)) * scale;
         let height = Fixed::from_int(rect.h.to_int().max(1)) * scale;
         Self {
             entity,
-            w: width.to_int().max(1).min(u16::MAX as i32) as u16,
-            h: height.to_int().max(1).min(u16::MAX as i32) as u16,
-            format: if clear_transparent {
-                ColorFormat::RGBA8888
+            w: if rect.w > Fixed::ZERO {
+                width.to_int().max(1).min(u16::MAX as i32) as u16
             } else {
-                backend_format
+                0
             },
+            h: if rect.h > Fixed::ZERO {
+                height.to_int().max(1).min(u16::MAX as i32) as u16
+            } else {
+                0
+            },
+            format: ColorFormat::RGBA8888,
             generation,
         }
     }
@@ -186,18 +164,16 @@ pub(crate) fn config(world: &World, entity: Entity) -> Option<OffscreenRender> {
         .or_else(|| texture_requested(world, entity).then(OffscreenRender::default))
 }
 
-pub(crate) fn clear_transparent(world: &World, entity: Entity) -> bool {
-    texture_requested(world, entity)
-        || world
-            .get::<OffscreenAlphaMode>(entity)
-            .is_some_and(|mode| mode.clear_transparent)
-}
-
 pub(crate) fn reconcile_texture_outputs(world: &World) {
     if let Some(outputs) = world.resource::<crate::ui::Outputs<WidgetTexture>>() {
         outputs.reconcile_textures(
             |entity| world.get::<OffscreenRender>(entity).is_some(),
-            |entity| !super::branch::is_hidden_in_tree(world, entity),
+            |entity| {
+                !super::branch::is_hidden_in_tree(world, entity)
+                    && world
+                        .resource::<super::WidgetRoot>()
+                        .is_none_or(|root| super::branch::is_in_subtree(world, root.0, entity))
+            },
         );
     }
 }

@@ -16,6 +16,8 @@ use super::view::{PaintCtx, ViewRegistry};
 use super::{Children, Parent, Style, Widget};
 use super::{Outputs, WidgetTexture};
 
+pub(crate) mod output_plan;
+
 /// Stage at which a text widget failed to prepare its layout.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextLayoutStage {
@@ -1250,7 +1252,7 @@ fn draw_tree_offset(
     offset_y: Fixed,
     parent_transform: &Transform,
     parent_transform_3d: &Transform3D,
-    inside_offscreen: bool,
+    output_plan: Option<&output_plan::TexturePlan>,
 ) -> Result<(), RenderError> {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -1300,22 +1302,36 @@ fn draw_tree_offset(
         return Ok(());
     }
 
-    // Offscreen-render branch — try to redirect the entity + its
-    // subtree into a private buffer, blit the buffer back here.
-    // Returns true when handled; false falls through to inline render.
-    if let Some(off) = crate::ui::offscreen::config(world, entity) {
-        let has_3d = world.get::<WidgetTransform3D>(entity).is_some();
-        debug_assert!(
-            !has_3d,
-            "OffscreenRender + WidgetTransform3D not supported on the same entity"
-        );
-        debug_assert!(!inside_offscreen, "nested OffscreenRender not supported");
-        if !has_3d
-            && renderer.supports_offscreen()
-            && try_draw_offscreen(
+    if output_plan.is_some_and(|plan| plan.blocked(entity)) {
+        *idx += count_nodes(node);
+        return Ok(());
+    }
+
+    if output_plan.is_some_and(|plan| plan.ready(entity))
+        && let Some(off) = crate::ui::offscreen::config(world, entity)
+    {
+        let handled = if !tf_3d.is_identity() {
+            let mut scoped = ProjectiveRenderer {
+                inner: renderer,
+                transform: tf_3d,
+                error: None,
+            };
+            draw_prepared_output(
                 node,
                 world,
-                entities,
+                idx,
+                &mut scoped,
+                clip,
+                &shifted_rect,
+                off,
+                entity,
+                &tf,
+                quad,
+            )?
+        } else {
+            draw_prepared_output(
+                node,
+                world,
                 idx,
                 renderer,
                 clip,
@@ -1325,12 +1341,10 @@ fn draw_tree_offset(
                 &tf,
                 quad,
             )?
-        {
+        };
+        if handled {
             return Ok(());
         }
-        // Fallthrough: GPU backend, nested case (release silent), or
-        // 3D conflict (release silent) — render inline as if the
-        // marker weren't there.
     }
 
     if *idx < entities.len() {
@@ -1433,7 +1447,7 @@ fn draw_tree_offset(
             sy,
             &tf,
             &tf_3d,
-            inside_offscreen,
+            output_plan,
         )?;
     }
     Ok(())
@@ -1775,15 +1789,14 @@ fn prepare_offscreen(
     shifted_rect: &Rect,
     off: super::OffscreenRender,
     entity: Entity,
+    output_plan: Option<&output_plan::TexturePlan>,
 ) -> Result<bool, RenderError> {
     use crate::render::canvas::Canvas;
     use crate::render::sw::SwRenderer;
 
-    let backend_format = match renderer.offscreen_format() {
-        Some(f) => f,
-        None => return Ok(false),
-    };
-    let clear_transparent = crate::ui::offscreen::clear_transparent(world, entity);
+    if renderer.offscreen_format().is_none() {
+        return Ok(false);
+    }
 
     // Preparation is independent of the parent clip: a visible consumer can
     // need a source outside the current damage region.
@@ -1794,14 +1807,7 @@ fn prepare_offscreen(
         .map(|g| g.0)
         .unwrap_or(0);
 
-    let key = super::offscreen::BufferKey::for_widget(
-        entity,
-        *shifted_rect,
-        off,
-        generation,
-        backend_format,
-        clear_transparent,
-    );
+    let key = super::offscreen::BufferKey::for_widget(entity, *shifted_rect, off, generation);
     let (buf_w, buf_h) = (key.w, key.h);
 
     let outputs = match world.resource::<Outputs<WidgetTexture>>() {
@@ -1822,20 +1828,11 @@ fn prepare_offscreen(
         return Ok(false);
     };
     let texture = write.texture_mut();
-    if !clear_transparent {
-        renderer.read_target_region(shifted_rect, texture)?;
-    }
 
     {
         let inner_tex = Texture::new(texture.buf.as_mut_slice(), buf_w, buf_h, key.format);
-        // Buffers cleared to transparent need source-over alpha accumulation
-        // so downstream samplers can read the source's actual silhouette.
-        let alpha_mode = if clear_transparent {
-            crate::render::sw::AlphaMode::Blend
-        } else {
-            crate::render::sw::AlphaMode::Opaque
-        };
-        let mut inner = SwRenderer::new(inner_tex).with_alpha_mode(alpha_mode);
+        let mut inner =
+            SwRenderer::new(inner_tex).with_alpha_mode(crate::render::sw::AlphaMode::Blend);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
 
         // Dispatch the root directly so its marker is not treated as a nested
@@ -1889,7 +1886,7 @@ fn prepare_offscreen(
                 sy,
                 &Transform::IDENTITY,
                 &Transform3D::IDENTITY,
-                true,
+                output_plan,
             )?;
         }
         Canvas::flush(&mut inner);
@@ -1899,10 +1896,9 @@ fn prepare_offscreen(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn try_draw_offscreen(
+fn draw_prepared_output(
     node: &LayoutNode,
     world: &World,
-    entities: &[Entity],
     idx: &mut usize,
     renderer: &mut dyn Renderer,
     clip: &Rect,
@@ -1912,19 +1908,6 @@ fn try_draw_offscreen(
     outer_tf: &Transform,
     outer_quad: Option<[Point; 4]>,
 ) -> Result<bool, RenderError> {
-    if !prepare_offscreen(
-        node,
-        world,
-        entities,
-        idx,
-        renderer,
-        shifted_rect,
-        off,
-        entity,
-    )? {
-        return Ok(false);
-    };
-
     // Blit buffer back to the outer renderer through DrawCommand::Blit.
     // This is the only Canvas-style operation we need from outer; going
     // through the DrawCommand path keeps Renderer trait the single
@@ -1949,7 +1932,7 @@ fn try_draw_offscreen(
         };
         renderer.submit(&DrawRequest::new(&blit_cmd, *clip))?;
     }
-
+    *idx += count_nodes(node);
     Ok(true)
 }
 
@@ -2029,10 +2012,7 @@ fn render_full_with(
         w: logical_w.into(),
         h: logical_h.into(),
     };
-    if crate::ui::offscreen::has_texture_requests(world) {
-        let mut idx = 0;
-        prerender_sources(layout_tree, world, entities, &mut idx, renderer)?;
-    }
+    let prepared = output_plan::prepare(world, layout_tree, entities, renderer)?;
 
     let mut idx = 0;
     draw_tree_offset(
@@ -2046,8 +2026,10 @@ fn render_full_with(
         Fixed::ZERO,
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
-        false,
-    )
+        prepared.as_ref().map(|prepared| &prepared.plan),
+    )?;
+    output_plan::acknowledge(world, entities);
+    Ok(())
 }
 
 fn reconcile_layout_snapshot(
@@ -2186,6 +2168,9 @@ fn write_computed_rects(
             .is_none_or(|rect| rect.0 != node.rect)
         {
             world.insert(entity, super::ComputedRect(node.rect));
+            if super::offscreen::config(world, entity).is_some() {
+                world.invalidate_visual(entity);
+            }
         }
     }
     *idx += 1;
@@ -2236,6 +2221,12 @@ pub fn render_region(
     render_region_with(world, &layout_tree, &entities, dirty_rect, renderer)
 }
 
+pub(crate) fn acknowledge_rendered_outputs(world: &World) {
+    if let Some(snapshot) = world.resource::<LayoutSnapshot>() {
+        output_plan::acknowledge(world, &snapshot.entities);
+    }
+}
+
 /// Internal cached variant: caller supplies a layout tree + entity
 /// preorder produced earlier in the same frame (typically by the
 /// dirty walker). Skips the build / compute / collect phases.
@@ -2250,6 +2241,9 @@ pub(crate) fn render_region_cached(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
+    let _outputs_batch = world
+        .resource::<Outputs<WidgetTexture>>()
+        .map(Outputs::begin_batch);
     render_region_with(
         world,
         &snapshot.layout_tree,
@@ -2266,11 +2260,7 @@ fn render_region_with(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
-    if crate::ui::offscreen::has_texture_requests(world) {
-        crate::trace_span!("render.prerender_sources");
-        let mut idx = 0;
-        prerender_sources(layout_tree, world, entities, &mut idx, renderer)?;
-    }
+    let prepared = output_plan::prepare(world, layout_tree, entities, renderer)?;
 
     {
         crate::trace_span!("render.draw_tree");
@@ -2286,41 +2276,8 @@ fn render_region_with(
             Fixed::ZERO,
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
-            false,
+            prepared.as_ref().map(|prepared| &prepared.plan),
         )?;
-    }
-    Ok(())
-}
-
-fn prerender_sources(
-    node: &LayoutNode,
-    world: &World,
-    entities: &[Entity],
-    idx: &mut usize,
-    renderer: &dyn Renderer,
-) -> Result<(), RenderError> {
-    if *idx >= entities.len() {
-        return Ok(());
-    }
-    let entity = entities[*idx];
-
-    if crate::ui::offscreen::texture_requested(world, entity) {
-        if let Some(off) = crate::ui::offscreen::config(world, entity) {
-            let _ = prepare_offscreen(
-                node,
-                world,
-                entities,
-                &mut { *idx },
-                renderer,
-                &node.rect,
-                off,
-                entity,
-            )?;
-        }
-    }
-    *idx += 1;
-    for child in &node.children {
-        prerender_sources(child, world, entities, idx, renderer)?;
     }
     Ok(())
 }
@@ -2717,17 +2674,28 @@ fn scan_subtree_dirty(
         return;
     }
     let entity = entities[*idx];
+    let mut subtree_dirty = false;
     if world.get::<Dirty>(entity).is_some()
         || world.get::<super::dirty::VisualDirty>(entity).is_some()
     {
-        *had_dirty = true;
+        subtree_dirty = true;
         world.remove::<Dirty>(entity);
         world.remove::<super::dirty::VisualDirty>(entity);
     }
     *idx += 1;
     for child in &node.children {
-        scan_subtree_dirty(child, world, entities, idx, had_dirty);
+        scan_subtree_dirty(child, world, entities, idx, &mut subtree_dirty);
     }
+    if subtree_dirty && crate::ui::offscreen::config(world, entity).is_some() {
+        let generation = world
+            .get::<super::OffscreenGeneration>(entity)
+            .map_or(1, |g| g.0.wrapping_add(1));
+        world.insert(entity, super::OffscreenGeneration(generation));
+        if let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() {
+            outputs.invalidate(entity);
+        }
+    }
+    *had_dirty |= subtree_dirty;
 }
 
 /// Collect the logical-pixel rects of all dirty entities, then remove Dirty flags.
@@ -5849,7 +5817,7 @@ mod offscreen_render_check {
         }
     }
 
-    fn offscreen_read_probe_world(fail: bool) -> (World, Entity, Entity) {
+    fn offscreen_read_probe_world(fail: bool) -> (World, Entity, Entity, Entity) {
         let mut world = make_world();
         world.resource_mut::<ViewRegistry>().unwrap().insert(
             crate::ui::View::new("OffscreenReadProbe", 100, probe_offscreen_reads)
@@ -5864,14 +5832,22 @@ mod offscreen_render_check {
             },
             ..Default::default()
         };
-        let source = spawn(&mut world, None, panel_style.clone());
-        let consumer = spawn(&mut world, None, panel_style);
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(16),
+                    height: Dimension::px(16),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let source = spawn(&mut world, Some(root), panel_style.clone());
+        let consumer = spawn(&mut world, Some(root), panel_style);
         for entity in [source, consumer] {
             world.insert(entity, OffscreenRender::default());
-            world.insert(
-                entity,
-                super::super::OffscreenAlphaMode::clear_transparent(),
-            );
         }
         world.insert(
             consumer,
@@ -5882,20 +5858,18 @@ mod offscreen_render_check {
             },
         );
         ViewRegistry::reconcile_observations(&mut world);
-        (world, source, consumer)
+        (world, root, source, consumer)
     }
 
     #[test]
     fn offscreen_subtree_reads_only_completed_sources() {
-        let (mut world, source, consumer) = offscreen_read_probe_world(false);
+        let (mut world, root, _, consumer) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut pixels = [0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
-        for entity in [source, consumer] {
-            let _ = super::collect_dirty_regions(&mut world, entity, &viewport);
-            super::render(&world, entity, &viewport, &mut renderer).unwrap();
-        }
+        let _ = super::collect_dirty_regions(&mut world, root, &viewport);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
         assert_eq!(
             world
                 .get::<OffscreenReadProbe>(consumer)
@@ -5918,13 +5892,13 @@ mod offscreen_render_check {
 
     #[test]
     fn offscreen_subtree_failure_preserves_completed_sources() {
-        let (mut world, source, consumer) = offscreen_read_probe_world(true);
+        let (mut world, root, source, consumer) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut pixels = [0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
-        let _ = super::collect_dirty_regions(&mut world, source, &viewport);
-        super::render(&world, source, &viewport, &mut renderer).unwrap();
+        let _ = super::collect_dirty_regions(&mut world, root, &viewport);
+        super::render(&world, root, &viewport, &mut renderer).unwrap();
         let revision = world
             .resource::<Outputs<WidgetTexture>>()
             .unwrap()
@@ -5932,9 +5906,13 @@ mod offscreen_render_check {
             .unwrap()
             .texture()
             .cache_revision;
-        let _ = super::collect_dirty_regions(&mut world, consumer, &viewport);
+        let probe = world.get_mut::<OffscreenReadProbe>(consumer).unwrap();
+        probe.fail = true;
+        probe.calls.set(0);
+        world.invalidate_visual(consumer);
+        let _ = super::collect_dirty_regions(&mut world, root, &viewport);
         assert_eq!(
-            super::render(&world, consumer, &viewport, &mut renderer),
+            super::render(&world, root, &viewport, &mut renderer),
             Err(RenderError::BackendFailure)
         );
         assert_eq!(
@@ -5978,21 +5956,20 @@ mod offscreen_render_check {
             }
         }
 
-        let (mut world, source, _) = offscreen_read_probe_world(false);
+        let (mut world, root, source, _) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::update_layout(&mut world, source, &viewport);
+        super::update_layout(&mut world, root, &viewport);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         for _ in 0..2 {
-            let mut idx = 0;
-            super::prerender_sources(
-                &snapshot.layout_tree,
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            let _batch = outputs.begin_batch();
+            let _prepared = super::output_plan::prepare(
                 &world,
+                &snapshot.layout_tree,
                 &snapshot.entities,
-                &mut idx,
                 &PreparationTarget,
             )
             .unwrap();
-            assert_eq!(idx, snapshot.entities.len());
             assert_eq!(
                 world
                     .resource::<Outputs<WidgetTexture>>()
@@ -6037,7 +6014,7 @@ mod offscreen_render_check {
     }
 
     #[test]
-    fn offscreen_read_failure_keeps_current_unavailable() {
+    fn offscreen_production_does_not_read_parent_framebuffer() {
         struct FailingRead;
 
         impl Renderer for FailingRead {
@@ -6080,12 +6057,9 @@ mod offscreen_render_check {
         );
         world.insert(panel, OffscreenRender::default());
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        assert_eq!(
-            super::render(&world, panel, &viewport, &mut FailingRead),
-            Err(RenderError::BackendFailure)
-        );
+        super::render(&world, panel, &viewport, &mut FailingRead).unwrap();
         let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
-        assert!(outputs.get(panel).is_none());
+        assert!(outputs.get(panel).is_some());
 
         let mut pixels = std::vec![0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
@@ -6520,12 +6494,7 @@ mod offscreen_render_check {
         );
     }
 
-    /// Pixel-equivalence on a non-trivial subtree (Switch + Slider +
-    /// ProgressBar + label inside a flex panel). Runs the same fixture
-    /// three times — inline reference, OffscreenRender on the panel,
-    /// OffscreenRender on a single leaf widget — and asserts each
-    /// framebuffer is byte-identical to the reference across cold
-    /// render, switch toggle, and slider mutation.
+    /// Transparent capture and direct RGB565 drawing differ by at most one channel quantization step in this fixture.
     #[test]
     fn offscreen_render_form_page_subtree_matches_inline() {
         use crate::ui::layout::{AlignItems, FlexDirection, Padding};
@@ -6691,6 +6660,21 @@ mod offscreen_render_check {
             (w, fp, sw, sl)
         }
 
+        fn assert_frame(a: Vec<u8>, b: Vec<u8>, label: &str) {
+            assert_eq!(a.len(), b.len());
+            for (pixel, (a, b)) in a.chunks_exact(2).zip(b.chunks_exact(2)).enumerate() {
+                let a = u16::from_be_bytes([a[0], a[1]]);
+                let b = u16::from_be_bytes([b[0], b[1]]);
+                for (shift, mask) in [(11, 31), (5, 63), (0, 31)] {
+                    let error = ((a >> shift) & mask).abs_diff((b >> shift) & mask);
+                    assert!(
+                        error <= 1,
+                        "{label}: pixel {pixel}, shift {shift}, error {error}"
+                    );
+                }
+            }
+        }
+
         let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
         // Mirror render_dirty so the walker bumps OffscreenGeneration
         // when the subtree mutates between frames.
@@ -6716,15 +6700,15 @@ mod offscreen_render_check {
         w_a.mark_subtree_dirty(fp_a);
         w_b.mark_subtree_dirty(fp_b);
 
-        assert_eq!(
+        assert_frame(
             render_into(&mut w_ref, fp_ref),
             render_into(&mut w_a, fp_a),
-            "form_page OffscreenRender frame 1 ≠ inline"
+            "form_page OffscreenRender frame 1 ≠ inline",
         );
-        assert_eq!(
+        assert_frame(
             render_into(&mut w_ref, fp_ref),
             render_into(&mut w_b, fp_b),
-            "Switch OffscreenRender frame 1 ≠ inline"
+            "Switch OffscreenRender frame 1 ≠ inline",
         );
 
         // Mark the whole subtree so the inline path's dirty bound
@@ -6739,15 +6723,15 @@ mod offscreen_render_check {
         flip_on(&mut w_ref, fp_ref, sw_ref);
         flip_on(&mut w_a, fp_a, sw_a);
         flip_on(&mut w_b, fp_b, sw_b);
-        assert_eq!(
+        assert_frame(
             render_into(&mut w_ref, fp_ref),
             render_into(&mut w_a, fp_a),
-            "form_page OffscreenRender frame 2 (switch on) ≠ inline"
+            "form_page OffscreenRender frame 2 (switch on) ≠ inline",
         );
-        assert_eq!(
+        assert_frame(
             render_into(&mut w_ref, fp_ref),
             render_into(&mut w_b, fp_b),
-            "Switch OffscreenRender frame 2 (switch on) ≠ inline"
+            "Switch OffscreenRender frame 2 (switch on) ≠ inline",
         );
 
         let slider_max = |w: &mut World, fp: Entity, sl: Entity| {
@@ -6759,15 +6743,15 @@ mod offscreen_render_check {
         slider_max(&mut w_ref, fp_ref, sl_ref);
         slider_max(&mut w_a, fp_a, sl_a);
         slider_max(&mut w_b, fp_b, sl_b);
-        assert_eq!(
+        assert_frame(
             render_into(&mut w_ref, fp_ref),
             render_into(&mut w_a, fp_a),
-            "form_page OffscreenRender frame 3 (slider max) ≠ inline"
+            "form_page OffscreenRender frame 3 (slider max) ≠ inline",
         );
-        assert_eq!(
+        assert_frame(
             render_into(&mut w_ref, fp_ref),
             render_into(&mut w_b, fp_b),
-            "Switch OffscreenRender frame 3 (slider max) ≠ inline"
+            "Switch OffscreenRender frame 3 (slider max) ≠ inline",
         );
     }
 
@@ -6918,13 +6902,7 @@ mod offscreen_render_check {
         }
     }
 
-    /// Scale=0.5 must paint the *entire* buffer with the panel's bg —
-    /// not just a fraction. After the blit upscale, the panel's full
-    /// rect on the outer framebuffer should be the panel colour, with
-    /// no black bands left behind. Regression for "scale=0.5 only paints
-    /// a quarter" — clip was being passed in physical instead of logical
-    /// coordinates inside try_draw_offscreen, which left 3/4 of the
-    /// buffer untouched.
+    /// Half-scale capture covers the full logical panel before composition.
     #[test]
     fn offscreen_scale_half_fills_buffer_and_blits_upscaled() {
         let mut world = make_world();
@@ -7086,9 +7064,7 @@ mod offscreen_render_check {
         assert_eq!((buf2[0], buf2[1], buf2[2]), (255, 0, 255));
     }
 
-    /// Pure Bug 2 isolation: the transform stays fully on-screen so
-    /// the negative-blit path doesn't fire — only the redundant
-    /// `try_draw_offscreen` cull bug would skip render here.
+    /// Composition culling uses the transformed output bounds.
     #[test]
     fn offscreen_render_with_in_bounds_transform_still_renders() {
         use crate::types::Transform;
@@ -7156,13 +7132,7 @@ mod offscreen_render_check {
         );
     }
 
-    /// `WidgetTransform` translating the entity off-screen left must
-    /// still produce visible pixels at the transformed position. The
-    /// pre-fix `try_draw_offscreen` had its own cull check using the
-    /// entity's untransformed `shifted_rect`, which sat at logical
-    /// (80, 30) and didn't intersect the dirty clip when the entity
-    /// was animated to negative x — so the offscreen path silently
-    /// skipped raster + blit and the entity vanished.
+    /// A partially offscreen output still paints its visible transformed region.
     #[test]
     fn offscreen_render_with_transform_translating_partially_off_screen_still_renders() {
         use crate::types::Transform;
@@ -7376,8 +7346,8 @@ mod offscreen_render_check {
     }
 
     #[test]
-    fn mixed_offscreen_formats_retain_each_sources_successful_output() {
-        use super::super::offscreen::{OffscreenAlphaMode, OffscreenGeneration};
+    fn offscreen_sources_retain_transparent_outputs_across_backend_formats() {
+        use super::super::offscreen::OffscreenGeneration;
 
         for (transparent_first, backend_format) in [
             (false, ColorFormat::RGB565),
@@ -7415,7 +7385,6 @@ mod offscreen_render_check {
                 },
             );
             world.insert(transparent, OffscreenRender::default());
-            world.insert(transparent, OffscreenAlphaMode::clear_transparent());
             world.insert(opaque, OffscreenRender::default());
             let order = if transparent_first {
                 [transparent, opaque]
@@ -7444,7 +7413,7 @@ mod offscreen_render_check {
                 }
                 for (entity, format) in [
                     (transparent, ColorFormat::RGBA8888),
-                    (opaque, backend_format),
+                    (opaque, ColorFormat::RGBA8888),
                 ] {
                     let current = world
                         .resource::<Outputs<WidgetTexture>>()
@@ -7805,8 +7774,7 @@ mod offscreen_render_check {
     }
 
     #[test]
-    #[should_panic(expected = "OffscreenRender + WidgetTransform3D")]
-    fn offscreen_render_panics_on_3d_transform() {
+    fn offscreen_render_accepts_projective_composition() {
         use crate::types::Transform3D;
         use crate::ui::widgets::transform_3d::WidgetTransform3D;
         let mut world = make_world();
@@ -7834,8 +7802,7 @@ mod offscreen_render_check {
     }
 
     #[test]
-    #[should_panic(expected = "nested OffscreenRender")]
-    fn offscreen_render_panics_on_nesting() {
+    fn offscreen_render_composes_nested_outputs() {
         let mut world = make_world();
         let outer = spawn(
             &mut world,
@@ -7935,7 +7902,7 @@ mod offscreen_render_check {
     fn hidden_entity_skips_offscreen_path() {
         // An OffscreenRender entity that's also Hidden should not
         // create a buffer — collect_entities_preorder skips Hidden
-        // entirely so the dispatch never reaches try_draw_offscreen.
+        // entirely so it never requests a pixel slot.
         use crate::ui::Hidden;
         let mut world = make_world();
         let panel = spawn(
@@ -8024,15 +7991,8 @@ mod offscreen_render_check {
         assert_eq!(pixels.get_pixel(1, 17), Color::rgb(255, 0, 0));
     }
 
-    /// With `OffscreenAlphaMode::clear_transparent`, an offscreen
-    /// buffer's pixels outside the source widget's drawn area stay
-    /// alpha=0 instead of inheriting framebuffer alpha. Pre-seed
-    /// (default) would copy framebuffer alpha (always 255 for opaque
-    /// backends) and erase the silhouette.
     #[test]
-    fn offscreen_alpha_mode_clear_zeros_buffer_outside_source() {
-        use crate::ui::offscreen::OffscreenAlphaMode;
-
+    fn offscreen_transparent_pixels_do_not_capture_parent_background() {
         let mut world = make_world();
         // Source is a 6×6 widget centered in a 12×12 buffer area
         // (it's only 6×6, so the buffer is sized 6×6 and the whole
@@ -8045,7 +8005,6 @@ mod offscreen_render_check {
             Style {
                 // No bg_color — source draws nothing into the buffer,
                 // so every pixel should remain at the cleared default
-                // (alpha = 0 with the marker, ≠ 0 without it).
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(6)),
                     height: Dimension::Px(Fixed::from_int(6)),
@@ -8055,7 +8014,6 @@ mod offscreen_render_check {
             },
         );
         world.insert(panel, super::super::OffscreenRender::default());
-        world.insert(panel, OffscreenAlphaMode::clear_transparent());
         world.insert_resource(super::super::Outputs::<WidgetTexture>::with_budget(
             64 * 1024,
         ));
