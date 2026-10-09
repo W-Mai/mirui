@@ -568,7 +568,7 @@ All slot assignments and positions are updated before the first callback, within
 
 Callback commands commit after query and resource borrows end. Business notifications emitted by those commands flush after the list binding batch. Callback failures warn and skip the remaining work in that invocation; completed mutations are retained, and an unchanged binding is not retried automatically. App listeners and `commands.emit` cannot produce framework row updates.
 
-The synchronous event dispatch reuses reserved listener storage and borrows its payload without heap allocation. Callback installation and the retained row pool allocate during setup; the list system's existing context snapshots and user-owned formatted strings have separate allocation costs.
+The synchronous event dispatch reuses reserved listener storage and borrows its payload without heap allocation. List and row snapshots retain their capacity across frames; scrolling within that capacity does not allocate framework storage. Callback installation, pool creation, and snapshot capacity growth allocate during setup or structural changes. User-owned formatted strings have separate allocation costs. Recursive list updates are skipped with a warning while the current batch is active.
 
 An empty `#[view]` function declares a widget without a paint hook:
 
