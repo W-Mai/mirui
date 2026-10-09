@@ -80,8 +80,6 @@ mod tests {
     use crate::ecs::World;
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
-    use crate::ui::IdMap;
-    use crate::ui::UiScope;
     use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
@@ -91,18 +89,17 @@ mod tests {
 
     #[test]
     fn effect_counts_each_source_change() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let parent = WidgetBuilder::new(&mut world).id();
-        let mut cx = UiScope::new(&mut world, parent);
-        build_widgets()(&mut cx);
+        let mut app = App::headless(360, 260);
+        let parent = app.spawn_root().id();
+        app.compose(parent, build_widgets());
+        let world = &mut app.world;
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let runs_label = world.get::<Children>(col).unwrap().0[1];
         let btn = world.get::<Children>(col).unwrap().0[2];
 
         // effect ran once at creation
-        assert_eq!(label_text(&world, runs_label), "effect observed 1 updates");
+        assert_eq!(label_text(world, runs_label), "effect observed 1 updates");
 
         let tap = GestureEvent::Tap {
             x: Fixed::ZERO,
@@ -110,12 +107,11 @@ mod tests {
             target: btn,
         };
         {
-            let decision =
-                crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
-            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+            let decision = crate::__macro_support::dispatch_entity_gesture(world, &tap, 0).unwrap();
+            crate::__macro_support::flush_entity_events(world).unwrap();
             assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
         };
-        flush_signal_dirty(&mut world);
-        assert_eq!(label_text(&world, runs_label), "effect observed 2 updates");
+        flush_signal_dirty(world);
+        assert_eq!(label_text(world, runs_label), "effect observed 2 updates");
     }
 }

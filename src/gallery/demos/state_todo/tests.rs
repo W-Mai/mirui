@@ -5,32 +5,28 @@ use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
 use crate::ui::widgets::Text;
+
+type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 fn label_text(world: &World, label: Entity) -> alloc::string::String {
     let t = world.get::<Text>(label).expect("label has Text");
     t.resolve(world).into_owned()
 }
 
-fn todo_world() -> (World, Entity, [Entity; 3]) {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let (cell, todo) = crate::core::model::register(&mut world, TodoModel::default());
-    let registration = world.spawn_empty();
-    world.insert(registration, cell);
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(todo)(&mut cx);
-    drop(cx);
+fn todo_app() -> (TestApp, Entity, [Entity; 3]) {
+    let mut app = App::headless(320, 280);
+    let todo = app.add_model(TodoModel::default());
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets(todo));
+    let world = &app.world;
 
     let root = world.get::<Children>(parent).unwrap().0[0];
     let (summary, rows) = {
         let children = &world.get::<Children>(root).unwrap().0;
         (children[0], [children[1], children[2], children[3]])
     };
-    (world, summary, rows)
+    (app, summary, rows)
 }
 
 fn tap_row(world: &mut World, row: Entity) {
@@ -58,32 +54,34 @@ fn row_label(world: &World, row: Entity) -> alloc::string::String {
 
 #[test]
 fn toggling_a_row_updates_remaining_count() {
-    let (mut world, summary, rows) = todo_world();
-    assert_eq!(label_text(&world, summary), "3 REMAINING");
+    let (mut app, summary, rows) = todo_app();
+    let world = &mut app.world;
+    assert_eq!(label_text(world, summary), "3 REMAINING");
 
-    tap_row(&mut world, rows[0]);
-    assert_eq!(label_text(&world, summary), "2 REMAINING");
+    tap_row(world, rows[0]);
+    assert_eq!(label_text(world, summary), "2 REMAINING");
 
-    tap_row(&mut world, rows[0]);
-    assert_eq!(label_text(&world, summary), "3 REMAINING");
+    tap_row(world, rows[0]);
+    assert_eq!(label_text(world, summary), "3 REMAINING");
 }
 
 #[test]
 fn row_states_update_independently() {
-    let (mut world, summary, rows) = todo_world();
-    assert_eq!(row_label(&world, rows[0]), "Buy milk");
-    assert_eq!(row_label(&world, rows[1]), "Write docs");
-    assert_eq!(row_label(&world, rows[2]), "Ship release");
+    let (mut app, summary, rows) = todo_app();
+    let world = &mut app.world;
+    assert_eq!(row_label(world, rows[0]), "Buy milk");
+    assert_eq!(row_label(world, rows[1]), "Write docs");
+    assert_eq!(row_label(world, rows[2]), "Ship release");
 
-    tap_row(&mut world, rows[1]);
-    assert_eq!(row_label(&world, rows[0]), "Buy milk");
-    assert_eq!(row_label(&world, rows[1]), "✓  Write docs");
-    assert_eq!(row_label(&world, rows[2]), "Ship release");
-    assert_eq!(label_text(&world, summary), "2 REMAINING");
+    tap_row(world, rows[1]);
+    assert_eq!(row_label(world, rows[0]), "Buy milk");
+    assert_eq!(row_label(world, rows[1]), "✓  Write docs");
+    assert_eq!(row_label(world, rows[2]), "Ship release");
+    assert_eq!(label_text(world, summary), "2 REMAINING");
 
-    tap_row(&mut world, rows[2]);
-    assert_eq!(row_label(&world, rows[0]), "Buy milk");
-    assert_eq!(row_label(&world, rows[1]), "✓  Write docs");
-    assert_eq!(row_label(&world, rows[2]), "✓  Ship release");
-    assert_eq!(label_text(&world, summary), "1 REMAINING");
+    tap_row(world, rows[2]);
+    assert_eq!(row_label(world, rows[0]), "Buy milk");
+    assert_eq!(row_label(world, rows[1]), "✓  Write docs");
+    assert_eq!(row_label(world, rows[2]), "✓  Ship release");
+    assert_eq!(label_text(world, summary), "1 REMAINING");
 }

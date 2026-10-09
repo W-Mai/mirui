@@ -67,8 +67,6 @@ mod tests {
     use crate::ecs::World;
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
-    use crate::ui::IdMap;
-    use crate::ui::UiScope;
     use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
@@ -78,17 +76,16 @@ mod tests {
 
     #[test]
     fn computed_label_tracks_source() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let parent = WidgetBuilder::new(&mut world).id();
-        let mut cx = UiScope::new(&mut world, parent);
-        build_widgets()(&mut cx);
+        let mut app = App::headless(360, 240);
+        let parent = app.spawn_root().id();
+        app.compose(parent, build_widgets());
+        let world = &mut app.world;
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let label = world.get::<Children>(col).unwrap().0[0];
         let btn = world.get::<Children>(col).unwrap().0[1];
 
-        assert_eq!(label_text(&world, label), "n² = 4");
+        assert_eq!(label_text(world, label), "n² = 4");
 
         let tap = GestureEvent::Tap {
             x: Fixed::ZERO,
@@ -96,12 +93,11 @@ mod tests {
             target: btn,
         };
         {
-            let decision =
-                crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
-            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+            let decision = crate::__macro_support::dispatch_entity_gesture(world, &tap, 0).unwrap();
+            crate::__macro_support::flush_entity_events(world).unwrap();
             assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
         };
-        flush_signal_dirty(&mut world);
-        assert_eq!(label_text(&world, label), "n² = 9");
+        flush_signal_dirty(world);
+        assert_eq!(label_text(world, label), "n² = 9");
     }
 }

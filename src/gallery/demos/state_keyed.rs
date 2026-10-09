@@ -119,8 +119,6 @@ mod tests {
     use crate::ecs::World;
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
-    use crate::ui::IdMap;
-    use crate::ui::UiScope;
 
     fn tap(world: &mut World, e: Entity) {
         {
@@ -142,11 +140,10 @@ mod tests {
 
     #[test]
     fn rotate_keeps_widget_identity_per_key() {
-        let mut world = World::new();
-        world.insert_resource(IdMap::new());
-        let parent = WidgetBuilder::new(&mut world).id();
-        let mut cx = UiScope::new(&mut world, parent);
-        build_widgets()(&mut cx);
+        let mut app = App::headless(320, 320);
+        let parent = app.spawn_root().id();
+        app.compose(parent, build_widgets());
+        let world = &mut app.world;
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let rotate_btn = world.get::<Children>(col).unwrap().0[0];
@@ -158,7 +155,7 @@ mod tests {
         let row_green = before[1];
 
         // rotate: [Red,Green,Blue,Gold] -> [Green,Blue,Gold,Red]
-        tap(&mut world, rotate_btn);
+        tap(world, rotate_btn);
 
         let after = world.get::<Children>(list).unwrap().0.clone();
         assert_eq!(after.len(), 4, "still four cards");

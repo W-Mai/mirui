@@ -6,8 +6,6 @@ use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
 use crate::ui::widgets::text::Text;
 use alloc::rc::Rc;
 use core::cell::Cell;
@@ -19,14 +17,11 @@ fn label_text(world: &World, label: Entity) -> alloc::string::String {
 
 #[test]
 fn tap_increments_and_reactive_text_updates() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let (cell, counter) = crate::core::model::register(&mut world, CounterModel::default());
-    let registration = world.spawn_empty();
-    world.insert(registration, cell);
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(counter.clone())(&mut cx);
+    let mut app = App::headless(360, 240);
+    let counter = app.add_model(CounterModel::default());
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets(counter.clone()));
+    let world = &mut app.world;
 
     let col = world.get::<Children>(parent).unwrap().0[0];
     let label = world.get::<Children>(col).unwrap().0[0];
@@ -34,7 +29,7 @@ fn tap_increments_and_reactive_text_updates() {
     let dec = world.get::<Children>(row).unwrap().0[0];
     let inc = world.get::<Children>(row).unwrap().0[1];
 
-    assert_eq!(label_text(&world, label), "COUNT  0");
+    assert_eq!(label_text(world, label), "COUNT  0");
 
     let tap = GestureEvent::Tap {
         x: Fixed::ZERO,
@@ -42,23 +37,21 @@ fn tap_increments_and_reactive_text_updates() {
         target: inc,
     };
     {
-        let decision =
-            crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
-    flush_signal_dirty(&mut world);
-    assert_eq!(label_text(&world, label), "COUNT  1");
+    flush_signal_dirty(world);
+    assert_eq!(label_text(world, label), "COUNT  1");
     assert_eq!(counter.count(), 1);
 
     {
-        let decision =
-            crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
-    flush_signal_dirty(&mut world);
-    assert_eq!(label_text(&world, label), "COUNT  2");
+    flush_signal_dirty(world);
+    assert_eq!(label_text(world, label), "COUNT  2");
     assert_eq!(counter.count(), 2);
 
     let dec_tap = GestureEvent::Tap {
@@ -67,22 +60,20 @@ fn tap_increments_and_reactive_text_updates() {
         target: dec,
     };
     {
-        let decision =
-            crate::__macro_support::dispatch_entity_gesture(&mut world, &dec_tap, 0).unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        let decision = crate::__macro_support::dispatch_entity_gesture(world, &dec_tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
-    flush_signal_dirty(&mut world);
-    assert_eq!(label_text(&world, label), "COUNT  1");
+    flush_signal_dirty(world);
+    assert_eq!(label_text(world, label), "COUNT  1");
     assert_eq!(counter.count(), 1);
 }
 
 #[test]
 fn assigning_the_same_count_does_not_notify_observers() {
-    let mut world = World::new();
-    let (cell, counter) = crate::core::model::register(&mut world, CounterModel::default());
-    let registration = world.spawn_empty();
-    world.insert(registration, cell);
+    let mut app = App::headless(360, 240);
+    let counter = app.add_model(CounterModel::default());
+    let world = &mut app.world;
     let reads = Rc::new(Cell::new(0));
     let observed = counter.clone();
     let reads_in_effect = reads.clone();
@@ -92,14 +83,14 @@ fn assigning_the_same_count_does_not_notify_observers() {
     });
 
     counter.set_count(0);
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     assert_eq!(reads.get(), 1);
 
     counter.increment();
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     assert_eq!(reads.get(), 2);
 
     counter.set_count(1);
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     assert_eq!(reads.get(), 2);
 }
