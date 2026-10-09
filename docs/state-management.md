@@ -537,6 +537,8 @@ Registration retains a shared snapshot of attachment and internal-gesture hooks 
 
 LazyList creates its missing runtime pool on the first system run from its declared direct children, then binds rows in that same run. The pool is a retained snapshot, not a live mirror of Children. An explicit `LazyListPool` selects custom slots and is preserved. Missing or insufficient children leave initialization pending until a later system run; row declarations do not require post-composition pool installation.
 
+Visible rows intersect the viewport with positive area, including partial rows at either edge. `visible_start` is the first intersecting data index, not the start of the retained buffer. Spare slots hold up to two extra rows on either side without displacing visible rows or filling past the data range. Elastic offsets remain unchanged; empty viewports and offsets entirely outside the data hide retained rows. The total content extent must fit layout coordinates.
+
 `LazyList::BindItem` updates row content through the shared event executor. Its payload contains the retained row `item` and its data `index`; `entity!()` identifies the list. The event supports blocks, typed inline callbacks, named factories, and `tree.on_event`. It does not bubble, install input feedback, or use business notification records.
 
 ```rust,ignore

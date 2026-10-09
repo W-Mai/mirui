@@ -6,6 +6,9 @@ use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
 use alloc::vec::Vec;
 
+mod geometry;
+use geometry::ItemGeometry;
+
 /// Virtual scroll over a fixed-height row list.
 ///
 /// Pre-spawn `pool_size` widget entities (typically `ceil(visible_h / item_height) + 2`) as the list entity's children. The first system run snapshots those children into `LazyListPool` unless an explicit pool is already installed. Each frame `lazy_list_system` binds slots whose row index changed and positions them at `index * item_height`. The scroll system applies `ScrollOffset`.
@@ -79,19 +82,12 @@ impl Event for BindItem {
 }
 
 struct ListContext {
-    item_count: u32,
-    item_height: Fixed,
+    geometry: ItemGeometry,
     pool_size: usize,
     visible_start: u32,
-    visible_count: u32,
+    retained: core::ops::Range<u32>,
     items: Vec<Entity>,
     bound_indices: Vec<u32>,
-}
-
-impl ListContext {
-    fn active_count(&self) -> u32 {
-        self.visible_count.min(self.item_count - self.visible_start)
-    }
 }
 
 fn ensure_missing_pool(world: &mut World, entity: Entity) {
@@ -126,27 +122,28 @@ fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
         .get::<ScrollOffset>(entity)
         .map(|s| s.y)
         .unwrap_or(Fixed::ZERO);
-    let raw_start = (scroll_y / item_height).to_int();
-    let visible_start = (raw_start.max(0) as u32).min(item_count.saturating_sub(pool_size as u32));
-
-    // Include partial rows at both edges; use the full pool before layout.
-    let visible_count = match world.get::<ComputedRect>(entity).map(|r| r.0.h) {
-        Some(h) if h > Fixed::ZERO => {
-            ((h / item_height).ceil().to_int().max(0) as u32 + 2).min(pool_size as u32)
-        }
-        _ => pool_size as u32,
+    let Some(geometry) = ItemGeometry::new(item_count, item_height) else {
+        crate::warn!(target: "mirui::lazy_list", "content extent exceeds layout coordinates");
+        return None;
     };
+    let viewport = match world.get::<ComputedRect>(entity) {
+        Some(rect) if rect.0.w > Fixed::ZERO => rect.0.h,
+        Some(_) => Fixed::ZERO,
+        None => geometry.position((pool_size as u32).min(item_count)),
+    };
+    let visible = geometry.visible(scroll_y, viewport);
+    let visible_start = visible.start;
+    let retained = geometry.retained(visible, pool_size as u32);
 
     let pool = world.get::<LazyListPool>(entity)?;
     if pool.items.len() < pool_size || pool.bound_indices.len() < pool_size {
         return None;
     }
     Some(ListContext {
-        item_count,
-        item_height,
+        geometry,
         pool_size,
         visible_start,
-        visible_count,
+        retained,
         items: pool.items.clone(),
         bound_indices: pool.bound_indices.clone(),
     })
@@ -155,9 +152,10 @@ fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
 fn apply_bindings(world: &mut World, entity: Entity, ctx: &ListContext) -> bool {
     let mut changed = false;
     for slot_idx in 0..ctx.pool_size {
-        let relative_slot =
-            (slot_idx + ctx.pool_size - ctx.visible_start as usize % ctx.pool_size) % ctx.pool_size;
-        let active_slot = relative_slot < ctx.active_count() as usize;
+        let relative_slot = (slot_idx + ctx.pool_size
+            - ctx.retained.start as usize % ctx.pool_size)
+            % ctx.pool_size;
+        let active_slot = relative_slot < (ctx.retained.end - ctx.retained.start) as usize;
         if active_slot {
             continue;
         }
@@ -173,8 +171,7 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: &ListContext) -> bool 
     }
 
     // Ring mapping retains unchanged row content when the window advances.
-    for i in 0..ctx.active_count() {
-        let target = ctx.visible_start + i;
+    for target in ctx.retained.clone() {
         let slot_idx = target as usize % ctx.pool_size;
         let item = ctx.items[slot_idx];
         if !world.is_alive(item) {
@@ -189,7 +186,7 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: &ListContext) -> bool 
             world.remove::<crate::ui::Hidden>(item);
             changed = true;
         }
-        let y = ctx.item_height * Fixed::from_int(target as i32);
+        let y = ctx.geometry.position(target);
         if rebound {
             crate::ui::set_position(world, item, Fixed::ZERO, y);
         } else {
@@ -232,8 +229,7 @@ pub fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandErro
         if apply_bindings(world, entity, &ctx) {
             world.insert(entity, Dirty);
         }
-        for i in 0..ctx.active_count() {
-            let index = ctx.visible_start + i;
+        for index in ctx.retained.clone() {
             let slot = index as usize % ctx.pool_size;
             if ctx.bound_indices[slot] == index {
                 continue;
@@ -591,6 +587,73 @@ mod tests {
         pool.iter()
             .filter(|&&s| world.get::<crate::ui::Hidden>(s).is_none())
             .count()
+    }
+
+    #[test]
+    fn partial_rows_keep_identity_and_tail_does_not_backfill_the_pool() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        let pool: Vec<Entity> = (0..8).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, LazyList::new(100, 40, 8));
+        world.insert(list, LazyListPool::new(pool.clone()));
+        set_list_height(&mut world, list, 80);
+        lazy_list_system(&mut world).unwrap();
+
+        for offset in [20, 40, 20, 3980, 4000, -80, -20, 0] {
+            world.insert(
+                list,
+                ScrollOffset {
+                    x: Fixed::ZERO,
+                    y: Fixed::from_int(offset),
+                },
+            );
+            lazy_list_system(&mut world).unwrap();
+            let geometry = ItemGeometry::new(100, Fixed::from_int(40)).unwrap();
+            let visible = geometry.visible(Fixed::from_int(offset), Fixed::from_int(80));
+            assert_eq!(
+                world.get::<LazyList>(list).unwrap().visible_start,
+                visible.start
+            );
+            let retained = geometry.retained(visible.clone(), 8);
+            let bindings = &world.get::<LazyListPool>(list).unwrap().bound_indices;
+            for (slot, &item) in pool.iter().enumerate() {
+                assert_eq!(
+                    world.has::<crate::ui::Hidden>(item),
+                    bindings[slot] == u32::MAX
+                );
+                if bindings[slot] != u32::MAX {
+                    assert!(retained.contains(&bindings[slot]));
+                }
+            }
+            for index in visible {
+                let slot = index as usize % pool.len();
+                assert_eq!(bindings[slot], index);
+                assert_eq!(
+                    world.get::<Style>(pool[slot]).unwrap().layout.top,
+                    Dimension::Px(Fixed::from_int(index as i32 * 40))
+                );
+            }
+            assert_eq!(
+                world.get::<ScrollOffset>(list).unwrap().y,
+                Fixed::from_int(offset)
+            );
+        }
+        set_list_height(&mut world, list, 0);
+        lazy_list_system(&mut world).unwrap();
+        assert_eq!(visible_count(&world, &pool), 0);
+    }
+
+    #[test]
+    fn empty_cross_axis_hides_rows_without_rebinding_data() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        let pool: Vec<Entity> = (0..4).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, LazyList::new(100, 40, 4));
+        world.insert(list, LazyListPool::new(pool.clone()));
+        set_list_height(&mut world, list, 80);
+        world.get_mut::<ComputedRect>(list).unwrap().0.w = Fixed::ZERO;
+        lazy_list_system(&mut world).unwrap();
+        assert_eq!(visible_count(&world, &pool), 0);
     }
 
     #[test]
