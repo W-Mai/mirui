@@ -106,7 +106,7 @@ impl SdlGpuSurface {
         // ignores those attributes and leaves triangle edges aliased.
         sdl2::hint::set("SDL_RENDER_DRIVER", "opengl");
 
-        let sdl = sdl2::init().expect("SDL2 init failed");
+        let sdl = crate::surface::sdl_events::init().expect("SDL2 init failed");
         let video = sdl.video().expect("SDL2 video init failed");
 
         // Request 4× MSAA on the GL context before the window is built;

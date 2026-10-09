@@ -2,6 +2,12 @@ use core::mem::MaybeUninit;
 
 use sdl2::event::Event;
 
+pub(crate) fn init() -> Result<sdl2::Sdl, String> {
+    #[cfg(target_os = "macos")]
+    sdl2::hint::set("SDL_MAC_SCROLL_MOMENTUM", "1");
+    sdl2::init()
+}
+
 pub(crate) fn wheel_input(
     dx: f32,
     dy: f32,

@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL surfaces enable native macOS trackpad momentum when using sdl2-compat.
 - Scroll repainting preserves stationary borders and rounded backgrounds during elastic movement. Fractional movement repaints immediately unless it maps to whole physical pixels suitable for framebuffer reuse.
 - Scroll input invalidates visual geometry without forcing unchanged layouts to rebuild. Clipped retained rows consume their dirty markers instead of repeatedly scheduling layout work.
 - Pointer-release inertia uses recent timestamped movement, ignores stale motion after a pause, and remains independent of list cell size.

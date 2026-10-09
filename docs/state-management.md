@@ -543,6 +543,8 @@ Cells already bound inside the retained range keep their entities when the viewp
 
 Scrolling does not snap to cell boundaries. Pointer-release inertia follows recent movement and expires after the pointer stops; wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
 
+On macOS, SDL surfaces enable native trackpad momentum through `SDL_MAC_SCROLL_MOMENTUM` before initialization when using sdl2-compat. The original SDL2 runtime does not implement this hint.
+
 `CreateCell` runs only when a new physical cell is needed. Its `item` is a library-owned `ListItem` Model whose observed `index()` changes when that cell is reused. Property bindings read the current index and update through the normal reactive and dirty mechanisms. Input callbacks also read the index when invoked, rather than capturing a construction-time integer.
 
 ```rust,ignore

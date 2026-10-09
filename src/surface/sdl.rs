@@ -105,7 +105,7 @@ impl SdlSurface {
     }
 
     pub fn new_with_vsync(title: &str, width: u16, height: u16, vsync: bool) -> Self {
-        let sdl = sdl2::init().expect("SDL2 init failed");
+        let sdl = super::sdl_events::init().expect("SDL2 init failed");
         let video = sdl.video().expect("SDL2 video init failed");
         let window = video
             .window(title, width as u32, height as u32)
